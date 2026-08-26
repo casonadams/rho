@@ -76,7 +76,7 @@ pub fn render_mermaid_block(source: &str, theme: &Theme) -> String {
 }
 
 pub fn is_table_line(trimmed: &str) -> bool {
-    (trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 2) || is_table_divider(trimmed)
+    trimmed.starts_with('|') && (trimmed.ends_with('|') || trimmed.contains('|')) && trimmed.len() >= 2
 }
 
 pub fn is_table_divider(line: &str) -> bool {

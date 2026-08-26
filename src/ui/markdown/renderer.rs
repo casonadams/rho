@@ -65,17 +65,20 @@ impl MarkdownRenderer {
     }
 
     fn should_buffer_current_line(&self) -> bool {
-        if self.in_code_block || self.in_mermaid_block || is_table_line(self.current_line.trim()) {
+        if self.in_code_block || self.in_mermaid_block || !self.table_lines.is_empty() {
             return true;
         }
 
         let trimmed = self.current_line.trim_start();
-        trimmed.starts_with('#')
+        trimmed.starts_with('|')
+            || trimmed.starts_with('#')
             || trimmed.starts_with("```")
             || trimmed.starts_with("> ")
             || trimmed.starts_with("- ")
             || trimmed.starts_with("* ")
-            || (trimmed.starts_with('|') && trimmed.ends_with('|'))
+            || (trimmed.len() >= 2
+                && trimmed.chars().next().is_some_and(|c| c.is_ascii_digit())
+                && trimmed.contains(". "))
     }
 
     fn render_inline_token(&mut self, token: &str, theme: &Theme) -> String {

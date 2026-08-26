@@ -20,6 +20,26 @@ fn test_table_rendering() {
 }
 
 #[test]
+fn test_chunked_table_streaming() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let t1 = md.render_token("| Name ", &theme);
+    assert_eq!(t1, "");
+
+    let t2 = md.render_token("| Role |\n", &theme);
+    assert_eq!(t2, "");
+
+    let t3 = md.render_token("|---|---|\n", &theme);
+    assert_eq!(t3, "");
+
+    let t4 = md.render_token("| Alice | Engineer |\n\n", &theme);
+    assert!(t4.contains("Alice"));
+    assert!(t4.contains("Engineer"));
+    assert!(t4.contains('┌') || t4.contains('+') || t4.contains('-') || t4.contains('│'));
+}
+
+#[test]
 fn test_stream_prose_word_by_word() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
