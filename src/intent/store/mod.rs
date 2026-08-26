@@ -96,6 +96,13 @@ impl IntentHandle {
         })
     }
 
+    pub fn complete_informational(&self) -> Result<()> {
+        self.update(|state| {
+            state.complete_informational();
+            Ok(())
+        })
+    }
+
     pub fn complete_by_user(&self) -> Result<()> {
         self.update(|state| {
             state.complete_by_user();

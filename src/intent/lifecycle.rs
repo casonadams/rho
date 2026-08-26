@@ -123,6 +123,13 @@ impl IntentState {
         }
     }
 
+    pub fn complete_informational(&mut self) {
+        self.status = IntentStatus::Completed;
+        self.spec.status = "informational".to_string();
+        self.blocked_reason = None;
+        self.progress_reported = true;
+    }
+
     pub fn complete_by_user(&mut self) {
         self.completed_outcomes = self.spec.outcomes.clone();
         self.status = IntentStatus::Completed;

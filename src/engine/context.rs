@@ -71,8 +71,9 @@ impl ProjectContext {
         prompt
             .push_str("- Inspect the repository before asking about implementation details that the code can answer\n");
         prompt.push_str("- When unresolved user decisions block progress, ask them together in one ask_user call; treat the answers as binding IntentSpec additions\n");
-        prompt.push_str("- Never claim an IntentSpec is complete or fully satisfied unless intent_progress succeeds and returns Intent status: Ready\n");
-        prompt.push_str("- If intent_progress is omitted or rejected, state that the intent remains incomplete and identify the remaining work\n");
+        prompt.push_str("- If no active IntentSpec section is present, answer informational requests directly and do not call intent_progress\n");
+        prompt.push_str("- For a tracked task, never claim its IntentSpec is complete unless intent_progress succeeds and returns Intent status: Ready\n");
+        prompt.push_str("- For a tracked task, if intent_progress is omitted or rejected, state that the intent remains incomplete and identify the remaining work\n");
         prompt.push_str("- Be concise in your responses\n");
         prompt.push_str("- Show file paths clearly when working with files\n");
 
@@ -142,7 +143,8 @@ mod tests {
         assert!(prompt.contains("do not ask for them again"));
         assert!(prompt.contains("Inspect the repository before asking"));
         assert!(prompt.contains("one ask_user call"));
-        assert!(prompt.contains("Never claim an IntentSpec is complete"));
+        assert!(prompt.contains("never claim its IntentSpec is complete"));
+        assert!(prompt.contains("do not call intent_progress"));
         assert!(prompt.contains("Intent status: Ready"));
 
         let _ = tokio::fs::remove_dir_all(temp_dir).await;

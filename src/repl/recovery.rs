@@ -40,10 +40,20 @@ pub struct RecoveredIntent {
 pub fn recover_session(config: &Config, auth: &AuthStore) -> Result<Option<RecoveredIntent>> {
     let workspace = workspace_id(&std::env::current_dir()?)?;
     let unfinished = list_unfinished(&config.intents_dir, &workspace)?;
-    if unfinished.is_empty() {
+    let mut recoverable = Vec::new();
+    for summary in unfinished {
+        let handle = IntentHandle::open(&config.intents_dir, &summary.intent_id, auth.secret_values())?;
+        let state = handle.snapshot()?;
+        if is_legacy_informational(&state) {
+            handle.complete_informational()?;
+        } else {
+            recoverable.push(summary);
+        }
+    }
+    if recoverable.is_empty() {
         return Ok(None);
     }
-    let selected = select_intent(unfinished)?;
+    let selected = select_intent(recoverable)?;
     println!("\nUnfinished task\n{}\n", selected.objective);
     let action = inquire::Select::new(
         "Action:",
@@ -78,6 +88,16 @@ pub fn recover_session(config: &Config, auth: &AuthStore) -> Result<Option<Recov
     }
 }
 
+fn is_legacy_informational(state: &crate::intent::IntentState) -> bool {
+    state.spec.outcomes.is_empty()
+        && state.spec.verification.is_empty()
+        && state.blocked_reason.as_deref().is_some_and(|reason| {
+            reason.contains("No active IntentSpec")
+                || reason.contains("No IntentSpec")
+                || reason.contains("informational question")
+        })
+}
+
 fn select_intent(intents: Vec<IntentSummary>) -> Result<IntentSummary> {
     if intents.len() == 1 {
         return intents
@@ -89,4 +109,23 @@ fn select_intent(intents: Vec<IntentSummary>) -> Result<IntentSummary> {
         .prompt()
         .map(|choice| choice.0)
         .map_err(|_| AppError::Cancelled("Intent recovery cancelled by user".to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_blocked_obligation_free_legacy_informational_intents_are_migrated() {
+        let mut informational = crate::intent::IntentState::new(
+            crate::intent::IntentSpec::from_prompt("what does this repo do?"),
+            "/repo".to_string(),
+            "session-1".to_string(),
+        );
+        informational.blocked_reason = Some("No active IntentSpec was established for this turn".to_string());
+        assert!(is_legacy_informational(&informational));
+
+        informational.spec.outcomes.push("Change code".to_string());
+        assert!(!is_legacy_informational(&informational));
+    }
 }

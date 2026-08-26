@@ -50,6 +50,10 @@ impl ClarificationHandler {
     pub fn process_intent(prompt: &str, is_interactive: bool) -> Result<IntentSpec> {
         let mut spec = IntentSpec::from_prompt(prompt);
         let analysis = IntentAnalyzer::analyze(&spec);
+        if analysis.detected_topics.iter().any(|topic| topic == "informational") {
+            spec.status = "informational".to_string();
+            return Ok(spec);
+        }
 
         if is_interactive && analysis.needs_clarification {
             spec = Self::clarify_interactive(spec, &analysis)?;
@@ -62,6 +66,13 @@ impl ClarificationHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn informational_prompt_is_not_a_tracked_task() {
+        let spec = ClarificationHandler::process_intent("what does this repo do?", true).unwrap();
+
+        assert_eq!(spec.status, "informational");
+    }
 
     #[test]
     fn clarification_becomes_a_binding_constraint_and_outcome() {

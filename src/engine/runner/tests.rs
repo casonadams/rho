@@ -480,6 +480,39 @@ async fn provider_stream_failures_do_not_expose_upstream_details() {
 }
 
 #[tokio::test]
+async fn informational_turn_does_not_create_or_finalize_an_intent() {
+    let intents_dir = std::env::temp_dir().join(format!("informational_intent_{}", uuid::Uuid::new_v4()));
+    let config = Config {
+        intents_dir: intents_dir.clone(),
+        ..Config::default()
+    };
+    let model = MockCompletionModel::from_stream_turns([[
+        MockStreamEvent::text("repository summary"),
+        final_event(Usage::new()),
+    ]]);
+    let engine = test_engine(model, config);
+    let spec = crate::intent::ClarificationHandler::process_intent("what does this repo do?", true).unwrap();
+
+    engine
+        .run_turn(
+            TurnRequest {
+                prompt: "what does this repo do?",
+                intent: Some(&spec),
+            },
+            &TerminalRenderer::default(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        crate::intent::store::list_unfinished(&intents_dir, "unused")
+            .unwrap()
+            .is_empty()
+    );
+    assert!(engine.current_intent_state().unwrap().is_none());
+}
+
+#[tokio::test]
 async fn explicit_output_limit_and_max_turn_budget_reach_rig() {
     let config = Config {
         max_output_tokens: Some(321),

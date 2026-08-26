@@ -224,6 +224,9 @@ impl AgentEngine {
         let Some(spec) = spec else {
             return Ok(None);
         };
+        if spec.status == "informational" {
+            return Ok(None);
+        }
         let secrets = self.session_manager.secret_values();
         if let Some(intent) = find_for_session(
             &self.config.intents_dir,
