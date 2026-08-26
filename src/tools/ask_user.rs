@@ -144,11 +144,11 @@ fn prompt_question_interactive(
     header: Option<&str>,
     options: Option<&[Value]>,
 ) -> Result<String, AppError> {
-    let title = if let Some(h) = header {
-        format!("{question} [{h}]")
+    if let Some(h) = header {
+        println!("\n[{h}] {question}\n");
     } else {
-        question.to_string()
-    };
+        println!("\n{question}\n");
+    }
 
     if let Some(opts) = options
         && !opts.is_empty()
@@ -158,10 +158,12 @@ fn prompt_question_interactive(
         let custom_choice = "Type a custom answer...".to_string();
         labels.push(custom_choice.clone());
 
-        let ans = inquire::Select::new(&title, labels).prompt();
+        let ans = inquire::Select::new("Select an option:", labels).prompt();
+        println!();
         match ans {
             Ok(choice) if choice == custom_choice => {
                 let typed = inquire::Text::new("Your answer:").prompt().unwrap_or_default();
+                println!();
                 Ok(typed)
             }
             Ok(choice) => {
@@ -175,7 +177,8 @@ fn prompt_question_interactive(
             Err(_) => Ok("User skipped / cancelled question.".to_string()),
         }
     } else {
-        let ans = inquire::Text::new(&title).prompt();
+        let ans = inquire::Text::new("Your answer:").prompt();
+        println!();
         match ans {
             Ok(text) => Ok(text),
             Err(_) => Ok("User skipped / cancelled question.".to_string()),

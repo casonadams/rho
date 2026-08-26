@@ -10,20 +10,23 @@ impl ClarificationHandler {
             return Ok(spec);
         }
 
-        println!("\n  [Clarification needed before proceeding]");
+        println!("\n[Clarification needed before proceeding]\n");
         for q in &analysis.questions {
             let mut labels: Vec<String> = q.options.iter().map(|o| o.label.clone()).collect();
             if q.allow_custom {
                 labels.push("Custom / Type something...".to_string());
             }
 
-            let prompt_text = format!("{} ({})", q.question, q.header);
-            let ans = inquire::Select::new(&prompt_text, labels).prompt();
+            println!("[{}] {}\n", q.header, q.question);
+            let ans = inquire::Select::new("Select an option:", labels).prompt();
+            println!();
 
             match ans {
                 Ok(choice) => {
                     let final_answer = if choice.starts_with("Custom") {
-                        inquire::Text::new("Enter custom choice:").prompt().unwrap_or(choice)
+                        let custom = inquire::Text::new("Enter custom choice:").prompt().unwrap_or(choice);
+                        println!();
+                        custom
                     } else {
                         choice
                     };

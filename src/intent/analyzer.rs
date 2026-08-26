@@ -242,7 +242,21 @@ fn is_informational_query(prompt: &str) -> bool {
         "is there",
         "are there",
         "tell me",
-        "can you explain",
+        "can you",
+        "can we",
+        "could you",
+        "please",
+        "let's",
+        "lets",
+        "review",
+        "audit",
+        "examine",
+        "analyze",
+        "look at",
+        "fix",
+        "debug",
+        "test",
+        "run",
     ];
 
     for s in starters {
