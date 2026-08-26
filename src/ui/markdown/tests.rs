@@ -40,6 +40,17 @@ fn test_chunked_table_streaming() {
 }
 
 #[test]
+fn test_pipe_text_without_divider_falls_back_to_text() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let text = "| Just a line with pipes | not a real table\n\n";
+    let out = md.render_token(text, &theme);
+    assert!(out.contains("Just a line with pipes"));
+    assert!(!out.contains('┌'));
+}
+
+#[test]
 fn test_stream_prose_word_by_word() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();

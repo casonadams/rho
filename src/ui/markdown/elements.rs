@@ -76,7 +76,7 @@ pub fn render_mermaid_block(source: &str, theme: &Theme) -> String {
 }
 
 pub fn is_table_line(trimmed: &str) -> bool {
-    trimmed.starts_with('|') && (trimmed.ends_with('|') || trimmed.contains('|')) && trimmed.len() >= 2
+    (trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 2) || is_table_divider(trimmed)
 }
 
 pub fn is_table_divider(line: &str) -> bool {
@@ -84,10 +84,21 @@ pub fn is_table_divider(line: &str) -> bool {
     stripped.starts_with('|')
         && stripped.ends_with('|')
         && stripped.len() >= 3
+        && stripped.contains('-')
         && stripped.chars().all(|c| c == '|' || c == '-' || c == ':')
 }
 
-pub fn render_markdown_table(lines: &[String], _theme: &Theme) -> String {
+pub fn render_markdown_table(lines: &[String], theme: &Theme) -> String {
+    let has_divider = lines.iter().any(|line| is_table_divider(line.trim()));
+    if !has_divider || lines.len() < 2 {
+        let mut fallback = String::new();
+        for line in lines {
+            fallback.push_str(&render_inline_elements(line, theme));
+            fallback.push('\n');
+        }
+        return fallback;
+    }
+
     let mut table = Table::new();
     table.load_preset(UTF8_FULL);
     table.set_content_arrangement(ContentArrangement::Dynamic);
