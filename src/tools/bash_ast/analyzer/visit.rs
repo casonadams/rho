@@ -1,75 +1,24 @@
-//! AST walker for the brush parser output.
+//! AST shape traversal: lists, commands, compounds, redirects, substitutions.
 //!
-//! The [`Analyzer`] is a single-pass visitor over the parsed program. It
-//! accumulates the highest [`RiskTier`](super::types::RiskTier) it sees, a
-//! deduped list of reasons, and a deduped list of base command names.
-//!
-//! All classification logic (which commands and argument patterns are safe)
-//! lives in the sibling [`super::classifier`] module — this module is purely
-//! about walking the AST and dispatching to the classifier with the resolved
-//! command name and arguments.
-//!
-//! [`MAX_AST_DEPTH`] guards against adversarial input that nests deeply enough
-//! to make the analyzer itself slow; on overflow we short-circuit with a
-//! `Mutating` flag and stop descending.
+//! Every visitor is a method on [`super::Analyzer`]. They descend into the
+//! brush parser AST shape (`CompoundList`, `Command`, `CompoundCommand`, etc.)
+//! and either recurse via [`super::Analyzer::visit_command`] /
+//! [`super::Analyzer::visit_list`] or hand off to [`super::inspect`] when
+//! they encounter a `Word` or arithmetic source.
 
-use super::classifier;
-use super::types::{RiskTier, SafetyAnalysis};
+use super::super::types::RiskTier;
+use super::Analyzer;
+use brush_parser::Parser;
 use brush_parser::ast::{
-    Command, CommandPrefixOrSuffixItem, CompoundCommand, CompoundList, ExtendedTestExpr, IoFileRedirectKind,
-    IoFileRedirectTarget, IoRedirect, RedirectList, SimpleCommand, Word,
+    Command, CommandPrefixOrSuffixItem, CompoundCommand, CompoundList, ExtendedTestExpr, IoFileRedirectTarget,
+    IoRedirect, RedirectList, SimpleCommand,
 };
-use brush_parser::word::{self, WordPiece, WordPieceWithSource};
-use brush_parser::{Parser, ParserOptions};
 use std::io::Cursor;
 use std::path::Path;
 
-/// Hard cap on AST depth. Beyond this we treat the input as unsafe and stop
-/// descending.
-const MAX_AST_DEPTH: usize = 32;
-
-pub(super) struct Analyzer {
-    options: ParserOptions,
-    tier: RiskTier,
-    reasons: Vec<String>,
-    commands: Vec<String>,
-}
-
 impl Analyzer {
-    pub(super) fn new(options: ParserOptions) -> Self {
-        Self {
-            options,
-            tier: RiskTier::ReadOnly,
-            reasons: Vec::new(),
-            commands: Vec::new(),
-        }
-    }
-
-    pub(super) fn finish(mut self) -> SafetyAnalysis {
-        self.reasons.sort();
-        self.reasons.dedup();
-        self.commands.dedup();
-        SafetyAnalysis {
-            tier: self.tier,
-            reasons: self.reasons,
-            commands: self.commands,
-        }
-    }
-
-    pub(super) fn flag(&mut self, tier: RiskTier, reason: impl Into<String>) {
-        self.tier = self.tier.max(tier);
-        self.reasons.push(reason.into());
-    }
-
-    fn flag_depth_overrun(&mut self) {
-        self.flag(
-            RiskTier::Mutating,
-            "Shell AST nesting exceeds the safety analysis limit",
-        );
-    }
-
-    pub(super) fn visit_list(&mut self, list: &CompoundList, depth: usize) {
-        if depth > MAX_AST_DEPTH {
+    pub(in crate::tools::bash_ast) fn visit_list(&mut self, list: &CompoundList, depth: usize) {
+        if depth > super::MAX_AST_DEPTH {
             self.flag_depth_overrun();
             return;
         }
@@ -82,8 +31,8 @@ impl Analyzer {
         }
     }
 
-    fn visit_command(&mut self, command: &Command, depth: usize) {
-        if depth > MAX_AST_DEPTH {
+    pub(super) fn visit_command(&mut self, command: &Command, depth: usize) {
+        if depth > super::MAX_AST_DEPTH {
             self.flag_depth_overrun();
             return;
         }
@@ -117,8 +66,8 @@ impl Analyzer {
         }
     }
 
-    fn visit_compound(&mut self, command: &CompoundCommand, depth: usize) {
-        if depth > MAX_AST_DEPTH {
+    pub(super) fn visit_compound(&mut self, command: &CompoundCommand, depth: usize) {
+        if depth > super::MAX_AST_DEPTH {
             self.flag_depth_overrun();
             return;
         }
@@ -181,7 +130,7 @@ impl Analyzer {
         }
     }
 
-    fn visit_extended_test(&mut self, expression: &ExtendedTestExpr, depth: usize) {
+    pub(super) fn visit_extended_test(&mut self, expression: &ExtendedTestExpr, depth: usize) {
         match expression {
             ExtendedTestExpr::And(left, right) | ExtendedTestExpr::Or(left, right) => {
                 self.visit_extended_test(left, depth + 1);
@@ -200,8 +149,8 @@ impl Analyzer {
         }
     }
 
-    fn visit_simple(&mut self, command: &SimpleCommand, depth: usize) {
-        if depth > MAX_AST_DEPTH {
+    pub(super) fn visit_simple(&mut self, command: &SimpleCommand, depth: usize) {
+        if depth > super::MAX_AST_DEPTH {
             self.flag_depth_overrun();
             return;
         }
@@ -235,11 +184,11 @@ impl Analyzer {
             .and_then(|name| name.to_str())
             .unwrap_or(&command_name)
             .to_ascii_lowercase();
-        self.commands.push(base.clone());
+        self.commands_mut().push(base.clone());
         self.classify_invocation(&base, &arguments);
     }
 
-    fn visit_items(&mut self, items: &[CommandPrefixOrSuffixItem], context: (&mut Vec<String>, usize)) {
+    pub(super) fn visit_items(&mut self, items: &[CommandPrefixOrSuffixItem], context: (&mut Vec<String>, usize)) {
         let (arguments, depth) = context;
         for item in items {
             match item {
@@ -257,89 +206,13 @@ impl Analyzer {
         }
     }
 
-    fn inspect_argument_word(&mut self, word: &Word, depth: usize) -> Option<String> {
-        self.inspect_word(word, (false, depth))
-    }
-
-    fn inspect_command_word(&mut self, word: &Word, depth: usize) -> Option<String> {
-        self.inspect_word(word, (true, depth))
-    }
-
-    fn inspect_word(&mut self, word: &Word, context: (bool, usize)) -> Option<String> {
-        let (command_position, depth) = context;
-        if depth > MAX_AST_DEPTH {
-            self.flag_depth_overrun();
-            return None;
-        }
-        let Ok(pieces) = word::parse(&word.value, &self.options) else {
-            self.flag(RiskTier::Mutating, "Shell word expansion could not be parsed safely");
-            return None;
-        };
-        self.inspect_pieces(&pieces, (command_position, depth + 1))
-    }
-
-    fn inspect_pieces(&mut self, pieces: &[WordPieceWithSource], context: (bool, usize)) -> Option<String> {
-        let (command_position, depth) = context;
-        let mut literal = String::new();
-        let mut is_literal = true;
-        for piece in pieces {
-            match &piece.piece {
-                WordPiece::Text(text)
-                | WordPiece::SingleQuotedText(text)
-                | WordPiece::AnsiCQuotedText(text)
-                | WordPiece::EscapeSequence(text) => literal.push_str(text),
-                WordPiece::DoubleQuotedSequence(nested) | WordPiece::GettextDoubleQuotedSequence(nested) => {
-                    if let Some(text) = self.inspect_pieces(nested, (command_position, depth + 1)) {
-                        literal.push_str(&text);
-                    } else {
-                        is_literal = false;
-                    }
-                }
-                WordPiece::CommandSubstitution(source) | WordPiece::BackquotedCommandSubstitution(source) => {
-                    self.visit_substitution(source, depth + 1);
-                    is_literal = false;
-                }
-                WordPiece::ArithmeticExpression(expression) => {
-                    self.inspect_arithmetic(&expression.value, depth + 1);
-                    is_literal = false;
-                    if command_position {
-                        self.flag(
-                            RiskTier::Mutating,
-                            "Dynamic expansion in command position cannot be resolved safely",
-                        );
-                    }
-                }
-                WordPiece::ParameterExpansion(_) | WordPiece::TildeExpansion(_) => {
-                    is_literal = false;
-                    if command_position {
-                        self.flag(
-                            RiskTier::Mutating,
-                            "Dynamic expansion in command position cannot be resolved safely",
-                        );
-                    }
-                }
-            }
-        }
-        is_literal.then_some(literal)
-    }
-
-    fn inspect_arithmetic(&mut self, source: &str, depth: usize) {
-        let Ok(pieces) = word::parse(source, &self.options) else {
-            self.flag(
-                RiskTier::Mutating,
-                "Shell arithmetic expansion could not be parsed safely",
-            );
-            return;
-        };
-        self.inspect_pieces(&pieces, (false, depth + 1));
-    }
-
-    fn visit_substitution(&mut self, source: &str, depth: usize) {
-        if depth > MAX_AST_DEPTH {
+    pub(super) fn visit_substitution(&mut self, source: &str, depth: usize) {
+        if depth > super::MAX_AST_DEPTH {
             self.flag_depth_overrun();
             return;
         }
-        let mut parser = Parser::new(Cursor::new(source.as_bytes()), &self.options);
+        let options = self.options().clone();
+        let mut parser = Parser::new(Cursor::new(source.as_bytes()), &options);
         match parser.parse_program() {
             Ok(program) => {
                 for command in &program.complete_commands {
@@ -350,17 +223,20 @@ impl Analyzer {
         }
     }
 
-    fn visit_redirects(&mut self, redirects: &RedirectList, depth: usize) {
+    pub(super) fn visit_redirects(&mut self, redirects: &RedirectList, depth: usize) {
         for redirect in &redirects.0 {
             self.visit_redirect(redirect, depth + 1);
         }
     }
 
-    fn visit_redirect(&mut self, redirect: &IoRedirect, depth: usize) {
+    pub(super) fn visit_redirect(&mut self, redirect: &IoRedirect, depth: usize) {
         match redirect {
             IoRedirect::File(_, kind, target) => {
                 self.visit_redirect_target(target, depth + 1);
-                if !matches!(kind, IoFileRedirectKind::Read | IoFileRedirectKind::DuplicateInput) {
+                if !matches!(
+                    kind,
+                    brush_parser::ast::IoFileRedirectKind::Read | brush_parser::ast::IoFileRedirectKind::DuplicateInput
+                ) {
                     self.classify_output_redirect(kind, target);
                 }
             }
@@ -379,7 +255,7 @@ impl Analyzer {
         }
     }
 
-    fn visit_redirect_target(&mut self, target: &IoFileRedirectTarget, depth: usize) {
+    pub(super) fn visit_redirect_target(&mut self, target: &IoFileRedirectTarget, depth: usize) {
         match target {
             IoFileRedirectTarget::Filename(word) => {
                 self.inspect_argument_word(word, depth + 1);
@@ -392,24 +268,19 @@ impl Analyzer {
                     );
                 }
             }
-            IoFileRedirectTarget::ProcessSubstitution(_, subshell) => self.visit_list(&subshell.list, depth + 1),
+            IoFileRedirectTarget::ProcessSubstitution(_, subshell) => {
+                self.visit_list(&subshell.list, depth + 1);
+            }
             IoFileRedirectTarget::Fd(_) => {}
         }
     }
+}
 
-    /// Classify a resolved invocation. The decision tree lives in
-    /// [`classifier::classify_invocation`]; this thin wrapper exists so that
-    /// the visitor can call `self.classify_invocation(...)` without leaking
-    /// `self` into the classifier module.
-    fn classify_invocation(&mut self, command: &str, arguments: &[String]) {
-        classifier::classify_invocation(self, command, arguments);
-    }
-
-    pub(super) fn classify_output_redirect(&mut self, kind: &IoFileRedirectKind, target: &IoFileRedirectTarget) {
-        classifier::classify_output_redirect(self, kind, target);
-    }
-
-    pub(super) fn classify_output_path(&mut self, raw: &str) {
-        classifier::classify_output_path(self, raw);
+// `visit_simple` pushes the resolved base command name into `Analyzer.commands`.
+// That field lives on the struct in `analyzer/mod.rs`, so we expose a tiny
+// accessor rather than making the field `pub(super)`.
+impl Analyzer {
+    pub(super) fn commands_mut(&mut self) -> &mut Vec<String> {
+        &mut self.commands
     }
 }
