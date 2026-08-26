@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::tools::approval::enforce_approval;
+use crate::tools::approval::{enforce_approval, get_approval_override};
 use crate::tools::bash_ast::{RiskTier, analyze_command_safety};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
@@ -150,8 +150,11 @@ impl Tool for BashTool {
         generated_schema::<BashArgs>()
     }
 
-    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, context: &mut ToolContext, mut args: Self::Args) -> Result<Self::Output, Self::Error> {
         enforce_approval(context, Self::NAME, &args)?;
+        if let Some(override_args) = get_approval_override::<BashArgs>(context, Self::NAME, &args) {
+            args = override_args;
+        }
         into_rig_result(self.execute(args).await)
     }
 }

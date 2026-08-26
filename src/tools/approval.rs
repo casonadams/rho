@@ -21,6 +21,7 @@ pub struct ApprovalRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Approved,
+    ApprovedWithCommand(String),
     Denied { reason: String },
 }
 
@@ -61,10 +62,17 @@ pub struct ApprovalCapability {
     inner: Arc<ApprovalCapabilityInner>,
 }
 
+struct OverrideGrant<'a> {
+    tool_name: &'a str,
+    arguments: &'a Value,
+    override_args: Value,
+}
+
 struct ApprovalCapabilityInner {
     auto_approve: bool,
     sink: Arc<dyn ApprovalEventSink>,
     grants: Mutex<HashMap<String, usize>>,
+    overrides: Mutex<HashMap<String, Value>>,
     denials: Mutex<HashMap<String, String>>,
 }
 
@@ -75,6 +83,7 @@ impl ApprovalCapability {
                 auto_approve,
                 sink,
                 grants: Mutex::new(HashMap::new()),
+                overrides: Mutex::new(HashMap::new()),
                 denials: Mutex::new(HashMap::new()),
             }),
         }
@@ -87,6 +96,23 @@ impl ApprovalCapability {
         if let Ok(mut grants) = self.inner.grants.lock() {
             *grants.entry(key).or_default() += 1;
         }
+    }
+
+    fn grant_with_override(&self, grant: OverrideGrant<'_>) {
+        let Some(key) = approval_key(grant.tool_name, grant.arguments) else {
+            return;
+        };
+        if let Ok(mut grants) = self.inner.grants.lock() {
+            *grants.entry(key.clone()).or_default() += 1;
+        }
+        if let Ok(mut overrides) = self.inner.overrides.lock() {
+            overrides.insert(key, grant.override_args);
+        }
+    }
+
+    fn take_override(&self, tool_name: &str, arguments: &Value) -> Option<Value> {
+        let key = approval_key(tool_name, arguments)?;
+        self.inner.overrides.lock().ok()?.remove(&key)
     }
 
     fn deny_once(&self, request: ApprovalRequest, reason: String) {
@@ -163,6 +189,18 @@ impl AgentHook for ApprovalHook {
                     tool_name: event.tool_name.to_string(),
                 });
             }
+            ApprovalDecision::ApprovedWithCommand(new_command) => {
+                let override_args = serde_json::json!({ "command": new_command });
+                self.capability.grant_with_override(OverrideGrant {
+                    tool_name: event.tool_name,
+                    arguments: &arguments,
+                    override_args,
+                });
+                self.capability.inner.sink.emit(ToolEvent::ApprovalGranted {
+                    internal_call_id: event.internal_call_id.to_string(),
+                    tool_name: event.tool_name.to_string(),
+                });
+            }
             ApprovalDecision::Denied { reason } => {
                 self.capability.deny_once(request, reason);
                 self.capability.inner.sink.emit(ToolEvent::ApprovalDenied {
@@ -190,6 +228,17 @@ pub fn approval_context(capability: ApprovalCapability) -> ToolContext {
     let mut context = ToolContext::new();
     context.insert(capability);
     context
+}
+
+pub fn get_approval_override<T: serde::de::DeserializeOwned>(
+    context: &ToolContext,
+    tool_name: &str,
+    arguments: &impl Serialize,
+) -> Option<T> {
+    let capability = context.get::<ApprovalCapability>()?;
+    let val = serde_json::to_value(arguments).ok()?;
+    let override_val = capability.take_override(tool_name, &val)?;
+    serde_json::from_value(override_val).ok()
 }
 
 pub fn enforce_approval<T>(context: &ToolContext, tool_name: &str, arguments: &T) -> Result<(), ToolExecutionError>
@@ -624,6 +673,31 @@ mod tests {
 
         assert!(result.is_refused());
         assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn edited_mutating_bash_executes_overridden_command() {
+        let dir = temp_dir("edited_bash");
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let original_marker = dir.join("original");
+        let edited_marker = dir.join("edited");
+        let sink = FakeSink::new(ApprovalDecision::ApprovedWithCommand(format!(
+            "touch {}",
+            edited_marker.display()
+        )));
+
+        run_tool(
+            BashTool::new(&dir),
+            json!({"command": format!("touch {}", original_marker.display())}),
+            ApprovalCapability::new(false, sink.clone()),
+        )
+        .await;
+
+        assert!(!original_marker.exists());
+        assert!(edited_marker.exists());
+        assert_eq!(sink.request_count(), 1);
+        assert_eq!(sink.statuses(), ["success"]);
     }
 
     fn temp_dir(label: &str) -> std::path::PathBuf {

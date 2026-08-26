@@ -1,10 +1,6 @@
-use crate::engine::metrics::RunTracker;
 use crate::error::AppError;
 use rig::streaming::StreamedAssistantContent;
-use serde_json::Value;
 use std::collections::HashSet;
-
-use super::run_turn::{redact_text, TerminalSinkState};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum DisplayEvent {
@@ -84,7 +80,9 @@ pub fn map_streaming_error(error: rig::agent::StreamingError) -> AppError {
 pub fn map_prompt_error(error: rig::completion::PromptError) -> AppError {
     match error {
         rig::completion::PromptError::MaxTurnsError { max_turns, .. } => AppError::ModelBudgetExhausted { max_turns },
-        rig::completion::PromptError::PromptCancelled { reason, .. } => AppError::Cancelled(redact_text(&reason)),
+        rig::completion::PromptError::PromptCancelled { reason, .. } => {
+            AppError::Cancelled(super::helpers::redact_text(&reason))
+        }
         rig::completion::PromptError::UnknownToolCall { tool_name, .. } => AppError::InvalidToolCall(tool_name),
         rig::completion::PromptError::CompletionError(error) => map_completion_error(error),
         rig::completion::PromptError::MemoryError(_) => AppError::Provider("Conversation memory failed".to_string()),
@@ -104,20 +102,3 @@ pub fn map_completion_error(error: rig::completion::CompletionError) -> AppError
         None => AppError::Provider("Model provider request failed".to_string()),
     }
 }
-
-pub fn redact_text(value: &str) -> String {
-    let lower = value.to_ascii_lowercase();
-    if ["api_key", "access_token", "refresh_token", "authorization", "bearer "]
-        .iter()
-        .any(|marker| lower.contains(marker))
-    {
-        "sensitive upstream detail redacted".to_string()
-    } else {
-        value.to_string()
-    }
-}
-
-// `Value` and `RunTracker` are imported for future helpers; the marker keeps
-// the imports meaningful when the module is later trimmed.
-fn _marker(_: Value) {}
-fn _tracker_marker(_: RunTracker) {}

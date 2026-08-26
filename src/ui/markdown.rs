@@ -130,7 +130,7 @@ impl MarkdownRenderer {
         if let Some(quote) = line.strip_prefix("> ") {
             let d = theme.dimmed;
             let formatted = render_inline_elements(quote, theme);
-            return format!("  {d}│{d:#} {formatted}");
+            return format!("{d}│{d:#} {formatted}");
         }
 
         render_inline_elements(line, theme)
@@ -159,14 +159,14 @@ impl MarkdownRenderer {
         if let Some(rest) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
             let p = theme.prompt;
             let formatted = render_inline_elements(rest, theme);
-            return Some(format!("  {p}•{p:#} {formatted}"));
+            return Some(format!("{p}•{p:#} {formatted}"));
         }
         if let Some(caps) = regex::Regex::new(r"^(\d+\.)\s+(.*)$").ok()?.captures(line) {
             let num = &caps[1];
             let rest = &caps[2];
             let p = theme.prompt;
             let formatted = render_inline_elements(rest, theme);
-            return Some(format!("  {p}{num}{p:#} {formatted}"));
+            return Some(format!("{p}{num}{p:#} {formatted}"));
         }
         None
     }
@@ -177,14 +177,14 @@ impl MarkdownRenderer {
         if self.in_code_block {
             self.in_code_block = false;
             self.code_lang = None;
-            format!("  {d}```{d:#}")
+            format!("{d}```{d:#}")
         } else {
             self.in_code_block = true;
             self.code_lang = (!tag.is_empty()).then(|| tag.to_string());
             if let Some(ref l) = self.code_lang {
-                format!("  {d}```{l}{d:#}")
+                format!("{d}```{l}{d:#}")
             } else {
-                format!("  {d}```{d:#}")
+                format!("{d}```{d:#}")
             }
         }
     }
@@ -199,7 +199,7 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
     let syn_theme = &ts.themes["base16-ocean.dark"];
     let mut highlighter = HighlightLines::new(syntax, syn_theme);
     if let Ok(ranges) = highlighter.highlight_line(line, ss) {
-        let mut out = String::from("  ");
+        let mut out = String::new();
         for (style, text) in ranges {
             let ansi = syntect_color_to_ansi16(style.foreground);
             out.push_str(ansi);
@@ -209,7 +209,7 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
         out
     } else {
         let d = theme.dimmed;
-        format!("  {d}{line}{d:#}")
+        format!("{d}{line}{d:#}")
     }
 }
 
@@ -308,16 +308,16 @@ pub fn render_mermaid_block(source: &str, theme: &Theme) -> String {
     let header = theme.tool_header;
     let dim = theme.dimmed;
 
-    let mut out = format!("\n  {header}[mermaid diagram]{header:#}\n");
+    let mut out = format!("\n{header}[mermaid diagram]{header:#}\n");
     match meraid::render(source, meraid::ThemeType::default()) {
         Ok(rendered) => {
             for line in rendered.lines() {
-                out.push_str(&format!("  {line}\n"));
+                out.push_str(&format!("{line}\n"));
             }
         }
         Err(_) => {
             for line in source.lines() {
-                out.push_str(&format!("  {dim}│{dim:#} {line}\n"));
+                out.push_str(&format!("{dim}│{dim:#} {line}\n"));
             }
         }
     }

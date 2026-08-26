@@ -1,7 +1,8 @@
 use crate::session::SessionManager;
+use crate::tools::policy::ExecutionClass;
 use serde_json::Value;
 
-use super::run_turn::TerminalSinkState;
+use super::sink::TerminalSinkState;
 
 pub(super) fn clear_spinner(state: &mut TerminalSinkState) {
     if let Some(spinner) = state.spinner.take() {
@@ -9,7 +10,7 @@ pub(super) fn clear_spinner(state: &mut TerminalSinkState) {
     }
 }
 
-pub(super) fn needs_approval(state: &TerminalSinkState, class: &super::super::tools::policy::ExecutionClass) -> bool {
+pub(super) fn needs_approval(state: &TerminalSinkState, class: &ExecutionClass) -> bool {
     !state.auto_approve && !class.allows_without_approval()
 }
 
@@ -24,5 +25,17 @@ pub(super) fn redact_value(session: &SessionManager, value: &Value) -> Value {
                 .collect(),
         ),
         value => value.clone(),
+    }
+}
+
+pub(super) fn redact_text(value: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+    if ["api_key", "access_token", "refresh_token", "authorization", "bearer "]
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        "sensitive upstream detail redacted".to_string()
+    } else {
+        value.to_string()
     }
 }

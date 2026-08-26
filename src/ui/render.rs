@@ -24,6 +24,7 @@ impl Default for TerminalRenderer {
 
 pub enum ApprovalResult {
     Approved,
+    ApprovedWithCommand(String),
     Denied { reason: String },
 }
 
@@ -77,7 +78,7 @@ impl TerminalRenderer {
         let header = self.theme.highlight;
         let dim = self.theme.dimmed;
         println!(
-            "\n  {header}Turn Limit Reached:{header:#} {dim}Agent reached turn budget ({max_turns} calls).{dim:#}\n"
+            "\n{header}Turn Limit Reached:{header:#} {dim}Agent reached turn budget ({max_turns} calls).{dim:#}\n"
         );
         let approved = inquire::Confirm::new("Continue execution for another 50 turns?")
             .with_default(true)
@@ -90,7 +91,7 @@ impl TerminalRenderer {
         let header = self.theme.highlight;
         let dim = self.theme.dimmed;
         println!(
-            "\n  {header}Approve {name}:{header:#} {dim}{}{dim:#}\n",
+            "\n{header}Approve {name}:{header:#} {dim}{}{dim:#}\n",
             format_tool_args_summary(name, args)
         );
 
@@ -126,31 +127,33 @@ impl TerminalRenderer {
         let header = self.theme.highlight;
         let dim = self.theme.dimmed;
         println!(
-            "\n  {header}{}{header:#} Execute Shell Command:",
+            "\n{header}[Verify and run command]{header:#} {dim}{}{dim:#}",
             risk_badge(request.tier)
         );
         for line in bash_approval_details(&request) {
-            println!("  {dim}{line}{dim:#}");
+            println!("{dim}{line}{dim:#}");
         }
         println!();
 
-        let approved = inquire::Confirm::new("Approve execution?").with_default(true).prompt();
+        let actions = vec!["Run (Enter)", "Edit command", "Cancel (Esc)"];
+        let choice = inquire::Select::new("Action:", actions).prompt();
+
         println!();
-        match approved {
-            Ok(true) => ApprovalResult::Approved,
-            Ok(false) => {
-                let reason = inquire::Text::new("Reason / feedback for model (optional, Enter to skip):")
-                    .prompt()
-                    .unwrap_or_default();
-                let reason = if reason.trim().is_empty() {
-                    "Execution denied by user.".to_string()
-                } else {
-                    format!("Denied by user: {}", reason.trim())
-                };
-                ApprovalResult::Denied { reason }
+        match choice {
+            Ok("Run (Enter)") => ApprovalResult::Approved,
+            Ok("Edit command") => {
+                let edited = inquire::Text::new("$").with_initial_value(request.command).prompt();
+                println!();
+                match edited {
+                    Ok(cmd) if !cmd.trim().is_empty() => ApprovalResult::ApprovedWithCommand(cmd.trim().to_string()),
+                    Ok(_) => ApprovalResult::Approved,
+                    Err(_) => ApprovalResult::Denied {
+                        reason: "Command editing cancelled by user.".to_string(),
+                    },
+                }
             }
-            Err(_) => ApprovalResult::Denied {
-                reason: "Execution canceled by user.".to_string(),
+            Ok(_) | Err(_) => ApprovalResult::Denied {
+                reason: "Execution cancelled by user.".to_string(),
             },
         }
     }
@@ -159,10 +162,10 @@ impl TerminalRenderer {
         let summary = format_tool_args_summary(line.name, line.arguments);
         if line.is_error {
             let err = self.theme.tool_err;
-            println!("  {err}✖ {}{err:#} {summary} -> {}", line.name, line.output_summary);
+            println!("{err}✖ {}{err:#} {summary} -> {}", line.name, line.output_summary);
         } else {
             let ok = self.theme.tool_ok;
-            println!("  {ok}✔ {}{ok:#} {summary}", line.name);
+            println!("{ok}✔ {}{ok:#} {summary}", line.name);
             if line.name == "edit"
                 && let Some(diff) = format_edit_diff(line.arguments, &self.theme)
             {
@@ -207,16 +210,16 @@ impl TerminalRenderer {
         let summary = format_tool_args_summary(name, args);
         let header = self.theme.tool_header;
         let dim = self.theme.dimmed;
-        println!("  {header}⚙{header:#} {name} {dim}{summary}{dim:#}");
+        println!("{header}⚙{header:#} {name} {dim}{summary}{dim:#}");
     }
 
     pub fn print_tool_end(&self, outcome: ToolOutcome<'_>) {
         if outcome.is_error {
             let err = self.theme.tool_err;
-            println!("  {err}✖ {} failed:{err:#} {}", outcome.name, outcome.output_summary);
+            println!("{err}✖ {} failed:{err:#} {}", outcome.name, outcome.output_summary);
         } else {
             let ok = self.theme.tool_ok;
-            println!("  {ok}✔ {}{ok:#}", outcome.name);
+            println!("{ok}✔ {}{ok:#}", outcome.name);
         }
     }
 }
@@ -228,47 +231,52 @@ struct DiffFormatter<'a> {
 
 impl<'a> DiffFormatter<'a> {
     fn new(theme: &'a Theme) -> Self {
-        Self {
-            theme,
-            out: String::new(),
-        }
+        let d = theme.dimmed;
+        let out = format!("{d}```diff{d:#}\n");
+        Self { theme, out }
     }
 
     fn append_removals(&mut self, text: &str) {
         let red = self.theme.tool_err;
         for line in text.lines().take(8) {
-            self.out.push_str(&format!("  {red}- {line}{red:#}\n"));
+            self.out.push_str(&format!("{red}- {line}{red:#}\n"));
         }
         let count = text.lines().count();
         if count > 8 {
             let dim = self.theme.dimmed;
             self.out
-                .push_str(&format!("  {dim}  ... ({} more lines){dim:#}\n", count - 8));
+                .push_str(&format!("{dim}... ({} more lines){dim:#}\n", count - 8));
         }
     }
 
     fn append_additions(&mut self, text: &str) {
         let green = self.theme.tool_ok;
         for line in text.lines().take(8) {
-            self.out.push_str(&format!("  {green}+ {line}{green:#}\n"));
+            self.out.push_str(&format!("{green}+ {line}{green:#}\n"));
         }
         let count = text.lines().count();
         if count > 8 {
             let dim = self.theme.dimmed;
             self.out
-                .push_str(&format!("  {dim}  ... ({} more lines){dim:#}\n", count - 8));
+                .push_str(&format!("{dim}... ({} more lines){dim:#}\n", count - 8));
         }
     }
 
     fn format_entry(&mut self, idx: usize, edit: &serde_json::Value) {
         if idx > 0 {
             let dim = self.theme.dimmed;
-            self.out.push_str(&format!("  {dim}── edit #{} ──{dim:#}\n", idx + 1));
+            self.out.push_str(&format!("{dim}@@ edit #{} @@{dim:#}\n", idx + 1));
         }
         let old_text = edit.get("oldText").and_then(|v| v.as_str()).unwrap_or("");
         let new_text = edit.get("newText").and_then(|v| v.as_str()).unwrap_or("");
         self.append_removals(old_text);
         self.append_additions(new_text);
+    }
+
+    fn finish(mut self) -> String {
+        let d = self.theme.dimmed;
+        self.out.push_str(&format!("{d}```{d:#}\n"));
+        self.out
     }
 }
 
@@ -281,14 +289,14 @@ pub fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<Strin
     for (idx, edit) in edits.iter().enumerate() {
         formatter.format_entry(idx, edit);
     }
-    Some(formatter.out)
+    Some(formatter.finish())
 }
 
 pub fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {
     let d = theme.dimmed;
     let mut out = String::new();
     for line in thinking_text.trim().lines() {
-        out.push_str(&format!("  {d}{line}{d:#}\n"));
+        out.push_str(&format!("{d}{line}{d:#}\n"));
     }
     out.push('\n');
     out
@@ -573,9 +581,12 @@ mod tests {
             ]
         });
         let diff = format_edit_diff(&args, &theme).unwrap();
+        assert!(diff.contains("```diff"));
         assert!(diff.contains("- let x = 1;"));
         assert!(diff.contains("+ let x = 2;"));
         assert!(diff.contains("+ let y = 3;"));
+        assert!(diff.contains("```"));
+        assert!(diff.ends_with('\n'));
     }
 
     #[test]

@@ -11,7 +11,8 @@ pub mod web;
 pub mod write;
 
 pub use approval::{
-    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, ToolEvent, approval_context,
+    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, ToolEvent,
+    approval_context, get_approval_override,
 };
 pub use ask_user::{AskUserArgs, AskUserQuestionTool, AskUserTool};
 pub use bash::BashTool;
