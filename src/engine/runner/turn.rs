@@ -92,6 +92,7 @@ impl AgentEngine {
         let mut current_prompt = request.prompt.to_string();
         let mut total_tool_calls = 0;
         let mut current_budget = self.config.max_turns;
+        let mut forced_progress = false;
 
         loop {
             let mut tool_context = approval_context(capability.clone());
@@ -191,6 +192,17 @@ impl AgentEngine {
                     AppError::Session("Completed continuation did not return canonical messages".to_string())
                 })?;
                 self.session_manager.promote_checkpoint(messages).await?;
+                checkpoint = None;
+            }
+            if !forced_progress
+                && let Some(intent) = &active_intent
+                && !intent.snapshot()?.progress_reported
+            {
+                forced_progress = true;
+                current_prompt = "Before finishing, call intent_progress now. Do not repeat the prior response. Report complete only if every listed outcome and verification obligation is satisfied; otherwise report the exact remaining work.".to_string();
+                current_budget = 3;
+                sink.resume_model_spinner();
+                continue;
             }
             let output = self
                 .finish_turn(TurnArtifacts {

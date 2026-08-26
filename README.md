@@ -63,7 +63,7 @@ A successful continuation persists the exact canonical messages returned by Rig 
 - `--resume SESSION_ID` reopens successful canonical history and any pending budget checkpoint.
 - `/clear` creates a fresh v2 session. It does not delete the previous session or its audit history.
 - Task-oriented prompts create private runtime IntentSpecs automatically; repository design-spec files are not required.
-- Interactive startup offers unfinished intents for the current workspace. Continue resumes immediately, Not now leaves the intent untouched, and Abandon archives it without deleting history.
+- Interactive startup offers unfinished intents for the current workspace. Continue resumes immediately, Mark complete accepts the work as finished, Not now leaves it untouched, and Abandon archives it without deleting history.
 - Ctrl+C cancels the active operation, records a terminal cancellation, and does not persist partial assistant content or dangling tool calls. Bash child cleanup remains active.
 - A model-call budget exhaustion is not a successful turn. Rig's complete, validated `MaxTurnsError` history is stored as a separate run checkpoint, not appended to canonical memory.
 - The next explicit prompt receives a pending checkpoint exactly once. Checkpoint history plus the new Rig messages is promoted atomically only after that continuation succeeds. A failed or cancelled continuation leaves the checkpoint available for another restart or `--resume`.

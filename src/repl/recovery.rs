@@ -7,6 +7,7 @@ use std::fmt;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RecoveryAction {
     Continue,
+    Complete,
     NotNow,
     Abandon,
 }
@@ -15,6 +16,7 @@ impl fmt::Display for RecoveryAction {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Continue => "Continue",
+            Self::Complete => "Mark complete",
             Self::NotNow => "Not now",
             Self::Abandon => "Abandon",
         })
@@ -47,6 +49,7 @@ pub fn recover_session(config: &Config, auth: &AuthStore) -> Result<Option<Recov
         "Action:",
         vec![
             RecoveryAction::Continue,
+            RecoveryAction::Complete,
             RecoveryAction::NotNow,
             RecoveryAction::Abandon,
         ],
@@ -61,6 +64,11 @@ pub fn recover_session(config: &Config, auth: &AuthStore) -> Result<Option<Recov
                 session_id: selected.session_id,
                 spec: handle.snapshot()?.spec,
             }))
+        }
+        RecoveryAction::Complete => {
+            IntentHandle::open(&config.intents_dir, &selected.intent_id, auth.secret_values())?.complete_by_user()?;
+            println!("Intent marked complete. Enter a new task.\n");
+            Ok(None)
         }
         RecoveryAction::NotNow => Ok(None),
         RecoveryAction::Abandon => {

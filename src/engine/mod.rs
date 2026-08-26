@@ -71,6 +71,17 @@ impl AgentEngine {
         })
     }
 
+    pub fn complete_current_intent_by_user(&self) -> Result<()> {
+        if let Some(intent) = crate::intent::store::find_for_session(
+            &self.config.intents_dir,
+            &self.session_manager.session_id,
+            self.session_manager.secret_values(),
+        )? {
+            intent.complete_by_user()?;
+        }
+        Ok(())
+    }
+
     pub fn pause_current_intent(&self) -> Result<()> {
         if let Some(intent) = crate::intent::store::find_for_session(
             &self.config.intents_dir,

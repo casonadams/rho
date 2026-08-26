@@ -46,6 +46,8 @@ pub struct IntentState {
     pub completed_outcomes: Vec<String>,
     pub verification: Vec<VerificationResult>,
     pub blocked_reason: Option<String>,
+    #[serde(default)]
+    pub progress_reported: bool,
     pub revision: u64,
 }
 
@@ -60,18 +62,13 @@ impl IntentState {
             completed_outcomes: Vec::new(),
             verification: Vec::new(),
             blocked_reason: None,
+            progress_reported: false,
             revision: 0,
         }
     }
 
     pub fn amend(&mut self, next: &IntentSpec) {
-        let amendment = next.objective.trim();
-        if !amendment.is_empty() && amendment != self.spec.objective {
-            let outcome = format!("Follow-up: {amendment}");
-            if !self.spec.outcomes.contains(&outcome) {
-                self.spec.outcomes.push(outcome);
-            }
-        }
+        self.spec.outcomes.retain(|outcome| !outcome.starts_with("Follow-up: "));
         for constraint in &next.constraints {
             if !self.spec.constraints.contains(constraint) {
                 self.spec.constraints.push(constraint.clone());
@@ -89,6 +86,7 @@ impl IntentState {
             self.status = IntentStatus::Active;
         }
         self.blocked_reason = None;
+        self.progress_reported = false;
         self.spec.status = "active".to_string();
     }
 
@@ -112,6 +110,7 @@ impl IntentState {
             });
         }
         self.spec.constraints.push(format!("{key}: {value}"));
+        self.progress_reported = false;
         Ok(())
     }
 
@@ -138,6 +137,7 @@ impl IntentState {
         self.completed_outcomes = progress.completed_outcomes;
         self.verification = progress.verification;
         self.blocked_reason = blocked_reason;
+        self.progress_reported = true;
         if self.blocked_reason.is_some() {
             self.status = IntentStatus::Blocked;
             self.spec.status = "blocked".to_string();
@@ -156,6 +156,14 @@ impl IntentState {
             self.status = IntentStatus::Completed;
             self.spec.status = "completed".to_string();
         }
+    }
+
+    pub fn complete_by_user(&mut self) {
+        self.completed_outcomes = self.spec.outcomes.clone();
+        self.status = IntentStatus::Completed;
+        self.spec.status = "completed_by_user".to_string();
+        self.blocked_reason = None;
+        self.progress_reported = true;
     }
 
     pub fn pause(&mut self) {
@@ -239,12 +247,47 @@ mod tests {
             })
             .unwrap();
         assert_eq!(state.status, IntentStatus::Ready);
+        assert!(state.progress_reported);
         state.finalize_success();
         assert_eq!(state.status, IntentStatus::Completed);
 
         state.amend(&IntentSpec::from_prompt("also update docs"));
         assert_eq!(state.status, IntentStatus::Active);
-        assert!(state.spec.outcomes.contains(&"Follow-up: also update docs".to_string()));
+        assert!(!state.progress_reported);
+        assert!(
+            !state
+                .spec
+                .outcomes
+                .iter()
+                .any(|outcome| outcome.starts_with("Follow-up: "))
+        );
+    }
+
+    #[test]
+    fn amendments_remove_legacy_generated_follow_up_outcomes() {
+        let mut state = state();
+        state.spec.outcomes.push("Follow-up: so?".to_string());
+
+        state.amend(&IntentSpec::from_prompt("continue"));
+
+        assert!(
+            !state
+                .spec
+                .outcomes
+                .iter()
+                .any(|outcome| outcome.starts_with("Follow-up: "))
+        );
+        assert!(state.spec.outcomes.contains(&"Regression test passes".to_string()));
+    }
+
+    #[test]
+    fn user_completion_resolves_pending_outcomes_without_fabricating_verification() {
+        let mut state = state();
+        state.complete_by_user();
+
+        assert_eq!(state.status, IntentStatus::Completed);
+        assert_eq!(state.completed_outcomes, state.spec.outcomes);
+        assert!(state.verification.is_empty());
     }
 
     #[test]

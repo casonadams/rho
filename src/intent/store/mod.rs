@@ -96,6 +96,13 @@ impl IntentHandle {
         })
     }
 
+    pub fn complete_by_user(&self) -> Result<()> {
+        self.update(|state| {
+            state.complete_by_user();
+            Ok(())
+        })
+    }
+
     pub fn pause(&self) -> Result<()> {
         self.update(|state| {
             state.pause();

@@ -144,7 +144,12 @@ impl ReplSession {
                         self.renderer.print_unfinished_intent(&state);
                         let choice = inquire::Select::new(
                             "Handle this input:",
-                            vec!["Continue current task", "Amend current focus", "Pause and switch tasks"],
+                            vec![
+                                "Continue current task",
+                                "Amend current focus",
+                                "Mark current task complete",
+                                "Pause and switch tasks",
+                            ],
                         )
                         .prompt();
                         println!();
@@ -152,6 +157,13 @@ impl ReplSession {
                             Ok("Continue current task") => {
                                 turn_prompt = "Continue the active IntentSpec from its remaining outcomes and verification obligations.".to_string();
                                 continued_spec = Some(state.spec);
+                            }
+                            Ok("Mark current task complete") => {
+                                engine.complete_current_intent_by_user()?;
+                                self.resume_id = None;
+                                engine = AgentEngine::new(self.config.clone(), self.auth_store.clone(), None).await?;
+                                println!("Intent marked complete. Enter a new task.");
+                                continue;
                             }
                             Ok("Pause and switch tasks") => {
                                 engine.pause_current_intent()?;
