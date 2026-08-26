@@ -66,6 +66,30 @@ fn test_stream_prose_word_by_word() {
 }
 
 #[test]
+fn test_streamed_line_suffix_before_newline_is_not_dropped() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let first = md.render_token("The IntentSpec from the", &theme);
+    let second = md.render_token(" active task is complete.\n", &theme);
+
+    assert!(first.contains("The IntentSpec from the"));
+    assert!(second.contains(" active task is complete."));
+}
+
+#[test]
+fn test_split_list_marker_does_not_drop_item_text() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let marker = md.render_token("-", &theme);
+    let item = md.render_token(" cargo test --all-targets\n", &theme);
+
+    assert!(marker.is_empty());
+    assert!(item.contains("cargo test --all-targets"));
+}
+
+#[test]
 fn test_mermaid_rendering() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();

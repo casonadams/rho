@@ -35,6 +35,7 @@ impl MarkdownRenderer {
             self.current_line.push_str(chunk);
 
             if self.emitted_on_current_line {
+                out.push_str(&self.render_inline_token(chunk, theme));
                 out.push('\n');
                 self.current_line.clear();
                 self.emitted_on_current_line = false;
@@ -56,6 +57,9 @@ impl MarkdownRenderer {
     fn handle_trailing_chunk(&mut self, remaining: &str, theme: &Theme) -> String {
         self.current_line.push_str(remaining);
 
+        if self.emitted_on_current_line {
+            return self.render_inline_token(remaining, theme);
+        }
         if self.should_buffer_current_line() {
             return String::new();
         }
@@ -72,10 +76,14 @@ impl MarkdownRenderer {
         let trimmed = self.current_line.trim_start();
         trimmed.starts_with('|')
             || trimmed.starts_with('#')
-            || trimmed.starts_with("```")
+            || trimmed.starts_with('`')
+            || trimmed == ">"
             || trimmed.starts_with("> ")
+            || trimmed == "-"
             || trimmed.starts_with("- ")
+            || trimmed == "*"
             || trimmed.starts_with("* ")
+            || trimmed.chars().all(|character| character.is_ascii_digit())
             || (trimmed.len() >= 2
                 && trimmed.chars().next().is_some_and(|c| c.is_ascii_digit())
                 && trimmed.contains(". "))
