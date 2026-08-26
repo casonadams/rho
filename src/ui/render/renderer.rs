@@ -1,11 +1,13 @@
 //! Core `TerminalRenderer` struct and its user-facing methods.
 
 use super::formatters::{format_edit_diff, format_thinking_block, format_write_preview};
-use super::summary::{bash_approval_details, format_tool_args_summary, risk_badge};
+use super::summary::{approval_heading, bash_approval_details, format_tool_args_summary};
 use super::types::{ApprovalResult, BashApproval, ToolLine, ToolOutcome};
+use crate::tools::RiskTier;
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::fmt;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -22,6 +24,42 @@ impl Default for TerminalRenderer {
             theme: Theme::default(),
             md: Arc::new(Mutex::new(MarkdownRenderer::new())),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ToolApprovalChoice {
+    ApplyOnce,
+    Deny,
+    DenyWithFeedback,
+}
+
+impl fmt::Display for ToolApprovalChoice {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::ApplyOnce => "Apply once",
+            Self::Deny => "Deny",
+            Self::DenyWithFeedback => "Deny with feedback",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BashApprovalChoice {
+    RunOnce,
+    EditCommand,
+    Deny,
+    DenyWithFeedback,
+}
+
+impl fmt::Display for BashApprovalChoice {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::RunOnce => "Run once",
+            Self::EditCommand => "Edit command",
+            Self::Deny => "Deny",
+            Self::DenyWithFeedback => "Deny with feedback",
+        })
     }
 }
 
@@ -83,61 +121,64 @@ impl TerminalRenderer {
             println!("{preview}");
         }
 
-        let approved = inquire::Confirm::new("Approve execution?").with_default(true).prompt();
+        let choices = vec![
+            ToolApprovalChoice::ApplyOnce,
+            ToolApprovalChoice::Deny,
+            ToolApprovalChoice::DenyWithFeedback,
+        ];
+        let choice = inquire::Select::new("Action:", choices).prompt();
         println!();
-        match approved {
-            Ok(true) => ApprovalResult::Approved,
-            Ok(false) => {
-                let reason = inquire::Text::new("Reason / feedback for model (optional, Enter to skip):")
-                    .prompt()
-                    .unwrap_or_default();
-                println!();
-                ApprovalResult::Denied {
-                    reason: reason.trim().to_string(),
-                }
-            }
-            Err(_) => ApprovalResult::Denied { reason: String::new() },
+        match choice {
+            Ok(ToolApprovalChoice::ApplyOnce) => ApprovalResult::Approved,
+            Ok(ToolApprovalChoice::DenyWithFeedback) => self.prompt_denial_feedback(),
+            Ok(ToolApprovalChoice::Deny) | Err(_) => ApprovalResult::Denied { reason: String::new() },
         }
     }
 
     pub fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
         let header = self.theme.highlight;
         let dim = self.theme.dimmed;
-        println!(
-            "\n{header}[Verify and run command]{header:#} {dim}{}{dim:#}",
-            risk_badge(request.tier)
-        );
+        println!("\n{header}{}{header:#}", approval_heading(request.tier));
         for line in bash_approval_details(&request) {
             println!("{dim}{line}{dim:#}");
         }
         println!();
 
-        let actions = vec!["Run (Enter)", "Edit command", "Deny / Feedback (Esc)"];
-        let choice = inquire::Select::new("Execute:", actions).prompt();
+        let actions = vec![
+            BashApprovalChoice::RunOnce,
+            BashApprovalChoice::EditCommand,
+            BashApprovalChoice::Deny,
+            BashApprovalChoice::DenyWithFeedback,
+        ];
+        let starting_cursor = usize::from(request.tier == RiskTier::HighRisk) * 2;
+        let choice = inquire::Select::new("Action:", actions)
+            .with_starting_cursor(starting_cursor)
+            .prompt();
 
         println!();
         match choice {
-            Ok("Run (Enter)") => ApprovalResult::Approved,
-            Ok("Edit command") => {
+            Ok(BashApprovalChoice::RunOnce) => ApprovalResult::Approved,
+            Ok(BashApprovalChoice::EditCommand) => {
                 let edited = inquire::Text::new("$").with_initial_value(request.command).prompt();
                 println!();
                 match edited {
                     Ok(cmd) if !cmd.trim().is_empty() => ApprovalResult::ApprovedWithCommand(cmd.trim().to_string()),
                     Ok(_) => ApprovalResult::Approved,
-                    Err(_) => ApprovalResult::Denied {
-                        reason: "Command editing cancelled by user.".to_string(),
-                    },
+                    Err(_) => ApprovalResult::Denied { reason: String::new() },
                 }
             }
-            Ok(_) | Err(_) => {
-                let reason = inquire::Text::new("Reason / feedback for model (optional, Enter to skip):")
-                    .prompt()
-                    .unwrap_or_default();
-                println!();
-                ApprovalResult::Denied {
-                    reason: reason.trim().to_string(),
-                }
-            }
+            Ok(BashApprovalChoice::DenyWithFeedback) => self.prompt_denial_feedback(),
+            Ok(BashApprovalChoice::Deny) | Err(_) => ApprovalResult::Denied { reason: String::new() },
+        }
+    }
+
+    fn prompt_denial_feedback(&self) -> ApprovalResult {
+        let reason = inquire::Text::new("Feedback for the agent:")
+            .prompt()
+            .unwrap_or_default();
+        println!();
+        ApprovalResult::Denied {
+            reason: reason.trim().to_string(),
         }
     }
 
@@ -169,6 +210,13 @@ impl TerminalRenderer {
         } else {
             let _ = write!(stdout, "{token}");
         }
+        let _ = stdout.flush();
+    }
+
+    pub fn print_thinking_token(&self, token: &str) {
+        let dim = self.theme.dimmed;
+        let mut stdout = io::stdout().lock();
+        let _ = write!(stdout, "{dim}{token}{dim:#}");
         let _ = stdout.flush();
     }
 

@@ -20,15 +20,18 @@ fn test_table_rendering() {
 }
 
 #[test]
-fn test_stream_line_by_line() {
+fn test_stream_prose_word_by_word() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
 
     let token1 = md.render_token("Hello ", &theme);
-    assert_eq!(token1, "");
+    assert_eq!(token1, "Hello ");
 
-    let token2 = md.render_token("world\n", &theme);
-    assert_eq!(token2, "Hello world\n");
+    let token2 = md.render_token("world", &theme);
+    assert_eq!(token2, "world");
+
+    let flushed = md.flush(&theme);
+    assert_eq!(flushed, "\n");
 }
 
 #[test]
@@ -100,10 +103,10 @@ fn test_flush_emits_newline_when_line_uncompleted() {
     let mut md = MarkdownRenderer::new();
 
     let token = md.render_token("Hello world", &theme);
-    assert_eq!(token, "");
+    assert_eq!(token, "Hello world");
 
     let flushed = md.flush(&theme);
-    assert_eq!(flushed, "Hello world\n");
+    assert_eq!(flushed, "\n");
 
     let second_flush = md.flush(&theme);
     assert_eq!(second_flush, "");

@@ -13,8 +13,12 @@ pub struct MarkdownRenderer {
     in_mermaid_block: bool,
     code_lang: Option<String>,
     current_line: String,
+    emitted_on_current_line: bool,
     table_lines: Vec<String>,
     mermaid_lines: Vec<String>,
+    in_bold: bool,
+    in_italic: bool,
+    in_code: bool,
 }
 
 impl MarkdownRenderer {
@@ -29,13 +33,107 @@ impl MarkdownRenderer {
         while let Some(pos) = remaining.find('\n') {
             let chunk = &remaining[..pos];
             self.current_line.push_str(chunk);
-            let line = std::mem::take(&mut self.current_line);
-            out.push_str(&self.process_line(&line, theme));
+
+            if self.emitted_on_current_line {
+                out.push('\n');
+                self.current_line.clear();
+                self.emitted_on_current_line = false;
+            } else {
+                let line = std::mem::take(&mut self.current_line);
+                out.push_str(&self.process_line(&line, theme));
+            }
+
             remaining = &remaining[pos + 1..];
         }
 
         if !remaining.is_empty() {
-            self.current_line.push_str(remaining);
+            out.push_str(&self.handle_trailing_chunk(remaining, theme));
+        }
+
+        out
+    }
+
+    fn handle_trailing_chunk(&mut self, remaining: &str, theme: &Theme) -> String {
+        self.current_line.push_str(remaining);
+
+        if self.should_buffer_current_line() {
+            return String::new();
+        }
+
+        self.emitted_on_current_line = true;
+        self.render_inline_token(remaining, theme)
+    }
+
+    fn should_buffer_current_line(&self) -> bool {
+        if self.in_code_block || self.in_mermaid_block || is_table_line(self.current_line.trim()) {
+            return true;
+        }
+
+        let trimmed = self.current_line.trim_start();
+        trimmed.starts_with('#')
+            || trimmed.starts_with("```")
+            || trimmed.starts_with("> ")
+            || trimmed.starts_with("- ")
+            || trimmed.starts_with("* ")
+            || (trimmed.starts_with('|') && trimmed.ends_with('|'))
+    }
+
+    fn render_inline_token(&mut self, token: &str, theme: &Theme) -> String {
+        let mut out = String::new();
+        let bold_style = anstyle::Style::new().bold();
+        let italic_style = anstyle::Style::new().italic();
+
+        let chars: Vec<char> = token.chars().collect();
+        let len = chars.len();
+        let mut i = 0;
+
+        while i < len {
+            if chars[i] == '`' {
+                if self.in_code {
+                    out.push('`');
+                    out.push_str(&theme.code_inline.render_reset().to_string());
+                    self.in_code = false;
+                } else {
+                    out.push_str(&theme.code_inline.render().to_string());
+                    out.push('`');
+                    self.in_code = true;
+                }
+                i += 1;
+                continue;
+            }
+
+            if self.in_code {
+                out.push(chars[i]);
+                i += 1;
+                continue;
+            }
+
+            if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
+                if self.in_bold {
+                    out.push_str(&bold_style.render_reset().to_string());
+                    self.in_bold = false;
+                } else {
+                    out.push_str(&bold_style.render().to_string());
+                    self.in_bold = true;
+                }
+                i += 2;
+                continue;
+            }
+
+            if chars[i] == '*' && (i + 1 == len || chars[i + 1] != '*') {
+                if self.in_italic {
+                    out.push_str(&italic_style.render_reset().to_string());
+                    self.in_italic = false;
+                } else {
+                    out.push_str(&italic_style.render().to_string());
+                    self.in_italic = true;
+                }
+                i += 1;
+                continue;
+            }
+
+            out.push(chars[i]);
+            i += 1;
         }
 
         out
@@ -53,9 +151,17 @@ impl MarkdownRenderer {
             out.push_str(&render_mermaid_block(&lines.join("\n"), theme));
         }
         if !self.current_line.is_empty() {
-            let line = std::mem::take(&mut self.current_line);
-            out.push_str(&self.process_line(&line, theme));
+            if !self.emitted_on_current_line {
+                let line = std::mem::take(&mut self.current_line);
+                out.push_str(&self.process_line(&line, theme));
+            } else {
+                self.current_line.clear();
+                out.push('\n');
+            }
+        } else if self.emitted_on_current_line {
+            out.push('\n');
         }
+        self.emitted_on_current_line = false;
         out
     }
 

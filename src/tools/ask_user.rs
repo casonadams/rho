@@ -42,7 +42,7 @@ impl AskUserTool {
                 let ans = prompt_question_value(q_val, idx + 1)?;
                 results.push(ans);
             }
-            return Ok(ToolResult::success(results.join("\n")));
+            return Ok(binding_clarification(results.join("\n")));
         }
 
         let question_text = extract_question_text(&args);
@@ -53,8 +53,12 @@ impl AskUserTool {
             .or_else(|| extract_vec_from_map(&args.extra, "choices"));
 
         let ans = prompt_question_interactive(&question_text, header.as_deref(), options.as_deref())?;
-        Ok(ToolResult::success(ans))
+        Ok(binding_clarification(ans))
     }
+}
+
+fn binding_clarification(answer: String) -> ToolResult {
+    ToolResult::success(format!("Binding IntentSpec clarification:\n{answer}"))
 }
 
 fn extract_question_text(args: &AskUserArgs) -> String {
@@ -224,7 +228,7 @@ impl Tool for AskUserTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "Ask the user a question or present choices to clarify requirements, gather preferences, or make implementation decisions during execution.".to_string()
+        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make. Answers are binding additions to the active IntentSpec.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -253,7 +257,7 @@ impl Tool for AskUserQuestionTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "Ask the user a question or present choices to clarify requirements or make implementation decisions during execution.".to_string()
+        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make. Answers are binding additions to the active IntentSpec.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -275,6 +279,14 @@ impl Tool for AskUserQuestionTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clarification_result_marks_the_answer_as_binding() {
+        let result = binding_clarification("Use sessions".to_string());
+
+        assert!(result.content.contains("Binding IntentSpec clarification"));
+        assert!(result.content.contains("Use sessions"));
+    }
 
     #[test]
     fn test_ask_user_parses_arbitrary_structures() {

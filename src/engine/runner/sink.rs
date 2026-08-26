@@ -107,45 +107,59 @@ impl TerminalApprovalSink {
     /// runs into the streamed output text. Any pending markdown is flushed first to
     /// preserve ordering.
     pub fn flush_reasoning(&self) {
-        let (reasoning, prev) = self
+        let had_reasoning = self
             .state
             .lock()
             .map(|mut state| {
                 if state.reasoning.is_empty() {
-                    return (Vec::new(), state.last_display);
+                    return false;
                 }
-                let prev = state.last_display;
+                state.reasoning.clear();
                 state.last_display = DisplayKind::Thinking;
-                (std::mem::take(&mut state.reasoning), prev)
+                true
             })
-            .unwrap_or_default();
-        if reasoning.is_empty() {
-            return;
-        }
-        if prev == DisplayKind::Tool {
+            .unwrap_or(false);
+
+        if had_reasoning {
             println!();
         }
-        self.renderer.flush();
-        self.renderer.print_thinking(&reasoning.join(""));
     }
 
     /// Stream a reasoning token: clear any spinner so thinking is readable, then buffer
     /// it until the model transitions to real output (or the turn ends).
     pub fn emit_reasoning(&self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
         self.finish_spinner();
+        let mut prefix_blank = false;
+        let mut text_to_stream = text.to_string();
+
         if let Ok(mut state) = self.state.lock() {
             let redacted = self.session_manager.redact_credentials(text);
+            if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Text {
+                prefix_blank = true;
+            }
+            state.last_display = DisplayKind::Thinking;
+
             if let Some(last) = state.reasoning.last()
                 && !last.is_empty()
                 && (last.ends_with('.') || last.ends_with('!') || last.ends_with('?'))
                 && !redacted.starts_with(' ')
                 && !redacted.starts_with('\n')
             {
-                state.reasoning.push(format!(" {redacted}"));
-                return;
+                text_to_stream = format!(" {redacted}");
+                state.reasoning.push(text_to_stream.clone());
+            } else {
+                text_to_stream = redacted.clone();
+                state.reasoning.push(redacted);
             }
-            state.reasoning.push(redacted);
         }
+
+        if prefix_blank {
+            println!();
+        }
+        self.renderer.print_thinking_token(&text_to_stream);
     }
 
     /// Stream an output token. Reasoning buffered so far is rendered as a block first

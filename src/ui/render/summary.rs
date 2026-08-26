@@ -6,18 +6,17 @@ use std::path::Path;
 
 pub(super) fn bash_approval_details(request: &BashApproval<'_>) -> Vec<String> {
     let mut lines = vec![format!("$ {}", clean_command_paths(request.command))];
-    if !request.reasons.is_empty() {
+    if request.tier == RiskTier::HighRisk && !request.reasons.is_empty() {
         lines.push(String::new());
-        lines.extend(request.reasons.iter().map(|reason| format!("- {reason}")));
+        lines.extend(request.reasons.iter().map(|reason| reason.to_string()));
     }
     lines
 }
 
-pub(super) fn risk_badge(tier: RiskTier) -> &'static str {
+pub(super) fn approval_heading(tier: RiskTier) -> &'static str {
     match tier {
-        RiskTier::ReadOnly => "[READ ONLY]",
-        RiskTier::Mutating => "[MUTATING]",
-        RiskTier::HighRisk => "[HIGH RISK: DESTRUCTIVE ACTION]",
+        RiskTier::HighRisk => "High-risk command",
+        RiskTier::ReadOnly | RiskTier::Mutating => "Command requires approval",
     }
 }
 

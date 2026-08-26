@@ -1,13 +1,13 @@
 //! Tests for the `ui::render` module.
 
 use super::formatters::{format_edit_diff, format_thinking_block, format_write_preview};
-use super::summary::{bash_approval_details, clean_command_paths, risk_badge, to_relative_path};
+use super::summary::{approval_heading, bash_approval_details, clean_command_paths, to_relative_path};
 use super::types::BashApproval;
 use crate::tools::bash_ast::RiskTier;
 use crate::ui::theme::Theme;
 
 #[test]
-fn test_bash_approval_details_include_command_and_reasons() {
+fn ordinary_bash_approval_shows_only_the_command() {
     let reasons = vec!["Writes output through file redirection".to_string()];
     let details = bash_approval_details(&BashApproval {
         command: "echo test > output.txt",
@@ -15,21 +15,21 @@ fn test_bash_approval_details_include_command_and_reasons() {
         reasons: &reasons,
     });
 
-    assert_eq!(
-        details,
-        [
-            "$ echo test > output.txt",
-            "",
-            "- Writes output through file redirection"
-        ]
-    );
+    assert_eq!(details, ["$ echo test > output.txt"]);
 }
 
 #[test]
-fn test_risk_badges() {
-    assert_eq!(risk_badge(RiskTier::ReadOnly), "[READ ONLY]");
-    assert_eq!(risk_badge(RiskTier::Mutating), "[MUTATING]");
-    assert_eq!(risk_badge(RiskTier::HighRisk), "[HIGH RISK: DESTRUCTIVE ACTION]");
+fn high_risk_bash_approval_explains_the_risk() {
+    let reasons = vec!["Discards uncommitted changes".to_string()];
+    let details = bash_approval_details(&BashApproval {
+        command: "git reset --hard",
+        tier: RiskTier::HighRisk,
+        reasons: &reasons,
+    });
+
+    assert_eq!(details, ["$ git reset --hard", "", "Discards uncommitted changes"]);
+    assert_eq!(approval_heading(RiskTier::HighRisk), "High-risk command");
+    assert_eq!(approval_heading(RiskTier::Mutating), "Command requires approval");
 }
 
 #[test]

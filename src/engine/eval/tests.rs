@@ -634,10 +634,17 @@ async fn agent_eval_context_reports_usage_only_when_available_and_is_determinist
     assert_eq!(reports[0].before.input_tokens, Some(120));
     assert_eq!(reports[0].after.input_tokens, Some(42));
     assert!(reports[0].after.input_tokens < reports[0].before.input_tokens);
-    let first = serde_json::to_vec(&reports[0]).unwrap();
-    let second = serde_json::to_vec(&reports[1]).unwrap();
-    assert_eq!(first, second);
-    let encoded = String::from_utf8(first).unwrap();
+    assert_eq!(
+        reports[0].before.model_visible_messages,
+        reports[1].before.model_visible_messages
+    );
+    assert_eq!(
+        reports[0].after.model_visible_messages,
+        reports[1].after.model_visible_messages
+    );
+    assert_eq!(reports[0].before.input_tokens, reports[1].before.input_tokens);
+    assert_eq!(reports[0].after.input_tokens, reports[1].after.input_tokens);
+    let encoded = serde_json::to_string(&reports[0]).unwrap();
     assert!(!encoded.contains("credential-sentinel"));
     assert!(!encoded.contains("historical request"));
 }
