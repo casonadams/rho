@@ -1,0 +1,107 @@
+use crate::error::AppError;
+use crate::tools::approval::enforce_approval;
+use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct WriteArgs {
+    /// Path to the file to write (relative or absolute)
+    pub path: String,
+    /// Content to write to the file
+    pub content: String,
+}
+
+pub struct WriteTool {
+    pub base_dir: PathBuf,
+}
+
+impl WriteTool {
+    pub fn new(base_dir: impl AsRef<Path>) -> Self {
+        Self {
+            base_dir: base_dir.as_ref().to_path_buf(),
+        }
+    }
+
+    pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
+        let clean_path = args.path.trim().trim_matches('"').trim_matches('\'');
+        if clean_path.is_empty() {
+            return Ok(ToolResult::error("Empty file path provided for write tool"));
+        }
+
+        let base = std::env::current_dir().unwrap_or_else(|_| self.base_dir.clone());
+        let path = if Path::new(clean_path).is_absolute() {
+            PathBuf::from(clean_path)
+        } else {
+            base.join(clean_path)
+        };
+
+        if let Some(parent) = path.parent()
+            && let Err(e) = tokio::fs::create_dir_all(parent).await
+        {
+            return Ok(ToolResult::error(format!(
+                "Failed to create directories for {clean_path}: {e}"
+            )));
+        }
+
+        let bytes_len = args.content.len();
+        let lines_len = args.content.lines().count();
+
+        match tokio::fs::write(&path, &args.content).await {
+            Ok(_) => Ok(ToolResult::success(format!(
+                "Successfully wrote {} bytes ({} lines) to {}",
+                bytes_len, lines_len, clean_path
+            ))),
+            Err(e) => Ok(ToolResult::error(format!("Failed to write file {clean_path}: {e}"))),
+        }
+    }
+}
+
+impl Tool for WriteTool {
+    const NAME: &'static str = "write";
+    type Args = WriteArgs;
+    type Output = String;
+    type Error = ToolExecutionError;
+
+    fn description(&self) -> String {
+        "Write full content to a file, automatically creating parent directories.".to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        generated_schema::<WriteArgs>()
+    }
+
+    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        enforce_approval(context, Self::NAME, &args)?;
+        into_rig_result(self.execute(args).await)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_write_tool() {
+        let temp_dir = std::env::temp_dir().join(format!("write_test_{}", uuid::Uuid::new_v4()));
+        let tool = WriteTool::new(&temp_dir);
+
+        let file_path = temp_dir.join("sub/nested/file.txt");
+        let res = tool
+            .execute(WriteArgs {
+                path: file_path.to_str().unwrap().to_string(),
+                content: "hello world\nsecond line\n".to_string(),
+            })
+            .await
+            .unwrap();
+
+        assert!(!res.is_error);
+        assert!(res.content.contains("Successfully wrote"));
+
+        let disk_content = tokio::fs::read_to_string(&file_path).await.unwrap();
+        assert_eq!(disk_content, "hello world\nsecond line\n");
+
+        let _ = tokio::fs::remove_dir_all(temp_dir).await;
+    }
+}
