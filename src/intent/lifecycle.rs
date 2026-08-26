@@ -1,5 +1,8 @@
+pub mod progress;
+
 use super::IntentSpec;
-use crate::error::{AppError, Result};
+use crate::error::Result;
+pub use progress::{IntentDecision, IntentProgress, VerificationResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -11,29 +14,6 @@ pub enum IntentStatus {
     Completed,
     Paused,
     Abandoned,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct IntentDecision {
-    pub key: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-pub struct VerificationResult {
-    pub obligation: String,
-    pub passed: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
-pub struct IntentProgress {
-    #[serde(default)]
-    pub completed_outcomes: Vec<String>,
-    #[serde(default)]
-    pub verification: Vec<VerificationResult>,
-    pub blocked_reason: Option<String>,
-    #[serde(default)]
-    pub complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -94,7 +74,9 @@ impl IntentState {
         let key = key.trim();
         let value = value.trim();
         if key.is_empty() || value.is_empty() {
-            return Err(AppError::Intent("Intent decisions require a key and value".to_string()));
+            return Err(crate::error::AppError::Intent(
+                "Intent decisions require a key and value".to_string(),
+            ));
         }
         if let Some(existing) = self.decisions.iter_mut().find(|decision| decision.key == key) {
             if existing.value == value {
@@ -115,25 +97,8 @@ impl IntentState {
     }
 
     pub fn report_progress(&mut self, progress: IntentProgress) -> Result<()> {
+        progress::validate(&self.spec, &progress)?;
         let blocked_reason = progress.blocked_reason.filter(|reason| !reason.trim().is_empty());
-        if progress.complete && blocked_reason.is_none() {
-            let missing_outcome = self
-                .spec
-                .outcomes
-                .iter()
-                .any(|required| !progress.completed_outcomes.contains(required));
-            let failed_verification = self.spec.verification.iter().any(|required| {
-                !progress
-                    .verification
-                    .iter()
-                    .any(|result| result.obligation == *required && result.passed)
-            });
-            if missing_outcome || failed_verification {
-                return Err(AppError::Intent(
-                    "Intent cannot complete with pending outcomes or verification".to_string(),
-                ));
-            }
-        }
         self.completed_outcomes = progress.completed_outcomes;
         self.verification = progress.verification;
         self.blocked_reason = blocked_reason;
@@ -198,7 +163,7 @@ impl IntentState {
             }
         }
         if projection.len() > max_bytes {
-            return Err(AppError::Intent(format!(
+            return Err(crate::error::AppError::Intent(format!(
                 "Active IntentSpec exceeds the {max_bytes}-byte context limit"
             )));
         }
