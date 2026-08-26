@@ -99,6 +99,10 @@ impl TerminalRenderer {
             && let Some(diff) = format_edit_diff(args, &self.theme)
         {
             println!("{diff}");
+        } else if name == "write"
+            && let Some(preview) = format_write_preview(args, &self.theme)
+        {
+            println!("{preview}");
         }
 
         let approved = inquire::Confirm::new("Approve execution?").with_default(true).prompt();
@@ -135,7 +139,7 @@ impl TerminalRenderer {
         }
         println!();
 
-        let actions = vec!["Run (Enter)", "Edit command", "Cancel (Esc)"];
+        let actions = vec!["Run (Enter)", "Edit command", "Deny / Feedback (Esc)"];
         let choice = inquire::Select::new("Action:", actions).prompt();
 
         println!();
@@ -152,9 +156,18 @@ impl TerminalRenderer {
                     },
                 }
             }
-            Ok(_) | Err(_) => ApprovalResult::Denied {
-                reason: "Execution cancelled by user.".to_string(),
-            },
+            Ok(_) | Err(_) => {
+                let reason = inquire::Text::new("Reason / feedback for model (optional, Enter to skip):")
+                    .prompt()
+                    .unwrap_or_default();
+                println!();
+                let reason = if reason.trim().is_empty() {
+                    "Execution denied by user.".to_string()
+                } else {
+                    format!("Denied by user: {}", reason.trim())
+                };
+                ApprovalResult::Denied { reason }
+            }
         }
     }
 
@@ -170,6 +183,10 @@ impl TerminalRenderer {
                 && let Some(diff) = format_edit_diff(line.arguments, &self.theme)
             {
                 print!("{diff}");
+            } else if line.name == "write"
+                && let Some(preview) = format_write_preview(line.arguments, &self.theme)
+            {
+                print!("{preview}");
             }
         }
     }
@@ -290,6 +307,25 @@ pub fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<Strin
         formatter.format_entry(idx, edit);
     }
     Some(formatter.finish())
+}
+
+pub fn format_write_preview(args: &serde_json::Value, theme: &Theme) -> Option<String> {
+    let content = args.get("content")?.as_str()?;
+    if content.trim().is_empty() {
+        return None;
+    }
+    let d = theme.dimmed;
+    let green = theme.tool_ok;
+    let mut out = format!("{d}```diff{d:#}\n");
+    for line in content.lines().take(8) {
+        out.push_str(&format!("{green}+ {line}{green:#}\n"));
+    }
+    let total = content.lines().count();
+    if total > 8 {
+        out.push_str(&format!("{d}... ({} more lines){d:#}\n", total - 8));
+    }
+    out.push_str(&format!("{d}```{d:#}\n"));
+    Some(out)
 }
 
 pub fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {
@@ -587,6 +623,20 @@ mod tests {
         assert!(diff.contains("+ let y = 3;"));
         assert!(diff.contains("```"));
         assert!(diff.ends_with('\n'));
+    }
+
+    #[test]
+    fn test_format_write_preview_renders_additions() {
+        let theme = Theme::default();
+        let args = serde_json::json!({
+            "path": "test.py",
+            "content": "def main():\n    print('hello')"
+        });
+        let preview = format_write_preview(&args, &theme).unwrap();
+        assert!(preview.contains("```diff"));
+        assert!(preview.contains("+ def main():"));
+        assert!(preview.contains("+     print('hello')"));
+        assert!(preview.contains("```"));
     }
 
     #[test]

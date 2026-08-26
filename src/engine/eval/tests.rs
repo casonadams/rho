@@ -1,268 +1,30 @@
-use super::AgentEngine;
-use super::metrics::{RunMetrics, TerminalStatus};
-use super::runner::{TurnOutput, TurnRequest};
-use super::runtime::{CodingRuntime, build_coding_agent};
-use crate::config::Config;
-use crate::session::context::{context_memory, model_visible_bytes};
+//! Behavioural evaluation suite for the agent runtime.
+//!
+//! Each `#[tokio::test]` or `#[test]` here exercises a scenario end-to-end against
+//! a real `AgentEngine` backed by `MockCompletionModel`. The local helpers
+//! (`DenySink`, `RetryInvalid`, `parts`, `text_occurrences`) are intentionally
+//! kept inside this module — they exist only to make the surrounding tests
+//! readable.
+
+use super::context::context_comparison;
+use super::harness::{EvalHarness, normalize_requests};
+use super::mock::{MockEngineConfig, final_event, mock_engine, mock_engine_with_session, temp_dir};
+use super::types::{EvalFailure, EvalScenario, NormalizedPart, NormalizedRequest};
+use crate::engine::runner::TurnRequest;
+use crate::error::AppError;
 use crate::session::{SessionEventKind, SessionManager};
 use crate::tools::{
     ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, approval_context,
 };
 use crate::ui::TerminalRenderer;
 use async_trait::async_trait;
+use rig::agent::AgentBuilder;
 use rig::agent::hook::{AgentHook, InvalidToolCallAction, InvalidToolCallContext};
-use rig::agent::{AgentBuilder, ModelHandle};
 use rig::completion::{CompletionRequest, FinishReason, Usage};
-use rig::memory::ConversationMemory;
 use rig::message::{AssistantContent, Message, UserContent};
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
-use serde::Serialize;
 use serde_json::json;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-
-struct EvalScenario {
-    name: &'static str,
-    prompt: &'static str,
-    turns: Vec<Vec<MockStreamEvent>>,
-    expected_final: &'static str,
-    expected_tools: Vec<&'static str>,
-    max_turns: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct EvalReport {
-    scenario: &'static str,
-    transcript: NormalizedTranscript,
-    metrics: RunMetrics,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct EvalFailure {
-    scenario: &'static str,
-    behavior: &'static str,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct NormalizedTranscript {
-    requests: Vec<NormalizedRequest>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct NormalizedRequest {
-    index: usize,
-    content_telemetry: bool,
-    messages: Vec<NormalizedMessage>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct NormalizedMessage {
-    role: &'static str,
-    parts: Vec<NormalizedPart>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum NormalizedPart {
-    Text,
-    Reasoning,
-    Image,
-    Audio,
-    Video,
-    Document,
-    ToolCall { id: String, name: String },
-    ToolResult { id: String, name: String },
-}
-
-struct EvalHarness;
-
-impl EvalHarness {
-    async fn run(scenario: EvalScenario, base_dir: &Path) -> Result<EvalReport, EvalFailure> {
-        let model = MockCompletionModel::from_stream_turns(scenario.turns.clone());
-        let engine = mock_engine(model.clone(), base_dir, scenario.max_turns);
-        let output = engine
-            .run_turn(
-                TurnRequest {
-                    prompt: scenario.prompt,
-                    intent: None,
-                },
-                &TerminalRenderer::default(),
-            )
-            .await
-            .map_err(|_| EvalFailure {
-                scenario: scenario.name,
-                behavior: "scenario execution failed",
-            })?;
-        verify_output(&scenario, &output)?;
-        let transcript = normalize_requests(&model.requests());
-        verify_tool_order(&scenario, &transcript)?;
-        Ok(EvalReport {
-            scenario: scenario.name,
-            transcript,
-            metrics: output.metrics.normalized(),
-        })
-    }
-}
-
-fn verify_output(scenario: &EvalScenario, output: &TurnOutput) -> Result<(), EvalFailure> {
-    if output.final_text != scenario.expected_final {
-        return Err(EvalFailure {
-            scenario: scenario.name,
-            behavior: "final answer mismatch",
-        });
-    }
-    if output.metrics.terminal_status != TerminalStatus::Completed {
-        return Err(EvalFailure {
-            scenario: scenario.name,
-            behavior: "terminal status mismatch",
-        });
-    }
-    Ok(())
-}
-
-fn verify_tool_order(scenario: &EvalScenario, transcript: &NormalizedTranscript) -> Result<(), EvalFailure> {
-    let names = transcript
-        .requests
-        .last()
-        .map(|request| {
-            request
-                .messages
-                .iter()
-                .flat_map(|message| &message.parts)
-                .filter_map(|part| match part {
-                    NormalizedPart::ToolCall { name, .. } => Some(name.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if names != scenario.expected_tools {
-        return Err(EvalFailure {
-            scenario: scenario.name,
-            behavior: "tool ordering mismatch",
-        });
-    }
-    Ok(())
-}
-
-fn normalize_requests(requests: &[CompletionRequest]) -> NormalizedTranscript {
-    let mut ids = HashMap::new();
-    let requests = requests
-        .iter()
-        .enumerate()
-        .map(|(index, request)| NormalizedRequest {
-            index,
-            content_telemetry: request.record_telemetry_content,
-            messages: request
-                .chat_history
-                .iter()
-                .map(|message| normalize_message(message, &mut ids))
-                .collect(),
-        })
-        .collect();
-    NormalizedTranscript { requests }
-}
-
-fn normalize_message(message: &Message, ids: &mut HashMap<String, String>) -> NormalizedMessage {
-    match message {
-        Message::System { .. } => NormalizedMessage {
-            role: "system",
-            parts: vec![NormalizedPart::Text],
-        },
-        Message::User { content } => NormalizedMessage {
-            role: "user",
-            parts: content.iter().map(|part| normalize_user_part(part, ids)).collect(),
-        },
-        Message::Assistant { content, .. } => NormalizedMessage {
-            role: "assistant",
-            parts: content.iter().map(|part| normalize_assistant_part(part, ids)).collect(),
-        },
-    }
-}
-
-fn normalize_user_part(part: &UserContent, ids: &mut HashMap<String, String>) -> NormalizedPart {
-    match part {
-        UserContent::Text(_) => NormalizedPart::Text,
-        UserContent::ToolResult(result) => NormalizedPart::ToolResult {
-            id: normalize_id(result.call.as_str(), ids),
-            name: result.name.clone(),
-        },
-        UserContent::Image(_) => NormalizedPart::Image,
-        UserContent::Audio(_) => NormalizedPart::Audio,
-        UserContent::Video(_) => NormalizedPart::Video,
-        UserContent::Document(_) => NormalizedPart::Document,
-    }
-}
-
-fn normalize_assistant_part(part: &AssistantContent, ids: &mut HashMap<String, String>) -> NormalizedPart {
-    match part {
-        AssistantContent::Text(_) => NormalizedPart::Text,
-        AssistantContent::ToolCall(call) => NormalizedPart::ToolCall {
-            id: normalize_id(call.id.as_str(), ids),
-            name: call.function.name.clone(),
-        },
-        AssistantContent::Reasoning(_) => NormalizedPart::Reasoning,
-        AssistantContent::Image(_) => NormalizedPart::Image,
-    }
-}
-
-fn normalize_id(id: &str, ids: &mut HashMap<String, String>) -> String {
-    let next = format!("call-{}", ids.len() + 1);
-    ids.entry(id.to_string()).or_insert(next).clone()
-}
-
-struct MockEngineConfig<'a> {
-    base_dir: &'a Path,
-    max_turns: usize,
-    session_manager: SessionManager,
-}
-
-fn mock_engine(model: MockCompletionModel, base_dir: &Path, max_turns: usize) -> AgentEngine {
-    let sessions = base_dir.join("sessions");
-    let session_manager = SessionManager::new(&sessions, None).unwrap();
-    mock_engine_with_session(
-        model,
-        MockEngineConfig {
-            base_dir,
-            max_turns,
-            session_manager,
-        },
-    )
-}
-
-fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineConfig<'_>) -> AgentEngine {
-    let app_config = Config {
-        auto_approve: true,
-        max_turns: config.max_turns,
-        sessions_dir: config.base_dir.join("sessions"),
-        ..Config::default()
-    };
-    let agent = build_coding_agent(
-        ModelHandle::new(model),
-        &app_config,
-        CodingRuntime {
-            base_dir: config.base_dir,
-            memory: config.session_manager.clone(),
-        },
-    )
-    .unwrap();
-    AgentEngine {
-        config: app_config,
-        session_manager: config.session_manager,
-        agent,
-        last_usage: Mutex::new(None),
-        run_tracker: super::metrics::RunTracker::default(),
-    }
-}
-
-fn final_event(usage: Usage) -> MockStreamEvent {
-    MockStreamEvent::final_response(usage)
-}
-
-fn temp_dir(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("agent_eval_{label}_{}", uuid::Uuid::new_v4()))
-}
+use std::sync::Arc;
 
 #[tokio::test]
 async fn agent_eval_harness_reports_success_and_behavior_mismatch() {
@@ -614,10 +376,7 @@ async fn agent_eval_core_finish_metadata_usage_and_budget_exhaustion() {
         )
         .await
         .unwrap_err();
-    assert!(matches!(
-        error,
-        crate::error::AppError::ModelBudgetExhausted { max_turns: 1 }
-    ));
+    assert!(matches!(error, AppError::ModelBudgetExhausted { max_turns: 1 }));
     assert_eq!(model.request_count(), 1);
     let events = engine.session_manager.load_events().await.unwrap();
     let summary = events
@@ -834,125 +593,6 @@ fn evaluation_errors_do_not_include_expected_or_observed_content() {
     };
     let rendered = format!("{error:?}");
     assert!(!rendered.contains("credential-sentinel"));
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct ContextComparisonReport {
-    scenario: &'static str,
-    before: ContextEvaluation,
-    after: ContextEvaluation,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-struct ContextEvaluation {
-    model_visible_messages: usize,
-    model_visible_bytes: usize,
-    input_tokens: Option<u64>,
-    success: bool,
-    terminal_status: TerminalStatus,
-    turns: usize,
-    tool_calls: usize,
-    tool_errors: usize,
-    tool_denials: usize,
-    usage_available: bool,
-}
-
-struct ContextEvaluationInput<'a> {
-    base_dir: &'a Path,
-    history: &'a [Message],
-    bounded: bool,
-    usage: Usage,
-}
-
-async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> ContextEvaluation {
-    let ContextEvaluationInput {
-        base_dir,
-        history,
-        bounded,
-        usage,
-    } = input;
-    let sessions = base_dir.join(if bounded { "bounded" } else { "full" });
-    let store = SessionManager::new(&sessions, None).unwrap();
-    let id = store.session_id.clone();
-    ConversationMemory::append(&store, &id, history.to_vec()).await.unwrap();
-    let memory: Arc<dyn ConversationMemory> = if bounded {
-        context_memory(store.clone(), 4, 512)
-    } else {
-        Arc::new(store.clone())
-    };
-    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("completed"), final_event(usage)]]);
-    let config = Config {
-        auto_approve: true,
-        max_turns: 2,
-        sessions_dir: sessions,
-        ..Config::default()
-    };
-    let agent = AgentBuilder::from_model_handle(ModelHandle::new(model.clone()))
-        .memory(memory)
-        .record_content_telemetry(false)
-        .build();
-    let engine = AgentEngine {
-        config,
-        session_manager: store,
-        agent,
-        last_usage: Mutex::new(None),
-        run_tracker: super::metrics::RunTracker::default(),
-    };
-    let output = engine
-        .run_turn(
-            TurnRequest {
-                prompt: "continue",
-                intent: None,
-            },
-            &TerminalRenderer::default(),
-        )
-        .await
-        .unwrap();
-    let visible = &model.requests()[0].chat_history;
-    ContextEvaluation {
-        model_visible_messages: visible.len(),
-        model_visible_bytes: model_visible_bytes(visible),
-        input_tokens: output.usage.map(|usage| usage.input_tokens),
-        success: output.metrics.success,
-        terminal_status: output.metrics.terminal_status,
-        turns: output.metrics.model_turns,
-        tool_calls: output.metrics.tool_calls,
-        tool_errors: output.metrics.tool_errors,
-        tool_denials: output.metrics.tool_denials,
-        usage_available: output.metrics.usage_available,
-    }
-}
-
-fn long_context_history() -> Vec<Message> {
-    (0..30)
-        .flat_map(|index| {
-            [
-                Message::user(format!("historical request {index}: {}", "context ".repeat(30))),
-                Message::assistant(format!("historical response {index}: {}", "result ".repeat(30))),
-            ]
-        })
-        .collect()
-}
-
-async fn context_comparison(base_dir: &Path, before_usage: Usage, after_usage: Usage) -> ContextComparisonReport {
-    let history = long_context_history();
-    ContextComparisonReport {
-        scenario: "long-session-context",
-        before: run_context_evaluation(ContextEvaluationInput {
-            base_dir,
-            history: &history,
-            bounded: false,
-            usage: before_usage,
-        })
-        .await,
-        after: run_context_evaluation(ContextEvaluationInput {
-            base_dir,
-            history: &history,
-            bounded: true,
-            usage: after_usage,
-        })
-        .await,
-    }
 }
 
 #[tokio::test]
