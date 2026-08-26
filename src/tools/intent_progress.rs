@@ -12,7 +12,7 @@ impl Tool for IntentProgressTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "Report completed outcomes, verification results, blocking reasons, and whether the active IntentSpec is complete. Call before finalizing a task.".to_string()
+        "Report completed outcomes, verification results, and blockers before the final response. This tool is the sole completion authority: only a successful Intent status: Ready result permits claiming the IntentSpec is complete.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -27,7 +27,14 @@ impl Tool for IntentProgressTool {
             .report_progress(progress)
             .map_err(ToolExecutionError::from_error)?;
         let state = handle.snapshot().map_err(ToolExecutionError::from_error)?;
-        Ok(format!("Intent status: {:?}", state.status))
+        if state.status == crate::intent::IntentStatus::Ready {
+            Ok("Intent status: Ready. Completion may be reported after the final response succeeds.".to_string())
+        } else {
+            Ok(format!(
+                "Intent status: {:?}. Do not claim completion; report the remaining work.",
+                state.status
+            ))
+        }
     }
 }
 
@@ -53,7 +60,7 @@ mod tests {
         let mut context = ToolContext::new();
         context.insert(handle.clone());
 
-        IntentProgressTool
+        let ready = IntentProgressTool
             .call(
                 &mut context,
                 IntentProgress {
@@ -67,5 +74,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(handle.snapshot().unwrap().status, crate::intent::IntentStatus::Ready);
+        assert!(ready.contains("Completion may be reported"));
+
+        let active = IntentProgressTool
+            .call(
+                &mut context,
+                IntentProgress {
+                    completed_outcomes: Vec::new(),
+                    verification: Vec::new(),
+                    blocked_reason: None,
+                    complete: false,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(active.contains("Do not claim completion"));
     }
 }

@@ -65,7 +65,7 @@ impl AgentEngine {
                     .snapshot()?
                     .context_projection(self.config.compaction_max_bytes)?,
             );
-            preamble.push_str("\nReport intent_progress before your final response.\n");
+            preamble.push_str("\nBefore your final response, call intent_progress. Only a successful `Intent status: Ready` result permits you to say this IntentSpec is complete. Otherwise, say it remains incomplete and list the remaining work.\n");
         }
         let visible_history = context_memory(
             self.session_manager.clone(),

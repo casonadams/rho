@@ -80,9 +80,9 @@ impl TerminalRenderer {
         if let Some(reason) = &state.blocked_reason {
             println!("{dim}Intent blocked: {reason}{dim:#}");
         } else if remaining > 0 {
-            println!("{dim}Intent still active: {remaining} outcomes remaining.{dim:#}");
+            println!("{dim}Intent incomplete: {remaining} outcomes remaining.{dim:#}");
         } else {
-            println!("{dim}Intent still active: completion not verified.{dim:#}");
+            println!("{dim}Intent incomplete: completion was not verified.{dim:#}");
         }
     }
 
