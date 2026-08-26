@@ -31,6 +31,9 @@ The suite must exercise these structural behaviors with Rig test models, tempora
 - sequential native tool calls retain complete call/result correlation;
 - two-turn continuation and v2 `--resume` provide canonical history once;
 - cancellation leaves no partial canonical assistant message or dangling tool call;
+- runtime IntentSpecs persist separately from session v2, reject credential sentinels, and expose only the selected bounded intent to the model;
+- unfinished-intent recovery continues immediately, Not now changes no durable state, and Abandon archives without deleting history;
+- approval selectors require Enter and Deny accepts optional blank feedback without executing the operation;
 - model-call budget exhaustion sends no extra request;
 - complete budget history becomes a separate checkpoint, survives reopen, and is promoted exactly once only after a successful continuation;
 - a failed checkpoint continuation leaves the checkpoint available;

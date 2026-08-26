@@ -1,23 +1,3 @@
-//! Persistent intent storage.
-//!
-//! The store is organised by responsibility:
-//!
-//! - [`mod`] (this file): the [`IntentHandle`] and [`NewIntent`] re-exports,
-//!   the [`IntentSummary`] / [`IntentHeader`] / [`IntentSnapshot`] /
-//!   [`IntentIndex`] types, and the discovery free functions
-//!   ([`list_unfinished`], [`find_for_session`], [`workspace_id`]) plus the
-//!   [`validate_intent_id`] helper.
-//! - [`handle`]: the [`IntentHandle`](handle::IntentHandle) impl —
-//!   `create`/`open`/mutation methods, optimistic-concurrency `update`,
-//!   file creation, snapshot persistence, and the secret-redaction guard.
-//! - [`index`]: the intent index — [`IntentIndex`](index::IntentIndex),
-//!   [`index::summary`], [`index::load_or_rebuild_index`],
-//!   [`index::rebuild_index`], [`index::update_index`],
-//!   [`index::write_index`].
-//!
-//! Tests live at the bottom of this file and exercise the round-trip plus
-//! index discovery path.
-
 mod handle;
 mod index;
 
@@ -78,11 +58,6 @@ pub struct IntentHandle {
     secrets: Arc<Vec<String>>,
 }
 
-// `IntentHandle::create`, `IntentHandle::open`, `IntentHandle::snapshot`,
-// `IntentHandle::amend`, `IntentHandle::record_decision`,
-// `IntentHandle::report_progress`, `IntentHandle::finalize_success`,
-// `IntentHandle::abandon` — and the private `update`, `create_file`,
-// `persist`, `reject_secrets` helpers — all live in the `handle` submodule.
 impl IntentHandle {
     pub fn create(intents_dir: &Path, intent: NewIntent) -> Result<Self> {
         handle::create(intents_dir, intent)
@@ -117,6 +92,13 @@ impl IntentHandle {
     pub fn finalize_success(&self) -> Result<()> {
         self.update(|state| {
             state.finalize_success();
+            Ok(())
+        })
+    }
+
+    pub fn pause(&self) -> Result<()> {
+        self.update(|state| {
+            state.pause();
             Ok(())
         })
     }
@@ -238,12 +220,14 @@ mod tests {
     }
 
     #[test]
-    fn abandoned_intent_is_archived_not_deleted() {
+    fn paused_intent_remains_recoverable_and_abandoned_intent_is_archived() {
         let dir = temp_dir();
         let handle = create_intent(&dir);
         let path = handle.file_path.clone();
-        handle.abandon().unwrap();
+        handle.pause().unwrap();
+        assert_eq!(list_unfinished(&dir, "/repo").unwrap().len(), 1);
 
+        handle.abandon().unwrap();
         assert!(path.exists());
         assert!(list_unfinished(&dir, "/repo").unwrap().is_empty());
     }

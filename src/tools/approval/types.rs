@@ -18,7 +18,6 @@ pub struct ApprovalRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Approved,
-    ApprovedWithCommand(String),
     Denied { reason: String },
 }
 

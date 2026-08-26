@@ -1,4 +1,5 @@
 pub mod commands;
+mod recovery;
 
 use crate::auth::AuthStore;
 use crate::config::Config;
@@ -60,8 +61,27 @@ impl ReplSession {
 
         let mut line_editor = Reedline::create().with_history(history);
 
+        let recovered = if self.resume_id.is_none() {
+            recovery::recover_session(&self.config, &self.auth_store)?
+        } else {
+            None
+        };
+        if let Some(recovered) = &recovered {
+            self.resume_id = Some(recovered.session_id.clone());
+        }
         let mut engine =
             AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
+        if let Some(recovered) = &recovered {
+            println!("Continuing: {}\n", recovered.spec.objective);
+            self.run_agent_turn(
+                &engine,
+                crate::engine::runner::TurnRequest {
+                    prompt: "Continue the active IntentSpec from its remaining outcomes and verification obligations.",
+                    intent: Some(&recovered.spec),
+                },
+            )
+            .await?;
+        }
 
         let prompt = SimplePrompt;
         let mut is_first_prompt = true;
@@ -116,33 +136,46 @@ impl ReplSession {
                         }
                     }
 
-                    // Intent parsing and ambiguity resolution
-                    let intent_spec = ClarificationHandler::process_intent(input, true)?;
-
-                    // Run agent turn with live streaming and graceful Ctrl+C cancellation
-                    let renderer = &self.renderer;
-                    let run_future = engine.run_turn(
-                        crate::engine::runner::TurnRequest {
-                            prompt: input,
-                            intent: Some(&intent_spec),
-                        },
-                        renderer,
-                    );
-
-                    tokio::select! {
-                        run_res = run_future => {
-                            renderer.flush();
-                            println!();
-                            if let Err(e) = run_res {
-                                eprintln!("\n  Error: {e}");
+                    let mut turn_prompt = input.to_string();
+                    let mut continued_spec = None;
+                    if let Some(state) = engine.current_intent_state()?
+                        && state.is_unfinished()
+                    {
+                        self.renderer.print_unfinished_intent(&state);
+                        let choice = inquire::Select::new(
+                            "Handle this input:",
+                            vec!["Continue current task", "Amend current focus", "Pause and switch tasks"],
+                        )
+                        .prompt();
+                        println!();
+                        match choice {
+                            Ok("Continue current task") => {
+                                turn_prompt = "Continue the active IntentSpec from its remaining outcomes and verification obligations.".to_string();
+                                continued_spec = Some(state.spec);
                             }
-                        }
-                        _ = tokio::signal::ctrl_c() => {
-                            renderer.flush();
-                            engine.record_cancellation("operator interrupt").await?;
-                            println!("\n  [Operation canceled]");
+                            Ok("Pause and switch tasks") => {
+                                engine.pause_current_intent()?;
+                                self.resume_id = None;
+                                engine = AgentEngine::new(self.config.clone(), self.auth_store.clone(), None).await?;
+                            }
+                            Ok("Amend current focus") => {}
+                            Ok(_) | Err(_) => continue,
                         }
                     }
+
+                    let intent_spec = match continued_spec {
+                        Some(spec) => spec,
+                        None => ClarificationHandler::process_intent(&turn_prompt, true)?,
+                    };
+
+                    self.run_agent_turn(
+                        &engine,
+                        crate::engine::runner::TurnRequest {
+                            prompt: &turn_prompt,
+                            intent: Some(&intent_spec),
+                        },
+                    )
+                    .await?;
                 }
                 Ok(Signal::CtrlC) => {
                     println!("\n  [Operation canceled]");
@@ -158,6 +191,35 @@ impl ReplSession {
             }
         }
 
+        Ok(())
+    }
+
+    async fn run_agent_turn(
+        &self,
+        engine: &AgentEngine,
+        request: crate::engine::runner::TurnRequest<'_>,
+    ) -> Result<()> {
+        let renderer = &self.renderer;
+        let run_future = engine.run_turn(request, renderer);
+        tokio::select! {
+            run_res = run_future => {
+                renderer.flush();
+                println!();
+                match run_res {
+                    Ok(_) => {
+                        if let Some(state) = engine.current_intent_state()? {
+                            renderer.print_unfinished_intent(&state);
+                        }
+                    }
+                    Err(error) => eprintln!("\n  Error: {error}"),
+                }
+            }
+            _ = tokio::signal::ctrl_c() => {
+                renderer.flush();
+                engine.record_cancellation("operator interrupt").await?;
+                println!("\n  [Operation canceled]");
+            }
+        }
         Ok(())
     }
 }

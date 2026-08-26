@@ -13,6 +13,6 @@ mod hook;
 mod types;
 
 pub use capability::ApprovalCapability;
-pub use context::{approval_context, enforce_approval, get_approval_override};
+pub use context::{approval_context, enforce_approval};
 pub use hook::ApprovalHook;
 pub use types::{ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent};

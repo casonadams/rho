@@ -94,7 +94,12 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         println!();
         match res {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                if let Some(state) = engine.current_intent_state()? {
+                    renderer.print_unfinished_intent(&state);
+                }
+                Ok(())
+            }
             Err(e) => {
                 eprintln!("Error: {e}");
                 std::process::exit(1);

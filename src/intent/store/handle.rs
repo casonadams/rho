@@ -1,18 +1,3 @@
-//! [`IntentHandle`](super::IntentHandle) lifecycle and persistence.
-//!
-//! Responsibilities split out of [`super`] (the `store` module):
-//!
-//! - Construction from a fresh spec (`create`) or an existing on-disk file
-//!   (`open`).
-//! - The optimistic-concurrency `update` helper that all mutating methods
-//!   delegate to.
-//! - File-level concerns: `create_file`, `persist`, and the secret-redaction
-//!   guard `reject_secrets`.
-//!
-//! Index management lives in [`super::index`]; the
-//! [`IntentSummary`](super::IntentSummary) projection used to feed the index
-//! also lives there.
-
 use super::{
     INTENT_VERSION, IntentHandle, IntentHeader, IntentSnapshot, IntentState, NewIntent, load_state, validate_intent_id,
 };

@@ -16,19 +16,6 @@ pub fn approval_context(capability: ApprovalCapability) -> ToolContext {
     context
 }
 
-/// Pop any pending argument override recorded by an `ApprovedWithCommand`
-/// decision and deserialize it back into the tool's argument type.
-pub fn get_approval_override<T: serde::de::DeserializeOwned>(
-    context: &ToolContext,
-    tool_name: &str,
-    arguments: &impl Serialize,
-) -> Option<T> {
-    let capability = context.get::<ApprovalCapability>()?;
-    let val = serde_json::to_value(arguments).ok()?;
-    let override_val = capability.take_override(tool_name, &val)?;
-    serde_json::from_value(override_val).ok()
-}
-
 /// Enforce that a mutating tool call has been authorized. Read-only and
 /// workspace-contained mutations are short-circuited without consulting the
 /// approval capability.
@@ -48,7 +35,7 @@ where
     capability.authorize(tool_name, &arguments)
 }
 
-/// Build the lookup key used by grants, denials, and overrides.
+/// Build the lookup key used by grants and denials.
 ///
 /// Returns `None` if the policy can't canonicalize the arguments, which is
 /// treated as "not approvable" by callers.

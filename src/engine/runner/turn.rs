@@ -4,6 +4,7 @@ use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus};
 use crate::engine::runtime::build_runner;
 use crate::error::{AppError, Result};
 use crate::intent::model::IntentSpec;
+use crate::intent::store::{IntentHandle, NewIntent, find_for_session, workspace_id};
 use crate::session::SessionEventKind;
 use crate::session::context::context_memory;
 use crate::tools::{ApprovalCapability, ApprovalHook, RepeatedCallHook, approval_context};
@@ -12,7 +13,7 @@ use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
 use rig::completion::FinishReason;
 use rig::memory::ConversationMemory;
-use rig::streaming::StreamedUserContent;
+use rig::streaming::StreamedAssistantContent;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -47,14 +48,25 @@ pub struct TurnOutput {
 
 impl AgentEngine {
     pub async fn run_turn(&self, request: TurnRequest<'_>, renderer: &TerminalRenderer) -> Result<TurnOutput> {
-        let context = ProjectContext::discover(std::env::current_dir()?).await;
-        let preamble = context.build_system_prompt(request.intent);
+        let current_dir = std::env::current_dir()?;
+        let context = ProjectContext::discover(&current_dir).await;
         self.session_manager
             .append_event(
                 SessionEventKind::UserMessage,
                 serde_json::json!({ "prompt": request.prompt }),
             )
             .await?;
+        let active_intent = self.prepare_intent(request.intent, &current_dir)?;
+        let mut preamble = context.build_system_prompt(None);
+        if let Some(intent) = &active_intent {
+            preamble.push_str("\n\n");
+            preamble.push_str(
+                &intent
+                    .snapshot()?
+                    .context_projection(self.config.compaction_max_bytes)?,
+            );
+            preamble.push_str("\nReport intent_progress before your final response.\n");
+        }
         let visible_history = context_memory(
             self.session_manager.clone(),
             self.config.context_window_messages,
@@ -67,11 +79,9 @@ impl AgentEngine {
 
         self.run_tracker.start();
         let model_label = format!("{}:{}", self.config.model, self.context_usage_display());
-        let spinner = renderer.start_spinner(&format!("{model_label} thinking"));
         let sink = TerminalApprovalSink::new(
             renderer,
             TerminalSinkConfig {
-                model_spinner: spinner,
                 model_label,
                 auto_approve: self.config.auto_approve,
                 run_tracker: self.run_tracker.clone(),
@@ -84,11 +94,15 @@ impl AgentEngine {
         let mut current_budget = self.config.max_turns;
 
         loop {
+            let mut tool_context = approval_context(capability.clone());
+            if let Some(intent) = &active_intent {
+                tool_context.insert(intent.clone());
+            }
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
-                .tool_context(approval_context(capability.clone()))
+                .tool_context(tool_context)
                 .add_hook(RepeatedCallHook::new(std::env::current_dir()?).with_sink(sink.clone()))
                 .add_hook(ApprovalHook::new(capability.clone()));
             let runner = match checkpoint.as_ref() {
@@ -129,13 +143,16 @@ impl AgentEngine {
                     }
                 };
                 match item {
+                    MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCallDelta { .. }) => {
+                        sink.resume_model_spinner();
+                    }
                     MultiTurnStreamItem::StreamAssistantItem(item) => {
                         for event in display_events(item, &mut reasoning_parts) {
                             match event {
                                 super::history::DisplayEvent::Text(text) => sink.emit_text(&text),
                                 super::history::DisplayEvent::Reasoning(text) => sink.emit_reasoning(&text),
                                 super::history::DisplayEvent::ToolCall => {
-                                    sink.flush_reasoning();
+                                    sink.resume_model_spinner();
                                     total_tool_calls += 1;
                                 }
                             }
@@ -143,21 +160,19 @@ impl AgentEngine {
                     }
                     MultiTurnStreamItem::FinalResponse(response) => final_response = Some(response),
                     MultiTurnStreamItem::CompletionCall(call) => self.run_tracker.completion(call),
-                    MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult { .. })
-                    | MultiTurnStreamItem::ToolExecutionCommitted { .. }
-                    | MultiTurnStreamItem::ModelTurnRetried { .. } => {
-                        sink.ensure_model_spinner();
-                    }
+                    MultiTurnStreamItem::ModelTurnRetried { .. } => sink.resume_model_spinner(),
+                    MultiTurnStreamItem::StreamUserItem(_) | MultiTurnStreamItem::ToolExecutionCommitted { .. } => {}
                 }
             }
 
             if budget_hit {
-                sink.ensure_model_spinner();
+                sink.resume_model_spinner();
                 current_prompt = "Please continue where you left off and finish the task.".to_string();
                 current_budget = 50;
                 continue;
             }
 
+            sink.finish_spinner();
             sink.flush_display();
             let Some(response) = final_response else {
                 let error = AppError::Provider(
@@ -177,14 +192,46 @@ impl AgentEngine {
                 })?;
                 self.session_manager.promote_checkpoint(messages).await?;
             }
-            return self
+            let output = self
                 .finish_turn(TurnArtifacts {
                     response,
                     tool_calls_count: total_tool_calls,
                     completed_tools: sink.completed(),
                 })
-                .await;
+                .await?;
+            if output.status == RunStatus::Completed
+                && let Some(intent) = &active_intent
+            {
+                intent.finalize_success()?;
+            }
+            return Ok(output);
         }
+    }
+
+    fn prepare_intent(&self, spec: Option<&IntentSpec>, current_dir: &std::path::Path) -> Result<Option<IntentHandle>> {
+        let Some(spec) = spec else {
+            return Ok(None);
+        };
+        let secrets = self.session_manager.secret_values();
+        if let Some(intent) = find_for_session(
+            &self.config.intents_dir,
+            &self.session_manager.session_id,
+            secrets.clone(),
+        )? && intent.snapshot()?.is_unfinished()
+        {
+            intent.amend(spec)?;
+            return Ok(Some(intent));
+        }
+        IntentHandle::create(
+            &self.config.intents_dir,
+            NewIntent {
+                spec: spec.clone(),
+                workspace: workspace_id(current_dir)?,
+                session_id: self.session_manager.session_id.clone(),
+                secrets,
+            },
+        )
+        .map(Some)
     }
 
     pub async fn record_cancellation(&self, reason: &str) -> Result<()> {

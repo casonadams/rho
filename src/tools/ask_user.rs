@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::intent::IntentHandle;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use schemars::JsonSchema;
@@ -17,6 +18,9 @@ pub struct AskUserArgs {
     /// Optional category header or short chip tag
     #[serde(default)]
     pub header: Option<String>,
+    /// Stable key for recording the answer in the active IntentSpec
+    #[serde(default, rename = "intentKey")]
+    pub intent_key: Option<String>,
     /// Optional batch array of questions
     #[serde(default)]
     pub questions: Option<Vec<Value>>,
@@ -34,26 +38,43 @@ impl AskUserTool {
     }
 
     pub fn execute(&self, args: AskUserArgs) -> Result<ToolResult, AppError> {
+        self.execute_with_intent(args, None)
+    }
+
+    fn execute_with_intent(&self, args: AskUserArgs, intent: Option<&IntentHandle>) -> Result<ToolResult, AppError> {
         if let Some(ref questions) = args.questions
             && !questions.is_empty()
         {
             let mut results = Vec::new();
             for (idx, q_val) in questions.iter().enumerate() {
-                let ans = prompt_question_value(q_val, idx + 1)?;
-                results.push(ans);
+                let answer = prompt_question_value(q_val, idx + 1)?;
+                if let Some(intent) = intent {
+                    intent.record_decision(&answer.key, &answer.value)?;
+                }
+                results.push(answer.display);
             }
             return Ok(binding_clarification(results.join("\n")));
         }
 
         let question_text = extract_question_text(&args);
-        let header = args.header.or_else(|| extract_str_from_map(&args.extra, "header"));
+        let header = args
+            .header
+            .clone()
+            .or_else(|| extract_str_from_map(&args.extra, "header"));
         let options = args
             .options
             .or_else(|| extract_vec_from_map(&args.extra, "options"))
             .or_else(|| extract_vec_from_map(&args.extra, "choices"));
 
-        let ans = prompt_question_interactive(&question_text, header.as_deref(), options.as_deref())?;
-        Ok(binding_clarification(ans))
+        let answer = prompt_question_interactive(&question_text, header.as_deref(), options.as_deref())?;
+        if let Some(intent) = intent {
+            let key = args
+                .intent_key
+                .or_else(|| extract_str_from_map(&args.extra, "intentKey"))
+                .unwrap_or_else(|| decision_key(header.as_deref().unwrap_or(&question_text)));
+            intent.record_decision(&key, &answer)?;
+        }
+        Ok(binding_clarification(answer))
     }
 }
 
@@ -134,12 +155,15 @@ fn extract_parsed_option(opt: &Value) -> ParsedOption {
     }
 }
 
-fn prompt_question_value(q_val: &Value, index: usize) -> Result<String, AppError> {
-    match q_val {
-        Value::String(s) => {
-            let ans = prompt_question_interactive(s, None, None)?;
-            Ok(format!("{index}. {s}: {ans}"))
-        }
+struct PromptAnswer {
+    key: String,
+    value: String,
+    display: String,
+}
+
+fn prompt_question_value(q_val: &Value, index: usize) -> Result<PromptAnswer, AppError> {
+    let (question, header, options, explicit_key) = match q_val {
+        Value::String(question) => (question.as_str(), None, None, None),
         Value::Object(obj) => {
             let question = obj
                 .get("question")
@@ -152,16 +176,39 @@ fn prompt_question_value(q_val: &Value, index: usize) -> Result<String, AppError
             let options = obj
                 .get("options")
                 .or_else(|| obj.get("choices"))
-                .and_then(Value::as_array);
-            let ans = prompt_question_interactive(question, header, options.map(|v| v.as_slice()))?;
-            Ok(format!("{index}. {question}: {ans}"))
+                .and_then(Value::as_array)
+                .map(Vec::as_slice);
+            let key = obj.get("intentKey").and_then(Value::as_str);
+            (question, header, options, key)
         }
-        _ => {
-            let s = q_val.to_string();
-            let ans = prompt_question_interactive(&s, None, None)?;
-            Ok(format!("{index}. {s}: {ans}"))
-        }
+        _ => ("Question", None, None, None),
+    };
+    let value = prompt_question_interactive(question, header, options)?;
+    let key = explicit_key
+        .map(ToString::to_string)
+        .unwrap_or_else(|| decision_key(header.unwrap_or(question)));
+    Ok(PromptAnswer {
+        key,
+        display: format!("{index}. {question}: {value}"),
+        value,
+    })
+}
+
+fn decision_key(value: &str) -> String {
+    let mut key = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '.'
+            }
+        })
+        .collect::<String>();
+    while key.contains("..") {
+        key = key.replace("..", ".");
     }
+    key.trim_matches('.').to_string()
 }
 
 fn prompt_question_interactive(
@@ -209,14 +256,14 @@ fn prompt_question_interactive(
                     .unwrap_or(choice);
                 Ok(val)
             }
-            Err(_) => Ok("User skipped / cancelled question.".to_string()),
+            Err(_) => Err(AppError::Cancelled("Question cancelled by user".to_string())),
         }
     } else {
         let ans = inquire::Text::new("Your answer:").prompt();
         println!();
         match ans {
             Ok(text) => Ok(text),
-            Err(_) => Ok("User skipped / cancelled question.".to_string()),
+            Err(_) => Err(AppError::Cancelled("Question cancelled by user".to_string())),
         }
     }
 }
@@ -235,10 +282,11 @@ impl Tool for AskUserTool {
         generated_schema::<AskUserArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let intent = context.get::<IntentHandle>().cloned();
         let res = tokio::task::spawn_blocking(move || {
             let _ = std::io::stdout().flush();
-            AskUserTool.execute(args)
+            AskUserTool.execute_with_intent(args, intent.as_ref())
         })
         .await
         .map_err(|e| ToolExecutionError::other(format!("ask_user prompt task failed: {e}")))?;
@@ -264,10 +312,11 @@ impl Tool for AskUserQuestionTool {
         generated_schema::<AskUserArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let intent = context.get::<IntentHandle>().cloned();
         let res = tokio::task::spawn_blocking(move || {
             let _ = std::io::stdout().flush();
-            AskUserTool.execute(args)
+            AskUserTool.execute_with_intent(args, intent.as_ref())
         })
         .await
         .map_err(|e| ToolExecutionError::other(format!("ask_user prompt task failed: {e}")))?;

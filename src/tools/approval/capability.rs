@@ -5,19 +5,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Borrow describing a one-shot approval that should also rewrite the
-/// arguments before the tool executes (the "edit then approve" path).
-pub(crate) struct OverrideGrant<'a> {
-    pub tool_name: &'a str,
-    pub arguments: &'a Value,
-    pub override_args: Value,
-}
-
 struct ApprovalCapabilityInner {
     auto_approve: bool,
     sink: Arc<dyn ApprovalEventSink>,
     grants: Mutex<HashMap<String, usize>>,
-    overrides: Mutex<HashMap<String, Value>>,
     denials: Mutex<HashMap<String, String>>,
 }
 
@@ -34,7 +25,6 @@ impl ApprovalCapability {
                 auto_approve,
                 sink,
                 grants: Mutex::new(HashMap::new()),
-                overrides: Mutex::new(HashMap::new()),
                 denials: Mutex::new(HashMap::new()),
             }),
         }
@@ -63,25 +53,6 @@ impl ApprovalCapability {
         if let Ok(mut grants) = self.inner.grants.lock() {
             *grants.entry(key).or_default() += 1;
         }
-    }
-
-    /// Record a one-shot approval that also overrides the tool's arguments.
-    pub(crate) fn grant_with_override(&self, grant: OverrideGrant<'_>) {
-        let Some(key) = approval_key(grant.tool_name, grant.arguments) else {
-            return;
-        };
-        if let Ok(mut grants) = self.inner.grants.lock() {
-            *grants.entry(key.clone()).or_default() += 1;
-        }
-        if let Ok(mut overrides) = self.inner.overrides.lock() {
-            overrides.insert(key, grant.override_args);
-        }
-    }
-
-    /// Pop any pending argument override for the given tool call.
-    pub fn take_override(&self, tool_name: &str, arguments: &Value) -> Option<Value> {
-        let key = approval_key(tool_name, arguments)?;
-        self.inner.overrides.lock().ok()?.remove(&key)
     }
 
     /// Record a denial that will short-circuit the next matching call.

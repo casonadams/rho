@@ -24,6 +24,7 @@ pub struct Config {
     pub region: String,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
+    pub intents_dir: PathBuf,
     pub auth_file: PathBuf,
 }
 
@@ -48,6 +49,7 @@ impl Default for Config {
             allow_private_network: false,
             region: "wt-wt".to_string(),
             sessions_dir: base_dir.join("sessions"),
+            intents_dir: base_dir.join("intents"),
             auth_file: base_dir.join("auth.json"),
             config_dir: base_dir,
         }
@@ -240,6 +242,7 @@ impl Config {
     pub fn ensure_dirs(&self) -> Result<()> {
         std::fs::create_dir_all(&self.config_dir)?;
         std::fs::create_dir_all(&self.sessions_dir)?;
+        std::fs::create_dir_all(&self.intents_dir)?;
         Ok(())
     }
 }

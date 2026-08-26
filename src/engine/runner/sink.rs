@@ -54,7 +54,6 @@ pub struct TerminalApprovalSink {
 }
 
 pub struct TerminalSinkConfig {
-    pub model_spinner: ProgressBar,
     pub model_label: String,
     pub auto_approve: bool,
     pub run_tracker: RunTracker,
@@ -66,6 +65,7 @@ impl TerminalApprovalSink {
         config: TerminalSinkConfig,
         session_manager: SessionManager,
     ) -> std::sync::Arc<Self> {
+        let spinner = renderer.start_spinner(&format!("{} thinking", config.model_label));
         std::sync::Arc::new(Self {
             renderer: renderer.clone(),
             model_label: config.model_label,
@@ -73,7 +73,7 @@ impl TerminalApprovalSink {
             run_tracker: config.run_tracker,
             state: Mutex::new(TerminalSinkState {
                 auto_approve: config.auto_approve,
-                spinner: Some(config.model_spinner),
+                spinner: Some(spinner),
                 pending: HashMap::new(),
                 reasoning: Vec::new(),
                 completed: Vec::new(),
@@ -88,7 +88,12 @@ impl TerminalApprovalSink {
         }
     }
 
-    pub fn ensure_model_spinner(&self) {
+    pub fn resume_model_spinner(&self) {
+        if self.state.lock().is_ok_and(|state| state.spinner.is_some()) {
+            return;
+        }
+        self.flush_reasoning();
+        self.renderer.flush();
         if let Ok(mut state) = self.state.lock()
             && state.spinner.is_none()
         {
@@ -103,9 +108,6 @@ impl TerminalApprovalSink {
             .unwrap_or_default()
     }
 
-    /// Render buffered reasoning as a distinct, boxed "Thinking" block so it never
-    /// runs into the streamed output text. Any pending markdown is flushed first to
-    /// preserve ordering.
     pub fn flush_reasoning(&self) {
         let had_reasoning = self
             .state
@@ -125,8 +127,6 @@ impl TerminalApprovalSink {
         }
     }
 
-    /// Stream a reasoning token: clear any spinner so thinking is readable, then buffer
-    /// it until the model transitions to real output (or the turn ends).
     pub fn emit_reasoning(&self, text: &str) {
         if text.is_empty() {
             return;
@@ -162,8 +162,6 @@ impl TerminalApprovalSink {
         self.renderer.print_thinking_token(&text_to_stream);
     }
 
-    /// Stream an output token. Reasoning buffered so far is rendered as a block first
-    /// so thinking and output never interleave on the same line.
     pub fn emit_text(&self, text: &str) {
         self.flush_reasoning();
         self.finish_spinner();
@@ -218,9 +216,6 @@ impl ApprovalEventSink for TerminalApprovalSink {
         };
         match result {
             ApprovalResult::Approved => crate::tools::ApprovalDecision::Approved,
-            ApprovalResult::ApprovedWithCommand(command) => {
-                crate::tools::ApprovalDecision::ApprovedWithCommand(command)
-            }
             ApprovalResult::Denied { reason } => crate::tools::ApprovalDecision::Denied { reason },
         }
     }

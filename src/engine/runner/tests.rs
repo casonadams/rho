@@ -93,12 +93,11 @@ fn renderer_events_preserve_reasoning_text_order_without_duplicates() {
 }
 
 #[test]
-fn reasoning_buffers_and_flushes_on_output() {
+fn visible_stream_clears_spinner_and_hidden_output_resumes_it() {
     let renderer = TerminalRenderer::default();
     let sink = TerminalApprovalSink::new(
         &renderer,
         TerminalSinkConfig {
-            model_spinner: renderer.start_spinner("model"),
             model_label: "model".to_string(),
             auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
@@ -108,10 +107,15 @@ fn reasoning_buffers_and_flushes_on_output() {
     sink.emit_reasoning("think ");
     sink.emit_reasoning("harder");
     assert_eq!(sink.state.lock().unwrap().reasoning.join(""), "think harder");
+    assert!(sink.state.lock().unwrap().spinner.is_none());
 
-    // Transitioning to real output flushes the buffered thinking block.
     sink.emit_text("answer");
     assert!(sink.state.lock().unwrap().reasoning.is_empty());
+    assert!(sink.state.lock().unwrap().spinner.is_none());
+
+    sink.resume_model_spinner();
+    assert!(sink.state.lock().unwrap().spinner.is_some());
+    sink.finish_spinner();
 }
 
 #[test]
@@ -120,7 +124,6 @@ fn approval_required_holds_spinner_until_granted() {
     let sink = TerminalApprovalSink::new(
         &renderer,
         TerminalSinkConfig {
-            model_spinner: renderer.start_spinner("model"),
             model_label: "model".to_string(),
             auto_approve: false,
             run_tracker: crate::engine::metrics::RunTracker::default(),
@@ -154,7 +157,6 @@ fn approval_denied_leaves_no_spinner() {
     let sink = TerminalApprovalSink::new(
         &renderer,
         TerminalSinkConfig {
-            model_spinner: renderer.start_spinner("model"),
             model_label: "model".to_string(),
             auto_approve: false,
             run_tracker: crate::engine::metrics::RunTracker::default(),
@@ -183,7 +185,6 @@ fn reasoning_flushes_before_tool_classification() {
     let sink = TerminalApprovalSink::new(
         &renderer,
         TerminalSinkConfig {
-            model_spinner: renderer.start_spinner("model"),
             model_label: "model".to_string(),
             auto_approve: false,
             run_tracker: crate::engine::metrics::RunTracker::default(),
@@ -729,7 +730,6 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
     let sink = TerminalApprovalSink::new(
         &renderer,
         TerminalSinkConfig {
-            model_spinner: renderer.start_spinner("model"),
             model_label: "model".to_string(),
             auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),

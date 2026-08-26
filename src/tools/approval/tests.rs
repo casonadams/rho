@@ -389,31 +389,6 @@ async fn direct_mutating_bash_without_capability_spawns_no_process() {
     assert!(!marker.exists());
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn edited_mutating_bash_executes_overridden_command() {
-    let dir = temp_dir("edited_bash");
-    tokio::fs::create_dir_all(&dir).await.unwrap();
-    let original_marker = dir.join("original");
-    let edited_marker = dir.join("edited");
-    let sink = FakeSink::new(ApprovalDecision::ApprovedWithCommand(format!(
-        "touch {}",
-        edited_marker.display()
-    )));
-
-    run_tool(
-        BashTool::new(&dir),
-        json!({"command": format!("touch {}", original_marker.display())}),
-        ApprovalCapability::new(false, sink.clone()),
-    )
-    .await;
-
-    assert!(!original_marker.exists());
-    assert!(edited_marker.exists());
-    assert_eq!(sink.request_count(), 1);
-    assert_eq!(sink.statuses(), ["success"]);
-}
-
 fn temp_dir(label: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("rust_ai_{label}_{}", uuid::Uuid::new_v4()))
 }

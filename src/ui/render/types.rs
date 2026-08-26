@@ -5,7 +5,6 @@ use crate::tools::bash_ast::RiskTier;
 /// Outcome of an approval prompt.
 pub enum ApprovalResult {
     Approved,
-    ApprovedWithCommand(String),
     Denied { reason: String },
 }
 

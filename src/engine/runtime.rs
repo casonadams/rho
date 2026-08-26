@@ -5,7 +5,7 @@ use crate::session::context::context_memory;
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
-use crate::tools::{AskUserQuestionTool, AskUserTool, BashTool, EditTool, ReadTool, WriteTool};
+use crate::tools::{AskUserQuestionTool, AskUserTool, BashTool, EditTool, IntentProgressTool, ReadTool, WriteTool};
 use rig::agent::{Agent, AgentBuilder, AgentRunner, ModelHandle};
 use std::path::Path;
 
@@ -57,6 +57,7 @@ pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRu
         .tool(BashTool::new(base_dir))
         .tool(AskUserTool::new())
         .tool(AskUserQuestionTool(AskUserTool::new()))
+        .tool(IntentProgressTool)
         .tool(search)
         .tool(fetch);
 

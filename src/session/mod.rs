@@ -157,6 +157,10 @@ impl SessionManager {
         Ok(())
     }
 
+    pub(crate) fn secret_values(&self) -> Vec<String> {
+        self.secrets.lock().map(|secrets| secrets.clone()).unwrap_or_default()
+    }
+
     pub fn redact_credentials(&self, value: &str) -> String {
         let Ok(secrets) = self.secrets.lock() else {
             return "[REDACTED]".to_string();

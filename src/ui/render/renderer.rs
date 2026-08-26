@@ -31,7 +31,6 @@ impl Default for TerminalRenderer {
 enum ToolApprovalChoice {
     ApplyOnce,
     Deny,
-    DenyWithFeedback,
 }
 
 impl fmt::Display for ToolApprovalChoice {
@@ -39,7 +38,6 @@ impl fmt::Display for ToolApprovalChoice {
         formatter.write_str(match self {
             Self::ApplyOnce => "Apply once",
             Self::Deny => "Deny",
-            Self::DenyWithFeedback => "Deny with feedback",
         })
     }
 }
@@ -47,18 +45,14 @@ impl fmt::Display for ToolApprovalChoice {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BashApprovalChoice {
     RunOnce,
-    EditCommand,
     Deny,
-    DenyWithFeedback,
 }
 
 impl fmt::Display for BashApprovalChoice {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::RunOnce => "Run once",
-            Self::EditCommand => "Edit command",
             Self::Deny => "Deny",
-            Self::DenyWithFeedback => "Deny with feedback",
         })
     }
 }
@@ -72,11 +66,31 @@ impl TerminalRenderer {
         println!("{dim}Type your prompt or /help for slash commands.{dim:#}\n");
     }
 
+    pub fn print_unfinished_intent(&self, state: &crate::intent::IntentState) {
+        if !state.is_unfinished() {
+            return;
+        }
+        let remaining = state
+            .spec
+            .outcomes
+            .iter()
+            .filter(|outcome| !state.completed_outcomes.contains(outcome))
+            .count();
+        let dim = self.theme.dimmed;
+        if let Some(reason) = &state.blocked_reason {
+            println!("{dim}Intent blocked: {reason}{dim:#}");
+        } else if remaining > 0 {
+            println!("{dim}Intent still active: {remaining} outcomes remaining.{dim:#}");
+        } else {
+            println!("{dim}Intent still active: completion not verified.{dim:#}");
+        }
+    }
+
     pub fn start_spinner(&self, message: &str) -> ProgressBar {
         let pb = ProgressBar::new_spinner();
         let style = ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan} {msg:.dim}")
+            .template("{spinner:.blue} {msg:.dim}")
             .unwrap_or_else(|_| ProgressStyle::default_spinner());
         pb.set_style(style);
         pb.set_message(message.to_string());
@@ -121,17 +135,13 @@ impl TerminalRenderer {
             println!("{preview}");
         }
 
-        let choices = vec![
-            ToolApprovalChoice::ApplyOnce,
-            ToolApprovalChoice::Deny,
-            ToolApprovalChoice::DenyWithFeedback,
-        ];
+        let choices = vec![ToolApprovalChoice::ApplyOnce, ToolApprovalChoice::Deny];
         let choice = inquire::Select::new("Action:", choices).prompt();
         println!();
         match choice {
             Ok(ToolApprovalChoice::ApplyOnce) => ApprovalResult::Approved,
-            Ok(ToolApprovalChoice::DenyWithFeedback) => self.prompt_denial_feedback(),
-            Ok(ToolApprovalChoice::Deny) | Err(_) => ApprovalResult::Denied { reason: String::new() },
+            Ok(ToolApprovalChoice::Deny) => self.prompt_denial_feedback(),
+            Err(_) => ApprovalResult::Denied { reason: String::new() },
         }
     }
 
@@ -144,13 +154,8 @@ impl TerminalRenderer {
         }
         println!();
 
-        let actions = vec![
-            BashApprovalChoice::RunOnce,
-            BashApprovalChoice::EditCommand,
-            BashApprovalChoice::Deny,
-            BashApprovalChoice::DenyWithFeedback,
-        ];
-        let starting_cursor = usize::from(request.tier == RiskTier::HighRisk) * 2;
+        let actions = vec![BashApprovalChoice::RunOnce, BashApprovalChoice::Deny];
+        let starting_cursor = usize::from(request.tier == RiskTier::HighRisk);
         let choice = inquire::Select::new("Action:", actions)
             .with_starting_cursor(starting_cursor)
             .prompt();
@@ -158,22 +163,13 @@ impl TerminalRenderer {
         println!();
         match choice {
             Ok(BashApprovalChoice::RunOnce) => ApprovalResult::Approved,
-            Ok(BashApprovalChoice::EditCommand) => {
-                let edited = inquire::Text::new("$").with_initial_value(request.command).prompt();
-                println!();
-                match edited {
-                    Ok(cmd) if !cmd.trim().is_empty() => ApprovalResult::ApprovedWithCommand(cmd.trim().to_string()),
-                    Ok(_) => ApprovalResult::Approved,
-                    Err(_) => ApprovalResult::Denied { reason: String::new() },
-                }
-            }
-            Ok(BashApprovalChoice::DenyWithFeedback) => self.prompt_denial_feedback(),
-            Ok(BashApprovalChoice::Deny) | Err(_) => ApprovalResult::Denied { reason: String::new() },
+            Ok(BashApprovalChoice::Deny) => self.prompt_denial_feedback(),
+            Err(_) => ApprovalResult::Denied { reason: String::new() },
         }
     }
 
     fn prompt_denial_feedback(&self) -> ApprovalResult {
-        let reason = inquire::Text::new("Feedback for the agent:")
+        let reason = inquire::Text::new("Feedback for the agent (optional):")
             .prompt()
             .unwrap_or_default();
         println!();
@@ -186,10 +182,10 @@ impl TerminalRenderer {
         let summary = format_tool_args_summary(line.name, line.arguments);
         if line.is_error {
             let err = self.theme.tool_err;
-            println!("{err}✖ {}{err:#} {summary} -> {}", line.name, line.output_summary);
+            println!("{err}{}{err:#} {summary} -> {}", line.name, line.output_summary);
         } else {
             let ok = self.theme.tool_ok;
-            println!("{ok}✔ {}{ok:#} {summary}", line.name);
+            println!("{ok}{}{ok:#} {summary}", line.name);
             if line.name == "edit"
                 && let Some(diff) = format_edit_diff(line.arguments, &self.theme)
             {
@@ -245,16 +241,16 @@ impl TerminalRenderer {
         let summary = format_tool_args_summary(name, args);
         let header = self.theme.tool_header;
         let dim = self.theme.dimmed;
-        println!("{header}⚙{header:#} {name} {dim}{summary}{dim:#}");
+        println!("{header}{name}{header:#} {dim}{summary}{dim:#}");
     }
 
     pub fn print_tool_end(&self, outcome: ToolOutcome<'_>) {
         if outcome.is_error {
             let err = self.theme.tool_err;
-            println!("{err}✖ {} failed:{err:#} {}", outcome.name, outcome.output_summary);
+            println!("{err}{} failed:{err:#} {}", outcome.name, outcome.output_summary);
         } else {
             let ok = self.theme.tool_ok;
-            println!("{ok}✔ {}{ok:#}", outcome.name);
+            println!("{ok}{}{ok:#}", outcome.name);
         }
     }
 }

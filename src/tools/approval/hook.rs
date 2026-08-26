@@ -1,5 +1,4 @@
 use crate::tools::approval::capability::ApprovalCapability;
-use crate::tools::approval::capability::OverrideGrant;
 use crate::tools::approval::types::{ApprovalDecision, ApprovalRequest, ToolEvent};
 use crate::tools::policy::ToolExecutionPolicy;
 use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent};
@@ -47,18 +46,6 @@ impl AgentHook for ApprovalHook {
         match decision {
             ApprovalDecision::Approved => {
                 self.capability.grant_once(event.tool_name, &arguments);
-                self.capability.emit_sink(ToolEvent::ApprovalGranted {
-                    internal_call_id: event.internal_call_id.to_string(),
-                    tool_name: event.tool_name.to_string(),
-                });
-            }
-            ApprovalDecision::ApprovedWithCommand(new_command) => {
-                let override_args = serde_json::json!({ "command": new_command });
-                self.capability.grant_with_override(OverrideGrant {
-                    tool_name: event.tool_name,
-                    arguments: &arguments,
-                    override_args,
-                });
                 self.capability.emit_sink(ToolEvent::ApprovalGranted {
                     internal_call_id: event.internal_call_id.to_string(),
                     tool_name: event.tool_name.to_string(),

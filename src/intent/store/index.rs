@@ -1,12 +1,3 @@
-//! Intent index management.
-//!
-//! The index is a small JSON file (`index.json` next to the per-intent
-//! `.jsonl` files) that lists every known intent as an [`IntentSummary`]. It
-//! is a *cache*: every read path tries to load it, falling back to
-//! [`rebuild_index`] when the file is missing or malformed. Every successful
-//! persistence in [`super::handle`] calls [`update_index`] so the cache stays
-//! eventually consistent with the per-intent files.
-
 use super::super::lifecycle::IntentState;
 use super::{IntentIndex, IntentSummary};
 use crate::error::{AppError, Result};
