@@ -38,7 +38,6 @@ indicatif = "0.17"
 comfy-table = "7.1"
 meraid = "0.1"
 crossterm = "0.28"
-anstream = "0.6"
 anstyle = "1.0"
 pulldown-cmark = "0.13"
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
@@ -57,7 +56,6 @@ pdf-extract = "0.7"
 moka = { version = "0.12", features = ["future"] }
 
 # Utilities & Config
-directories = "5.0"
 toml = "0.8"
 dotenvy = "0.15"
 thiserror = "2.0"

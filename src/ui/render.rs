@@ -388,81 +388,6 @@ pub fn clean_command_paths(cmd: &str) -> String {
     cleaned
 }
 
-pub fn split_shell_pipeline(cmd: &str) -> Vec<String> {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut in_single_quote = false;
-    let mut in_double_quote = false;
-    let mut chars = cmd.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\'' && !in_double_quote {
-            in_single_quote = !in_single_quote;
-            current.push(ch);
-            continue;
-        }
-        if ch == '"' && !in_single_quote {
-            in_double_quote = !in_double_quote;
-            current.push(ch);
-            continue;
-        }
-
-        if !in_single_quote && !in_double_quote {
-            if ch == '\n' {
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    parts.push(trimmed.to_string());
-                    current.clear();
-                }
-                continue;
-            }
-            if ch == '&' && chars.peek() == Some(&'&') {
-                chars.next();
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    parts.push(format!("{trimmed} &&"));
-                }
-                current.clear();
-                continue;
-            }
-            if ch == '|' && chars.peek() == Some(&'|') {
-                chars.next();
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    parts.push(format!("{trimmed} ||"));
-                }
-                current.clear();
-                continue;
-            }
-            if ch == '|' {
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    parts.push(format!("{trimmed} |"));
-                }
-                current.clear();
-                continue;
-            }
-            if ch == ';' {
-                let trimmed = current.trim();
-                if !trimmed.is_empty() {
-                    parts.push(format!("{trimmed};"));
-                }
-                current.clear();
-                continue;
-            }
-        }
-
-        current.push(ch);
-    }
-
-    let trimmed = current.trim();
-    if !trimmed.is_empty() {
-        parts.push(trimmed.to_string());
-    }
-
-    parts
-}
-
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => {
@@ -549,17 +474,6 @@ pub fn summarize_tool_output(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_split_shell_pipeline() {
-        let cmd = "echo 'hello' && cat Cargo.toml | grep name; ls -la";
-        let parts = split_shell_pipeline(cmd);
-        assert_eq!(parts.len(), 4);
-        assert_eq!(parts[0], "echo 'hello' &&");
-        assert_eq!(parts[1], "cat Cargo.toml |");
-        assert_eq!(parts[2], "grep name;");
-        assert_eq!(parts[3], "ls -la");
-    }
 
     #[test]
     fn test_bash_approval_details_include_command_and_reasons() {

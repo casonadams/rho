@@ -83,7 +83,7 @@ fn print_help(config: &Config) {
     println!("\n  Available Slash Commands:");
     println!("    /help              Show this help reference");
     println!("    /model [name]      Inspect or change the active model and provider");
-    println!("    /clear             Clear current conversation context");
+    println!("    /clear             Start a fresh v2 session; preserve prior files");
     println!("    /login [provider]  Verify an API key or start subscription OAuth");
     println!("    /logout [provider] Remove only that provider's credentials");
     println!("    /exit              Exit session\n");
@@ -103,7 +103,7 @@ fn print_help(config: &Config) {
         if config.auto_approve {
             "autonomous"
         } else {
-            "confirm bash"
+            "confirm mutations"
         }
     );
     println!();

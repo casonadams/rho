@@ -565,6 +565,60 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
     assert_eq!(reopened.load_messages().await.unwrap().len(), 7);
 }
 
+#[tokio::test]
+async fn failed_checkpoint_continuation_remains_available_until_success() {
+    let first_model = MockCompletionModel::from_stream_turns([[
+        MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path":"missing"})),
+        final_event(Usage::new()),
+    ]]);
+    let first = test_engine(
+        first_model,
+        Config {
+            max_turns: 1,
+            ..Config::default()
+        },
+    );
+    first
+        .run_turn(request("inspect"), &TerminalRenderer::default())
+        .await
+        .unwrap_err();
+    let checkpoint = first.session_manager.load_checkpoint().await.unwrap().unwrap();
+    let id = first.session_manager.session_id.clone();
+    let dir = first.session_manager.file_path.parent().unwrap().to_path_buf();
+    drop(first);
+
+    let resumed_store = SessionManager::new(&dir, Some(&id)).unwrap();
+    let resumed_model = MockCompletionModel::from_stream_turns([
+        vec![MockStreamEvent::error("offline provider failure")],
+        vec![MockStreamEvent::text("done"), final_event(Usage::new())],
+    ]);
+    let resumed = test_engine_with_session(resumed_model.clone(), Config::default(), resumed_store);
+    resumed
+        .run_turn(request("continue"), &TerminalRenderer::default())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        resumed.session_manager.load_checkpoint().await.unwrap(),
+        Some(checkpoint)
+    );
+
+    resumed
+        .run_turn(request("continue again"), &TerminalRenderer::default())
+        .await
+        .unwrap();
+    for request in resumed_model.requests() {
+        let history = serde_json::to_string(&request.chat_history).unwrap();
+        assert_eq!(history.matches("inspect").count(), 1);
+        assert_eq!(history.matches("missing").count(), 2);
+    }
+    assert!(resumed.session_manager.load_checkpoint().await.unwrap().is_none());
+
+    drop(resumed);
+    let reopened = SessionManager::new(&dir, Some(&id)).unwrap();
+    assert!(reopened.load_checkpoint().await.unwrap().is_none());
+    assert_eq!(reopened.load_messages().await.unwrap().len(), 5);
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn mutating_tools_execute_sequentially() {

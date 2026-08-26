@@ -17,6 +17,7 @@ use engine::provider::{CredentialStrategy, ProviderId, RigCredentialVerifier};
 use error::{AppError, Result};
 use intent::clarify::ClarificationHandler;
 use repl::ReplSession;
+use std::future::Future;
 use std::io::Read;
 use std::str::FromStr;
 use ui::TerminalRenderer;
@@ -113,15 +114,24 @@ pub(crate) async fn login_provider(provider: Option<&str>, config: &Config, auth
         CredentialStrategy::ApiKey => login_api_key(provider, auth_store).await,
         CredentialStrategy::SubscriptionOAuth => {
             let manager = OAuthManager::new(&config.config_dir);
-            cancellable_oauth(provider, manager.login(provider), tokio::signal::ctrl_c()).await?;
-            println!("Authenticated {provider} subscription with Rig OAuth");
-            Ok(())
+            login_subscription(provider, |selected| manager.login(selected), tokio::signal::ctrl_c()).await
         }
         CredentialStrategy::Local => {
             println!("{provider} is local and does not require credential verification");
             Ok(())
         }
     }
+}
+
+async fn login_subscription<F, Fut, C>(provider: ProviderId, login: F, cancel: C) -> Result<()>
+where
+    F: FnOnce(ProviderId) -> Fut,
+    Fut: Future<Output = Result<()>>,
+    C: Future<Output = std::io::Result<()>>,
+{
+    cancellable_oauth(provider, login(provider), cancel).await?;
+    println!("Authenticated {provider} subscription with Rig OAuth");
+    Ok(())
 }
 
 async fn login_api_key(provider: ProviderId, auth_store: &mut AuthStore) -> Result<()> {
@@ -200,5 +210,24 @@ mod provider_cli_tests {
                 .credential_strategy(),
             CredentialStrategy::SubscriptionOAuth
         );
+    }
+
+    #[tokio::test]
+    async fn subscription_login_dispatches_chatgpt_and_copilot_without_credentials() {
+        for expected in [ProviderId::ChatGpt, ProviderId::Copilot] {
+            let selected = std::sync::Arc::new(std::sync::Mutex::new(None));
+            let observed = selected.clone();
+            login_subscription(
+                expected,
+                move |provider| {
+                    *observed.lock().unwrap() = Some(provider);
+                    std::future::ready(Ok(()))
+                },
+                std::future::pending(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(*selected.lock().unwrap(), Some(expected));
+        }
     }
 }

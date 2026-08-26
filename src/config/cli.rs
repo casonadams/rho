@@ -1,7 +1,13 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "rust-ai", author, version, about = "Minimal agentic coding CLI harness")]
+#[command(
+    name = "rust-ai",
+    author,
+    version,
+    about = "Minimal agentic coding CLI harness",
+    after_help = "Authentication:\n  API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere\n  Subscription OAuth: chatgpt, copilot (explicit login required)\n  Local: ollama\n\nContext defaults:\n  AI_CONTEXT_WINDOW_MESSAGES=24\n  AI_COMPACTION_MAX_BYTES=8192"
+)]
 pub struct Cli {
     /// One-shot prompt to execute
     #[arg(short = 'p', long = "prompt")]
@@ -23,11 +29,11 @@ pub struct Cli {
     #[arg(long = "max-turns", env = "AI_MAX_TURNS")]
     pub max_turns: Option<usize>,
 
-    /// Automatically approve tool execution without asking
+    /// Automatically approve write, edit, and mutating or uncertain Bash calls
     #[arg(short = 'y', long = "auto-approve", default_value_t = false)]
     pub auto_approve: bool,
 
-    /// Resume a previous session by ID
+    /// Resume a version-2 session by ID, including any pending budget checkpoint
     #[arg(long = "resume")]
     pub resume: Option<String>,
 
@@ -88,5 +94,26 @@ mod tests {
         let cli = Cli::try_parse_from(["rust-ai", "--max-output-tokens", "8192", "--max-turns", "12"]).unwrap();
         assert_eq!(cli.max_output_tokens, Some(8192));
         assert_eq!(cli.max_turns, Some(12));
+    }
+
+    #[test]
+    fn help_matches_documented_auth_sessions_limits_and_context() {
+        use clap::CommandFactory;
+
+        let mut help = Vec::new();
+        Cli::command().write_long_help(&mut help).unwrap();
+        let help = String::from_utf8(help).unwrap();
+        for expected in [
+            "openai",
+            "chatgpt",
+            "copilot",
+            "explicit login required",
+            "provider default when omitted",
+            "pending budget checkpoint",
+            "AI_CONTEXT_WINDOW_MESSAGES=24",
+            "AI_COMPACTION_MAX_BYTES=8192",
+        ] {
+            assert!(help.contains(expected), "missing help text: {expected}");
+        }
     }
 }
