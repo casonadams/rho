@@ -81,9 +81,19 @@ fn extract_vec_from_map(map: &serde_json::Map<String, Value>, key: &str) -> Opti
     map.get(key).and_then(Value::as_array).cloned()
 }
 
-fn extract_option_label(opt: &Value) -> (String, String) {
+struct ParsedOption {
+    label: String,
+    description: Option<String>,
+    value: String,
+}
+
+fn extract_parsed_option(opt: &Value) -> ParsedOption {
     match opt {
-        Value::String(s) => (s.clone(), s.clone()),
+        Value::String(s) => ParsedOption {
+            label: s.clone(),
+            description: None,
+            value: s.clone(),
+        },
         Value::Object(obj) => {
             let label = obj
                 .get("label")
@@ -98,14 +108,25 @@ fn extract_option_label(opt: &Value) -> (String, String) {
                 .get("description")
                 .or_else(|| obj.get("desc"))
                 .and_then(Value::as_str)
-                .unwrap_or("");
-            if !desc.is_empty() {
-                (format!("{label} ({desc})"), label)
-            } else {
-                (label.clone(), label)
+                .map(ToString::to_string)
+                .filter(|d| !d.trim().is_empty());
+            let value = obj
+                .get("value")
+                .or_else(|| obj.get("label"))
+                .and_then(Value::as_str)
+                .unwrap_or(&label)
+                .to_string();
+            ParsedOption {
+                label,
+                description: desc,
+                value,
             }
         }
-        _ => (opt.to_string(), opt.to_string()),
+        _ => ParsedOption {
+            label: opt.to_string(),
+            description: None,
+            value: opt.to_string(),
+        },
     }
 }
 
@@ -153,8 +174,18 @@ fn prompt_question_interactive(
     if let Some(opts) = options
         && !opts.is_empty()
     {
-        let parsed_opts: Vec<(String, String)> = opts.iter().map(extract_option_label).collect();
-        let mut labels: Vec<String> = parsed_opts.iter().map(|(display, _)| display.clone()).collect();
+        let parsed: Vec<ParsedOption> = opts.iter().map(extract_parsed_option).collect();
+
+        let has_descriptions = parsed.iter().any(|o| o.description.is_some());
+        if has_descriptions {
+            for opt in &parsed {
+                if let Some(ref desc) = opt.description {
+                    println!("• {}:\n  {desc}\n", opt.label);
+                }
+            }
+        }
+
+        let mut labels: Vec<String> = parsed.iter().map(|o| o.label.clone()).collect();
         let custom_choice = "Type a custom answer...".to_string();
         labels.push(custom_choice.clone());
 
@@ -167,10 +198,10 @@ fn prompt_question_interactive(
                 Ok(typed)
             }
             Ok(choice) => {
-                let val = parsed_opts
+                let val = parsed
                     .iter()
-                    .find(|(display, _)| display == &choice)
-                    .map(|(_, val)| val.clone())
+                    .find(|o| o.label == choice)
+                    .map(|o| o.value.clone())
                     .unwrap_or(choice);
                 Ok(val)
             }

@@ -88,6 +88,14 @@ impl TerminalApprovalSink {
         }
     }
 
+    pub fn ensure_model_spinner(&self) {
+        if let Ok(mut state) = self.state.lock()
+            && state.spinner.is_none()
+        {
+            state.spinner = Some(self.renderer.start_spinner(&format!("{} thinking", self.model_label)));
+        }
+    }
+
     pub fn completed(&self) -> Vec<CompletedTool> {
         self.state
             .lock()

@@ -114,16 +114,11 @@ impl TerminalRenderer {
                     .prompt()
                     .unwrap_or_default();
                 println!();
-                let reason = if reason.trim().is_empty() {
-                    "Execution denied by user.".to_string()
-                } else {
-                    format!("Denied by user: {}", reason.trim())
-                };
-                ApprovalResult::Denied { reason }
+                ApprovalResult::Denied {
+                    reason: reason.trim().to_string(),
+                }
             }
-            Err(_) => ApprovalResult::Denied {
-                reason: "Execution canceled by user.".to_string(),
-            },
+            Err(_) => ApprovalResult::Denied { reason: String::new() },
         }
     }
 
@@ -140,7 +135,7 @@ impl TerminalRenderer {
         println!();
 
         let actions = vec!["Run (Enter)", "Edit command", "Deny / Feedback (Esc)"];
-        let choice = inquire::Select::new("Action:", actions).prompt();
+        let choice = inquire::Select::new("Execute:", actions).prompt();
 
         println!();
         match choice {
@@ -161,12 +156,9 @@ impl TerminalRenderer {
                     .prompt()
                     .unwrap_or_default();
                 println!();
-                let reason = if reason.trim().is_empty() {
-                    "Execution denied by user.".to_string()
-                } else {
-                    format!("Denied by user: {}", reason.trim())
-                };
-                ApprovalResult::Denied { reason }
+                ApprovalResult::Denied {
+                    reason: reason.trim().to_string(),
+                }
             }
         }
     }

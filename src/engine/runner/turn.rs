@@ -145,11 +145,14 @@ impl AgentEngine {
                     MultiTurnStreamItem::CompletionCall(call) => self.run_tracker.completion(call),
                     MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult { .. })
                     | MultiTurnStreamItem::ToolExecutionCommitted { .. }
-                    | MultiTurnStreamItem::ModelTurnRetried { .. } => {}
+                    | MultiTurnStreamItem::ModelTurnRetried { .. } => {
+                        sink.ensure_model_spinner();
+                    }
                 }
             }
 
             if budget_hit {
+                sink.ensure_model_spinner();
                 current_prompt = "Please continue where you left off and finish the task.".to_string();
                 current_budget = 50;
                 continue;
