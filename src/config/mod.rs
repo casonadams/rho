@@ -190,6 +190,39 @@ mod tests {
     }
 
     #[test]
+    fn test_precedence_is_defaults_file_environment_then_cli() {
+        let mut config = Config::default();
+        merge::merge_file(
+            &mut config,
+            FileConfig {
+                model: Some("file-model".to_string()),
+                max_turns: Some(20),
+                ..Default::default()
+            },
+        );
+
+        let environment = std::collections::HashMap::from([("AI_MODEL", "environment-model"), ("AI_MAX_TURNS", "30")]);
+        merge::apply_env_overrides_with(&mut config, |name| {
+            environment.get(name).map(|value| (*value).to_string())
+        })
+        .unwrap();
+
+        let cli = cli::Cli {
+            prompt: None,
+            model: Some("cli-model".to_string()),
+            provider: None,
+            max_output_tokens: None,
+            max_turns: Some(40),
+            auto_approve: false,
+            resume: None,
+            command: None,
+        };
+        merge::apply_cli_overrides(&mut config, Some(&cli));
+
+        assert_eq!(config.model, "cli-model");
+        assert_eq!(config.max_turns, 40);
+    }
+    #[test]
     fn test_runtime_limit_boundaries() {
         let mut cfg = Config {
             max_turns: 0,

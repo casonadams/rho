@@ -54,40 +54,47 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
 }
 
 pub(super) fn apply_env_overrides(config: &mut Config) -> Result<()> {
-    if let Ok(val) = std::env::var("AI_MODEL").or_else(|_| std::env::var("MODEL"))
+    apply_env_overrides_with(config, |name| std::env::var(name).ok())
+}
+
+pub(super) fn apply_env_overrides_with<F>(config: &mut Config, get: F) -> Result<()>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if let Some(val) = get("AI_MODEL").or_else(|| get("MODEL"))
         && !val.trim().is_empty()
     {
         config.model = val.trim().to_string();
     }
-    if let Ok(val) = std::env::var("AI_PROVIDER")
+    if let Some(val) = get("AI_PROVIDER")
         && !val.trim().is_empty()
     {
         config.provider = val.trim().to_string();
     }
-    if let Ok(val) = std::env::var("AI_AUTO_APPROVE") {
+    if let Some(val) = get("AI_AUTO_APPROVE") {
         config.auto_approve = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
     }
-    if let Ok(val) = std::env::var("AI_CONTEXT_LIMIT")
+    if let Some(val) = get("AI_CONTEXT_LIMIT")
         && let Ok(num) = val.trim().parse::<usize>()
     {
         config.context_limit = Some(num);
     }
-    if let Ok(val) = std::env::var("AI_CONTEXT_WINDOW_MESSAGES") {
+    if let Some(val) = get("AI_CONTEXT_WINDOW_MESSAGES") {
         config.context_window_messages = parse_positive("AI_CONTEXT_WINDOW_MESSAGES", &val)?;
     }
-    if let Ok(val) = std::env::var("AI_COMPACTION_MAX_BYTES") {
+    if let Some(val) = get("AI_COMPACTION_MAX_BYTES") {
         config.compaction_max_bytes = parse_positive("AI_COMPACTION_MAX_BYTES", &val)?;
     }
-    if let Ok(val) = std::env::var("AI_MAX_OUTPUT_TOKENS") {
+    if let Some(val) = get("AI_MAX_OUTPUT_TOKENS") {
         config.max_output_tokens = Some(parse_positive("AI_MAX_OUTPUT_TOKENS", &val)?);
     }
-    if let Ok(val) = std::env::var("AI_MAX_TURNS") {
+    if let Some(val) = get("AI_MAX_TURNS") {
         config.max_turns = parse_positive("AI_MAX_TURNS", &val)?;
     }
-    if let Ok(val) = std::env::var("WEB_REGION") {
+    if let Some(val) = get("WEB_REGION") {
         config.region = val;
     }
-    if let Ok(val) = std::env::var("WEB_ALLOW_PRIVATE_NETWORK") {
+    if let Some(val) = get("WEB_ALLOW_PRIVATE_NETWORK") {
         config.allow_private_network = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
     }
     Ok(())

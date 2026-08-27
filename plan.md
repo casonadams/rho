@@ -35,12 +35,12 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 - Ensure denial produces no side effect and a model-visible error.
 - Add contract tests for read, workspace write, outside-workspace write, edit, Bash, network, malformed, and unknown calls.
 
-### 2. Make configuration commands real — in progress
+### 2. Make configuration commands real — complete
 
-- [ ] Define typed configuration keys and values.
+- [x] Define typed configuration keys and values.
 - [x] Implement persistence for `rho config <key> <value>` and display current settings when no key is supplied.
 - [x] Persist updates atomically to `config.toml`.
-- [ ] Preserve and test precedence: defaults -> file -> environment -> CLI.
+- [x] Preserve and test precedence: defaults -> file -> environment -> CLI.
 - [x] Test invalid keys, invalid values, and persistence.
 
 ### 3. Centralize workspace path handling — in progress
