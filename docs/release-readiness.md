@@ -90,3 +90,34 @@ cargo test --all-targets
 ```
 
 The test suite reported 306 passed and 0 failed. Repeat the terminal matrix after changes to controller cursor accounting, input decoding, live-region layout, or modal coordination.
+
+### Decoupled-input streaming stress validation
+
+Slice 5 uses a named terminal-input thread and a 16 ms output frame. Run the stress test without credentials or provider access:
+
+```sh
+cargo test streaming_flood_preserves_output_and_applies_input_within_two_frames
+cargo test repl::input_reader -- --test-threads=1
+cargo test ui::interactive::controller -- --test-threads=1
+```
+
+The deterministic flood sends 10,000 six-byte fragments through the pending batch while editor input is ready. It compares all 60,000 output bytes, records the first visible input frame, and fails on loss, duplication, reordering, or input latency above two frames. The controller test verifies that 1,000 adjacent fragments produce one output write and one terminal flush. Input-reader tests cover forwarding, acknowledged pause, no reads while paused, propagated errors, receiver closure, and joined shutdown.
+
+For each supported interactive terminal, use a credential-free deterministic local provider mock that emits at least 10,000 small chunks. Keep the terminal on its normal screen and perform this sequence:
+
+1. Hold a key while moving the cursor through a multiline wide-Unicode draft. Submit once with Enter and once with Alt+Enter.
+2. Resize repeatedly between approximately 40 and 100 columns while output is active. Open and cancel an approval or question modal.
+3. Confirm the draft changes within 32 ms, streamed bytes remain ordered above the editor, and the terminal's native scrollback contains the beginning and end sentinels.
+4. Compare `stty -g` before and after clean exit, active cancellation, forced input disconnect, and a slash command that temporarily owns the terminal. Confirm echo, canonical mode, signals, and cursor visibility are restored.
+
+Record only terminal type, pass/fail, latency, byte count, scrollback outcome, and cleanup outcome. Never record prompts, session output, environment values, or credentials.
+
+| Validation path | Result on 2026-08-27 | Input latency | Output | Cleanup |
+| --- | --- | --- | --- | --- |
+| Deterministic in-process flood | Pass | Frame 0, below two-frame limit | 60,000/60,000 bytes exact | Not applicable |
+| Input/controller lifecycle tests | Pass | Immediate channel delivery | 1,000 fragments, one flush | Pause, error, drop, and join pass |
+| Pi harness interactive terminal | Not rerun | Non-interactive coding session cannot measure key-to-paint latency | Native scrollback not observable | Automated cleanup passed |
+| Terminal.app | Not rerun | Requires interactive operator | Requires interactive operator | Requires interactive operator |
+| iTerm2 | Unavailable | Application not installed | Application not installed | Application not installed |
+
+The prior manual matrix remains evidence for normal-screen behavior, but release is blocked until the Pi harness and Terminal.app rows are rerun against the Slice 5 commits.

@@ -209,6 +209,7 @@ impl InteractiveUi {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::VecDeque,
         io::{self, Write},
         sync::{Arc, Mutex},
     };
@@ -217,7 +218,7 @@ mod tests {
         BatchDecision, FlushBarrier, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
         PendingUiBatch, UiEvent, UiPortError,
     };
-    use crate::ui::interactive::Activity;
+    use crate::ui::interactive::{Activity, InteractiveState, UiAction};
 
     #[tokio::test]
     async fn channel_preserves_output_and_activity_order() {
@@ -332,6 +333,46 @@ mod tests {
         assert_eq!(drained.text.as_bytes(), b"one two");
         assert_eq!(drained.activity, Some(Activity::Tool("bash".into())));
         assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn streaming_flood_preserves_output_and_applies_input_within_two_frames() {
+        let fragments = (0..10_000).map(|index| format!("{index:05}|")).collect::<VecDeque<_>>();
+        let expected = fragments.iter().cloned().collect::<String>();
+        let mut fragments = fragments;
+        let mut input = VecDeque::from([UiAction::Insert('r'), UiAction::Insert('h'), UiAction::Insert('o')]);
+        let mut state = InteractiveState::default();
+        let mut batch = PendingUiBatch::new(4 * 1024);
+        let mut output = String::new();
+        let mut frame = 0_usize;
+        let mut input_visible_at = None;
+        let mut fragments_since_frame = 0_usize;
+
+        while !fragments.is_empty() || !input.is_empty() || !batch.is_empty() {
+            if fragments_since_frame == 64 || fragments.is_empty() {
+                output.push_str(&batch.drain().text);
+                frame += 1;
+                fragments_since_frame = 0;
+                continue;
+            }
+            if let Some(action) = input.pop_front() {
+                state.apply(action);
+                input_visible_at.get_or_insert(frame);
+                continue;
+            }
+            let fragment = fragments.pop_front().unwrap();
+            if matches!(
+                batch.push(UiEvent::Output(OutputEvent::Text(fragment))),
+                BatchDecision::Flush(_)
+            ) {
+                output.push_str(&batch.drain().text);
+            }
+            fragments_since_frame += 1;
+        }
+
+        assert_eq!(state.editor().text(), "rho");
+        assert!(input_visible_at.unwrap() <= 2);
+        assert_eq!(output.as_bytes(), expected.as_bytes());
     }
 
     #[tokio::test]
