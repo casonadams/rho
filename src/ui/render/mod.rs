@@ -17,6 +17,6 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use renderer::TerminalRenderer;
+pub use renderer::{RenderActivity, TerminalRenderer};
 pub use summary::summarize_tool_output;
 pub use types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};

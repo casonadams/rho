@@ -7,6 +7,7 @@ use super::summary::{format_tool_args_summary, read_summary_parts, to_relative_p
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::RiskTier;
 use crate::ui::block::{BlockFormat, terminal_width};
+use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -19,6 +20,7 @@ use std::time::Duration;
 pub struct TerminalRenderer {
     pub theme: Theme,
     markdown: Arc<Mutex<MarkdownRenderer>>,
+    ui: Option<InteractiveUi>,
 }
 
 impl Default for TerminalRenderer {
@@ -26,6 +28,23 @@ impl Default for TerminalRenderer {
         Self {
             theme: Theme::default(),
             markdown: Arc::new(Mutex::new(MarkdownRenderer::new())),
+            ui: None,
+        }
+    }
+}
+
+pub enum RenderActivity {
+    Progress(ProgressBar),
+    Interactive(InteractiveUi),
+}
+
+impl RenderActivity {
+    pub fn finish_and_clear(self) {
+        match self {
+            Self::Progress(progress) => progress.finish_and_clear(),
+            Self::Interactive(ui) => {
+                let _ = ui.set_activity(Activity::Idle);
+            }
         }
     }
 }
@@ -121,6 +140,23 @@ fn approval_mode(auto_approve: bool) -> &'static str {
 }
 
 impl TerminalRenderer {
+    pub fn with_ui(ui: InteractiveUi) -> Self {
+        Self {
+            ui: Some(ui),
+            ..Self::default()
+        }
+    }
+
+    pub fn write_output(&self, text: &str) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.output(OutputEvent::Text(text.to_string()));
+        } else {
+            let mut stdout = io::stdout().lock();
+            let _ = stdout.write_all(text.as_bytes());
+            let _ = stdout.flush();
+        }
+    }
+
     pub fn print_welcome(&self, display: &WelcomeDisplay<'_>) {
         let highlight = self.theme.highlight;
         let dim = self.theme.dimmed;
@@ -134,22 +170,31 @@ impl TerminalRenderer {
             .map(|path| to_relative_path(&path.display().to_string()))
             .unwrap_or_else(|| ".".to_string());
 
-        println!(
-            "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}",
-            env!("CARGO_PKG_VERSION")
-        );
-        println!("{} {dim}via {} | {session}{dim:#}", display.model, display.provider);
-        println!("{dim}{location} | {}{dim:#}", approval_mode(display.auto_approve));
-        println!("{dim}/help commands | Tab complete | Ctrl+C cancel | Ctrl+D exit{dim:#}\n");
+        self.write_output(&format!(
+            "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{} {dim}via {} | {session}{dim:#}\n{dim}{location} | {}{dim:#}\n{dim}/help commands | Tab complete | Ctrl+C cancel | Ctrl+D exit{dim:#}\n\n",
+            env!("CARGO_PKG_VERSION"),
+            display.model,
+            display.provider,
+            approval_mode(display.auto_approve)
+        ));
     }
 
     pub fn print_session_status(&self, display: &SessionStatus<'_>) {
         let dim = self.theme.dimmed;
         let status = format_session_status(display);
-        println!("{dim}{status}{dim:#}");
+        self.write_output(&format!("{dim}{status}{dim:#}\n"));
     }
 
-    pub fn start_spinner(&self, message: &str) -> ProgressBar {
+    pub fn start_spinner(&self, message: &str) -> RenderActivity {
+        if let Some(ui) = &self.ui {
+            let activity = if message.starts_with("thinking") {
+                Activity::Thinking
+            } else {
+                Activity::Tool(message.to_string())
+            };
+            let _ = ui.set_activity(activity);
+            return RenderActivity::Interactive(ui.clone());
+        }
         let pb = ProgressBar::new_spinner();
         let style = ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -158,10 +203,10 @@ impl TerminalRenderer {
         pb.set_style(style);
         pb.set_message(message.to_string());
         pb.enable_steady_tick(Duration::from_millis(80));
-        pb
+        RenderActivity::Progress(pb)
     }
 
-    pub fn start_tool_spinner(&self, name: &str, args: &serde_json::Value) -> ProgressBar {
+    pub fn start_tool_spinner(&self, name: &str, args: &serde_json::Value) -> RenderActivity {
         let summary = format_tool_args_summary(name, args);
         let msg = format!("{name} {summary}");
         self.start_spinner(&msg)
@@ -247,14 +292,10 @@ impl TerminalRenderer {
     }
 
     pub fn print_user_block(&self, input: &str) {
-        println!();
-        print!(
-            "{}",
-            BlockFormat::new(self.theme.user_message_bg, terminal_width())
-                .with_vertical_padding()
-                .render_plain(input)
-        );
-        let _ = io::stdout().flush();
+        let block = BlockFormat::new(self.theme.user_message_bg, terminal_width())
+            .with_vertical_padding()
+            .render_plain(input);
+        self.write_output(&format!("\n{block}"));
     }
 
     pub fn finish_tool_line(&self, line: ToolLine<'_>) {
@@ -305,42 +346,35 @@ impl TerminalRenderer {
             content.push_str(&format_tool_output_preview(line.output, line.output_summary));
         }
 
-        print!(
-            "{}",
-            BlockFormat::new(background, terminal_width())
-                .with_vertical_padding()
-                .render_styled(&content)
-        );
-        let _ = io::stdout().flush();
+        let block = BlockFormat::new(background, terminal_width())
+            .with_vertical_padding()
+            .render_styled(&content);
+        self.write_output(&format!("\n{block}"));
     }
 
     pub fn print_token(&self, token: &str) {
-        let mut stdout = io::stdout().lock();
-        if let Ok(mut markdown) = self.markdown.lock() {
-            let rendered = markdown.render_token(token, &self.theme);
-            let _ = write!(stdout, "{rendered}");
-        } else {
-            let _ = write!(stdout, "{token}");
-        }
-        let _ = stdout.flush();
+        let rendered = self
+            .markdown
+            .lock()
+            .map(|mut markdown| markdown.render_token(token, &self.theme))
+            .unwrap_or_else(|_| token.to_string());
+        self.write_output(&rendered);
     }
 
     pub fn print_thinking_token(&self, token: &str) {
         let dim = self.theme.dimmed;
-        let mut stdout = io::stdout().lock();
-        let _ = write!(stdout, "{dim}{token}{dim:#}");
-        let _ = stdout.flush();
+        self.write_output(&format!("{dim}{token}{dim:#}"));
     }
 
     pub fn flush(&self) {
-        let mut stdout = io::stdout().lock();
-        if let Ok(mut markdown) = self.markdown.lock() {
-            let remaining = markdown.flush(&self.theme);
-            if !remaining.is_empty() {
-                let _ = write!(stdout, "{remaining}");
-            }
+        let remaining = self
+            .markdown
+            .lock()
+            .map(|mut markdown| markdown.flush(&self.theme))
+            .unwrap_or_default();
+        if !remaining.is_empty() {
+            self.write_output(&remaining);
         }
-        let _ = stdout.flush();
     }
 
     pub fn print_thinking(&self, thinking_text: &str) {
@@ -349,24 +383,26 @@ impl TerminalRenderer {
             return;
         }
         let formatted = format_thinking_block(trimmed, &self.theme);
-        print!("{formatted}");
-        let _ = io::stdout().flush();
+        self.write_output(&formatted);
     }
 
     pub fn print_tool_start(&self, name: &str, args: &serde_json::Value) {
         let summary = format_tool_args_summary(name, args);
         let header = self.theme.tool_header;
         let dim = self.theme.dimmed;
-        println!("{header}{name}{header:#} {dim}{summary}{dim:#}");
+        self.write_output(&format!("{header}{name}{header:#} {dim}{summary}{dim:#}\n"));
     }
 
     pub fn print_tool_end(&self, outcome: ToolOutcome<'_>) {
         if outcome.is_error {
             let err = self.theme.tool_err;
-            println!("{err}{} failed:{err:#} {}", outcome.name, outcome.output_summary);
+            self.write_output(&format!(
+                "{err}{} failed:{err:#} {}\n",
+                outcome.name, outcome.output_summary
+            ));
         } else {
             let ok = self.theme.tool_ok;
-            println!("{ok}{}{ok:#}", outcome.name);
+            self.write_output(&format!("{ok}{}{ok:#}\n", outcome.name));
         }
     }
 }

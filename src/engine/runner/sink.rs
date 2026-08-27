@@ -2,9 +2,8 @@ use crate::engine::metrics::RunTracker;
 use crate::session::SessionManager;
 use crate::tools::{ApprovalEventSink, ApprovalRequest, ToolEvent};
 use crate::ui::TerminalRenderer;
-use crate::ui::render::{ApprovalResult, BashApproval, ToolLine, summarize_tool_output};
+use crate::ui::render::{ApprovalResult, BashApproval, RenderActivity, ToolLine, summarize_tool_output};
 use async_trait::async_trait;
-use indicatif::ProgressBar;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -38,7 +37,7 @@ pub enum DisplayKind {
 
 pub struct TerminalSinkState {
     pub auto_approve: bool,
-    pub spinner: Option<ProgressBar>,
+    pub spinner: Option<RenderActivity>,
     pub pending: HashMap<String, (String, Value)>,
     pub reasoning: Vec<String>,
     pub completed: Vec<CompletedTool>,
@@ -123,7 +122,7 @@ impl TerminalApprovalSink {
             .unwrap_or(false);
 
         if had_reasoning {
-            println!();
+            self.renderer.write_output("\n");
         }
     }
 
@@ -157,7 +156,7 @@ impl TerminalApprovalSink {
         }
 
         if prefix_blank {
-            println!();
+            self.renderer.write_output("\n");
         }
         self.renderer.print_thinking_token(&text_to_stream);
     }
@@ -167,7 +166,7 @@ impl TerminalApprovalSink {
         self.finish_spinner();
         if let Ok(mut state) = self.state.lock() {
             if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Thinking {
-                println!();
+                self.renderer.write_output("\n");
             }
             state.last_display = DisplayKind::Text;
         }
@@ -181,7 +180,7 @@ impl TerminalApprovalSink {
         if let Ok(state) = self.state.lock()
             && state.last_display == DisplayKind::Tool
         {
-            println!();
+            self.renderer.write_output("\n");
         }
     }
 

@@ -7,9 +7,45 @@ use super::renderer::{format_tool_output_preview, tool_title_style, webfetch_con
 use super::summary::{
     approval_heading, bash_approval_details, clean_command_paths, read_summary_parts, to_relative_path,
 };
-use super::types::{BashApproval, SessionStatus};
+use super::types::{BashApproval, SessionStatus, ToolLine};
 use crate::tools::bash_ast::RiskTier;
+use crate::ui::TerminalRenderer;
+use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
+
+#[test]
+fn interactive_renderer_emits_formatted_output_and_activity_events() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    let activity = renderer.start_spinner("thinking...");
+    renderer.print_thinking_token("considering");
+    activity.finish_and_clear();
+    renderer.print_token("answer");
+    renderer.flush();
+    renderer.finish_tool_line(ToolLine {
+        name: "read",
+        arguments: &serde_json::json!({"path": "src/lib.rs"}),
+        is_error: false,
+        output: "contents",
+        output_summary: "contents",
+    });
+
+    let mut activity_events = Vec::new();
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Activity(activity) => activity_events.push(activity),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+        }
+    }
+    assert_eq!(activity_events, [Activity::Thinking, Activity::Idle]);
+    assert!(output.contains("considering"));
+    assert!(output.contains("answer"));
+    assert!(output.contains("read"));
+    assert!(output.contains("src/lib.rs"));
+}
 
 #[test]
 fn ordinary_bash_approval_shows_only_the_command() {

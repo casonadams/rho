@@ -12,6 +12,8 @@ use crate::tools::approval::{ApprovalEventSink, ToolEvent};
 use crate::tools::bash_ast::RiskTier;
 use crate::tools::policy::ExecutionClass;
 use crate::ui::TerminalRenderer;
+use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
+use crate::ui::render::RenderActivity;
 use rig::agent::ModelHandle;
 use rig::completion::{FinishReason, Usage};
 use rig::message::{AssistantContent, Message, UserContent};
@@ -118,6 +120,47 @@ fn visible_stream_clears_spinner_and_hidden_output_resumes_it() {
     sink.resume_model_spinner();
     assert!(sink.state.lock().unwrap().spinner.is_some());
     sink.finish_spinner();
+}
+
+#[test]
+fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let sink = TerminalApprovalSink::new(
+        &renderer,
+        TerminalSinkConfig {
+            model_label: "model".to_string(),
+            auto_approve: true,
+            run_tracker: crate::engine::metrics::RunTracker::default(),
+        },
+        terminal_session(),
+    );
+
+    assert!(matches!(
+        sink.state.lock().unwrap().spinner.as_ref(),
+        Some(RenderActivity::Interactive(_))
+    ));
+    sink.emit(ToolEvent::CallClassified {
+        internal_call_id: "call-1".to_string(),
+        tool_name: "read".to_string(),
+        arguments: serde_json::json!({"path": "src/lib.rs"}),
+        class: ExecutionClass::ReadOnly,
+    });
+
+    let activities = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::Activity(activity) => Some(activity),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        activities,
+        [
+            Activity::Thinking,
+            Activity::Idle,
+            Activity::Tool("read src/lib.rs".to_string())
+        ]
+    );
 }
 
 #[test]
@@ -728,7 +771,8 @@ fn provider_error_mapping_redacts_sensitive_bodies() {
 fn terminal_sink_redacts_secret_tool_arguments_and_results() {
     let dir = std::env::temp_dir().join(format!("sink_secret_{}", uuid::Uuid::new_v4()));
     let session = SessionManager::new_with_secrets(&dir, None, vec!["credential-sentinel".to_string()]).unwrap();
-    let renderer = TerminalRenderer::default();
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
     let sink = TerminalApprovalSink::new(
         &renderer,
         TerminalSinkConfig {
@@ -756,6 +800,19 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
     assert!(!completed[0].arguments.to_string().contains("credential-sentinel"));
     assert!(!completed[0].output.contains("credential-sentinel"));
     assert!(completed[0].output.contains("[REDACTED]"));
+
+    let mut displayed = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Output(OutputEvent::Text(text)) | UiEvent::Activity(Activity::Tool(text)) => {
+                displayed.push_str(&text);
+            }
+            UiEvent::Activity(_) => {}
+            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+        }
+    }
+    assert!(!displayed.contains("credential-sentinel"));
+    assert!(displayed.contains("[REDACTED]"));
 }
 
 #[test]
