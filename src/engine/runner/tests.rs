@@ -1,7 +1,7 @@
 use super::helpers::redact_text;
 use super::history::{display_events, map_completion_error};
 use super::sink::{TerminalApprovalSink, TerminalSinkConfig};
-use super::turn::{RunStatus, TurnRequest};
+use super::turn::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, TurnRequest};
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::AgentEngine;
@@ -263,6 +263,56 @@ async fn final_text_streams_once_and_usage_can_be_unavailable() {
     assert_eq!(output.requests, 1);
     assert!(!output.metrics.usage_available);
     assert_eq!(output.metrics.model_turns, 1);
+}
+
+#[tokio::test]
+async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
+    assert_eq!(QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary::ActiveRunCompleted);
+    let model = MockCompletionModel::from_stream_turns([
+        [
+            MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
+            final_event(Usage::new()),
+        ],
+        [MockStreamEvent::text("active run complete"), final_event(Usage::new())],
+        [MockStreamEvent::text("queued response"), final_event(Usage::new())],
+    ]);
+    let engine = test_engine(model.clone(), Config::default());
+
+    engine
+        .run_turn(request("active prompt"), &TerminalRenderer::default())
+        .await
+        .unwrap();
+    assert_eq!(model.requests().len(), 2);
+    engine
+        .run_turn(request("queued steering"), &TerminalRenderer::default())
+        .await
+        .unwrap();
+
+    let events = engine.session_manager.load_events().await.unwrap();
+    let tool_result = events
+        .iter()
+        .position(|event| event.kind == crate::session::SessionEventKind::ToolResult)
+        .unwrap();
+    let active_response = events
+        .iter()
+        .position(|event| {
+            event.kind == crate::session::SessionEventKind::AssistantResponse
+                && event.payload["content"] == "active run complete"
+        })
+        .unwrap();
+    let queued_user = events
+        .iter()
+        .position(|event| {
+            event.kind == crate::session::SessionEventKind::UserMessage && event.payload["prompt"] == "queued steering"
+        })
+        .unwrap();
+    assert!(tool_result < active_response);
+    assert!(active_response < queued_user);
+
+    let queued_request = &model.requests()[2].chat_history;
+    let encoded = serde_json::to_string(queued_request).unwrap();
+    assert!(encoded.contains("active run complete"));
+    assert!(encoded.contains("queued steering"));
 }
 
 #[tokio::test]

@@ -32,6 +32,13 @@ pub struct TurnRequest<'a> {
     pub prompt: &'a str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueuedMessageBoundary {
+    ActiveRunCompleted,
+}
+
+pub const QUEUED_MESSAGE_BOUNDARY: QueuedMessageBoundary = QueuedMessageBoundary::ActiveRunCompleted;
+
 #[derive(Debug)]
 pub struct TurnOutput {
     pub final_text: String,

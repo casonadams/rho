@@ -9,4 +9,4 @@ pub use history::{DisplayEvent, map_completion_error, map_prompt_error, map_stre
 pub use sink::{
     CompletedTool, DisplayKind, TerminalApprovalSink, TerminalSinkConfig, TerminalSinkState, TurnArtifacts,
 };
-pub use turn::{RunStatus, TurnOutput, TurnRequest, UsageDetails};
+pub use turn::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, TurnOutput, TurnRequest, UsageDetails};
