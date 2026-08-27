@@ -1,11 +1,8 @@
 use crate::config::Config;
 use crate::error::Result;
+use crate::plugin::tool_dispatch::ActiveToolSet;
 use crate::session::SessionManager;
 use crate::session::context::context_memory;
-use crate::tools::web::{
-    FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
-};
-use crate::tools::{AskUserQuestionTool, AskUserTool, BashTool, EditTool, ReadTool, WriteTool};
 use rig::agent::{Agent, AgentBuilder, AgentRunner, ModelHandle};
 use std::path::Path;
 
@@ -24,47 +21,25 @@ pub fn build_agent(model: ModelHandle, config: &Config, preamble: &str) -> Agent
 pub struct CodingRuntime<'a> {
     pub base_dir: &'a Path,
     pub memory: SessionManager,
+    pub active_tools: Option<ActiveToolSet>,
 }
 
 pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRuntime<'_>) -> Result<Agent> {
-    let CodingRuntime { base_dir, memory } = runtime;
-    let http = HttpClient::new(config.allow_private_network)?;
-    let search = WebSearchTool::new(
-        http.clone(),
-        SearchRateLimiter::new(config.search_min_interval_ms),
-        WebSearchConfig {
-            region: config.region.clone(),
-            timeout_sec: config.search_timeout_sec,
-        },
-    );
-    let fetch = WebFetchTool::new(
-        http,
-        FetchCache::new(60, 64),
-        WebFetchConfig {
-            timeout_sec: config.fetch_timeout_sec,
-            max_bytes: config.fetch_max_bytes,
-            default_limit: config.fetch_limit,
-        },
-    );
+    let CodingRuntime {
+        base_dir,
+        memory,
+        active_tools,
+    } = runtime;
+    let active_tools = match active_tools {
+        Some(active_tools) => active_tools,
+        None => ActiveToolSet::builtins(config, base_dir)?,
+    };
     let context_memory = context_memory(memory, config.context_window_messages, config.compaction_max_bytes);
     let builder = AgentBuilder::from_model_handle(model)
         .memory(context_memory)
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
-        .tool(ReadTool::new(base_dir))
-        .tool(WriteTool::with_exclusions(
-            base_dir,
-            [&config.config_dir, &config.sessions_dir],
-        ))
-        .tool(EditTool::with_exclusions(
-            base_dir,
-            [&config.config_dir, &config.sessions_dir],
-        ))
-        .tool(BashTool::new(base_dir))
-        .tool(AskUserTool::new())
-        .tool(AskUserQuestionTool(AskUserTool::new()))
-        .tool(search)
-        .tool(fetch);
+        .dynamic_tools(active_tools.into_rig_tools());
 
     Ok(match config.max_output_tokens {
         Some(max_tokens) => builder.max_tokens(max_tokens).build(),

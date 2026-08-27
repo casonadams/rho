@@ -62,6 +62,13 @@ impl QuestionPort {
     }
 }
 
+#[async_trait]
+impl InteractiveQuestionPort for QuestionPort {
+    async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError> {
+        self.0.ask(question).await
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct AskUserTool;
 
@@ -70,7 +77,7 @@ impl AskUserTool {
         Self
     }
 
-    pub async fn execute(&self, port: &QuestionPort, args: AskUserArgs) -> Result<ToolResult, AppError> {
+    pub async fn execute(&self, port: &dyn InteractiveQuestionPort, args: AskUserArgs) -> Result<ToolResult, AppError> {
         if let Some(questions) = args.questions.as_deref().filter(|questions| !questions.is_empty()) {
             let mut results = Vec::with_capacity(questions.len());
             for (index, question) in questions.iter().enumerate() {
@@ -167,7 +174,11 @@ fn extract_parsed_option(option: &Value) -> ParsedOption {
     }
 }
 
-async fn prompt_question_value(port: &QuestionPort, value: &Value, index: usize) -> Result<String, AppError> {
+async fn prompt_question_value(
+    port: &dyn InteractiveQuestionPort,
+    value: &Value,
+    index: usize,
+) -> Result<String, AppError> {
     let (question, header, options) = match value {
         Value::String(question) => (question.as_str(), None, None),
         Value::Object(object) => {
@@ -206,7 +217,7 @@ struct QuestionSpec<'a> {
     options: Option<&'a [Value]>,
 }
 
-async fn ask_question(port: &QuestionPort, spec: QuestionSpec<'_>) -> Result<String, AppError> {
+async fn ask_question(port: &dyn InteractiveQuestionPort, spec: QuestionSpec<'_>) -> Result<String, AppError> {
     let parsed = spec
         .options
         .unwrap_or_default()

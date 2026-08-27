@@ -254,10 +254,40 @@ pub struct ToolInvocationResponse {
     pub structured_content: Option<Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteractionOption {
+    pub label: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteractionRequest {
+    pub question: String,
+    pub header: Option<String>,
+    pub options: Vec<InteractionOption>,
+    pub allow_custom: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InteractionResponse {
+    Selected(usize),
+    Custom(String),
+    Cancelled,
+}
+
+#[async_trait]
+pub trait ToolHost: Send + Sync {
+    async fn interact(&self, request: InteractionRequest) -> Result<InteractionResponse, CapabilityError>;
+}
+
 #[async_trait]
 pub trait ToolCapability: Send + Sync {
     fn descriptor(&self) -> ToolDescriptor;
-    async fn invoke(&self, request: ToolInvocationRequest) -> Result<ToolInvocationResponse, CapabilityError>;
+    async fn invoke(
+        &self,
+        host: &dyn ToolHost,
+        request: ToolInvocationRequest,
+    ) -> Result<ToolInvocationResponse, CapabilityError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -503,7 +533,11 @@ mod tests {
             }
         }
 
-        async fn invoke(&self, _request: ToolInvocationRequest) -> Result<ToolInvocationResponse, CapabilityError> {
+        async fn invoke(
+            &self,
+            _host: &dyn ToolHost,
+            _request: ToolInvocationRequest,
+        ) -> Result<ToolInvocationResponse, CapabilityError> {
             Ok(ToolInvocationResponse {
                 content: "ok".to_string(),
                 is_error: false,

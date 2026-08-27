@@ -12,6 +12,9 @@ mod context;
 mod hook;
 mod types;
 
+#[cfg(test)]
+mod tests;
+
 pub use capability::ApprovalCapability;
 pub use context::{approval_context, enforce_approval};
 pub use hook::ApprovalHook;

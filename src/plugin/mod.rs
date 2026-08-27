@@ -1,5 +1,6 @@
 pub mod activation;
 pub mod builtin;
+pub mod builtin_tools;
 pub mod capability;
 pub mod context;
 pub mod contract;
@@ -13,6 +14,7 @@ pub mod protocol;
 pub mod registry;
 pub mod resolver;
 pub mod schema;
+pub mod tool_dispatch;
 pub mod types;
 
 pub use context::ExtensionContext;

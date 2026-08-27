@@ -1,18 +1,18 @@
 use crate::engine::provider::ProviderId;
+use crate::plugin::builtin_tools::BuiltinToolCatalog;
 use crate::plugin::capability::{
     CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
 };
 use crate::plugin::resolver::CapabilityPlugin;
-use crate::tools::ToolRegistry;
 
 pub fn capability_plugin() -> CapabilityPlugin {
     let mut capabilities: Vec<_> = ProviderId::ALL
         .into_iter()
         .map(|provider| declaration("provider", provider.as_str()))
         .chain(
-            ToolRegistry::descriptors()
+            BuiltinToolCatalog::descriptors()
                 .iter()
-                .map(|tool| declaration("tool", tool.name)),
+                .map(|tool| declaration("tool", tool.id.name())),
         )
         .collect();
     capabilities.push(declaration("permission", "default"));
@@ -66,7 +66,7 @@ mod tests {
         }
         assert_eq!(
             plugin.manifest.capabilities.len(),
-            ProviderId::ALL.len() + ToolRegistry::descriptors().len() + 1
+            ProviderId::ALL.len() + BuiltinToolCatalog::descriptors().len() + 1
         );
     }
 }

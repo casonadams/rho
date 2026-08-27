@@ -166,6 +166,10 @@ impl TerminalRenderer {
         crate::ui::question::question_port(self.ui.clone())
     }
 
+    pub fn has_interactive_ui(&self) -> bool {
+        self.ui.is_some()
+    }
+
     pub fn write_output(&self, text: &str) {
         if let Some(ui) = &self.ui {
             let _ = ui.output(OutputEvent::Text(text.to_string()));

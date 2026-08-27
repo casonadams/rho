@@ -36,6 +36,7 @@ impl AgentEngine {
         builder::AgentEngineBuilder::new(config, auth_store)
             .resume(resume_id)
             .build()
+            .await
     }
 
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
@@ -43,6 +44,7 @@ impl AgentEngine {
             .session(self.session_manager.clone())
             .base_dir(std::env::current_dir()?)
             .build()
+            .await
     }
 
     pub fn extension_context(&self) -> ExtensionContext {

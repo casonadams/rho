@@ -65,7 +65,7 @@ impl ToolExecutionPolicy {
             "websearch" => canonical::<SearchArgs>(arguments),
             "webfetch" => canonical::<FetchArgs>(arguments),
             "ask_user" | "ask_user_question" => canonical::<AskUserArgs>(arguments),
-            _ => None,
+            _ => Some(arguments.clone()),
         }
     }
 }
@@ -186,6 +186,15 @@ mod tests {
                 "{name} {arguments}"
             );
         }
+    }
+
+    #[test]
+    fn external_tool_arguments_have_a_stable_approval_key() {
+        let arguments = json!({"value": 1});
+        assert_eq!(
+            ToolExecutionPolicy::canonical_arguments("external_tool", &arguments),
+            Some(arguments)
+        );
     }
 
     #[test]

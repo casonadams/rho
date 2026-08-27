@@ -1,8 +1,8 @@
 use super::*;
 use crate::plugin::capability::{CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest};
 use crate::plugin::contract::{
-    AuthenticationMethod, AuthenticationOperation, FinishReason, InvocationContext, LifecycleEvent, ModelMetadata,
-    PermissionDecision, ProviderStreamEvent,
+    AuthenticationMethod, AuthenticationOperation, FinishReason, InteractionRequest, InteractionResponse,
+    InvocationContext, LifecycleEvent, ModelMetadata, PermissionDecision, ProviderStreamEvent,
 };
 use crate::plugin::protocol::{ProtocolMessage, TerminalResult};
 use futures::StreamExt;
@@ -162,6 +162,17 @@ fn descriptors() -> Vec<CapabilityDescriptor> {
     ]
 }
 
+struct NoopHost;
+
+#[async_trait]
+impl ToolHost for NoopHost {
+    async fn interact(&self, _request: InteractionRequest) -> Result<InteractionResponse, CapabilityError> {
+        Err(CapabilityError::Unavailable {
+            message: "interaction unavailable".to_string(),
+        })
+    }
+}
+
 fn context() -> InvocationContext {
     InvocationContext {
         session_id: "session".to_string(),
@@ -209,18 +220,24 @@ async fn invokes_every_external_capability_contract() {
     let tool_id = "tool:fixture".parse().unwrap();
     let tool = plugin.tool(&tool_id).unwrap();
     let response = tool
-        .invoke(ToolInvocationRequest {
-            arguments: serde_json::json!({"message": "hello"}),
-            context: context(),
-        })
+        .invoke(
+            &NoopHost,
+            ToolInvocationRequest {
+                arguments: serde_json::json!({"message": "hello"}),
+                context: context(),
+            },
+        )
         .await
         .unwrap();
     assert_eq!(response.content, "tool-ok");
     assert!(matches!(
-        tool.invoke(ToolInvocationRequest {
-            arguments: serde_json::json!({}),
-            context: context(),
-        })
+        tool.invoke(
+            &NoopHost,
+            ToolInvocationRequest {
+                arguments: serde_json::json!({}),
+                context: context(),
+            }
+        )
         .await,
         Err(CapabilityError::InvalidRequest { .. })
     ));
@@ -282,10 +299,13 @@ async fn invalid_descriptor_disables_only_that_capability() {
     assert!(plugin.command(&"command:fixture".parse().unwrap()).is_err());
     let tool = plugin.tool(&"tool:fixture".parse().unwrap()).unwrap();
     assert_eq!(
-        tool.invoke(ToolInvocationRequest {
-            arguments: serde_json::json!({"message": "hello"}),
-            context: context(),
-        })
+        tool.invoke(
+            &NoopHost,
+            ToolInvocationRequest {
+                arguments: serde_json::json!({"message": "hello"}),
+                context: context(),
+            }
+        )
         .await
         .unwrap()
         .content,

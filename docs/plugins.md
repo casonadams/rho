@@ -54,6 +54,16 @@ replaces = []
 
 The path is resolved relative to `config.toml`. Rho starts the executable only after it appears in `[plugins]`.
 
+A global tool replacement uses a distinct capability identity and declares the built-in target in both plugin metadata and host configuration:
+
+```toml
+[plugins.container-shell]
+path = "/opt/rho/rho-plugin-container-shell"
+replaces = ["tool:bash"]
+```
+
+The replacement is advertised to the model as `bash`, while inspection reports its plugin and capability identities. Rho validates arguments, declared effects, protected paths, network targets, approval, repeated calls, and lifecycle events before dispatch. These checks govern model-requested operations; they do not sandbox the trusted executable itself.
+
 ## Legacy in-process extensions
 
 The existing in-process extension API remains available during the capability migration. Legacy manifests are informational and do not authorize an external executable.

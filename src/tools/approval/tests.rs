@@ -1,5 +1,5 @@
 use crate::tools::approval::{
-    approval_context, ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, ToolEvent,
+    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, ToolEvent, approval_context,
 };
 use crate::tools::bash::BashTool;
 use crate::tools::bash_ast::RiskTier;
@@ -51,7 +51,7 @@ impl FakeSink {
     }
 }
 
-#[rig::async_trait::async_trait]
+#[async_trait::async_trait]
 impl ApprovalEventSink for FakeSink {
     async fn request_approval(&self, request: ApprovalRequest) -> ApprovalDecision {
         self.requests.lock().unwrap().push(request);

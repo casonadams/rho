@@ -97,6 +97,11 @@ impl AgentEngine {
         loop {
             let mut tool_context = approval_context(capability.clone());
             tool_context.insert(renderer.question_port());
+            tool_context.insert(crate::plugin::contract::InvocationContext {
+                session_id: self.session_manager.session_id.clone(),
+                working_directory: std::env::current_dir()?.display().to_string(),
+                has_interactive_ui: renderer.has_interactive_ui(),
+            });
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)

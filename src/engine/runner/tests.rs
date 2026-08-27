@@ -40,6 +40,7 @@ fn test_engine_with_session(
         CodingRuntime {
             base_dir,
             memory: session_manager.clone(),
+            active_tools: None,
         },
     )
     .unwrap();

@@ -45,7 +45,7 @@ impl AgentEngineBuilder {
         self
     }
 
-    pub fn build(self) -> Result<AgentEngine> {
+    pub async fn build(self) -> Result<AgentEngine> {
         let base_dir = self.base_dir.unwrap_or(std::env::current_dir()?);
         let session_manager = match self.session_manager {
             Some(session) => session,
@@ -71,12 +71,14 @@ impl AgentEngineBuilder {
             },
             &self.auth_store,
         )?;
+        let active_tools = crate::plugin::tool_dispatch::ActiveToolSet::load(&self.config, &base_dir).await?;
         let agent = super::runtime::build_coding_agent(
             model,
             &self.config,
             CodingRuntime {
                 base_dir: &base_dir,
                 memory: session_manager.clone(),
+                active_tools: Some(active_tools),
             },
         )?;
         let mut extension_registry = ExtensionRegistry::new();

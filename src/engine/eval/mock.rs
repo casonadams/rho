@@ -47,6 +47,7 @@ pub(super) fn mock_engine_with_session(model: MockCompletionModel, config: MockE
         CodingRuntime {
             base_dir: config.base_dir,
             memory: config.session_manager.clone(),
+            active_tools: None,
         },
     )
     .unwrap();

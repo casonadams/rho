@@ -3,7 +3,7 @@ use crate::plugin::contract::{
     AuthenticationRequest, AuthenticationResponse, CapabilityDescriptor, CommandCapability, CommandDescriptor,
     CommandInvocationRequest, CommandInvocationResponse, LifecycleCapability, LifecycleEvent, PermissionCapability,
     PermissionDecision, ProviderCapability, ProviderDescriptor, ProviderRequest, ProviderStreamEvent,
-    RequestedOperation, SkillAsset, SkillCapability, ToolCapability, ToolDescriptor, ToolInvocationRequest,
+    RequestedOperation, SkillAsset, SkillCapability, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
     ToolInvocationResponse,
 };
 use crate::plugin::process::{PluginProcessClient, ProcessError, ProcessLimits};
@@ -66,6 +66,22 @@ impl ExternalPlugin {
 
     pub fn unavailable(&self) -> &BTreeMap<CapabilityId, String> {
         &self.unavailable
+    }
+
+    pub fn resolvable_manifest(&self) -> ValidatedManifest {
+        ValidatedManifest {
+            plugin_id: self.manifest.plugin_id.clone(),
+            plugin_version: self.manifest.plugin_version.clone(),
+            api_version: self.manifest.api_version,
+            protocol_version: self.manifest.protocol_version,
+            capabilities: self
+                .manifest
+                .capabilities
+                .iter()
+                .filter(|declaration| self.descriptors.contains_key(&declaration.id))
+                .cloned()
+                .collect(),
+        }
     }
 
     pub fn provider(&self, id: &CapabilityId) -> Result<ExternalProvider, CapabilityError> {
@@ -242,7 +258,11 @@ impl ToolCapability for ExternalTool {
         self.descriptor.clone()
     }
 
-    async fn invoke(&self, request: ToolInvocationRequest) -> Result<ToolInvocationResponse, CapabilityError> {
+    async fn invoke(
+        &self,
+        _host: &dyn ToolHost,
+        request: ToolInvocationRequest,
+    ) -> Result<ToolInvocationResponse, CapabilityError> {
         self.schema
             .validate(&request.arguments)
             .map_err(|_| CapabilityError::InvalidRequest {

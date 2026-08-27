@@ -4,14 +4,28 @@ use rho::plugin::capability::{
     CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
 };
 use rho::plugin::contract::{
-    CapabilityDescriptor, InvocationContext, ToolCapability, ToolDescriptor, ToolInvocationRequest,
-    ToolInvocationResponse,
+    CapabilityDescriptor, InteractionRequest, InteractionResponse, InvocationContext, ToolCapability, ToolDescriptor,
+    ToolHost, ToolInvocationRequest, ToolInvocationResponse,
 };
 use rho::plugin::external::ExternalPlugin;
 use rho::plugin::process::ProcessLimits;
 use rho::plugin::protocol::{ProtocolMessage, TerminalResult};
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+
+struct NoopHost;
+
+#[async_trait::async_trait]
+impl ToolHost for NoopHost {
+    async fn interact(
+        &self,
+        _request: InteractionRequest,
+    ) -> Result<InteractionResponse, rho::plugin::capability::CapabilityError> {
+        Err(rho::plugin::capability::CapabilityError::Unavailable {
+            message: "interaction unavailable".to_string(),
+        })
+    }
+}
 
 struct Fixture {
     root: PathBuf,
@@ -98,14 +112,17 @@ async fn discovers_and_invokes_a_subprocess_plugin_end_to_end() {
         .unwrap();
     let tool = plugin.tool(&"tool:fixture".parse().unwrap()).unwrap();
     let response = tool
-        .invoke(ToolInvocationRequest {
-            arguments: serde_json::json!({}),
-            context: InvocationContext {
-                session_id: "session".to_string(),
-                working_directory: "/workspace".to_string(),
-                has_interactive_ui: false,
+        .invoke(
+            &NoopHost,
+            ToolInvocationRequest {
+                arguments: serde_json::json!({}),
+                context: InvocationContext {
+                    session_id: "session".to_string(),
+                    working_directory: "/workspace".to_string(),
+                    has_interactive_ui: false,
+                },
             },
-        })
+        )
         .await
         .unwrap();
 
