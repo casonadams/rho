@@ -1,6 +1,7 @@
 //! Tests for the `ui::render` module.
 
 use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
+use super::renderer::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
 use super::summary::{approval_heading, bash_approval_details, clean_command_paths, to_relative_path};
 use super::types::{BashApproval, SessionStatus};
 use crate::tools::bash_ast::RiskTier;
@@ -82,6 +83,42 @@ fn test_format_write_preview_renders_additions() {
     assert!(preview.contains("+ def main():"));
     assert!(preview.contains("+     print('hello')"));
     assert!(preview.contains("```"));
+}
+
+#[test]
+fn error_tool_titles_use_terminal_red_without_dimming() {
+    assert_eq!(tool_title_style(false).render().to_string(), "\x1b[1m");
+    assert_eq!(tool_title_style(true).render().to_string(), "\x1b[1m\x1b[31m");
+}
+
+#[test]
+fn webfetch_content_kind_uses_format_or_url_extension() {
+    assert_eq!(
+        webfetch_content_kind(&serde_json::json!({"url": "https://example.com/page"})),
+        "text"
+    );
+    assert_eq!(
+        webfetch_content_kind(&serde_json::json!({"url": "https://example.com/data.json"})),
+        "json"
+    );
+    assert_eq!(
+        webfetch_content_kind(&serde_json::json!({"url": "https://example.com/file", "format": "pdf"})),
+        "pdf"
+    );
+}
+
+#[test]
+fn tool_output_previews_are_bounded() {
+    let output = (1..=10)
+        .map(|line| format!("line {line}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let preview = format_tool_output_preview(&output, "empty");
+    assert!(preview.contains("line 1"));
+    assert!(preview.contains("line 8"));
+    assert!(!preview.contains("line 9"));
+    assert!(preview.ends_with("... (2 more lines)"));
+    assert_eq!(format_tool_output_preview("", "empty"), "empty");
 }
 
 #[test]

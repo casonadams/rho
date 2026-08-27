@@ -34,6 +34,7 @@ pub struct ToolLine<'a> {
     pub name: &'a str,
     pub arguments: &'a serde_json::Value,
     pub is_error: bool,
+    pub output: &'a str,
     pub output_summary: &'a str,
 }
 

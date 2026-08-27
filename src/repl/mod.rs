@@ -10,10 +10,40 @@ use crate::error::Result;
 use crate::repl::commands::{CommandResult, SLASH_COMMANDS, SlashCommandHandler};
 use crate::ui::TerminalRenderer;
 use crate::ui::render::{SessionStatus, WelcomeDisplay};
+use crossterm::QueueableCommand;
+use crossterm::cursor::{MoveToColumn, MoveUp};
+use crossterm::terminal::{Clear, ClearType};
+use crossterm::tty::IsTty;
 use reedline::{
     ColumnarMenu, DefaultCompleter, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
     ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
 };
+use std::io::Write;
+use unicode_width::UnicodeWidthStr;
+
+fn submitted_input_rows(input: &str, terminal_width: usize) -> u16 {
+    let width = terminal_width.max(1);
+    input.lines().fold(0_u16, |rows, line| {
+        let occupied = UnicodeWidthStr::width(line).saturating_add(2);
+        rows.saturating_add((occupied / width + 1).try_into().unwrap_or(u16::MAX))
+    })
+}
+
+fn clear_submitted_input(input: &str) {
+    let mut stdout = std::io::stdout();
+    if !stdout.is_tty() {
+        return;
+    }
+    let width = crossterm::terminal::size()
+        .map(|(columns, _)| usize::from(columns))
+        .unwrap_or(80);
+    let rows = submitted_input_rows(input, width);
+    let _ = stdout
+        .queue(MoveUp(rows))
+        .and_then(|stream| stream.queue(MoveToColumn(0)))
+        .and_then(|stream| stream.queue(Clear(ClearType::FromCursorDown)))
+        .and_then(Write::flush);
+}
 
 fn slash_command_completer() -> DefaultCompleter {
     let mut completer = DefaultCompleter::with_inclusions(&['/']);
@@ -93,8 +123,9 @@ impl ReplSession {
                     if input.is_empty() {
                         continue;
                     }
-                    println!();
-
+                    if input.starts_with('/') {
+                        println!();
+                    }
                     if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut self.config, &mut self.auth_store)? {
                         match cmd_res {
                             CommandResult::Exit => break,
@@ -127,6 +158,9 @@ impl ReplSession {
                         }
                     }
 
+                    clear_submitted_input(input);
+                    self.renderer.print_user_block(input);
+                    println!();
                     self.run_agent_turn(&engine, crate::engine::runner::TurnRequest { prompt: input })
                         .await?;
                 }
@@ -174,7 +208,7 @@ impl ReplSession {
 
 #[cfg(test)]
 mod tests {
-    use super::slash_command_completer;
+    use super::{slash_command_completer, submitted_input_rows};
     use reedline::Completer;
 
     #[test]
@@ -182,5 +216,13 @@ mod tests {
         let suggestions = slash_command_completer().complete("/mo", 3);
         assert_eq!(suggestions.len(), 1);
         assert_eq!(suggestions[0].value, "/model");
+    }
+
+    #[test]
+    fn submitted_input_rows_include_prompt_width_and_terminal_wrapping() {
+        assert_eq!(submitted_input_rows("hello", 80), 1);
+        assert_eq!(submitted_input_rows(&"x".repeat(78), 80), 2);
+        assert_eq!(submitted_input_rows("one\ntwo", 80), 2);
+        assert_eq!(submitted_input_rows("界界", 5), 2);
     }
 }

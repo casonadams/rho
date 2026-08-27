@@ -4,6 +4,7 @@ use super::formatters::{format_edit_diff, format_session_status, format_thinking
 use super::summary::{approval_heading, bash_approval_details, format_tool_args_summary, to_relative_path};
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::RiskTier;
+use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -15,14 +16,14 @@ use std::time::Duration;
 #[derive(Clone)]
 pub struct TerminalRenderer {
     pub theme: Theme,
-    md: Arc<Mutex<MarkdownRenderer>>,
+    markdown: Arc<Mutex<MarkdownRenderer>>,
 }
 
 impl Default for TerminalRenderer {
     fn default() -> Self {
         Self {
             theme: Theme::default(),
-            md: Arc::new(Mutex::new(MarkdownRenderer::new())),
+            markdown: Arc::new(Mutex::new(MarkdownRenderer::new())),
         }
     }
 }
@@ -55,6 +56,56 @@ impl fmt::Display for BashApprovalChoice {
             Self::Deny => "Deny",
         })
     }
+}
+
+pub(super) fn tool_title_style(is_error: bool) -> anstyle::Style {
+    if is_error {
+        anstyle::Style::new()
+            .bold()
+            .fg_color(Some(anstyle::AnsiColor::Red.into()))
+    } else {
+        anstyle::Style::new().bold()
+    }
+}
+
+pub(super) fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
+    if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
+        return match format.to_ascii_lowercase().as_str() {
+            "pdf" => "pdf",
+            "json" => "json",
+            "csv" => "csv",
+            "xml" => "xml",
+            _ => "text",
+        };
+    }
+    let url = arguments
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if url.ends_with(".pdf") {
+        "pdf"
+    } else if url.ends_with(".json") {
+        "json"
+    } else if url.ends_with(".csv") {
+        "csv"
+    } else if url.ends_with(".xml") || url.ends_with(".rss") || url.ends_with(".atom") {
+        "xml"
+    } else {
+        "text"
+    }
+}
+
+pub(super) fn format_tool_output_preview(output: &str, fallback: &str) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    if lines.is_empty() {
+        return fallback.to_string();
+    }
+    let mut preview = lines.iter().take(8).copied().collect::<Vec<_>>().join("\n");
+    if lines.len() > 8 {
+        preview.push_str(&format!("\n... ({} more lines)", lines.len() - 8));
+    }
+    preview
 }
 
 fn approval_mode(auto_approve: bool) -> &'static str {
@@ -186,30 +237,71 @@ impl TerminalRenderer {
         }
     }
 
+    pub fn print_user_block(&self, input: &str) {
+        println!();
+        print!(
+            "{}",
+            BlockFormat::new(self.theme.user_message_bg, terminal_width())
+                .with_vertical_padding()
+                .render_plain(input)
+        );
+        let _ = io::stdout().flush();
+    }
+
     pub fn finish_tool_line(&self, line: ToolLine<'_>) {
-        let summary = format_tool_args_summary(line.name, line.arguments);
-        if line.is_error {
-            let err = self.theme.tool_err;
-            println!("{err}{}{err:#} {summary} -> {}", line.name, line.output_summary);
+        println!();
+        let background = if line.is_error {
+            self.theme.tool_error_bg
         } else {
-            let ok = self.theme.tool_ok;
-            println!("{ok}{}{ok:#} {summary}", line.name);
-            if line.name == "edit"
-                && let Some(diff) = format_edit_diff(line.arguments, &self.theme)
-            {
-                print!("{diff}");
-            } else if line.name == "write"
-                && let Some(preview) = format_write_preview(line.arguments, &self.theme)
-            {
-                print!("{preview}");
+            self.theme.tool_success_bg
+        };
+        let title = tool_title_style(line.is_error);
+        let accent = self.theme.highlight;
+        let summary = format_tool_args_summary(line.name, line.arguments);
+        let mut content = if line.name == "webfetch" && !line.is_error {
+            let url = line
+                .arguments
+                .get("url")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+            let dim = self.theme.dimmed;
+            let kind = webfetch_content_kind(line.arguments);
+            format!(
+                "{title}webfetch{title:#}{background}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}"
+            )
+        } else {
+            format!("{title}{}{title:#}{background} {accent}{summary}{accent:#}", line.name)
+        };
+
+        if !line.is_error && line.name == "edit" {
+            if let Some(diff) = format_edit_diff(line.arguments, &self.theme) {
+                content.push('\n');
+                content.push_str(&diff);
             }
+        } else if !line.is_error && line.name == "write" {
+            if let Some(preview) = format_write_preview(line.arguments, &self.theme) {
+                content.push('\n');
+                content.push_str(&preview);
+            }
+        } else if line.name == "bash" || line.is_error {
+            content.push_str("\n\n");
+            content.push_str(&format_tool_output_preview(line.output, line.output_summary));
         }
+
+        print!(
+            "{}",
+            BlockFormat::new(background, terminal_width())
+                .with_vertical_padding()
+                .render_styled(&content)
+        );
+        let _ = io::stdout().flush();
     }
 
     pub fn print_token(&self, token: &str) {
         let mut stdout = io::stdout().lock();
-        if let Ok(mut md) = self.md.lock() {
-            let rendered = md.render_token(token, &self.theme);
+        if let Ok(mut markdown) = self.markdown.lock() {
+            let rendered = markdown.render_token(token, &self.theme);
             let _ = write!(stdout, "{rendered}");
         } else {
             let _ = write!(stdout, "{token}");
@@ -226,8 +318,8 @@ impl TerminalRenderer {
 
     pub fn flush(&self) {
         let mut stdout = io::stdout().lock();
-        if let Ok(mut md) = self.md.lock() {
-            let remaining = md.flush(&self.theme);
+        if let Ok(mut markdown) = self.markdown.lock() {
+            let remaining = markdown.flush(&self.theme);
             if !remaining.is_empty() {
                 let _ = write!(stdout, "{remaining}");
             }

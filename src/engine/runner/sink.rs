@@ -230,6 +230,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
             } => {
                 self.run_tracker.tool_called();
                 self.flush_reasoning();
+                self.renderer.flush();
                 let arguments = redact_value(&self.session_manager, &arguments);
                 let mut state = self.state.lock().unwrap_or_else(|_| unreachable!());
                 clear_spinner(&mut state);
@@ -267,6 +268,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
                         name: &tool_name,
                         arguments: &arguments,
                         is_error: status != "success",
+                        output: &output,
                         output_summary: &output_summary,
                     });
                     state.completed.push(CompletedTool {

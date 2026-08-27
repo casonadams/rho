@@ -29,8 +29,6 @@ clap = { version = "4.5", features = ["derive", "env"] }
 reedline = "0.38"
 inquire = "0.7"
 indicatif = "0.17"
-comfy-table = "7.1"
-meraid = "0.1"
 crossterm = "0.28"
 anstyle = "1.0"
 pulldown-cmark = "0.13"
@@ -57,6 +55,7 @@ anyhow = "1.0"
 uuid = { version = "1.13", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1.11"
+unicode-width = "0.2"
 
 [dev-dependencies]
 rig = { version = "0.42", features = ["test-utils"] }

@@ -1,9 +1,10 @@
 //! Tests for the `ui::markdown` module.
 
-use super::elements::render_inline_elements;
+use super::elements::{render_inline_elements, render_markdown_table_at_width};
 use super::highlight::highlight_code_line;
 use super::renderer::MarkdownRenderer;
 use crate::ui::theme::Theme;
+use unicode_width::UnicodeWidthStr;
 
 #[test]
 fn test_table_rendering() {
@@ -17,6 +18,22 @@ fn test_table_rendering() {
     assert!(out.contains("Architecture"));
     assert!(out.contains("Linear Loop"));
     assert!(out.contains('┌') || out.contains('+') || out.contains('-') || out.contains('│'));
+}
+
+#[test]
+fn table_renderer_uses_rounded_borders_and_respects_width() {
+    let theme = Theme::default();
+    let lines = vec![
+        "| Name | Description |".to_string(),
+        "| --- | --- |".to_string(),
+        "| rust-ai | a deliberately long table cell that wraps |".to_string(),
+    ];
+    let rendered = render_markdown_table_at_width(&lines, &theme, 36);
+    let ansi = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+    let plain = ansi.replace_all(&rendered, "");
+    assert!(plain.contains('╭'));
+    assert!(plain.contains('╰'));
+    assert!(plain.lines().all(|line| UnicodeWidthStr::width(line) <= 36));
 }
 
 #[test]
@@ -90,13 +107,17 @@ fn test_split_list_marker_does_not_drop_item_text() {
 }
 
 #[test]
-fn test_mermaid_rendering() {
+fn mermaid_is_rendered_as_a_standard_fenced_code_block() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
 
     let chunk = "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n";
     let out = md.render_token(chunk, &theme);
-    assert!(out.contains("mermaid diagram"));
+    assert!(out.contains("```mermaid"));
+    assert!(out.contains("graph TD"));
+    assert!(out.contains("```"));
+    assert!(!out.contains("mermaid diagram"));
+    assert!(!out.contains('│'));
 }
 
 #[test]
@@ -111,6 +132,25 @@ fn test_bold_and_italic_rendering() {
 }
 
 #[test]
+fn inline_code_hides_backticks_in_complete_and_streamed_text() {
+    let theme = Theme::default();
+    let complete = render_inline_elements("Run `cargo test` now", &theme);
+    assert!(complete.contains("cargo test"));
+    assert!(!complete.contains('`'));
+    assert!(complete.contains("\x1b[36m"));
+
+    let mut markdown = MarkdownRenderer::new();
+    let streamed = format!(
+        "{}{}",
+        markdown.render_token("Run `cargo", &theme),
+        markdown.render_token(" test` now", &theme)
+    );
+    assert!(streamed.contains("cargo"));
+    assert!(streamed.contains(" test"));
+    assert!(!streamed.contains('`'));
+}
+
+#[test]
 fn test_code_block_has_no_background_color_patches() {
     let theme = Theme::default();
     let highlighted = highlight_code_line("let x = 42;", Some("rust"), &theme);
@@ -121,18 +161,19 @@ fn test_code_block_has_no_background_color_patches() {
 }
 
 #[test]
-fn test_code_block_fences_open_and_close() {
+fn code_blocks_show_fences_instead_of_code_bars() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
 
-    let l1 = md.render_line("```rust", &theme);
-    assert!(l1.contains("```rust"));
+    let opening = md.render_line("```rust", &theme);
+    assert!(opening.contains("```rust"));
 
-    let l2 = md.render_line("fn main() {}", &theme);
-    assert!(l2.contains("fn"));
+    let code = md.render_line("fn main() {}", &theme);
+    assert!(code.contains("fn"));
+    assert!(!code.contains('│'));
 
-    let l3 = md.render_line("```", &theme);
-    assert!(l3.contains("```"));
+    let closing = md.render_line("```", &theme);
+    assert!(closing.contains("```"));
 }
 
 #[test]
