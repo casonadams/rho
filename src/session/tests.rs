@@ -42,6 +42,31 @@ fn complete_tool_turn(ids: &[&str]) -> Vec<Message> {
     ]
 }
 
+#[cfg(unix)]
+#[test]
+fn session_storage_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(
+        std::fs::metadata(&store.file_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+
+    let id = store.session_id.clone();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&store.file_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    drop(store);
+    let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
+    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(
+        std::fs::metadata(&resumed.file_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
 #[tokio::test]
 async fn empty_v2_session_round_trips_after_reopen() {
     let dir = temp_dir();

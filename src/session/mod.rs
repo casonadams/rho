@@ -46,11 +46,16 @@ impl SessionManager {
 
     pub fn new_with_secrets(sessions_dir: &Path, resume_id: Option<&str>, secrets: Vec<String>) -> Result<Self> {
         std::fs::create_dir_all(sessions_dir)?;
+        set_private_directory_permissions(sessions_dir)?;
         let session_id = resume_id.map_or_else(new_session_id, str::to_string);
         validate_session_id(&session_id)?;
         let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
         let state = match resume_id {
-            Some(_) => load_file(&file_path, &session_id)?,
+            Some(_) => {
+                let state = load_file(&file_path, &session_id)?;
+                set_private_file_permissions(&file_path)?;
+                state
+            }
             None => {
                 create_session_file(&file_path, &session_id)?;
                 StoreState {
@@ -281,6 +286,24 @@ impl ConversationMemory for SessionManager {
             })
         })
     }
+}
+
+fn set_private_directory_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+fn set_private_file_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }
 
 fn new_session_id() -> String {

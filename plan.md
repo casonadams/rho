@@ -52,12 +52,13 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 - [ ] Revalidate immediately before mutation.
 - [x] Add traversal and boundary tests; add symlink coverage where platform permits.
 
-### 4. Harden session persistence
+### 4. Harden session persistence — in progress
 
-- Expose session state transitions rather than allowing arbitrary related record appends.
-- Verify atomicity of successful turns, cancellation, checkpoint save, and checkpoint promotion.
-- Test truncated records, malformed records, duplicate tool results, interrupted writes, and restart behavior.
-- Add a session verification/diagnostic path if useful.
+- [x] Expose session state transitions rather than allowing arbitrary related record appends.
+- [x] Verify atomicity of successful turns, cancellation, checkpoint save, and checkpoint promotion.
+- [x] Keep session files and their containing directories private on Unix, including on resume.
+- [x] Test truncated records, malformed records, duplicate tool results, interrupted writes, and restart behavior.
+- [ ] Add a session verification/diagnostic path if useful.
 
 ## Phase 2: Architecture
 
