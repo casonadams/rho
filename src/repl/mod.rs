@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod coordinator;
 pub mod interactive;
 mod prompt;
 
