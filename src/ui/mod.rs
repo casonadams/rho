@@ -1,4 +1,5 @@
 pub mod block;
+pub mod interactive;
 pub mod markdown;
 pub mod render;
 pub mod theme;
