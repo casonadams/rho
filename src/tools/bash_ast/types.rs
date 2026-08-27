@@ -18,4 +18,5 @@ pub struct SafetyAnalysis {
     pub tier: RiskTier,
     pub reasons: Vec<String>,
     pub commands: Vec<String>,
+    pub session_patterns: Option<Vec<String>>,
 }

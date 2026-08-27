@@ -29,13 +29,23 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             Commands::Config { key, value } => {
-                if let (Some(k), Some(v)) = (key, value) {
-                    println!("Set {k} = {v}");
-                } else {
-                    println!("Config location: {}", config.config_dir.display());
-                    println!("Model: {}", config.model);
-                    let provider = ProviderId::from_str(&config.provider)?;
-                    println!("Provider: {provider} ({})", provider.auth_mode_label());
+                match (key, value) {
+                    (Some(k), Some(v)) => {
+                        Config::set_file_value(&config.config_dir, &k, &v)?;
+                        println!("Set {k} = {v} in {}", config.config_dir.join("config.toml").display());
+                    }
+                    (Some(_), None) => println!("Usage: rho config <key> <value>"),
+                    (None, Some(_)) => println!("Usage: rho config <key> <value>"),
+                    (None, None) => {
+                        println!("Config location: {}", config.config_dir.display());
+                        let provider = ProviderId::from_str(&config.provider)?;
+                        println!("Model: {}", config.model);
+                        println!("Provider: {provider} ({})", provider.auth_mode_label());
+                        println!("Auto approve: {}", config.auto_approve);
+                        println!("Max turns: {}", config.max_turns);
+                        println!("Context window messages: {}", config.context_window_messages);
+                        println!("Compaction max bytes: {}", config.compaction_max_bytes);
+                    }
                 }
                 return Ok(());
             }
@@ -45,6 +55,50 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 println!("Models for {provider} ({})", catalog.source_label());
                 for model in catalog.models() {
                     println!("  - {model}");
+                }
+                return Ok(());
+            }
+            Commands::Plugin { action } => {
+                let cwd = std::env::current_dir().ok();
+                match action.unwrap_or(crate::config::cli::PluginCommands::List) {
+                    crate::config::cli::PluginCommands::List => {
+                        let discovery = crate::plugin::PluginLoader::discover(&config.config_dir, cwd.as_deref())?;
+                        println!("Discovered plugins:");
+                        if discovery.manifests.is_empty() && discovery.binary_plugins.is_empty() {
+                            println!(
+                                "  (No plugins found in {}/plugins or .rho/plugins)",
+                                config.config_dir.display()
+                            );
+                        } else {
+                            for (path, manifest) in &discovery.manifests {
+                                println!("  - {} v{} ({})", manifest.name, manifest.version, path.display());
+                                if let Some(desc) = &manifest.description {
+                                    println!("      {desc}");
+                                }
+                            }
+                            for bin in &discovery.binary_plugins {
+                                println!("  - [binary] {}", bin.display());
+                            }
+                        }
+                    }
+                    crate::config::cli::PluginCommands::Install { package } => {
+                        println!("Installing plugin via cargo: {package}...");
+                        let status = std::process::Command::new("cargo")
+                            .arg("install")
+                            .arg(&package)
+                            .status();
+                        match status {
+                            Ok(code) if code.success() => {
+                                println!("Successfully installed {package}");
+                            }
+                            Ok(code) => {
+                                eprintln!("cargo install exited with status {code}");
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to run cargo install: {e}");
+                            }
+                        }
+                    }
                 }
                 return Ok(());
             }

@@ -29,7 +29,10 @@ impl AgentHook for ApprovalHook {
             class: class.clone(),
         });
 
-        if class.allows_without_approval() || self.capability.is_auto_approve() {
+        if class.allows_without_approval()
+            || self.capability.is_auto_approve()
+            || self.capability.is_session_approved(event.tool_name, &arguments)
+        {
             return ToolCallAction::Run;
         }
 
@@ -46,6 +49,13 @@ impl AgentHook for ApprovalHook {
         match decision {
             ApprovalDecision::Approved => {
                 self.capability.grant_once(event.tool_name, &arguments);
+                self.capability.emit_sink(ToolEvent::ApprovalGranted {
+                    internal_call_id: event.internal_call_id.to_string(),
+                    tool_name: event.tool_name.to_string(),
+                });
+            }
+            ApprovalDecision::ApprovedForSession => {
+                self.capability.grant_for_session(event.tool_name, &arguments);
                 self.capability.emit_sink(ToolEvent::ApprovalGranted {
                     internal_call_id: event.internal_call_id.to_string(),
                     tool_name: event.tool_name.to_string(),

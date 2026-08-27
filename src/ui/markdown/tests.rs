@@ -26,7 +26,7 @@ fn table_renderer_uses_rounded_borders_and_respects_width() {
     let lines = vec![
         "| Name | Description |".to_string(),
         "| --- | --- |".to_string(),
-        "| rust-ai | a deliberately long table cell that wraps |".to_string(),
+        "| rho | a deliberately long table cell that wraps |".to_string(),
     ];
     let rendered = render_markdown_table_at_width(&lines, &theme, 36);
     let ansi = regex::Regex::new(r"\x1b\[[0-9;]*m").unwrap();

@@ -54,8 +54,10 @@ pub(super) fn mock_engine_with_session(model: MockCompletionModel, config: MockE
     AgentEngine {
         config: app_config,
         session_manager: config.session_manager,
+        extension_registry: crate::plugin::ExtensionRegistry::new(),
         agent,
         last_usage: Mutex::new(None),
+        last_quota: Mutex::new(None),
         run_tracker: RunTracker::default(),
     }
 }

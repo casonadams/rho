@@ -67,7 +67,7 @@ fn keeps_openai_chatgpt_and_copilot_distinct() {
 #[test]
 fn constructs_every_provider_model_without_network_or_device_flow() {
     let auth = auth_store();
-    let config_dir = std::env::temp_dir().join("rust-ai-provider-construction");
+    let config_dir = std::env::temp_dir().join("rho-provider-construction");
     for provider in ProviderId::ALL {
         let handle = ProviderFactory::create_model_for(provider, request("fixture-model", &config_dir), &auth).unwrap();
         assert_eq!(handle.label(), Some(provider.as_str()));

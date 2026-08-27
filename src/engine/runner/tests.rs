@@ -45,8 +45,10 @@ fn test_engine_with_session(
     AgentEngine {
         config,
         session_manager,
+        extension_registry: crate::plugin::ExtensionRegistry::new(),
         agent,
         last_usage: Mutex::new(None),
+        last_quota: Mutex::new(None),
         run_tracker: crate::engine::metrics::RunTracker::default(),
     }
 }
@@ -440,7 +442,7 @@ async fn normalized_usage_is_exposed_when_available() {
     assert!(output.metrics.usage_available);
     assert_eq!(output.metrics.usage.unwrap().cached_input_tokens, Some(3));
     assert_eq!(output.metrics.usage.unwrap().reasoning_tokens, Some(2));
-    assert_eq!(engine.context_usage_display(), "10 input tokens");
+    assert_eq!(engine.context_usage_display(), "10/1M (0%)");
 }
 
 #[tokio::test]
@@ -768,4 +770,38 @@ fn cancellation_reason_is_redacted() {
 #[test]
 fn auth_store_type_remains_constructible_for_public_engine_api() {
     let _ = AuthStore::default();
+}
+
+#[tokio::test]
+async fn extension_augments_preamble_in_turn() {
+    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(Usage::new())]]);
+    let config = Config {
+        auto_approve: true,
+        ..Config::default()
+    };
+    let mut engine = test_engine_with_session(model.clone(), config, terminal_session());
+
+    struct ExtraPreambleExtension;
+    #[async_trait::async_trait]
+    impl crate::plugin::Extension for ExtraPreambleExtension {
+        fn name(&self) -> &str {
+            "extra_preamble"
+        }
+        async fn before_turn(
+            &self,
+            event: &mut crate::plugin::TurnEvent<'_>,
+            _ctx: &crate::plugin::ExtensionContext,
+        ) -> crate::error::Result<()> {
+            event.system_prompt.push_str("\n[Custom Extension Guideline]");
+            Ok(())
+        }
+    }
+
+    engine.extension_registry.register(ExtraPreambleExtension);
+    let renderer = TerminalRenderer::default();
+    engine.run_turn(request("test"), &renderer).await.unwrap();
+    let requests = model.requests();
+    assert_eq!(requests.len(), 1);
+    let serialized = serde_json::to_string(&requests[0].chat_history).unwrap();
+    assert!(serialized.contains("[Custom Extension Guideline]"));
 }

@@ -1,8 +1,12 @@
 //! Tests for the `ui::render` module.
 
-use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
+use super::formatters::{
+    format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
+};
 use super::renderer::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
-use super::summary::{approval_heading, bash_approval_details, clean_command_paths, to_relative_path};
+use super::summary::{
+    approval_heading, bash_approval_details, clean_command_paths, read_summary_parts, to_relative_path,
+};
 use super::types::{BashApproval, SessionStatus};
 use crate::tools::bash_ast::RiskTier;
 use crate::ui::theme::Theme;
@@ -29,8 +33,51 @@ fn high_risk_bash_approval_explains_the_risk() {
     });
 
     assert_eq!(details, ["$ git reset --hard", "", "Discards uncommitted changes"]);
-    assert_eq!(approval_heading(RiskTier::HighRisk), "High-risk command");
-    assert_eq!(approval_heading(RiskTier::Mutating), "Command requires approval");
+    assert_eq!(approval_heading(RiskTier::HighRisk), "High-risk bash command");
+    assert_eq!(approval_heading(RiskTier::Mutating), "Bash command requires approval");
+}
+
+#[test]
+fn bash_approval_cards_match_transcript_blocks() {
+    let theme = Theme::default();
+    let ordinary = format_bash_approval_card(
+        &BashApproval {
+            command: "cargo test",
+            tier: RiskTier::Mutating,
+            reasons: &[],
+        },
+        &theme,
+        40,
+    );
+    assert!(ordinary.contains("Bash command requires approval"));
+    assert!(ordinary.contains("$ cargo test"));
+    assert!(ordinary.contains("\x1b[33m"));
+
+    let reasons = vec!["Discards uncommitted changes".to_string()];
+    let high_risk = format_bash_approval_card(
+        &BashApproval {
+            command: "git reset --hard",
+            tier: RiskTier::HighRisk,
+            reasons: &reasons,
+        },
+        &theme,
+        40,
+    );
+    assert!(high_risk.contains("High-risk bash command"));
+    assert!(high_risk.contains("! Discards uncommitted changes"));
+    assert!(high_risk.contains("\x1b[31m"));
+}
+
+#[test]
+fn read_summaries_show_explicit_line_ranges() {
+    assert_eq!(
+        read_summary_parts(&serde_json::json!({"path": "src/lib.rs", "offset": 10, "limit": 20})),
+        ("src/lib.rs".to_string(), Some(":10-29".to_string()))
+    );
+    assert_eq!(
+        read_summary_parts(&serde_json::json!({"path": "src/lib.rs"})),
+        ("src/lib.rs".to_string(), None)
+    );
 }
 
 #[test]
@@ -127,19 +174,21 @@ fn session_status_keeps_runtime_context_visible() {
         format_session_status(&SessionStatus {
             model: "claude-sonnet",
             provider: "anthropic",
-            context: "42%",
+            context: "27.4% (1M)",
+            quota: Some("93% (3h22m)"),
             auto_approve: false,
         }),
-        "claude-sonnet via anthropic | context: 42% | confirm changes"
+        "claude-sonnet | 27.4% (1M) | 93% (3h22m)"
     );
     assert_eq!(
         format_session_status(&SessionStatus {
             model: "qwen",
             provider: "ollama",
-            context: "usage unavailable",
+            context: "0% (376k)",
+            quota: None,
             auto_approve: true,
         }),
-        "qwen via ollama | context: usage unavailable | auto-approve"
+        "qwen | 0% (376k)"
     );
 }
 

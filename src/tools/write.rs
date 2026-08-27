@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::tools::approval::enforce_approval;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -30,13 +31,10 @@ impl WriteTool {
             return Ok(ToolResult::error("Empty file path provided for write tool"));
         }
 
-        let base = std::env::current_dir().unwrap_or_else(|_| self.base_dir.clone());
-        let path = if Path::new(clean_path).is_absolute() {
-            PathBuf::from(clean_path)
-        } else {
-            base.join(clean_path)
+        let workspace = Workspace::new(&self.base_dir);
+        let Some(path) = workspace.resolve(clean_path) else {
+            return Ok(ToolResult::error("Empty file path provided for write tool"));
         };
-
         if let Some(parent) = path.parent()
             && let Err(e) = tokio::fs::create_dir_all(parent).await
         {

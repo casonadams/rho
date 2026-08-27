@@ -34,11 +34,29 @@ use brush_parser::ParserOptions;
 /// descending.
 pub(super) const MAX_AST_DEPTH: usize = 32;
 
+const SUBCOMMAND_TOOLS: &[&str] = &[
+    "bun",
+    "cargo",
+    "docker",
+    "gh",
+    "git",
+    "go",
+    "helm",
+    "kubectl",
+    "npm",
+    "pnpm",
+    "podman",
+    "rustup",
+    "systemctl",
+    "yarn",
+];
+
 pub(super) struct Analyzer {
     options: ParserOptions,
     tier: RiskTier,
     reasons: Vec<String>,
     commands: Vec<String>,
+    session_patterns: Option<Vec<String>>,
 }
 
 impl Analyzer {
@@ -48,6 +66,7 @@ impl Analyzer {
             tier: RiskTier::ReadOnly,
             reasons: Vec::new(),
             commands: Vec::new(),
+            session_patterns: Some(Vec::new()),
         }
     }
 
@@ -55,16 +74,48 @@ impl Analyzer {
         self.reasons.sort();
         self.reasons.dedup();
         self.commands.dedup();
+        if let Some(patterns) = &mut self.session_patterns {
+            patterns.sort();
+            patterns.dedup();
+        }
         SafetyAnalysis {
             tier: self.tier,
             reasons: self.reasons,
             commands: self.commands,
+            session_patterns: self.session_patterns,
         }
     }
 
     pub(super) fn flag(&mut self, tier: RiskTier, reason: impl Into<String>) {
         self.tier = self.tier.max(tier);
         self.reasons.push(reason.into());
+    }
+
+    pub(super) fn record_session_pattern(&mut self, command: &str, arguments: &[String]) {
+        if arguments
+            .iter()
+            .any(|argument| argument.is_empty() || argument.contains(char::is_whitespace))
+        {
+            self.session_patterns = None;
+            return;
+        }
+        let Some(patterns) = &mut self.session_patterns else {
+            return;
+        };
+        let pattern = if SUBCOMMAND_TOOLS.contains(&command)
+            || arguments.first().is_some_and(|argument| argument.starts_with('-'))
+        {
+            arguments
+                .first()
+                .map_or_else(|| format!("{command} *"), |argument| format!("{command} {argument} *"))
+        } else {
+            format!("{command} *")
+        };
+        patterns.push(pattern);
+    }
+
+    pub(super) fn disable_session_patterns(&mut self) {
+        self.session_patterns = None;
     }
 
     pub(super) fn flag_depth_overrun(&mut self) {

@@ -55,11 +55,89 @@ impl Config {
         std::fs::create_dir_all(&self.sessions_dir)?;
         Ok(())
     }
+
+    pub fn set_file_value(config_dir: &std::path::Path, key: &str, value: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = if path.exists() {
+            let content = std::fs::read_to_string(&path)
+                .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
+            toml::from_str::<FileConfig>(&content)
+                .map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))?
+        } else {
+            FileConfig::default()
+        };
+
+        match key {
+            "model" => file_config.model = Some(value.to_string()),
+            "provider" => file_config.provider = Some(value.to_string()),
+            "auto_approve" => file_config.auto_approve = Some(parse_bool(key, value)?),
+            "max_output_tokens" => file_config.max_output_tokens = Some(parse_positive(key, value)?),
+            "max_turns" => file_config.max_turns = Some(parse_positive(key, value)?),
+            "context_limit" => file_config.context_limit = Some(parse_positive(key, value)?),
+            "context_window_messages" => file_config.context_window_messages = Some(parse_positive(key, value)?),
+            "compaction_max_bytes" => file_config.compaction_max_bytes = Some(parse_positive(key, value)?),
+            "search_min_interval_ms" => file_config.search_min_interval_ms = Some(parse_positive(key, value)?),
+            "search_timeout_sec" => file_config.search_timeout_sec = Some(parse_positive(key, value)?),
+            "fetch_timeout_sec" => file_config.fetch_timeout_sec = Some(parse_positive(key, value)?),
+            "fetch_limit" => file_config.fetch_limit = Some(parse_positive(key, value)?),
+            "fetch_max_bytes" => file_config.fetch_max_bytes = Some(parse_positive(key, value)?),
+            "output_max_bytes" => file_config.output_max_bytes = Some(parse_positive(key, value)?),
+            "allow_private_network" => file_config.allow_private_network = Some(parse_bool(key, value)?),
+            "region" => file_config.region = Some(value.to_string()),
+            _ => return Err(AppError::Config(format!("Unknown configuration key: {key}"))),
+        }
+
+        let serialized = toml::to_string_pretty(&file_config)
+            .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
+        let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
+        std::fs::write(&temporary, serialized)?;
+        if let Err(error) = std::fs::rename(&temporary, &path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        Ok(())
+    }
+}
+
+fn parse_bool(key: &str, value: &str) -> Result<bool> {
+    value
+        .parse()
+        .map_err(|_| AppError::Config(format!("{key} must be true or false")))
+}
+
+fn parse_positive<T>(key: &str, value: &str) -> Result<T>
+where
+    T: std::str::FromStr + Default + PartialEq,
+{
+    let parsed = value
+        .parse::<T>()
+        .map_err(|_| AppError::Config(format!("{key} must be a positive integer")))?;
+    if parsed == T::default() {
+        return Err(AppError::Config(format!("{key} must be a positive integer")));
+    }
+    Ok(parsed)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_set_file_value_persists_and_validates() {
+        let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        Config::set_file_value(&dir, "model", "gpt-test").unwrap();
+        Config::set_file_value(&dir, "max_turns", "7").unwrap();
+        let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+        let file: FileConfig = toml::from_str(&content).unwrap();
+        assert_eq!(file.model.as_deref(), Some("gpt-test"));
+        assert_eq!(file.max_turns, Some(7));
+        assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
+        assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn test_default_config() {

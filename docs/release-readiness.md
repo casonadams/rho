@@ -59,4 +59,4 @@ Inspect representative temporary v2 fixtures produced by tests. They must have a
 
 Use only deterministic tests for release automation. Do not perform a live OAuth flow or provider completion as part of this checklist. Optional live smoke testing requires an operator's explicit authorization and must not capture tokens, prompts, or model output.
 
-Before publishing, compare `rust-ai --help`, interactive `/help`, and [the README](../README.md). Confirm provider names, auth modes, mutation approvals, provider-default output limits, finite model-call budgets, v2 resume behavior, budget checkpoints, and the 24-message/8192-byte context defaults agree.
+Before publishing, compare `rho --help`, interactive `/help`, and [the README](../README.md). Confirm provider names, auth modes, mutation approvals, provider-default output limits, finite model-call budgets, v2 resume behavior, budget checkpoints, and the 24-message/8192-byte context defaults agree.

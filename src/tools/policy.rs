@@ -5,10 +5,11 @@ use crate::tools::edit::EditArgs;
 use crate::tools::read::ReadArgs;
 use crate::tools::web::fetch::FetchArgs;
 use crate::tools::web::search::SearchArgs;
+use crate::tools::workspace::Workspace;
 use crate::tools::write::WriteArgs;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionClass {
@@ -82,65 +83,29 @@ fn classify_write(arguments: &Value, working_dir: &Path) -> ExecutionClass {
     let Ok(args) = serde_json::from_value::<WriteArgs>(arguments.clone()) else {
         return ExecutionClass::mutating("Malformed write arguments cannot be validated safely");
     };
-    classify_file_path(&args.path, working_dir, "Write target exits the working directory")
+    let workspace = Workspace::new(working_dir);
+    classify_file_path(&args.path, &workspace, "Write target exits the working directory")
 }
 
 fn classify_edit(arguments: &Value, working_dir: &Path) -> ExecutionClass {
     let Ok(args) = serde_json::from_value::<EditArgs>(arguments.clone()) else {
         return ExecutionClass::mutating("Malformed edit arguments cannot be validated safely");
     };
-    classify_file_path(&args.path, working_dir, "Edit target exits the working directory")
+    classify_file_path(
+        &args.path,
+        &Workspace::new(working_dir),
+        "Edit target exits the working directory",
+    )
 }
 
-fn classify_file_path(path: &str, working_dir: &Path, outside_reason: &str) -> ExecutionClass {
-    if is_protected_workspace_path(path, working_dir) {
+fn classify_file_path(path: &str, workspace: &Workspace, outside_reason: &str) -> ExecutionClass {
+    if workspace.is_protected(path) {
         return ExecutionClass::mutating("Target is protected repository metadata: .git");
     }
-    if path_is_within_working_dir(path, working_dir) {
+    if workspace.is_within(path) {
         ExecutionClass::WorkspaceMutation
     } else {
         ExecutionClass::mutating(outside_reason)
-    }
-}
-
-fn path_is_within_working_dir(raw_path: &str, working_dir: &Path) -> bool {
-    let clean_path = raw_path.trim().trim_matches(['\'', '"']);
-    if clean_path.is_empty() {
-        return false;
-    }
-    let Ok(root) = working_dir.canonicalize() else {
-        return false;
-    };
-    let path = Path::new(clean_path);
-    let candidate = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    };
-    canonical_existing_ancestor(&candidate).is_some_and(|ancestor| ancestor.starts_with(&root))
-}
-
-fn is_protected_workspace_path(raw_path: &str, working_dir: &Path) -> bool {
-    let clean_path = raw_path.trim().trim_matches(['\'', '"']);
-    let path = Path::new(clean_path);
-    let candidate = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        working_dir.join(path)
-    };
-    candidate
-        .strip_prefix(working_dir)
-        .ok()
-        .is_some_and(|relative| relative.components().any(|component| component.as_os_str() == ".git"))
-}
-
-fn canonical_existing_ancestor(path: &Path) -> Option<PathBuf> {
-    let mut ancestor = path;
-    loop {
-        if let Ok(canonical) = ancestor.canonicalize() {
-            return Some(canonical);
-        }
-        ancestor = ancestor.parent()?;
     }
 }
 

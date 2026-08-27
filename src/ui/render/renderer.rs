@@ -1,7 +1,9 @@
 //! Core `TerminalRenderer` struct and its user-facing methods.
 
-use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
-use super::summary::{approval_heading, bash_approval_details, format_tool_args_summary, to_relative_path};
+use super::formatters::{
+    format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
+};
+use super::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::RiskTier;
 use crate::ui::block::{BlockFormat, terminal_width};
@@ -43,18 +45,20 @@ impl fmt::Display for ToolApprovalChoice {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum BashApprovalChoice {
-    RunOnce,
+    AllowOnce,
+    AllowForSession(String),
     Deny,
 }
 
 impl fmt::Display for BashApprovalChoice {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::RunOnce => "Run once",
-            Self::Deny => "Deny",
-        })
+        match self {
+            Self::AllowOnce => formatter.write_str("Allow once"),
+            Self::AllowForSession(scope) => write!(formatter, "Allow {scope} for session"),
+            Self::Deny => formatter.write_str("Deny"),
+        }
     }
 }
 
@@ -131,7 +135,7 @@ impl TerminalRenderer {
             .unwrap_or_else(|| ".".to_string());
 
         println!(
-            "\n{highlight}rust-ai{highlight:#} {dim}v{}{dim:#}",
+            "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}",
             env!("CARGO_PKG_VERSION")
         );
         println!("{} {dim}via {} | {session}{dim:#}", display.model, display.provider);
@@ -149,7 +153,7 @@ impl TerminalRenderer {
         let pb = ProgressBar::new_spinner();
         let style = ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.blue} {msg:.dim}")
+            .template("{spinner:.cyan} {msg} {elapsed:.dim}")
             .unwrap_or_else(|_| ProgressStyle::default_spinner());
         pb.set_style(style);
         pb.set_message(message.to_string());
@@ -205,23 +209,28 @@ impl TerminalRenderer {
     }
 
     pub fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
-        let header = self.theme.highlight;
-        let dim = self.theme.dimmed;
-        println!("\n{header}{}{header:#}", approval_heading(request.tier));
-        for line in bash_approval_details(&request) {
-            println!("{dim}{line}{dim:#}");
-        }
+        println!();
+        print!("{}", format_bash_approval_card(&request, &self.theme, terminal_width()));
         println!();
 
-        let actions = vec![BashApprovalChoice::RunOnce, BashApprovalChoice::Deny];
-        let starting_cursor = usize::from(request.tier == RiskTier::HighRisk);
-        let choice = inquire::Select::new("Action:", actions)
+        let mut actions = vec![BashApprovalChoice::AllowOnce];
+        if let Some(patterns) = crate::tools::analyze_command_safety(request.command).session_patterns {
+            actions.push(BashApprovalChoice::AllowForSession(patterns.join("; ")));
+        }
+        actions.push(BashApprovalChoice::Deny);
+        let starting_cursor = if request.tier == RiskTier::HighRisk {
+            actions.len() - 1
+        } else {
+            0
+        };
+        let choice = inquire::Select::new("Permission:", actions)
             .with_starting_cursor(starting_cursor)
             .prompt();
 
         println!();
         match choice {
-            Ok(BashApprovalChoice::RunOnce) => ApprovalResult::Approved,
+            Ok(BashApprovalChoice::AllowOnce) => ApprovalResult::Approved,
+            Ok(BashApprovalChoice::AllowForSession(_)) => ApprovalResult::ApprovedForSession,
             Ok(BashApprovalChoice::Deny) => self.prompt_denial_feedback(),
             Err(_) => ApprovalResult::Denied { reason: String::new() },
         }
@@ -258,7 +267,14 @@ impl TerminalRenderer {
         let title = tool_title_style(line.is_error);
         let accent = self.theme.highlight;
         let summary = format_tool_args_summary(line.name, line.arguments);
-        let mut content = if line.name == "webfetch" && !line.is_error {
+        let mut content = if line.name == "read" && !line.is_error {
+            let (path, range) = read_summary_parts(line.arguments);
+            let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+            format!(
+                "{title}read{title:#}{background} {accent}{path}{accent:#}{background}{}",
+                range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
+            )
+        } else if line.name == "webfetch" && !line.is_error {
             let url = line
                 .arguments
                 .get("url")

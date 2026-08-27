@@ -1,5 +1,6 @@
 use crate::error::AppError;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -34,12 +35,11 @@ impl ReadTool {
             return Ok(ToolResult::error("Empty file path provided for read tool"));
         }
 
-        let base = std::env::current_dir().unwrap_or_else(|_| self.base_dir.clone());
-        let path = if Path::new(clean_path).is_absolute() {
-            PathBuf::from(clean_path)
-        } else {
-            base.join(clean_path)
+        let workspace = Workspace::new(&self.base_dir);
+        let Some(path) = workspace.resolve(clean_path) else {
+            return Ok(ToolResult::error("Empty file path provided for read tool"));
         };
+        let base = workspace.root();
 
         if !path.exists() {
             return Ok(ToolResult::error(format!(

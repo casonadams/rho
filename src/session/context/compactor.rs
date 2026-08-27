@@ -89,7 +89,7 @@ impl Compactor for CodingCompactor {
                 });
             }
             template_input.extend(new_messages.iter().cloned());
-            let template = self.template.compact("rust-ai", &template_input, None).await?;
+            let template = self.template.compact("rho", &template_input, None).await?;
             let artifact = build_artifact(ArtifactParams {
                 carry: carry.as_deref(),
                 messages: new_messages,

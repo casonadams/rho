@@ -160,6 +160,7 @@ impl Analyzer {
         }
 
         let Some(command_word) = &command.word_or_name else {
+            self.disable_session_patterns();
             self.flag(
                 RiskTier::Mutating,
                 "Shell assignment without a command mutates shell state",
@@ -173,6 +174,7 @@ impl Analyzer {
         }
 
         let Some(command_name) = command_name else {
+            self.disable_session_patterns();
             self.flag(
                 RiskTier::Mutating,
                 "Dynamic expansion in command position cannot be resolved safely",
@@ -185,6 +187,7 @@ impl Analyzer {
             .unwrap_or(&command_name)
             .to_ascii_lowercase();
         self.commands_mut().push(base.clone());
+        self.record_session_pattern(&base, &arguments);
         self.classify_invocation(&base, &arguments);
     }
 

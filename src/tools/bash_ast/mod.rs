@@ -36,6 +36,7 @@ pub fn analyze_command_safety(command: &str) -> SafetyAnalysis {
             tier: RiskTier::Mutating,
             reasons: vec!["Empty shell input cannot be proven read-only".to_string()],
             commands: Vec::new(),
+            session_patterns: None,
         };
     }
 
@@ -46,6 +47,7 @@ pub fn analyze_command_safety(command: &str) -> SafetyAnalysis {
             tier: RiskTier::Mutating,
             reasons: vec!["Shell AST parse error; approval is required".to_string()],
             commands: Vec::new(),
+            session_patterns: None,
         };
     };
 

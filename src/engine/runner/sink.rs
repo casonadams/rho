@@ -65,7 +65,7 @@ impl TerminalApprovalSink {
         config: TerminalSinkConfig,
         session_manager: SessionManager,
     ) -> std::sync::Arc<Self> {
-        let spinner = renderer.start_spinner(&format!("{} thinking", config.model_label));
+        let spinner = renderer.start_spinner("thinking...");
         std::sync::Arc::new(Self {
             renderer: renderer.clone(),
             model_label: config.model_label,
@@ -97,7 +97,7 @@ impl TerminalApprovalSink {
         if let Ok(mut state) = self.state.lock()
             && state.spinner.is_none()
         {
-            state.spinner = Some(self.renderer.start_spinner(&format!("{} thinking", self.model_label)));
+            state.spinner = Some(self.renderer.start_spinner("thinking..."));
         }
     }
 
@@ -216,6 +216,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
         };
         match result {
             ApprovalResult::Approved => crate::tools::ApprovalDecision::Approved,
+            ApprovalResult::ApprovedForSession => crate::tools::ApprovalDecision::ApprovedForSession,
             ApprovalResult::Denied { reason } => crate::tools::ApprovalDecision::Denied { reason },
         }
     }
@@ -278,7 +279,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
                         output,
                         status,
                     });
-                    state.spinner = Some(self.renderer.start_spinner(&format!("{} thinking", self.model_label)));
+                    state.spinner = Some(self.renderer.start_spinner("thinking..."));
                 }
             }
         }

@@ -13,12 +13,14 @@ pub struct SessionStatus<'a> {
     pub model: &'a str,
     pub provider: &'a str,
     pub context: &'a str,
+    pub quota: Option<&'a str>,
     pub auto_approve: bool,
 }
 
 /// Outcome of an approval prompt.
 pub enum ApprovalResult {
     Approved,
+    ApprovedForSession,
     Denied { reason: String },
 }
 

@@ -4,6 +4,7 @@ pub mod auth;
 pub mod config;
 pub mod engine;
 pub mod error;
+pub mod plugin;
 pub mod repl;
 pub mod session;
 pub mod tools;

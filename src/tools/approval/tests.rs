@@ -267,6 +267,44 @@ async fn approved_mutating_bash_executes_once() {
     assert_eq!(sink.statuses(), ["success"]);
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn session_approval_skips_matching_future_bash_prompts() {
+    let dir = temp_dir("session_approved_bash");
+    tokio::fs::create_dir_all(&dir).await.unwrap();
+    let sink = FakeSink::new(ApprovalDecision::ApprovedForSession);
+    let capability = ApprovalCapability::new(false, sink.clone());
+    let first = dir.join("first");
+    let second = dir.join("second");
+
+    run_tool(
+        BashTool::new(&dir),
+        json!({"command": format!("touch {}", first.display())}),
+        capability.clone(),
+    )
+    .await;
+    run_tool(
+        BashTool::new(&dir),
+        json!({"command": format!("touch {}", second.display())}),
+        capability,
+    )
+    .await;
+
+    assert!(first.exists());
+    assert!(second.exists());
+    assert_eq!(sink.request_count(), 1);
+}
+
+#[test]
+fn session_approval_matches_subcommand_but_not_other_subcommands() {
+    let sink = FakeSink::new(ApprovalDecision::Denied { reason: String::new() });
+    let capability = ApprovalCapability::new(false, sink);
+    capability.grant_for_session("bash", &json!({"command": "cargo test --lib"}));
+
+    assert!(capability.is_session_approved("bash", &json!({"command": "cargo test --all-targets"})));
+    assert!(!capability.is_session_approved("bash", &json!({"command": "cargo run"})));
+}
+
 #[tokio::test]
 async fn read_only_bash_and_read_do_not_request_approval() {
     let dir = temp_dir("read_only");
@@ -390,5 +428,5 @@ async fn direct_mutating_bash_without_capability_spawns_no_process() {
 }
 
 fn temp_dir(label: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("rust_ai_{label}_{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!("rho_{label}_{}", uuid::Uuid::new_v4()))
 }

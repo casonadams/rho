@@ -2,6 +2,7 @@
 
 use super::types::BashApproval;
 use crate::tools::bash_ast::RiskTier;
+use crate::tools::read::DEFAULT_READ_LIMIT;
 use std::path::Path;
 
 pub(super) fn bash_approval_details(request: &BashApproval<'_>) -> Vec<String> {
@@ -15,8 +16,8 @@ pub(super) fn bash_approval_details(request: &BashApproval<'_>) -> Vec<String> {
 
 pub(super) fn approval_heading(tier: RiskTier) -> &'static str {
     match tier {
-        RiskTier::HighRisk => "High-risk command",
-        RiskTier::ReadOnly | RiskTier::Mutating => "Command requires approval",
+        RiskTier::HighRisk => "High-risk bash command",
+        RiskTier::ReadOnly | RiskTier::Mutating => "Bash command requires approval",
     }
 }
 
@@ -53,11 +54,30 @@ pub(super) fn clean_command_paths(cmd: &str) -> String {
     cleaned
 }
 
+pub(super) fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) {
+    let raw = args.get("path").and_then(|path| path.as_str()).unwrap_or("");
+    let path = to_relative_path(raw);
+    if args.get("offset").is_none() && args.get("limit").is_none() {
+        return (path, None);
+    }
+    let start = args
+        .get("offset")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .max(1);
+    let limit = args
+        .get("limit")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(DEFAULT_READ_LIMIT as u64);
+    let end = start.saturating_add(limit.saturating_sub(1));
+    (path, Some(format!(":{start}-{end}")))
+}
+
 pub(super) fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => {
-            let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
-            to_relative_path(raw)
+            let (path, range) = read_summary_parts(args);
+            format!("{path}{}", range.unwrap_or_default())
         }
         "write" => {
             let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");

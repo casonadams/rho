@@ -3,7 +3,10 @@
 //! These are `pub(crate)` because they are only consumed by `renderer.rs`,
 //! but they remain exposed as module-private items so future tools can reuse them.
 
-use super::types::SessionStatus;
+use super::summary::{approval_heading, bash_approval_details};
+use super::types::{BashApproval, SessionStatus};
+use crate::tools::RiskTier;
+use crate::ui::block::BlockFormat;
 use crate::ui::theme::Theme;
 
 struct DiffFormatter<'a> {
@@ -62,6 +65,37 @@ impl<'a> DiffFormatter<'a> {
     }
 }
 
+pub(super) fn format_bash_approval_card(request: &BashApproval<'_>, theme: &Theme, width: usize) -> String {
+    let high_risk = request.tier == RiskTier::HighRisk;
+    let title = anstyle::Style::new().bold().fg_color(Some(if high_risk {
+        anstyle::AnsiColor::Red.into()
+    } else {
+        anstyle::AnsiColor::Yellow.into()
+    }));
+    let background = if high_risk {
+        theme.tool_error_bg
+    } else {
+        theme.tool_success_bg
+    };
+    let accent = theme.highlight;
+    let error = theme.tool_err;
+    let mut content = format!("{title}{}{title:#}", approval_heading(request.tier));
+    for (index, line) in bash_approval_details(request).iter().enumerate() {
+        content.push('\n');
+        if line.is_empty() {
+            continue;
+        }
+        if index == 0 {
+            content.push_str(&format!("{accent}{line}{accent:#}"));
+        } else {
+            content.push_str(&format!("{error}! {line}{error:#}"));
+        }
+    }
+    BlockFormat::new(background, width)
+        .with_vertical_padding()
+        .render_styled(&content)
+}
+
 pub(super) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
     let edits = args.get("edits")?.as_array()?;
     if edits.is_empty() {
@@ -94,15 +128,11 @@ pub(super) fn format_write_preview(args: &serde_json::Value, theme: &Theme) -> O
 }
 
 pub(super) fn format_session_status(session: &SessionStatus<'_>) -> String {
-    let approval = if session.auto_approve {
-        "auto-approve"
-    } else {
-        "confirm changes"
-    };
-    format!(
-        "{} via {} | context: {} | {approval}",
-        session.model, session.provider, session.context
-    )
+    let mut parts = vec![session.model.to_string(), session.context.to_string()];
+    if let Some(usage) = session.quota {
+        parts.push(usage.to_string());
+    }
+    parts.join(" | ")
 }
 
 pub(super) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {

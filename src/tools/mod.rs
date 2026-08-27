@@ -8,6 +8,7 @@ pub mod read;
 pub mod repeated;
 pub mod types;
 pub mod web;
+pub mod workspace;
 pub mod write;
 
 pub use approval::{
@@ -20,4 +21,5 @@ pub use edit::EditTool;
 pub use read::ReadTool;
 pub use repeated::RepeatedCallHook;
 pub use types::ToolResult;
+pub use workspace::Workspace;
 pub use write::WriteTool;

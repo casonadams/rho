@@ -2,13 +2,14 @@ use crate::tools::approval::context::{approval_key, consume_grant};
 use crate::tools::approval::types::{ApprovalEventSink, ApprovalRequest, DENIED_MESSAGE, ToolEvent};
 use rig::tool::ToolExecutionError;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 struct ApprovalCapabilityInner {
     auto_approve: bool,
     sink: Arc<dyn ApprovalEventSink>,
     grants: Mutex<HashMap<String, usize>>,
+    session_grants: Mutex<HashSet<String>>,
     denials: Mutex<HashMap<String, String>>,
 }
 
@@ -25,6 +26,7 @@ impl ApprovalCapability {
                 auto_approve,
                 sink,
                 grants: Mutex::new(HashMap::new()),
+                session_grants: Mutex::new(HashSet::new()),
                 denials: Mutex::new(HashMap::new()),
             }),
         }
@@ -55,6 +57,25 @@ impl ApprovalCapability {
         }
     }
 
+    pub fn grant_for_session(&self, tool_name: &str, arguments: &Value) {
+        let Some(patterns) = session_patterns(tool_name, arguments) else {
+            return;
+        };
+        if let Ok(mut grants) = self.inner.session_grants.lock() {
+            grants.extend(patterns);
+        }
+    }
+
+    pub fn is_session_approved(&self, tool_name: &str, arguments: &Value) -> bool {
+        let Some(patterns) = session_patterns(tool_name, arguments) else {
+            return false;
+        };
+        self.inner
+            .session_grants
+            .lock()
+            .is_ok_and(|grants| patterns.iter().all(|pattern| grants.contains(pattern)))
+    }
+
     /// Record a denial that will short-circuit the next matching call.
     pub fn deny_once(&self, request: ApprovalRequest, reason: String) {
         let Some(key) = approval_key(&request.tool_name, &request.arguments) else {
@@ -73,7 +94,7 @@ impl ApprovalCapability {
         let Some(key) = approval_key(tool_name, arguments) else {
             return Err(ToolExecutionError::refused(DENIED_MESSAGE));
         };
-        if consume_grant(&self.inner.grants, &key) {
+        if consume_grant(&self.inner.grants, &key) || self.is_session_approved(tool_name, arguments) {
             return Ok(());
         }
         let reason = self
@@ -85,6 +106,15 @@ impl ApprovalCapability {
             .unwrap_or_else(|| DENIED_MESSAGE.to_string());
         Err(ToolExecutionError::refused(reason))
     }
+}
+
+fn session_patterns(tool_name: &str, arguments: &Value) -> Option<Vec<String>> {
+    if tool_name != "bash" {
+        return None;
+    }
+    let command = arguments.get("command")?.as_str()?;
+    let patterns = crate::tools::analyze_command_safety(command).session_patterns?;
+    (!patterns.is_empty()).then_some(patterns)
 }
 
 fn format_denial(reason: String) -> String {

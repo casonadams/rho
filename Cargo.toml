@@ -1,12 +1,17 @@
 [package]
-name = "rust-ai"
+name = "rho"
 version = "0.1.0"
 edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
 license = "MIT OR Apache-2.0"
+
+[lib]
+name = "rho"
+path = "src/lib.rs"
+
 [[bin]]
-name = "ai"
+name = "rho"
 path = "src/main.rs"
 
 [dependencies]

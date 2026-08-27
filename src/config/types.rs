@@ -72,11 +72,14 @@ pub(super) struct FileConfig {
 }
 
 pub fn default_config_dir() -> PathBuf {
+    if let Ok(custom) = std::env::var("RHO_HOME") {
+        return PathBuf::from(custom);
+    }
     if let Ok(custom) = std::env::var("RUST_AI_HOME") {
         return PathBuf::from(custom);
     }
     let home = dirs_fallback();
-    home.join(".config").join("rust-ai")
+    home.join(".config").join("rho")
 }
 
 fn dirs_fallback() -> PathBuf {

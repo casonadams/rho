@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "rust-ai",
+    name = "rho",
     author,
     version,
     about = "Minimal agentic coding CLI harness",
@@ -29,7 +29,7 @@ pub struct Cli {
     #[arg(long = "max-turns", env = "AI_MAX_TURNS")]
     pub max_turns: Option<usize>,
 
-    /// Automatically approve write, edit, and mutating or uncertain Bash calls
+    /// Automatically approve operations that are normally approval-required, including outside-workspace writes and mutating or uncertain Bash calls
     #[arg(short = 'y', long = "auto-approve", default_value_t = false)]
     pub auto_approve: bool,
 
@@ -63,6 +63,22 @@ pub enum Commands {
     },
     /// List live provider models when supported, otherwise curated examples
     Models,
+    /// Manage extensions and plugins
+    Plugin {
+        #[command(subcommand)]
+        action: Option<PluginCommands>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum PluginCommands {
+    /// List installed and discovered plugins
+    List,
+    /// Install a plugin via cargo (e.g. `rho plugin install rho-plugin-foo`)
+    Install {
+        /// Package name or path to install
+        package: String,
+    },
 }
 
 #[cfg(test)]
@@ -71,7 +87,7 @@ mod tests {
 
     #[test]
     fn test_cli_parsing_prompt() {
-        let args = vec!["rust-ai", "-p", "fix bug in auth", "-y"];
+        let args = vec!["rho", "-p", "fix bug in auth", "-y"];
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.prompt.as_deref(), Some("fix bug in auth"));
         assert!(cli.auto_approve);
@@ -79,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_cli_parsing_subcommand() {
-        let args = vec!["rust-ai", "login", "anthropic"];
+        let args = vec!["rho", "login", "anthropic"];
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(
             cli.command,
@@ -90,8 +106,29 @@ mod tests {
     }
 
     #[test]
+    fn test_cli_parsing_plugin_subcommands() {
+        let cli = Cli::try_parse_from(["rho", "plugin", "list"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::List)
+            })
+        );
+
+        let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-git"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::Install {
+                    package: "rho-plugin-git".to_string()
+                })
+            })
+        );
+    }
+
+    #[test]
     fn test_cli_parses_runtime_limits() {
-        let cli = Cli::try_parse_from(["rust-ai", "--max-output-tokens", "8192", "--max-turns", "12"]).unwrap();
+        let cli = Cli::try_parse_from(["rho", "--max-output-tokens", "8192", "--max-turns", "12"]).unwrap();
         assert_eq!(cli.max_output_tokens, Some(8192));
         assert_eq!(cli.max_turns, Some(12));
     }

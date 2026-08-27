@@ -125,6 +125,22 @@ fn classifies_shell_structures() {
 }
 
 #[test]
+fn derives_session_patterns_from_command_and_first_argument() {
+    let analysis =
+        analyze_command_safety("cargo test --all-targets && git commit -m update && touch marker && rm -rf target");
+    assert_eq!(
+        analysis.session_patterns.unwrap(),
+        ["cargo test *", "git commit *", "rm -rf *", "touch *"]
+    );
+}
+
+#[test]
+fn dynamic_arguments_disable_session_patterns() {
+    let analysis = analyze_command_safety("touch \"$TARGET\"");
+    assert_eq!(analysis.session_patterns, None);
+}
+
+#[test]
 fn reports_nested_commands() {
     let analysis = analyze_command_safety("echo $(git status) | rg clean");
     assert_eq!(analysis.commands, ["git", "echo", "rg"]);

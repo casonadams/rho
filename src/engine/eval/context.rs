@@ -81,8 +81,10 @@ pub(super) async fn run_context_evaluation(input: ContextEvaluationInput<'_>) ->
     let engine = AgentEngine {
         config,
         session_manager: store,
+        extension_registry: crate::plugin::ExtensionRegistry::new(),
         agent,
         last_usage: Mutex::new(None),
+        last_quota: Mutex::new(None),
         run_tracker: RunTracker::default(),
     };
     let TurnOutput { metrics, usage, .. } = engine

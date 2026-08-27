@@ -83,7 +83,7 @@ impl AuthStore {
         let provider = ProviderId::from_str(provider)?;
         if provider.credential_strategy() != CredentialStrategy::ApiKey {
             return Err(AppError::Auth(format!(
-                "{provider} does not accept API keys in the rust-ai credential store"
+                "{provider} does not accept API keys in the rho credential store"
             )));
         }
         self.credentials

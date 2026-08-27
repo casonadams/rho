@@ -17,7 +17,7 @@ use std::sync::Mutex;
 use super::oauth::map_oauth_error;
 
 fn temp_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("rust_ai_{name}_{}", uuid::Uuid::new_v4()))
+    std::env::temp_dir().join(format!("rho_{name}_{}", uuid::Uuid::new_v4()))
 }
 
 #[test]

@@ -18,6 +18,7 @@ pub struct ApprovalRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalDecision {
     Approved,
+    ApprovedForSession,
     Denied { reason: String },
 }
 

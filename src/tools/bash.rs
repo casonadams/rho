@@ -2,6 +2,7 @@ use crate::error::AppError;
 use crate::tools::approval::enforce_approval;
 use crate::tools::bash_ast::{RiskTier, analyze_command_safety};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use crate::tools::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -49,8 +50,8 @@ impl BashTool {
             c
         };
 
-        let base = std::env::current_dir().unwrap_or_else(|_| self.base_dir.clone());
-        cmd.current_dir(&base);
+        let base = Workspace::new(&self.base_dir);
+        cmd.current_dir(base.root());
         cmd.stdin(Stdio::null());
         cmd.kill_on_drop(true);
 

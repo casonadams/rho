@@ -1,4 +1,4 @@
-//! Authentication and credential storage for rust-ai.
+//! Authentication and credential storage for rho.
 //!
 //! This module is organised by responsibility:
 //!

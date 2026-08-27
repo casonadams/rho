@@ -99,6 +99,7 @@ impl ReplSession {
 
         let mut engine =
             AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
+        engine.refresh_quota().await;
 
         let prompt = SimplePrompt;
         let mut is_first_prompt = true;
@@ -109,10 +110,12 @@ impl ReplSession {
             }
             is_first_prompt = false;
 
+            let quota = engine.quota_display();
             self.renderer.print_session_status(&SessionStatus {
                 model: &self.config.model,
                 provider: &self.config.provider,
-                context: &engine.context_usage_display(),
+                context: &engine.context_remaining_display(),
+                quota: quota.as_deref(),
                 auto_approve: self.config.auto_approve,
             });
 
@@ -123,10 +126,17 @@ impl ReplSession {
                     if input.is_empty() {
                         continue;
                     }
+                    let ext_ctx = engine.extension_context();
                     if input.starts_with('/') {
                         println!();
                     }
-                    if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut self.config, &mut self.auth_store)? {
+                    let mut cmd_ctx = crate::repl::commands::SlashCommandContext {
+                        config: &mut self.config,
+                        auth_store: &mut self.auth_store,
+                        registry: Some(&engine.extension_registry),
+                        context: Some(&ext_ctx),
+                    };
+                    if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut cmd_ctx).await? {
                         match cmd_res {
                             CommandResult::Exit => break,
                             CommandResult::ClearContext => {
@@ -158,11 +168,28 @@ impl ReplSession {
                         }
                     }
 
+                    let effective_input = match engine.extension_registry.dispatch_input(input, &ext_ctx).await? {
+                        crate::plugin::InputAction::Continue => input.to_string(),
+                        crate::plugin::InputAction::Transform(transformed) => transformed,
+                        crate::plugin::InputAction::Handled { output } => {
+                            if !output.is_empty() {
+                                println!("{output}");
+                            }
+                            continue;
+                        }
+                    };
+
                     clear_submitted_input(input);
-                    self.renderer.print_user_block(input);
+                    self.renderer.print_user_block(&effective_input);
                     println!();
-                    self.run_agent_turn(&engine, crate::engine::runner::TurnRequest { prompt: input })
-                        .await?;
+                    self.run_agent_turn(
+                        &engine,
+                        crate::engine::runner::TurnRequest {
+                            prompt: &effective_input,
+                        },
+                    )
+                    .await?;
+                    engine.refresh_quota().await;
                 }
                 Ok(Signal::CtrlC) => {
                     println!("\nCanceled input.");
