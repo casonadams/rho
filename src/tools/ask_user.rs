@@ -1,28 +1,65 @@
-use crate::error::AppError;
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::Write;
+
+use crate::error::AppError;
+use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 pub struct AskUserArgs {
-    /// The question to ask the user
     #[serde(default)]
     pub question: Option<String>,
-    /// Optional choices/options for the user to select from
     #[serde(default)]
     pub options: Option<Vec<Value>>,
-    /// Optional category header or short chip tag
     #[serde(default)]
     pub header: Option<String>,
-    /// Optional batch array of questions
     #[serde(default)]
     pub questions: Option<Vec<Value>>,
-    /// Catch-all for model-specific fields like prompt, message, text, query
     #[serde(flatten, default)]
     pub extra: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserQuestionOption {
+    pub label: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserQuestion {
+    pub question: String,
+    pub header: Option<String>,
+    pub options: Vec<UserQuestionOption>,
+    pub allow_custom: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserAnswer {
+    Selected(usize),
+    Custom(String),
+    Cancelled,
+}
+
+#[async_trait]
+pub trait InteractiveQuestionPort: Send + Sync {
+    async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError>;
+}
+
+#[derive(Clone)]
+pub struct QuestionPort(Arc<dyn InteractiveQuestionPort>);
+
+impl QuestionPort {
+    pub fn new(port: impl InteractiveQuestionPort + 'static) -> Self {
+        Self(Arc::new(port))
+    }
+
+    pub async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError> {
+        self.0.ask(question).await
+    }
 }
 
 #[derive(Clone, Default)]
@@ -33,39 +70,41 @@ impl AskUserTool {
         Self
     }
 
-    pub fn execute(&self, args: AskUserArgs) -> Result<ToolResult, AppError> {
-        if let Some(ref questions) = args.questions
-            && !questions.is_empty()
-        {
-            let mut results = Vec::new();
+    pub async fn execute(&self, port: &QuestionPort, args: AskUserArgs) -> Result<ToolResult, AppError> {
+        if let Some(questions) = args.questions.as_deref().filter(|questions| !questions.is_empty()) {
+            let mut results = Vec::with_capacity(questions.len());
             for (index, question) in questions.iter().enumerate() {
-                results.push(prompt_question_value(question, index + 1)?);
+                results.push(prompt_question_value(port, question, index + 1).await?);
             }
             return Ok(ToolResult::success(results.join("\n")));
         }
 
-        let question_text = extract_question_text(&args);
+        let question = extract_question_text(&args);
         let header = args.header.or_else(|| extract_str_from_map(&args.extra, "header"));
         let options = args
             .options
             .or_else(|| extract_vec_from_map(&args.extra, "options"))
             .or_else(|| extract_vec_from_map(&args.extra, "choices"));
-        let answer = prompt_question_interactive(&question_text, header.as_deref(), options.as_deref())?;
+        let answer = ask_question(
+            port,
+            QuestionSpec {
+                question: &question,
+                header,
+                options: options.as_deref(),
+            },
+        )
+        .await?;
         Ok(ToolResult::success(answer))
     }
 }
 
 fn extract_question_text(args: &AskUserArgs) -> String {
-    if let Some(ref q) = args.question
-        && !q.trim().is_empty()
-    {
-        return q.trim().to_string();
+    if let Some(question) = args.question.as_deref().filter(|question| !question.trim().is_empty()) {
+        return question.trim().to_string();
     }
     for key in ["prompt", "message", "text", "query", "title", "content", "input"] {
-        if let Some(val) = extract_str_from_map(&args.extra, key)
-            && !val.trim().is_empty()
-        {
-            return val.trim().to_string();
+        if let Some(value) = extract_str_from_map(&args.extra, key).filter(|value| !value.trim().is_empty()) {
+            return value.trim().to_string();
         }
     }
     "Please provide your input:".to_string()
@@ -85,50 +124,50 @@ struct ParsedOption {
     value: String,
 }
 
-fn extract_parsed_option(opt: &Value) -> ParsedOption {
-    match opt {
-        Value::String(s) => ParsedOption {
-            label: s.clone(),
+fn extract_parsed_option(option: &Value) -> ParsedOption {
+    match option {
+        Value::String(value) => ParsedOption {
+            label: value.clone(),
             description: None,
-            value: s.clone(),
+            value: value.clone(),
         },
-        Value::Object(obj) => {
-            let label = obj
+        Value::Object(object) => {
+            let label = object
                 .get("label")
-                .or_else(|| obj.get("name"))
-                .or_else(|| obj.get("text"))
-                .or_else(|| obj.get("title"))
-                .or_else(|| obj.get("value"))
+                .or_else(|| object.get("name"))
+                .or_else(|| object.get("text"))
+                .or_else(|| object.get("title"))
+                .or_else(|| object.get("value"))
                 .and_then(Value::as_str)
                 .unwrap_or("Option")
                 .to_string();
-            let desc = obj
+            let description = object
                 .get("description")
-                .or_else(|| obj.get("desc"))
+                .or_else(|| object.get("desc"))
                 .and_then(Value::as_str)
                 .map(ToString::to_string)
-                .filter(|d| !d.trim().is_empty());
-            let value = obj
+                .filter(|description| !description.trim().is_empty());
+            let value = object
                 .get("value")
-                .or_else(|| obj.get("label"))
+                .or_else(|| object.get("label"))
                 .and_then(Value::as_str)
                 .unwrap_or(&label)
                 .to_string();
             ParsedOption {
                 label,
-                description: desc,
+                description,
                 value,
             }
         }
         _ => ParsedOption {
-            label: opt.to_string(),
+            label: option.to_string(),
             description: None,
-            value: opt.to_string(),
+            value: option.to_string(),
         },
     }
 }
 
-fn prompt_question_value(value: &Value, index: usize) -> Result<String, AppError> {
+async fn prompt_question_value(port: &QuestionPort, value: &Value, index: usize) -> Result<String, AppError> {
     let (question, header, options) = match value {
         Value::String(question) => (question.as_str(), None, None),
         Value::Object(object) => {
@@ -139,7 +178,7 @@ fn prompt_question_value(value: &Value, index: usize) -> Result<String, AppError
                 .or_else(|| object.get("title"))
                 .and_then(Value::as_str)
                 .unwrap_or("Question");
-            let header = object.get("header").and_then(Value::as_str);
+            let header = object.get("header").and_then(Value::as_str).map(ToString::to_string);
             let options = object
                 .get("options")
                 .or_else(|| object.get("choices"))
@@ -149,64 +188,52 @@ fn prompt_question_value(value: &Value, index: usize) -> Result<String, AppError
         }
         _ => ("Question", None, None),
     };
-    let answer = prompt_question_interactive(question, header, options)?;
+    let answer = ask_question(
+        port,
+        QuestionSpec {
+            question,
+            header,
+            options,
+        },
+    )
+    .await?;
     Ok(format!("{index}. {question}: {answer}"))
 }
 
-fn prompt_question_interactive(
-    question: &str,
-    header: Option<&str>,
-    options: Option<&[Value]>,
-) -> Result<String, AppError> {
-    if let Some(h) = header {
-        println!("\n[{h}] {question}\n");
-    } else {
-        println!("\n{question}\n");
-    }
+struct QuestionSpec<'a> {
+    question: &'a str,
+    header: Option<String>,
+    options: Option<&'a [Value]>,
+}
 
-    if let Some(opts) = options
-        && !opts.is_empty()
-    {
-        let parsed: Vec<ParsedOption> = opts.iter().map(extract_parsed_option).collect();
-
-        let has_descriptions = parsed.iter().any(|o| o.description.is_some());
-        if has_descriptions {
-            for opt in &parsed {
-                if let Some(ref desc) = opt.description {
-                    println!("• {}:\n  {desc}\n", opt.label);
-                }
-            }
-        }
-
-        let mut labels: Vec<String> = parsed.iter().map(|o| o.label.clone()).collect();
-        let custom_choice = "Type a custom answer...".to_string();
-        labels.push(custom_choice.clone());
-
-        let ans = inquire::Select::new("Select an option:", labels).prompt();
-        println!();
-        match ans {
-            Ok(choice) if choice == custom_choice => {
-                let typed = inquire::Text::new("Your answer:").prompt().unwrap_or_default();
-                println!();
-                Ok(typed)
-            }
-            Ok(choice) => {
-                let val = parsed
-                    .iter()
-                    .find(|o| o.label == choice)
-                    .map(|o| o.value.clone())
-                    .unwrap_or(choice);
-                Ok(val)
-            }
-            Err(_) => Err(AppError::Cancelled("Question cancelled by user".to_string())),
-        }
-    } else {
-        let ans = inquire::Text::new("Your answer:").prompt();
-        println!();
-        match ans {
-            Ok(text) => Ok(text),
-            Err(_) => Err(AppError::Cancelled("Question cancelled by user".to_string())),
-        }
+async fn ask_question(port: &QuestionPort, spec: QuestionSpec<'_>) -> Result<String, AppError> {
+    let parsed = spec
+        .options
+        .unwrap_or_default()
+        .iter()
+        .map(extract_parsed_option)
+        .collect::<Vec<_>>();
+    let answer = port
+        .ask(UserQuestion {
+            question: spec.question.to_string(),
+            header: spec.header,
+            options: parsed
+                .iter()
+                .map(|option| UserQuestionOption {
+                    label: option.label.clone(),
+                    description: option.description.clone(),
+                })
+                .collect(),
+            allow_custom: true,
+        })
+        .await?;
+    match answer {
+        UserAnswer::Selected(index) => parsed
+            .get(index)
+            .map(|option| option.value.clone())
+            .ok_or_else(|| AppError::Cancelled("Question returned an invalid selection".to_string())),
+        UserAnswer::Custom(answer) => Ok(answer),
+        UserAnswer::Cancelled => Err(AppError::Cancelled("Question cancelled by user".to_string())),
     }
 }
 
@@ -224,15 +251,12 @@ impl Tool for AskUserTool {
         generated_schema::<AskUserArgs>()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let res = tokio::task::spawn_blocking(move || {
-            let _ = std::io::stdout().flush();
-            AskUserTool.execute(args)
-        })
-        .await
-        .map_err(|e| ToolExecutionError::other(format!("ask_user prompt task failed: {e}")))?;
-
-        into_rig_result(res)
+    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let port = context
+            .get::<QuestionPort>()
+            .cloned()
+            .ok_or_else(|| ToolExecutionError::other("interactive question port is unavailable"))?;
+        into_rig_result(self.execute(&port, args).await)
     }
 }
 
@@ -246,48 +270,120 @@ impl Tool for AskUserQuestionTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make.".to_string()
+        self.0.description()
     }
 
     fn parameters(&self) -> serde_json::Value {
-        generated_schema::<AskUserArgs>()
+        self.0.parameters()
     }
 
-    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let res = tokio::task::spawn_blocking(move || {
-            let _ = std::io::stdout().flush();
-            AskUserTool.execute(args)
-        })
-        .await
-        .map_err(|e| ToolExecutionError::other(format!("ask_user prompt task failed: {e}")))?;
-
-        into_rig_result(res)
+    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
+        let port = context
+            .get::<QuestionPort>()
+            .cloned()
+            .ok_or_else(|| ToolExecutionError::other("interactive question port is unavailable"))?;
+        into_rig_result(self.0.execute(&port, args).await)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
+    struct FakePort {
+        answers: Mutex<VecDeque<UserAnswer>>,
+        questions: Arc<Mutex<Vec<UserQuestion>>>,
+    }
+
+    #[async_trait]
+    impl InteractiveQuestionPort for FakePort {
+        async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError> {
+            self.questions.lock().unwrap().push(question);
+            Ok(self.answers.lock().unwrap().pop_front().unwrap())
+        }
+    }
+
+    fn port(answers: impl IntoIterator<Item = UserAnswer>) -> QuestionPort {
+        QuestionPort::new(FakePort {
+            answers: Mutex::new(answers.into_iter().collect()),
+            questions: Arc::new(Mutex::new(Vec::new())),
+        })
+    }
+
+    #[tokio::test]
+    async fn option_selection_returns_value_and_preserves_description() {
+        let questions = Arc::new(Mutex::new(Vec::new()));
+        let port = QuestionPort::new(FakePort {
+            answers: Mutex::new(VecDeque::from([UserAnswer::Selected(0)])),
+            questions: Arc::clone(&questions),
+        });
+        let result = AskUserTool
+            .execute(
+                &port,
+                serde_json::from_value(serde_json::json!({
+                    "question": "Framework?",
+                    "options": [{"label": "React", "value": "react", "description": "Web UI"}]
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.content, "react");
+        assert_eq!(
+            questions.lock().unwrap()[0].options,
+            [UserQuestionOption {
+                label: "React".to_string(),
+                description: Some("Web UI".to_string()),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_text_and_multiple_questions_are_supported() {
+        let port = port([UserAnswer::Custom("first answer".to_string()), UserAnswer::Selected(1)]);
+        let result = AskUserTool
+            .execute(
+                &port,
+                serde_json::from_value(serde_json::json!({
+                    "questions": [
+                        {"question": "First?"},
+                        {"question": "Second?", "options": ["A", "B"]}
+                    ]
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.content, "1. First?: first answer\n2. Second?: B");
+    }
+
+    #[tokio::test]
+    async fn cancellation_is_explicit() {
+        let error = AskUserTool
+            .execute(
+                &port([UserAnswer::Cancelled]),
+                AskUserArgs {
+                    question: Some("Continue?".to_string()),
+                    ..AskUserArgs::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, AppError::Cancelled(_)));
+    }
+
     #[test]
-    fn test_ask_user_parses_arbitrary_structures() {
-        let json1 = serde_json::json!({
+    fn schemas_and_flexible_question_fields_are_preserved() {
+        let parsed = serde_json::from_value::<AskUserArgs>(serde_json::json!({
             "prompt": "What should I do?",
             "choices": ["Option 1", "Option 2"]
-        });
-        let parsed1 = serde_json::from_value::<AskUserArgs>(json1).unwrap();
-        assert_eq!(extract_question_text(&parsed1), "What should I do?");
-
-        let json2 = serde_json::json!({
-            "questions": [
-                { "title": "Framework?", "options": [{ "name": "React" }] }
-            ]
-        });
-        let parsed2 = serde_json::from_value::<AskUserArgs>(json2).unwrap();
-        assert!(parsed2.questions.is_some());
-
-        let json3 = serde_json::json!({});
-        let parsed3 = serde_json::from_value::<AskUserArgs>(json3).unwrap();
-        assert_eq!(extract_question_text(&parsed3), "Please provide your input:");
+        }))
+        .unwrap();
+        assert_eq!(extract_question_text(&parsed), "What should I do?");
+        assert!(AskUserTool.parameters().get("properties").is_some());
+        assert_eq!(AskUserTool.parameters(), AskUserQuestionTool::default().parameters());
     }
 }

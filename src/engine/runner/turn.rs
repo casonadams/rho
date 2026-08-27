@@ -95,7 +95,8 @@ impl AgentEngine {
         let mut current_budget = self.config.max_turns;
 
         loop {
-            let tool_context = approval_context(capability.clone());
+            let mut tool_context = approval_context(capability.clone());
+            tool_context.insert(renderer.question_port());
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)

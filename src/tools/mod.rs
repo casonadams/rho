@@ -15,7 +15,10 @@ pub mod write;
 pub use approval::{
     ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, ToolEvent, approval_context,
 };
-pub use ask_user::{AskUserArgs, AskUserQuestionTool, AskUserTool};
+pub use ask_user::{
+    AskUserArgs, AskUserQuestionTool, AskUserTool, InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion,
+    UserQuestionOption,
+};
 pub use bash::BashTool;
 pub use bash_ast::{RiskTier, SafetyAnalysis, analyze_command_safety};
 pub use edit::EditTool;

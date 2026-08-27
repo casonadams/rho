@@ -5,7 +5,7 @@ use super::formatters::{
 };
 use super::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
-use crate::tools::RiskTier;
+use crate::tools::{QuestionPort, RiskTier};
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::interactive::{
     Activity, InteractionOption, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
@@ -160,6 +160,10 @@ impl TerminalRenderer {
             ui: Some(ui),
             ..Self::default()
         }
+    }
+
+    pub fn question_port(&self) -> QuestionPort {
+        crate::ui::question::question_port(self.ui.clone())
     }
 
     pub fn write_output(&self, text: &str) {
