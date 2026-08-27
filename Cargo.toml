@@ -5,14 +5,9 @@ edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
 license = "MIT OR Apache-2.0"
-
-[[bin]]
-name = "rust-ai"
-path = "src/main.rs"
-
 [[bin]]
 name = "ai"
-path = "src/bin/ai.rs"
+path = "src/main.rs"
 
 [dependencies]
 brush-parser = "0.4.0"
