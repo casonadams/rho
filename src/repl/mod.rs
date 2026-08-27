@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod coordinator;
+mod input_reader;
 pub mod interactive;
 mod live;
 mod prompt;

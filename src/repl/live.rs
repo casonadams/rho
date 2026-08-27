@@ -1,10 +1,11 @@
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{Event, KeyCode};
 use tokio::sync::mpsc;
 
 use super::ReplSession;
 use super::commands::{CommandResult, SlashCommandContext, SlashCommandHandler};
+use super::input_reader::TerminalInputReader;
 use super::interactive::{CompletionSet, InteractiveHistory};
 use crate::engine::AgentEngine;
 use crate::error::Result;
@@ -25,6 +26,7 @@ struct PendingModal {
 struct LiveIo<'a> {
     controller: &'a mut LiveController,
     events: &'a mut mpsc::UnboundedReceiver<UiEvent>,
+    input: &'a mut TerminalInputReader,
 }
 
 pub(super) fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
@@ -42,6 +44,7 @@ impl ReplSession {
         let mut state = InteractiveState::default();
         update_footer(&mut state, self, &engine);
         let mut controller = TerminalController::stdout(state)?;
+        let mut input = TerminalInputReader::spawn()?;
         self.renderer.print_welcome(&WelcomeDisplay {
             model: &self.config.model,
             provider: &self.config.provider,
@@ -61,6 +64,7 @@ impl ReplSession {
                     LiveIo {
                         controller: &mut controller,
                         events: &mut ui_events,
+                        input: &mut input,
                     },
                     &mut history,
                     &completions,
@@ -81,6 +85,7 @@ impl ReplSession {
                         io: LiveIo {
                             controller: &mut controller,
                             events: &mut ui_events,
+                            input: &mut input,
                         },
                         message,
                     },
@@ -92,15 +97,18 @@ impl ReplSession {
             update_footer(controller.state_mut(), self, &engine);
             controller.redraw()?;
         }
+        input.stop_and_join()?;
         Ok(())
     }
 
     async fn process_live_message(&mut self, engine: &mut AgentEngine, live: LiveMessage<'_>) -> Result<bool> {
         let controller = live.io.controller;
         let ui_events = live.io.events;
+        let input_reader = live.io.input;
         let input = live.message.text.trim();
         let extension_context = engine.extension_context();
         let command_result = if input.starts_with('/') {
+            let paused_input = input_reader.pause()?;
             controller.suspend()?;
             let mut command_context = SlashCommandContext {
                 config: &mut self.config,
@@ -110,7 +118,10 @@ impl ReplSession {
                 renderer: &self.renderer,
             };
             let result = SlashCommandHandler::handle(input, &mut command_context).await;
-            controller.resume()?;
+            let controller_result = controller.resume();
+            let input_result = paused_input.resume();
+            controller_result?;
+            input_result?;
             result?
         } else {
             None
@@ -167,6 +178,7 @@ impl ReplSession {
                 io: LiveIo {
                     controller,
                     events: ui_events,
+                    input: input_reader,
                 },
                 prompt: &effective,
             },
@@ -189,6 +201,7 @@ async fn read_idle_input(
 ) -> Result<Option<QueuedMessage>> {
     let controller = live.controller;
     let ui_events = live.events;
+    let input = live.input;
     let mut modal = None;
     loop {
         tokio::select! {
@@ -197,12 +210,13 @@ async fn read_idle_input(
                     handle_ui_event(controller, event, &mut modal)?;
                 }
             }
-            _ = tokio::time::sleep(Duration::from_millis(20)) => {
-                controller.refresh_size()?;
-                if !event::poll(Duration::ZERO)? {
+            event = input.recv() => {
+                let event = event.ok_or_else(|| anyhow::anyhow!("Terminal input reader stopped"))??;
+                if matches!(event, Event::Resize(_, _)) {
+                    controller.refresh_size()?;
                     continue;
                 }
-                let Event::Key(key) = event::read()? else { continue };
+                let Event::Key(key) = event else { continue };
                 if handle_modal_key(controller, key, &mut modal)? {
                     continue;
                 }
@@ -259,13 +273,12 @@ struct ActiveTurn<'a> {
 async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, active: ActiveTurn<'_>) -> Result<()> {
     let controller = active.io.controller;
     let ui_events = active.io.events;
+    let input = active.io.input;
     let mut modal = None;
     let run = engine.run_turn(crate::engine::runner::TurnRequest { prompt: active.prompt }, renderer);
     tokio::pin!(run);
     let mut spinner_tick = tokio::time::interval(Duration::from_millis(80));
     spinner_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut input_tick = tokio::time::interval(Duration::from_millis(20));
-    input_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             result = &mut run => {
@@ -283,10 +296,13 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                 }
             }
             _ = spinner_tick.tick() => controller.tick()?,
-            _ = input_tick.tick() => {
-                controller.refresh_size()?;
-                if !event::poll(Duration::ZERO)? { continue; }
-                let Event::Key(key) = event::read()? else { continue };
+            event = input.recv() => {
+                let event = event.ok_or_else(|| anyhow::anyhow!("Terminal input reader stopped"))??;
+                if matches!(event, Event::Resize(_, _)) {
+                    controller.refresh_size()?;
+                    continue;
+                }
+                let Event::Key(key) = event else { continue };
                 if handle_modal_key(controller, key, &mut modal)? { continue; }
                 match map_key(key) {
                     InputAction::Edit(action @ UiAction::Submit(_)) => {
