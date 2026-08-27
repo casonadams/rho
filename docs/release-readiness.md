@@ -60,3 +60,33 @@ Inspect representative temporary v2 fixtures produced by tests. They must have a
 Use only deterministic tests for release automation. Do not perform a live OAuth flow or provider completion as part of this checklist. Optional live smoke testing requires an operator's explicit authorization and must not capture tokens, prompts, or model output.
 
 Before publishing, compare `rho --help`, interactive `/help`, and [the README](../README.md). Confirm provider names, auth modes, mutation approvals, provider-default output limits, finite model-call budgets, v2 resume behavior, budget checkpoints, and the 24-message/8192-byte context defaults agree.
+
+## Pi-style interactive TTY validation
+
+Validated commit `7a14111` on 2026-08-27 without credentials or provider network access. Interactive runs used a deterministic local Ollama-compatible mock; no live user prompts, model output, or credentials were recorded.
+
+| Terminal path | Result | Coverage |
+| --- | --- | --- |
+| Pi harness: Alacritty through tmux (`xterm-256color`) | Pass | Normal-screen output, native scrollback, streaming, steering/follow-up queueing, cancellation, and clean exit. |
+| Terminal.app through tmux (`xterm-256color`) | Pass | Narrow/wide resize, long wide-Unicode draft, raw-LF `Ctrl+J`, streaming, both queue modes, native scrollback, and terminal-mode restoration. |
+| iTerm2 | Not available | `/Applications/iTerm.app` was not installed; rerun this matrix when iTerm2 is available. |
+
+The available-terminal matrix covered these release conditions:
+
+- The editor grew for explicit newlines, wrapping, and wide Unicode while both `─` dividers and the footer remained intact at 38x16 and 100x30.
+- Modified Enter sequences and raw-LF `Ctrl+J` were exercised without unintended submission. Legacy `Alt+Enter` queued follow-up intent; steering and follow-up entries displayed a count and ran FIFO after the active response.
+- A 120-chunk response streamed as continuous wrapped prose in a 40x12 viewport. Completed output remained above the live region in normal terminal scrollback.
+- Bash approval, turn-limit confirmation, and agent-question modals rendered in the live region. Escape canceled each modal, restored editor operation, and did not execute the denied command.
+- Both `Ctrl+C` and Escape canceled active work. `Ctrl+D` exited an empty idle editor and restored the pre-run terminal mode.
+- A forced PTY input disconnect returned an input error and restored canonical input, echo, signal handling, and control characters before exit. Deterministic backend-failure tests additionally verify cursor visibility and raw-mode cleanup when controller construction or output fails.
+- Existing tests verified that non-TTY and one-shot paths do not enter the live controller. Direct plugin or subprocess stdout remains outside the controller boundary as documented in the README.
+
+A clean snapshot at the validated commit passed:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
+
+The test suite reported 306 passed and 0 failed. Repeat the terminal matrix after changes to controller cursor accounting, input decoding, live-region layout, or modal coordination.
