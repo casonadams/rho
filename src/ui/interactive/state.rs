@@ -126,12 +126,12 @@ impl EditorState {
         self.preferred_column = None;
     }
 
-    pub fn move_up(&mut self, terminal_width: usize) {
-        self.move_vertical(terminal_width, -1);
+    pub fn move_up(&mut self, terminal_width: usize) -> bool {
+        self.move_vertical(terminal_width, -1)
     }
 
-    pub fn move_down(&mut self, terminal_width: usize) {
-        self.move_vertical(terminal_width, 1);
+    pub fn move_down(&mut self, terminal_width: usize) -> bool {
+        self.move_vertical(terminal_width, 1)
     }
 
     pub fn move_to_start(&mut self) {
@@ -144,11 +144,11 @@ impl EditorState {
         self.preferred_column = None;
     }
 
-    fn move_vertical(&mut self, terminal_width: usize, row_delta: isize) {
+    fn move_vertical(&mut self, terminal_width: usize, row_delta: isize) -> bool {
         let terminal_width = terminal_width.max(1);
         let (current_row, current_column) = editor_cursor_position(&self.text, self.cursor, terminal_width);
         let Some(target_row) = current_row.checked_add_signed(row_delta) else {
-            return;
+            return false;
         };
         let preferred_column = self.preferred_column.unwrap_or(current_column);
         let target = editor_boundaries(&self.text)
@@ -161,6 +161,9 @@ impl EditorState {
         if let Some((cursor, _, _)) = target {
             self.cursor = cursor;
             self.preferred_column = Some(preferred_column);
+            true
+        } else {
+            false
         }
     }
 
@@ -350,11 +353,12 @@ mod tests {
         let mut state = InteractiveState::default();
         state.editor_mut().set_text("abcdef\nx\nabcdef");
 
-        state.editor_mut().move_up(20);
+        assert!(state.editor_mut().move_up(20));
         assert_eq!(state.editor().cursor(), 8);
-        state.editor_mut().move_up(20);
+        assert!(state.editor_mut().move_up(20));
         assert_eq!(state.editor().cursor(), 6);
-        state.editor_mut().move_down(20);
+        assert!(!state.editor_mut().move_up(20));
+        assert!(state.editor_mut().move_down(20));
         assert_eq!(state.editor().cursor(), 8);
     }
 
@@ -363,12 +367,29 @@ mod tests {
         let mut state = InteractiveState::default();
         state.editor_mut().set_text("abcdefghi");
 
-        state.editor_mut().move_up(4);
+        assert!(state.editor_mut().move_up(4));
         assert_eq!(state.editor().cursor(), 5);
-        state.editor_mut().move_up(4);
+        assert!(state.editor_mut().move_up(4));
         assert_eq!(state.editor().cursor(), 1);
-        state.editor_mut().move_down(4);
+        assert!(!state.editor_mut().move_up(4));
+        assert!(state.editor_mut().move_down(4));
         assert_eq!(state.editor().cursor(), 5);
+    }
+
+    #[test]
+    fn vertical_movement_preserves_display_column_across_wide_and_short_lines() {
+        let mut state = InteractiveState::default();
+        state.editor_mut().set_text("a界bc\nx\na界bc");
+
+        assert!(state.editor_mut().move_up(20));
+        assert_eq!(state.editor().cursor(), 8);
+        assert!(state.editor_mut().move_up(20));
+        assert_eq!(state.editor().cursor(), 6);
+        assert!(state.editor_mut().move_down(20));
+        assert_eq!(state.editor().cursor(), 8);
+        assert!(state.editor_mut().move_down(20));
+        assert_eq!(state.editor().cursor(), state.editor().text().len());
+        assert!(!state.editor_mut().move_down(20));
     }
 
     #[test]

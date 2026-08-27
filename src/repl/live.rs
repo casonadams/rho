@@ -12,7 +12,8 @@ use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, BatchDecision, FlushBarrier, InputAction, InteractionResponder, InteractionResponse, InteractiveState,
-    ModalState, OutputEvent, PendingUiBatch, QueuedMessage, TerminalController, UiEffect, UiEvent, map_key,
+    ModalState, OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiEffect, UiEvent,
+    map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
@@ -85,6 +86,8 @@ impl ReplSession {
             if self
                 .process_live_message(
                     &mut engine,
+                    &mut history,
+                    &completions,
                     LiveMessage {
                         io: LiveIo {
                             controller: &mut controller,
@@ -105,7 +108,13 @@ impl ReplSession {
         Ok(())
     }
 
-    async fn process_live_message(&mut self, engine: &mut AgentEngine, live: LiveMessage<'_>) -> Result<bool> {
+    async fn process_live_message(
+        &mut self,
+        engine: &mut AgentEngine,
+        history: &mut InteractiveHistory,
+        completions: &CompletionSet,
+        live: LiveMessage<'_>,
+    ) -> Result<bool> {
         let controller = live.io.controller;
         let ui_events = live.io.events;
         let input_reader = live.io.input;
@@ -178,6 +187,8 @@ impl ReplSession {
         run_active_turn(
             engine,
             &self.renderer,
+            history,
+            completions,
             ActiveTurn {
                 io: LiveIo {
                     controller,
@@ -244,27 +255,18 @@ async fn read_idle_input(
                         }
                     }
                     InputAction::HistoryPrevious => {
-                        if let Some(value) = history.previous(controller.state().editor().text()) {
-                            controller.state_mut().editor_mut().set_text(value);
-                            controller.redraw()?;
+                        if navigate_history_previous(controller, history) {
+                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                         }
                     }
                     InputAction::HistoryNext => {
-                        if let Some(value) = history.next_entry() {
-                            controller.state_mut().editor_mut().set_text(value);
-                            controller.redraw()?;
+                        if navigate_history_next(controller, history) {
+                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                         }
                     }
                     InputAction::Complete => {
-                        if let Some(completion) = completions
-                            .complete(controller.state().editor().text(), controller.state().editor().cursor())
-                            .into_iter()
-                            .next()
-                        {
-                            let mut value = controller.state().editor().text().to_string();
-                            value.replace_range(completion.replacement, &completion.value);
-                            controller.state_mut().editor_mut().set_text(value);
-                            controller.redraw()?;
+                        if apply_completion(controller, completions) {
+                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                         }
                     }
                     InputAction::Cancel => {
@@ -287,12 +289,62 @@ async fn read_idle_input(
     }
 }
 
+fn navigate_history_previous<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    history: &mut InteractiveHistory,
+) -> bool {
+    let width = controller.terminal_width();
+    if controller.state_mut().editor_mut().move_up(width) {
+        return true;
+    }
+    let Some(value) = history.previous(controller.state().editor().text()) else {
+        return false;
+    };
+    controller.state_mut().editor_mut().set_text(value);
+    true
+}
+
+fn navigate_history_next<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    history: &mut InteractiveHistory,
+) -> bool {
+    let width = controller.terminal_width();
+    if controller.state_mut().editor_mut().move_down(width) {
+        return true;
+    }
+    let Some(value) = history.next_entry() else {
+        return false;
+    };
+    controller.state_mut().editor_mut().set_text(value);
+    true
+}
+
+fn apply_completion<B: TerminalBackend>(controller: &mut TerminalController<B>, completions: &CompletionSet) -> bool {
+    let Some(completion) = completions
+        .complete(controller.state().editor().text(), controller.state().editor().cursor())
+        .into_iter()
+        .next()
+    else {
+        return false;
+    };
+    let mut value = controller.state().editor().text().to_string();
+    value.replace_range(completion.replacement, &completion.value);
+    controller.state_mut().editor_mut().set_text(value);
+    true
+}
+
 struct ActiveTurn<'a> {
     io: LiveIo<'a>,
     prompt: &'a str,
 }
 
-async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, active: ActiveTurn<'_>) -> Result<()> {
+async fn run_active_turn(
+    engine: &AgentEngine,
+    renderer: &TerminalRenderer,
+    history: &mut InteractiveHistory,
+    completions: &CompletionSet,
+    active: ActiveTurn<'_>,
+) -> Result<()> {
     let controller = active.io.controller;
     let ui_events = active.io.events;
     let input = active.io.input;
@@ -339,14 +391,19 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                         flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                     }
                     InputAction::HistoryPrevious => {
-                        let width = usize::from(crossterm::terminal::size()?.0).max(1);
-                        controller.state_mut().editor_mut().move_up(width);
-                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        if navigate_history_previous(controller, history) {
+                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        }
                     }
                     InputAction::HistoryNext => {
-                        let width = usize::from(crossterm::terminal::size()?.0).max(1);
-                        controller.state_mut().editor_mut().move_down(width);
-                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        if navigate_history_next(controller, history) {
+                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        }
+                    }
+                    InputAction::Complete => {
+                        if apply_completion(controller, completions) {
+                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        }
                     }
                     InputAction::Cancel => {
                         flush_pending(controller, &mut pending, FlushBarrier::Cancellation, false)?;
@@ -539,7 +596,55 @@ fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &A
 
 #[cfg(test)]
 mod tests {
-    use super::live_ui_supported;
+    use std::{fs, io};
+
+    use super::{live_ui_supported, navigate_history_next, navigate_history_previous};
+    use crate::repl::interactive::InteractiveHistory;
+    use crate::ui::interactive::{InteractiveState, TerminalBackend, TerminalController};
+
+    struct HistoryTerminal;
+
+    impl TerminalBackend for HistoryTerminal {
+        fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn size(&self) -> io::Result<(u16, u16)> {
+            Ok((20, 24))
+        }
+
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn show_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn move_up(&mut self, _rows: usize) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn move_down(&mut self, _rows: usize) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn clear_line(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn write_text(&mut self, _text: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn live_ui_requires_both_terminal_streams() {
@@ -547,5 +652,32 @@ mod tests {
         assert!(!live_ui_supported(true, false));
         assert!(!live_ui_supported(false, true));
         assert!(!live_ui_supported(false, false));
+    }
+
+    #[test]
+    fn active_history_navigation_uses_visual_boundaries_and_restores_the_draft() {
+        let path = std::env::temp_dir().join(format!("rho-live-history-{}.txt", uuid::Uuid::new_v4()));
+        let mut history = InteractiveHistory::with_file(10, path.clone()).unwrap();
+        history.record("older").unwrap();
+        history.record("newer\nsecond").unwrap();
+        let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+        controller.state_mut().editor_mut().set_text("draft\nline");
+
+        assert!(navigate_history_previous(&mut controller, &mut history));
+        assert_eq!(controller.state().editor().text(), "draft\nline");
+        assert!(navigate_history_previous(&mut controller, &mut history));
+        assert_eq!(controller.state().editor().text(), "newer\nsecond");
+        assert!(navigate_history_previous(&mut controller, &mut history));
+        assert_eq!(controller.state().editor().text(), "newer\nsecond");
+        assert!(navigate_history_previous(&mut controller, &mut history));
+        assert_eq!(controller.state().editor().text(), "older");
+        assert!(navigate_history_next(&mut controller, &mut history));
+        assert_eq!(controller.state().editor().text(), "newer\nsecond");
+        assert!(navigate_history_next(&mut controller, &mut history));
+        assert_eq!(controller.state().editor().text(), "draft\nline");
+
+        drop(controller);
+        drop(history);
+        fs::remove_file(path).unwrap();
     }
 }

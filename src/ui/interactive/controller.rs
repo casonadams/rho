@@ -139,6 +139,10 @@ impl<B: TerminalBackend> TerminalController<B> {
         &mut self.state
     }
 
+    pub fn terminal_width(&self) -> usize {
+        self.width.max(1)
+    }
+
     pub fn redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
