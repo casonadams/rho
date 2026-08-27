@@ -223,6 +223,25 @@ mod tests {
         assert_eq!(config.max_turns, 40);
     }
     #[test]
+    fn test_invalid_environment_values_are_rejected() {
+        let mut config = Config::default();
+        let environment = std::collections::HashMap::from([("AI_CONTEXT_LIMIT", "not-a-number")]);
+        let error = merge::apply_env_overrides_with(&mut config, |name| {
+            environment.get(name).map(|value| (*value).to_string())
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("AI_CONTEXT_LIMIT"));
+
+        let environment = std::collections::HashMap::from([("AI_AUTO_APPROVE", "sometimes")]);
+        let error = merge::apply_env_overrides_with(&mut config, |name| {
+            environment.get(name).map(|value| (*value).to_string())
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("AI_AUTO_APPROVE"));
+    }
+    #[test]
     fn test_runtime_limit_boundaries() {
         let mut cfg = Config {
             max_turns: 0,

@@ -72,12 +72,10 @@ where
         config.provider = val.trim().to_string();
     }
     if let Some(val) = get("AI_AUTO_APPROVE") {
-        config.auto_approve = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        config.auto_approve = parse_bool("AI_AUTO_APPROVE", &val)?;
     }
-    if let Some(val) = get("AI_CONTEXT_LIMIT")
-        && let Ok(num) = val.trim().parse::<usize>()
-    {
-        config.context_limit = Some(num);
+    if let Some(val) = get("AI_CONTEXT_LIMIT") {
+        config.context_limit = Some(parse_positive("AI_CONTEXT_LIMIT", &val)?);
     }
     if let Some(val) = get("AI_CONTEXT_WINDOW_MESSAGES") {
         config.context_window_messages = parse_positive("AI_CONTEXT_WINDOW_MESSAGES", &val)?;
@@ -95,7 +93,7 @@ where
         config.region = val;
     }
     if let Some(val) = get("WEB_ALLOW_PRIVATE_NETWORK") {
-        config.allow_private_network = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+        config.allow_private_network = parse_bool("WEB_ALLOW_PRIVATE_NETWORK", &val)?;
     }
     Ok(())
 }
@@ -121,6 +119,13 @@ pub(super) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     }
 }
 
+fn parse_bool(name: &str, value: &str) -> Result<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" => Ok(true),
+        "0" | "false" | "no" => Ok(false),
+        _ => Err(AppError::Config(format!("{name} must be true or false"))),
+    }
+}
 fn parse_positive<T>(name: &str, value: &str) -> Result<T>
 where
     T: std::str::FromStr + Default + PartialEq,
