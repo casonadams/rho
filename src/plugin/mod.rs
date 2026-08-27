@@ -11,8 +11,8 @@ pub use hook::ExtensionHook;
 pub use loader::{PluginDiscovery, PluginLoader};
 pub use registry::ExtensionRegistry;
 pub use types::{
-    CommandHandler, CommandRequest, ExtensionCommand, InputAction, PluginManifest, ToolCallDecision, ToolCallEvent,
-    ToolResultEvent, TurnEvent,
+    CommandHandler, CommandRequest, ExtensionCommand, InputAction, PluginCapability, PluginManifest, ToolCallDecision,
+    ToolCallEvent, ToolResultEvent, TurnEvent,
 };
 
 #[cfg(test)]

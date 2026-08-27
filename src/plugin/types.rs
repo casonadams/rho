@@ -16,10 +16,17 @@ pub enum PluginCapability {
 }
 
 impl PluginCapability {
-    pub const ALL: [Self; 5] = [Self::Lifecycle, Self::Input, Self::ToolCalls, Self::Commands, Self::Authentication];
+    pub const ALL: [Self; 5] = [
+        Self::Lifecycle,
+        Self::Input,
+        Self::ToolCalls,
+        Self::Commands,
+        Self::Authentication,
+    ];
 }
 
-
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputAction {
     Continue,
     Transform(String),
     Handled { output: String },
@@ -76,6 +83,10 @@ impl Debug for ExtensionCommand {
     }
 }
 
+fn default_api_version() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginManifest {
     pub name: String,
@@ -88,4 +99,4 @@ pub struct PluginManifest {
     pub api_version: u32,
     #[serde(default)]
     pub capabilities: Vec<PluginCapability>,
-
+}

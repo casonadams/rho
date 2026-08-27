@@ -2,16 +2,20 @@ use crate::error::{AppError, Result};
 use crate::plugin::context::ExtensionContext;
 use crate::plugin::extension::Extension;
 use crate::plugin::types::{
-    CommandRequest, ExtensionCommand, InputAction, ToolCallDecision, ToolCallEvent, ToolResultEvent, TurnEvent,
+    CommandRequest, ExtensionCommand, InputAction, PluginCapability, ToolCallDecision, ToolCallEvent, ToolResultEvent,
+    TurnEvent,
 };
 use futures::FutureExt;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+
+const PLUGIN_HOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Default, Clone)]
 pub struct ExtensionRegistry {
     extensions: Vec<Arc<dyn Extension>>,
     commands: HashMap<String, Arc<ExtensionCommand>>,
+    audit: Arc<Mutex<Vec<String>>>,
 }
 
 impl ExtensionRegistry {
@@ -28,6 +32,17 @@ impl ExtensionRegistry {
             self.commands.insert(cmd.name.clone(), Arc::new(cmd));
         }
         self.extensions.push(extension);
+        self.extensions.sort_by(|left, right| left.name().cmp(right.name()));
+    }
+
+    pub fn audit_events(&self) -> Vec<String> {
+        self.audit.lock().map(|events| events.clone()).unwrap_or_default()
+    }
+
+    fn record_audit(&self, event: String) {
+        if let Ok(mut events) = self.audit.lock() {
+            events.push(event);
+        }
     }
 
     pub fn extensions(&self) -> &[Arc<dyn Extension>] {
@@ -48,6 +63,10 @@ impl ExtensionRegistry {
         list
     }
 
+    fn has_capability(ext: &dyn Extension, capability: PluginCapability) -> bool {
+        ext.capabilities().contains(&capability)
+    }
+
     pub async fn dispatch_command(&self, req: &CommandRequest<'_>, ctx: &ExtensionContext) -> Option<Result<String>> {
         let cmd = self.commands.get(req.name)?.clone();
         let res = std::panic::AssertUnwindSafe(cmd.handler.execute(req.args, ctx))
@@ -64,6 +83,9 @@ impl ExtensionRegistry {
 
     pub async fn dispatch_session_start(&self, ctx: &ExtensionContext) -> Result<()> {
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::Lifecycle) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.on_session_start(ctx))
                 .catch_unwind()
                 .await;
@@ -78,6 +100,9 @@ impl ExtensionRegistry {
 
     pub async fn dispatch_session_shutdown(&self, ctx: &ExtensionContext) -> Result<()> {
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::Lifecycle) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.on_session_shutdown(ctx))
                 .catch_unwind()
                 .await;
@@ -95,6 +120,9 @@ impl ExtensionRegistry {
         let mut transformed = false;
 
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::Input) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.on_input(&current_input, ctx))
                 .catch_unwind()
                 .await;
@@ -125,6 +153,9 @@ impl ExtensionRegistry {
 
     pub async fn dispatch_before_turn(&self, event: &mut TurnEvent<'_>, ctx: &ExtensionContext) -> Result<()> {
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::Lifecycle) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.before_turn(event, ctx))
                 .catch_unwind()
                 .await;
@@ -147,18 +178,23 @@ impl ExtensionRegistry {
         ctx: &ExtensionContext,
     ) -> Result<ToolCallDecision> {
         for ext in &self.extensions {
-            let res = std::panic::AssertUnwindSafe(ext.on_tool_call(event, ctx))
-                .catch_unwind()
-                .await;
+            if !Self::has_capability(ext.as_ref(), PluginCapability::ToolCalls) {
+                continue;
+            }
+            let res = tokio::time::timeout(
+                PLUGIN_HOOK_TIMEOUT,
+                std::panic::AssertUnwindSafe(ext.on_tool_call(event, ctx)).catch_unwind(),
+            )
+            .await;
             match res {
-                Ok(Ok(decision @ ToolCallDecision::Block { .. })) => return Ok(decision),
-                Ok(Ok(ToolCallDecision::Allow)) => {}
-                Ok(Err(err)) => {
-                    eprintln!("Warning: plugin '{}' failed in on_tool_call: {err}", ext.name());
+                Ok(Ok(Ok(ToolCallDecision::Block { reason, terminate }))) => {
+                    self.record_audit(format!("tool_call:block:{}/{}", event.tool_name, reason));
+                    return Ok(ToolCallDecision::Block { reason, terminate });
                 }
-                Err(_) => {
-                    eprintln!("Warning: plugin '{}' panicked in on_tool_call", ext.name());
-                }
+                Ok(Ok(Ok(ToolCallDecision::Allow))) => {}
+                Ok(Ok(Err(err))) => eprintln!("Warning: plugin '{}' failed in on_tool_call: {err}", ext.name()),
+                Ok(Err(_)) => eprintln!("Warning: plugin '{}' panicked in on_tool_call", ext.name()),
+                Err(_) => eprintln!("Warning: plugin '{}' exceeded on_tool_call timeout", ext.name()),
             }
         }
         Ok(ToolCallDecision::Allow)
@@ -166,6 +202,9 @@ impl ExtensionRegistry {
 
     pub async fn dispatch_tool_result(&self, event: &mut ToolResultEvent<'_>, ctx: &ExtensionContext) -> Result<()> {
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::ToolCalls) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.on_tool_result(event, ctx))
                 .catch_unwind()
                 .await;
@@ -184,6 +223,9 @@ impl ExtensionRegistry {
 
     pub async fn dispatch_login(&self, provider: &str, ctx: &ExtensionContext) -> Result<bool> {
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::Authentication) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.on_auth_login(provider, ctx))
                 .catch_unwind()
                 .await;
@@ -203,6 +245,9 @@ impl ExtensionRegistry {
 
     pub async fn dispatch_logout(&self, provider: &str, ctx: &ExtensionContext) -> Result<bool> {
         for ext in &self.extensions {
+            if !Self::has_capability(ext.as_ref(), PluginCapability::Authentication) {
+                continue;
+            }
             let res = std::panic::AssertUnwindSafe(ext.on_auth_logout(provider, ctx))
                 .catch_unwind()
                 .await;

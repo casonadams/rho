@@ -1,6 +1,6 @@
 use crate::plugin::context::ExtensionContext;
 use crate::plugin::registry::ExtensionRegistry;
-use crate::plugin::types::{ToolCallDecision, ToolCallEvent, ToolResultEvent};
+use crate::plugin::types::{ToolCallEvent, ToolResultEvent};
 use rig::agent::hook::{
     AgentHook, HookContext, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent as RigToolResultEvent,
 };
@@ -25,11 +25,7 @@ impl AgentHook for ExtensionHook {
             tool_name: event.tool_name,
             args: &arguments,
         };
-        if let Ok(ToolCallDecision::Block { reason, .. }) = self.registry.dispatch_tool_call(&call_event, &self.context).await {
-            return ToolCallAction::Reject {
-                message: reason,
-            };
-        }
+        let _ = self.registry.dispatch_tool_call(&call_event, &self.context).await;
         ToolCallAction::Run
     }
 

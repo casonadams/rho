@@ -1,13 +1,17 @@
 use crate::error::Result;
 use crate::plugin::context::ExtensionContext;
 use crate::plugin::types::{
-    ExtensionCommand, InputAction, ToolCallDecision, ToolCallEvent, ToolResultEvent, TurnEvent,
+    ExtensionCommand, InputAction, PluginCapability, ToolCallDecision, ToolCallEvent, ToolResultEvent, TurnEvent,
 };
 use async_trait::async_trait;
 
 #[async_trait]
 pub trait Extension: Send + Sync {
     fn name(&self) -> &str;
+
+    fn capabilities(&self) -> Vec<PluginCapability> {
+        PluginCapability::ALL.to_vec()
+    }
 
     async fn on_session_start(&self, _ctx: &ExtensionContext) -> Result<()> {
         Ok(())

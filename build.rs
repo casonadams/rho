@@ -11,9 +11,8 @@ fn main() {
     let skills_dir = Path::new(&manifest_dir).join("skills");
 
     println!("cargo:rerun-if-changed=prompts/skills");
-    println!("cargo:rerun-if-changed=skills");
+    println!("cargo:rerun-if-changed=prompts/tools");
     println!("cargo:rerun-if-changed=prompts/SYSTEM.md");
-    println!("cargo:rerun-if-changed=SYSTEM.md");
 
     let mut generated = String::new();
     generated.push_str("pub struct BuiltinSkill {\n");
