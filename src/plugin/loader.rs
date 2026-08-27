@@ -38,6 +38,9 @@ impl PluginLoader {
             }
         }
 
+        manifests.sort_by(|left, right| left.1.name.cmp(&right.1.name).then_with(|| left.0.cmp(&right.0)));
+        binary_plugins.sort();
+
         Ok(PluginDiscovery {
             manifests,
             binary_plugins,
@@ -61,6 +64,7 @@ impl PluginLoader {
                 if manifest_path.exists()
                     && let Ok(content) = std::fs::read_to_string(&manifest_path)
                     && let Ok(manifest) = toml::from_str::<PluginManifest>(&content)
+                    && manifest.api_version == 1
                 {
                     manifests.push((path, manifest));
                 }
