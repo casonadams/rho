@@ -8,6 +8,10 @@ pub enum AppError {
     Config(String),
     #[error("Auth error: {0}")]
     Auth(String),
+    #[error("Network error: {0}")]
+    Network(String),
+    #[error("Policy violation: {0}")]
+    Policy(String),
     #[error("Tool execution error: {0}")]
     Tool(String),
     #[error("Session error: {0}")]

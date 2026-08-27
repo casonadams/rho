@@ -181,4 +181,42 @@ impl ExtensionRegistry {
         }
         Ok(())
     }
+
+    pub async fn dispatch_login(&self, provider: &str, ctx: &ExtensionContext) -> Result<bool> {
+        for ext in &self.extensions {
+            let res = std::panic::AssertUnwindSafe(ext.on_auth_login(provider, ctx))
+                .catch_unwind()
+                .await;
+            match res {
+                Ok(Ok(true)) => return Ok(true),
+                Ok(Ok(false)) => {}
+                Ok(Err(err)) => {
+                    eprintln!("Warning: plugin '{}' failed during login: {err}", ext.name());
+                }
+                Err(_) => {
+                    eprintln!("Warning: plugin '{}' panicked during login", ext.name());
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    pub async fn dispatch_logout(&self, provider: &str, ctx: &ExtensionContext) -> Result<bool> {
+        for ext in &self.extensions {
+            let res = std::panic::AssertUnwindSafe(ext.on_auth_logout(provider, ctx))
+                .catch_unwind()
+                .await;
+            match res {
+                Ok(Ok(true)) => return Ok(true),
+                Ok(Ok(false)) => {}
+                Ok(Err(err)) => {
+                    eprintln!("Warning: plugin '{}' failed during logout: {err}", ext.name());
+                }
+                Err(_) => {
+                    eprintln!("Warning: plugin '{}' panicked during logout", ext.name());
+                }
+            }
+        }
+        Ok(false)
+    }
 }

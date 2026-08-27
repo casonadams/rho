@@ -220,4 +220,30 @@ mod tests {
         assert!(turn_res.is_ok());
         assert!(system_prompt.contains("Plugin active."));
     }
+
+    struct CustomOAuthPlugin;
+
+    #[async_trait]
+    impl Extension for CustomOAuthPlugin {
+        fn name(&self) -> &str {
+            "custom_oauth_plugin"
+        }
+
+        async fn on_auth_login(&self, provider: &str, _ctx: &ExtensionContext) -> crate::error::Result<bool> {
+            if provider == "enterprise-sso" {
+                return Ok(true);
+            }
+            Ok(false)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_plugin_custom_oauth_login_dispatch() {
+        let mut registry = ExtensionRegistry::new();
+        registry.register(CustomOAuthPlugin);
+        let ctx = ExtensionContext::new(".", "session_1");
+
+        assert!(registry.dispatch_login("enterprise-sso", &ctx).await.unwrap());
+        assert!(!registry.dispatch_login("unknown-oauth", &ctx).await.unwrap());
+    }
 }

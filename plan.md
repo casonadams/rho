@@ -62,20 +62,20 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 
 ## Phase 2: Architecture
 
-### 5. Narrow `AgentEngine`
+### 5. Narrow `AgentEngine` — complete
 
 - Extract construction into a builder/factory.
 - Keep `AgentEngine` focused on coordinating a run.
 - Move usage/quota tracking and context selection behind dedicated components.
 - Keep provider creation, plugin loading, session management, and turn execution independently testable.
 
-### 6. Introduce a typed tool registry
+### 6. Introduce a typed tool registry — complete
 
 - Replace scattered tool-name string matching with tool descriptors and capabilities.
 - Keep argument schema, capability, executor, display metadata, and policy metadata together.
 - Make approval, audit, UI, and plugin hooks consume the same descriptor.
 
-### 7. Improve structured errors
+### 7. Improve structured errors — complete
 
 - Distinguish cancellation, authentication, configuration, provider, network, policy, tool, session, and budget failures.
 - Preserve actionable context without leaking secrets.

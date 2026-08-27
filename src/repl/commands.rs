@@ -28,7 +28,9 @@ pub struct SlashCommandContext<'a> {
     pub context: Option<&'a ExtensionContext>,
 }
 
-pub const SLASH_COMMANDS: &[&str] = &["/help", "/model", "/clear", "/login", "/logout", "/exit"];
+pub const SLASH_COMMANDS: &[&str] = &[
+    "/help", "/model", "/skill", "/plugin", "/clear", "/login", "/logout", "/exit",
+];
 
 pub struct SlashCommandHandler;
 
@@ -68,12 +70,69 @@ impl SlashCommandHandler {
                         new_provider,
                     }))
                 } else {
-                    println!(
-                        "  Active model: {} (provider: {})",
-                        ctx.config.model, ctx.config.provider
-                    );
+                    let models = [
+                        "gpt-5.6-luna (chatgpt)",
+                        "gpt-5.4 (chatgpt)",
+                        "claude-sonnet-4-6 (anthropic)",
+                        "gpt-4o (openai)",
+                        "gemini-2.5-pro (gemini)",
+                        "deepseek-reasoner (deepseek)",
+                    ];
+                    if let Ok(choice) = inquire::Select::new("Select a model:", models.to_vec()).prompt() {
+                        let model_str = choice.split_whitespace().next().unwrap_or("");
+                        let provider_str = choice.split('(').nth(1).and_then(|s| s.strip_suffix(')')).unwrap_or("");
+                        ctx.config.model = model_str.to_string();
+                        ctx.config.provider = provider_str.to_string();
+                        println!("  [Switched model to {} ({})]", ctx.config.model, ctx.config.provider);
+                        return Ok(Some(CommandResult::ModelChanged {
+                            new_model: model_str.to_string(),
+                            new_provider: Some(provider_str.to_string()),
+                        }));
+                    }
                     Ok(Some(CommandResult::Continue))
                 }
+            }
+            "skill" | "skills" => {
+                let skills = crate::skills::builtin_skills();
+                if parts.len() > 1 {
+                    let skill_name = parts[1];
+                    if let Some(content) = crate::skills::get_builtin_skill_content(skill_name) {
+                        println!("\n{content}\n");
+                    } else {
+                        println!("  Skill '{skill_name}' not found. Available skills:");
+                        for s in &skills {
+                            println!("    - {}: {}", s.name, s.description);
+                        }
+                    }
+                } else {
+                    let choices: Vec<String> = skills
+                        .iter()
+                        .map(|s| format!("{} - {}", s.name, s.description))
+                        .collect();
+                    if let Ok(choice) = inquire::Select::new("Select a skill to inspect:", choices).prompt() {
+                        let chosen_name = choice.split_whitespace().next().unwrap_or("");
+                        if let Some(content) = crate::skills::get_builtin_skill_content(chosen_name) {
+                            println!("\n{content}\n");
+                        }
+                    }
+                }
+                Ok(Some(CommandResult::Continue))
+            }
+            "plugin" | "plugins" => {
+                let cwd = std::env::current_dir().ok();
+                let discovery = crate::plugin::PluginLoader::discover(&ctx.config.config_dir, cwd.as_deref())?;
+                println!("Discovered plugins:");
+                if discovery.manifests.is_empty() && discovery.binary_plugins.is_empty() {
+                    println!("  (No plugins found in ~/.cargo/bin, $PATH, or plugin directories)");
+                } else {
+                    for (path, manifest) in &discovery.manifests {
+                        println!("  - {} v{} ({})", manifest.name, manifest.version, path.display());
+                    }
+                    for bin in &discovery.binary_plugins {
+                        println!("  - [binary] {}", bin.display());
+                    }
+                }
+                Ok(Some(CommandResult::Continue))
             }
             "login" => Ok(Some(CommandResult::Login {
                 provider: parts.get(1).map(|value| (*value).to_string()),
@@ -123,6 +182,8 @@ fn print_help(config: &Config, registry: Option<&ExtensionRegistry>) {
     println!("\nCommands");
     println!("  /help                       Show this reference");
     println!("  /model [model] [provider]   Inspect or switch the model");
+    println!("  /skill [name]               List or inspect skills");
+    println!("  /plugin                     List discovered plugins");
     println!("  /clear                      Start a new session; preserve history");
     println!("  /login [provider]           Add API-key or subscription auth");
     println!("  /logout [provider]          Remove stored provider auth");
@@ -139,7 +200,7 @@ fn print_help(config: &Config, registry: Option<&ExtensionRegistry>) {
     }
 
     println!("\nShortcuts");
-    println!("  Tab                         Complete slash commands");
+    println!("  Tab                         Complete slash commands & skill names");
     println!("  Ctrl+C                      Cancel the active operation");
     println!("  Ctrl+D                      Exit at an empty prompt");
     println!("\nCurrent session");
@@ -216,5 +277,19 @@ mod tests {
         assert!(matches!(res, Some(CommandResult::ModelChanged { .. })));
         assert_eq!(cfg.model, "gpt-4o");
         assert_eq!(cfg.provider, "openai");
+    }
+
+    #[tokio::test]
+    async fn test_handle_skill_inspect() {
+        let mut cfg = Config::default();
+        let mut auth = AuthStore::default();
+        let mut ctx = SlashCommandContext {
+            config: &mut cfg,
+            auth_store: &mut auth,
+            registry: None,
+            context: None,
+        };
+        let res = SlashCommandHandler::handle("/skill plan", &mut ctx).await.unwrap();
+        assert!(matches!(res, Some(CommandResult::Continue)));
     }
 }

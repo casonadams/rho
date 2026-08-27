@@ -14,7 +14,6 @@ use rig::agent::ModelHandle;
 use rig::completion::Usage;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 pub(super) struct MockEngineConfig<'a> {
     pub(super) base_dir: &'a Path,
@@ -56,8 +55,9 @@ pub(super) fn mock_engine_with_session(model: MockCompletionModel, config: MockE
         session_manager: config.session_manager,
         extension_registry: crate::plugin::ExtensionRegistry::new(),
         agent,
-        last_usage: Mutex::new(None),
-        last_quota: Mutex::new(None),
+        usage: crate::engine::tracking::UsageTracker::default(),
+        quota: crate::engine::tracking::QuotaTracker::default(),
+        context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
     }
 }

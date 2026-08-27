@@ -91,7 +91,20 @@ For full plugin development, lifecycle hooks (`Extension` trait), and manifest o
 
 ---
 
-## Documentation
+## Architecture
+
+The runtime is organized around explicit boundaries:
+
+- `AgentEngineBuilder` constructs provider models, sessions, tools, and extensions.
+- `AgentEngine` coordinates turns and exposes session-facing state.
+- `ToolRegistry` describes the typed tools and their capabilities; `ToolExecutionPolicy` remains the approval authority.
+- Usage, quota, and context state are tracked independently from turn execution.
+- Runner errors preserve distinct authentication, network, provider, session, policy, tool, cancellation, and budget categories.
+
+These boundaries are also used by offline contract tests, so provider construction and tool policy can be tested without credentials or network access.
+
+---
+
 
 - **[Plugins & Extensions](docs/plugins.md)**: Plugin architecture, lifecycle hooks, and crates.io publishing guide.
 - **[Release Readiness](docs/release-readiness.md)**: Smoke testing, verification invariants, and audit policies.

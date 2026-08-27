@@ -21,7 +21,7 @@ use rig::message::Message;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use serde::Serialize;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct ContextComparisonReport {
@@ -83,8 +83,9 @@ pub(super) async fn run_context_evaluation(input: ContextEvaluationInput<'_>) ->
         session_manager: store,
         extension_registry: crate::plugin::ExtensionRegistry::new(),
         agent,
-        last_usage: Mutex::new(None),
-        last_quota: Mutex::new(None),
+        usage: crate::engine::tracking::UsageTracker::default(),
+        quota: crate::engine::tracking::QuotaTracker::default(),
+        context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
     };
     let TurnOutput { metrics, usage, .. } = engine

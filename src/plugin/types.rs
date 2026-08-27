@@ -5,8 +5,21 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InputAction {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginCapability {
+    Lifecycle,
+    Input,
+    ToolCalls,
+    Commands,
+    Authentication,
+}
+
+impl PluginCapability {
+    pub const ALL: [Self; 5] = [Self::Lifecycle, Self::Input, Self::ToolCalls, Self::Commands, Self::Authentication];
+}
+
+
     Continue,
     Transform(String),
     Handled { output: String },
@@ -71,5 +84,8 @@ pub struct PluginManifest {
     pub author: Option<String>,
     pub entrypoint: Option<String>,
     pub wasm_binary: Option<String>,
-    pub binary: Option<String>,
-}
+    #[serde(default = "default_api_version")]
+    pub api_version: u32,
+    #[serde(default)]
+    pub capabilities: Vec<PluginCapability>,
+

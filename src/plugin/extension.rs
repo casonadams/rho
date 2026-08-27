@@ -33,6 +33,14 @@ pub trait Extension: Send + Sync {
         Ok(())
     }
 
+    async fn on_auth_login(&self, _provider: &str, _ctx: &ExtensionContext) -> Result<bool> {
+        Ok(false)
+    }
+
+    async fn on_auth_logout(&self, _provider: &str, _ctx: &ExtensionContext) -> Result<bool> {
+        Ok(false)
+    }
+
     fn register_commands(&self) -> Vec<ExtensionCommand> {
         Vec::new()
     }

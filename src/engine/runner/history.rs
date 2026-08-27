@@ -85,7 +85,7 @@ pub fn map_prompt_error(error: rig::completion::PromptError) -> AppError {
         }
         rig::completion::PromptError::UnknownToolCall { tool_name, .. } => AppError::InvalidToolCall(tool_name),
         rig::completion::PromptError::CompletionError(error) => map_completion_error(error),
-        rig::completion::PromptError::MemoryError(_) => AppError::Provider("Conversation memory failed".to_string()),
+        rig::completion::PromptError::MemoryError(_) => AppError::Session("Conversation memory failed".to_string()),
     }
 }
 
@@ -96,9 +96,11 @@ pub fn map_completion_error(error: rig::completion::CompletionError) -> AppError
     ) {
         return AppError::ContentFiltered;
     }
-    let status = error.provider_response_status();
+    let status = error.provider_response_status().map(|s| s.as_u16());
     match status {
+        Some(code @ (401 | 403)) => AppError::Auth(format!("Model provider authentication failed (HTTP {code})")),
+        Some(408 | 429 | 500..=599) => AppError::Network("Model provider request could not be completed".to_string()),
         Some(status) => AppError::Provider(format!("Model provider request failed with HTTP {status}")),
-        None => AppError::Provider("Model provider request failed".to_string()),
+        None => AppError::Network("Model provider request failed without an HTTP status".to_string()),
     }
 }

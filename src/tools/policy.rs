@@ -3,6 +3,7 @@ use crate::tools::bash::BashArgs;
 use crate::tools::bash_ast::{RiskTier, analyze_command_safety};
 use crate::tools::edit::EditArgs;
 use crate::tools::read::ReadArgs;
+use crate::tools::registry::ToolRegistry;
 use crate::tools::web::fetch::FetchArgs;
 use crate::tools::web::search::SearchArgs;
 use crate::tools::workspace::Workspace;
@@ -40,6 +41,9 @@ impl ToolExecutionPolicy {
     }
 
     fn classify_in(tool_name: &str, arguments: &Value, working_dir: &Path) -> ExecutionClass {
+        if !ToolRegistry::is_known(tool_name) {
+            return ExecutionClass::mutating("Unknown or malformed tool call cannot be proven read-only");
+        }
         match tool_name {
             "read" if valid::<ReadArgs>(arguments) => ExecutionClass::ReadOnly,
             "websearch" if valid::<SearchArgs>(arguments) => ExecutionClass::ReadOnly,
@@ -48,7 +52,7 @@ impl ToolExecutionPolicy {
             "write" => classify_write(arguments, working_dir),
             "edit" => classify_edit(arguments, working_dir),
             "bash" => classify_bash(arguments),
-            _ => ExecutionClass::mutating("Unknown or malformed tool call cannot be proven read-only"),
+            _ => ExecutionClass::mutating("Known tool arguments are malformed or unsafe"),
         }
     }
 

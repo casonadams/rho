@@ -18,7 +18,6 @@ use rig::message::{AssistantContent, Message, UserContent};
 use rig::streaming::StreamedAssistantContent;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use std::collections::HashSet;
-use std::sync::Mutex;
 
 fn test_engine(model: MockCompletionModel, config: Config) -> AgentEngine {
     let dir = std::env::temp_dir().join(format!("runner_test_{}", uuid::Uuid::new_v4()));
@@ -47,8 +46,9 @@ fn test_engine_with_session(
         session_manager,
         extension_registry: crate::plugin::ExtensionRegistry::new(),
         agent,
-        last_usage: Mutex::new(None),
-        last_quota: Mutex::new(None),
+        usage: crate::engine::tracking::UsageTracker::default(),
+        quota: crate::engine::tracking::QuotaTracker::default(),
+        context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: crate::engine::metrics::RunTracker::default(),
     }
 }

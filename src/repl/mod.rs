@@ -15,8 +15,8 @@ use crossterm::cursor::{MoveToColumn, MoveUp};
 use crossterm::terminal::{Clear, ClearType};
 use crossterm::tty::IsTty;
 use reedline::{
-    ColumnarMenu, DefaultCompleter, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
-    ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
+    ColumnarMenu, Completer, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent,
+    ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
 };
 use std::io::Write;
 use unicode_width::UnicodeWidthStr;
@@ -45,10 +45,135 @@ fn clear_submitted_input(input: &str) {
         .and_then(Write::flush);
 }
 
-fn slash_command_completer() -> DefaultCompleter {
-    let mut completer = DefaultCompleter::with_inclusions(&['/']);
-    completer.insert(SLASH_COMMANDS.iter().map(|command| (*command).to_string()).collect());
-    completer
+#[derive(Clone)]
+pub struct RhoCompleter {
+    pub commands: Vec<String>,
+    pub skills: Vec<String>,
+    pub models: Vec<String>,
+    pub providers: Vec<String>,
+}
+
+impl RhoCompleter {
+    pub fn new(extension_commands: &[(&str, &str)]) -> Self {
+        let mut commands = Vec::new();
+        for cmd in SLASH_COMMANDS {
+            commands.push((*cmd).to_string());
+        }
+        for (name, _) in extension_commands {
+            commands.push(format!("/{name}"));
+        }
+        let skills = crate::skills::builtin_skills().into_iter().map(|s| s.name).collect();
+        let models = vec![
+            "gpt-5.6-luna".to_string(),
+            "gpt-5.4".to_string(),
+            "claude-sonnet-4-6".to_string(),
+            "gpt-4o".to_string(),
+            "gemini-2.5-pro".to_string(),
+            "deepseek-reasoner".to_string(),
+        ];
+        let providers = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "chatgpt".to_string(),
+            "copilot".to_string(),
+            "gemini".to_string(),
+            "deepseek".to_string(),
+            "groq".to_string(),
+            "openrouter".to_string(),
+            "ollama".to_string(),
+        ];
+        Self {
+            commands,
+            skills,
+            models,
+            providers,
+        }
+    }
+}
+
+impl Completer for RhoCompleter {
+    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
+        let prefix = &line[..pos];
+        if let Some(arg_prefix) = prefix
+            .strip_prefix("/skill ")
+            .or_else(|| prefix.strip_prefix("/skills "))
+        {
+            return self
+                .skills
+                .iter()
+                .filter(|s| s.starts_with(arg_prefix))
+                .map(|s| Suggestion {
+                    value: format!("/skill {s}"),
+                    description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(0, pos),
+                    append_whitespace: true,
+                })
+                .collect();
+        }
+        if let Some(arg_prefix) = prefix.strip_prefix("/model ") {
+            return self
+                .models
+                .iter()
+                .filter(|m| m.starts_with(arg_prefix))
+                .map(|m| Suggestion {
+                    value: format!("/model {m}"),
+                    description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(0, pos),
+                    append_whitespace: true,
+                })
+                .collect();
+        }
+        if let Some(arg_prefix) = prefix.strip_prefix("/login ") {
+            return self
+                .providers
+                .iter()
+                .filter(|p| p.starts_with(arg_prefix))
+                .map(|p| Suggestion {
+                    value: format!("/login {p}"),
+                    description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(0, pos),
+                    append_whitespace: true,
+                })
+                .collect();
+        }
+        if let Some(arg_prefix) = prefix.strip_prefix("/logout ") {
+            return self
+                .providers
+                .iter()
+                .filter(|p| p.starts_with(arg_prefix))
+                .map(|p| Suggestion {
+                    value: format!("/logout {p}"),
+                    description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(0, pos),
+                    append_whitespace: true,
+                })
+                .collect();
+        }
+        if prefix.starts_with('/') {
+            return self
+                .commands
+                .iter()
+                .filter(|cmd| cmd.starts_with(prefix))
+                .map(|cmd| Suggestion {
+                    value: cmd.clone(),
+                    description: None,
+                    style: None,
+                    extra: None,
+                    span: Span::new(0, pos),
+                    append_whitespace: true,
+                })
+                .collect();
+        }
+        Vec::new()
+    }
 }
 
 pub struct ReplSession {
@@ -76,10 +201,14 @@ impl ReplSession {
             resumed: self.resume_id.is_some(),
         });
 
+        let mut engine =
+            AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
+        engine.refresh_quota().await;
+
         let history_file = self.config.config_dir.join("history.txt");
         let history =
             Box::new(FileBackedHistory::with_file(1000, history_file).unwrap_or_else(|_| FileBackedHistory::default()));
-        let completer = slash_command_completer();
+        let completer = RhoCompleter::new(&engine.extension_registry.list_commands());
         let completion_menu = Box::new(ColumnarMenu::default().with_name("slash_commands"));
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(
@@ -96,10 +225,6 @@ impl ReplSession {
             .with_completer(Box::new(completer))
             .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
             .with_edit_mode(edit_mode);
-
-        let mut engine =
-            AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
-        engine.refresh_quota().await;
 
         let prompt = SimplePrompt;
         let mut is_first_prompt = true;
@@ -235,14 +360,22 @@ impl ReplSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{slash_command_completer, submitted_input_rows};
+    use super::{RhoCompleter, submitted_input_rows};
     use reedline::Completer;
 
     #[test]
     fn slash_commands_complete_from_a_prefix() {
-        let suggestions = slash_command_completer().complete("/mo", 3);
+        let mut completer = RhoCompleter::new(&[]);
+        let suggestions = completer.complete("/mo", 3);
         assert_eq!(suggestions.len(), 1);
         assert_eq!(suggestions[0].value, "/model");
+    }
+
+    #[test]
+    fn skill_names_complete_from_prefix() {
+        let mut completer = RhoCompleter::new(&[]);
+        let suggestions = completer.complete("/skill pl", 9);
+        assert!(suggestions.iter().any(|s| s.value == "/skill plan"));
     }
 
     #[test]

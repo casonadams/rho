@@ -25,8 +25,10 @@ impl AgentHook for ExtensionHook {
             tool_name: event.tool_name,
             args: &arguments,
         };
-        if let Ok(ToolCallDecision::Block { .. }) = self.registry.dispatch_tool_call(&call_event, &self.context).await {
-            return ToolCallAction::Run;
+        if let Ok(ToolCallDecision::Block { reason, .. }) = self.registry.dispatch_tool_call(&call_event, &self.context).await {
+            return ToolCallAction::Reject {
+                message: reason,
+            };
         }
         ToolCallAction::Run
     }
