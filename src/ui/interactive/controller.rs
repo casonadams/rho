@@ -1,10 +1,11 @@
 use std::io::{self, Stdout, Write};
 
 use crossterm::{
-    cursor::{Hide, MoveDown, MoveToColumn, MoveUp, RestorePosition, SavePosition, Show},
+    cursor::{Hide, MoveDown, MoveToColumn, MoveUp, Show},
     queue,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
+use unicode_width::UnicodeWidthChar;
 
 use super::{EditorState, InteractiveLayout, InteractiveState, LayoutInput, layout};
 
@@ -17,8 +18,6 @@ pub trait TerminalBackend {
     fn move_down(&mut self, rows: usize) -> io::Result<()>;
     fn move_to_column(&mut self, column: usize) -> io::Result<()>;
     fn clear_line(&mut self) -> io::Result<()>;
-    fn save_cursor_position(&mut self) -> io::Result<()>;
-    fn restore_cursor_position(&mut self) -> io::Result<()>;
     fn write_text(&mut self, text: &str) -> io::Result<()>;
     fn flush(&mut self) -> io::Result<()>;
 }
@@ -66,14 +65,6 @@ impl TerminalBackend for CrosstermBackend {
         queue!(self.stdout, Clear(ClearType::CurrentLine))
     }
 
-    fn save_cursor_position(&mut self) -> io::Result<()> {
-        queue!(self.stdout, SavePosition)
-    }
-
-    fn restore_cursor_position(&mut self) -> io::Result<()> {
-        queue!(self.stdout, RestorePosition)
-    }
-
     fn write_text(&mut self, text: &str) -> io::Result<()> {
         self.stdout.write_all(text.as_bytes())
     }
@@ -101,7 +92,8 @@ pub struct TerminalController<B: TerminalBackend> {
     state: InteractiveState,
     width: usize,
     rendered: Option<InteractiveLayout>,
-    output_position_saved: bool,
+    output_line: String,
+    output_line_open: bool,
     active: bool,
 }
 
@@ -126,7 +118,8 @@ impl<B: TerminalBackend> TerminalController<B> {
             state,
             width,
             rendered: None,
-            output_position_saved: false,
+            output_line: String::new(),
+            output_line_open: false,
             active: true,
         };
         if let Err(error) = controller.redraw() {
@@ -157,14 +150,11 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
-        if self.output_position_saved {
-            self.backend.restore_cursor_position()?;
-        }
+        self.restore_output_cursor()?;
         let output = terminal_newlines(output);
         self.backend.write_text(&output)?;
-        self.backend.save_cursor_position()?;
-        self.output_position_saved = true;
-        if !output.ends_with("\r\n") {
+        self.update_output_line(&output);
+        if self.output_line_open {
             self.backend.write_text("\r\n")?;
         }
         let rendered = self.current_layout();
@@ -194,7 +184,8 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         }
         self.erase_live_region()?;
-        self.output_position_saved = false;
+        self.output_line.clear();
+        self.output_line_open = false;
         self.backend.show_cursor()?;
         self.backend.set_raw_mode(false)?;
         self.backend.flush()?;
@@ -209,6 +200,30 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.backend.set_raw_mode(true)?;
         self.active = true;
         self.redraw()
+    }
+
+    fn restore_output_cursor(&mut self) -> io::Result<()> {
+        if !self.output_line_open {
+            return Ok(());
+        }
+        let (column, at_wrap_boundary) = output_cursor(&self.output_line, self.width);
+        if !at_wrap_boundary {
+            self.backend.move_up(1)?;
+        }
+        self.backend.move_to_column(column)
+    }
+
+    fn update_output_line(&mut self, output: &str) {
+        if output.is_empty() {
+            return;
+        }
+        if let Some(newline) = output.rfind('\n') {
+            self.output_line.clear();
+            self.output_line.push_str(&output[newline + 1..]);
+        } else {
+            self.output_line.push_str(output);
+        }
+        self.output_line_open = !output.ends_with('\n');
     }
 
     fn current_layout(&self) -> InteractiveLayout {
@@ -289,6 +304,40 @@ impl<B: TerminalBackend> Drop for TerminalController<B> {
     }
 }
 
+fn output_cursor(value: &str, terminal_width: usize) -> (usize, bool) {
+    let terminal_width = terminal_width.max(1);
+    let mut column = 0;
+    let mut at_wrap_boundary = false;
+    let mut characters = value.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character == '\u{1b}' {
+            if characters.next_if_eq(&'[').is_some() {
+                for sequence_character in characters.by_ref() {
+                    if ('@'..='~').contains(&sequence_character) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if character == '\r' {
+            column = 0;
+            at_wrap_boundary = false;
+            continue;
+        }
+        let character_width = character.width().unwrap_or(0);
+        if column > 0 && column + character_width > terminal_width {
+            column = 0;
+        }
+        column += character_width;
+        at_wrap_boundary = column == terminal_width;
+        if at_wrap_boundary {
+            column = 0;
+        }
+    }
+    (column, at_wrap_boundary)
+}
+
 fn terminal_newlines(value: &str) -> String {
     let mut result = String::with_capacity(value.len());
     let mut previous_was_carriage_return = false;
@@ -310,7 +359,7 @@ mod tests {
         rc::Rc,
     };
 
-    use super::{TerminalBackend, TerminalController};
+    use super::{TerminalBackend, TerminalController, output_cursor};
     use crate::ui::interactive::InteractiveState;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -323,8 +372,6 @@ mod tests {
         Down(usize),
         Column(usize),
         Clear,
-        Save,
-        Restore,
         Write(String),
         Flush,
     }
@@ -395,16 +442,6 @@ mod tests {
             Ok(())
         }
 
-        fn save_cursor_position(&mut self) -> io::Result<()> {
-            self.operations.borrow_mut().push(Operation::Save);
-            Ok(())
-        }
-
-        fn restore_cursor_position(&mut self) -> io::Result<()> {
-            self.operations.borrow_mut().push(Operation::Restore);
-            Ok(())
-        }
-
         fn write_text(&mut self, text: &str) -> io::Result<()> {
             self.operations.borrow_mut().push(Operation::Write(text.to_string()));
             if self.fail_write {
@@ -418,6 +455,14 @@ mod tests {
             self.operations.borrow_mut().push(Operation::Flush);
             Ok(())
         }
+    }
+
+    #[test]
+    fn output_cursor_tracks_wrap_boundaries_styles_and_wide_text() {
+        assert_eq!(output_cursor("123456789", 10), (9, false));
+        assert_eq!(output_cursor("1234567890", 10), (0, true));
+        assert_eq!(output_cursor("123456789界", 10), (2, false));
+        assert_eq!(output_cursor("\u{1b}[2mwide\u{1b}[0m", 10), (4, false));
     }
 
     #[test]
@@ -472,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn streamed_output_resumes_at_the_saved_cursor_position() {
+    fn streamed_output_resumes_at_the_previous_line_end() {
         let (backend, operations, _) = FakeTerminal::new(10);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
         operations.borrow_mut().clear();
@@ -482,22 +527,20 @@ mod tests {
         controller.write_output("response").unwrap();
 
         let operations = operations.borrow();
-        let restore_index = operations
+        let move_index = operations
             .iter()
-            .position(|operation| operation == &Operation::Restore)
+            .position(|operation| operation == &Operation::Up(1))
+            .unwrap();
+        let column_index = operations
+            .iter()
+            .position(|operation| operation == &Operation::Column(9))
             .unwrap();
         let output_index = operations
             .iter()
             .position(|operation| operation == &Operation::Write("response".into()))
             .unwrap();
-        assert!(restore_index < output_index);
-        assert_eq!(
-            operations
-                .iter()
-                .filter(|operation| operation == &&Operation::Save)
-                .count(),
-            1
-        );
+        assert!(move_index < column_index);
+        assert!(column_index < output_index);
     }
 
     #[test]
