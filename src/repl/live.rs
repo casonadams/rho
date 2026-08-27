@@ -11,9 +11,8 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
-    Activity, BatchDecision, FlushBarrier, InputAction, InteractionResponder, InteractionResponse, InteractiveState,
-    ModalState, OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiEffect, UiEvent,
-    map_key,
+    Activity, BatchDecision, InputAction, InteractionResponder, InteractionResponse, InteractiveState, ModalState,
+    OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiEffect, UiEvent, map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
@@ -26,6 +25,60 @@ const SPINNER_FRAME_INTERVALS: usize = 5;
 struct PendingModal {
     responder: InteractionResponder,
     allow_custom: bool,
+}
+
+struct LiveBatch {
+    ui: PendingUiBatch,
+    modal: Option<PendingModal>,
+}
+
+impl LiveBatch {
+    fn new() -> Self {
+        Self {
+            ui: PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES),
+            modal: None,
+        }
+    }
+
+    fn enqueue(&mut self, controller: &mut LiveController, event: UiEvent) -> Result<()> {
+        match self.ui.push(event) {
+            BatchDecision::Pending => Ok(()),
+            BatchDecision::Flush(_) => self.flush(controller, false),
+            BatchDecision::Barrier(_, event) => {
+                install_interaction(controller, event, &mut self.modal);
+                self.flush(controller, true)
+            }
+        }
+    }
+
+    fn flush(&mut self, controller: &mut LiveController, redraw: bool) -> Result<()> {
+        let drained = self.ui.drain();
+        let activity_changed = if let Some(activity) = drained.activity {
+            controller.state_mut().footer_mut().activity = activity;
+            true
+        } else {
+            false
+        };
+        if drained.text.is_empty() {
+            if activity_changed || redraw {
+                controller.redraw()?;
+            }
+        } else {
+            controller.write_output(&drained.text)?;
+        }
+        Ok(())
+    }
+
+    fn drain_events(
+        &mut self,
+        controller: &mut LiveController,
+        events: &mut mpsc::UnboundedReceiver<UiEvent>,
+    ) -> Result<()> {
+        while let Ok(event) = events.try_recv() {
+            self.enqueue(controller, event)?;
+        }
+        Ok(())
+    }
 }
 
 struct LiveIo<'a> {
@@ -86,13 +139,15 @@ impl ReplSession {
             if self
                 .process_live_message(
                     &mut engine,
-                    &mut history,
-                    &completions,
                     LiveMessage {
                         io: LiveIo {
                             controller: &mut controller,
                             events: &mut ui_events,
                             input: &mut input,
+                        },
+                        editor: EditorResources {
+                            history: &mut history,
+                            completions: &completions,
                         },
                         message,
                     },
@@ -108,13 +163,7 @@ impl ReplSession {
         Ok(())
     }
 
-    async fn process_live_message(
-        &mut self,
-        engine: &mut AgentEngine,
-        history: &mut InteractiveHistory,
-        completions: &CompletionSet,
-        live: LiveMessage<'_>,
-    ) -> Result<bool> {
+    async fn process_live_message(&mut self, engine: &mut AgentEngine, live: LiveMessage<'_>) -> Result<bool> {
         let controller = live.io.controller;
         let ui_events = live.io.events;
         let input_reader = live.io.input;
@@ -187,14 +236,13 @@ impl ReplSession {
         run_active_turn(
             engine,
             &self.renderer,
-            history,
-            completions,
             ActiveTurn {
                 io: LiveIo {
                     controller,
                     events: ui_events,
                     input: input_reader,
                 },
+                editor: live.editor,
                 prompt: &effective,
             },
         )
@@ -204,8 +252,14 @@ impl ReplSession {
     }
 }
 
+struct EditorResources<'a> {
+    history: &'a mut InteractiveHistory,
+    completions: &'a CompletionSet,
+}
+
 struct LiveMessage<'a> {
     io: LiveIo<'a>,
+    editor: EditorResources<'a>,
     message: QueuedMessage,
 }
 
@@ -217,23 +271,22 @@ async fn read_idle_input(
     let controller = live.controller;
     let ui_events = live.events;
     let input = live.input;
-    let mut modal = None;
-    let mut pending = PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES);
+    let mut batch = LiveBatch::new();
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             biased;
-            _ = frame.tick() => flush_pending(controller, &mut pending, FlushBarrier::Frame, false)?,
+            _ = frame.tick() => batch.flush(controller, false)?,
             event = input.recv() => {
                 let event = match event {
                     Some(Ok(event)) => event,
                     Some(Err(error)) => {
-                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        batch.flush(controller, false)?;
                         return Err(error.into());
                     }
                     None => {
-                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        batch.flush(controller, false)?;
                         return Err(anyhow::anyhow!("Terminal input reader stopped").into());
                     }
                 };
@@ -242,13 +295,13 @@ async fn read_idle_input(
                     continue;
                 }
                 let Event::Key(key) = event else { continue };
-                if handle_modal_key(controller, key, &mut modal)? {
+                if handle_modal_key(controller, key, &mut batch.modal)? {
                     continue;
                 }
                 match map_key(key) {
                     InputAction::Edit(action) => {
                         let effect = controller.state_mut().apply(action);
-                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        batch.flush(controller, true)?;
                         if let UiEffect::Queued(message) = effect {
                             controller.state_mut().pop_queued();
                             return Ok(Some(message));
@@ -256,17 +309,17 @@ async fn read_idle_input(
                     }
                     InputAction::HistoryPrevious => {
                         if navigate_history_previous(controller, history) {
-                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                            batch.flush(controller, true)?;
                         }
                     }
                     InputAction::HistoryNext => {
                         if navigate_history_next(controller, history) {
-                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                            batch.flush(controller, true)?;
                         }
                     }
                     InputAction::Complete => {
                         if apply_completion(controller, completions) {
-                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                            batch.flush(controller, true)?;
                         }
                     }
                     InputAction::Cancel => {
@@ -274,7 +327,7 @@ async fn read_idle_input(
                         controller.redraw()?;
                     }
                     InputAction::EndOfInput if controller.state().editor().is_empty() => {
-                        flush_pending(controller, &mut pending, FlushBarrier::Completion, false)?;
+                        batch.flush(controller, false)?;
                         return Ok(None);
                     }
                     InputAction::EndOfInput | InputAction::Ignore => {}
@@ -282,7 +335,7 @@ async fn read_idle_input(
             }
             event = ui_events.recv() => {
                 if let Some(event) = event {
-                    enqueue_ui_event(controller, &mut pending, event, &mut modal)?;
+                    batch.enqueue(controller, event)?;
                 }
             }
         }
@@ -335,21 +388,17 @@ fn apply_completion<B: TerminalBackend>(controller: &mut TerminalController<B>, 
 
 struct ActiveTurn<'a> {
     io: LiveIo<'a>,
+    editor: EditorResources<'a>,
     prompt: &'a str,
 }
 
-async fn run_active_turn(
-    engine: &AgentEngine,
-    renderer: &TerminalRenderer,
-    history: &mut InteractiveHistory,
-    completions: &CompletionSet,
-    active: ActiveTurn<'_>,
-) -> Result<()> {
+async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, active: ActiveTurn<'_>) -> Result<()> {
     let controller = active.io.controller;
     let ui_events = active.io.events;
     let input = active.io.input;
-    let mut modal = None;
-    let mut pending = PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES);
+    let history = active.editor.history;
+    let completions = active.editor.completions;
+    let mut batch = LiveBatch::new();
     let run = engine.run_turn(crate::engine::runner::TurnRequest { prompt: active.prompt }, renderer);
     tokio::pin!(run);
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
@@ -360,22 +409,22 @@ async fn run_active_turn(
             biased;
             _ = frame.tick() => {
                 frame_count = frame_count.wrapping_add(1);
-                let animate = frame_count % SPINNER_FRAME_INTERVALS == 0
+                let animate = frame_count.is_multiple_of(SPINNER_FRAME_INTERVALS)
                     && controller.state().footer().activity != Activity::Idle;
                 if animate {
                     controller.advance_spinner();
                 }
-                flush_pending(controller, &mut pending, FlushBarrier::Frame, animate)?;
+                batch.flush(controller, animate)?;
             }
             event = input.recv() => {
                 let event = match event {
                     Some(Ok(event)) => event,
                     Some(Err(error)) => {
-                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        batch.flush(controller, false)?;
                         return Err(error.into());
                     }
                     None => {
-                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        batch.flush(controller, false)?;
                         return Err(anyhow::anyhow!("Terminal input reader stopped").into());
                     }
                 };
@@ -384,34 +433,34 @@ async fn run_active_turn(
                     continue;
                 }
                 let Event::Key(key) = event else { continue };
-                if handle_modal_key(controller, key, &mut modal)? { continue; }
+                if handle_modal_key(controller, key, &mut batch.modal)? { continue; }
                 match map_key(key) {
                     InputAction::Edit(action) => {
                         controller.state_mut().apply(action);
-                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                        batch.flush(controller, true)?;
                     }
                     InputAction::HistoryPrevious => {
                         if navigate_history_previous(controller, history) {
-                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                            batch.flush(controller, true)?;
                         }
                     }
                     InputAction::HistoryNext => {
                         if navigate_history_next(controller, history) {
-                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                            batch.flush(controller, true)?;
                         }
                     }
                     InputAction::Complete => {
                         if apply_completion(controller, completions) {
-                            flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
+                            batch.flush(controller, true)?;
                         }
                     }
                     InputAction::Cancel => {
-                        flush_pending(controller, &mut pending, FlushBarrier::Cancellation, false)?;
+                        batch.flush(controller, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
                         renderer.write_output("\nCanceled.\n");
-                        drain_ui_events_batched(controller, ui_events, &mut pending, &mut modal)?;
-                        flush_pending(controller, &mut pending, FlushBarrier::Cancellation, false)?;
+                        batch.drain_events(controller, ui_events)?;
+                        batch.flush(controller, false)?;
                         return Ok(());
                     }
                     _ => {}
@@ -419,63 +468,23 @@ async fn run_active_turn(
             }
             result = &mut run => {
                 renderer.flush();
-                drain_ui_events_batched(controller, ui_events, &mut pending, &mut modal)?;
-                let barrier = if result.is_err() { FlushBarrier::Error } else { FlushBarrier::Completion };
-                flush_pending(controller, &mut pending, barrier, false)?;
+                batch.drain_events(controller, ui_events)?;
+                batch.flush(controller, false)?;
                 if let Err(error) = result {
                     restore_queued_messages(controller);
                     renderer.write_output(&format!("\nError: {error}\n"));
-                    drain_ui_events_batched(controller, ui_events, &mut pending, &mut modal)?;
-                    flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                    batch.drain_events(controller, ui_events)?;
+                    batch.flush(controller, false)?;
                 }
                 return Ok(());
             }
             event = ui_events.recv() => {
                 if let Some(event) = event {
-                    enqueue_ui_event(controller, &mut pending, event, &mut modal)?;
+                    batch.enqueue(controller, event)?;
                 }
             }
         }
     }
-}
-
-fn enqueue_ui_event(
-    controller: &mut LiveController,
-    pending: &mut PendingUiBatch,
-    event: UiEvent,
-    modal: &mut Option<PendingModal>,
-) -> Result<()> {
-    match pending.push(event) {
-        BatchDecision::Pending => Ok(()),
-        BatchDecision::Flush(barrier) => flush_pending(controller, pending, barrier, false),
-        BatchDecision::Barrier(barrier, event) => {
-            install_interaction(controller, event, modal);
-            flush_pending(controller, pending, barrier, true)
-        }
-    }
-}
-
-fn flush_pending(
-    controller: &mut LiveController,
-    pending: &mut PendingUiBatch,
-    _barrier: FlushBarrier,
-    redraw: bool,
-) -> Result<()> {
-    let drained = pending.drain();
-    let activity_changed = if let Some(activity) = drained.activity {
-        controller.state_mut().footer_mut().activity = activity;
-        true
-    } else {
-        false
-    };
-    if drained.text.is_empty() {
-        if activity_changed || redraw {
-            controller.redraw()?;
-        }
-    } else {
-        controller.write_output(&drained.text)?;
-    }
-    Ok(())
 }
 
 fn install_interaction(controller: &mut LiveController, event: UiEvent, modal: &mut Option<PendingModal>) {
@@ -561,18 +570,6 @@ fn drain_ui_events(
 ) -> Result<()> {
     while let Ok(event) = events.try_recv() {
         handle_ui_event(controller, event, modal)?;
-    }
-    Ok(())
-}
-
-fn drain_ui_events_batched(
-    controller: &mut LiveController,
-    events: &mut mpsc::UnboundedReceiver<UiEvent>,
-    pending: &mut PendingUiBatch,
-    modal: &mut Option<PendingModal>,
-) -> Result<()> {
-    while let Ok(event) = events.try_recv() {
-        enqueue_ui_event(controller, pending, event, modal)?;
     }
     Ok(())
 }
