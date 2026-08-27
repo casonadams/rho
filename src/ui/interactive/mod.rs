@@ -6,8 +6,8 @@ mod state;
 
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
-    InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveUi, OutputEvent,
-    UiEvent, UiPortError,
+    BatchDecision, FlushBarrier, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
+    InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, UiEvent, UiPortError,
 };
 pub use input::{InputAction, map_key};
 pub use layout::{CursorPosition, InteractiveLayout, LayoutInput, layout};

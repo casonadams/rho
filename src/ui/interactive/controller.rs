@@ -177,8 +177,12 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(true)
     }
 
-    pub fn tick(&mut self) -> io::Result<()> {
+    pub fn advance_spinner(&mut self) {
         self.spinner_frame = self.spinner_frame.wrapping_add(1);
+    }
+
+    pub fn tick(&mut self) -> io::Result<()> {
+        self.advance_spinner();
         self.redraw()
     }
 
@@ -364,7 +368,7 @@ mod tests {
     };
 
     use super::{TerminalBackend, TerminalController, output_cursor};
-    use crate::ui::interactive::{Activity, InteractiveState};
+    use crate::ui::interactive::{Activity, InteractiveState, OutputEvent, PendingUiBatch, UiEvent};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Operation {
@@ -511,6 +515,35 @@ mod tests {
             .unwrap();
         assert!(last_clear < output_index);
         assert!(output_index < divider_index);
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| operation == &&Operation::Flush)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn many_stream_fragments_are_written_with_one_controller_flush() {
+        let (backend, operations, _) = FakeTerminal::new(40);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+        let mut pending = PendingUiBatch::new(16 * 1024);
+        for _ in 0..1_000 {
+            pending.push(UiEvent::Output(OutputEvent::Text("token".into())));
+        }
+
+        controller.write_output(&pending.drain().text).unwrap();
+
+        let operations = operations.borrow();
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| operation == &&Operation::Write("token".repeat(1_000)))
+                .count(),
+            1
+        );
         assert_eq!(
             operations
                 .iter()

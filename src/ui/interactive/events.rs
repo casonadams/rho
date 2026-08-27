@@ -64,6 +64,79 @@ pub enum UiEvent {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlushBarrier {
+    Frame,
+    Newline,
+    Size,
+    Interaction,
+    Completion,
+    Error,
+    Cancellation,
+    Suspension,
+}
+
+pub enum BatchDecision {
+    Pending,
+    Flush(FlushBarrier),
+    Barrier(FlushBarrier, UiEvent),
+}
+
+#[derive(Debug)]
+pub struct PendingUiBatch {
+    text: String,
+    activity: Option<Activity>,
+    max_text_bytes: usize,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct PendingUiDrain {
+    pub text: String,
+    pub activity: Option<Activity>,
+}
+
+impl PendingUiBatch {
+    pub fn new(max_text_bytes: usize) -> Self {
+        Self {
+            text: String::new(),
+            activity: None,
+            max_text_bytes: max_text_bytes.max(1),
+        }
+    }
+
+    pub fn push(&mut self, event: UiEvent) -> BatchDecision {
+        match event {
+            UiEvent::Output(OutputEvent::Text(text)) => {
+                let has_newline = text.contains('\n');
+                self.text.push_str(&text);
+                if has_newline {
+                    BatchDecision::Flush(FlushBarrier::Newline)
+                } else if self.text.len() >= self.max_text_bytes {
+                    BatchDecision::Flush(FlushBarrier::Size)
+                } else {
+                    BatchDecision::Pending
+                }
+            }
+            UiEvent::Activity(activity) => {
+                self.activity = Some(activity);
+                BatchDecision::Pending
+            }
+            event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
+        }
+    }
+
+    pub fn drain(&mut self) -> PendingUiDrain {
+        PendingUiDrain {
+            text: std::mem::take(&mut self.text),
+            activity: self.activity.take(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty() && self.activity.is_none()
+    }
+}
+
 pub struct InteractionResponder {
     sender: oneshot::Sender<InteractionResponse>,
 }
@@ -140,7 +213,10 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use super::{InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent, UiEvent, UiPortError};
+    use super::{
+        BatchDecision, FlushBarrier, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
+        PendingUiBatch, UiEvent, UiPortError,
+    };
     use crate::ui::interactive::Activity;
 
     #[tokio::test]
@@ -239,5 +315,56 @@ mod tests {
 
         assert_eq!(*bytes.lock().unwrap(), b"plain output\n");
         assert!(matches!(response, Err(UiPortError::Unavailable)));
+    }
+
+    #[test]
+    fn pending_batch_preserves_text_and_keeps_the_latest_activity() {
+        let mut batch = PendingUiBatch::new(1024);
+        assert!(matches!(
+            batch.push(UiEvent::Output(OutputEvent::Text("one".into()))),
+            BatchDecision::Pending
+        ));
+        batch.push(UiEvent::Activity(Activity::Thinking));
+        batch.push(UiEvent::Output(OutputEvent::Text(" two".into())));
+        batch.push(UiEvent::Activity(Activity::Tool("bash".into())));
+
+        let drained = batch.drain();
+        assert_eq!(drained.text.as_bytes(), b"one two");
+        assert_eq!(drained.activity, Some(Activity::Tool("bash".into())));
+        assert!(batch.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pending_batch_exposes_newline_size_and_interaction_barriers() {
+        let mut newline = PendingUiBatch::new(1024);
+        assert!(matches!(
+            newline.push(UiEvent::Output(OutputEvent::Text("line\n".into()))),
+            BatchDecision::Flush(FlushBarrier::Newline)
+        ));
+
+        let mut size = PendingUiBatch::new(4);
+        assert!(matches!(
+            size.push(UiEvent::Output(OutputEvent::Text("1234".into()))),
+            BatchDecision::Flush(FlushBarrier::Size)
+        ));
+
+        let (ui, mut events) = InteractiveUi::channel();
+        let request = tokio::spawn(async move {
+            ui.request(InteractionPrompt {
+                title: "Modal".into(),
+                body: String::new(),
+                options: Vec::new(),
+                initial_selection: 0,
+                allow_custom: false,
+            })
+            .await
+        });
+        let event = events.recv().await.unwrap();
+        assert!(matches!(
+            size.push(event),
+            BatchDecision::Barrier(FlushBarrier::Interaction, UiEvent::Interaction { .. })
+        ));
+        drop(size);
+        assert!(matches!(request.await.unwrap(), Err(UiPortError::Closed)));
     }
 }

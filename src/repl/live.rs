@@ -11,12 +11,16 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
-    Activity, InputAction, InteractionResponder, InteractionResponse, InteractiveState, ModalState, OutputEvent,
-    QueuedMessage, TerminalController, UiAction, UiEffect, UiEvent, map_key,
+    Activity, BatchDecision, FlushBarrier, InputAction, InteractionResponder, InteractionResponse, InteractiveState,
+    ModalState, OutputEvent, PendingUiBatch, QueuedMessage, TerminalController, UiEffect, UiEvent, map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
 type LiveController = TerminalController<crate::ui::interactive::CrosstermBackend>;
+
+const OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const MAX_PENDING_OUTPUT_BYTES: usize = 16 * 1024;
+const SPINNER_FRAME_INTERVALS: usize = 5;
 
 struct PendingModal {
     responder: InteractionResponder,
@@ -203,15 +207,25 @@ async fn read_idle_input(
     let ui_events = live.events;
     let input = live.input;
     let mut modal = None;
+    let mut pending = PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES);
+    let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
+    frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
-            event = ui_events.recv() => {
-                if let Some(event) = event {
-                    handle_ui_event(controller, event, &mut modal)?;
-                }
-            }
+            biased;
+            _ = frame.tick() => flush_pending(controller, &mut pending, FlushBarrier::Frame, false)?,
             event = input.recv() => {
-                let event = event.ok_or_else(|| anyhow::anyhow!("Terminal input reader stopped"))??;
+                let event = match event {
+                    Some(Ok(event)) => event,
+                    Some(Err(error)) => {
+                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        return Err(error.into());
+                    }
+                    None => {
+                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        return Err(anyhow::anyhow!("Terminal input reader stopped").into());
+                    }
+                };
                 if matches!(event, Event::Resize(_, _)) {
                     controller.refresh_size()?;
                     continue;
@@ -223,7 +237,7 @@ async fn read_idle_input(
                 match map_key(key) {
                     InputAction::Edit(action) => {
                         let effect = controller.state_mut().apply(action);
-                        controller.redraw()?;
+                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                         if let UiEffect::Queued(message) = effect {
                             controller.state_mut().pop_queued();
                             return Ok(Some(message));
@@ -257,8 +271,16 @@ async fn read_idle_input(
                         controller.state_mut().editor_mut().set_text("");
                         controller.redraw()?;
                     }
-                    InputAction::EndOfInput if controller.state().editor().is_empty() => return Ok(None),
+                    InputAction::EndOfInput if controller.state().editor().is_empty() => {
+                        flush_pending(controller, &mut pending, FlushBarrier::Completion, false)?;
+                        return Ok(None);
+                    }
                     InputAction::EndOfInput | InputAction::Ignore => {}
+                }
+            }
+            event = ui_events.recv() => {
+                if let Some(event) = event {
+                    enqueue_ui_event(controller, &mut pending, event, &mut modal)?;
                 }
             }
         }
@@ -275,29 +297,36 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
     let ui_events = active.io.events;
     let input = active.io.input;
     let mut modal = None;
+    let mut pending = PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES);
     let run = engine.run_turn(crate::engine::runner::TurnRequest { prompt: active.prompt }, renderer);
     tokio::pin!(run);
-    let mut spinner_tick = tokio::time::interval(Duration::from_millis(80));
-    spinner_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
+    frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut frame_count = 0_usize;
     loop {
         tokio::select! {
-            result = &mut run => {
-                renderer.flush();
-                if let Err(error) = result {
-                    restore_queued_messages(controller);
-                    renderer.write_output(&format!("\nError: {error}\n"));
+            biased;
+            _ = frame.tick() => {
+                frame_count = frame_count.wrapping_add(1);
+                let animate = frame_count % SPINNER_FRAME_INTERVALS == 0
+                    && controller.state().footer().activity != Activity::Idle;
+                if animate {
+                    controller.advance_spinner();
                 }
-                drain_ui_events(controller, ui_events, &mut modal)?;
-                return Ok(());
+                flush_pending(controller, &mut pending, FlushBarrier::Frame, animate)?;
             }
-            event = ui_events.recv() => {
-                if let Some(event) = event {
-                    handle_ui_event(controller, event, &mut modal)?;
-                }
-            }
-            _ = spinner_tick.tick() => controller.tick()?,
             event = input.recv() => {
-                let event = event.ok_or_else(|| anyhow::anyhow!("Terminal input reader stopped"))??;
+                let event = match event {
+                    Some(Ok(event)) => event,
+                    Some(Err(error)) => {
+                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        return Err(error.into());
+                    }
+                    None => {
+                        flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                        return Err(anyhow::anyhow!("Terminal input reader stopped").into());
+                    }
+                };
                 if matches!(event, Event::Resize(_, _)) {
                     controller.refresh_size()?;
                     continue;
@@ -305,65 +334,123 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                 let Event::Key(key) = event else { continue };
                 if handle_modal_key(controller, key, &mut modal)? { continue; }
                 match map_key(key) {
-                    InputAction::Edit(action @ UiAction::Submit(_)) => {
-                        controller.state_mut().apply(action);
-                        controller.redraw()?;
-                    }
                     InputAction::Edit(action) => {
                         controller.state_mut().apply(action);
-                        controller.redraw()?;
+                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                     }
                     InputAction::HistoryPrevious => {
                         let width = usize::from(crossterm::terminal::size()?.0).max(1);
                         controller.state_mut().editor_mut().move_up(width);
-                        controller.redraw()?;
+                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                     }
                     InputAction::HistoryNext => {
                         let width = usize::from(crossterm::terminal::size()?.0).max(1);
                         controller.state_mut().editor_mut().move_down(width);
-                        controller.redraw()?;
+                        flush_pending(controller, &mut pending, FlushBarrier::Frame, true)?;
                     }
                     InputAction::Cancel => {
+                        flush_pending(controller, &mut pending, FlushBarrier::Cancellation, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
                         renderer.write_output("\nCanceled.\n");
-                        drain_ui_events(controller, ui_events, &mut modal)?;
+                        drain_ui_events_batched(controller, ui_events, &mut pending, &mut modal)?;
+                        flush_pending(controller, &mut pending, FlushBarrier::Cancellation, false)?;
                         return Ok(());
                     }
                     _ => {}
+                }
+            }
+            result = &mut run => {
+                renderer.flush();
+                drain_ui_events_batched(controller, ui_events, &mut pending, &mut modal)?;
+                let barrier = if result.is_err() { FlushBarrier::Error } else { FlushBarrier::Completion };
+                flush_pending(controller, &mut pending, barrier, false)?;
+                if let Err(error) = result {
+                    restore_queued_messages(controller);
+                    renderer.write_output(&format!("\nError: {error}\n"));
+                    drain_ui_events_batched(controller, ui_events, &mut pending, &mut modal)?;
+                    flush_pending(controller, &mut pending, FlushBarrier::Error, false)?;
+                }
+                return Ok(());
+            }
+            event = ui_events.recv() => {
+                if let Some(event) = event {
+                    enqueue_ui_event(controller, &mut pending, event, &mut modal)?;
                 }
             }
         }
     }
 }
 
-fn handle_ui_event(
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+fn enqueue_ui_event(
+    controller: &mut LiveController,
+    pending: &mut PendingUiBatch,
     event: UiEvent,
     modal: &mut Option<PendingModal>,
 ) -> Result<()> {
+    match pending.push(event) {
+        BatchDecision::Pending => Ok(()),
+        BatchDecision::Flush(barrier) => flush_pending(controller, pending, barrier, false),
+        BatchDecision::Barrier(barrier, event) => {
+            install_interaction(controller, event, modal);
+            flush_pending(controller, pending, barrier, true)
+        }
+    }
+}
+
+fn flush_pending(
+    controller: &mut LiveController,
+    pending: &mut PendingUiBatch,
+    _barrier: FlushBarrier,
+    redraw: bool,
+) -> Result<()> {
+    let drained = pending.drain();
+    let activity_changed = if let Some(activity) = drained.activity {
+        controller.state_mut().footer_mut().activity = activity;
+        true
+    } else {
+        false
+    };
+    if drained.text.is_empty() {
+        if activity_changed || redraw {
+            controller.redraw()?;
+        }
+    } else {
+        controller.write_output(&drained.text)?;
+    }
+    Ok(())
+}
+
+fn install_interaction(controller: &mut LiveController, event: UiEvent, modal: &mut Option<PendingModal>) {
+    let UiEvent::Interaction { prompt, responder } = event else {
+        unreachable!("only interaction events create ordered barriers");
+    };
+    let options = prompt
+        .options
+        .into_iter()
+        .map(|option| match option.description {
+            Some(description) => format!("{} - {description}", option.label),
+            None => option.label,
+        })
+        .collect();
+    let mut state = ModalState::new(prompt.title, prompt.body, options);
+    state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
+    controller.state_mut().push_modal(state);
+    *modal = Some(PendingModal {
+        responder,
+        allow_custom: prompt.allow_custom,
+    });
+}
+
+fn handle_ui_event(controller: &mut LiveController, event: UiEvent, modal: &mut Option<PendingModal>) -> Result<()> {
     match event {
         UiEvent::Output(OutputEvent::Text(text)) => controller.write_output(&text)?,
         UiEvent::Activity(activity) => {
             controller.state_mut().footer_mut().activity = activity;
             controller.redraw()?;
         }
-        UiEvent::Interaction { prompt, responder } => {
-            let options = prompt
-                .options
-                .into_iter()
-                .map(|option| match option.description {
-                    Some(description) => format!("{} - {description}", option.label),
-                    None => option.label,
-                })
-                .collect();
-            let mut state = ModalState::new(prompt.title, prompt.body, options);
-            state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
-            controller.state_mut().push_modal(state);
-            *modal = Some(PendingModal {
-                responder,
-                allow_custom: prompt.allow_custom,
-            });
+        event @ UiEvent::Interaction { .. } => {
+            install_interaction(controller, event, modal);
             controller.redraw()?;
         }
     }
@@ -411,12 +498,24 @@ fn handle_modal_key(
 }
 
 fn drain_ui_events(
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+    controller: &mut LiveController,
     events: &mut mpsc::UnboundedReceiver<UiEvent>,
     modal: &mut Option<PendingModal>,
 ) -> Result<()> {
     while let Ok(event) = events.try_recv() {
         handle_ui_event(controller, event, modal)?;
+    }
+    Ok(())
+}
+
+fn drain_ui_events_batched(
+    controller: &mut LiveController,
+    events: &mut mpsc::UnboundedReceiver<UiEvent>,
+    pending: &mut PendingUiBatch,
+    modal: &mut Option<PendingModal>,
+) -> Result<()> {
+    while let Ok(event) = events.try_recv() {
+        enqueue_ui_event(controller, pending, event, modal)?;
     }
     Ok(())
 }
