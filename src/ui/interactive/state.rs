@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use unicode_width::UnicodeWidthChar;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueKind {
     Steering,
@@ -61,6 +63,7 @@ impl ModalState {
 pub struct EditorState {
     text: String,
     cursor: usize,
+    preferred_column: Option<usize>,
 }
 
 impl EditorState {
@@ -79,11 +82,13 @@ impl EditorState {
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
         self.cursor = self.text.len();
+        self.preferred_column = None;
     }
 
     pub fn insert(&mut self, value: char) {
         self.text.insert(self.cursor, value);
         self.cursor += value.len_utf8();
+        self.preferred_column = None;
     }
 
     pub fn insert_newline(&mut self) {
@@ -96,6 +101,7 @@ impl EditorState {
         };
         self.text.drain(index..self.cursor);
         self.cursor = index;
+        self.preferred_column = None;
     }
 
     pub fn delete(&mut self) {
@@ -103,26 +109,59 @@ impl EditorState {
             return;
         };
         self.text.drain(self.cursor..self.cursor + character.len_utf8());
+        self.preferred_column = None;
     }
 
     pub fn move_left(&mut self) {
         if let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() {
             self.cursor = index;
         }
+        self.preferred_column = None;
     }
 
     pub fn move_right(&mut self) {
         if let Some(character) = self.text[self.cursor..].chars().next() {
             self.cursor += character.len_utf8();
         }
+        self.preferred_column = None;
+    }
+
+    pub fn move_up(&mut self, terminal_width: usize) {
+        self.move_vertical(terminal_width, -1);
+    }
+
+    pub fn move_down(&mut self, terminal_width: usize) {
+        self.move_vertical(terminal_width, 1);
     }
 
     pub fn move_to_start(&mut self) {
         self.cursor = 0;
+        self.preferred_column = None;
     }
 
     pub fn move_to_end(&mut self) {
         self.cursor = self.text.len();
+        self.preferred_column = None;
+    }
+
+    fn move_vertical(&mut self, terminal_width: usize, row_delta: isize) {
+        let terminal_width = terminal_width.max(1);
+        let (current_row, current_column) = editor_cursor_position(&self.text, self.cursor, terminal_width);
+        let Some(target_row) = current_row.checked_add_signed(row_delta) else {
+            return;
+        };
+        let preferred_column = self.preferred_column.unwrap_or(current_column);
+        let target = editor_boundaries(&self.text)
+            .map(|cursor| {
+                let (row, column) = editor_cursor_position(&self.text, cursor, terminal_width);
+                (cursor, row, column)
+            })
+            .filter(|(_, row, _)| *row == target_row)
+            .min_by_key(|(_, _, column)| column.abs_diff(preferred_column));
+        if let Some((cursor, _, _)) = target {
+            self.cursor = cursor;
+            self.preferred_column = Some(preferred_column);
+        }
     }
 
     pub fn take_submission(&mut self, kind: QueueKind) -> Option<QueuedMessage> {
@@ -132,8 +171,45 @@ impl EditorState {
         }
         self.text.clear();
         self.cursor = 0;
+        self.preferred_column = None;
         Some(QueuedMessage { text, kind })
     }
+}
+
+fn editor_boundaries(text: &str) -> impl Iterator<Item = usize> + '_ {
+    std::iter::once(0).chain(
+        text.char_indices()
+            .map(|(index, character)| index + character.len_utf8()),
+    )
+}
+
+fn editor_cursor_position(text: &str, cursor: usize, terminal_width: usize) -> (usize, usize) {
+    let mut row = 0;
+    let mut column = 0;
+    for (byte_index, character) in text.char_indices() {
+        if character == '\n' {
+            if byte_index == cursor {
+                return (row, column);
+            }
+            row += 1;
+            column = 0;
+            continue;
+        }
+        let character_width = character.width().unwrap_or(0);
+        if column > 0 && column + character_width > terminal_width {
+            row += 1;
+            column = 0;
+        }
+        if byte_index == cursor {
+            return (row, column);
+        }
+        column += character_width;
+    }
+    if column == terminal_width {
+        row += 1;
+        column = 0;
+    }
+    (row, column)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,6 +343,32 @@ mod tests {
         state.apply(UiAction::Delete);
         assert_eq!(state.editor().text(), "a");
         assert_eq!(state.editor().cursor(), 1);
+    }
+
+    #[test]
+    fn vertical_movement_tracks_the_preferred_column_across_lines() {
+        let mut state = InteractiveState::default();
+        state.editor_mut().set_text("abcdef\nx\nabcdef");
+
+        state.editor_mut().move_up(20);
+        assert_eq!(state.editor().cursor(), 8);
+        state.editor_mut().move_up(20);
+        assert_eq!(state.editor().cursor(), 6);
+        state.editor_mut().move_down(20);
+        assert_eq!(state.editor().cursor(), 8);
+    }
+
+    #[test]
+    fn vertical_movement_uses_visual_wrapped_lines() {
+        let mut state = InteractiveState::default();
+        state.editor_mut().set_text("abcdefghi");
+
+        state.editor_mut().move_up(4);
+        assert_eq!(state.editor().cursor(), 5);
+        state.editor_mut().move_up(4);
+        assert_eq!(state.editor().cursor(), 1);
+        state.editor_mut().move_down(4);
+        assert_eq!(state.editor().cursor(), 5);
     }
 
     #[test]

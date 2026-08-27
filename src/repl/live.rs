@@ -292,6 +292,16 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                         controller.state_mut().apply(action);
                         controller.redraw()?;
                     }
+                    InputAction::HistoryPrevious => {
+                        let width = usize::from(crossterm::terminal::size()?.0).max(1);
+                        controller.state_mut().editor_mut().move_up(width);
+                        controller.redraw()?;
+                    }
+                    InputAction::HistoryNext => {
+                        let width = usize::from(crossterm::terminal::size()?.0).max(1);
+                        controller.state_mut().editor_mut().move_down(width);
+                        controller.redraw()?;
+                    }
                     InputAction::Cancel => {
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
