@@ -43,7 +43,7 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 - [x] Preserve and test precedence: defaults -> file -> environment -> CLI.
 - [x] Test invalid keys, invalid values, and persistence.
 
-### 3. Centralize workspace path handling — in progress
+### 3. Centralize workspace path handling — complete
 
 - [x] Establish one workspace root for an engine/session and use it for read, write, edit, and Bash execution.
 - [x] Introduce a shared `Workspace` path-resolution abstraction used by file tools and policy code.
@@ -52,7 +52,7 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 - [x] Revalidate immediately before mutation.
 - [x] Add traversal and boundary tests; add symlink coverage where platform permits.
 
-### 4. Harden session persistence — in progress
+### 4. Harden session persistence — complete
 
 - [x] Expose session state transitions rather than allowing arbitrary related record appends.
 - [x] Verify atomicity of successful turns, cancellation, checkpoint save, and checkpoint promotion.
