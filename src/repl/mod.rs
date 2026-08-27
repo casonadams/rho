@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod interactive;
 mod prompt;
 
 pub use prompt::SimplePrompt;
@@ -7,7 +8,8 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::AgentEngine;
 use crate::error::Result;
-use crate::repl::commands::{CommandResult, SLASH_COMMANDS, SlashCommandHandler};
+use crate::repl::commands::{CommandResult, SlashCommandHandler};
+use crate::repl::interactive::CompletionSet;
 use crate::ui::TerminalRenderer;
 use crate::ui::render::{SessionStatus, WelcomeDisplay};
 use crossterm::QueueableCommand;
@@ -47,132 +49,31 @@ fn clear_submitted_input(input: &str) {
 
 #[derive(Clone)]
 pub struct RhoCompleter {
-    pub commands: Vec<String>,
-    pub skills: Vec<String>,
-    pub models: Vec<String>,
-    pub providers: Vec<String>,
+    completions: CompletionSet,
 }
 
 impl RhoCompleter {
     pub fn new(extension_commands: &[(&str, &str)]) -> Self {
-        let mut commands = Vec::new();
-        for cmd in SLASH_COMMANDS {
-            commands.push((*cmd).to_string());
-        }
-        for (name, _) in extension_commands {
-            commands.push(format!("/{name}"));
-        }
-        let skills = crate::skills::builtin_skills().into_iter().map(|s| s.name).collect();
-        let models = vec![
-            "gpt-5.6-luna".to_string(),
-            "gpt-5.4".to_string(),
-            "claude-sonnet-4-6".to_string(),
-            "gpt-4o".to_string(),
-            "gemini-2.5-pro".to_string(),
-            "deepseek-reasoner".to_string(),
-        ];
-        let providers = vec![
-            "anthropic".to_string(),
-            "openai".to_string(),
-            "chatgpt".to_string(),
-            "copilot".to_string(),
-            "gemini".to_string(),
-            "deepseek".to_string(),
-            "groq".to_string(),
-            "openrouter".to_string(),
-            "ollama".to_string(),
-        ];
         Self {
-            commands,
-            skills,
-            models,
-            providers,
+            completions: CompletionSet::rho(extension_commands),
         }
     }
 }
 
 impl Completer for RhoCompleter {
     fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
-        let prefix = &line[..pos];
-        if let Some(arg_prefix) = prefix
-            .strip_prefix("/skill ")
-            .or_else(|| prefix.strip_prefix("/skills "))
-        {
-            return self
-                .skills
-                .iter()
-                .filter(|s| s.starts_with(arg_prefix))
-                .map(|s| Suggestion {
-                    value: format!("/skill {s}"),
-                    description: None,
-                    style: None,
-                    extra: None,
-                    span: Span::new(0, pos),
-                    append_whitespace: true,
-                })
-                .collect();
-        }
-        if let Some(arg_prefix) = prefix.strip_prefix("/model ") {
-            return self
-                .models
-                .iter()
-                .filter(|m| m.starts_with(arg_prefix))
-                .map(|m| Suggestion {
-                    value: format!("/model {m}"),
-                    description: None,
-                    style: None,
-                    extra: None,
-                    span: Span::new(0, pos),
-                    append_whitespace: true,
-                })
-                .collect();
-        }
-        if let Some(arg_prefix) = prefix.strip_prefix("/login ") {
-            return self
-                .providers
-                .iter()
-                .filter(|p| p.starts_with(arg_prefix))
-                .map(|p| Suggestion {
-                    value: format!("/login {p}"),
-                    description: None,
-                    style: None,
-                    extra: None,
-                    span: Span::new(0, pos),
-                    append_whitespace: true,
-                })
-                .collect();
-        }
-        if let Some(arg_prefix) = prefix.strip_prefix("/logout ") {
-            return self
-                .providers
-                .iter()
-                .filter(|p| p.starts_with(arg_prefix))
-                .map(|p| Suggestion {
-                    value: format!("/logout {p}"),
-                    description: None,
-                    style: None,
-                    extra: None,
-                    span: Span::new(0, pos),
-                    append_whitespace: true,
-                })
-                .collect();
-        }
-        if prefix.starts_with('/') {
-            return self
-                .commands
-                .iter()
-                .filter(|cmd| cmd.starts_with(prefix))
-                .map(|cmd| Suggestion {
-                    value: cmd.clone(),
-                    description: None,
-                    style: None,
-                    extra: None,
-                    span: Span::new(0, pos),
-                    append_whitespace: true,
-                })
-                .collect();
-        }
-        Vec::new()
+        self.completions
+            .complete(line, pos)
+            .into_iter()
+            .map(|completion| Suggestion {
+                value: completion.value,
+                description: None,
+                style: None,
+                extra: None,
+                span: Span::new(completion.replacement.start, completion.replacement.end),
+                append_whitespace: true,
+            })
+            .collect()
     }
 }
 
