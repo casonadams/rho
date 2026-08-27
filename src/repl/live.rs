@@ -262,6 +262,8 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
     let mut modal = None;
     let run = engine.run_turn(crate::engine::runner::TurnRequest { prompt: active.prompt }, renderer);
     tokio::pin!(run);
+    let mut input_tick = tokio::time::interval(Duration::from_millis(20));
+    input_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             result = &mut run => {
@@ -278,7 +280,7 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                     handle_ui_event(controller, event, &mut modal)?;
                 }
             }
-            _ = tokio::time::sleep(Duration::from_millis(20)) => {
+            _ = input_tick.tick() => {
                 controller.refresh_size()?;
                 if !event::poll(Duration::ZERO)? { continue; }
                 let Event::Key(key) = event::read()? else { continue };
