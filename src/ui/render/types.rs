@@ -2,6 +2,20 @@
 
 use crate::tools::bash_ast::RiskTier;
 
+pub struct WelcomeDisplay<'a> {
+    pub model: &'a str,
+    pub provider: &'a str,
+    pub auto_approve: bool,
+    pub resumed: bool,
+}
+
+pub struct SessionStatus<'a> {
+    pub model: &'a str,
+    pub provider: &'a str,
+    pub context: &'a str,
+    pub auto_approve: bool,
+}
+
 /// Outcome of an approval prompt.
 pub enum ApprovalResult {
     Approved,

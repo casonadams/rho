@@ -7,9 +7,19 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::AgentEngine;
 use crate::error::Result;
-use crate::repl::commands::{CommandResult, SlashCommandHandler};
+use crate::repl::commands::{CommandResult, SLASH_COMMANDS, SlashCommandHandler};
 use crate::ui::TerminalRenderer;
-use reedline::{FileBackedHistory, Reedline, Signal};
+use crate::ui::render::{SessionStatus, WelcomeDisplay};
+use reedline::{
+    ColumnarMenu, DefaultCompleter, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
+};
+
+fn slash_command_completer() -> DefaultCompleter {
+    let mut completer = DefaultCompleter::with_inclusions(&['/']);
+    completer.insert(SLASH_COMMANDS.iter().map(|command| (*command).to_string()).collect());
+    completer
+}
 
 pub struct ReplSession {
     pub config: Config,
@@ -29,13 +39,33 @@ impl ReplSession {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        self.renderer.print_welcome(&self.config.model, &self.config.provider);
+        self.renderer.print_welcome(&WelcomeDisplay {
+            model: &self.config.model,
+            provider: &self.config.provider,
+            auto_approve: self.config.auto_approve,
+            resumed: self.resume_id.is_some(),
+        });
 
         let history_file = self.config.config_dir.join("history.txt");
         let history =
             Box::new(FileBackedHistory::with_file(1000, history_file).unwrap_or_else(|_| FileBackedHistory::default()));
-
-        let mut line_editor = Reedline::create().with_history(history);
+        let completer = slash_command_completer();
+        let completion_menu = Box::new(ColumnarMenu::default().with_name("slash_commands"));
+        let mut keybindings = default_emacs_keybindings();
+        keybindings.add_binding(
+            KeyModifiers::NONE,
+            KeyCode::Tab,
+            ReedlineEvent::UntilFound(vec![
+                ReedlineEvent::Menu("slash_commands".to_string()),
+                ReedlineEvent::MenuNext,
+            ]),
+        );
+        let edit_mode = Box::new(Emacs::new(keybindings));
+        let mut line_editor = Reedline::create()
+            .with_history(history)
+            .with_completer(Box::new(completer))
+            .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
+            .with_edit_mode(edit_mode);
 
         let mut engine =
             AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
@@ -49,8 +79,12 @@ impl ReplSession {
             }
             is_first_prompt = false;
 
-            let dim = self.renderer.theme.dimmed;
-            println!("{dim}{}:{}{dim:#}", self.config.model, engine.context_usage_display());
+            self.renderer.print_session_status(&SessionStatus {
+                model: &self.config.model,
+                provider: &self.config.provider,
+                context: &engine.context_usage_display(),
+                auto_approve: self.config.auto_approve,
+            });
 
             let sig = line_editor.read_line(&prompt);
             match sig {
@@ -97,14 +131,14 @@ impl ReplSession {
                         .await?;
                 }
                 Ok(Signal::CtrlC) => {
-                    println!("\n  [Operation canceled]");
+                    println!("\nCanceled input.");
                 }
                 Ok(Signal::CtrlD) => {
-                    println!("\n  Bye!");
+                    println!("\nBye.");
                     break;
                 }
                 Err(err) => {
-                    eprintln!("REPL error: {err}");
+                    eprintln!("Input error: {err}");
                     break;
                 }
             }
@@ -125,15 +159,28 @@ impl ReplSession {
                 renderer.flush();
                 println!();
                 if let Err(error) = run_res {
-                    eprintln!("\n  Error: {error}");
+                    eprintln!("\nError: {error}");
                 }
             }
             _ = tokio::signal::ctrl_c() => {
                 renderer.flush();
                 engine.record_cancellation("operator interrupt").await?;
-                println!("\n  [Operation canceled]");
+                println!("\nCanceled.");
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slash_command_completer;
+    use reedline::Completer;
+
+    #[test]
+    fn slash_commands_complete_from_a_prefix() {
+        let suggestions = slash_command_completer().complete("/mo", 3);
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!(suggestions[0].value, "/model");
     }
 }

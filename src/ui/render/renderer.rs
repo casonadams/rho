@@ -1,8 +1,8 @@
 //! Core `TerminalRenderer` struct and its user-facing methods.
 
-use super::formatters::{format_edit_diff, format_thinking_block, format_write_preview};
-use super::summary::{approval_heading, bash_approval_details, format_tool_args_summary};
-use super::types::{ApprovalResult, BashApproval, ToolLine, ToolOutcome};
+use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
+use super::summary::{approval_heading, bash_approval_details, format_tool_args_summary, to_relative_path};
+use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::RiskTier;
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::theme::Theme;
@@ -57,13 +57,41 @@ impl fmt::Display for BashApprovalChoice {
     }
 }
 
+fn approval_mode(auto_approve: bool) -> &'static str {
+    if auto_approve {
+        "auto-approve"
+    } else {
+        "confirm changes"
+    }
+}
+
 impl TerminalRenderer {
-    pub fn print_welcome(&self, model: &str, provider: &str) {
-        let style = self.theme.highlight;
+    pub fn print_welcome(&self, display: &WelcomeDisplay<'_>) {
+        let highlight = self.theme.highlight;
         let dim = self.theme.dimmed;
-        println!("\n{style}rust-ai{style:#} {dim}v0.1.0{dim:#} — minimal agentic coding harness");
-        println!("{dim}Model:{dim:#} {model} {dim}({provider}){dim:#}");
-        println!("{dim}Type your prompt or /help for slash commands.{dim:#}\n");
+        let session = if display.resumed {
+            "resumed session"
+        } else {
+            "new session"
+        };
+        let location = std::env::current_dir()
+            .ok()
+            .map(|path| to_relative_path(&path.display().to_string()))
+            .unwrap_or_else(|| ".".to_string());
+
+        println!(
+            "\n{highlight}rust-ai{highlight:#} {dim}v{}{dim:#}",
+            env!("CARGO_PKG_VERSION")
+        );
+        println!("{} {dim}via {} | {session}{dim:#}", display.model, display.provider);
+        println!("{dim}{location} | {}{dim:#}", approval_mode(display.auto_approve));
+        println!("{dim}/help commands | Tab complete | Ctrl+C cancel | Ctrl+D exit{dim:#}\n");
+    }
+
+    pub fn print_session_status(&self, display: &SessionStatus<'_>) {
+        let dim = self.theme.dimmed;
+        let status = format_session_status(display);
+        println!("{dim}{status}{dim:#}");
     }
 
     pub fn start_spinner(&self, message: &str) -> ProgressBar {

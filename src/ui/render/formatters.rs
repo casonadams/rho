@@ -3,6 +3,7 @@
 //! These are `pub(crate)` because they are only consumed by `renderer.rs`,
 //! but they remain exposed as module-private items so future tools can reuse them.
 
+use super::types::SessionStatus;
 use crate::ui::theme::Theme;
 
 struct DiffFormatter<'a> {
@@ -90,6 +91,18 @@ pub(super) fn format_write_preview(args: &serde_json::Value, theme: &Theme) -> O
     }
     out.push_str(&format!("{d}```{d:#}\n"));
     Some(out)
+}
+
+pub(super) fn format_session_status(session: &SessionStatus<'_>) -> String {
+    let approval = if session.auto_approve {
+        "auto-approve"
+    } else {
+        "confirm changes"
+    };
+    format!(
+        "{} via {} | context: {} | {approval}",
+        session.model, session.provider, session.context
+    )
 }
 
 pub(super) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {

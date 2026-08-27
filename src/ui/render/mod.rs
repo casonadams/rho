@@ -19,4 +19,4 @@ mod tests;
 
 pub use renderer::TerminalRenderer;
 pub use summary::summarize_tool_output;
-pub use types::{ApprovalResult, BashApproval, ToolLine, ToolOutcome};
+pub use types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};

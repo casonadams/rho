@@ -20,6 +20,8 @@ pub enum CommandResult {
     Exit,
 }
 
+pub const SLASH_COMMANDS: &[&str] = &["/help", "/model", "/clear", "/login", "/logout", "/exit"];
+
 pub struct SlashCommandHandler;
 
 impl SlashCommandHandler {
@@ -80,30 +82,33 @@ impl SlashCommandHandler {
 }
 
 fn print_help(config: &Config) {
-    println!("\n  Available Slash Commands:");
-    println!("    /help              Show this help reference");
-    println!("    /model [name]      Inspect or change the active model and provider");
-    println!("    /clear             Start a fresh v2 session; preserve prior files");
-    println!("    /login [provider]  Verify an API key or start subscription OAuth");
-    println!("    /logout [provider] Remove only that provider's credentials");
-    println!("    /exit              Exit session\n");
-    println!("  Authentication:");
-    println!("    API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere");
-    println!("    Subscription OAuth: chatgpt, copilot");
-    println!("    Local: ollama\n");
-    println!("  Current Config:");
-    println!("    Model:    {}", config.model);
+    println!("\nCommands");
+    println!("  /help                       Show this reference");
+    println!("  /model [model] [provider]   Inspect or switch the model");
+    println!("  /clear                      Start a new session; preserve history");
+    println!("  /login [provider]           Add API-key or subscription auth");
+    println!("  /logout [provider]          Remove stored provider auth");
+    println!("  /exit                       Exit rust-ai");
+    println!("\nShortcuts");
+    println!("  Tab                         Complete slash commands");
+    println!("  Ctrl+C                      Cancel the active operation");
+    println!("  Ctrl+D                      Exit at an empty prompt");
+    println!("\nCurrent session");
+    println!("  Model                       {}", config.model);
     let provider = ProviderId::from_str(&config.provider);
     match provider {
-        Ok(provider) => println!("    Provider: {provider} ({})", provider.auth_mode_label()),
-        Err(_) => println!("    Provider: {} (unsupported)", config.provider),
+        Ok(provider) => println!(
+            "  Provider                    {provider} ({})",
+            provider.auth_mode_label()
+        ),
+        Err(_) => println!("  Provider                    {} (unsupported)", config.provider),
     }
     println!(
-        "    Approved: {}",
+        "  Changes                     {}",
         if config.auto_approve {
-            "autonomous"
+            "auto-approved"
         } else {
-            "confirm mutations"
+            "confirmation required"
         }
     );
     println!();

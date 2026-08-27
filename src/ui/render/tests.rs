@@ -1,8 +1,8 @@
 //! Tests for the `ui::render` module.
 
-use super::formatters::{format_edit_diff, format_thinking_block, format_write_preview};
+use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
 use super::summary::{approval_heading, bash_approval_details, clean_command_paths, to_relative_path};
-use super::types::BashApproval;
+use super::types::{BashApproval, SessionStatus};
 use crate::tools::bash_ast::RiskTier;
 use crate::ui::theme::Theme;
 
@@ -82,6 +82,28 @@ fn test_format_write_preview_renders_additions() {
     assert!(preview.contains("+ def main():"));
     assert!(preview.contains("+     print('hello')"));
     assert!(preview.contains("```"));
+}
+
+#[test]
+fn session_status_keeps_runtime_context_visible() {
+    assert_eq!(
+        format_session_status(&SessionStatus {
+            model: "claude-sonnet",
+            provider: "anthropic",
+            context: "42%",
+            auto_approve: false,
+        }),
+        "claude-sonnet via anthropic | context: 42% | confirm changes"
+    );
+    assert_eq!(
+        format_session_status(&SessionStatus {
+            model: "qwen",
+            provider: "ollama",
+            context: "usage unavailable",
+            auto_approve: true,
+        }),
+        "qwen via ollama | context: usage unavailable | auto-approve"
+    );
 }
 
 #[test]
