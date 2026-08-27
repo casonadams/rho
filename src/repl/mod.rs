@@ -132,7 +132,7 @@ impl ReplSession {
 
         loop {
             if !is_first_prompt {
-                println!();
+                self.renderer.write_output("\n");
             }
             is_first_prompt = false;
 
@@ -154,13 +154,14 @@ impl ReplSession {
                     }
                     let ext_ctx = engine.extension_context();
                     if input.starts_with('/') {
-                        println!();
+                        self.renderer.write_output("\n");
                     }
                     let mut cmd_ctx = crate::repl::commands::SlashCommandContext {
                         config: &mut self.config,
                         auth_store: &mut self.auth_store,
                         registry: Some(&engine.extension_registry),
                         context: Some(&ext_ctx),
+                        renderer: &self.renderer,
                     };
                     if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut cmd_ctx).await? {
                         match cmd_res {
@@ -199,7 +200,7 @@ impl ReplSession {
                         crate::plugin::InputAction::Transform(transformed) => transformed,
                         crate::plugin::InputAction::Handled { output } => {
                             if !output.is_empty() {
-                                println!("{output}");
+                                self.renderer.write_output(&format!("{output}\n"));
                             }
                             continue;
                         }
@@ -207,7 +208,7 @@ impl ReplSession {
 
                     clear_submitted_input(input);
                     self.renderer.print_user_block(&effective_input);
-                    println!();
+                    self.renderer.write_output("\n");
                     self.run_agent_turn(
                         &engine,
                         crate::engine::runner::TurnRequest {
@@ -218,14 +219,14 @@ impl ReplSession {
                     engine.refresh_quota().await;
                 }
                 Ok(Signal::CtrlC) => {
-                    println!("\nCanceled input.");
+                    self.renderer.write_output("\nCanceled input.\n");
                 }
                 Ok(Signal::CtrlD) => {
-                    println!("\nBye.");
+                    self.renderer.write_output("\nBye.\n");
                     break;
                 }
                 Err(err) => {
-                    eprintln!("Input error: {err}");
+                    self.renderer.write_output(&format!("Input error: {err}\n"));
                     break;
                 }
             }
@@ -244,15 +245,15 @@ impl ReplSession {
         tokio::select! {
             run_res = run_future => {
                 renderer.flush();
-                println!();
+                renderer.write_output("\n");
                 if let Err(error) = run_res {
-                    eprintln!("\nError: {error}");
+                    renderer.write_output(&format!("\nError: {error}\n"));
                 }
             }
             _ = tokio::signal::ctrl_c() => {
                 renderer.flush();
                 engine.record_cancellation("operator interrupt").await?;
-                println!("\nCanceled.");
+                renderer.write_output("\nCanceled.\n");
             }
         }
         Ok(())

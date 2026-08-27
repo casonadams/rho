@@ -3,6 +3,8 @@ use crate::config::Config;
 use crate::engine::provider::ProviderId;
 use crate::error::Result;
 use crate::plugin::{CommandRequest, ExtensionContext, ExtensionRegistry};
+use crate::ui::TerminalRenderer;
+use std::fmt::Write as _;
 use std::str::FromStr;
 
 pub enum CommandResult {
@@ -26,6 +28,7 @@ pub struct SlashCommandContext<'a> {
     pub auth_store: &'a mut AuthStore,
     pub registry: Option<&'a ExtensionRegistry>,
     pub context: Option<&'a ExtensionContext>,
+    pub renderer: &'a TerminalRenderer,
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
@@ -49,11 +52,11 @@ impl SlashCommandHandler {
         let cmd_name = parts[0].to_lowercase();
         match cmd_name.as_str() {
             "help" => {
-                print_help(ctx.config, ctx.registry);
+                print_help(ctx.config, ctx.registry, ctx.renderer);
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" => {
-                println!("  [Conversation context reset]");
+                ctx.renderer.write_output("  [Conversation context reset]\n");
                 Ok(Some(CommandResult::ClearContext))
             }
             "model" => {
@@ -64,7 +67,10 @@ impl SlashCommandHandler {
                     if let Some(ref p) = new_provider {
                         ctx.config.provider = p.clone();
                     }
-                    println!("  [Switched model to {} ({})]", ctx.config.model, ctx.config.provider);
+                    ctx.renderer.write_output(&format!(
+                        "  [Switched model to {} ({})]\n",
+                        ctx.config.model, ctx.config.provider
+                    ));
                     Ok(Some(CommandResult::ModelChanged {
                         new_model,
                         new_provider,
@@ -83,7 +89,10 @@ impl SlashCommandHandler {
                         let provider_str = choice.split('(').nth(1).and_then(|s| s.strip_suffix(')')).unwrap_or("");
                         ctx.config.model = model_str.to_string();
                         ctx.config.provider = provider_str.to_string();
-                        println!("  [Switched model to {} ({})]", ctx.config.model, ctx.config.provider);
+                        ctx.renderer.write_output(&format!(
+                            "  [Switched model to {} ({})]\n",
+                            ctx.config.model, ctx.config.provider
+                        ));
                         return Ok(Some(CommandResult::ModelChanged {
                             new_model: model_str.to_string(),
                             new_provider: Some(provider_str.to_string()),
@@ -97,12 +106,13 @@ impl SlashCommandHandler {
                 if parts.len() > 1 {
                     let skill_name = parts[1];
                     if let Some(content) = crate::skills::get_builtin_skill_content(skill_name) {
-                        println!("\n{content}\n");
+                        ctx.renderer.write_output(&format!("\n{content}\n"));
                     } else {
-                        println!("  Skill '{skill_name}' not found. Available skills:");
-                        for s in &skills {
-                            println!("    - {}: {}", s.name, s.description);
+                        let mut output = format!("  Skill '{skill_name}' not found. Available skills:\n");
+                        for skill in &skills {
+                            let _ = writeln!(output, "    - {}: {}", skill.name, skill.description);
                         }
+                        ctx.renderer.write_output(&output);
                     }
                 } else {
                     let choices: Vec<String> = skills
@@ -112,7 +122,7 @@ impl SlashCommandHandler {
                     if let Ok(choice) = inquire::Select::new("Select a skill to inspect:", choices).prompt() {
                         let chosen_name = choice.split_whitespace().next().unwrap_or("");
                         if let Some(content) = crate::skills::get_builtin_skill_content(chosen_name) {
-                            println!("\n{content}\n");
+                            ctx.renderer.write_output(&format!("\n{content}\n"));
                         }
                     }
                 }
@@ -121,17 +131,24 @@ impl SlashCommandHandler {
             "plugin" | "plugins" => {
                 let cwd = std::env::current_dir().ok();
                 let discovery = crate::plugin::PluginLoader::discover(&ctx.config.config_dir, cwd.as_deref())?;
-                println!("Discovered plugins:");
+                let mut output = "Discovered plugins:\n".to_string();
                 if discovery.manifests.is_empty() && discovery.binary_plugins.is_empty() {
-                    println!("  (No plugins found in ~/.cargo/bin, $PATH, or plugin directories)");
+                    output.push_str("  (No plugins found in ~/.cargo/bin, $PATH, or plugin directories)\n");
                 } else {
                     for (path, manifest) in &discovery.manifests {
-                        println!("  - {} v{} ({})", manifest.name, manifest.version, path.display());
+                        let _ = writeln!(
+                            output,
+                            "  - {} v{} ({})",
+                            manifest.name,
+                            manifest.version,
+                            path.display()
+                        );
                     }
-                    for bin in &discovery.binary_plugins {
-                        println!("  - [binary] {}", bin.display());
+                    for binary in &discovery.binary_plugins {
+                        let _ = writeln!(output, "  - [binary] {}", binary.display());
                     }
                 }
+                ctx.renderer.write_output(&output);
                 Ok(Some(CommandResult::Continue))
             }
             "login" => Ok(Some(CommandResult::Login {
@@ -141,7 +158,7 @@ impl SlashCommandHandler {
                 provider: parts.get(1).map(|value| (*value).to_string()),
             })),
             "exit" | "quit" => {
-                println!("  Bye!");
+                ctx.renderer.write_output("  Bye!\n");
                 Ok(Some(CommandResult::Exit))
             }
             custom => {
@@ -160,99 +177,141 @@ impl SlashCommandHandler {
                     match reg.dispatch_command(&req, ext_ctx).await {
                         Some(Ok(output)) => {
                             if !output.is_empty() {
-                                println!("{output}");
+                                ctx.renderer.write_output(&format!("{output}\n"));
                             }
                             return Ok(Some(CommandResult::Continue));
                         }
                         Some(Err(err)) => {
-                            eprintln!("  Error running /{custom}: {err}");
+                            ctx.renderer
+                                .write_output(&format!("  Error running /{custom}: {err}\n"));
                             return Ok(Some(CommandResult::Continue));
                         }
                         None => {}
                     }
                 }
-                println!("  Unknown command: /{custom}. Type /help for available commands.");
+                ctx.renderer.write_output(&format!(
+                    "  Unknown command: /{custom}. Type /help for available commands.\n"
+                ));
                 Ok(Some(CommandResult::Continue))
             }
         }
     }
 }
 
-fn print_help(config: &Config, registry: Option<&ExtensionRegistry>) {
-    println!("\nCommands");
-    println!("  /help                       Show this reference");
-    println!("  /model [model] [provider]   Inspect or switch the model");
-    println!("  /skill [name]               List or inspect skills");
-    println!("  /plugin                     List discovered plugins");
-    println!("  /clear                      Start a new session; preserve history");
-    println!("  /login [provider]           Add API-key or subscription auth");
-    println!("  /logout [provider]          Remove stored provider auth");
-    println!("  /exit                       Exit rho");
+fn print_help(config: &Config, registry: Option<&ExtensionRegistry>, renderer: &TerminalRenderer) {
+    let mut output = "\nCommands\n\
+  /help                       Show this reference\n\
+  /model [model] [provider]   Inspect or switch the model\n\
+  /skill [name]               List or inspect skills\n\
+  /plugin                     List discovered plugins\n\
+  /clear                      Start a new session; preserve history\n\
+  /login [provider]           Add API-key or subscription auth\n\
+  /logout [provider]          Remove stored provider auth\n\
+  /exit                       Exit rho\n"
+        .to_string();
 
-    if let Some(reg) = registry {
-        let ext_cmds = reg.list_commands();
-        if !ext_cmds.is_empty() {
-            println!("\nExtension commands");
-            for (name, desc) in ext_cmds {
-                println!("  /{:<26} {}", name, desc);
+    if let Some(registry) = registry {
+        let commands = registry.list_commands();
+        if !commands.is_empty() {
+            output.push_str("\nExtension commands\n");
+            for (name, description) in commands {
+                let _ = writeln!(output, "  /{name:<26} {description}");
             }
         }
     }
 
-    println!("\nShortcuts");
-    println!("  Tab                         Complete slash commands & skill names");
-    println!("  Ctrl+C                      Cancel the active operation");
-    println!("  Ctrl+D                      Exit at an empty prompt");
-    println!("\nCurrent session");
-    println!("  Model                       {}", config.model);
-    let provider = ProviderId::from_str(&config.provider);
-    match provider {
-        Ok(provider) => println!(
-            "  Provider                    {provider} ({})",
-            provider.auth_mode_label()
-        ),
-        Err(_) => println!("  Provider                    {} (unsupported)", config.provider),
-    }
-    println!(
-        "  Changes                     {}",
-        if config.auto_approve {
-            "auto-approved"
-        } else {
-            "confirmation required"
-        }
+    output.push_str(
+        "\nShortcuts\n\
+  Tab                         Complete slash commands & skill names\n\
+  Ctrl+C                      Cancel the active operation\n\
+  Ctrl+D                      Exit at an empty prompt\n\
+\nCurrent session\n",
     );
-    println!();
+    let _ = writeln!(output, "  Model                       {}", config.model);
+    match ProviderId::from_str(&config.provider) {
+        Ok(provider) => {
+            let _ = writeln!(
+                output,
+                "  Provider                    {provider} ({})",
+                provider.auth_mode_label()
+            );
+        }
+        Err(_) => {
+            let _ = writeln!(
+                output,
+                "  Provider                    {} (unsupported)",
+                config.provider
+            );
+        }
+    }
+    let approval = if config.auto_approve {
+        "auto-approved"
+    } else {
+        "confirmation required"
+    };
+    let _ = writeln!(output, "  Changes                     {approval}\n");
+    renderer.write_output(&output);
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
+    use crate::plugin::{CommandHandler, Extension, ExtensionCommand};
+    use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
+    use tokio::sync::mpsc;
+
+    fn collecting_renderer() -> (TerminalRenderer, mpsc::UnboundedReceiver<UiEvent>) {
+        let (ui, events) = InteractiveUi::channel();
+        (TerminalRenderer::with_ui(ui), events)
+    }
+
+    fn collected_output(events: &mut mpsc::UnboundedReceiver<UiEvent>) -> String {
+        std::iter::from_fn(|| events.try_recv().ok())
+            .filter_map(|event| match event {
+                UiEvent::Output(OutputEvent::Text(text)) => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
 
     #[tokio::test]
-    async fn test_handle_help() {
-        let mut cfg = Config::default();
+    async fn help_is_emitted_through_the_renderer() {
+        let mut config = Config::default();
         let mut auth = AuthStore::default();
-        let mut ctx = SlashCommandContext {
-            config: &mut cfg,
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
             auth_store: &mut auth,
             registry: None,
             context: None,
+            renderer: &renderer,
         };
-        let res = SlashCommandHandler::handle("/help", &mut ctx).await.unwrap();
-        assert!(matches!(res, Some(CommandResult::Continue)));
+
+        let result = SlashCommandHandler::handle("/help", &mut context).await.unwrap();
+
+        assert!(matches!(result, Some(CommandResult::Continue)));
+        let output = collected_output(&mut events);
+        assert!(output.contains("/model [model] [provider]"));
+        assert!(output.contains("Current session"));
     }
 
     #[tokio::test]
     async fn login_is_dispatched_without_collecting_credentials() {
-        let mut cfg = Config::default();
+        let mut config = Config::default();
         let mut auth = AuthStore::default();
-        let mut ctx = SlashCommandContext {
-            config: &mut cfg,
+        let (renderer, _) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
             auth_store: &mut auth,
             registry: None,
             context: None,
+            renderer: &renderer,
         };
-        let result = SlashCommandHandler::handle("/login chatgpt", &mut ctx).await.unwrap();
+        let result = SlashCommandHandler::handle("/login chatgpt", &mut context)
+            .await
+            .unwrap();
         assert!(matches!(
             result,
             Some(CommandResult::Login {
@@ -262,34 +321,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_model_switch() {
-        let mut cfg = Config::default();
+    async fn model_switch_is_emitted_and_updates_configuration() {
+        let mut config = Config::default();
         let mut auth = AuthStore::default();
-        let mut ctx = SlashCommandContext {
-            config: &mut cfg,
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
             auth_store: &mut auth,
             registry: None,
             context: None,
+            renderer: &renderer,
         };
-        let res = SlashCommandHandler::handle("/model gpt-4o openai", &mut ctx)
+        let result = SlashCommandHandler::handle("/model gpt-4o openai", &mut context)
             .await
             .unwrap();
-        assert!(matches!(res, Some(CommandResult::ModelChanged { .. })));
-        assert_eq!(cfg.model, "gpt-4o");
-        assert_eq!(cfg.provider, "openai");
+
+        assert!(matches!(result, Some(CommandResult::ModelChanged { .. })));
+        assert_eq!(config.model, "gpt-4o");
+        assert_eq!(config.provider, "openai");
+        assert!(collected_output(&mut events).contains("Switched model to gpt-4o (openai)"));
+    }
+
+    struct EchoHandler;
+
+    #[async_trait::async_trait]
+    impl CommandHandler for EchoHandler {
+        async fn execute(&self, args: &str, _context: &ExtensionContext) -> Result<String> {
+            Ok(format!("extension: {args}"))
+        }
+    }
+
+    struct EchoExtension;
+
+    #[async_trait::async_trait]
+    impl Extension for EchoExtension {
+        fn name(&self) -> &str {
+            "echo-extension"
+        }
+
+        fn register_commands(&self) -> Vec<ExtensionCommand> {
+            vec![ExtensionCommand {
+                name: "echo".to_string(),
+                description: "Echo arguments".to_string(),
+                handler: Arc::new(EchoHandler),
+            }]
+        }
     }
 
     #[tokio::test]
-    async fn test_handle_skill_inspect() {
-        let mut cfg = Config::default();
+    async fn extension_command_output_is_emitted_through_the_renderer() {
+        let mut config = Config::default();
         let mut auth = AuthStore::default();
-        let mut ctx = SlashCommandContext {
-            config: &mut cfg,
+        let mut registry = ExtensionRegistry::new();
+        registry.register(EchoExtension);
+        let extension_context = ExtensionContext::new(std::env::temp_dir(), "session");
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
             auth_store: &mut auth,
-            registry: None,
-            context: None,
+            registry: Some(&registry),
+            context: Some(&extension_context),
+            renderer: &renderer,
         };
-        let res = SlashCommandHandler::handle("/skill plan", &mut ctx).await.unwrap();
-        assert!(matches!(res, Some(CommandResult::Continue)));
+
+        let result = SlashCommandHandler::handle("/echo hello", &mut context).await.unwrap();
+
+        assert!(matches!(result, Some(CommandResult::Continue)));
+        assert_eq!(collected_output(&mut events), "extension: hello\n");
     }
 }
