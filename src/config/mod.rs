@@ -6,7 +6,9 @@ pub use types::{Config, default_config_dir};
 
 use crate::error::{AppError, Result};
 
-use types::FileConfig;
+use std::str::FromStr;
+
+use types::{ConfigKey, FileConfig};
 
 impl Config {
     pub fn load(cli: Option<&cli::Cli>) -> Result<Self> {
@@ -67,24 +69,32 @@ impl Config {
             FileConfig::default()
         };
 
+        let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
         match key {
-            "model" => file_config.model = Some(value.to_string()),
-            "provider" => file_config.provider = Some(value.to_string()),
-            "auto_approve" => file_config.auto_approve = Some(parse_bool(key, value)?),
-            "max_output_tokens" => file_config.max_output_tokens = Some(parse_positive(key, value)?),
-            "max_turns" => file_config.max_turns = Some(parse_positive(key, value)?),
-            "context_limit" => file_config.context_limit = Some(parse_positive(key, value)?),
-            "context_window_messages" => file_config.context_window_messages = Some(parse_positive(key, value)?),
-            "compaction_max_bytes" => file_config.compaction_max_bytes = Some(parse_positive(key, value)?),
-            "search_min_interval_ms" => file_config.search_min_interval_ms = Some(parse_positive(key, value)?),
-            "search_timeout_sec" => file_config.search_timeout_sec = Some(parse_positive(key, value)?),
-            "fetch_timeout_sec" => file_config.fetch_timeout_sec = Some(parse_positive(key, value)?),
-            "fetch_limit" => file_config.fetch_limit = Some(parse_positive(key, value)?),
-            "fetch_max_bytes" => file_config.fetch_max_bytes = Some(parse_positive(key, value)?),
-            "output_max_bytes" => file_config.output_max_bytes = Some(parse_positive(key, value)?),
-            "allow_private_network" => file_config.allow_private_network = Some(parse_bool(key, value)?),
-            "region" => file_config.region = Some(value.to_string()),
-            _ => return Err(AppError::Config(format!("Unknown configuration key: {key}"))),
+            ConfigKey::Model => file_config.model = Some(value.to_string()),
+            ConfigKey::Provider => file_config.provider = Some(value.to_string()),
+            ConfigKey::AutoApprove => file_config.auto_approve = Some(parse_bool(key.as_str(), value)?),
+            ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::ContextWindowMessages => {
+                file_config.context_window_messages = Some(parse_positive(key.as_str(), value)?)
+            }
+            ConfigKey::CompactionMaxBytes => {
+                file_config.compaction_max_bytes = Some(parse_positive(key.as_str(), value)?)
+            }
+            ConfigKey::SearchMinIntervalMs => {
+                file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?)
+            }
+            ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::AllowPrivateNetwork => {
+                file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?)
+            }
+            ConfigKey::Region => file_config.region = Some(value.to_string()),
         }
 
         let serialized = toml::to_string_pretty(&file_config)
