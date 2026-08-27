@@ -48,15 +48,15 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 - [x] Establish one workspace root for an engine/session and use it for read, write, edit, and Bash execution.
 - [x] Introduce a shared `Workspace` path-resolution abstraction used by file tools and policy code.
 - [x] Define behavior for absolute paths, `..`, missing parents, symlinks, and `.git` boundaries.
-- [ ] Define explicit exclusions for session files and config files.
-- [ ] Revalidate immediately before mutation.
+- [x] Define explicit exclusions for session files and config files.
+- [x] Revalidate immediately before mutation.
 - [x] Add traversal and boundary tests; add symlink coverage where platform permits.
 
 ### 4. Harden session persistence — in progress
 
 - [x] Expose session state transitions rather than allowing arbitrary related record appends.
 - [x] Verify atomicity of successful turns, cancellation, checkpoint save, and checkpoint promotion.
-- [x] Keep session files and their containing directories private on Unix, including on resume.
+- [x] Keep session files and their containing directories private on Unix, including on resume and failed resume.
 - [x] Test truncated records, malformed records, duplicate tool results, interrupted writes, and restart behavior.
 - [ ] Add a session verification/diagnostic path if useful.
 

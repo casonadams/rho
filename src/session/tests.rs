@@ -65,6 +65,14 @@ fn session_storage_is_private() {
         std::fs::metadata(&resumed.file_path).unwrap().permissions().mode() & 0o777,
         0o600
     );
+    let bad_path = dir.join("bad.jsonl");
+    std::fs::write(&bad_path, "{}\n").unwrap();
+    std::fs::set_permissions(&bad_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(SessionManager::new(&dir, Some("bad")).is_err());
+    assert_eq!(
+        std::fs::metadata(&bad_path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
 }
 
 #[tokio::test]
