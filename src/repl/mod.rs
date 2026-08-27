@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod coordinator;
 pub mod interactive;
+mod live;
 mod prompt;
 
 pub use prompt::SimplePrompt;
@@ -96,6 +97,14 @@ impl ReplSession {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        if live::live_ui_supported(std::io::stdin().is_tty(), std::io::stdout().is_tty()) {
+            self.run_live().await
+        } else {
+            self.run_legacy().await
+        }
+    }
+
+    async fn run_legacy(&mut self) -> Result<()> {
         self.renderer.print_welcome(&WelcomeDisplay {
             model: &self.config.model,
             provider: &self.config.provider,

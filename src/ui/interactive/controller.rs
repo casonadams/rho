@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
 
-use super::{InteractiveLayout, InteractiveState, LayoutInput, layout};
+use super::{EditorState, InteractiveLayout, InteractiveState, LayoutInput, layout};
 
 pub trait TerminalBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()>;
@@ -135,12 +135,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
-        let rendered = layout(LayoutInput {
-            editor: self.state.editor(),
-            footer: self.state.footer(),
-            queued_messages: self.state.queue_len(),
-            terminal_width: self.width,
-        });
+        let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
@@ -155,12 +150,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if !output.ends_with("\r\n") {
             self.backend.write_text("\r\n")?;
         }
-        let rendered = layout(LayoutInput {
-            editor: self.state.editor(),
-            footer: self.state.footer(),
-            queued_messages: self.state.queue_len(),
-            terminal_width: self.width,
-        });
+        let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
@@ -180,6 +170,52 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn tick(&mut self) -> io::Result<()> {
         self.redraw()
+    }
+
+    pub fn suspend(&mut self) -> io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        self.erase_live_region()?;
+        self.backend.show_cursor()?;
+        self.backend.set_raw_mode(false)?;
+        self.backend.flush()?;
+        self.active = false;
+        Ok(())
+    }
+
+    pub fn resume(&mut self) -> io::Result<()> {
+        if self.active {
+            return Ok(());
+        }
+        self.backend.set_raw_mode(true)?;
+        self.active = true;
+        self.redraw()
+    }
+
+    fn current_layout(&self) -> InteractiveLayout {
+        let mut modal_editor = EditorState::default();
+        let editor = if let Some(modal) = self.state.active_modal() {
+            let mut text = format!("{}\n{}", modal.title, modal.body);
+            for (index, option) in modal.options.iter().enumerate() {
+                let marker = if index == modal.selected { ">" } else { " " };
+                text.push_str(&format!("\n{marker} {option}"));
+            }
+            if !self.state.editor().is_empty() {
+                text.push_str("\n\n");
+                text.push_str(self.state.editor().text());
+            }
+            modal_editor.set_text(text);
+            &modal_editor
+        } else {
+            self.state.editor()
+        };
+        layout(LayoutInput {
+            editor,
+            footer: self.state.footer(),
+            queued_messages: self.state.queue_len(),
+            terminal_width: self.width,
+        })
     }
 
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
@@ -448,6 +484,24 @@ mod tests {
 
         assert!(!controller.refresh_size().unwrap());
         assert_eq!(*operations.borrow(), [Operation::Size]);
+    }
+
+    #[test]
+    fn suspend_and_resume_restore_terminal_modes_around_legacy_prompts() {
+        let (backend, operations, _) = FakeTerminal::new(8);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.suspend().unwrap();
+        assert!(
+            operations
+                .borrow()
+                .ends_with(&[Operation::Show, Operation::Raw(false), Operation::Flush,])
+        );
+        operations.borrow_mut().clear();
+        controller.resume().unwrap();
+        assert_eq!(operations.borrow().first(), Some(&Operation::Raw(true)));
+        assert!(operations.borrow().ends_with(&[Operation::Show, Operation::Flush]));
     }
 
     #[test]

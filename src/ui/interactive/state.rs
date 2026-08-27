@@ -196,8 +196,26 @@ impl InteractiveState {
         self.queue.pop_front()
     }
 
+    pub fn clear_queue(&mut self) {
+        self.queue.clear();
+    }
+
     pub fn active_modal(&self) -> Option<&ModalState> {
         self.modals.last().map(|frame| &frame.modal)
+    }
+
+    pub fn select_previous_modal_option(&mut self) {
+        if let Some(modal) = self.modals.last_mut().map(|frame| &mut frame.modal) {
+            modal.selected = modal.selected.saturating_sub(1);
+        }
+    }
+
+    pub fn select_next_modal_option(&mut self) {
+        if let Some(modal) = self.modals.last_mut().map(|frame| &mut frame.modal)
+            && !modal.options.is_empty()
+        {
+            modal.selected = (modal.selected + 1).min(modal.options.len() - 1);
+        }
     }
 
     pub fn push_modal(&mut self, modal: ModalState) {
