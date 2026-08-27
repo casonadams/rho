@@ -4,15 +4,26 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct Workspace {
     root: PathBuf,
+    excluded: Vec<PathBuf>,
 }
 
 impl Workspace {
     pub fn new(root: impl AsRef<Path>) -> Self {
-        let root = root
-            .as_ref()
-            .canonicalize()
-            .unwrap_or_else(|_| root.as_ref().to_path_buf());
-        Self { root }
+        Self::with_exclusions(root, std::iter::empty::<&Path>())
+    }
+
+    pub fn with_exclusions<I, P>(root: impl AsRef<Path>, exclusions: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let root_path = root.as_ref();
+        let root = canonicalize_path(root_path);
+        let excluded = exclusions
+            .into_iter()
+            .map(|path| canonicalize_path(path.as_ref()))
+            .collect();
+        Self { root, excluded }
     }
 
     pub fn root(&self) -> &Path {
@@ -32,12 +43,12 @@ impl Workspace {
         })
     }
 
-    /// Uses the nearest existing ancestor so paths for new files are checked too.
+    /// Uses normalized canonical paths so targets that do not exist yet are checked safely.
     pub fn is_within(&self, raw_path: &str) -> bool {
         let Some(candidate) = self.resolve(raw_path) else {
             return false;
         };
-        existing_ancestor(&candidate).is_some_and(|path| path.starts_with(&self.root))
+        canonicalize_path(&candidate).starts_with(&self.root)
     }
 
     pub fn is_protected(&self, raw_path: &str) -> bool {
@@ -49,21 +60,58 @@ impl Workspace {
             .ok()
             .is_some_and(|relative| relative.components().any(|c| c.as_os_str() == ".git"))
     }
+
+    pub fn is_excluded(&self, raw_path: &str) -> bool {
+        let Some(candidate) = self.resolve(raw_path) else {
+            return false;
+        };
+        let canonical = canonicalize_path(&candidate);
+        self.excluded
+            .iter()
+            .any(|path| canonical == *path || canonical.starts_with(path))
+    }
+
+    pub fn can_mutate(&self, raw_path: &str) -> bool {
+        self.is_within(raw_path) && !self.is_protected(raw_path) && !self.is_excluded(raw_path)
+    }
 }
 
-fn existing_ancestor(path: &Path) -> Option<PathBuf> {
-    let mut ancestor = path;
-    loop {
-        if let Ok(canonical) = ancestor.canonicalize() {
-            return Some(canonical);
-        }
-        ancestor = ancestor.parent()?;
+fn canonicalize_path(path: &Path) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
     }
+    let mut non_existing = Vec::new();
+    let mut current = path;
+    while let Some(parent) = current.parent() {
+        if let Some(file_name) = current.file_name() {
+            non_existing.push(file_name);
+        }
+        if let Ok(canonical_parent) = parent.canonicalize() {
+            let mut resolved = canonical_parent;
+            for component in non_existing.into_iter().rev() {
+                resolved.push(component);
+            }
+            return resolved;
+        }
+        current = parent;
+    }
+    path.to_path_buf()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn excludes_configured_paths_from_mutations() {
+        let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
+        let excluded = root.join(".rho");
+        std::fs::create_dir_all(&excluded).unwrap();
+        let workspace = Workspace::with_exclusions(&root, [&excluded]);
+        assert!(!workspace.can_mutate(".rho/config.toml"));
+        assert!(workspace.can_mutate("src/lib.rs"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn resolves_relative_and_absolute_paths_from_fixed_root() {

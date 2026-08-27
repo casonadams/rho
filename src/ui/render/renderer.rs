@@ -271,7 +271,7 @@ impl TerminalRenderer {
             let (path, range) = read_summary_parts(line.arguments);
             let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
             format!(
-                "{title}read{title:#}{background} {accent}{path}{accent:#}{background}{}",
+                "{title}read{title:#} {accent}{path}{accent:#}{}",
                 range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
             )
         } else if line.name == "webfetch" && !line.is_error {
@@ -284,10 +284,10 @@ impl TerminalRenderer {
             let dim = self.theme.dimmed;
             let kind = webfetch_content_kind(line.arguments);
             format!(
-                "{title}webfetch{title:#}{background}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}"
+                "{title}webfetch{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}"
             )
         } else {
-            format!("{title}{}{title:#}{background} {accent}{summary}{accent:#}", line.name)
+            format!("{title}{}{title:#} {accent}{summary}{accent:#}", line.name)
         };
 
         if !line.is_error && line.name == "edit" {

@@ -52,8 +52,14 @@ pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRu
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
         .tool(ReadTool::new(base_dir))
-        .tool(WriteTool::new(base_dir))
-        .tool(EditTool::new(base_dir))
+        .tool(WriteTool::with_exclusions(
+            base_dir,
+            [&config.config_dir, &config.sessions_dir],
+        ))
+        .tool(EditTool::with_exclusions(
+            base_dir,
+            [&config.config_dir, &config.sessions_dir],
+        ))
         .tool(BashTool::new(base_dir))
         .tool(AskUserTool::new())
         .tool(AskUserQuestionTool(AskUserTool::new()))

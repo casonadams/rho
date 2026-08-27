@@ -52,9 +52,8 @@ impl SessionManager {
         let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
         let state = match resume_id {
             Some(_) => {
-                let state = load_file(&file_path, &session_id)?;
                 set_private_file_permissions(&file_path)?;
-                state
+                load_file(&file_path, &session_id)?
             }
             None => {
                 create_session_file(&file_path, &session_id)?;
@@ -300,8 +299,10 @@ fn set_private_directory_permissions(path: &Path) -> Result<()> {
 fn set_private_file_permissions(path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        if path.exists() {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
     }
     Ok(())
 }

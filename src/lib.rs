@@ -7,6 +7,7 @@ pub mod error;
 pub mod plugin;
 pub mod repl;
 pub mod session;
+pub mod skills;
 pub mod tools;
 pub mod ui;
 

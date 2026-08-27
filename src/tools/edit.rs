@@ -26,12 +26,22 @@ pub struct EditArgs {
 
 pub struct EditTool {
     pub base_dir: PathBuf,
+    exclusions: Vec<PathBuf>,
 }
 
 impl EditTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
+        Self::with_exclusions(base_dir, std::iter::empty::<&Path>())
+    }
+
+    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, exclusions: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
         Self {
             base_dir: base_dir.as_ref().to_path_buf(),
+            exclusions: exclusions.into_iter().map(|path| path.as_ref().to_path_buf()).collect(),
         }
     }
 
@@ -41,10 +51,15 @@ impl EditTool {
             return Ok(ToolResult::error("Empty file path provided for edit tool"));
         }
 
-        let workspace = Workspace::new(&self.base_dir);
+        let workspace = Workspace::with_exclusions(&self.base_dir, &self.exclusions);
         let Some(path) = workspace.resolve(clean_path) else {
             return Ok(ToolResult::error("Empty file path provided for edit tool"));
         };
+        if !workspace.can_mutate(clean_path) {
+            return Ok(ToolResult::error(format!(
+                "Edit target is outside the permitted workspace: {clean_path}"
+            )));
+        }
         let base = workspace.root();
 
         if !path.exists() {
@@ -89,6 +104,13 @@ impl EditTool {
             }
 
             current_content = current_content.replacen(&edit.old_text, &edit.new_text, 1);
+        }
+
+        // Revalidate after reading and validating all replacements, immediately before mutation.
+        if !workspace.can_mutate(clean_path) {
+            return Ok(ToolResult::error(format!(
+                "Edit target moved outside the permitted workspace: {clean_path}"
+            )));
         }
 
         // Commit atomically

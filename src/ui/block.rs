@@ -38,13 +38,15 @@ impl BlockFormat {
         let inner_width = self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1);
         let lines: Vec<String> = content
             .lines()
-            .flat_map(|line| wrap_styled_line(line, inner_width))
+            .flat_map(|line| wrap_styled_line(line, inner_width, self.style))
             .collect();
         self.render_lines(&lines)
     }
 
     pub fn render_line(&self, content: &str) -> String {
-        let mut rendered = self.render_lines(&[content.to_string()]);
+        let inner_width = self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1);
+        let lines = wrap_styled_line(content, inner_width, self.style);
+        let mut rendered = self.render_lines(&lines);
         rendered.pop();
         rendered
     }
@@ -68,8 +70,14 @@ impl BlockFormat {
         let occupied = HORIZONTAL_PADDING.saturating_add(visible);
         let trailing = self.width.saturating_sub(occupied);
         let style = self.style;
+        let bg_str = style.render().to_string();
+        let reset_str = if bg_str.is_empty() {
+            String::new()
+        } else {
+            "\x1b[0m".to_string()
+        };
         format!(
-            "{style}{}{content}{style}{}{style:#}\n",
+            "{style}{}{content}{style}{}{reset_str}\n",
             " ".repeat(HORIZONTAL_PADDING.min(self.width)),
             " ".repeat(trailing)
         )
@@ -82,12 +90,44 @@ pub fn terminal_width() -> usize {
         .unwrap_or(79)
 }
 
-fn wrap_styled_line(content: &str, width: usize) -> Vec<String> {
+fn sgr_resets_background(sequence: &str) -> bool {
+    let Some(inner) = sequence.strip_prefix("\x1b[").and_then(|s| s.strip_suffix('m')) else {
+        return false;
+    };
+    if inner.is_empty() {
+        return true;
+    }
+    let mut params = inner.split(';').peekable();
+    while let Some(param) = params.next() {
+        if param.is_empty() || param == "0" || param == "00" || param == "49" {
+            return true;
+        }
+        if param == "38" || param == "48" {
+            match params.peek().copied() {
+                Some("5") => {
+                    params.next();
+                    params.next();
+                }
+                Some("2") => {
+                    params.next();
+                    params.next();
+                    params.next();
+                    params.next();
+                }
+                _ => {}
+            }
+        }
+    }
+    false
+}
+
+fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut active_sgr = String::new();
     let mut current_width = 0;
     let mut offset = 0;
+    let bg_code = bg_style.render().to_string();
 
     while offset < content.len() {
         if content.as_bytes()[offset..].starts_with(b"\x1b[")
@@ -96,7 +136,10 @@ fn wrap_styled_line(content: &str, width: usize) -> Vec<String> {
             let end = offset + end + 1;
             let sequence = &content[offset..end];
             current.push_str(sequence);
-            if sequence == "\x1b[0m" {
+            if sgr_resets_background(sequence) {
+                if !bg_code.is_empty() {
+                    current.push_str(&bg_code);
+                }
                 active_sgr.clear();
             } else {
                 active_sgr.push_str(sequence);
@@ -178,8 +221,37 @@ mod tests {
 
     #[test]
     fn styled_content_keeps_its_background_after_an_inner_reset() {
-        let rendered = BlockFormat::new(background(), 12).render_line("\x1b[31merror\x1b[0m");
-        assert_eq!(visible_width(&rendered), 12);
-        assert!(rendered.matches("\x1b[40m").count() >= 2);
+        let rendered = BlockFormat::new(background(), 20).render_line("\x1b[31merror\x1b[0m text");
+        assert_eq!(visible_width(&rendered), 20);
+        assert!(rendered.contains("\x1b[0m\x1b[40m text"));
+        assert!(rendered.ends_with("\x1b[0m"));
+    }
+
+    #[test]
+    fn multiline_styled_blocks_preserve_background_across_resets_and_blank_lines() {
+        let content = "\x1b[1m\x1b[31mbold red\x1b[0m\n\n\x1b[32m+ line 2\x1b[0m extra";
+        let rendered = BlockFormat::new(background(), 24)
+            .with_vertical_padding()
+            .render_styled(content);
+        let lines: Vec<&str> = rendered.lines().collect();
+        assert_eq!(lines.len(), 5);
+        for line in &lines {
+            assert_eq!(visible_width(line), 24);
+            assert!(line.starts_with("\x1b[40m  "));
+        }
+        assert!(rendered.contains("\x1b[0m\x1b[40m extra"));
+    }
+
+    #[test]
+    fn compound_and_color_resets_are_detected_correctly() {
+        assert!(sgr_resets_background("\x1b[m"));
+        assert!(sgr_resets_background("\x1b[0m"));
+        assert!(sgr_resets_background("\x1b[49m"));
+        assert!(sgr_resets_background("\x1b[0;31m"));
+        assert!(sgr_resets_background("\x1b[31;0m"));
+        assert!(!sgr_resets_background("\x1b[31m"));
+        assert!(!sgr_resets_background("\x1b[1;32m"));
+        assert!(!sgr_resets_background("\x1b[38;2;255;0;0m"));
+        assert!(!sgr_resets_background("\x1b[38;5;0m"));
     }
 }

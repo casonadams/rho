@@ -1,15 +1,12 @@
+use crate::skills::SkillMetadata;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SkillMetadata {
-    pub name: String,
-    pub description: String,
-    pub location: PathBuf,
-}
+pub static DEFAULT_SYSTEM_PROMPT: &str = include_str!("../../prompts/SYSTEM.md");
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
     pub current_dir: PathBuf,
+    pub base_system_prompt: String,
     pub instruction_files: Vec<(String, String)>,
     pub skills: Vec<SkillMetadata>,
     pub git_status: Option<String>,
@@ -27,12 +24,27 @@ impl ProjectContext {
         }
         Self::load_candidate_instructions(base, &mut instruction_files);
 
-        let mut skills = Vec::new();
+        let mut skills = crate::skills::builtin_skills();
         if let Some(cfg) = config_dir {
             Self::scan_skills_directory(&cfg.join("skills"), &mut skills);
         }
         Self::scan_skills_directory(&base.join(".rho/skills"), &mut skills);
+        Self::scan_skills_directory(&base.join("prompts/skills"), &mut skills);
         Self::scan_skills_directory(&base.join("skills"), &mut skills);
+
+        let mut base_system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
+        if let Some(cfg) = config_dir
+            && let Ok(custom) = std::fs::read_to_string(cfg.join("SYSTEM.md"))
+        {
+            base_system_prompt = custom;
+        }
+        if let Ok(custom) = std::fs::read_to_string(base.join(".rho/SYSTEM.md")) {
+            base_system_prompt = custom;
+        } else if let Ok(custom) = std::fs::read_to_string(base.join("prompts/SYSTEM.md")) {
+            base_system_prompt = custom;
+        } else if let Ok(custom) = std::fs::read_to_string(base.join("SYSTEM.md")) {
+            base_system_prompt = custom;
+        }
 
         let git_status = get_git_summary(base).await;
         let os_info = format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH);
@@ -40,6 +52,7 @@ impl ProjectContext {
 
         Self {
             current_dir: base.to_path_buf(),
+            base_system_prompt,
             instruction_files,
             skills,
             git_status,
@@ -76,16 +89,22 @@ impl ProjectContext {
                 let skill_file = path.join("SKILL.md");
                 if skill_file.exists()
                     && let Some(meta) = Self::parse_skill_file(&skill_file)
-                    && !skills.iter().any(|s| s.name == meta.name)
                 {
-                    skills.push(meta);
+                    Self::upsert_skill(skills, meta);
                 }
             } else if path.extension().is_some_and(|ext| ext == "md")
                 && let Some(meta) = Self::parse_skill_file(&path)
-                && !skills.iter().any(|s| s.name == meta.name)
             {
-                skills.push(meta);
+                Self::upsert_skill(skills, meta);
             }
+        }
+    }
+
+    fn upsert_skill(skills: &mut Vec<SkillMetadata>, meta: SkillMetadata) {
+        if let Some(pos) = skills.iter().position(|s| s.name == meta.name) {
+            skills[pos] = meta;
+        } else {
+            skills.push(meta);
         }
     }
 
@@ -125,44 +144,20 @@ impl ProjectContext {
         Some(SkillMetadata {
             name,
             description,
-            location: path.to_path_buf(),
+            location: path.display().to_string(),
         })
     }
 
     pub fn build_system_prompt(&self) -> String {
         let mut prompt = String::new();
-        prompt.push_str("You are an expert coding assistant operating inside rho, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.\n\n");
+        prompt.push_str(self.base_system_prompt.trim());
+        prompt.push_str("\n\n");
 
         prompt.push_str(&format!("Today's date: {}\n", self.date_str));
-        prompt.push_str(&format!("Platform: {}\n\n", self.os_info));
-
-        prompt.push_str("Available tools:\n");
-        prompt.push_str("- read: Read file contents (with offset/limit safeguards)\n");
-        prompt.push_str("- write: Create or overwrite files (automatically creates parent directories)\n");
-        prompt.push_str(
-            "- edit: Make precise file edits with exact text replacement (every edits[].oldText must match uniquely)\n",
-        );
-        prompt.push_str("- bash: Execute bash commands (ls, rg, find, cargo, git, etc.)\n");
-        prompt.push_str("- ask_user: Ask the user a question or present choices to clarify requirements or make implementation decisions\n");
-        prompt.push_str("- websearch: Search the web and return structured summaries and URLs\n");
-        prompt.push_str("- webfetch: Fetch and extract clean text or markdown from URLs\n\n");
-
-        prompt.push_str("Guidelines:\n");
-        prompt.push_str("- Use bash for file operations like ls, rg, find\n");
-        prompt.push_str("- Commands run directly in the working directory; do not prefix commands with cd\n");
-        prompt.push_str("- Use read to examine files instead of cat or sed\n");
-        prompt.push_str("- Use edit for precise changes (edits[].oldText must match exactly)\n");
-        prompt.push_str("- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls\n");
-        prompt.push_str("- Keep edits[].oldText as small as possible while still being unique in the file\n");
-        prompt.push_str("- Use write only for new files or complete rewrites\n");
-        prompt
-            .push_str("- Inspect the repository before asking about implementation details that the code can answer\n");
-        prompt.push_str("- When unresolved user decisions block progress, ask them together in one ask_user call\n");
-        prompt.push_str("- Be concise in your responses\n");
-        prompt.push_str("- Show file paths clearly when working with files\n");
+        prompt.push_str(&format!("Platform: {}\n", self.os_info));
 
         if let Some(ref git) = self.git_status {
-            prompt.push_str(&format!("- Git repository status: {git}\n"));
+            prompt.push_str(&format!("Git repository status: {git}\n"));
         }
         prompt.push('\n');
 
@@ -174,7 +169,7 @@ impl ProjectContext {
                 prompt.push_str("  <skill>\n");
                 prompt.push_str(&format!("    <name>{}</name>\n", skill.name));
                 prompt.push_str(&format!("    <description>{}</description>\n", skill.description));
-                prompt.push_str(&format!("    <location>{}</location>\n", skill.location.display()));
+                prompt.push_str(&format!("    <location>{}</location>\n", skill.location));
                 prompt.push_str("  </skill>\n");
             }
             prompt.push_str("</available_skills>\n\n");
@@ -235,8 +230,9 @@ mod tests {
         let ctx = ProjectContext::discover(&temp_dir, None).await;
         assert_eq!(ctx.instruction_files.len(), 1);
         assert!(ctx.instruction_files[0].0.ends_with("AGENTS.md"));
-        assert_eq!(ctx.skills.len(), 1);
-        assert_eq!(ctx.skills[0].name, "plan");
+        assert!(ctx.skills.len() >= 2);
+        assert!(ctx.skills.iter().any(|s| s.name == "plan"));
+        assert!(ctx.skills.iter().any(|s| s.name == "create-plugin"));
 
         let prompt = ctx.build_system_prompt();
         assert!(prompt.contains("Agent Rules"));
@@ -249,6 +245,35 @@ mod tests {
         assert!(prompt.contains("Use read to examine files instead of cat or sed"));
         assert!(prompt.contains("Inspect the repository before asking"));
         assert!(prompt.contains("one ask_user call"));
+
+        let _ = tokio::fs::remove_dir_all(temp_dir).await;
+    }
+
+    #[tokio::test]
+    async fn test_user_config_skills_override_builtin_skills() {
+        let temp_dir = std::env::temp_dir().join(format!("ctx_override_test_{}", uuid::Uuid::new_v4()));
+        let config_dir = temp_dir.join("config");
+        let project_dir = temp_dir.join("project");
+        let user_skill_dir = config_dir.join("skills").join("plan");
+
+        tokio::fs::create_dir_all(&user_skill_dir).await.unwrap();
+        tokio::fs::create_dir_all(&project_dir).await.unwrap();
+
+        tokio::fs::write(
+            user_skill_dir.join("SKILL.md"),
+            "---\nname: plan\ndescription: Custom user plan override\n---\n# Custom Plan\n",
+        )
+        .await
+        .unwrap();
+
+        let ctx = ProjectContext::discover(&project_dir, Some(&config_dir)).await;
+        let plan_skill = ctx.skills.iter().find(|s| s.name == "plan").unwrap();
+        assert_eq!(plan_skill.description, "Custom user plan override");
+        assert!(plan_skill.location.contains("config/skills/plan/SKILL.md"));
+
+        let prompt = ctx.build_system_prompt();
+        assert!(prompt.contains("Custom user plan override"));
+        assert!(prompt.contains("config/skills/plan/SKILL.md"));
 
         let _ = tokio::fs::remove_dir_all(temp_dir).await;
     }
