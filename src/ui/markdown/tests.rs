@@ -70,10 +70,10 @@ fn test_streamed_line_suffix_before_newline_is_not_dropped() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
 
-    let first = md.render_token("The IntentSpec from the", &theme);
+    let first = md.render_token("The response from the", &theme);
     let second = md.render_token(" active task is complete.\n", &theme);
 
-    assert!(first.contains("The IntentSpec from the"));
+    assert!(first.contains("The response from the"));
     assert!(second.contains(" active task is complete."));
 }
 

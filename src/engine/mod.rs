@@ -11,7 +11,6 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::provider::{CredentialStrategy, ModelRequest, ProviderFactory, ProviderId};
 use crate::error::Result;
-use crate::intent::IntentState;
 use crate::session::SessionManager;
 use rig::agent::Agent;
 use rig::completion::Usage;
@@ -69,38 +68,6 @@ impl AgentEngine {
             last_usage: Mutex::new(None),
             run_tracker: RunTracker::default(),
         })
-    }
-
-    pub fn complete_current_intent_by_user(&self) -> Result<()> {
-        if let Some(intent) = crate::intent::store::find_for_session(
-            &self.config.intents_dir,
-            &self.session_manager.session_id,
-            self.session_manager.secret_values(),
-        )? {
-            intent.complete_by_user()?;
-        }
-        Ok(())
-    }
-
-    pub fn pause_current_intent(&self) -> Result<()> {
-        if let Some(intent) = crate::intent::store::find_for_session(
-            &self.config.intents_dir,
-            &self.session_manager.session_id,
-            self.session_manager.secret_values(),
-        )? {
-            intent.pause()?;
-        }
-        Ok(())
-    }
-
-    pub fn current_intent_state(&self) -> Result<Option<IntentState>> {
-        crate::intent::store::find_for_session(
-            &self.config.intents_dir,
-            &self.session_manager.session_id,
-            self.session_manager.secret_values(),
-        )?
-        .map(|intent| intent.snapshot())
-        .transpose()
     }
 
     pub fn context_usage_percent(&self) -> Option<usize> {

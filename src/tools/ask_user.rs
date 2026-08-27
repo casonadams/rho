@@ -1,5 +1,4 @@
 use crate::error::AppError;
-use crate::intent::IntentHandle;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use schemars::JsonSchema;
@@ -18,9 +17,6 @@ pub struct AskUserArgs {
     /// Optional category header or short chip tag
     #[serde(default)]
     pub header: Option<String>,
-    /// Stable key for recording the answer in the active IntentSpec
-    #[serde(default, rename = "intentKey")]
-    pub intent_key: Option<String>,
     /// Optional batch array of questions
     #[serde(default)]
     pub questions: Option<Vec<Value>>,
@@ -38,48 +34,25 @@ impl AskUserTool {
     }
 
     pub fn execute(&self, args: AskUserArgs) -> Result<ToolResult, AppError> {
-        self.execute_with_intent(args, None)
-    }
-
-    fn execute_with_intent(&self, args: AskUserArgs, intent: Option<&IntentHandle>) -> Result<ToolResult, AppError> {
         if let Some(ref questions) = args.questions
             && !questions.is_empty()
         {
             let mut results = Vec::new();
-            for (idx, q_val) in questions.iter().enumerate() {
-                let answer = prompt_question_value(q_val, idx + 1)?;
-                if let Some(intent) = intent {
-                    intent.record_decision(&answer.key, &answer.value)?;
-                }
-                results.push(answer.display);
+            for (index, question) in questions.iter().enumerate() {
+                results.push(prompt_question_value(question, index + 1)?);
             }
-            return Ok(binding_clarification(results.join("\n")));
+            return Ok(ToolResult::success(results.join("\n")));
         }
 
         let question_text = extract_question_text(&args);
-        let header = args
-            .header
-            .clone()
-            .or_else(|| extract_str_from_map(&args.extra, "header"));
+        let header = args.header.or_else(|| extract_str_from_map(&args.extra, "header"));
         let options = args
             .options
             .or_else(|| extract_vec_from_map(&args.extra, "options"))
             .or_else(|| extract_vec_from_map(&args.extra, "choices"));
-
         let answer = prompt_question_interactive(&question_text, header.as_deref(), options.as_deref())?;
-        if let Some(intent) = intent {
-            let key = args
-                .intent_key
-                .or_else(|| extract_str_from_map(&args.extra, "intentKey"))
-                .unwrap_or_else(|| decision_key(header.as_deref().unwrap_or(&question_text)));
-            intent.record_decision(&key, &answer)?;
-        }
-        Ok(binding_clarification(answer))
+        Ok(ToolResult::success(answer))
     }
-}
-
-fn binding_clarification(answer: String) -> ToolResult {
-    ToolResult::success(format!("Binding IntentSpec clarification:\n{answer}"))
 }
 
 fn extract_question_text(args: &AskUserArgs) -> String {
@@ -155,60 +128,29 @@ fn extract_parsed_option(opt: &Value) -> ParsedOption {
     }
 }
 
-struct PromptAnswer {
-    key: String,
-    value: String,
-    display: String,
-}
-
-fn prompt_question_value(q_val: &Value, index: usize) -> Result<PromptAnswer, AppError> {
-    let (question, header, options, explicit_key) = match q_val {
-        Value::String(question) => (question.as_str(), None, None, None),
-        Value::Object(obj) => {
-            let question = obj
+fn prompt_question_value(value: &Value, index: usize) -> Result<String, AppError> {
+    let (question, header, options) = match value {
+        Value::String(question) => (question.as_str(), None, None),
+        Value::Object(object) => {
+            let question = object
                 .get("question")
-                .or_else(|| obj.get("prompt"))
-                .or_else(|| obj.get("text"))
-                .or_else(|| obj.get("title"))
+                .or_else(|| object.get("prompt"))
+                .or_else(|| object.get("text"))
+                .or_else(|| object.get("title"))
                 .and_then(Value::as_str)
                 .unwrap_or("Question");
-            let header = obj.get("header").and_then(Value::as_str);
-            let options = obj
+            let header = object.get("header").and_then(Value::as_str);
+            let options = object
                 .get("options")
-                .or_else(|| obj.get("choices"))
+                .or_else(|| object.get("choices"))
                 .and_then(Value::as_array)
                 .map(Vec::as_slice);
-            let key = obj.get("intentKey").and_then(Value::as_str);
-            (question, header, options, key)
+            (question, header, options)
         }
-        _ => ("Question", None, None, None),
+        _ => ("Question", None, None),
     };
-    let value = prompt_question_interactive(question, header, options)?;
-    let key = explicit_key
-        .map(ToString::to_string)
-        .unwrap_or_else(|| decision_key(header.unwrap_or(question)));
-    Ok(PromptAnswer {
-        key,
-        display: format!("{index}. {question}: {value}"),
-        value,
-    })
-}
-
-fn decision_key(value: &str) -> String {
-    let mut key = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else {
-                '.'
-            }
-        })
-        .collect::<String>();
-    while key.contains("..") {
-        key = key.replace("..", ".");
-    }
-    key.trim_matches('.').to_string()
+    let answer = prompt_question_interactive(question, header, options)?;
+    Ok(format!("{index}. {question}: {answer}"))
 }
 
 fn prompt_question_interactive(
@@ -275,18 +217,17 @@ impl Tool for AskUserTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make. Answers are binding additions to the active IntentSpec.".to_string()
+        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<AskUserArgs>()
     }
 
-    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let intent = context.get::<IntentHandle>().cloned();
+    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let res = tokio::task::spawn_blocking(move || {
             let _ = std::io::stdout().flush();
-            AskUserTool.execute_with_intent(args, intent.as_ref())
+            AskUserTool.execute(args)
         })
         .await
         .map_err(|e| ToolExecutionError::other(format!("ask_user prompt task failed: {e}")))?;
@@ -305,18 +246,17 @@ impl Tool for AskUserQuestionTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make. Answers are binding additions to the active IntentSpec.".to_string()
+        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
         generated_schema::<AskUserArgs>()
     }
 
-    async fn call(&self, context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
-        let intent = context.get::<IntentHandle>().cloned();
+    async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
         let res = tokio::task::spawn_blocking(move || {
             let _ = std::io::stdout().flush();
-            AskUserTool.execute_with_intent(args, intent.as_ref())
+            AskUserTool.execute(args)
         })
         .await
         .map_err(|e| ToolExecutionError::other(format!("ask_user prompt task failed: {e}")))?;
@@ -328,14 +268,6 @@ impl Tool for AskUserQuestionTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn clarification_result_marks_the_answer_as_binding() {
-        let result = binding_clarification("Use sessions".to_string());
-
-        assert!(result.content.contains("Binding IntentSpec clarification"));
-        assert!(result.content.contains("Use sessions"));
-    }
 
     #[test]
     fn test_ask_user_parses_arbitrary_structures() {

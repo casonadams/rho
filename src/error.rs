@@ -22,8 +22,6 @@ pub enum AppError {
     Cancelled(String),
     #[error("Invalid tool call: {0}")]
     InvalidToolCall(String),
-    #[error("Intent error: {0}")]
-    Intent(String),
     #[error("Other error: {0}")]
     Other(#[from] anyhow::Error),
 }

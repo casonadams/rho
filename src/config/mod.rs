@@ -1,95 +1,12 @@
 pub mod cli;
+mod merge;
+mod types;
+
+pub use types::{Config, default_config_dir};
 
 use crate::error::{AppError, Result};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    pub model: String,
-    pub provider: String,
-    pub auto_approve: bool,
-    pub max_output_tokens: Option<u64>,
-    pub max_turns: usize,
-    pub context_limit: Option<usize>,
-    pub context_window_messages: usize,
-    pub compaction_max_bytes: usize,
-    pub search_min_interval_ms: u64,
-    pub search_timeout_sec: u64,
-    pub fetch_timeout_sec: u64,
-    pub fetch_limit: usize,
-    pub fetch_max_bytes: usize,
-    pub output_max_bytes: usize,
-    pub allow_private_network: bool,
-    pub region: String,
-    pub config_dir: PathBuf,
-    pub sessions_dir: PathBuf,
-    pub intents_dir: PathBuf,
-    pub auth_file: PathBuf,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        let base_dir = default_config_dir();
-        Self {
-            model: "claude-3-7-sonnet-20250219".to_string(),
-            provider: "anthropic".to_string(),
-            auto_approve: false,
-            max_output_tokens: None,
-            max_turns: 100,
-            context_limit: None,
-            context_window_messages: crate::session::context::DEFAULT_CONTEXT_WINDOW_MESSAGES,
-            compaction_max_bytes: crate::session::context::DEFAULT_COMPACTION_MAX_BYTES,
-            search_min_interval_ms: 2000,
-            search_timeout_sec: 12,
-            fetch_timeout_sec: 8,
-            fetch_limit: 200,
-            fetch_max_bytes: 5_000_000,
-            output_max_bytes: 50_000,
-            allow_private_network: false,
-            region: "wt-wt".to_string(),
-            sessions_dir: base_dir.join("sessions"),
-            intents_dir: base_dir.join("intents"),
-            auth_file: base_dir.join("auth.json"),
-            config_dir: base_dir,
-        }
-    }
-}
-
-pub fn default_config_dir() -> PathBuf {
-    if let Ok(custom) = std::env::var("RUST_AI_HOME") {
-        return PathBuf::from(custom);
-    }
-    let home = dirs_fallback();
-    home.join(".config").join("rust-ai")
-}
-
-fn dirs_fallback() -> PathBuf {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct FileConfig {
-    pub model: Option<String>,
-    pub provider: Option<String>,
-    pub auto_approve: Option<bool>,
-    pub max_output_tokens: Option<u64>,
-    pub max_turns: Option<usize>,
-    pub context_limit: Option<usize>,
-    pub context_window_messages: Option<usize>,
-    pub compaction_max_bytes: Option<usize>,
-    pub search_min_interval_ms: Option<u64>,
-    pub search_timeout_sec: Option<u64>,
-    pub fetch_timeout_sec: Option<u64>,
-    pub fetch_limit: Option<usize>,
-    pub fetch_max_bytes: Option<usize>,
-    pub output_max_bytes: Option<usize>,
-    pub allow_private_network: Option<bool>,
-    pub region: Option<String>,
-}
+use types::FileConfig;
 
 impl Config {
     pub fn load(cli: Option<&cli::Cli>) -> Result<Self> {
@@ -102,119 +19,13 @@ impl Config {
                 .map_err(|e| AppError::Config(format!("Failed to read config file {}: {e}", config_file.display())))?;
             let file_cfg: FileConfig =
                 toml::from_str(&content).map_err(|e| AppError::Config(format!("Failed to parse config file: {e}")))?;
-            config.merge_file(file_cfg);
+            merge::merge_file(&mut config, file_cfg);
         }
 
-        // Environment overrides
-        if let Ok(val) = std::env::var("AI_MODEL").or_else(|_| std::env::var("MODEL"))
-            && !val.trim().is_empty()
-        {
-            config.model = val.trim().to_string();
-        }
-        if let Ok(val) = std::env::var("AI_PROVIDER")
-            && !val.trim().is_empty()
-        {
-            config.provider = val.trim().to_string();
-        }
-        if let Ok(val) = std::env::var("AI_AUTO_APPROVE") {
-            config.auto_approve = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
-        }
-        if let Ok(val) = std::env::var("AI_CONTEXT_LIMIT")
-            && let Ok(num) = val.trim().parse::<usize>()
-        {
-            config.context_limit = Some(num);
-        }
-        if let Ok(val) = std::env::var("AI_CONTEXT_WINDOW_MESSAGES") {
-            config.context_window_messages = parse_positive("AI_CONTEXT_WINDOW_MESSAGES", &val)?;
-        }
-        if let Ok(val) = std::env::var("AI_COMPACTION_MAX_BYTES") {
-            config.compaction_max_bytes = parse_positive("AI_COMPACTION_MAX_BYTES", &val)?;
-        }
-        if let Ok(val) = std::env::var("AI_MAX_OUTPUT_TOKENS") {
-            config.max_output_tokens = Some(parse_positive("AI_MAX_OUTPUT_TOKENS", &val)?);
-        }
-        if let Ok(val) = std::env::var("AI_MAX_TURNS") {
-            config.max_turns = parse_positive("AI_MAX_TURNS", &val)?;
-        }
-        if let Ok(val) = std::env::var("WEB_REGION") {
-            config.region = val;
-        }
-        if let Ok(val) = std::env::var("WEB_ALLOW_PRIVATE_NETWORK") {
-            config.allow_private_network = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
-        }
-
-        // CLI flag overrides
-        if let Some(c) = cli {
-            if let Some(ref m) = c.model {
-                config.model = m.clone();
-            }
-            if let Some(ref p) = c.provider {
-                config.provider = p.clone();
-            }
-            if let Some(max_output_tokens) = c.max_output_tokens {
-                config.max_output_tokens = Some(max_output_tokens);
-            }
-            if let Some(max_turns) = c.max_turns {
-                config.max_turns = max_turns;
-            }
-            if c.auto_approve {
-                config.auto_approve = true;
-            }
-        }
-
+        merge::apply_env_overrides(&mut config)?;
+        merge::apply_cli_overrides(&mut config, cli);
         config.validate()?;
         Ok(config)
-    }
-
-    fn merge_file(&mut self, file: FileConfig) {
-        if let Some(m) = file.model {
-            self.model = m;
-        }
-        if let Some(p) = file.provider {
-            self.provider = p;
-        }
-        if let Some(a) = file.auto_approve {
-            self.auto_approve = a;
-        }
-        if let Some(max_output_tokens) = file.max_output_tokens {
-            self.max_output_tokens = Some(max_output_tokens);
-        }
-        if let Some(max_turns) = file.max_turns {
-            self.max_turns = max_turns;
-        }
-        if let Some(c) = file.context_limit {
-            self.context_limit = Some(c);
-        }
-        if let Some(value) = file.context_window_messages {
-            self.context_window_messages = value;
-        }
-        if let Some(value) = file.compaction_max_bytes {
-            self.compaction_max_bytes = value;
-        }
-        if let Some(s) = file.search_min_interval_ms {
-            self.search_min_interval_ms = s;
-        }
-        if let Some(s) = file.search_timeout_sec {
-            self.search_timeout_sec = s;
-        }
-        if let Some(f) = file.fetch_timeout_sec {
-            self.fetch_timeout_sec = f;
-        }
-        if let Some(l) = file.fetch_limit {
-            self.fetch_limit = l;
-        }
-        if let Some(b) = file.fetch_max_bytes {
-            self.fetch_max_bytes = b;
-        }
-        if let Some(o) = file.output_max_bytes {
-            self.output_max_bytes = o;
-        }
-        if let Some(p) = file.allow_private_network {
-            self.allow_private_network = p;
-        }
-        if let Some(r) = file.region {
-            self.region = r;
-        }
     }
 
     fn validate(&self) -> Result<()> {
@@ -242,23 +53,8 @@ impl Config {
     pub fn ensure_dirs(&self) -> Result<()> {
         std::fs::create_dir_all(&self.config_dir)?;
         std::fs::create_dir_all(&self.sessions_dir)?;
-        std::fs::create_dir_all(&self.intents_dir)?;
         Ok(())
     }
-}
-
-fn parse_positive<T>(name: &str, value: &str) -> Result<T>
-where
-    T: std::str::FromStr + Default + PartialEq,
-{
-    let parsed = value
-        .trim()
-        .parse::<T>()
-        .map_err(|_| AppError::Config(format!("{name} must be a positive integer")))?;
-    if parsed == T::default() {
-        return Err(AppError::Config(format!("{name} must be greater than zero")));
-    }
-    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -293,7 +89,7 @@ mod tests {
             search_min_interval_ms: Some(3000),
             ..Default::default()
         };
-        cfg.merge_file(file_cfg);
+        merge::merge_file(&mut cfg, file_cfg);
         assert_eq!(cfg.model, "gpt-4o");
         assert_eq!(cfg.provider, "openai");
         assert!(cfg.auto_approve);
@@ -331,8 +127,8 @@ mod tests {
 
     #[test]
     fn test_positive_integer_parsing() {
-        assert_eq!(parse_positive::<usize>("LIMIT", "25").unwrap(), 25);
-        assert!(parse_positive::<usize>("LIMIT", "0").is_err());
-        assert!(parse_positive::<u64>("LIMIT", "invalid").is_err());
+        assert_eq!(merge::parse_positive_for_test::<usize>("LIMIT", "25").unwrap(), 25);
+        assert!(merge::parse_positive_for_test::<usize>("LIMIT", "0").is_err());
+        assert!(merge::parse_positive_for_test::<u64>("LIMIT", "invalid").is_err());
     }
 }

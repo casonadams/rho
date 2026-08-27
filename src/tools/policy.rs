@@ -1,4 +1,3 @@
-use crate::intent::IntentProgress;
 use crate::tools::ask_user::AskUserArgs;
 use crate::tools::bash::BashArgs;
 use crate::tools::bash_ast::{RiskTier, analyze_command_safety};
@@ -44,7 +43,7 @@ impl ToolExecutionPolicy {
             "read" if valid::<ReadArgs>(arguments) => ExecutionClass::ReadOnly,
             "websearch" if valid::<SearchArgs>(arguments) => ExecutionClass::ReadOnly,
             "webfetch" if valid::<FetchArgs>(arguments) => ExecutionClass::ReadOnly,
-            "ask_user" | "ask_user_question" | "intent_progress" => ExecutionClass::ReadOnly,
+            "ask_user" | "ask_user_question" => ExecutionClass::ReadOnly,
             "write" => classify_write(arguments, working_dir),
             "edit" => classify_edit(arguments, working_dir),
             "bash" => classify_bash(arguments),
@@ -61,7 +60,6 @@ impl ToolExecutionPolicy {
             "websearch" => canonical::<SearchArgs>(arguments),
             "webfetch" => canonical::<FetchArgs>(arguments),
             "ask_user" | "ask_user_question" => canonical::<AskUserArgs>(arguments),
-            "intent_progress" => canonical::<IntentProgress>(arguments),
             _ => None,
         }
     }
@@ -191,11 +189,6 @@ mod tests {
                 true,
             ),
             ("ask_user_question", json!({"question": "which option?"}), true),
-            (
-                "intent_progress",
-                json!({"completed_outcomes": [], "verification": [], "blocked_reason": null, "complete": false}),
-                true,
-            ),
         ] {
             assert_eq!(
                 ToolExecutionPolicy::classify(name, &arguments).allows_without_approval(),

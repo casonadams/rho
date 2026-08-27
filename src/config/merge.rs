@@ -1,0 +1,137 @@
+use super::Config;
+use crate::config::cli::Cli;
+use crate::error::{AppError, Result};
+
+pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
+    if let Some(m) = file.model {
+        config.model = m;
+    }
+    if let Some(p) = file.provider {
+        config.provider = p;
+    }
+    if let Some(a) = file.auto_approve {
+        config.auto_approve = a;
+    }
+    if let Some(max_output_tokens) = file.max_output_tokens {
+        config.max_output_tokens = Some(max_output_tokens);
+    }
+    if let Some(max_turns) = file.max_turns {
+        config.max_turns = max_turns;
+    }
+    if let Some(c) = file.context_limit {
+        config.context_limit = Some(c);
+    }
+    if let Some(value) = file.context_window_messages {
+        config.context_window_messages = value;
+    }
+    if let Some(value) = file.compaction_max_bytes {
+        config.compaction_max_bytes = value;
+    }
+    if let Some(s) = file.search_min_interval_ms {
+        config.search_min_interval_ms = s;
+    }
+    if let Some(s) = file.search_timeout_sec {
+        config.search_timeout_sec = s;
+    }
+    if let Some(f) = file.fetch_timeout_sec {
+        config.fetch_timeout_sec = f;
+    }
+    if let Some(l) = file.fetch_limit {
+        config.fetch_limit = l;
+    }
+    if let Some(b) = file.fetch_max_bytes {
+        config.fetch_max_bytes = b;
+    }
+    if let Some(o) = file.output_max_bytes {
+        config.output_max_bytes = o;
+    }
+    if let Some(p) = file.allow_private_network {
+        config.allow_private_network = p;
+    }
+    if let Some(r) = file.region {
+        config.region = r;
+    }
+}
+
+pub(super) fn apply_env_overrides(config: &mut Config) -> Result<()> {
+    if let Ok(val) = std::env::var("AI_MODEL").or_else(|_| std::env::var("MODEL"))
+        && !val.trim().is_empty()
+    {
+        config.model = val.trim().to_string();
+    }
+    if let Ok(val) = std::env::var("AI_PROVIDER")
+        && !val.trim().is_empty()
+    {
+        config.provider = val.trim().to_string();
+    }
+    if let Ok(val) = std::env::var("AI_AUTO_APPROVE") {
+        config.auto_approve = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+    }
+    if let Ok(val) = std::env::var("AI_CONTEXT_LIMIT")
+        && let Ok(num) = val.trim().parse::<usize>()
+    {
+        config.context_limit = Some(num);
+    }
+    if let Ok(val) = std::env::var("AI_CONTEXT_WINDOW_MESSAGES") {
+        config.context_window_messages = parse_positive("AI_CONTEXT_WINDOW_MESSAGES", &val)?;
+    }
+    if let Ok(val) = std::env::var("AI_COMPACTION_MAX_BYTES") {
+        config.compaction_max_bytes = parse_positive("AI_COMPACTION_MAX_BYTES", &val)?;
+    }
+    if let Ok(val) = std::env::var("AI_MAX_OUTPUT_TOKENS") {
+        config.max_output_tokens = Some(parse_positive("AI_MAX_OUTPUT_TOKENS", &val)?);
+    }
+    if let Ok(val) = std::env::var("AI_MAX_TURNS") {
+        config.max_turns = parse_positive("AI_MAX_TURNS", &val)?;
+    }
+    if let Ok(val) = std::env::var("WEB_REGION") {
+        config.region = val;
+    }
+    if let Ok(val) = std::env::var("WEB_ALLOW_PRIVATE_NETWORK") {
+        config.allow_private_network = matches!(val.to_lowercase().as_str(), "1" | "true" | "yes");
+    }
+    Ok(())
+}
+
+pub(super) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
+    let Some(c) = cli else {
+        return;
+    };
+    if let Some(ref m) = c.model {
+        config.model = m.clone();
+    }
+    if let Some(ref p) = c.provider {
+        config.provider = p.clone();
+    }
+    if let Some(max_output_tokens) = c.max_output_tokens {
+        config.max_output_tokens = Some(max_output_tokens);
+    }
+    if let Some(max_turns) = c.max_turns {
+        config.max_turns = max_turns;
+    }
+    if c.auto_approve {
+        config.auto_approve = true;
+    }
+}
+
+fn parse_positive<T>(name: &str, value: &str) -> Result<T>
+where
+    T: std::str::FromStr + Default + PartialEq,
+{
+    let parsed = value
+        .trim()
+        .parse::<T>()
+        .map_err(|_| AppError::Config(format!("{name} must be a positive integer")))?;
+    if parsed == T::default() {
+        return Err(AppError::Config(format!("{name} must be greater than zero")));
+    }
+    Ok(parsed)
+}
+
+#[cfg(test)]
+pub(super) fn parse_positive_for_test<T>(name: &str, value: &str) -> Result<T>
+where
+    T: std::str::FromStr + Default + PartialEq,
+{
+    parse_positive(name, value)
+}

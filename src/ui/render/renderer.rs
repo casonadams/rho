@@ -66,26 +66,6 @@ impl TerminalRenderer {
         println!("{dim}Type your prompt or /help for slash commands.{dim:#}\n");
     }
 
-    pub fn print_unfinished_intent(&self, state: &crate::intent::IntentState) {
-        if !state.is_unfinished() {
-            return;
-        }
-        let remaining = state
-            .spec
-            .outcomes
-            .iter()
-            .filter(|outcome| !state.completed_outcomes.contains(outcome))
-            .count();
-        let dim = self.theme.dimmed;
-        if let Some(reason) = &state.blocked_reason {
-            println!("{dim}Intent blocked: {reason}{dim:#}");
-        } else if remaining > 0 {
-            println!("{dim}Intent incomplete: {remaining} outcomes remaining.{dim:#}");
-        } else {
-            println!("{dim}Intent incomplete: completion was not verified.{dim:#}");
-        }
-    }
-
     pub fn start_spinner(&self, message: &str) -> ProgressBar {
         let pb = ProgressBar::new_spinner();
         let style = ProgressStyle::default_spinner()

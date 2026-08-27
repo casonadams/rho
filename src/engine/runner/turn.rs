@@ -3,8 +3,6 @@ use crate::engine::context::ProjectContext;
 use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus};
 use crate::engine::runtime::build_runner;
 use crate::error::{AppError, Result};
-use crate::intent::model::IntentSpec;
-use crate::intent::store::{IntentHandle, NewIntent, find_for_session, workspace_id};
 use crate::session::SessionEventKind;
 use crate::session::context::context_memory;
 use crate::tools::{ApprovalCapability, ApprovalHook, RepeatedCallHook, approval_context};
@@ -32,7 +30,6 @@ pub type UsageDetails = StructuralUsage;
 #[derive(Debug)]
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
-    pub intent: Option<&'a IntentSpec>,
 }
 
 #[derive(Debug)]
@@ -48,25 +45,14 @@ pub struct TurnOutput {
 
 impl AgentEngine {
     pub async fn run_turn(&self, request: TurnRequest<'_>, renderer: &TerminalRenderer) -> Result<TurnOutput> {
-        let current_dir = std::env::current_dir()?;
-        let context = ProjectContext::discover(&current_dir).await;
+        let context = ProjectContext::discover(std::env::current_dir()?).await;
         self.session_manager
             .append_event(
                 SessionEventKind::UserMessage,
                 serde_json::json!({ "prompt": request.prompt }),
             )
             .await?;
-        let active_intent = self.prepare_intent(request.intent, &current_dir)?;
-        let mut preamble = context.build_system_prompt(None);
-        if let Some(intent) = &active_intent {
-            preamble.push_str("\n\n");
-            preamble.push_str(
-                &intent
-                    .snapshot()?
-                    .context_projection(self.config.compaction_max_bytes)?,
-            );
-            preamble.push_str("\nBefore your final response, call intent_progress. Only a successful `Intent status: Ready` result permits you to say this IntentSpec is complete. Otherwise, say it remains incomplete and list the remaining work.\n");
-        }
+        let preamble = context.build_system_prompt();
         let visible_history = context_memory(
             self.session_manager.clone(),
             self.config.context_window_messages,
@@ -92,13 +78,9 @@ impl AgentEngine {
         let mut current_prompt = request.prompt.to_string();
         let mut total_tool_calls = 0;
         let mut current_budget = self.config.max_turns;
-        let mut forced_progress = false;
 
         loop {
-            let mut tool_context = approval_context(capability.clone());
-            if let Some(intent) = &active_intent {
-                tool_context.insert(intent.clone());
-            }
+            let tool_context = approval_context(capability.clone());
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
@@ -192,17 +174,6 @@ impl AgentEngine {
                     AppError::Session("Completed continuation did not return canonical messages".to_string())
                 })?;
                 self.session_manager.promote_checkpoint(messages).await?;
-                checkpoint = None;
-            }
-            if !forced_progress
-                && let Some(intent) = &active_intent
-                && !intent.snapshot()?.progress_reported
-            {
-                forced_progress = true;
-                current_prompt = "Before finishing, call intent_progress now. Do not repeat the prior response. Report complete only if every listed outcome and verification obligation is satisfied; otherwise report the exact remaining work.".to_string();
-                current_budget = 3;
-                sink.resume_model_spinner();
-                continue;
             }
             let output = self
                 .finish_turn(TurnArtifacts {
@@ -211,42 +182,8 @@ impl AgentEngine {
                     completed_tools: sink.completed(),
                 })
                 .await?;
-            if output.status == RunStatus::Completed
-                && let Some(intent) = &active_intent
-            {
-                intent.finalize_success()?;
-            }
             return Ok(output);
         }
-    }
-
-    fn prepare_intent(&self, spec: Option<&IntentSpec>, current_dir: &std::path::Path) -> Result<Option<IntentHandle>> {
-        let Some(spec) = spec else {
-            return Ok(None);
-        };
-        if spec.status == "informational" {
-            return Ok(None);
-        }
-        let secrets = self.session_manager.secret_values();
-        if let Some(intent) = find_for_session(
-            &self.config.intents_dir,
-            &self.session_manager.session_id,
-            secrets.clone(),
-        )? && intent.snapshot()?.is_unfinished()
-        {
-            intent.amend(spec)?;
-            return Ok(Some(intent));
-        }
-        IntentHandle::create(
-            &self.config.intents_dir,
-            NewIntent {
-                spec: spec.clone(),
-                workspace: workspace_id(current_dir)?,
-                session_id: self.session_manager.session_id.clone(),
-                secrets,
-            },
-        )
-        .map(Some)
     }
 
     pub async fn record_cancellation(&self, reason: &str) -> Result<()> {

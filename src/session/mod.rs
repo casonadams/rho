@@ -1,8 +1,11 @@
 pub mod context;
 mod format;
+mod secrets;
 #[cfg(test)]
 mod tests;
 mod validation;
+
+use secrets::SecretGuard;
 
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use format::{append_record, create_session_file, load_file};
@@ -17,13 +20,23 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SessionManager {
     pub session_id: String,
     pub file_path: PathBuf,
     state: Arc<tokio::sync::Mutex<StoreState>>,
-    secrets: Arc<Mutex<Vec<String>>>,
+    secrets: Arc<SecretGuard>,
     memory_error: Arc<Mutex<Option<String>>>,
+}
+
+impl std::fmt::Debug for SessionManager {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SessionManager")
+            .field("session_id", &self.session_id)
+            .field("file_path", &self.file_path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SessionManager {
@@ -48,12 +61,12 @@ impl SessionManager {
                 }
             }
         };
-        let secrets = secrets.into_iter().filter(|secret| secret.len() >= 4).collect();
+        let secrets = Arc::new(SecretGuard::new(secrets));
         Ok(Self {
             session_id,
             file_path,
             state: Arc::new(tokio::sync::Mutex::new(state)),
-            secrets: Arc::new(Mutex::new(secrets)),
+            secrets,
             memory_error: Arc::new(Mutex::new(None)),
         })
     }
@@ -141,33 +154,12 @@ impl SessionManager {
     }
 
     pub fn add_secrets(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
-        let mut current = self
-            .secrets
-            .lock()
-            .map_err(|_| session_error("session credential guard failed"))?;
-        current.extend(secrets.into_iter().filter(|secret| secret.len() >= 4));
-        current.sort();
-        current.dedup();
         let persisted = std::fs::read_to_string(&self.file_path)?;
-        if current.iter().any(|secret| persisted.contains(secret)) {
-            return Err(session_error(
-                "session contains credential material and cannot be resumed",
-            ));
-        }
-        Ok(())
-    }
-
-    pub(crate) fn secret_values(&self) -> Vec<String> {
-        self.secrets.lock().map(|secrets| secrets.clone()).unwrap_or_default()
+        self.secrets.add(secrets, &persisted)
     }
 
     pub fn redact_credentials(&self, value: &str) -> String {
-        let Ok(secrets) = self.secrets.lock() else {
-            return "[REDACTED]".to_string();
-        };
-        secrets.iter().fold(value.to_string(), |redacted, secret| {
-            redacted.replace(secret, "[REDACTED]")
-        })
+        self.secrets.redact(value)
     }
 
     pub fn list_sessions(sessions_dir: &Path) -> Result<Vec<String>> {
@@ -241,15 +233,7 @@ impl SessionManager {
     }
 
     fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {
-        let encoded = serde_json::to_string(value).map_err(|_| session_error("session record serialization failed"))?;
-        let secrets = self
-            .secrets
-            .lock()
-            .map_err(|_| session_error("session credential guard failed"))?;
-        if secrets.iter().any(|secret| encoded.contains(secret)) {
-            return Err(session_error("session record contains credential material"));
-        }
-        Ok(())
+        self.secrets.reject_in(value)
     }
 
     fn remember_memory_error(&self, error: &AppError) {

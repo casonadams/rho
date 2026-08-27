@@ -62,8 +62,6 @@ A successful continuation persists the exact canonical messages returned by Rig 
 - A later prompt in the same REPL continues with prior successful history.
 - `--resume SESSION_ID` reopens successful canonical history and any pending budget checkpoint.
 - `/clear` creates a fresh v2 session. It does not delete the previous session or its audit history.
-- Task-oriented prompts create private runtime IntentSpecs automatically; repository design-spec files are not required.
-- Interactive startup offers unfinished intents for the current workspace. Continue resumes immediately, Mark complete accepts the work as finished, Not now leaves it untouched, and Abandon archives it without deleting history.
 - Ctrl+C cancels the active operation, records a terminal cancellation, and does not persist partial assistant content or dangling tool calls. Bash child cleanup remains active.
 - A model-call budget exhaustion is not a successful turn. Rig's complete, validated `MaxTurnsError` history is stored as a separate run checkpoint, not appended to canonical memory.
 - The next explicit prompt receives a pending checkpoint exactly once. Checkpoint history plus the new Rig messages is promoted atomically only after that continuation succeeds. A failed or cancelled continuation leaves the checkpoint available for another restart or `--resume`.
@@ -80,7 +78,7 @@ Three identical consecutive calls are blocked before the third operation execute
 
 Normalized usage is shown and recorded when the provider reports it. If unavailable, rust-ai reports that it is unavailable rather than estimating tokens from characters. A provider-default output limit is used unless `max_output_tokens`, `AI_MAX_OUTPUT_TOKENS`, or `--max-output-tokens` is set. Every run has a finite `max_turns` budget, configurable in `config.toml`, with `AI_MAX_TURNS`, or with `--max-turns`.
 
-Durable canonical history and audit records are not the same as model-visible context. The full valid v2 history remains on disk and resumable. Intent event files are separate from session v2 files, and only the selected active intent is supplied to the model. Windowing and compaction only reduce what is supplied to the model:
+Durable canonical history and audit records are not the same as model-visible context. The full valid v2 history remains on disk and resumable. Windowing and compaction only reduce what is supplied to the model:
 
 - model-visible sliding window: 24 messages
 - bounded compaction artifact: 8 KiB

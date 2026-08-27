@@ -28,7 +28,6 @@ impl EvalHarness {
             .run_turn(
                 TurnRequest {
                     prompt: scenario.prompt,
-                    intent: None,
                 },
                 &TerminalRenderer::default(),
             )
