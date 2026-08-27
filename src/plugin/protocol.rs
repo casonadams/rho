@@ -1,8 +1,8 @@
 use crate::plugin::capability::{CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION};
 use crate::plugin::contract::{
-    AuthenticationRequest, AuthenticationResponse, CommandInvocationRequest, CommandInvocationResponse, LifecycleEvent,
-    PermissionDecision, ProviderRequest, ProviderStreamEvent, RequestedOperation, SkillAsset, ToolInvocationRequest,
-    ToolInvocationResponse,
+    AuthenticationRequest, AuthenticationResponse, CapabilityDescriptor, CommandInvocationRequest,
+    CommandInvocationResponse, LifecycleEvent, PermissionDecision, ProviderRequest, ProviderStreamEvent,
+    RequestedOperation, SkillAsset, ToolInvocationRequest, ToolInvocationResponse,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -133,8 +133,13 @@ pub enum StreamEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "response", rename_all = "snake_case")]
 pub enum TerminalResult {
-    Handshake { selected_version: u32 },
-    Discovery { manifest: CapabilityManifest },
+    Handshake {
+        selected_version: u32,
+    },
+    Discovery {
+        manifest: CapabilityManifest,
+        capabilities: Vec<CapabilityDescriptor>,
+    },
     ProviderAuthenticated(AuthenticationResponse),
     Tool(ToolInvocationResponse),
     Permission(PermissionDecision),

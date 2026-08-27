@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt::{Debug, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderDescriptor {
@@ -62,10 +63,20 @@ pub enum AuthenticationOperation {
     Logout,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScopedCredential {
     pub kind: String,
     pub value: Value,
+}
+
+impl Debug for ScopedCredential {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ScopedCredential")
+            .field("kind", &self.kind)
+            .field("value", &"[REDACTED]")
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -369,6 +380,44 @@ pub trait SkillCapability: Send + Sync {
     async fn assets(&self) -> Result<Vec<SkillAsset>, CapabilityError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "descriptor", rename_all = "snake_case")]
+pub enum CapabilityDescriptor {
+    Provider(ProviderDescriptor),
+    Tool(ToolDescriptor),
+    Permission { id: CapabilityId },
+    Command(CommandDescriptor),
+    Lifecycle { id: CapabilityId },
+    Skill { id: CapabilityId },
+}
+
+impl CapabilityDescriptor {
+    pub fn id(&self) -> &CapabilityId {
+        match self {
+            Self::Provider(descriptor) => &descriptor.id,
+            Self::Tool(descriptor) => &descriptor.id,
+            Self::Permission { id } | Self::Lifecycle { id } | Self::Skill { id } => id,
+            Self::Command(descriptor) => &descriptor.id,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), ContractValidationError> {
+        match self {
+            Self::Provider(descriptor) => descriptor.validate(),
+            Self::Tool(descriptor) => {
+                descriptor.validate()?;
+                crate::plugin::schema::CompiledSchema::compile(&descriptor.argument_schema)
+                    .map(|_| ())
+                    .map_err(|_| ContractValidationError::InvalidToolSchema)
+            }
+            Self::Permission { id } => id.require_kind(CapabilityKind::Permission).map_err(Into::into),
+            Self::Command(descriptor) => descriptor.validate(),
+            Self::Lifecycle { id } => id.require_kind(CapabilityKind::Lifecycle).map_err(Into::into),
+            Self::Skill { id } => id.require_kind(CapabilityKind::Skill).map_err(Into::into),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ContractValidationError {
     #[error(transparent)]
@@ -379,6 +428,8 @@ pub enum ContractValidationError {
     DuplicateModel(String),
     #[error("operation effects must be sorted and unique")]
     EffectsNotNormalized,
+    #[error("tool argument schema is invalid or unsupported")]
+    InvalidToolSchema,
 }
 
 fn require_text(field: &'static str, value: &str) -> Result<(), ContractValidationError> {
@@ -566,6 +617,25 @@ mod tests {
         };
         assert_eq!(operation.validate(), Err(ContractValidationError::EffectsNotNormalized));
         operation.normalize().unwrap().validate().unwrap();
+    }
+
+    #[test]
+    fn credential_debug_output_is_redacted() {
+        let secret = "credential-value";
+        let credential = ScopedCredential {
+            kind: "oauth".to_string(),
+            value: serde_json::json!({"access_token": secret}),
+        };
+        let request = ProviderRequest {
+            model: "fixture".to_string(),
+            messages: Vec::new(),
+            credential: Some(credential),
+            max_output_tokens: None,
+            tools: Vec::new(),
+        };
+        let output = format!("{request:?}");
+        assert!(!output.contains(secret));
+        assert!(output.contains("[REDACTED]"));
     }
 
     #[test]

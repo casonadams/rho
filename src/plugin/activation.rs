@@ -1,17 +1,10 @@
 use crate::config::{Config, PluginConfig};
 use crate::error::{AppError, Result};
-use crate::plugin::capability::{CapabilityId, PLUGIN_PROTOCOL_VERSION, ValidatedManifest};
-use crate::plugin::protocol::{
-    Envelope, MAX_PROTOCOL_LINE_BYTES, ProtocolMessage, RequestId, TerminalResult, decode_line, encode_line,
-};
+use crate::plugin::capability::{CapabilityId, ValidatedManifest};
+use crate::plugin::process::{PluginProcessClient, ProcessLimits};
 use async_trait::async_trait;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::Duration;
-use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader};
-
-const VALIDATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub trait CargoRunner: Send + Sync {
     fn install(&self, package: &str) -> Result<()>;
@@ -261,124 +254,22 @@ fn executable_is_runnable(path: &Path) -> bool {
 }
 
 pub async fn validate_executable(executable: &Path) -> Result<ValidatedManifest> {
-    let mut child = tokio::process::Command::new(executable)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| AppError::Plugin(format!("Failed to start configured plugin: {error}")))?;
-    let mut input = child
-        .stdin
-        .take()
-        .ok_or_else(|| AppError::Plugin("Configured plugin stdin is unavailable".to_string()))?;
-    let output = child
-        .stdout
-        .take()
-        .ok_or_else(|| AppError::Plugin("Configured plugin stdout is unavailable".to_string()))?;
-    let mut output = BufReader::new(output);
-
-    let validation = tokio::time::timeout(VALIDATION_TIMEOUT, async {
-        let handshake_id = RequestId::new("install-handshake").map_err(protocol_error)?;
-        let handshake = exchange(
-            &mut input,
-            &mut output,
-            Envelope::new(
-                handshake_id,
-                ProtocolMessage::HandshakeRequest {
-                    supported_versions: vec![PLUGIN_PROTOCOL_VERSION],
-                },
-            ),
-        )
-        .await?;
-        match handshake.message {
-            ProtocolMessage::TerminalResponse {
-                result: TerminalResult::Handshake { selected_version },
-            } if selected_version == PLUGIN_PROTOCOL_VERSION => {}
-            _ => return Err(AppError::Plugin("Configured plugin handshake was invalid".to_string())),
-        }
-
-        let discovery_id = RequestId::new("install-discovery").map_err(protocol_error)?;
-        let discovery = exchange(
-            &mut input,
-            &mut output,
-            Envelope::new(discovery_id, ProtocolMessage::DiscoveryRequest),
-        )
-        .await?;
-        let ProtocolMessage::TerminalResponse {
-            result: TerminalResult::Discovery { manifest },
-        } = discovery.message
-        else {
-            return Err(AppError::Plugin(
-                "Configured plugin discovery response was invalid".to_string(),
-            ));
-        };
-        manifest
-            .validate()
-            .map_err(|_| AppError::Plugin("Configured plugin manifest was invalid".to_string()))
-    })
-    .await;
-
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-    validation.map_err(|_| AppError::Plugin("Configured plugin validation timed out".to_string()))?
-}
-
-async fn exchange(
-    input: &mut tokio::process::ChildStdin,
-    output: &mut BufReader<tokio::process::ChildStdout>,
-    request: Envelope,
-) -> Result<Envelope> {
-    let expected_id = request.request_id.clone();
-    input.write_all(&encode_line(&request).map_err(protocol_error)?).await?;
-    input.flush().await?;
-    let line = read_bounded_line(output).await?;
-    if line.is_empty() {
-        return Err(AppError::Plugin(
-            "Configured plugin returned an invalid response size".to_string(),
-        ));
-    }
-    let response = decode_line(&line).map_err(protocol_error)?;
-    if response.request_id != expected_id {
-        return Err(AppError::Plugin(
-            "Configured plugin response correlation failed".to_string(),
-        ));
-    }
-    Ok(response)
-}
-
-async fn read_bounded_line<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
-    let mut line = Vec::new();
-    loop {
-        let buffer = reader.fill_buf().await?;
-        if buffer.is_empty() {
-            return Ok(line);
-        }
-        let consumed = buffer
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .map_or(buffer.len(), |index| index + 1);
-        if line.len() + consumed > MAX_PROTOCOL_LINE_BYTES + 1 {
-            return Err(AppError::Plugin(
-                "Configured plugin returned an invalid response size".to_string(),
-            ));
-        }
-        line.extend_from_slice(&buffer[..consumed]);
-        reader.consume(consumed);
-        if line.last() == Some(&b'\n') {
-            return Ok(line);
-        }
-    }
-}
-
-fn protocol_error(error: impl std::fmt::Display) -> AppError {
-    AppError::Plugin(format!("Configured plugin protocol validation failed: {error}"))
+    let discovery = PluginProcessClient::new(executable, ProcessLimits::default())
+        .discover()
+        .await
+        .map_err(|error| AppError::Plugin(error.to_string()))?;
+    discovery
+        .validate_strict()
+        .map_err(|error| AppError::Plugin(error.to_string()))?;
+    Ok(discovery.manifest)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::capability::{CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest, PluginId};
+    use crate::plugin::capability::{
+        CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest, PLUGIN_PROTOCOL_VERSION, PluginId,
+    };
     use std::sync::Mutex;
 
     fn manifest(replacement: Option<&str>) -> ValidatedManifest {
@@ -590,14 +481,6 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[tokio::test]
-    async fn protocol_validation_reader_rejects_oversized_lines_before_parsing() {
-        let bytes = vec![b'x'; MAX_PROTOCOL_LINE_BYTES + 2];
-        let mut reader = BufReader::new(bytes.as_slice());
-        let error = read_bounded_line(&mut reader).await.unwrap_err().to_string();
-        assert!(error.contains("invalid response size"));
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn protocol_validator_negotiates_and_discovers_manifest() {
@@ -616,7 +499,7 @@ mod tests {
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\nread first\nprintf '%s\\n' '{{\"protocol_version\":1,\"request_id\":\"install-handshake\",\"type\":\"terminal_response\",\"result\":{{\"kind\":\"handshake\",\"response\":{{\"selected_version\":1}}}}}}'\nread second\nprintf '%s\\n' '{{\"protocol_version\":1,\"request_id\":\"install-discovery\",\"type\":\"terminal_response\",\"result\":{{\"kind\":\"discovery\",\"response\":{{\"manifest\":{manifest}}}}}}}'\n"
+                "#!/bin/sh\nread first\nfirst_id=$(printf '%s' \"$first\" | sed -E 's/.*\"request_id\":\"([^\"]+)\".*/\\1/')\nprintf '{{\"protocol_version\":1,\"request_id\":\"%s\",\"type\":\"terminal_response\",\"result\":{{\"kind\":\"handshake\",\"response\":{{\"selected_version\":1}}}}}}\\n' \"$first_id\"\nread second\nsecond_id=$(printf '%s' \"$second\" | sed -E 's/.*\"request_id\":\"([^\"]+)\".*/\\1/')\nprintf '{{\"protocol_version\":1,\"request_id\":\"%s\",\"type\":\"terminal_response\",\"result\":{{\"kind\":\"discovery\",\"response\":{{\"manifest\":{manifest},\"capabilities\":[]}}}}}}\\n' \"$second_id\"\n"
             ),
         )
         .unwrap();

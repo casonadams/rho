@@ -36,6 +36,24 @@ rho plugin inspect tool:bash
 
 Replacement requires both plugin metadata and the matching `--replace` authorization. Built-ins remain active when a plugin is missing, invalid, conflicting, or lacks replacement authorization.
 
+## Protocol example
+
+[`examples/capability_plugin.rs`](../examples/capability_plugin.rs) is a standalone protocol-v1 subprocess plugin with provider, tool, permission, command, lifecycle, and skill capabilities. It uses no network or credentials.
+
+Build and configure it explicitly for local development:
+
+```bash
+cargo build --example capability_plugin
+```
+
+```toml
+[plugins.fixture]
+path = "../../target/debug/examples/capability_plugin"
+replaces = []
+```
+
+The path is resolved relative to `config.toml`. Rho starts the executable only after it appears in `[plugins]`.
+
 ## Legacy in-process extensions
 
 The existing in-process extension API remains available during the capability migration. Legacy manifests are informational and do not authorize an external executable.
