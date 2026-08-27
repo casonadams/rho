@@ -2,7 +2,7 @@ pub mod cli;
 mod merge;
 mod types;
 
-pub use types::{Config, default_config_dir};
+pub use types::{Config, PluginConfig, default_config_dir};
 
 use crate::error::{AppError, Result};
 
@@ -48,6 +48,16 @@ impl Config {
             return Err(AppError::Config(
                 "compaction_max_bytes must be greater than zero".to_string(),
             ));
+        }
+        for (name, plugin) in &self.plugins {
+            name.parse::<crate::plugin::capability::PluginId>()
+                .map_err(|error| AppError::Config(error.to_string()))?;
+            if plugin.path.as_os_str().is_empty() {
+                return Err(AppError::Config(format!("plugin '{name}' path must not be empty")));
+            }
+            if plugin.package.as_ref().is_some_and(|package| package.trim().is_empty()) {
+                return Err(AppError::Config(format!("plugin '{name}' package must not be empty")));
+            }
         }
         Ok(())
     }
@@ -97,16 +107,55 @@ impl Config {
             ConfigKey::Region => file_config.region = Some(value.to_string()),
         }
 
-        let serialized = toml::to_string_pretty(&file_config)
-            .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
-        let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
-        std::fs::write(&temporary, serialized)?;
-        if let Err(error) = std::fs::rename(&temporary, &path) {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(error.into());
-        }
-        Ok(())
+        write_file_config(&path, &file_config)
     }
+
+    pub fn add_plugin(config_dir: &std::path::Path, name: &str, plugin: PluginConfig) -> Result<()> {
+        name.parse::<crate::plugin::capability::PluginId>()
+            .map_err(|error| AppError::Config(error.to_string()))?;
+        if plugin.path.as_os_str().is_empty() {
+            return Err(AppError::Config("plugin path must not be empty".to_string()));
+        }
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config(&path)?;
+        file_config.plugins.insert(name.to_string(), plugin);
+        write_file_config(&path, &file_config)
+    }
+
+    pub fn remove_plugin(config_dir: &std::path::Path, name: &str) -> Result<PluginConfig> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config(&path)?;
+        let plugin = file_config
+            .plugins
+            .remove(name)
+            .ok_or_else(|| AppError::Config(format!("plugin '{name}' is not configured")))?;
+        write_file_config(&path, &file_config)?;
+        Ok(plugin)
+    }
+}
+
+fn read_file_config(path: &std::path::Path) -> Result<FileConfig> {
+    if !path.exists() {
+        return Ok(FileConfig::default());
+    }
+    let content = std::fs::read_to_string(path)
+        .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
+    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+}
+
+fn write_file_config(path: &std::path::Path, file_config: &FileConfig) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let serialized = toml::to_string_pretty(file_config)
+        .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
+    let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
+    std::fs::write(&temporary, serialized)?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn parse_bool(key: &str, value: &str) -> Result<bool> {
@@ -150,6 +199,39 @@ mod tests {
     }
 
     #[test]
+    fn plugin_entries_round_trip_and_are_removed_atomically() {
+        let dir = std::env::temp_dir().join(format!("rho_plugin_config_{}", uuid::Uuid::new_v4()));
+        let plugin = PluginConfig {
+            path: std::path::PathBuf::from("plugins/fixture"),
+            package: Some("rho-plugin-fixture".to_string()),
+            replaces: ["tool:bash".parse().unwrap()].into_iter().collect(),
+        };
+        Config::add_plugin(&dir, "fixture", plugin.clone()).unwrap();
+        let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+        let parsed: FileConfig = toml::from_str(&content).unwrap();
+        assert_eq!(parsed.plugins.get("fixture"), Some(&plugin));
+        assert_eq!(Config::remove_plugin(&dir, "fixture").unwrap(), plugin);
+        let parsed: FileConfig = toml::from_str(&std::fs::read_to_string(dir.join("config.toml")).unwrap()).unwrap();
+        assert!(parsed.plugins.is_empty());
+        assert!(Config::remove_plugin(&dir, "fixture").is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_invalid_plugin_configuration() {
+        let mut config = Config::default();
+        config.plugins.insert(
+            "Invalid Name".to_string(),
+            PluginConfig {
+                path: "plugin".into(),
+                package: None,
+                replaces: Default::default(),
+            },
+        );
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
     fn test_default_config() {
         let cfg = Config::default();
         assert!(!cfg.model.is_empty());
@@ -160,6 +242,7 @@ mod tests {
         assert_eq!(cfg.context_window_messages, 24);
         assert_eq!(cfg.compaction_max_bytes, 8192);
         assert!(!cfg.allow_private_network);
+        assert!(cfg.plugins.is_empty());
     }
 
     #[test]

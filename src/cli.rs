@@ -62,42 +62,51 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 let cwd = std::env::current_dir().ok();
                 match action.unwrap_or(crate::config::cli::PluginCommands::List) {
                     crate::config::cli::PluginCommands::List => {
-                        let discovery = crate::plugin::PluginLoader::discover(&config.config_dir, cwd.as_deref())?;
-                        println!("Discovered plugins:");
-                        if discovery.manifests.is_empty() && discovery.binary_plugins.is_empty() {
-                            println!(
-                                "  (No plugins found in {}/plugins or .rho/plugins)",
-                                config.config_dir.display()
-                            );
+                        let inspection = crate::plugin::inspection::inspect(&config, cwd.as_deref()).await?;
+                        print!("{}", inspection.render());
+                    }
+                    crate::config::cli::PluginCommands::Inspect { capability } => {
+                        let inspection = crate::plugin::inspection::inspect(&config, cwd.as_deref()).await?;
+                        if let Some(capability) = capability {
+                            let capability = capability.parse::<crate::plugin::capability::CapabilityId>()?;
+                            print!("{}", inspection.render_capability(&capability));
                         } else {
-                            for (path, manifest) in &discovery.manifests {
-                                println!("  - {} v{} ({})", manifest.name, manifest.version, path.display());
-                                if let Some(desc) = &manifest.description {
-                                    println!("      {desc}");
-                                }
-                            }
-                            for bin in &discovery.binary_plugins {
-                                println!("  - [binary] {}", bin.display());
-                            }
+                            print!("{}", inspection.render());
                         }
                     }
-                    crate::config::cli::PluginCommands::Install { package } => {
-                        println!("Installing plugin via cargo: {package}...");
-                        let status = std::process::Command::new("cargo")
-                            .arg("install")
-                            .arg(&package)
-                            .status();
-                        match status {
-                            Ok(code) if code.success() => {
-                                println!("Successfully installed {package}");
-                            }
-                            Ok(code) => {
-                                eprintln!("cargo install exited with status {code}");
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to run cargo install: {e}");
-                            }
-                        }
+                    crate::config::cli::PluginCommands::Install { package, replaces } => {
+                        let replacements = parse_replacements(replaces)?;
+                        println!(
+                            "Configured plugins are trusted executables and are not OS-sandboxed; installing {package}"
+                        );
+                        let manager = crate::plugin::activation::PluginManager::new(
+                            crate::plugin::activation::PluginManagerPaths {
+                                config_dir: config.config_dir.clone(),
+                                cargo_bin: crate::plugin::activation::default_cargo_bin()?,
+                            },
+                            crate::plugin::activation::SystemCargo,
+                            crate::plugin::activation::ProtocolPluginValidator,
+                        );
+                        let installed = manager.install(&package, replacements).await?;
+                        println!(
+                            "Installed and configured {} at {}",
+                            installed.name,
+                            installed.executable.display()
+                        );
+                    }
+                    crate::config::cli::PluginCommands::Remove { name } => {
+                        let cargo_bin = crate::plugin::activation::default_cargo_bin()
+                            .unwrap_or_else(|_| config.config_dir.join("cargo-bin"));
+                        let manager = crate::plugin::activation::PluginManager::new(
+                            crate::plugin::activation::PluginManagerPaths {
+                                config_dir: config.config_dir.clone(),
+                                cargo_bin,
+                            },
+                            crate::plugin::activation::SystemCargo,
+                            crate::plugin::activation::ProtocolPluginValidator,
+                        );
+                        let removed = manager.remove(&name)?;
+                        println!("Removed plugin declaration for {}", removed.name);
                     }
                 }
                 return Ok(());
@@ -208,8 +217,29 @@ fn select_provider(requested: Option<&str>, configured: &str) -> Result<Provider
     ProviderId::from_str(requested.unwrap_or(configured))
 }
 
+fn parse_replacements(
+    replacements: Vec<String>,
+) -> std::result::Result<
+    std::collections::BTreeSet<crate::plugin::capability::CapabilityId>,
+    crate::plugin::capability::CapabilityValidationError,
+> {
+    replacements.into_iter().map(|value| value.parse()).collect()
+}
+
 fn atty_check() -> bool {
     crossterm::tty::IsTty::is_tty(&std::io::stdin())
+}
+
+#[cfg(test)]
+mod plugin_tests {
+    use super::*;
+
+    #[test]
+    fn replacement_flags_are_validated_and_deduplicated() {
+        let replacements = parse_replacements(vec!["tool:bash".to_string(), "tool:bash".to_string()]).unwrap();
+        assert_eq!(replacements.len(), 1);
+        assert!(parse_replacements(vec!["not-a-capability".to_string()]).is_err());
+    }
 }
 
 #[cfg(test)]

@@ -130,25 +130,8 @@ impl SlashCommandHandler {
             }
             "plugin" | "plugins" => {
                 let cwd = std::env::current_dir().ok();
-                let discovery = crate::plugin::PluginLoader::discover(&ctx.config.config_dir, cwd.as_deref())?;
-                let mut output = "Discovered plugins:\n".to_string();
-                if discovery.manifests.is_empty() && discovery.binary_plugins.is_empty() {
-                    output.push_str("  (No plugins found in ~/.cargo/bin, $PATH, or plugin directories)\n");
-                } else {
-                    for (path, manifest) in &discovery.manifests {
-                        let _ = writeln!(
-                            output,
-                            "  - {} v{} ({})",
-                            manifest.name,
-                            manifest.version,
-                            path.display()
-                        );
-                    }
-                    for binary in &discovery.binary_plugins {
-                        let _ = writeln!(output, "  - [binary] {}", binary.display());
-                    }
-                }
-                ctx.renderer.write_output(&output);
+                let inspection = crate::plugin::inspection::inspect(ctx.config, cwd.as_deref()).await?;
+                ctx.renderer.write_output(&inspection.render());
                 Ok(Some(CommandResult::Continue))
             }
             "login" => Ok(Some(CommandResult::Login {

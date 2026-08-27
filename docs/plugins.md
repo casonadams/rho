@@ -2,57 +2,43 @@
 
 `rho` features an extensible plugin and lifecycle hook system that integrates native Rust binaries, crates.io packages, and manifest-based plugins.
 
-## Discovery Locations
+## Activation and discovery
 
-When `rho` starts or when you run `rho plugin list`, `PluginLoader` discovers plugins across the following locations:
-
-1. **`~/.cargo/bin/`** — Standard Cargo binary install directory.
-2. **`$PATH`** — All directories in the system environment path.
-3. **`~/.config/rho/plugins/`** — Global plugin directory and manifests.
-4. **`.rho/plugins/`** — Project-local plugins and manifests.
-
----
-
-## Cargo & Crates.io Plugins
-
-You can author standalone plugin crates in Rust and publish them to [crates.io](https://crates.io).
-
-### 1. Binary Naming Conventions
-Any binary matching either naming convention is automatically recognized:
-- `rho-plugin-<name>` (e.g. `rho-plugin-review`, `rho-plugin-git`)
-- `rho-<name>` (e.g. `rho-review`, `rho-git`)
-
-### 2. Installing Plugins
-Install crates from crates.io directly with Cargo or via `rho`:
-
-```bash
-# Using cargo
-cargo install rho-plugin-review
-
-# Using rho CLI
-rho plugin install rho-plugin-review
-
-# Inspect discovered plugins
-rho plugin list
-```
-
----
-
-## Manifest-Based Plugins
-
-Plugins can also be placed in dedicated folders under `~/.config/rho/plugins/<plugin-name>/` or `.rho/plugins/<plugin-name>/` with a `plugin.toml` manifest:
+`~/.config/rho/config.toml` is the only activation source for external executable plugins. A declaration may use an absolute path or a path relative to `config.toml`:
 
 ```toml
-name = "git-enhancements"
-version = "0.1.0"
-description = "Git status and checkpointing tools for rho"
-author = "Your Name"
-binary = "rho-plugin-git"
+[plugins.container-bash]
+path = "/opt/rho/rho-plugin-container-bash"
+replaces = ["tool:bash"]
+
+[plugins.review]
+path = "plugins/rho-plugin-review"
+replaces = []
 ```
 
----
+A configured executable is trusted to run with the user's OS permissions. Plugin processes are not OS-sandboxed. Do not configure an executable unless you trust its code and installation path.
 
-## Lifecycle Hooks & Extension Trait
+`rho plugin list` may also discover matching binaries in Cargo's bin directory, `PATH`, `~/.config/rho/plugins/`, and `.rho/plugins/`. Discovery is informational only: an undeclared binary is reported as unconfigured and is never started or allowed to contribute capabilities.
+
+## Cargo installation and removal
+
+A Cargo package must install a `rho-plugin-<name>` or `rho-<name>` executable. Installation is explicit and requires a local Cargo toolchain:
+
+```bash
+rho plugin install rho-plugin-review
+rho plugin install rho-plugin-container-bash --replace tool:bash
+rho plugin remove review
+rho plugin list
+rho plugin inspect tool:bash
+```
+
+`rho plugin install` runs Cargo, validates protocol-v1 discovery, and atomically writes the executable path, package metadata, and explicitly authorized replacements to `config.toml`. Validation failure leaves configuration unchanged and attempts to uninstall a newly installed package. `rho plugin remove` removes configuration before running Cargo uninstall. Removing a local-path declaration does not delete its executable.
+
+Replacement requires both plugin metadata and the matching `--replace` authorization. Built-ins remain active when a plugin is missing, invalid, conflicting, or lacks replacement authorization.
+
+## Legacy in-process extensions
+
+The existing in-process extension API remains available during the capability migration. Legacy manifests are informational and do not authorize an external executable.
 
 Internal capabilities and external plugin adapters implement the `Extension` lifecycle trait:
 

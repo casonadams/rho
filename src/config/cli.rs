@@ -74,10 +74,23 @@ pub enum Commands {
 pub enum PluginCommands {
     /// List installed and discovered plugins
     List,
-    /// Install a plugin via cargo (e.g. `rho plugin install rho-plugin-foo`)
+    /// Install and validate a plugin via Cargo
     Install {
-        /// Package name or path to install
+        /// Crates.io package name to install
         package: String,
+        /// Explicitly authorize replacement of a capability identifier
+        #[arg(long = "replace")]
+        replaces: Vec<String>,
+    },
+    /// Remove a configured plugin and uninstall its Cargo package when applicable
+    Remove {
+        /// Configured plugin name
+        name: String,
+    },
+    /// Inspect active capability implementations and origins
+    Inspect {
+        /// Optional capability identifier, such as tool:bash
+        capability: Option<String>,
     },
 }
 
@@ -120,7 +133,40 @@ mod tests {
             cli.command,
             Some(Commands::Plugin {
                 action: Some(PluginCommands::Install {
-                    package: "rho-plugin-git".to_string()
+                    package: "rho-plugin-git".to_string(),
+                    replaces: Vec::new()
+                })
+            })
+        );
+
+        let cli =
+            Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", "--replace", "tool:bash"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::Install {
+                    package: "rho-plugin-shell".to_string(),
+                    replaces: vec!["tool:bash".to_string()]
+                })
+            })
+        );
+
+        let cli = Cli::try_parse_from(["rho", "plugin", "remove", "git"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::Remove {
+                    name: "git".to_string()
+                })
+            })
+        );
+
+        let cli = Cli::try_parse_from(["rho", "plugin", "inspect", "tool:bash"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::Inspect {
+                    capability: Some("tool:bash".to_string())
                 })
             })
         );

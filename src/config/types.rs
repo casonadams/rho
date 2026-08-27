@@ -1,4 +1,6 @@
+use crate::plugin::capability::CapabilityId;
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::str::FromStr;
 
@@ -71,6 +73,15 @@ impl ConfigKey {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PluginConfig {
+    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub replaces: BTreeSet<CapabilityId>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub model: String,
@@ -89,6 +100,7 @@ pub struct Config {
     pub output_max_bytes: usize,
     pub allow_private_network: bool,
     pub region: String,
+    pub plugins: BTreeMap<String, PluginConfig>,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub auth_file: PathBuf,
@@ -114,6 +126,7 @@ impl Default for Config {
             output_max_bytes: 50_000,
             allow_private_network: false,
             region: "wt-wt".to_string(),
+            plugins: BTreeMap::new(),
             sessions_dir: base_dir.join("sessions"),
             auth_file: base_dir.join("auth.json"),
             config_dir: base_dir,
@@ -139,6 +152,8 @@ pub(super) struct FileConfig {
     pub output_max_bytes: Option<usize>,
     pub allow_private_network: Option<bool>,
     pub region: Option<String>,
+    #[serde(default)]
+    pub plugins: BTreeMap<String, PluginConfig>,
 }
 
 pub fn default_config_dir() -> PathBuf {

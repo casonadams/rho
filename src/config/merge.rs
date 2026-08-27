@@ -51,6 +51,7 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(r) = file.region {
         config.region = r;
     }
+    config.plugins = file.plugins;
 }
 
 pub(super) fn apply_env_overrides(config: &mut Config) -> Result<()> {
