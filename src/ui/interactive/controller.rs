@@ -103,14 +103,9 @@ impl TerminalController<CrosstermBackend> {
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn new(mut backend: B, state: InteractiveState) -> io::Result<Self> {
         backend.set_raw_mode(true)?;
-        if let Err(error) = backend.hide_cursor() {
-            let _ = backend.set_raw_mode(false);
-            return Err(error);
-        }
         let width = match backend.size() {
             Ok((width, _)) => usize::from(width),
             Err(error) => {
-                let _ = backend.show_cursor();
                 let _ = backend.set_raw_mode(false);
                 return Err(error);
             }
@@ -138,6 +133,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn redraw(&mut self) -> io::Result<()> {
+        self.backend.hide_cursor()?;
         self.erase_live_region()?;
         let rendered = layout(LayoutInput {
             editor: self.state.editor(),
@@ -147,10 +143,12 @@ impl<B: TerminalBackend> TerminalController<B> {
         });
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
+        self.backend.show_cursor()?;
         self.backend.flush()
     }
 
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
+        self.backend.hide_cursor()?;
         self.erase_live_region()?;
         let output = terminal_newlines(output);
         self.backend.write_text(&output)?;
@@ -165,6 +163,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         });
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
+        self.backend.show_cursor()?;
         self.backend.flush()
     }
 
@@ -203,16 +202,19 @@ impl<B: TerminalBackend> TerminalController<B> {
         let Some(rendered) = self.rendered.as_ref() else {
             return Ok(());
         };
+        let height = rendered.height();
         let cursor_row = rendered.cursor.row + 1;
-        self.backend.move_down(rendered.height() - 1 - cursor_row)?;
+        self.backend.move_down(height - 1 - cursor_row)?;
         self.backend.move_to_column(0)?;
-        for row in (0..rendered.height()).rev() {
+        for row in (0..height).rev() {
             self.backend.clear_line()?;
             if row > 0 {
                 self.backend.move_up(1)?;
             }
         }
-        self.backend.move_to_column(0)
+        self.backend.move_to_column(0)?;
+        self.rendered = None;
+        Ok(())
     }
 
     fn restore(&mut self) {
@@ -271,14 +273,17 @@ mod tests {
         Flush,
     }
 
+    type SharedOperations = Rc<RefCell<Vec<Operation>>>;
+    type SharedWidth = Rc<Cell<u16>>;
+
     struct FakeTerminal {
-        operations: Rc<RefCell<Vec<Operation>>>,
-        width: Rc<Cell<u16>>,
+        operations: SharedOperations,
+        width: SharedWidth,
         fail_write: bool,
     }
 
     impl FakeTerminal {
-        fn new(width: u16) -> (Self, Rc<RefCell<Vec<Operation>>>, Rc<Cell<u16>>) {
+        fn new(width: u16) -> (Self, SharedOperations, SharedWidth) {
             let operations = Rc::new(RefCell::new(Vec::new()));
             let width = Rc::new(Cell::new(width));
             (
@@ -350,6 +355,25 @@ mod tests {
     }
 
     #[test]
+    fn construction_positions_and_shows_the_editor_cursor() {
+        let (backend, operations, _) = FakeTerminal::new(10);
+
+        let _controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+        let operations = operations.borrow();
+        let show_index = operations
+            .iter()
+            .rposition(|operation| operation == &Operation::Show)
+            .unwrap();
+        let flush_index = operations
+            .iter()
+            .rposition(|operation| operation == &Operation::Flush)
+            .unwrap();
+        assert!(operations[..show_index].contains(&Operation::Hide));
+        assert!(show_index < flush_index);
+    }
+
+    #[test]
     fn output_erases_then_writes_then_redraws_with_one_flush() {
         let (backend, operations, _) = FakeTerminal::new(10);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
@@ -400,6 +424,20 @@ mod tests {
             .position(|operation| operation == &Operation::Write("----".into()))
             .unwrap();
         assert!(clear_index < divider_index);
+    }
+
+    #[test]
+    fn tick_redraws_the_live_region() {
+        let (backend, operations, _) = FakeTerminal::new(8);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.tick().unwrap();
+
+        let operations = operations.borrow();
+        assert!(operations.contains(&Operation::Clear));
+        assert!(operations.contains(&Operation::Write("--------".into())));
+        assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
     }
 
     #[test]
