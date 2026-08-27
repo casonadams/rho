@@ -24,6 +24,7 @@ pub struct InteractionPrompt {
     pub title: String,
     pub body: String,
     pub options: Vec<InteractionOption>,
+    pub initial_selection: usize,
     pub allow_custom: bool,
 }
 
@@ -171,6 +172,7 @@ mod tests {
                 title: "Approval".into(),
                 body: "Allow?".into(),
                 options: Vec::new(),
+                initial_selection: 0,
                 allow_custom: false,
             })
             .await
@@ -191,6 +193,7 @@ mod tests {
                 title: "Question".into(),
                 body: String::new(),
                 options: Vec::new(),
+                initial_selection: 0,
                 allow_custom: true,
             })
             .await
@@ -229,6 +232,7 @@ mod tests {
                 title: String::new(),
                 body: String::new(),
                 options: Vec::new(),
+                initial_selection: 0,
                 allow_custom: false,
             })
             .await;

@@ -18,6 +18,7 @@ pub struct SessionStatus<'a> {
 }
 
 /// Outcome of an approval prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApprovalResult {
     Approved,
     ApprovedForSession,

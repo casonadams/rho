@@ -7,7 +7,9 @@ use super::summary::{format_tool_args_summary, read_summary_parts, to_relative_p
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::RiskTier;
 use crate::ui::block::{BlockFormat, terminal_width};
-use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
+use crate::ui::interactive::{
+    Activity, InteractionOption, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
+};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -139,6 +141,19 @@ fn approval_mode(auto_approve: bool) -> &'static str {
     }
 }
 
+fn interaction_option(label: &str) -> InteractionOption {
+    InteractionOption {
+        label: label.to_string(),
+        description: None,
+    }
+}
+
+fn denied(reason: String) -> ApprovalResult {
+    ApprovalResult::Denied {
+        reason: reason.trim().to_string(),
+    }
+}
+
 impl TerminalRenderer {
     pub fn with_ui(ui: InteractiveUi) -> Self {
         Self {
@@ -212,7 +227,23 @@ impl TerminalRenderer {
         self.start_spinner(&msg)
     }
 
-    pub fn prompt_continue_budget(&self, max_turns: usize) -> bool {
+    pub async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
+        if let Some(ui) = &self.ui {
+            let response = ui
+                .request(InteractionPrompt {
+                    title: "Turn Limit Reached".to_string(),
+                    body: format!("Agent reached turn budget ({max_turns} calls)."),
+                    options: vec![
+                        interaction_option("Continue for another 50 turns"),
+                        interaction_option("Stop"),
+                    ],
+                    initial_selection: 0,
+                    allow_custom: false,
+                })
+                .await;
+            return matches!(response, Ok(InteractionResponse::Selected(0)));
+        }
+
         let header = self.theme.highlight;
         let dim = self.theme.dimmed;
         println!(
@@ -225,14 +256,43 @@ impl TerminalRenderer {
         approved.unwrap_or(false)
     }
 
-    pub fn prompt_tool_approval(&self, name: &str, args: &serde_json::Value) -> ApprovalResult {
+    pub async fn prompt_tool_approval(&self, name: &str, args: &serde_json::Value) -> ApprovalResult {
+        if let Some(ui) = &self.ui {
+            let mut body = format_tool_args_summary(name, args);
+            if name == "edit"
+                && let Some(diff) = format_edit_diff(args, &self.theme)
+            {
+                body.push_str("\n\n");
+                body.push_str(&diff);
+            } else if name == "write"
+                && let Some(preview) = format_write_preview(args, &self.theme)
+            {
+                body.push_str("\n\n");
+                body.push_str(&preview);
+            }
+            let response = ui
+                .request(InteractionPrompt {
+                    title: format!("Approve {name}"),
+                    body,
+                    options: vec![interaction_option("Apply once"), interaction_option("Deny")],
+                    initial_selection: 0,
+                    allow_custom: false,
+                })
+                .await;
+            return match response {
+                Ok(InteractionResponse::Selected(0)) => ApprovalResult::Approved,
+                Ok(InteractionResponse::Selected(1)) => self.prompt_denial_feedback().await,
+                Ok(InteractionResponse::Custom(reason)) => denied(reason),
+                Ok(InteractionResponse::Selected(_) | InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
+            };
+        }
+
         let header = self.theme.highlight;
         let dim = self.theme.dimmed;
         println!(
             "\n{header}Approve {name}:{header:#} {dim}{}{dim:#}\n",
             format_tool_args_summary(name, args)
         );
-
         if name == "edit"
             && let Some(diff) = format_edit_diff(args, &self.theme)
         {
@@ -242,22 +302,17 @@ impl TerminalRenderer {
         {
             println!("{preview}");
         }
-
-        let choices = vec![ToolApprovalChoice::ApplyOnce, ToolApprovalChoice::Deny];
-        let choice = inquire::Select::new("Action:", choices).prompt();
+        let choice =
+            inquire::Select::new("Action:", vec![ToolApprovalChoice::ApplyOnce, ToolApprovalChoice::Deny]).prompt();
         println!();
         match choice {
             Ok(ToolApprovalChoice::ApplyOnce) => ApprovalResult::Approved,
-            Ok(ToolApprovalChoice::Deny) => self.prompt_denial_feedback(),
-            Err(_) => ApprovalResult::Denied { reason: String::new() },
+            Ok(ToolApprovalChoice::Deny) => self.prompt_denial_feedback().await,
+            Err(_) => denied(String::new()),
         }
     }
 
-    pub fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
-        println!();
-        print!("{}", format_bash_approval_card(&request, &self.theme, terminal_width()));
-        println!();
-
+    pub async fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
         let mut actions = vec![BashApprovalChoice::AllowOnce];
         if let Some(patterns) = crate::tools::analyze_command_safety(request.command).session_patterns {
             actions.push(BashApprovalChoice::AllowForSession(patterns.join("; ")));
@@ -268,27 +323,69 @@ impl TerminalRenderer {
         } else {
             0
         };
+
+        if let Some(ui) = &self.ui {
+            let response = ui
+                .request(InteractionPrompt {
+                    title: "Bash command requires approval".to_string(),
+                    body: format_bash_approval_card(&request, &self.theme, terminal_width()),
+                    options: actions
+                        .iter()
+                        .map(|action| interaction_option(&action.to_string()))
+                        .collect(),
+                    initial_selection: starting_cursor,
+                    allow_custom: false,
+                })
+                .await;
+            return match response {
+                Ok(InteractionResponse::Selected(index)) => match actions.get(index) {
+                    Some(BashApprovalChoice::AllowOnce) => ApprovalResult::Approved,
+                    Some(BashApprovalChoice::AllowForSession(_)) => ApprovalResult::ApprovedForSession,
+                    Some(BashApprovalChoice::Deny) => self.prompt_denial_feedback().await,
+                    None => denied(String::new()),
+                },
+                Ok(InteractionResponse::Custom(reason)) => denied(reason),
+                Ok(InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
+            };
+        }
+
+        println!();
+        print!("{}", format_bash_approval_card(&request, &self.theme, terminal_width()));
+        println!();
         let choice = inquire::Select::new("Permission:", actions)
             .with_starting_cursor(starting_cursor)
             .prompt();
-
         println!();
         match choice {
             Ok(BashApprovalChoice::AllowOnce) => ApprovalResult::Approved,
             Ok(BashApprovalChoice::AllowForSession(_)) => ApprovalResult::ApprovedForSession,
-            Ok(BashApprovalChoice::Deny) => self.prompt_denial_feedback(),
-            Err(_) => ApprovalResult::Denied { reason: String::new() },
+            Ok(BashApprovalChoice::Deny) => self.prompt_denial_feedback().await,
+            Err(_) => denied(String::new()),
         }
     }
 
-    fn prompt_denial_feedback(&self) -> ApprovalResult {
+    async fn prompt_denial_feedback(&self) -> ApprovalResult {
+        if let Some(ui) = &self.ui {
+            let response = ui
+                .request(InteractionPrompt {
+                    title: "Deny operation".to_string(),
+                    body: "Optionally provide feedback for the agent.".to_string(),
+                    options: vec![interaction_option("Deny without feedback")],
+                    initial_selection: 0,
+                    allow_custom: true,
+                })
+                .await;
+            return match response {
+                Ok(InteractionResponse::Custom(reason)) => denied(reason),
+                Ok(InteractionResponse::Selected(_) | InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
+            };
+        }
+
         let reason = inquire::Text::new("Feedback for the agent (optional):")
             .prompt()
             .unwrap_or_default();
         println!();
-        ApprovalResult::Denied {
-            reason: reason.trim().to_string(),
-        }
+        denied(reason)
     }
 
     pub fn print_user_block(&self, input: &str) {

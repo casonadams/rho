@@ -205,13 +205,15 @@ impl ApprovalEventSink for TerminalApprovalSink {
 
         let result = if request.tool_name == "bash" {
             let command = arguments.get("command").and_then(Value::as_str).unwrap_or_default();
-            self.renderer.prompt_bash_approval(BashApproval {
-                command,
-                tier: request.tier,
-                reasons: &request.reasons,
-            })
+            self.renderer
+                .prompt_bash_approval(BashApproval {
+                    command,
+                    tier: request.tier,
+                    reasons: &request.reasons,
+                })
+                .await
         } else {
-            self.renderer.prompt_tool_approval(&request.tool_name, &arguments)
+            self.renderer.prompt_tool_approval(&request.tool_name, &arguments).await
         };
         match result {
             ApprovalResult::Approved => crate::tools::ApprovalDecision::Approved,

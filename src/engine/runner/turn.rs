@@ -131,7 +131,7 @@ impl AgentEngine {
                             let pending = checkpoint_messages(&visible_history, &history)?;
                             self.session_manager.save_checkpoint(pending.clone()).await?;
                             checkpoint = Some(pending);
-                            if !self.config.auto_approve && renderer.prompt_continue_budget(max_turns) {
+                            if !self.config.auto_approve && renderer.prompt_continue_budget(max_turns).await {
                                 budget_hit = true;
                                 break;
                             }

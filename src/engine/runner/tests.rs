@@ -8,11 +8,11 @@ use crate::engine::AgentEngine;
 use crate::engine::runtime::{CodingRuntime, build_coding_agent};
 use crate::error::AppError;
 use crate::session::SessionManager;
-use crate::tools::approval::{ApprovalEventSink, ToolEvent};
+use crate::tools::approval::{ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent};
 use crate::tools::bash_ast::RiskTier;
 use crate::tools::policy::ExecutionClass;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
+use crate::ui::interactive::{Activity, InteractionResponse, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::render::RenderActivity;
 use rig::agent::ModelHandle;
 use rig::completion::{FinishReason, Usage};
@@ -194,6 +194,44 @@ fn approval_required_holds_spinner_until_granted() {
     });
     // The spinner starts only once execution is actually approved.
     assert!(sink.state.lock().unwrap().spinner.is_some());
+}
+
+#[tokio::test]
+async fn interactive_approval_sink_awaits_typed_ui_response() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let sink = TerminalApprovalSink::new(
+        &renderer,
+        TerminalSinkConfig {
+            model_label: "model".to_string(),
+            auto_approve: false,
+            run_tracker: crate::engine::metrics::RunTracker::default(),
+        },
+        terminal_session(),
+    );
+    let request_sink = sink.clone();
+    let decision = tokio::spawn(async move {
+        request_sink
+            .request_approval(ApprovalRequest {
+                tool_name: "write".to_string(),
+                arguments: serde_json::json!({"path": "out.txt", "content": "value"}),
+                tier: RiskTier::Mutating,
+                reasons: vec!["writes a file".to_string()],
+            })
+            .await
+    });
+
+    let event = loop {
+        let event = events.recv().await.unwrap();
+        if matches!(event, UiEvent::Interaction { .. }) {
+            break event;
+        }
+    };
+    let UiEvent::Interaction { responder, .. } = event else {
+        unreachable!();
+    };
+    responder.respond(InteractionResponse::Selected(0)).unwrap();
+    assert_eq!(decision.await.unwrap(), ApprovalDecision::Approved);
 }
 
 #[test]

@@ -7,10 +7,10 @@ use super::renderer::{format_tool_output_preview, tool_title_style, webfetch_con
 use super::summary::{
     approval_heading, bash_approval_details, clean_command_paths, read_summary_parts, to_relative_path,
 };
-use super::types::{BashApproval, SessionStatus, ToolLine};
+use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine};
 use crate::tools::bash_ast::RiskTier;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
+use crate::ui::interactive::{Activity, InteractionResponse, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
 
 #[test]
@@ -45,6 +45,113 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     assert!(output.contains("answer"));
     assert!(output.contains("read"));
     assert!(output.contains("src/lib.rs"));
+}
+
+#[tokio::test]
+async fn interactive_tool_approval_supports_approve_and_denial_feedback() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let approval_renderer = renderer.clone();
+    let approval = tokio::spawn(async move {
+        approval_renderer
+            .prompt_tool_approval("write", &serde_json::json!({"path": "out.txt", "content": "value"}))
+            .await
+    });
+    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
+        panic!("expected approval request");
+    };
+    assert_eq!(prompt.title, "Approve write");
+    assert_eq!(prompt.initial_selection, 0);
+    responder.respond(InteractionResponse::Selected(0)).unwrap();
+    assert_eq!(approval.await.unwrap(), ApprovalResult::Approved);
+
+    let denial_renderer = renderer.clone();
+    let denial = tokio::spawn(async move {
+        denial_renderer
+            .prompt_tool_approval("edit", &serde_json::json!({"path": "out.txt", "edits": []}))
+            .await
+    });
+    let Some(UiEvent::Interaction { responder, .. }) = events.recv().await else {
+        panic!("expected approval request");
+    };
+    responder.respond(InteractionResponse::Selected(1)).unwrap();
+    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
+        panic!("expected feedback request");
+    };
+    assert!(prompt.allow_custom);
+    responder
+        .respond(InteractionResponse::Custom("use another file".to_string()))
+        .unwrap();
+    assert_eq!(
+        denial.await.unwrap(),
+        ApprovalResult::Denied {
+            reason: "use another file".to_string()
+        }
+    );
+}
+
+#[tokio::test]
+async fn interactive_bash_approval_preserves_session_and_high_risk_defaults() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let session_renderer = renderer.clone();
+    let session_approval = tokio::spawn(async move {
+        session_renderer
+            .prompt_bash_approval(BashApproval {
+                command: "cargo test",
+                tier: RiskTier::Mutating,
+                reasons: &[],
+            })
+            .await
+    });
+    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
+        panic!("expected bash approval request");
+    };
+    assert_eq!(prompt.options.len(), 3);
+    responder.respond(InteractionResponse::Selected(1)).unwrap();
+    assert_eq!(session_approval.await.unwrap(), ApprovalResult::ApprovedForSession);
+
+    let high_risk_renderer = renderer.clone();
+    let high_risk = tokio::spawn(async move {
+        let reasons = vec!["Discards changes".to_string()];
+        high_risk_renderer
+            .prompt_bash_approval(BashApproval {
+                command: "git reset --hard",
+                tier: RiskTier::HighRisk,
+                reasons: &reasons,
+            })
+            .await
+    });
+    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
+        panic!("expected high-risk approval request");
+    };
+    assert_eq!(prompt.initial_selection, prompt.options.len() - 1);
+    responder.respond(InteractionResponse::Cancelled).unwrap();
+    assert_eq!(
+        high_risk.await.unwrap(),
+        ApprovalResult::Denied { reason: String::new() }
+    );
+}
+
+#[tokio::test]
+async fn interactive_budget_confirmation_fails_closed() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let continue_renderer = renderer.clone();
+    let continuation = tokio::spawn(async move { continue_renderer.prompt_continue_budget(50).await });
+    let Some(UiEvent::Interaction { responder, .. }) = events.recv().await else {
+        panic!("expected budget request");
+    };
+    responder.respond(InteractionResponse::Selected(0)).unwrap();
+    assert!(continuation.await.unwrap());
+
+    let stop_renderer = renderer.clone();
+    let stop = tokio::spawn(async move { stop_renderer.prompt_continue_budget(50).await });
+    let Some(UiEvent::Interaction { responder, .. }) = events.recv().await else {
+        panic!("expected budget request");
+    };
+    responder.respond(InteractionResponse::Cancelled).unwrap();
+    assert!(!stop.await.unwrap());
 }
 
 #[test]
