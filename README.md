@@ -27,10 +27,10 @@ When both stdin and stdout are terminals, `rho` keeps a growing editor and a one
 
 ```text
 agent output remains above in normal scrollback
-------------------------------------------------
+────────────────────────────────────────────────
 Write a message here; wrapped lines and explicit
 newlines grow the editor upward.
-------------------------------------------------
+────────────────────────────────────────────────
 thinking | gpt-5.6-luna | 2.9% (376k) | 74% (5d9h) | 2 queued
 ```
 

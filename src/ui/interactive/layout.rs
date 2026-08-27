@@ -33,7 +33,7 @@ pub struct LayoutInput<'a> {
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
     let (editor_lines, cursor) = wrap_editor(input.editor, width);
-    let divider = "-".repeat(width);
+    let divider = "─".repeat(width);
 
     InteractiveLayout {
         top_divider: divider.clone(),
@@ -141,7 +141,7 @@ mod tests {
             terminal_width: 8,
         });
 
-        assert_eq!(layout.top_divider, "--------");
+        assert_eq!(layout.top_divider, "────────");
         assert_eq!(layout.editor_lines, [""]);
         assert_eq!(layout.footer, "idle");
         assert_eq!(layout.cursor, CursorPosition { row: 0, column: 0 });

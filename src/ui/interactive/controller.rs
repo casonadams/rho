@@ -1,7 +1,7 @@
 use std::io::{self, Stdout, Write};
 
 use crossterm::{
-    cursor::{Hide, MoveDown, MoveToColumn, MoveUp, Show},
+    cursor::{Hide, MoveDown, MoveToColumn, MoveUp, RestorePosition, SavePosition, Show},
     queue,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
@@ -17,6 +17,8 @@ pub trait TerminalBackend {
     fn move_down(&mut self, rows: usize) -> io::Result<()>;
     fn move_to_column(&mut self, column: usize) -> io::Result<()>;
     fn clear_line(&mut self) -> io::Result<()>;
+    fn save_cursor_position(&mut self) -> io::Result<()>;
+    fn restore_cursor_position(&mut self) -> io::Result<()>;
     fn write_text(&mut self, text: &str) -> io::Result<()>;
     fn flush(&mut self) -> io::Result<()>;
 }
@@ -64,6 +66,14 @@ impl TerminalBackend for CrosstermBackend {
         queue!(self.stdout, Clear(ClearType::CurrentLine))
     }
 
+    fn save_cursor_position(&mut self) -> io::Result<()> {
+        queue!(self.stdout, SavePosition)
+    }
+
+    fn restore_cursor_position(&mut self) -> io::Result<()> {
+        queue!(self.stdout, RestorePosition)
+    }
+
     fn write_text(&mut self, text: &str) -> io::Result<()> {
         self.stdout.write_all(text.as_bytes())
     }
@@ -91,6 +101,7 @@ pub struct TerminalController<B: TerminalBackend> {
     state: InteractiveState,
     width: usize,
     rendered: Option<InteractiveLayout>,
+    output_position_saved: bool,
     active: bool,
 }
 
@@ -115,6 +126,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             state,
             width,
             rendered: None,
+            output_position_saved: false,
             active: true,
         };
         if let Err(error) = controller.redraw() {
@@ -145,8 +157,13 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
+        if self.output_position_saved {
+            self.backend.restore_cursor_position()?;
+        }
         let output = terminal_newlines(output);
         self.backend.write_text(&output)?;
+        self.backend.save_cursor_position()?;
+        self.output_position_saved = true;
         if !output.ends_with("\r\n") {
             self.backend.write_text("\r\n")?;
         }
@@ -177,6 +194,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         }
         self.erase_live_region()?;
+        self.output_position_saved = false;
         self.backend.show_cursor()?;
         self.backend.set_raw_mode(false)?;
         self.backend.flush()?;
@@ -305,6 +323,8 @@ mod tests {
         Down(usize),
         Column(usize),
         Clear,
+        Save,
+        Restore,
         Write(String),
         Flush,
     }
@@ -375,6 +395,16 @@ mod tests {
             Ok(())
         }
 
+        fn save_cursor_position(&mut self) -> io::Result<()> {
+            self.operations.borrow_mut().push(Operation::Save);
+            Ok(())
+        }
+
+        fn restore_cursor_position(&mut self) -> io::Result<()> {
+            self.operations.borrow_mut().push(Operation::Restore);
+            Ok(())
+        }
+
         fn write_text(&mut self, text: &str) -> io::Result<()> {
             self.operations.borrow_mut().push(Operation::Write(text.to_string()));
             if self.fail_write {
@@ -428,7 +458,7 @@ mod tests {
             .unwrap();
         let divider_index = operations
             .iter()
-            .position(|operation| operation == &Operation::Write("----------".into()))
+            .position(|operation| operation == &Operation::Write("──────────".into()))
             .unwrap();
         assert!(last_clear < output_index);
         assert!(output_index < divider_index);
@@ -436,6 +466,35 @@ mod tests {
             operations
                 .iter()
                 .filter(|operation| operation == &&Operation::Flush)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn streamed_output_resumes_at_the_saved_cursor_position() {
+        let (backend, operations, _) = FakeTerminal::new(10);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.write_output("streamed ").unwrap();
+        operations.borrow_mut().clear();
+        controller.write_output("response").unwrap();
+
+        let operations = operations.borrow();
+        let restore_index = operations
+            .iter()
+            .position(|operation| operation == &Operation::Restore)
+            .unwrap();
+        let output_index = operations
+            .iter()
+            .position(|operation| operation == &Operation::Write("response".into()))
+            .unwrap();
+        assert!(restore_index < output_index);
+        assert_eq!(
+            operations
+                .iter()
+                .filter(|operation| operation == &&Operation::Save)
                 .count(),
             1
         );
@@ -457,7 +516,7 @@ mod tests {
             .unwrap();
         let divider_index = operations
             .iter()
-            .position(|operation| operation == &Operation::Write("----".into()))
+            .position(|operation| operation == &Operation::Write("────".into()))
             .unwrap();
         assert!(clear_index < divider_index);
     }
@@ -472,7 +531,7 @@ mod tests {
 
         let operations = operations.borrow();
         assert!(operations.contains(&Operation::Clear));
-        assert!(operations.contains(&Operation::Write("--------".into())));
+        assert!(operations.contains(&Operation::Write("────────".into())));
         assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
     }
 
