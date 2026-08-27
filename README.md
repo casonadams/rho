@@ -31,10 +31,10 @@ agent output remains above in normal scrollback
 Write a message here; wrapped lines and explicit
 newlines grow the editor upward.
 ────────────────────────────────────────────────
-thinking | gpt-5.6-luna | 2.9% (376k) | 74% (5d9h) | 2 queued
+⠋ thinking | gpt-5.6-luna | 2.9% (376k) | 74% (5d9h) | 2 queued
 ```
 
-The footer reports current activity, model, context capacity, subscription quota/cooldown when available, and the queued-message count.
+The footer reports current activity, model, context capacity, subscription quota/cooldown when available, and the queued-message count. Its activity indicator animates while the model is thinking or a tool is working.
 
 | Control | Behavior |
 | --- | --- |

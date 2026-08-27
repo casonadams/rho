@@ -1,6 +1,8 @@
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-use super::{EditorState, FooterState};
+use super::{Activity, EditorState, FooterState};
+
+const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CursorPosition {
@@ -28,6 +30,7 @@ pub struct LayoutInput<'a> {
     pub footer: &'a FooterState,
     pub queued_messages: usize,
     pub terminal_width: usize,
+    pub spinner_frame: usize,
 }
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
@@ -39,13 +42,23 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         top_divider: divider.clone(),
         editor_lines,
         bottom_divider: divider,
-        footer: truncate_to_width(&footer_text(input.footer, input.queued_messages), width),
+        footer: truncate_to_width(
+            &footer_text(input.footer, input.queued_messages, input.spinner_frame),
+            width,
+        ),
         cursor,
     }
 }
 
-fn footer_text(footer: &FooterState, queued_messages: usize) -> String {
-    let mut segments = vec![footer.activity.label().to_string()];
+fn footer_text(footer: &FooterState, queued_messages: usize, spinner_frame: usize) -> String {
+    let activity = match &footer.activity {
+        Activity::Idle => footer.activity.label().to_string(),
+        Activity::Thinking | Activity::Tool(_) => {
+            let spinner = SPINNER_FRAMES[spinner_frame % SPINNER_FRAMES.len()];
+            format!("{spinner} {}", footer.activity.label())
+        }
+    };
+    let mut segments = vec![activity];
     if !footer.model.is_empty() {
         segments.push(footer.model.clone());
     }
@@ -139,6 +152,7 @@ mod tests {
             footer: &default_footer,
             queued_messages: 0,
             terminal_width: 8,
+            spinner_frame: 0,
         });
 
         assert_eq!(layout.top_divider, "────────");
@@ -158,6 +172,7 @@ mod tests {
             footer: &default_footer,
             queued_messages: 0,
             terminal_width: 20,
+            spinner_frame: 0,
         });
 
         assert_eq!(layout.editor_lines, ["one", "two", ""]);
@@ -175,6 +190,7 @@ mod tests {
             footer: &default_footer,
             queued_messages: 0,
             terminal_width: 4,
+            spinner_frame: 0,
         });
 
         assert_eq!(layout.editor_lines, ["ab界", "c"]);
@@ -193,6 +209,7 @@ mod tests {
             footer: &default_footer,
             queued_messages: 0,
             terminal_width: 3,
+            spinner_frame: 0,
         });
 
         assert_eq!(layout.editor_lines, ["abc", "def"]);
@@ -209,6 +226,7 @@ mod tests {
             footer: &default_footer,
             queued_messages: 0,
             terminal_width: 2,
+            spinner_frame: 0,
         });
 
         assert_eq!(layout.editor_lines, ["界", ""]);
@@ -229,9 +247,30 @@ mod tests {
             footer: &footer,
             queued_messages: 2,
             terminal_width: 80,
+            spinner_frame: 0,
         });
 
-        assert_eq!(layout.footer, "thinking | model | 42% context | 80% quota | 2 queued");
+        assert_eq!(layout.footer, "⠋ thinking | model | 42% context | 80% quota | 2 queued");
+    }
+
+    #[test]
+    fn tool_activity_uses_the_requested_spinner_frame() {
+        let default_editor = EditorState::default();
+        let footer = FooterState {
+            activity: Activity::Tool("read src/lib.rs".into()),
+            model: "model".into(),
+            context: None,
+            quota: None,
+        };
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            footer: &footer,
+            queued_messages: 0,
+            terminal_width: 80,
+            spinner_frame: 1,
+        });
+
+        assert_eq!(layout.footer, "⠙ read src/lib.rs | model");
     }
 
     #[test]
@@ -248,6 +287,7 @@ mod tests {
             footer: &footer,
             queued_messages: 1,
             terminal_width: 5,
+            spinner_frame: 1,
         });
 
         assert!(layout.footer.width() <= 5);

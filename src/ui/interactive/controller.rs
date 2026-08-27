@@ -94,6 +94,7 @@ pub struct TerminalController<B: TerminalBackend> {
     rendered: Option<InteractiveLayout>,
     output_line: String,
     output_line_open: bool,
+    spinner_frame: usize,
     active: bool,
 }
 
@@ -120,6 +121,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             rendered: None,
             output_line: String::new(),
             output_line_open: false,
+            spinner_frame: 0,
             active: true,
         };
         if let Err(error) = controller.redraw() {
@@ -176,6 +178,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn tick(&mut self) -> io::Result<()> {
+        self.spinner_frame = self.spinner_frame.wrapping_add(1);
         self.redraw()
     }
 
@@ -248,6 +251,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             footer: self.state.footer(),
             queued_messages: self.state.queue_len(),
             terminal_width: self.width,
+            spinner_frame: self.spinner_frame,
         })
     }
 
@@ -360,7 +364,7 @@ mod tests {
     };
 
     use super::{TerminalBackend, TerminalController, output_cursor};
-    use crate::ui::interactive::InteractiveState;
+    use crate::ui::interactive::{Activity, InteractiveState};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Operation {
@@ -576,6 +580,19 @@ mod tests {
         assert!(operations.contains(&Operation::Clear));
         assert!(operations.contains(&Operation::Write("────────".into())));
         assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
+    }
+
+    #[test]
+    fn tick_advances_the_active_footer_spinner() {
+        let (backend, operations, _) = FakeTerminal::new(20);
+        let mut state = InteractiveState::default();
+        state.footer_mut().activity = Activity::Thinking;
+        let mut controller = TerminalController::new(backend, state).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.tick().unwrap();
+
+        assert!(operations.borrow().contains(&Operation::Write("⠙ thinking".into())));
     }
 
     #[test]
