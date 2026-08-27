@@ -21,16 +21,35 @@ rho --resume <SESSION_ID>
 
 ---
 
-## Interactive Status Line
+## Interactive Editor and Footer
 
-`rho` displays a lean, label-free status line tracking active context capacity and live subscription quotas:
+When both stdin and stdout are terminals, `rho` keeps a growing editor and a one-line footer at the bottom of the normal terminal screen:
 
 ```text
-gpt-5.6-luna | 2.9% (376k) | 74% (5d9h)
-claude-sonnet-4-6 | 27.4% (1M) | 93% (3h22m)
+agent output remains above in normal scrollback
+------------------------------------------------
+Write a message here; wrapped lines and explicit
+newlines grow the editor upward.
+------------------------------------------------
+thinking | gpt-5.6-luna | 2.9% (376k) | 74% (5d9h) | 2 queued
 ```
 
-- **Format**: `<model> | <context % of ceiling> | <subscription usage & cooldown>`
+The footer reports current activity, model, context capacity, subscription quota/cooldown when available, and the queued-message count.
+
+| Control | Behavior |
+| --- | --- |
+| `Enter` | Submit with steering intent. |
+| `Shift+Enter` | Insert a newline without submitting. |
+| `Ctrl+J` | Insert a newline, including in terminals that encode it as a raw line feed. |
+| `Alt+Enter` | Submit with follow-up intent. |
+| `Escape` | Clear an idle draft, cancel active work and restore queued messages to the editor, or cancel the current modal interaction. |
+
+Messages submitted while the agent is active enter one FIFO queue and run in submission order after the active turn finishes. Steering and follow-up labels preserve the intended delivery mode, but currently have the same timing because Rig 0.42 does not expose a safe mid-run steering boundary. If a terminal does not distinguish modified Enter keys, that input falls back to its reported behavior, typically plain `Enter` submission.
+
+The live editor uses the normal screen rather than an alternate screen. Rho-owned streamed output is written above it and remains available in terminal-native scrollback. Output written directly to stdout by a plugin or subprocess bypasses Rho's terminal controller and may temporarily disrupt the live editor; arbitrary child-process output cannot be intercepted reliably.
+
+If either stdin or stdout is not a TTY, `rho` falls back to the legacy line editor without the bottom live region or active-turn queueing. One-shot print mode is unchanged.
+
 - **Context Ceilings**: GPT-5 / Luna / Codex (376k), Claude (1M), Gemini (1M), DeepSeek (128k).
 - **Subscription Quotas**: Queries rolling 5-hour and 7-day windows and cooldown timers directly from ChatGPT & Anthropic OAuth endpoints.
 
