@@ -49,6 +49,12 @@ pub struct StructuralUsage {
     pub reasoning_tokens: Option<u64>,
 }
 
+impl StructuralUsage {
+    pub fn has_values(self) -> bool {
+        self.input_tokens != 0 || self.output_tokens != 0 || self.total_tokens != 0
+    }
+}
+
 impl From<Usage> for StructuralUsage {
     fn from(usage: Usage) -> Self {
         Self {
@@ -120,6 +126,13 @@ struct RunObservation {
     tool_errors: usize,
     tool_denials: usize,
     completion_calls: Vec<CompletionCall>,
+}
+
+pub struct NeutralOutcome<'a> {
+    pub session_id: &'a str,
+    pub status: TerminalStatus,
+    pub requests: usize,
+    pub usage: Option<StructuralUsage>,
 }
 
 #[derive(Debug)]
@@ -226,6 +239,17 @@ impl RunTracker {
             usage,
             completion_calls: calls,
             requests: outcome.response.requests(),
+        })
+    }
+
+    pub fn complete_neutral(&self, outcome: NeutralOutcome<'_>) -> RunMetrics {
+        metrics_from_observation(ObservationMetricsInput {
+            observation: self.take(),
+            session_id: outcome.session_id,
+            status: outcome.status,
+            usage: outcome.usage,
+            completion_calls: Vec::new(),
+            requests: outcome.requests,
         })
     }
 

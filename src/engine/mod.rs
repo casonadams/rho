@@ -13,18 +13,30 @@ mod eval;
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::Result;
+use crate::plugin::contract::{ProviderCapability, ScopedCredential};
+use crate::plugin::tool_dispatch::ActiveToolSet;
 use crate::plugin::{ExtensionContext, ExtensionRegistry};
 use crate::session::SessionManager;
 use rig::agent::Agent;
+use std::sync::Arc;
 use tracking::{ContextTracker, QuotaTracker, UsageTracker};
 
 use metrics::format_tokens;
+
+pub(crate) enum AgentBackend {
+    Rig(Box<Agent>),
+    External {
+        provider: Arc<dyn ProviderCapability>,
+        tools: Arc<ActiveToolSet>,
+        credential: Option<ScopedCredential>,
+    },
+}
 
 pub struct AgentEngine {
     pub config: Config,
     pub session_manager: SessionManager,
     pub extension_registry: ExtensionRegistry,
-    pub(crate) agent: Agent,
+    pub(crate) backend: AgentBackend,
     usage: UsageTracker,
     quota: QuotaTracker,
     context: ContextTracker,
@@ -122,7 +134,7 @@ impl AgentEngine {
         self.quota.latest()
     }
 
-    pub(crate) fn record_usage(&self, usage: rig::completion::Usage) {
+    pub(crate) fn record_usage(&self, usage: metrics::StructuralUsage) {
         self.usage.record(usage);
     }
 }

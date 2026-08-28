@@ -39,6 +39,7 @@ struct DispatchContext<'a> {
     tool: &'a mut ToolContext,
 }
 
+#[derive(Clone)]
 pub struct ActiveToolSet {
     tools: BTreeMap<String, ActiveTool>,
     floor: Arc<HostFloor>,
@@ -134,6 +135,24 @@ impl ActiveToolSet {
 
     pub fn definitions(&self) -> Vec<ToolDescriptor> {
         self.tools.values().map(|tool| tool.descriptor.clone()).collect()
+    }
+
+    pub fn provider_definitions(&self) -> Vec<crate::plugin::contract::ProviderToolDefinition> {
+        self.tools
+            .iter()
+            .map(|(name, tool)| crate::plugin::contract::ProviderToolDefinition {
+                id: format!("tool:{name}").parse().unwrap(),
+                description: tool.descriptor.description.clone(),
+                argument_schema: tool.descriptor.argument_schema.clone(),
+            })
+            .collect()
+    }
+
+    pub fn neutral_executor(self: &Arc<Self>, context: ToolContext) -> NeutralActiveToolExecutor {
+        NeutralActiveToolExecutor {
+            tools: Arc::clone(self),
+            context: tokio::sync::Mutex::new(context),
+        }
     }
 
     pub fn into_rig_tools(self) -> Vec<DynamicTool> {
@@ -291,6 +310,98 @@ fn required_string<'a>(
         .and_then(serde_json::Value::as_str)
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| ToolExecutionError::invalid_args(format!("{field} must be a non-empty string")))
+}
+
+pub struct NeutralActiveToolExecutor {
+    tools: Arc<ActiveToolSet>,
+    context: tokio::sync::Mutex<ToolContext>,
+}
+
+#[async_trait]
+impl crate::engine::provider::host_loop::NeutralToolExecutor for NeutralActiveToolExecutor {
+    async fn execute(
+        &self,
+        call: crate::engine::provider::host_loop::NeutralToolCall,
+    ) -> std::result::Result<
+        crate::engine::provider::host_loop::NeutralToolResult,
+        crate::engine::provider::host_loop::NeutralTurnError,
+    > {
+        let crate::engine::provider::host_loop::NeutralToolCall {
+            call_id,
+            tool_id,
+            arguments,
+        } = call;
+        let tool =
+            self.tools.tools.get(tool_id.name()).ok_or_else(|| {
+                crate::engine::provider::host_loop::NeutralTurnError::UnknownTool(tool_id.to_string())
+            })?;
+        let mut context = self.context.lock().await;
+        let internal_call_id = uuid::Uuid::new_v4().to_string();
+        let capability = context.get::<crate::tools::ApprovalCapability>().cloned();
+        if let Some(capability) = &capability {
+            crate::tools::authorize_dispatch(
+                capability,
+                crate::tools::DispatchedCall {
+                    internal_call_id: &internal_call_id,
+                    tool_name: tool_id.name(),
+                    arguments: &arguments,
+                },
+            )
+            .await;
+        }
+        let result = tool
+            .dispatch(
+                DispatchContext {
+                    floor: &self.tools.floor,
+                    tool: &mut context,
+                },
+                arguments.clone(),
+            )
+            .await;
+        match result {
+            Ok(output) => {
+                if let Some(capability) = &capability {
+                    crate::tools::approval::emit_tool_finished(
+                        capability,
+                        crate::tools::DispatchedCall {
+                            internal_call_id: &internal_call_id,
+                            tool_name: tool_id.name(),
+                            arguments: &arguments,
+                        },
+                        crate::tools::DispatchedResult {
+                            output: output.as_text().unwrap_or_default().to_string(),
+                            status: "success",
+                        },
+                    );
+                }
+                Ok(crate::engine::provider::host_loop::NeutralToolResult {
+                    content: output.as_text().unwrap_or_default().to_string(),
+                    is_error: false,
+                })
+            }
+            Err(error) => {
+                if let Some(capability) = &capability {
+                    let status = if error.is_refusal() { "denied" } else { "error" };
+                    crate::tools::approval::emit_tool_finished(
+                        capability,
+                        crate::tools::DispatchedCall {
+                            internal_call_id: &internal_call_id,
+                            tool_name: tool_id.name(),
+                            arguments: &arguments,
+                        },
+                        crate::tools::DispatchedResult {
+                            output: error.model_output().as_text().unwrap_or_default().to_string(),
+                            status,
+                        },
+                    );
+                }
+                Err(crate::engine::provider::host_loop::NeutralTurnError::Tool(format!(
+                    "{call_id}: {}",
+                    error.message()
+                )))
+            }
+        }
+    }
 }
 
 fn map_capability_error(error: CapabilityError) -> ToolExecutionError {

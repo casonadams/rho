@@ -151,7 +151,10 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 pub(crate) async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let provider = select_provider(provider, &config.provider)?;
-    match provider.credential_strategy() {
+    let strategy = crate::plugin::provider::ProviderRegistry::builtins()
+        .get(provider.as_str())?
+        .credential_strategy();
+    match strategy {
         CredentialStrategy::ApiKey => login_api_key(provider, auth_store).await,
         CredentialStrategy::SubscriptionOAuth => {
             let manager = OAuthManager::new(&config.config_dir);
@@ -201,7 +204,10 @@ async fn login_api_key(provider: ProviderId, auth_store: &mut AuthStore) -> Resu
 
 pub(crate) fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let provider = select_provider(provider, &config.provider)?;
-    match provider.credential_strategy() {
+    let strategy = crate::plugin::provider::ProviderRegistry::builtins()
+        .get(provider.as_str())?
+        .credential_strategy();
+    match strategy {
         CredentialStrategy::ApiKey => auth_store.remove_provider_entry(provider.as_str())?,
         CredentialStrategy::SubscriptionOAuth => {
             OAuthManager::new(&config.config_dir).logout(provider)?;

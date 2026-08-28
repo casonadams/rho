@@ -6,9 +6,11 @@
 //! surface — splitting them would duplicate fixtures.
 
 use super::{
-    ApiKeyVerifier, AuthStore, Credential, OAuthManager, PendingApiKey, VerificationStatus, cancellable_oauth,
-    store_api_key_after_verification,
+    ApiKeyVerifier, AuthStore, Credential, CredentialScope, CredentialUpdate, OAuthManager, PendingApiKey,
+    VerificationStatus, cancellable_oauth, store_api_key_after_verification,
 };
+use crate::plugin::provider::ProviderRegistry;
+
 use crate::engine::provider::ProviderId;
 use crate::error::AppError;
 use std::path::PathBuf;
@@ -265,6 +267,180 @@ fn credential_files_and_token_directories_are_private() {
 
     let _ = std::fs::remove_file(auth_path);
     let _ = std::fs::remove_dir_all(root);
+}
+
+fn provider_scope() -> CredentialScope {
+    CredentialScope::builtin_provider(ProviderId::Anthropic)
+}
+
+#[test]
+fn scoped_credentials_round_trip_with_generation_cas() {
+    let mut store = AuthStore::default();
+    assert!(store.scoped_credential(&provider_scope()).is_none());
+
+    let generation = store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: "first-key".to_string(),
+            },
+        })
+        .unwrap();
+    assert_eq!(generation, 1);
+
+    let (_, envelope) = store.scoped_credential(&provider_scope()).unwrap();
+    assert_eq!(envelope.kind, "api_key.v1");
+    assert_eq!(envelope.value["key"], "first-key");
+
+    let replacement = store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: Some(generation),
+            credential: Credential::ApiKey {
+                key: "second-key".to_string(),
+            },
+        })
+        .unwrap();
+    assert_eq!(replacement, 2);
+    let (_, envelope) = store.scoped_credential(&provider_scope()).unwrap();
+    assert_eq!(envelope.value["key"], "second-key");
+}
+
+#[tokio::test]
+async fn stale_scoped_refresh_is_rejected_without_overwriting_newer_material() {
+    let mut store = AuthStore::default();
+    let stale = store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: "stale-key".to_string(),
+            },
+        })
+        .unwrap();
+
+    store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: Some(stale),
+            credential: Credential::ApiKey {
+                key: "fresh-key".to_string(),
+            },
+        })
+        .unwrap();
+
+    let error = store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: Some(stale),
+            credential: Credential::ApiKey {
+                key: "racing-key".to_string(),
+            },
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("stale"));
+    let (_, envelope) = store.scoped_credential(&provider_scope()).unwrap();
+    assert_eq!(envelope.value["key"], "fresh-key");
+}
+
+#[test]
+fn scoped_credentials_survive_save_and_load_and_logout_isolation() {
+    let path = temp_path("scoped_store.json");
+    let mut store = AuthStore::load(&path).unwrap();
+    store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: "scoped-secret".to_string(),
+            },
+        })
+        .unwrap();
+    let copilot = CredentialScope::builtin_provider(ProviderId::Copilot);
+    store
+        .compare_and_swap(CredentialUpdate {
+            scope: copilot.clone(),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: "other-secret".to_string(),
+            },
+        })
+        .unwrap();
+
+    let loaded = AuthStore::load(&path).unwrap();
+    let (_, envelope) = loaded.scoped_credential(&provider_scope()).unwrap();
+    assert_eq!(envelope.value["key"], "scoped-secret");
+    assert_eq!(loaded.scoped_credential(&copilot).unwrap().0, 1);
+
+    let mut loaded = loaded;
+    loaded.remove_scope(&provider_scope()).unwrap();
+    assert!(loaded.scoped_credential(&provider_scope()).is_none());
+    assert!(loaded.scoped_credential(&copilot).is_some());
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn scoped_credential_debug_output_is_redacted() {
+    let sentinel = "scoped-secret-sentinel";
+    let mut store = AuthStore::default();
+    store
+        .compare_and_swap(CredentialUpdate {
+            scope: provider_scope(),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: sentinel.to_string(),
+            },
+        })
+        .unwrap();
+    let formatted = format!("{store:?}");
+    assert!(!formatted.contains(sentinel));
+}
+
+#[tokio::test]
+async fn provider_requests_carry_only_the_selected_scoped_credential() {
+    use crate::plugin::contract::{ProviderRequest, ProviderToolDefinition};
+
+    let mut store = AuthStore::default();
+    store
+        .compare_and_swap(CredentialUpdate {
+            scope: CredentialScope::builtin_provider(ProviderId::OpenAi),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: "openai-only-secret".to_string(),
+            },
+        })
+        .unwrap();
+    store
+        .compare_and_swap(CredentialUpdate {
+            scope: CredentialScope::builtin_provider(ProviderId::Anthropic),
+            expected_generation: None,
+            credential: Credential::ApiKey {
+                key: "anthropic-secret".to_string(),
+            },
+        })
+        .unwrap();
+
+    let registry = ProviderRegistry::builtins();
+    let selected = registry.selected_credential("openai", &store).unwrap().unwrap();
+    assert_eq!(selected.1.value["key"], "openai-only-secret");
+    let other = registry.selected_credential("anthropic", &store).unwrap().unwrap();
+    assert_eq!(other.1.value["key"], "anthropic-secret");
+
+    let request = ProviderRequest {
+        model: "fixture".to_string(),
+        messages: Vec::new(),
+        credential: Some(selected.1),
+        max_output_tokens: None,
+        tools: vec![ProviderToolDefinition {
+            id: "tool:read".parse().unwrap(),
+            description: "read".to_string(),
+            argument_schema: serde_json::json!({"type":"object"}),
+        }],
+    };
+    let encoded = serde_json::to_string(&request).unwrap();
+    assert!(encoded.contains("openai-only-secret"));
+    assert!(!encoded.contains("anthropic-secret"));
 }
 
 #[test]

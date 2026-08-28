@@ -18,6 +18,7 @@
 
 mod catalog;
 mod factory;
+pub mod host_loop;
 mod id;
 mod verifier;
 

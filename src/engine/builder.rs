@@ -3,9 +3,11 @@ use super::tracking::{ContextTracker, QuotaTracker, UsageTracker};
 use super::{AgentEngine, ExtensionRegistry};
 use crate::auth::AuthStore;
 use crate::config::Config;
-use crate::engine::provider::{CredentialStrategy, ModelRequest, ProviderFactory, ProviderId};
+use crate::engine::AgentBackend;
+use crate::engine::provider::{CredentialStrategy, ModelRequest, ProviderFactory};
 use crate::error::Result;
 use crate::plugin::PluginLoader;
+use crate::plugin::provider::{ActiveProvider, ProviderRegistry};
 use crate::session::SessionManager;
 use std::path::PathBuf;
 
@@ -55,32 +57,51 @@ impl AgentEngineBuilder {
                 self.auth_store.secret_values(),
             )?,
         };
-        let provider = self.config.provider.parse::<ProviderId>()?;
+        let registry = ProviderRegistry::load(&self.config).await?;
+        let active_provider = registry.get(&self.config.provider)?.clone();
         let mut secrets = self.auth_store.secret_values();
-        if provider.credential_strategy() == CredentialStrategy::ApiKey
-            && let Some(key) = self.auth_store.get_key(provider.as_str())?
+        if let ActiveProvider::Builtin(provider) = &active_provider
+            && provider.id().credential_strategy() == CredentialStrategy::ApiKey
+            && let Some(key) = self.auth_store.get_key(provider.id().as_str())?
         {
             secrets.push(key);
         }
         session_manager.add_secrets(secrets)?;
-        let model = ProviderFactory::create_model_for(
-            provider,
-            ModelRequest {
-                model: &self.config.model,
-                config_dir: &self.config.config_dir,
-            },
-            &self.auth_store,
-        )?;
         let active_tools = crate::plugin::tool_dispatch::ActiveToolSet::load(&self.config, &base_dir).await?;
-        let agent = super::runtime::build_coding_agent(
-            model,
-            &self.config,
-            CodingRuntime {
-                base_dir: &base_dir,
-                memory: session_manager.clone(),
-                active_tools: Some(active_tools),
-            },
-        )?;
+        let backend = match active_provider {
+            ActiveProvider::Builtin(provider) => {
+                let model = ProviderFactory::create_model_for(
+                    provider.id(),
+                    ModelRequest {
+                        model: &self.config.model,
+                        config_dir: &self.config.config_dir,
+                    },
+                    &self.auth_store,
+                )?;
+                AgentBackend::Rig(Box::new(super::runtime::build_coding_agent(
+                    model,
+                    &self.config,
+                    CodingRuntime {
+                        base_dir: &base_dir,
+                        memory: session_manager.clone(),
+                        active_tools: Some(active_tools),
+                    },
+                )?))
+            }
+            external @ ActiveProvider::External { .. } => {
+                let credential = self
+                    .auth_store
+                    .scoped_credential(&external.credential_scope())
+                    .map(|(_, credential)| credential);
+                AgentBackend::External {
+                    provider: external.capability().ok_or_else(|| {
+                        crate::error::AppError::Provider("external provider capability is unavailable".to_string())
+                    })?,
+                    tools: std::sync::Arc::new(active_tools),
+                    credential,
+                }
+            }
+        };
         let mut extension_registry = ExtensionRegistry::new();
         if let Ok(discovery) = PluginLoader::discover(&self.config.config_dir, Some(&base_dir)) {
             PluginLoader::load_discovered(&discovery, &mut extension_registry)?;
@@ -89,7 +110,7 @@ impl AgentEngineBuilder {
             config: self.config.clone(),
             session_manager,
             extension_registry,
-            agent,
+            backend,
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
             context: ContextTracker::new(self.config.context_limit),

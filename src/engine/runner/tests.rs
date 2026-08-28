@@ -48,7 +48,7 @@ fn test_engine_with_session(
         config,
         session_manager,
         extension_registry: crate::plugin::ExtensionRegistry::new(),
-        agent,
+        backend: crate::engine::AgentBackend::Rig(Box::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(None),

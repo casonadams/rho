@@ -1,19 +1,19 @@
-use rig::completion::Usage;
+use crate::engine::metrics::StructuralUsage;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Default)]
 pub struct UsageTracker {
-    latest: Arc<Mutex<Option<Usage>>>,
+    latest: Arc<Mutex<Option<StructuralUsage>>>,
 }
 
 impl UsageTracker {
-    pub fn record(&self, usage: Usage) {
+    pub fn record(&self, usage: StructuralUsage) {
         if let Ok(mut latest) = self.latest.lock() {
             *latest = usage.has_values().then_some(usage);
         }
     }
 
-    pub fn latest(&self) -> Option<Usage> {
+    pub fn latest(&self) -> Option<StructuralUsage> {
         self.latest.lock().ok().and_then(|usage| *usage)
     }
 }
@@ -49,17 +49,6 @@ impl ContextTracker {
         if let Some(limit) = self.configured_limit {
             return Some(limit);
         }
-        let lower = model.to_ascii_lowercase();
-        if lower.contains("gpt-5") || lower.contains("luna") || lower.contains("codex") {
-            Some(376_000)
-        } else if lower.contains("o1") || lower.contains("o3") {
-            Some(200_000)
-        } else if lower.contains("gpt-4") || lower.contains("deepseek") {
-            Some(128_000)
-        } else if lower.contains("claude") || lower.contains("gemini") {
-            Some(1_000_000)
-        } else {
-            None
-        }
+        crate::plugin::provider::context_limit(model)
     }
 }

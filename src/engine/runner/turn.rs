@@ -52,6 +52,13 @@ pub struct TurnOutput {
 
 impl AgentEngine {
     pub async fn run_turn(&self, request: TurnRequest<'_>, renderer: &TerminalRenderer) -> Result<TurnOutput> {
+        match &self.backend {
+            crate::engine::AgentBackend::Rig(_) => self.run_rig_turn(request, renderer).await,
+            crate::engine::AgentBackend::External { .. } => self.run_external_turn(request, renderer).await,
+        }
+    }
+
+    async fn run_rig_turn(&self, request: TurnRequest<'_>, renderer: &TerminalRenderer) -> Result<TurnOutput> {
         let context = ProjectContext::discover(std::env::current_dir()?, Some(&self.config.config_dir)).await;
         self.session_manager
             .append_event(
@@ -102,7 +109,10 @@ impl AgentEngine {
                 working_directory: std::env::current_dir()?.display().to_string(),
                 has_interactive_ui: renderer.has_interactive_ui(),
             });
-            let runner = build_runner(&self.agent, &current_prompt)
+            let crate::engine::AgentBackend::Rig(agent) = &self.backend else {
+                return Err(AppError::Provider("internal provider runtime mismatch".to_string()));
+            };
+            let runner = build_runner(agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
@@ -224,7 +234,7 @@ impl AgentEngine {
         self.record_run_summary(&metrics).await
     }
 
-    async fn record_failed_metrics(&self, error: &AppError) -> Result<()> {
+    pub(super) async fn record_failed_metrics(&self, error: &AppError) -> Result<()> {
         let status = if matches!(error, AppError::ModelBudgetExhausted { .. }) {
             TerminalStatus::BudgetExhausted
         } else if matches!(error, AppError::Cancelled(_)) {
@@ -236,7 +246,7 @@ impl AgentEngine {
         self.record_run_summary(&metrics).await
     }
 
-    async fn record_run_summary(&self, metrics: &RunMetrics) -> Result<()> {
+    pub(super) async fn record_run_summary(&self, metrics: &RunMetrics) -> Result<()> {
         self.session_manager
             .append_event(
                 SessionEventKind::RunSummary,
@@ -283,7 +293,7 @@ impl AgentEngine {
 
         let usage = response.usage;
         let usage_details = usage.has_values().then(|| usage.into());
-        self.record_usage(usage);
+        self.record_usage(usage.into());
         self.session_manager
             .append_event(
                 SessionEventKind::UsageMetrics,

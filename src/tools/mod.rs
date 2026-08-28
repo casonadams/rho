@@ -13,7 +13,8 @@ pub mod workspace;
 pub mod write;
 
 pub use approval::{
-    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, ToolEvent, approval_context,
+    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, DispatchedCall,
+    DispatchedResult, ToolEvent, approval_context, authorize_dispatch,
 };
 pub use ask_user::{
     AskUserArgs, AskUserQuestionTool, AskUserTool, InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion,

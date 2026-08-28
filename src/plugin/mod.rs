@@ -11,6 +11,7 @@ pub mod inspection;
 pub mod loader;
 pub mod process;
 pub mod protocol;
+pub mod provider;
 pub mod registry;
 pub mod resolver;
 pub mod schema;

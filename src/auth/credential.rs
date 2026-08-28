@@ -7,6 +7,8 @@
 
 use crate::engine::provider::{CredentialStrategy, ProviderId};
 use crate::error::{AppError, Result};
+use crate::plugin::capability::{CapabilityId, PluginId};
+use crate::plugin::contract::ScopedCredential;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -38,9 +40,61 @@ impl fmt::Debug for Credential {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CredentialScope {
+    pub plugin_id: PluginId,
+    pub capability_id: CapabilityId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CredentialUpdate {
+    pub scope: CredentialScope,
+    pub expected_generation: Option<u64>,
+    pub credential: Credential,
+}
+
+impl CredentialScope {
+    pub fn builtin_provider(provider: ProviderId) -> Self {
+        Self {
+            plugin_id: "rho.builtin".parse().unwrap(),
+            capability_id: format!("provider:{}", provider.as_str()).parse().unwrap(),
+            account_id: None,
+        }
+    }
+
+    fn storage_key(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.plugin_id,
+            self.capability_id,
+            self.account_id.as_deref().unwrap_or("")
+        )
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct VersionedCredential {
+    pub generation: u64,
+    pub credential: Credential,
+}
+
+impl fmt::Debug for VersionedCredential {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VersionedCredential")
+            .field("generation", &self.generation)
+            .field("credential", &"[REDACTED]")
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AuthStore {
     pub credentials: HashMap<String, Credential>,
+    #[serde(default)]
+    scoped_credentials: HashMap<String, VersionedCredential>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -60,23 +114,36 @@ impl AuthStore {
     }
 
     pub fn save(&self) -> Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
+        if self.path.as_os_str().is_empty() {
+            return Ok(());
         }
+        let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(parent)?;
         let data = serde_json::to_vec_pretty(self)
             .map_err(|error| AppError::Auth(format!("Failed to serialize auth store: {error}")))?;
+        let temporary = parent.join(format!(".rho-auth-{}.tmp", uuid::Uuid::new_v4()));
         let mut options = OpenOptions::new();
-        options.create(true).truncate(true).write(true);
+        options.create_new(true).write(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&self.path)?;
-        file.write_all(&data)?;
-        file.sync_all()?;
-        set_private_file_permissions(&self.path)?;
-        Ok(())
+        let result = (|| -> Result<()> {
+            let mut file = options.open(&temporary)?;
+            file.write_all(&data)?;
+            file.sync_all()?;
+            std::fs::rename(&temporary, &self.path)?;
+            set_private_file_permissions(&self.path)?;
+            if let Ok(directory) = std::fs::File::open(parent) {
+                directory.sync_all()?;
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(temporary);
+        }
+        result
     }
 
     pub fn set_api_key(&mut self, provider: &str, key: String) -> Result<()> {
@@ -86,14 +153,18 @@ impl AuthStore {
                 "{provider} does not accept API keys in the rho credential store"
             )));
         }
+        let credential = Credential::ApiKey { key };
         self.credentials
-            .insert(provider.as_str().to_string(), Credential::ApiKey { key });
+            .insert(provider.as_str().to_string(), credential.clone());
+        self.replace_scoped(CredentialScope::builtin_provider(provider), credential);
         self.save()
     }
 
     pub fn remove_provider_entry(&mut self, provider: &str) -> Result<()> {
         let provider = ProviderId::from_str(provider)?;
         self.credentials.remove(provider.as_str());
+        self.scoped_credentials
+            .remove(&CredentialScope::builtin_provider(provider).storage_key());
         self.save()
     }
 
@@ -101,9 +172,50 @@ impl AuthStore {
         self.get_key_with(provider, |name| std::env::var(name).ok())
     }
 
+    pub fn scoped_credential(&self, scope: &CredentialScope) -> Option<(u64, ScopedCredential)> {
+        let record = self.scoped_credentials.get(&scope.storage_key())?;
+        Some((record.generation, credential_envelope(&record.credential)))
+    }
+
+    pub fn compare_and_swap(&mut self, update: CredentialUpdate) -> Result<u64> {
+        let CredentialUpdate {
+            scope,
+            expected_generation,
+            credential,
+        } = update;
+        let key = scope.storage_key();
+        let current = self.scoped_credentials.get(&key).map(|record| record.generation);
+        if current != expected_generation {
+            return Err(AppError::Auth(
+                "Credential refresh was stale and was not persisted".to_string(),
+            ));
+        }
+        let generation = current.unwrap_or(0).saturating_add(1);
+        self.scoped_credentials
+            .insert(key, VersionedCredential { generation, credential });
+        self.save()?;
+        Ok(generation)
+    }
+
+    pub fn remove_scope(&mut self, scope: &CredentialScope) -> Result<()> {
+        self.scoped_credentials.remove(&scope.storage_key());
+        self.save()
+    }
+
+    fn replace_scoped(&mut self, scope: CredentialScope, credential: Credential) {
+        let key = scope.storage_key();
+        let generation = self
+            .scoped_credentials
+            .get(&key)
+            .map_or(1, |record| record.generation.saturating_add(1));
+        self.scoped_credentials
+            .insert(key, VersionedCredential { generation, credential });
+    }
+
     pub(crate) fn secret_values(&self) -> Vec<String> {
         self.credentials
             .values()
+            .chain(self.scoped_credentials.values().map(|record| &record.credential))
             .flat_map(|credential| match credential {
                 Credential::ApiKey { key } => vec![key.clone()],
                 Credential::OAuth {
@@ -147,6 +259,29 @@ impl AuthStore {
             ))),
             None => Ok(None),
         }
+    }
+}
+
+fn credential_envelope(credential: &Credential) -> ScopedCredential {
+    match credential {
+        Credential::ApiKey { key } => ScopedCredential {
+            kind: "api_key.v1".to_string(),
+            value: serde_json::json!({"key": key}),
+        },
+        Credential::OAuth {
+            access_token,
+            refresh_token,
+            expires_at,
+            endpoint,
+        } => ScopedCredential {
+            kind: "oauth.v1".to_string(),
+            value: serde_json::json!({
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "expires_at": expires_at,
+                "endpoint": endpoint,
+            }),
+        },
     }
 }
 

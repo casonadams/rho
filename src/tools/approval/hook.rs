@@ -1,6 +1,5 @@
 use crate::tools::approval::capability::ApprovalCapability;
-use crate::tools::approval::types::{ApprovalDecision, ApprovalRequest, ToolEvent};
-use crate::tools::policy::ToolExecutionPolicy;
+use crate::tools::approval::context::{DispatchedCall, DispatchedResult, authorize_dispatch, emit_tool_finished};
 use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent};
 use serde_json::Value;
 
@@ -21,65 +20,32 @@ impl ApprovalHook {
 impl AgentHook for ApprovalHook {
     async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
         let arguments = serde_json::from_str::<Value>(event.args).unwrap_or(Value::Null);
-        let class = ToolExecutionPolicy::classify(event.tool_name, &arguments);
-        self.capability.emit_sink(ToolEvent::CallClassified {
-            internal_call_id: event.internal_call_id.to_string(),
-            tool_name: event.tool_name.to_string(),
-            arguments: arguments.clone(),
-            class: class.clone(),
-        });
-
-        if class.allows_without_approval()
-            || self.capability.is_auto_approve()
-            || self.capability.is_session_approved(event.tool_name, &arguments)
-        {
-            return ToolCallAction::Run;
-        }
-
-        let crate::tools::policy::ExecutionClass::ApprovalRequired { tier, reasons } = class else {
-            return ToolCallAction::Run;
-        };
-        let request = ApprovalRequest {
-            tool_name: event.tool_name.to_string(),
-            arguments: arguments.clone(),
-            tier,
-            reasons,
-        };
-        let decision = self.capability.request_approval_sink(request.clone()).await;
-        match decision {
-            ApprovalDecision::Approved => {
-                self.capability.grant_once(event.tool_name, &arguments);
-                self.capability.emit_sink(ToolEvent::ApprovalGranted {
-                    internal_call_id: event.internal_call_id.to_string(),
-                    tool_name: event.tool_name.to_string(),
-                });
-            }
-            ApprovalDecision::ApprovedForSession => {
-                self.capability.grant_for_session(event.tool_name, &arguments);
-                self.capability.emit_sink(ToolEvent::ApprovalGranted {
-                    internal_call_id: event.internal_call_id.to_string(),
-                    tool_name: event.tool_name.to_string(),
-                });
-            }
-            ApprovalDecision::Denied { reason } => {
-                self.capability.deny_once(request, reason);
-                self.capability.emit_sink(ToolEvent::ApprovalDenied {
-                    internal_call_id: event.internal_call_id.to_string(),
-                    tool_name: event.tool_name.to_string(),
-                });
-            }
-        }
+        authorize_dispatch(
+            &self.capability,
+            DispatchedCall {
+                internal_call_id: event.internal_call_id,
+                tool_name: event.tool_name,
+                arguments: &arguments,
+            },
+        )
+        .await;
         ToolCallAction::Run
     }
 
     async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
-        self.capability.emit_sink(ToolEvent::Finished {
-            internal_call_id: event.internal_call_id.to_string(),
-            tool_name: event.tool_name.to_string(),
-            arguments: serde_json::from_str(event.args).unwrap_or(Value::Null),
-            output: event.presentation.render(),
-            status: event.raw_result.status_name().to_string(),
-        });
+        let arguments = serde_json::from_str(event.args).unwrap_or(Value::Null);
+        emit_tool_finished(
+            &self.capability,
+            DispatchedCall {
+                internal_call_id: event.internal_call_id,
+                tool_name: event.tool_name,
+                arguments: &arguments,
+            },
+            DispatchedResult {
+                output: event.presentation.render(),
+                status: event.raw_result.status_name(),
+            },
+        );
         ToolResultAction::Keep
     }
 }

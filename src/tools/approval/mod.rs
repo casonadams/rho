@@ -16,6 +16,8 @@ mod types;
 mod tests;
 
 pub use capability::ApprovalCapability;
-pub use context::{approval_context, enforce_approval};
+pub use context::{
+    DispatchedCall, DispatchedResult, approval_context, authorize_dispatch, emit_tool_finished, enforce_approval,
+};
 pub use hook::ApprovalHook;
 pub use types::{ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent};

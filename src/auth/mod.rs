@@ -19,7 +19,7 @@ mod credential;
 mod oauth;
 mod verification;
 
-pub use credential::{AuthStore, Credential};
+pub use credential::{AuthStore, Credential, CredentialScope, CredentialUpdate, VersionedCredential};
 pub use oauth::{OAuthManager, chatgpt_client, copilot_client};
 pub use verification::{
     ApiKeyVerifier, PendingApiKey, VerificationStatus, cancellable_oauth, store_api_key_after_verification,
