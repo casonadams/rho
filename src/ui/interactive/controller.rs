@@ -363,6 +363,10 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
+        if !rendered.working_line.is_empty() {
+            self.backend.write_text(&rendered.working_line)?;
+            self.backend.write_text("\r\n")?;
+        }
         if !rendered.top_divider.is_empty() {
             self.backend.write_text(&rendered.top_divider)?;
             self.backend.write_text("\r\n")?;
@@ -373,10 +377,6 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         if !rendered.bottom_divider.is_empty() {
             self.backend.write_text(&rendered.bottom_divider)?;
-            self.backend.write_text("\r\n")?;
-        }
-        if !rendered.working_line.is_empty() {
-            self.backend.write_text(&rendered.working_line)?;
             self.backend.write_text("\r\n")?;
         }
         let footer_style = self.footer_style;
@@ -799,10 +799,16 @@ mod tests {
         controller.tick().unwrap();
 
         let ops = operations.borrow();
-        assert!(ops.iter().any(|op| matches!(
-            op,
-            Operation::Write(text) if text.contains("Working...")
-        )));
+        let working_index = ops.iter().position(|op| {
+            matches!(
+                op,
+                Operation::Write(text) if text.contains("Working...")
+            )
+        });
+        let divider_index = ops.iter().position(|op| op == &Operation::Write("\u{2500}".repeat(60)));
+
+        assert!(working_index.is_some());
+        assert!(working_index.unwrap() < divider_index.unwrap());
     }
 
     #[test]
