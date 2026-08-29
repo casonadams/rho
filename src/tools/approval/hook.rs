@@ -6,6 +6,11 @@ use serde_json::Value;
 /// Hook that intercepts tool calls and routes them through the approval
 /// capability. Always returns [`ToolCallAction::Run`] because authorization
 /// is enforced again, immediately before the tool body executes.
+///
+/// Retained only for direct-rig scenarios (the evaluation harness and tests
+/// that build raw Rig agents). Production sequencing lives in the
+/// [`crate::plugin::tool_dispatch::ActiveToolSet`] dispatch boundary; do not
+/// wire this hook there, it would duplicate approvals and lifecycle events.
 #[derive(Clone)]
 pub struct ApprovalHook {
     capability: ApprovalCapability,

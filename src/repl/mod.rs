@@ -56,9 +56,9 @@ pub struct RhoCompleter {
 }
 
 impl RhoCompleter {
-    pub fn new(extension_commands: &[(&str, &str)]) -> Self {
+    pub fn new(extension_commands: &[(&str, &str)], skill_names: Vec<String>) -> Self {
         Self {
-            completions: CompletionSet::rho(extension_commands),
+            completions: CompletionSet::rho(extension_commands, skill_names),
         }
     }
 }
@@ -120,7 +120,12 @@ impl ReplSession {
         let history_file = self.config.config_dir.join("history.txt");
         let history =
             Box::new(FileBackedHistory::with_file(1000, history_file).unwrap_or_else(|_| FileBackedHistory::default()));
-        let completer = RhoCompleter::new(&engine.extension_registry.list_commands());
+        let skill_names =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), Some(&std::env::current_dir()?))
+                .into_iter()
+                .map(|skill| skill.metadata.name)
+                .collect();
+        let completer = RhoCompleter::new(&engine.extension_registry.list_commands(), skill_names);
         let completion_menu = Box::new(ColumnarMenu::default().with_name("slash_commands"));
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(
@@ -278,7 +283,7 @@ mod tests {
 
     #[test]
     fn slash_commands_complete_from_a_prefix() {
-        let mut completer = RhoCompleter::new(&[]);
+        let mut completer = RhoCompleter::new(&[], Vec::new());
         let suggestions = completer.complete("/mo", 3);
         assert_eq!(suggestions.len(), 1);
         assert_eq!(suggestions[0].value, "/model");
@@ -286,7 +291,11 @@ mod tests {
 
     #[test]
     fn skill_names_complete_from_prefix() {
-        let mut completer = RhoCompleter::new(&[]);
+        let skill_names = crate::skills::resolved_skills(None, None)
+            .into_iter()
+            .map(|skill| skill.metadata.name)
+            .collect();
+        let mut completer = RhoCompleter::new(&[], skill_names);
         let suggestions = completer.complete("/skill pl", 9);
         assert!(suggestions.iter().any(|s| s.value == "/skill plan"));
     }

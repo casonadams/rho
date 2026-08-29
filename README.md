@@ -86,7 +86,7 @@ Global settings, credentials, skills, and instructions live under `~/.config/rho
 ```
 
 - **Instructions**: Discovers global `~/.config/rho/AGENTS.md` and workspace `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`.
-- **Skills**: Discovers `~/.config/rho/skills/`, `.rho/skills/`, and `./skills/` for `SKILL.md` workflows.
+- **Skills**: Declarative `SKILL.md` workflows resolved from embedded built-ins, `~/.config/rho/skills/`, `.rho/skills/`, `./prompts/skills/`, and `./skills/`. Project and user overrides replace same-name built-ins (`/skill` lists each skill's origin); skill content is displayed or loaded as data and is never executed.
 
 ---
 

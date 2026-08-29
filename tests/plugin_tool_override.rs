@@ -1,6 +1,7 @@
 #![cfg(unix)]
 
 use rho::config::{Config, PluginConfig};
+use rho::plugin::builtin_tools::DECLARATIONS;
 use rho::plugin::capability::{
     CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
 };
@@ -108,6 +109,81 @@ fn config_for(fixture: &Fixture, replacements: BTreeSet<CapabilityId>) -> Config
         },
     );
     config
+}
+
+fn builtin_tool_names() -> Vec<String> {
+    DECLARATIONS
+        .iter()
+        .map(|declaration| declaration.name.to_string())
+        .collect()
+}
+
+#[tokio::test]
+async fn clean_settings_boot_resolves_builtin_capabilities() {
+    let root = std::env::temp_dir().join(format!("rho_boot_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let active = ActiveToolSet::load(&Config::default(), &root).await.unwrap();
+
+    let names: BTreeSet<String> = active
+        .definitions()
+        .iter()
+        .map(|descriptor| descriptor.id.name().to_string())
+        .collect();
+    assert_eq!(names, builtin_tool_names().into_iter().collect::<BTreeSet<String>>());
+}
+
+#[tokio::test]
+async fn invalid_configured_plugin_leaves_builtin_tools_active() {
+    let root = std::env::temp_dir().join(format!("rho_invalid_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let executable = root.join("broken-plugin");
+    std::fs::write(&executable, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut config = Config {
+        config_dir: root.clone(),
+        ..Config::default()
+    };
+    config.plugins.insert(
+        "broken".to_string(),
+        PluginConfig {
+            path: executable.clone(),
+            package: None,
+            replaces: BTreeSet::new(),
+        },
+    );
+
+    let active = ActiveToolSet::load(&config, &root).await.unwrap();
+
+    let names: BTreeSet<String> = active
+        .definitions()
+        .iter()
+        .map(|descriptor| descriptor.id.name().to_string())
+        .collect();
+    assert_eq!(names, builtin_tool_names().into_iter().collect::<BTreeSet<String>>());
+}
+
+#[tokio::test]
+async fn undeclared_plugin_in_discovery_directory_is_never_active() {
+    let fixture = fixture();
+    let discovery_dir = fixture.root.join("plugins");
+    std::fs::create_dir_all(&discovery_dir).unwrap();
+    let discovered = discovery_dir.join("rho-plugin-sneaky");
+    std::fs::write(&discovered, std::fs::read_to_string(&fixture.executable).unwrap()).unwrap();
+    std::fs::set_permissions(&discovered, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // Present during discovery but never declared in `[plugins]`.
+    let config = Config {
+        config_dir: fixture.root.clone(),
+        ..Config::default()
+    };
+    let active = ActiveToolSet::load(&config, &fixture.root).await.unwrap();
+
+    let names: BTreeSet<String> = active
+        .definitions()
+        .iter()
+        .map(|descriptor| descriptor.id.name().to_string())
+        .collect();
+    assert_eq!(names, builtin_tool_names().into_iter().collect::<BTreeSet<String>>());
 }
 
 #[tokio::test]

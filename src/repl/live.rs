@@ -113,7 +113,12 @@ impl ReplSession {
 
         let mut history = InteractiveHistory::with_file(1000, self.config.config_dir.join("history.txt"))
             .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
-        let completions = CompletionSet::rho(&engine.extension_registry.list_commands());
+        let skill_names =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref())
+                .into_iter()
+                .map(|skill| skill.metadata.name)
+                .collect();
+        let completions = CompletionSet::rho(&engine.extension_registry.list_commands(), skill_names);
 
         loop {
             let message = match controller.state_mut().pop_queued() {

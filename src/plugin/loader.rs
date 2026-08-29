@@ -1,6 +1,5 @@
 use crate::config::PluginConfig;
 use crate::error::{AppError, Result};
-use crate::plugin::registry::ExtensionRegistry;
 use crate::plugin::types::PluginManifest;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, btree_map::Entry};
@@ -211,11 +210,6 @@ impl PluginLoader {
                 );
             }
         }
-        Ok(())
-    }
-
-    pub fn load_discovered(_discovery: &PluginDiscovery, registry: &mut ExtensionRegistry) -> Result<()> {
-        let _ = registry;
         Ok(())
     }
 }

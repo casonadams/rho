@@ -64,9 +64,28 @@ replaces = ["tool:bash"]
 
 The replacement is advertised to the model as `bash`, while inspection reports its plugin and capability identities. Rho validates arguments, declared effects, protected paths, network targets, approval, repeated calls, and lifecycle events before dispatch. These checks govern model-requested operations; they do not sandbox the trusted executable itself.
 
-## Legacy in-process extensions
+## Skills versus plugins
 
-The existing in-process extension API remains available during the capability migration. Legacy manifests are informational and do not authorize an external executable.
+Skills are declarative, data-only workflow documents; plugins are executable capability providers. Rho resolves skills in precedence order and later roots replace earlier same-name skills:
+
+1. Embedded built-ins (`rho://skills/<name>`)
+2. User skills: `<config_dir>/skills/<name>/SKILL.md` (or a flat `<file>.md`)
+3. Project skills: `.rho/skills/`, `prompts/skills/`, and `skills/` in the workspace
+
+`/skills` lists every resolved skill with its origin (`built-in`, `user`, `project`), and `/skill <name>` prints the resolved content. Override content is rendered or loaded as data only — skill assets never execute, spawn processes, or touch configuration, unlike plugin executables.
+
+## Credential boundaries
+
+The host owns all credential persistence (`AuthStore`, OAuth token directories). When dispatching a capability operation for a configured plugin, the host supplies only that capability's scoped credential material and never serializes `AuthStore`, token directories, or unrelated secrets across the protocol. Refreshed provider credentials return through a dedicated protocol result for host persistence.
+
+## Failure behavior
+
+A plugin that is missing, invalid, hangs, crashes, or violates the protocol disables only its own capabilities; unrelated built-ins remain active, and the old active capability stays available when an authorized replacement fails. Configured permission policies compose restrictively: deny over approval-required over allow, and a policy failure or invalid result denies operations that require approval. Host-floor denials (schema, workspace, protected locations, network) cannot be overturned by any plugin decision.
+
+
+## Legacy in-process extensions (lifecycle compatibility)
+
+The in-process extension API is retained only for non-capability lifecycle compatibility (hooks, transforms, and slash commands) while the capability platform is adopted. It is not the capability API: legacy extensions run in-process, cannot add exec-driven capability kinds, and legacy manifests are informational — they do not authorize an external executable.
 
 Internal capabilities and external plugin adapters implement the `Extension` lifecycle trait:
 

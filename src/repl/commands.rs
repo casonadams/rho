@@ -102,29 +102,63 @@ impl SlashCommandHandler {
                 }
             }
             "skill" | "skills" => {
-                let skills = crate::skills::builtin_skills();
-                if parts.len() > 1 {
-                    let skill_name = parts[1];
-                    if let Some(content) = crate::skills::get_builtin_skill_content(skill_name) {
-                        ctx.renderer.write_output(&format!("\n{content}\n"));
-                    } else {
-                        let mut output = format!("  Skill '{skill_name}' not found. Available skills:\n");
-                        for skill in &skills {
-                            let _ = writeln!(output, "    - {}: {}", skill.name, skill.description);
-                        }
-                        ctx.renderer.write_output(&output);
+                let cwd = std::env::current_dir().ok();
+                let skills = crate::skills::resolved_skills(Some(&ctx.config.config_dir), cwd.as_deref());
+                let lookup = |name: &str| skills.iter().find(|skill| skill.metadata.name == name).cloned();
+                let list = |output: &mut String| {
+                    for skill in &skills {
+                        let _ = writeln!(
+                            output,
+                            "    - {}: {} ({})",
+                            skill.metadata.name, skill.metadata.description, skill.origin
+                        );
                     }
-                } else {
+                };
+                if parts.len() > 1 {
+                    let Some(matched) = lookup(parts[1]) else {
+                        let mut output = format!("  Skill '{}' not found. Available skills:\n", parts[1]);
+                        list(&mut output);
+                        ctx.renderer.write_output(&output);
+                        return Ok(Some(CommandResult::Continue));
+                    };
+                    // Content comes from the resolved record; overrides read
+                    // their file, never execute it.
+                    if let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name) {
+                        ctx.renderer.write_output(&format!(
+                            "\n[skill: {} ({})]\n{content}\n",
+                            matched.metadata.name, matched.origin
+                        ));
+                    }
+                } else if ctx.renderer.has_interactive_ui() {
+                    // Interactive selection mirrors the resolved list.
                     let choices: Vec<String> = skills
                         .iter()
-                        .map(|s| format!("{} - {}", s.name, s.description))
+                        .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
                         .collect();
-                    if let Ok(choice) = inquire::Select::new("Select a skill to inspect:", choices).prompt() {
-                        let chosen_name = choice.split_whitespace().next().unwrap_or("");
-                        if let Some(content) = crate::skills::get_builtin_skill_content(chosen_name) {
-                            ctx.renderer.write_output(&format!("\n{content}\n"));
+                    let selected = match inquire::Select::new("Select a skill to inspect:", choices).prompt() {
+                        Ok(choice) => Some(choice.split_whitespace().next().unwrap_or("").to_string()),
+                        // Non-interactive or cancelled prompts fall back to the list.
+                        Err(_) => None,
+                    };
+                    match selected.and_then(|name| lookup(&name)) {
+                        Some(matched) => {
+                            if let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name) {
+                                ctx.renderer.write_output(&format!(
+                                    "\n[skill: {} ({})]\n{content}\n",
+                                    matched.metadata.name, matched.origin
+                                ));
+                            }
+                        }
+                        None => {
+                            let mut output = String::from("Available skills:\n");
+                            list(&mut output);
+                            ctx.renderer.write_output(&output);
                         }
                     }
+                } else {
+                    let mut output = String::from("Available skills:\n");
+                    list(&mut output);
+                    ctx.renderer.write_output(&output);
                 }
                 Ok(Some(CommandResult::Continue))
             }
@@ -257,6 +291,76 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[tokio::test]
+    async fn skill_command_lists_resolved_overrides_with_origin() {
+        let workspace = std::env::temp_dir().join(format!("skill_cmd_{}", uuid::Uuid::new_v4()));
+        let config_dir = workspace.join("config");
+        let user_skill_dir = config_dir.join("skills").join("team-notes");
+        std::fs::create_dir_all(&user_skill_dir).unwrap();
+        std::fs::write(
+            user_skill_dir.join("SKILL.md"),
+            "---\nname: team-notes\ndescription: User notes workflow\n---\n# Notes\nnever executed\n",
+        )
+        .unwrap();
+
+        let mut config = Config {
+            config_dir,
+            ..Config::default()
+        };
+        let mut auth = AuthStore::default();
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
+            auth_store: &mut auth,
+            registry: None,
+            context: None,
+            renderer: &renderer,
+        };
+
+        let listing = SlashCommandHandler::handle("/skills", &mut context).await.unwrap();
+        assert!(matches!(listing, Some(CommandResult::Continue)));
+        let output = collected_output(&mut events);
+        assert!(
+            output.contains("    - team-notes: User notes workflow (user)"),
+            "{output}"
+        );
+
+        // `/skill team-notes` prints the override's file content verbatim.
+        let viewing = SlashCommandHandler::handle("/skill team-notes", &mut context)
+            .await
+            .unwrap();
+        assert!(matches!(viewing, Some(CommandResult::Continue)));
+        let viewed = collected_output(&mut events);
+        assert!(viewed.contains("[skill: team-notes (user)]"));
+        assert!(viewed.contains("# Notes"));
+        assert!(viewed.contains("never executed"));
+
+        let _ = std::fs::remove_dir_all(&workspace);
+    }
+
+    #[tokio::test]
+    async fn skill_command_reports_unknown_names_with_available_skills() {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
+            auth_store: &mut auth,
+            registry: None,
+            context: None,
+            renderer: &renderer,
+        };
+
+        let result = SlashCommandHandler::handle("/skill does-not-exist", &mut context)
+            .await
+            .unwrap();
+
+        assert!(matches!(result, Some(CommandResult::Continue)));
+        let output = collected_output(&mut events);
+        assert!(output.contains("does-not-exist"));
+        assert!(output.contains("Available skills"));
     }
 
     #[tokio::test]

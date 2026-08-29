@@ -24,13 +24,10 @@ impl ProjectContext {
         }
         Self::load_candidate_instructions(base, &mut instruction_files);
 
-        let mut skills = crate::skills::builtin_skills();
-        if let Some(cfg) = config_dir {
-            Self::scan_skills_directory(&cfg.join("skills"), &mut skills);
-        }
-        Self::scan_skills_directory(&base.join(".rho/skills"), &mut skills);
-        Self::scan_skills_directory(&base.join("prompts/skills"), &mut skills);
-        Self::scan_skills_directory(&base.join("skills"), &mut skills);
+        let skills: Vec<SkillMetadata> = crate::skills::resolved_skills(config_dir, Some(base))
+            .into_iter()
+            .map(|skill| skill.metadata)
+            .collect();
 
         let mut base_system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
         if let Some(cfg) = config_dir
@@ -74,78 +71,6 @@ impl ProjectContext {
                 }
             }
         }
-    }
-
-    fn scan_skills_directory(dir: &Path, skills: &mut Vec<SkillMetadata>) {
-        if !dir.exists() || !dir.is_dir() {
-            return;
-        }
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let skill_file = path.join("SKILL.md");
-                if skill_file.exists()
-                    && let Some(meta) = Self::parse_skill_file(&skill_file)
-                {
-                    Self::upsert_skill(skills, meta);
-                }
-            } else if path.extension().is_some_and(|ext| ext == "md")
-                && let Some(meta) = Self::parse_skill_file(&path)
-            {
-                Self::upsert_skill(skills, meta);
-            }
-        }
-    }
-
-    fn upsert_skill(skills: &mut Vec<SkillMetadata>, meta: SkillMetadata) {
-        if let Some(pos) = skills.iter().position(|s| s.name == meta.name) {
-            skills[pos] = meta;
-        } else {
-            skills.push(meta);
-        }
-    }
-
-    fn parse_skill_file(path: &Path) -> Option<SkillMetadata> {
-        let content = std::fs::read_to_string(path).ok()?;
-        let mut name = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|s| s.to_str())
-            .unwrap_or("skill")
-            .to_string();
-        let mut description = String::new();
-
-        if content.starts_with("---") {
-            let parts: Vec<&str> = content.splitn(3, "---").collect();
-            if parts.len() >= 3 {
-                for line in parts[1].lines() {
-                    let trimmed = line.trim();
-                    if let Some(val) = trimmed.strip_prefix("name:") {
-                        name = val.trim().trim_matches('"').trim_matches('\'').to_string();
-                    } else if let Some(val) = trimmed.strip_prefix("description:") {
-                        description = val.trim().trim_matches('"').trim_matches('\'').to_string();
-                    }
-                }
-            }
-        }
-
-        if description.is_empty() {
-            description = content
-                .lines()
-                .find(|line| !line.trim().is_empty() && !line.starts_with('#') && !line.starts_with("---"))
-                .unwrap_or("Custom agent skill")
-                .trim()
-                .to_string();
-        }
-
-        Some(SkillMetadata {
-            name,
-            description,
-            location: path.display().to_string(),
-        })
     }
 
     pub fn build_system_prompt(&self) -> String {

@@ -6,7 +6,6 @@ use crate::config::Config;
 use crate::engine::AgentBackend;
 use crate::engine::provider::{CredentialStrategy, ModelRequest, ProviderFactory};
 use crate::error::Result;
-use crate::plugin::PluginLoader;
 use crate::plugin::provider::{ActiveProvider, ProviderRegistry};
 use crate::session::SessionManager;
 use std::path::PathBuf;
@@ -102,10 +101,7 @@ impl AgentEngineBuilder {
                 }
             }
         };
-        let mut extension_registry = ExtensionRegistry::new();
-        if let Ok(discovery) = PluginLoader::discover(&self.config.config_dir, Some(&base_dir)) {
-            PluginLoader::load_discovered(&discovery, &mut extension_registry)?;
-        }
+        let extension_registry = ExtensionRegistry::new();
         Ok(AgentEngine {
             config: self.config.clone(),
             session_manager,

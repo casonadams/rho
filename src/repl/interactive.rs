@@ -45,7 +45,7 @@ struct MatchRequest<'a> {
 }
 
 impl CompletionSet {
-    pub fn rho(extension_commands: &[(&str, &str)]) -> Self {
+    pub fn rho(extension_commands: &[(&str, &str)], skill_names: Vec<String>) -> Self {
         let mut commands = SLASH_COMMANDS
             .iter()
             .map(|command| (*command).to_string())
@@ -56,10 +56,7 @@ impl CompletionSet {
 
         Self {
             commands,
-            skills: crate::skills::builtin_skills()
-                .into_iter()
-                .map(|skill| skill.name)
-                .collect(),
+            skills: skill_names,
             models: MODELS.iter().map(|model| (*model).to_string()).collect(),
             providers: PROVIDERS.iter().map(|provider| (*provider).to_string()).collect(),
         }
@@ -211,7 +208,7 @@ mod tests {
 
     #[test]
     fn completion_reports_replacement_spans_for_commands_and_arguments() {
-        let completions = CompletionSet::rho(&[("deploy", "Deploy")]);
+        let completions = CompletionSet::rho(&[("deploy", "Deploy")], Vec::new());
 
         let command = completions.complete("/dep trailing", 4);
         assert_eq!(command[0].value, "/deploy");
@@ -224,7 +221,7 @@ mod tests {
 
     #[test]
     fn completion_rejects_invalid_cursor_boundaries() {
-        let completions = CompletionSet::rho(&[]);
+        let completions = CompletionSet::rho(&[], Vec::new());
         assert!(completions.complete("/model 界", 8).is_empty());
         assert!(completions.complete("/model", 99).is_empty());
     }
