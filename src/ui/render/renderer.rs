@@ -6,6 +6,7 @@ use super::formatters::{
 use super::summary::{clean_command_paths, format_tool_args_summary, read_summary_parts, to_relative_path};
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::{QuestionPort, RiskTier};
+use crate::ui::ToolStreamPort;
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::interactive::{
     Activity, InteractionOption, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
@@ -166,6 +167,25 @@ impl TerminalRenderer {
         crate::ui::question::question_port(self.ui.clone())
     }
 
+    pub fn stream_port(&self) -> ToolStreamPort {
+        ToolStreamPort::new(self.ui.clone())
+    }
+
+    pub fn start_tool_run(&self, name: &str, args: &serde_json::Value) {
+        let summary = format_tool_args_summary(name, args);
+        if let Some(ui) = &self.ui {
+            let _ = ui.tool_start(name.to_string(), summary);
+        } else {
+            self.print_tool_start(name, args);
+        }
+    }
+
+    pub fn tool_chunk(&self, chunk: &str) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.tool_chunk(chunk.to_string());
+        }
+    }
+
     pub fn has_interactive_ui(&self) -> bool {
         self.ui.is_some()
     }
@@ -235,17 +255,9 @@ impl TerminalRenderer {
         self.start_spinner(&msg)
     }
 
-    pub fn start_bash_run(&self, command: &str) {
-        if let Some(ui) = &self.ui {
-            let _ = ui.set_running_tool(Some(clean_command_paths(command)));
-        }
-    }
+    pub fn start_bash_run(&self, _command: &str) {}
 
-    pub fn finish_bash_run(&self) {
-        if let Some(ui) = &self.ui {
-            let _ = ui.set_running_tool(None);
-        }
-    }
+    pub fn finish_bash_run(&self) {}
 
     pub async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
         if let Some(ui) = &self.ui {
@@ -444,6 +456,9 @@ impl TerminalRenderer {
     }
 
     pub fn finish_tool_line(&self, line: ToolLine<'_>) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.tool_end();
+        }
         let background = if line.is_error {
             self.theme.tool_error_bg
         } else {
@@ -474,13 +489,6 @@ impl TerminalRenderer {
         } else {
             format!("{title}{}{title:#} {accent}{summary}{accent:#}", line.name)
         };
-        if line.name == "bash"
-            && let Some(duration) = line.duration
-        {
-            let dim = self.theme.dimmed;
-            content.push_str(&format!(" {dim}({}){dim:#}", super::format_duration(duration)));
-        }
-
         if !line.is_error && line.name == "edit" {
             if let Some(diff) = format_edit_diff(line.arguments, &self.theme) {
                 content.push('\n');
@@ -494,6 +502,12 @@ impl TerminalRenderer {
         } else if line.name == "bash" || line.is_error {
             content.push_str("\n\n");
             content.push_str(&format_tool_output_preview(line.output, line.output_summary));
+        }
+
+        if let Some(duration) = line.duration {
+            let dim = self.theme.dimmed;
+            content.push('\n');
+            content.push_str(&format!("{dim}Took {}{dim:#}", super::format_duration(duration)));
         }
 
         let block = BlockFormat::new(background, terminal_width())

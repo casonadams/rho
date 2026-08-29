@@ -12,8 +12,8 @@ use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, BatchDecision, InputAction, InteractionResponder, InteractionResponse, InteractiveState, ModalState,
-    OutputEvent, PendingUiBatch, QueuedMessage, RunningTool, TerminalBackend, TerminalController, UiAction, UiEffect,
-    UiEvent, map_key,
+    OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiAction, UiEffect, UiEvent,
+    map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
@@ -53,22 +53,27 @@ impl LiveBatch {
 
     fn flush(&mut self, controller: &mut LiveController, redraw: bool) -> Result<()> {
         let drained = self.ui.drain();
-        let mut changed = if let Some(update) = drained.running_tool {
-            controller.state_mut().set_running_tool(update.map(RunningTool::new));
-            true
-        } else {
-            false
-        };
+        let mut changed = false;
+        if let Some((name, args_summary)) = drained.tool_start {
+            controller.start_tool(name, args_summary)?;
+            changed = true;
+        }
+        for chunk in &drained.tool_chunks {
+            controller.append_tool_chunk(chunk)?;
+            changed = true;
+        }
+        if drained.tool_end {
+            controller.end_tool()?;
+            changed = true;
+        }
         if let Some(activity) = drained.activity {
             controller.state_mut().footer_mut().activity = activity;
             changed = true;
         }
-        if drained.text.is_empty() {
-            if changed || redraw {
-                controller.redraw()?;
-            }
-        } else {
+        if !drained.text.is_empty() {
             controller.write_output(&drained.text)?;
+        } else if changed || redraw {
+            controller.redraw()?;
         }
         Ok(())
     }
@@ -335,6 +340,10 @@ async fn read_idle_input(
                         controller.state_mut().editor_mut().set_text("");
                         controller.redraw()?;
                     }
+                    InputAction::ToggleExpandTools => {
+                        controller.state_mut().toggle_tools_expanded();
+                        batch.flush(controller, true)?;
+                    }
                     InputAction::EndOfInput if controller.state().editor().is_empty() => {
                         batch.flush(controller, false)?;
                         return Ok(None);
@@ -463,8 +472,11 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                             batch.flush(controller, true)?;
                         }
                     }
+                    InputAction::ToggleExpandTools => {
+                        controller.state_mut().toggle_tools_expanded();
+                        batch.flush(controller, true)?;
+                    }
                     InputAction::Cancel => {
-                        controller.state_mut().set_running_tool(None);
                         batch.flush(controller, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
@@ -477,7 +489,6 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                 }
             }
             result = &mut run => {
-                controller.state_mut().set_running_tool(None);
                 renderer.flush();
                 batch.drain_events(controller, ui_events)?;
                 batch.flush(controller, false)?;
@@ -527,11 +538,15 @@ fn handle_ui_event(controller: &mut LiveController, event: UiEvent, modal: &mut 
             controller.state_mut().footer_mut().activity = activity;
             controller.redraw()?;
         }
-        UiEvent::RunningTool(tool) => {
-            controller
-                .state_mut()
-                .set_running_tool(tool.map(crate::ui::interactive::RunningTool::new));
-            controller.redraw()?;
+        UiEvent::RunningTool(_) => {}
+        UiEvent::ToolStart { name, args_summary } => {
+            controller.start_tool(name, args_summary)?;
+        }
+        UiEvent::ToolChunk { chunk } => {
+            controller.append_tool_chunk(&chunk)?;
+        }
+        UiEvent::ToolEnd => {
+            controller.end_tool()?;
         }
         event @ UiEvent::Interaction { .. } => {
             install_interaction(controller, event, modal);

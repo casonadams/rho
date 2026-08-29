@@ -80,6 +80,7 @@ impl AgentEngine {
         );
         let mut tool_context = approval_context(approval);
         tool_context.insert(renderer.question_port());
+        tool_context.insert(renderer.stream_port());
         tool_context.insert(crate::plugin::contract::InvocationContext {
             session_id: self.session_manager.session_id.clone(),
             working_directory: std::env::current_dir()?.display().to_string(),

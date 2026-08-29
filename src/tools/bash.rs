@@ -33,7 +33,10 @@ impl BashTool {
         }
     }
 
-    pub async fn execute(&self, args: BashArgs) -> Result<ToolResult, AppError> {
+    pub async fn execute_streaming<F>(&self, args: BashArgs, mut on_chunk: F) -> Result<ToolResult, AppError>
+    where
+        F: FnMut(&str) + Send + 'static,
+    {
         let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
 
         #[cfg(unix)]
@@ -53,20 +56,78 @@ impl BashTool {
         let base = Workspace::new(&self.base_dir);
         cmd.current_dir(base.root());
         cmd.stdin(Stdio::null());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true);
 
-        let output_future = cmd.output();
-        let timeout_future = tokio::time::timeout(Duration::from_secs(timeout_sec), output_future);
-
-        let output = match timeout_future.await {
-            Ok(Ok(out)) => out,
-            Ok(Err(e)) => {
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
                 return Ok(ToolResult::error(format!(
                     "Failed to spawn process for command '{}': {e}",
                     args.command
                 )));
             }
+        };
+
+        let stdout = child.stdout.take().expect("child stdout was piped");
+        let stderr = child.stderr.take().expect("child stderr was piped");
+
+        let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+        let stdout_tx = chunk_tx.clone();
+        let stdout_task = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut reader = stdout;
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                if stdout_tx.send(s).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let stderr_tx = chunk_tx;
+        let stderr_task = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut reader = stderr;
+            let mut buf = [0u8; 4096];
+            while let Ok(n) = reader.read(&mut buf).await {
+                if n == 0 {
+                    break;
+                }
+                let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                if stderr_tx.send(s).is_err() {
+                    break;
+                }
+            }
+        });
+
+        let mut combined = String::new();
+        let execution_future = async {
+            while let Some(chunk) = chunk_rx.recv().await {
+                on_chunk(&chunk);
+                combined.push_str(&chunk);
+            }
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            child.wait().await
+        };
+
+        let status = match tokio::time::timeout(Duration::from_secs(timeout_sec), execution_future).await {
+            Ok(Ok(status)) => status,
+            Ok(Err(e)) => {
+                return Ok(ToolResult::error(format!(
+                    "Failed waiting for command '{}': {e}",
+                    args.command
+                )));
+            }
             Err(_) => {
+                let _ = child.kill().await;
                 return Ok(ToolResult::error(format!(
                     "Command '{}' timed out after {} seconds",
                     args.command, timeout_sec
@@ -74,24 +135,10 @@ impl BashTool {
             }
         };
 
-        let stdout_str = String::from_utf8_lossy(&output.stdout);
-        let stderr_str = String::from_utf8_lossy(&output.stderr);
-        let exit_code = output.status.code().unwrap_or(-1);
-
-        let mut combined = String::new();
-        if !stdout_str.is_empty() {
-            combined.push_str(&stdout_str);
-        }
-        if !stderr_str.is_empty() {
-            if !combined.is_empty() && !combined.ends_with('\n') {
-                combined.push('\n');
-            }
-            combined.push_str(&stderr_str);
-        }
-
+        let exit_code = status.code().unwrap_or(-1);
         let truncated_output = truncate_bash_output(&combined);
 
-        if output.status.success() {
+        if status.success() {
             let res = if truncated_output.trim().is_empty() {
                 "[Command completed with exit code 0 (no output)]".to_string()
             } else {
@@ -102,6 +149,10 @@ impl BashTool {
             let res = format!("Command exited with code {exit_code}:\n{truncated_output}");
             Ok(ToolResult::error(res))
         }
+    }
+
+    pub async fn execute(&self, args: BashArgs) -> Result<ToolResult, AppError> {
+        self.execute_streaming(args, |_| {}).await
     }
 }
 
@@ -190,6 +241,31 @@ mod tests {
         let truncated = truncate_bash_output(&output);
         assert!(truncated.contains("[Output truncated:"));
         assert!(truncated.len() <= MAX_BASH_BYTES + 100);
+    }
+
+    #[tokio::test]
+    async fn test_bash_streaming_receives_chunks() {
+        let tool = BashTool::new(std::env::current_dir().unwrap());
+        let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let r_clone = received.clone();
+
+        let res = tool
+            .execute_streaming(
+                BashArgs {
+                    command: "echo 'first'; echo 'second'".to_string(),
+                    timeout: Some(5),
+                },
+                move |chunk| {
+                    r_clone.lock().unwrap().push(chunk.to_string());
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(!res.is_error);
+        let chunks = received.lock().unwrap().concat();
+        assert!(chunks.contains("first"));
+        assert!(chunks.contains("second"));
     }
 
     #[tokio::test]

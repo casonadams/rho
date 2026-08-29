@@ -3,8 +3,10 @@ pub mod interactive;
 pub mod markdown;
 pub mod question;
 pub mod render;
+pub mod stream;
 pub mod theme;
 
 pub use markdown::MarkdownRenderer;
 pub use render::TerminalRenderer;
+pub use stream::ToolStreamPort;
 pub use theme::Theme;

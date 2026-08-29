@@ -274,7 +274,20 @@ impl ToolCapability for BuiltinTool {
             Self::Read(tool) => tool.execute(parse(request.arguments)?).await,
             Self::Write(tool) => tool.execute(parse(request.arguments)?).await,
             Self::Edit(tool) => tool.execute(parse(request.arguments)?).await,
-            Self::Bash(tool) => tool.execute(parse(request.arguments)?).await,
+            Self::Bash(tool) => {
+                let args = parse(request.arguments)?;
+                let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+                let stream_task = async {
+                    while let Some(chunk) = chunk_rx.recv().await {
+                        host.stream_chunk(&chunk);
+                    }
+                };
+                let exec_task = tool.execute_streaming(args, move |chunk| {
+                    let _ = chunk_tx.send(chunk.to_string());
+                });
+                let (result, _) = tokio::join!(exec_task, stream_task);
+                result
+            }
             Self::WebSearch(tool, _) => tool.execute(parse(request.arguments)?).await,
             Self::WebFetch(tool, _) => tool.execute(parse(request.arguments)?).await,
             Self::AskUser(tool, _) => {

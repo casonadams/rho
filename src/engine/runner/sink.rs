@@ -247,11 +247,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
                     !needs_approval(&state, &class) && tool_name != "ask_user" && tool_name != "ask_user_question";
                 if runs_immediately {
                     state.spinner = Some(self.renderer.start_tool_spinner(&tool_name, &arguments));
-                    if tool_name == "bash"
-                        && let Some(command) = arguments.get("command").and_then(Value::as_str)
-                    {
-                        self.renderer.start_bash_run(command);
-                    }
+                    self.renderer.start_tool_run(&tool_name, &arguments);
                 }
                 state.pending.insert(
                     internal_call_id,
@@ -268,14 +264,10 @@ impl ApprovalEventSink for TerminalApprovalSink {
                     && call.name != "ask_user"
                     && call.name != "ask_user_question"
                 {
-                    if call.name == "bash"
-                        && let Some(command) = call.arguments.get("command").and_then(Value::as_str)
-                    {
-                        self.renderer.start_bash_run(command);
-                    }
                     call.started = Some(Instant::now());
                     let (name, arguments) = (call.name.clone(), call.arguments.clone());
                     state.spinner = Some(self.renderer.start_tool_spinner(&name, &arguments));
+                    self.renderer.start_tool_run(&name, &arguments);
                 }
             }
             ToolEvent::ApprovalDenied { .. } => {}
@@ -289,13 +281,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
                 self.run_tracker.tool_finished(&status);
                 if let Ok(mut state) = self.state.lock() {
                     let finished = state.pending.remove(&internal_call_id);
-                    let bash_started = finished
-                        .filter(|call| call.name == "bash")
-                        .and_then(|call| call.started);
-                    let duration = bash_started.map(|started| started.elapsed());
-                    if bash_started.is_some() {
-                        self.renderer.finish_bash_run();
-                    }
+                    let duration = finished.and_then(|call| call.started).map(|started| started.elapsed());
                     clear_spinner(&mut state);
                     state.last_display = DisplayKind::Tool;
                     let arguments = redact_value(&self.session_manager, &arguments);

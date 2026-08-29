@@ -54,6 +54,12 @@ pub enum Commands {
         /// Provider name
         provider: Option<String>,
     },
+    /// Set or remove an Ollama Cloud API key (used to show usage for :cloud models)
+    Auth {
+        /// Subcommand: set or remove
+        #[command(subcommand)]
+        action: Option<AuthCommands>,
+    },
     /// Display or edit configuration
     Config {
         /// Config key to inspect or set
@@ -68,6 +74,14 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<PluginCommands>,
     },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum AuthCommands {
+    /// Store an Ollama Cloud API key for showing :cloud usage
+    Set,
+    /// Remove the stored Ollama Cloud API key
+    Remove,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -177,6 +191,25 @@ mod tests {
         let cli = Cli::try_parse_from(["rho", "--max-output-tokens", "8192", "--max-turns", "12"]).unwrap();
         assert_eq!(cli.max_output_tokens, Some(8192));
         assert_eq!(cli.max_turns, Some(12));
+    }
+
+    #[test]
+    fn test_cli_parses_auth_subcommands() {
+        let cli = Cli::try_parse_from(["rho", "auth", "set"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Auth {
+                action: Some(AuthCommands::Set)
+            })
+        );
+
+        let cli = Cli::try_parse_from(["rho", "auth", "remove"]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Auth {
+                action: Some(AuthCommands::Remove)
+            })
+        );
     }
 
     #[test]

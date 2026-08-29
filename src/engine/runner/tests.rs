@@ -211,14 +211,15 @@ fn auto_approved_bash_call_surfaces_the_running_command_and_finishing_duration()
         class: ExecutionClass::ReadOnly,
     });
 
-    let updates = std::iter::from_fn(|| events.try_recv().ok())
+    let tool_starts = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
-            UiEvent::RunningTool(update) => Some(update),
+            UiEvent::ToolStart { name, args_summary } => Some((name, args_summary)),
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0].as_deref(), Some("cargo test --all-targets"));
+    assert_eq!(tool_starts.len(), 1);
+    assert_eq!(tool_starts[0].0, "bash");
+    assert!(tool_starts[0].1.contains("cargo test --all-targets"));
 
     sink.emit(ToolEvent::Finished {
         internal_call_id: "call-1".to_string(),
@@ -228,19 +229,19 @@ fn auto_approved_bash_call_surfaces_the_running_command_and_finishing_duration()
         status: "success".to_string(),
     });
 
-    let mut updates = Vec::new();
+    let mut tool_ended = false;
     let mut output = String::new();
     while let Ok(event) = events.try_recv() {
         match event {
-            UiEvent::RunningTool(update) => updates.push(update),
+            UiEvent::ToolEnd => tool_ended = true,
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            UiEvent::Activity(_) => {}
+            UiEvent::Activity(_) | UiEvent::RunningTool(_) | UiEvent::ToolStart { .. } | UiEvent::ToolChunk { .. } => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }
-    assert_eq!(updates, [None]);
+    assert!(tool_ended);
     assert!(output.contains("cargo test --all-targets"));
-    assert!(output.contains("ms)"));
+    assert!(output.contains("Took"));
 }
 
 #[tokio::test]
@@ -942,7 +943,11 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
             UiEvent::Output(OutputEvent::Text(text)) => {
                 displayed.push_str(&text);
             }
-            UiEvent::Activity(_) | UiEvent::RunningTool(_) => {}
+            UiEvent::Activity(_)
+            | UiEvent::RunningTool(_)
+            | UiEvent::ToolStart { .. }
+            | UiEvent::ToolChunk { .. }
+            | UiEvent::ToolEnd => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }

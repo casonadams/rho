@@ -10,6 +10,7 @@ pub enum InputAction {
     Complete,
     Cancel,
     EndOfInput,
+    ToggleExpandTools,
     Ignore,
 }
 
@@ -28,6 +29,9 @@ pub fn map_key(event: KeyEvent) -> InputAction {
         (KeyCode::Enter, _) => InputAction::Edit(UiAction::Submit(QueueKind::Steering)),
         (KeyCode::Char('j' | 'J'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
             InputAction::Edit(UiAction::InsertNewline)
+        }
+        (KeyCode::Char('o' | 'O'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            InputAction::ToggleExpandTools
         }
         (KeyCode::Char('d' | 'D'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => InputAction::EndOfInput,
         (KeyCode::Char('c' | 'C'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => InputAction::Cancel,
@@ -109,6 +113,10 @@ mod tests {
             (key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete),
             (key(KeyCode::Esc, KeyModifiers::NONE), InputAction::Cancel),
             (key(KeyCode::Char('d'), KeyModifiers::CONTROL), InputAction::EndOfInput),
+            (
+                key(KeyCode::Char('o'), KeyModifiers::CONTROL),
+                InputAction::ToggleExpandTools,
+            ),
         ];
 
         for (event, expected) in cases {

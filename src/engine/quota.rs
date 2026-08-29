@@ -185,6 +185,99 @@ pub async fn fetch_chatgpt_quota(config_dir: &Path) -> Option<String> {
     format_quota_windows(&windows)
 }
 
+#[derive(Debug, Deserialize)]
+struct OllamaAuthFile {
+    key: Option<String>,
+}
+
+/// Ollama Cloud usage renders only for local `ollama` models whose id ends with
+/// `:cloud`; non-cloud local models consume no cloud quota and stay silent.
+pub fn is_ollama_cloud_model(model_id: &str) -> bool {
+    model_id.ends_with(":cloud")
+}
+
+pub async fn fetch_ollama_cloud_quota(config_dir: &Path, model_id: &str) -> Option<String> {
+    if !is_ollama_cloud_model(model_id) {
+        return None;
+    }
+    let auth_path = config_dir.join("tokens/ollama-cloud/auth.json");
+    if !auth_path.exists() {
+        return None;
+    }
+    let content = std::fs::read_to_string(auth_path).ok()?;
+    let auth_data: OllamaAuthFile = serde_json::from_str(&content).ok()?;
+    let key = auth_data.key?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(4))
+        .build()
+        .ok()?;
+
+    let res = client
+        .get("https://ollama.com/api/usage")
+        .header("Authorization", format!("Bearer {key}"))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .ok()?;
+
+    if !res.status().is_success() {
+        return None;
+    }
+
+    let body: OllamaUsageResponse = res.json().await.ok()?;
+    let windows = parse_ollama_usage(&body);
+    format_quota_windows(&windows)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OllamaUsageResponse {
+    limits: Option<OllamaLimits>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OllamaLimits {
+    session: Option<OllamaUsageLimit>,
+    weekly: Option<OllamaUsageLimit>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OllamaUsageLimit {
+    usage: Option<f64>,
+}
+
+// The /api/usage endpoint is undocumented and may change or disappear without
+// notice. It exposes no quota reset timestamps, so windows render without
+// countdowns.
+pub fn parse_ollama_usage(body: &OllamaUsageResponse) -> Vec<QuotaWindow> {
+    let Some(limits) = body.limits.as_ref() else {
+        return Vec::new();
+    };
+    let (Some(session), Some(weekly)) = (limits.session.as_ref(), limits.weekly.as_ref()) else {
+        return Vec::new();
+    };
+    let mut windows = Vec::new();
+    for (label, limit) in [("5h", session), ("7d", weekly)] {
+        let Some(usage) = limit.usage else {
+            continue;
+        };
+        if !usage.is_finite() {
+            continue;
+        }
+        let used_percent = usage.clamp(0.0, 1.0) * 100.0;
+        windows.push(QuotaWindow {
+            label: label.to_string(),
+            used_percent,
+            resets_at: None,
+            used_value: used_percent,
+            limit_value: 100.0,
+            is_currency: false,
+            limited: false,
+        });
+    }
+    windows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,5 +326,46 @@ mod tests {
         let formatted = format_quota_windows(&windows).unwrap();
         assert!(formatted.contains("93% (3h22m)"));
         assert!(formatted.contains("98% (6d1h)"));
+    }
+
+    #[test]
+    fn parse_ollama_usage_builds_session_and_weekly_windows() {
+        let body = OllamaUsageResponse {
+            limits: Some(OllamaLimits {
+                session: Some(OllamaUsageLimit { usage: Some(0.313) }),
+                weekly: Some(OllamaUsageLimit { usage: Some(0.445) }),
+            }),
+        };
+        let windows = parse_ollama_usage(&body);
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[0].label, "5h");
+        assert!((windows[0].used_percent - 31.3).abs() < 0.01);
+        assert_eq!(windows[1].label, "7d");
+        assert!((windows[1].used_percent - 44.5).abs() < 0.01);
+        assert!(windows.iter().all(|w| w.resets_at.is_none()));
+    }
+
+    #[test]
+    fn parse_ollama_usage_ignores_non_finite_usage() {
+        let body = OllamaUsageResponse {
+            limits: Some(OllamaLimits {
+                session: Some(OllamaUsageLimit { usage: Some(f64::NAN) }),
+                weekly: Some(OllamaUsageLimit { usage: Some(0.5) }),
+            }),
+        };
+        let windows = parse_ollama_usage(&body);
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].label, "7d");
+    }
+
+    #[test]
+    fn parse_ollama_usage_requires_both_limits() {
+        let body = OllamaUsageResponse {
+            limits: Some(OllamaLimits {
+                session: Some(OllamaUsageLimit { usage: Some(0.5) }),
+                weekly: None,
+            }),
+        };
+        assert!(parse_ollama_usage(&body).is_empty());
     }
 }

@@ -58,6 +58,14 @@ enum Transport {
 pub enum UiEvent {
     Output(OutputEvent),
     Activity(Activity),
+    ToolStart {
+        name: String,
+        args_summary: String,
+    },
+    ToolChunk {
+        chunk: String,
+    },
+    ToolEnd,
     RunningTool(Option<String>),
     Interaction {
         prompt: InteractionPrompt,
@@ -88,6 +96,9 @@ pub struct PendingUiBatch {
     text: String,
     activity: Option<Activity>,
     running_tool: Option<Option<String>>,
+    tool_start: Option<(String, String)>,
+    tool_chunks: Vec<String>,
+    tool_end: bool,
     max_text_bytes: usize,
 }
 
@@ -96,6 +107,9 @@ pub struct PendingUiDrain {
     pub text: String,
     pub activity: Option<Activity>,
     pub running_tool: Option<Option<String>>,
+    pub tool_start: Option<(String, String)>,
+    pub tool_chunks: Vec<String>,
+    pub tool_end: bool,
 }
 
 impl PendingUiBatch {
@@ -104,6 +118,9 @@ impl PendingUiBatch {
             text: String::new(),
             activity: None,
             running_tool: None,
+            tool_start: None,
+            tool_chunks: Vec::new(),
+            tool_end: false,
             max_text_bytes: max_text_bytes.max(1),
         }
     }
@@ -125,6 +142,18 @@ impl PendingUiBatch {
                 self.activity = Some(activity);
                 BatchDecision::Pending
             }
+            UiEvent::ToolStart { name, args_summary } => {
+                self.tool_start = Some((name, args_summary));
+                BatchDecision::Flush(FlushBarrier::Newline)
+            }
+            UiEvent::ToolChunk { chunk } => {
+                self.tool_chunks.push(chunk);
+                BatchDecision::Flush(FlushBarrier::Newline)
+            }
+            UiEvent::ToolEnd => {
+                self.tool_end = true;
+                BatchDecision::Flush(FlushBarrier::Newline)
+            }
             UiEvent::RunningTool(update) => {
                 self.running_tool = Some(update);
                 BatchDecision::Pending
@@ -138,11 +167,19 @@ impl PendingUiBatch {
             text: std::mem::take(&mut self.text),
             activity: self.activity.take(),
             running_tool: self.running_tool.take(),
+            tool_start: self.tool_start.take(),
+            tool_chunks: std::mem::take(&mut self.tool_chunks),
+            tool_end: std::mem::replace(&mut self.tool_end, false),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.text.is_empty() && self.activity.is_none() && self.running_tool.is_none()
+        self.text.is_empty()
+            && self.activity.is_none()
+            && self.running_tool.is_none()
+            && self.tool_start.is_none()
+            && self.tool_chunks.is_empty()
+            && !self.tool_end
     }
 }
 
@@ -203,6 +240,31 @@ impl InteractiveUi {
             Transport::Channel(sender) => sender
                 .send(UiEvent::RunningTool(command))
                 .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
+    pub fn tool_start(&self, name: String, args_summary: String) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::ToolStart { name, args_summary })
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
+    pub fn tool_chunk(&self, chunk: String) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::ToolChunk { chunk })
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
+    pub fn tool_end(&self) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender.send(UiEvent::ToolEnd).map_err(|_| UiPortError::Closed),
             Transport::Writer(_) => Ok(()),
         }
     }

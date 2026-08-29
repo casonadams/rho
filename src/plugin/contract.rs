@@ -278,6 +278,7 @@ pub enum InteractionResponse {
 #[async_trait]
 pub trait ToolHost: Send + Sync {
     async fn interact(&self, request: InteractionRequest) -> Result<InteractionResponse, CapabilityError>;
+    fn stream_chunk(&self, _chunk: &str) {}
 }
 
 #[async_trait]

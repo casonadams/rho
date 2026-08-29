@@ -1,6 +1,6 @@
 use anstyle::{AnsiColor, Color, Effects, Style};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Theme {
     pub prompt: Style,
     pub assistant: Style,

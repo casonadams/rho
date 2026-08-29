@@ -1,16 +1,92 @@
-use std::time::Duration;
-
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{Activity, EditorState, FooterState, ModalMode, ModalState};
 
-const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-const RUNNING_TOOL_DISPLAY_DELAY: Duration = Duration::from_millis(150);
+pub const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunningToolDisplay {
-    pub command: String,
-    pub elapsed: Duration,
+pub struct VisualTruncateResult {
+    pub visual_lines: Vec<String>,
+    pub skipped_count: usize,
+}
+
+pub fn truncate_to_visual_lines(text: &str, max_visual_lines: usize, width: usize) -> VisualTruncateResult {
+    if text.is_empty() {
+        return VisualTruncateResult {
+            visual_lines: Vec::new(),
+            skipped_count: 0,
+        };
+    }
+    let all_lines = wrap_to_width(text, width.max(1));
+    if all_lines.len() <= max_visual_lines {
+        return VisualTruncateResult {
+            visual_lines: all_lines,
+            skipped_count: 0,
+        };
+    }
+    let skipped_count = all_lines.len() - max_visual_lines;
+    let visual_lines = all_lines[skipped_count..].to_vec();
+    VisualTruncateResult {
+        visual_lines,
+        skipped_count,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ActiveToolDisplayInput<'a> {
+    pub tool_name: &'a str,
+    pub args_summary: &'a str,
+    pub output: &'a str,
+    pub started: std::time::Instant,
+    pub theme: &'a crate::ui::theme::Theme,
+    pub width: usize,
+    pub expanded: bool,
+}
+
+pub fn format_active_tool_block(input: ActiveToolDisplayInput<'_>) -> String {
+    let width = input.width.max(20);
+    let title_style = input.theme.tool_header;
+    let accent_style = input.theme.highlight;
+    let dim_style = input.theme.dimmed;
+
+    let header = format!(
+        "{title_style}{}{title_style:#} {accent_style}{}{accent_style:#}",
+        input.tool_name, input.args_summary
+    );
+    let mut content = header;
+
+    let clean_output = input.output.trim_end();
+    if !clean_output.is_empty() {
+        content.push('\n');
+        if input.expanded {
+            for line in clean_output.lines() {
+                content.push('\n');
+                content.push_str(&format!("{dim_style}{line}{dim_style:#}"));
+            }
+        } else {
+            let truncated = truncate_to_visual_lines(clean_output, 5, width.saturating_sub(4).max(1));
+            if truncated.skipped_count > 0 {
+                content.push('\n');
+                content.push_str(&format!(
+                    "{dim_style}... ({} earlier lines, Ctrl+O to expand){dim_style:#}",
+                    truncated.skipped_count
+                ));
+            }
+            for line in truncated.visual_lines {
+                content.push('\n');
+                content.push_str(&format!("{dim_style}{line}{dim_style:#}"));
+            }
+        }
+    }
+
+    let elapsed = input.started.elapsed();
+    let elapsed_text = format!("Elapsed {}", crate::ui::render::format_duration(elapsed));
+    content.push('\n');
+    content.push_str(&format!("{dim_style}{elapsed_text}{dim_style:#}"));
+
+    crate::ui::block::BlockFormat::new(input.theme.tool_success_bg, width)
+        .with_vertical_padding()
+        .render_styled(&content)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,7 +98,6 @@ pub struct CursorPosition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveLayout {
     pub top_divider: String,
-    pub tool_lines: Vec<String>,
     pub editor_lines: Vec<String>,
     pub bottom_divider: String,
     pub footer: String,
@@ -31,7 +106,7 @@ pub struct InteractiveLayout {
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + self.tool_lines.len() + 1;
+        let mut h = self.editor_lines.len() + 1;
         if !self.top_divider.is_empty() {
             h += 1;
         }
@@ -42,7 +117,7 @@ impl InteractiveLayout {
     }
 
     pub fn cursor_row(&self) -> usize {
-        self.cursor.row + self.tool_lines.len() + usize::from(!self.top_divider.is_empty())
+        self.cursor.row + usize::from(!self.top_divider.is_empty())
     }
 }
 
@@ -50,7 +125,6 @@ pub struct LayoutInput<'a> {
     pub editor: &'a EditorState,
     pub modal: Option<&'a ModalState>,
     pub footer: &'a FooterState,
-    pub running_tool: Option<RunningToolDisplay>,
     pub queued_messages: usize,
     pub terminal_width: usize,
     pub spinner_frame: usize,
@@ -68,10 +142,6 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
 
     InteractiveLayout {
         top_divider,
-        tool_lines: input
-            .running_tool
-            .as_ref()
-            .map_or_else(Vec::new, |running| running_tool_lines(running, width)),
         editor_lines,
         bottom_divider,
         footer: truncate_to_width(
@@ -82,26 +152,12 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     }
 }
 
-fn running_tool_lines(running: &RunningToolDisplay, width: usize) -> Vec<String> {
-    if running.elapsed < RUNNING_TOOL_DISPLAY_DELAY {
-        return Vec::new();
-    }
-    let bullet = "\u{1b}[36m●\u{1b}[0m";
-    let name = "\u{1b}[1mbash\u{1b}[0m";
-    let command = format!("\u{1b}[36m`{}`\u{1b}[0m", running.command);
-    let elapsed = format!(
-        "\u{1b}[2m({})\u{1b}[0m",
-        crate::ui::render::format_duration(running.elapsed)
-    );
-    wrap_to_width(&format!("{bullet} {name} {command} {elapsed}"), width.max(1))
-}
-
 fn visible_width(content: &str) -> usize {
     let clean = crate::ui::block::ANSI_PATTERN.replace_all(content, "");
     UnicodeWidthStr::width(clean.as_ref())
 }
 
-fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
+pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
     let max_width = max_width.max(1);
     let mut output = Vec::new();
     for line in content.split('\n') {
@@ -349,9 +405,7 @@ fn truncate_to_width(value: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use super::{CursorPosition, LayoutInput, RunningToolDisplay, layout, visible_width};
+    use super::{CursorPosition, LayoutInput, layout};
     use crate::ui::interactive::{Activity, EditorState, FooterState};
     use unicode_width::UnicodeWidthStr;
 
@@ -363,7 +417,6 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &default_footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 8,
             spinner_frame: 0,
@@ -385,7 +438,6 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 20,
             spinner_frame: 0,
@@ -405,7 +457,6 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 4,
             spinner_frame: 0,
@@ -426,7 +477,6 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 3,
             spinner_frame: 0,
@@ -445,7 +495,6 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 2,
             spinner_frame: 0,
@@ -468,7 +517,6 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            running_tool: None,
             queued_messages: 2,
             terminal_width: 80,
             spinner_frame: 0,
@@ -490,7 +538,6 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 80,
             spinner_frame: 1,
@@ -500,76 +547,40 @@ mod tests {
     }
 
     #[test]
-    fn running_bash_block_renders_command_and_elapsed_above_the_editor() {
+    fn editor_layout_tracks_lines_and_dividers() {
         let mut editor = EditorState::default();
         editor.set_text("draft");
         let default_footer = FooterState::default();
-        let running_tool = Some(RunningToolDisplay {
-            command: "cargo test --all-targets".into(),
-            elapsed: Duration::from_secs(2),
-        });
         let layout = layout(LayoutInput {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            running_tool: running_tool.clone(),
             queued_messages: 0,
             terminal_width: 80,
             spinner_frame: 0,
         });
 
-        assert_eq!(layout.tool_lines.len(), 1);
-        assert!(layout.tool_lines[0].contains('\u{1b}'));
-        assert!(layout.tool_lines[0].contains("bash"));
-        assert!(layout.tool_lines[0].contains("cargo test --all-targets"));
-        assert!(layout.tool_lines[0].contains("(2s)"));
-        assert_eq!(layout.height(), 5);
-        assert_eq!(layout.cursor_row(), 2);
+        assert_eq!(layout.editor_lines.len(), 1);
+        assert_eq!(layout.height(), 4);
+        assert_eq!(layout.cursor_row(), 1);
     }
 
     #[test]
-    fn running_bash_block_wraps_long_commands() {
-        let default_editor = EditorState::default();
+    fn multiline_editor_height_matches_content() {
+        let mut editor = EditorState::default();
+        editor.set_text("line1\nline2\nline3");
         let default_footer = FooterState::default();
-        let running_tool = Some(RunningToolDisplay {
-            command: "echo aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee".into(),
-            elapsed: Duration::from_secs(2),
-        });
         let layout = layout(LayoutInput {
-            editor: &default_editor,
+            editor: &editor,
             modal: None,
             footer: &default_footer,
-            running_tool,
             queued_messages: 0,
-            terminal_width: 20,
+            terminal_width: 80,
             spinner_frame: 0,
         });
 
-        assert!(layout.tool_lines.len() > 1);
-        for line in &layout.tool_lines {
-            assert!(visible_width(line) <= 20);
-        }
-    }
-
-    #[test]
-    fn running_bash_block_hides_within_the_display_delay() {
-        let default_editor = EditorState::default();
-        let default_footer = FooterState::default();
-        let running_tool = Some(RunningToolDisplay {
-            command: "echo fast".into(),
-            elapsed: Duration::from_millis(100),
-        });
-        let layout = layout(LayoutInput {
-            editor: &default_editor,
-            modal: None,
-            footer: &default_footer,
-            running_tool,
-            queued_messages: 0,
-            terminal_width: 40,
-            spinner_frame: 0,
-        });
-
-        assert!(layout.tool_lines.is_empty());
+        assert_eq!(layout.editor_lines.len(), 3);
+        assert_eq!(layout.height(), 6);
     }
 
     #[test]
@@ -585,7 +596,6 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            running_tool: None,
             queued_messages: 1,
             terminal_width: 5,
             spinner_frame: 1,
@@ -611,7 +621,6 @@ mod tests {
             editor: &default_editor,
             modal: Some(&modal),
             footer: &default_footer,
-            running_tool: None,
             queued_messages: 0,
             terminal_width: 40,
             spinner_frame: 0,
@@ -622,5 +631,58 @@ mod tests {
         assert!(layout.editor_lines.iter().any(|l| l.contains("tool   bash")));
         assert!(layout.editor_lines.iter().any(|l| l.contains("Allow")));
         assert_eq!(layout.cursor.column, 2);
+    }
+
+    #[test]
+    fn truncate_to_visual_lines_preserves_short_content() {
+        let text = "line1\nline2\nline3";
+        let res = super::truncate_to_visual_lines(text, 5, 40);
+        assert_eq!(res.visual_lines, ["line1", "line2", "line3"]);
+        assert_eq!(res.skipped_count, 0);
+    }
+
+    #[test]
+    fn truncate_to_visual_lines_skips_earlier_lines_when_exceeding_limit() {
+        let text = "line1\nline2\nline3\nline4\nline5\nline6\nline7";
+        let res = super::truncate_to_visual_lines(text, 5, 40);
+        assert_eq!(res.visual_lines, ["line3", "line4", "line5", "line6", "line7"]);
+        assert_eq!(res.skipped_count, 2);
+    }
+
+    #[test]
+    fn format_active_tool_block_contains_command_and_elapsed() {
+        let theme = crate::ui::theme::Theme::default();
+        let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
+            tool_name: "bash",
+            args_summary: "cargo test",
+            output: "compiling...\ntest result: ok",
+            started: std::time::Instant::now(),
+            theme: &theme,
+            width: 60,
+            expanded: false,
+        });
+
+        assert!(formatted.contains("bash"));
+        assert!(formatted.contains("cargo test"));
+        assert!(formatted.contains("test result: ok"));
+        assert!(formatted.contains("Elapsed"));
+    }
+
+    #[test]
+    fn format_active_tool_block_includes_expand_hint_when_truncated() {
+        let theme = crate::ui::theme::Theme::default();
+        let output = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+        let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
+            tool_name: "bash",
+            args_summary: "cargo test",
+            output,
+            started: std::time::Instant::now(),
+            theme: &theme,
+            width: 60,
+            expanded: false,
+        });
+
+        assert!(formatted.contains("earlier lines"));
+        assert!(formatted.contains("Ctrl+O to expand"));
     }
 }

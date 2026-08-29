@@ -9,6 +9,7 @@ use crate::repl::ReplSession;
 use crate::ui::TerminalRenderer;
 use std::future::Future;
 use std::io::Read;
+use std::path::Path;
 use std::str::FromStr;
 
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -26,6 +27,10 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
             Commands::Logout { provider } => {
                 logout_provider(provider.as_deref(), &config, &mut auth_store)?;
+                return Ok(());
+            }
+            Commands::Auth { action } => {
+                handle_auth_action(action.unwrap_or(crate::config::cli::AuthCommands::Set), &config)?;
                 return Ok(());
             }
             Commands::Config { key, value } => {
@@ -221,6 +226,64 @@ pub(crate) fn logout_provider(provider: Option<&str>, config: &Config, auth_stor
 
 fn select_provider(requested: Option<&str>, configured: &str) -> Result<ProviderId> {
     ProviderId::from_str(requested.unwrap_or(configured))
+}
+
+fn handle_auth_action(action: crate::config::cli::AuthCommands, config: &Config) -> Result<()> {
+    match action {
+        crate::config::cli::AuthCommands::Set => set_ollama_cloud_key(&config.config_dir),
+        crate::config::cli::AuthCommands::Remove => remove_ollama_cloud_key(&config.config_dir),
+    }
+}
+
+fn set_ollama_cloud_key(config_dir: &Path) -> Result<()> {
+    println!(
+        "Create a key at https://ollama.com/settings/keys, then paste it below to show usage for ollama :cloud models."
+    );
+    let key = inquire::Password::new("Enter Ollama Cloud API key:")
+        .with_display_mode(inquire::PasswordDisplayMode::Masked)
+        .without_confirmation()
+        .prompt()
+        .map_err(|_| AppError::Cancelled("Ollama Cloud login cancelled".to_string()))?;
+    let key = key.trim();
+    if key.is_empty() {
+        return Err(AppError::Auth("API key cannot be empty".to_string()));
+    }
+    write_ollama_cloud_key(config_dir, key)
+}
+
+fn remove_ollama_cloud_key(config_dir: &Path) -> Result<()> {
+    let auth_path = config_dir.join("tokens/ollama-cloud/auth.json");
+    match std::fs::remove_file(&auth_path) {
+        Ok(()) => println!("Removed Ollama Cloud API key"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            println!("No Ollama Cloud API key stored yet");
+        }
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+fn write_ollama_cloud_key(config_dir: &Path, key: &str) -> Result<()> {
+    let token_dir = config_dir.join("tokens/ollama-cloud");
+    std::fs::create_dir_all(&token_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&token_dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let auth_path = token_dir.join("auth.json");
+    let body = serde_json::json!({ "type": "api_key", "key": key });
+    std::fs::write(
+        &auth_path,
+        serde_json::to_vec_pretty(&body).map_err(|e| AppError::Other(e.into()))?,
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&auth_path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    println!("Stored Ollama Cloud API key in {}", auth_path.display());
+    Ok(())
 }
 
 fn parse_replacements(

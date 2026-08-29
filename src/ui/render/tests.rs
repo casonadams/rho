@@ -39,7 +39,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     while let Ok(event) = events.try_recv() {
         match event {
             UiEvent::Activity(activity) => activity_events.push(activity),
-            UiEvent::RunningTool(_) => {}
+            UiEvent::RunningTool(_) | UiEvent::ToolStart { .. } | UiEvent::ToolChunk { .. } | UiEvent::ToolEnd => {}
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
@@ -69,12 +69,16 @@ fn finished_bash_block_includes_elapsed_duration() {
     while let Ok(event) = events.try_recv() {
         match event {
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            UiEvent::Activity(_) | UiEvent::RunningTool(_) => {}
+            UiEvent::Activity(_)
+            | UiEvent::RunningTool(_)
+            | UiEvent::ToolStart { .. }
+            | UiEvent::ToolChunk { .. }
+            | UiEvent::ToolEnd => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }
     assert!(output.contains("cargo test --all-targets"));
-    assert!(output.contains("(5s)"));
+    assert!(output.contains("Took 5s"));
 }
 
 #[tokio::test]

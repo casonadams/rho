@@ -601,6 +601,12 @@ impl ToolHost for RigToolHost<'_> {
             UserAnswer::Cancelled => InteractionResponse::Cancelled,
         })
     }
+
+    fn stream_chunk(&self, chunk: &str) {
+        if let Some(port) = self.0.get::<crate::ui::ToolStreamPort>() {
+            port.stream_chunk(chunk);
+        }
+    }
 }
 
 #[cfg(test)]

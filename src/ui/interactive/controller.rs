@@ -88,6 +88,14 @@ fn queue_vertical_move(stdout: &mut Stdout, mut rows: usize, upward: bool) -> io
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveToolBlock {
+    pub name: String,
+    pub args_summary: String,
+    pub output: String,
+    pub started: std::time::Instant,
+}
+
 pub struct TerminalController<B: TerminalBackend> {
     backend: B,
     state: InteractiveState,
@@ -98,6 +106,9 @@ pub struct TerminalController<B: TerminalBackend> {
     spinner_frame: usize,
     active: bool,
     footer_style: Style,
+    active_tool: Option<ActiveToolBlock>,
+    active_tool_height: usize,
+    theme: crate::ui::theme::Theme,
 }
 
 impl TerminalController<CrosstermBackend> {
@@ -126,12 +137,37 @@ impl<B: TerminalBackend> TerminalController<B> {
             spinner_frame: 0,
             active: true,
             footer_style: crate::ui::theme::Theme::default().dimmed,
+            active_tool: None,
+            active_tool_height: 0,
+            theme: crate::ui::theme::Theme::default(),
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
             return Err(error);
         }
         Ok(controller)
+    }
+
+    pub fn start_tool(&mut self, name: String, args_summary: String) -> io::Result<()> {
+        self.active_tool = Some(ActiveToolBlock {
+            name,
+            args_summary,
+            output: String::new(),
+            started: std::time::Instant::now(),
+        });
+        self.redraw()
+    }
+
+    pub fn append_tool_chunk(&mut self, chunk: &str) -> io::Result<()> {
+        if let Some(tool) = &mut self.active_tool {
+            tool.output.push_str(chunk);
+        }
+        self.redraw()
+    }
+
+    pub fn end_tool(&mut self) -> io::Result<()> {
+        self.active_tool = None;
+        self.redraw()
     }
 
     pub fn state(&self) -> &InteractiveState {
@@ -149,6 +185,8 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
+        self.erase_active_tool()?;
+        self.draw_active_tool()?;
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
@@ -159,6 +197,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
+        self.erase_active_tool()?;
         self.restore_output_cursor()?;
         let output = terminal_newlines(output);
         self.backend.write_text(&output)?;
@@ -166,6 +205,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if self.output_line_open {
             self.backend.write_text("\r\n")?;
         }
+        self.draw_active_tool()?;
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
@@ -198,6 +238,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         }
         self.erase_live_region()?;
+        self.erase_active_tool()?;
         self.output_line.clear();
         self.output_line_open = false;
         self.backend.show_cursor()?;
@@ -245,7 +286,6 @@ impl<B: TerminalBackend> TerminalController<B> {
             editor: self.state.editor(),
             modal: self.state.active_modal(),
             footer: self.state.footer(),
-            running_tool: self.state.running_tool_display(),
             queued_messages: self.state.queue_len(),
             terminal_width: self.width,
             spinner_frame: self.spinner_frame,
@@ -255,10 +295,6 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
         if !rendered.top_divider.is_empty() {
             self.backend.write_text(&rendered.top_divider)?;
-            self.backend.write_text("\r\n")?;
-        }
-        for line in &rendered.tool_lines {
-            self.backend.write_text(line)?;
             self.backend.write_text("\r\n")?;
         }
         for line in &rendered.editor_lines {
@@ -296,11 +332,55 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
+    fn erase_active_tool(&mut self) -> io::Result<()> {
+        if self.active_tool_height == 0 {
+            return Ok(());
+        }
+        self.backend.move_up(self.active_tool_height)?;
+        self.backend.move_to_column(0)?;
+        for row in 0..self.active_tool_height {
+            self.backend.clear_line()?;
+            if row + 1 < self.active_tool_height {
+                self.backend.move_down(1)?;
+            }
+        }
+        self.backend.move_up(self.active_tool_height.saturating_sub(1))?;
+        self.backend.move_to_column(0)?;
+        self.active_tool_height = 0;
+        Ok(())
+    }
+
+    fn draw_active_tool(&mut self) -> io::Result<()> {
+        let Some(tool) = &self.active_tool else {
+            self.active_tool_height = 0;
+            return Ok(());
+        };
+        let formatted = super::layout::format_active_tool_block(super::ActiveToolDisplayInput {
+            tool_name: &tool.name,
+            args_summary: &tool.args_summary,
+            output: &tool.output,
+            started: tool.started,
+            theme: &self.theme,
+            width: self.width,
+            expanded: self.state.tools_expanded(),
+        });
+        let formatted = terminal_newlines(&formatted);
+        let mut count = 0;
+        for line in formatted.split("\r\n") {
+            self.backend.write_text(line)?;
+            self.backend.write_text("\r\n")?;
+            count += 1;
+        }
+        self.active_tool_height = count;
+        Ok(())
+    }
+
     fn restore(&mut self) {
         if !self.active {
             return;
         }
         let _ = self.erase_live_region();
+        let _ = self.erase_active_tool();
         let _ = self.backend.show_cursor();
         let _ = self.backend.set_raw_mode(false);
         let _ = self.backend.flush();
@@ -367,11 +447,10 @@ mod tests {
         cell::{Cell, RefCell},
         io,
         rc::Rc,
-        time::{Duration, Instant},
     };
 
     use super::{TerminalBackend, TerminalController, output_cursor};
-    use crate::ui::interactive::{Activity, InteractiveState, OutputEvent, PendingUiBatch, RunningTool, UiEvent};
+    use crate::ui::interactive::{Activity, InteractiveState, OutputEvent, PendingUiBatch, UiEvent};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Operation {
@@ -605,6 +684,23 @@ mod tests {
     }
 
     #[test]
+    fn resize_rerenders_active_tool_block_at_new_width() {
+        let (backend, operations, width) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller.start_tool("bash".into(), "cargo test".into()).unwrap();
+        operations.borrow_mut().clear();
+        width.set(30);
+
+        assert!(controller.refresh_size().unwrap());
+
+        let ops = operations.borrow();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("bash") && text.contains("cargo test")))
+        );
+    }
+
+    #[test]
     fn tick_redraws_the_live_region() {
         let (backend, operations, _) = FakeTerminal::new(8);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
@@ -636,14 +732,10 @@ mod tests {
     }
 
     #[test]
-    fn running_bash_block_renders_in_the_live_region() {
+    fn editor_region_renders_dividers_and_footer() {
         let (backend, operations, _) = FakeTerminal::new(60);
         let mut state = InteractiveState::default();
         state.footer_mut().activity = Activity::Working;
-        state.set_running_tool(Some(RunningTool {
-            command: "cargo build".into(),
-            started: Instant::now() - Duration::from_secs(3),
-        }));
         let mut controller = TerminalController::new(backend, state).unwrap();
         operations.borrow_mut().clear();
 
@@ -652,30 +744,8 @@ mod tests {
         let operations = operations.borrow();
         assert!(operations.iter().any(|operation| matches!(
             operation,
-            Operation::Write(text) if text.contains("cargo build") && text.contains("(3s)") && text.contains("bash")
+            Operation::Write(text) if text.contains("working")
         )));
-    }
-
-    #[test]
-    fn running_bash_block_hidden_within_the_display_delay_rerenders_without_it() {
-        let (backend, operations, _) = FakeTerminal::new(60);
-        let mut state = InteractiveState::default();
-        state.footer_mut().activity = Activity::Working;
-        state.set_running_tool(Some(RunningTool {
-            command: "echo fast".into(),
-            started: Instant::now(),
-        }));
-        let mut controller = TerminalController::new(backend, state).unwrap();
-        operations.borrow_mut().clear();
-
-        controller.tick().unwrap();
-
-        assert!(
-            !operations
-                .borrow()
-                .iter()
-                .any(|operation| matches!(operation, Operation::Write(text) if text.contains("echo fast")))
-        );
     }
 
     #[test]
@@ -719,6 +789,38 @@ mod tests {
         controller.resume().unwrap();
         assert_eq!(operations.borrow().first(), Some(&Operation::Raw(true)));
         assert!(operations.borrow().ends_with(&[Operation::Show, Operation::Flush]));
+    }
+
+    #[test]
+    fn active_tool_block_updates_inplace_and_cleans_up_on_end() {
+        let (backend, operations, _) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.start_tool("bash".into(), "cargo test".into()).unwrap();
+        let ops = operations.borrow();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("bash") && text.contains("cargo test")))
+        );
+        drop(ops);
+
+        operations.borrow_mut().clear();
+        controller.append_tool_chunk("line 1\nline 2\n").unwrap();
+        let ops = operations.borrow();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("line 1")))
+        );
+        drop(ops);
+
+        operations.borrow_mut().clear();
+        controller.end_tool().unwrap();
+        let ops = operations.borrow();
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("cargo test")))
+        );
     }
 
     #[test]
