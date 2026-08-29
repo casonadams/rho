@@ -2,7 +2,7 @@ pub mod cli;
 mod merge;
 mod types;
 
-pub use types::{Config, PluginConfig, default_config_dir};
+pub use types::{Config, McpConfig, McpServerConfig, PluginConfig, default_config_dir};
 
 use crate::error::{AppError, Result};
 
@@ -105,6 +105,8 @@ impl Config {
                 file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?)
             }
             ConfigKey::Region => file_config.region = Some(value.to_string()),
+            ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
+            ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
         }
 
         write_file_config(&path, &file_config)
@@ -205,6 +207,7 @@ mod tests {
             path: std::path::PathBuf::from("plugins/fixture"),
             package: Some("rho-plugin-fixture".to_string()),
             replaces: ["tool:bash".parse().unwrap()].into_iter().collect(),
+            ..Default::default()
         };
         Config::add_plugin(&dir, "fixture", plugin.clone()).unwrap();
         let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
@@ -225,10 +228,73 @@ mod tests {
             PluginConfig {
                 path: "plugin".into(),
                 package: None,
+                version: None,
+                git: None,
+                branch: None,
+                tag: None,
+                enabled: true,
                 replaces: Default::default(),
             },
         );
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn parses_cargo_style_plugins_and_mcp_config() {
+        let toml_str = r#"
+model = "gpt-4"
+
+[plugins.local_tool]
+path = "./tools/my_tool"
+enabled = true
+
+[plugins.git_tool]
+git = "https://github.com/org/plugin"
+branch = "main"
+
+[plugins.crate_tool]
+package = "rho-plugin-review"
+version = "0.1.0"
+
+[mcp]
+enabled = true
+
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+env = { DEBUG = "true" }
+enabled = true
+
+[mcp.servers.linear]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-linear"]
+"#;
+        let file: FileConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(file.plugins.len(), 3);
+        assert_eq!(
+            file.plugins["local_tool"].path,
+            std::path::PathBuf::from("./tools/my_tool")
+        );
+        assert!(file.plugins["local_tool"].enabled);
+        assert_eq!(
+            file.plugins["git_tool"].git.as_deref(),
+            Some("https://github.com/org/plugin")
+        );
+        assert_eq!(file.plugins["crate_tool"].package.as_deref(), Some("rho-plugin-review"));
+
+        let mcp = file.mcp.unwrap();
+        assert!(mcp.enabled);
+        assert_eq!(mcp.servers.len(), 2);
+        assert_eq!(mcp.servers["filesystem"].command, "npx");
+        assert_eq!(
+            mcp.servers["filesystem"].args,
+            vec!["-y", "@modelcontextprotocol/server-filesystem", "/workspace"]
+        );
+        assert_eq!(
+            mcp.servers["filesystem"].env.get("DEBUG").map(|s| s.as_str()),
+            Some("true")
+        );
+        assert_eq!(mcp.servers["linear"].command, "npx");
     }
 
     #[test]

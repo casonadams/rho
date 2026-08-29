@@ -64,6 +64,275 @@ impl NeutralToolExecutor for FixtureTools {
     }
 }
 
+#[derive(Default)]
+struct ConfigurableFixtureTools {
+    calls: Mutex<Vec<NeutralToolCall>>,
+    mode: Mutex<std::collections::HashMap<CapabilityId, ExecutionMode>>,
+    delay_ms: Mutex<std::collections::HashMap<String, u64>>,
+    concurrency_tracker: Arc<std::sync::atomic::AtomicUsize>,
+    max_observed_concurrency: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl ConfigurableFixtureTools {
+    fn set_mode(&self, tool_id: CapabilityId, mode: ExecutionMode) {
+        self.mode.lock().unwrap().insert(tool_id, mode);
+    }
+
+    fn set_delay(&self, call_id: &str, delay: u64) {
+        self.delay_ms.lock().unwrap().insert(call_id.to_string(), delay);
+    }
+}
+
+#[async_trait]
+impl NeutralToolExecutor for ConfigurableFixtureTools {
+    fn execution_mode(&self, tool_id: &CapabilityId) -> ExecutionMode {
+        self.mode
+            .lock()
+            .unwrap()
+            .get(tool_id)
+            .copied()
+            .unwrap_or(ExecutionMode::Sequential)
+    }
+
+    async fn execute(&self, call: NeutralToolCall) -> Result<NeutralToolResult, NeutralTurnError> {
+        let current = self
+            .concurrency_tracker
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        self.max_observed_concurrency
+            .fetch_max(current, std::sync::atomic::Ordering::SeqCst);
+
+        let delay = self.delay_ms.lock().unwrap().get(&call.call_id).copied().unwrap_or(0);
+        if delay > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+        }
+
+        self.calls.lock().unwrap().push(call.clone());
+        self.concurrency_tracker
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+
+        Ok(NeutralToolResult {
+            content: format!("result for {}", call.call_id),
+            is_error: false,
+        })
+    }
+}
+
+#[tokio::test]
+async fn parallel_tools_execute_concurrently_and_preserve_emission_order() {
+    let tool_id: CapabilityId = "tool:fixture".parse().unwrap();
+    let provider = FixtureProvider::new([
+        vec![
+            ProviderStreamEvent::ToolCall {
+                call_id: "call-1".to_string(),
+                tool_id: tool_id.clone(),
+                arguments: serde_json::json!({"n": 1}),
+            },
+            ProviderStreamEvent::ToolCall {
+                call_id: "call-2".to_string(),
+                tool_id: tool_id.clone(),
+                arguments: serde_json::json!({"n": 2}),
+            },
+            ProviderStreamEvent::ToolCall {
+                call_id: "call-3".to_string(),
+                tool_id: tool_id.clone(),
+                arguments: serde_json::json!({"n": 3}),
+            },
+            ProviderStreamEvent::Finished {
+                reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ProviderStreamEvent::TextDelta {
+                text: "done".to_string(),
+            },
+            ProviderStreamEvent::Finished {
+                reason: FinishReason::Stop,
+            },
+        ],
+    ]);
+
+    let tools = ConfigurableFixtureTools::default();
+    tools.set_mode(tool_id, ExecutionMode::Parallel);
+    // call-1 finishes last (60ms), call-3 finishes first (10ms)
+    tools.set_delay("call-1", 60);
+    tools.set_delay("call-2", 30);
+    tools.set_delay("call-3", 10);
+
+    let start = std::time::Instant::now();
+    let terminal = run_neutral_turn(runtime(&provider, &tools), request(3)).await.unwrap();
+    let elapsed = start.elapsed();
+
+    assert!(matches!(terminal, NeutralTurnTerminal::Completed(_)));
+    // If sequential: 60 + 30 + 10 = 100ms. If concurrent: max(60, 30, 10) ~= 60ms.
+    assert!(elapsed.as_millis() < 95);
+    assert!(tools.max_observed_concurrency.load(std::sync::atomic::Ordering::SeqCst) >= 2);
+
+    // Verify messages in provider request are strictly ordered call-1, call-2, call-3
+    let second_turn_req = &provider.requests.lock().unwrap()[1];
+    let tool_results: Vec<&str> = second_turn_req
+        .messages
+        .iter()
+        .filter(|m| m.role == MessageRole::Tool)
+        .flat_map(|m| {
+            m.content.iter().filter_map(|c| match c {
+                MessageContent::ToolResult { call_id, .. } => Some(call_id.as_str()),
+                _ => None,
+            })
+        })
+        .collect();
+
+    assert_eq!(tool_results, vec!["call-1", "call-2", "call-3"]);
+}
+
+#[tokio::test]
+async fn mixed_tool_batch_executes_sequentially() {
+    let parallel_id: CapabilityId = "tool:parallel".parse().unwrap();
+    let sequential_id: CapabilityId = "tool:sequential".parse().unwrap();
+
+    let provider = FixtureProvider::new([
+        vec![
+            ProviderStreamEvent::ToolCall {
+                call_id: "call-1".to_string(),
+                tool_id: parallel_id.clone(),
+                arguments: serde_json::json!({}),
+            },
+            ProviderStreamEvent::ToolCall {
+                call_id: "call-2".to_string(),
+                tool_id: sequential_id.clone(),
+                arguments: serde_json::json!({}),
+            },
+            ProviderStreamEvent::Finished {
+                reason: FinishReason::ToolCalls,
+            },
+        ],
+        vec![
+            ProviderStreamEvent::TextDelta {
+                text: "done".to_string(),
+            },
+            ProviderStreamEvent::Finished {
+                reason: FinishReason::Stop,
+            },
+        ],
+    ]);
+
+    let mut req = request(3);
+    req.tools = vec![
+        ProviderToolDefinition {
+            id: parallel_id.clone(),
+            description: "p".to_string(),
+            argument_schema: serde_json::json!({"type":"object"}),
+        },
+        ProviderToolDefinition {
+            id: sequential_id.clone(),
+            description: "s".to_string(),
+            argument_schema: serde_json::json!({"type":"object"}),
+        },
+    ];
+
+    let tools = ConfigurableFixtureTools::default();
+    tools.set_mode(parallel_id, ExecutionMode::Parallel);
+    tools.set_mode(sequential_id, ExecutionMode::Sequential);
+    tools.set_delay("call-1", 20);
+    tools.set_delay("call-2", 20);
+
+    let terminal = run_neutral_turn(runtime(&provider, &tools), req).await.unwrap();
+    assert!(matches!(terminal, NeutralTurnTerminal::Completed(_)));
+
+    // Concurrency must remain 1 for mixed batch
+    assert_eq!(
+        tools.max_observed_concurrency.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+}
+
+#[tokio::test]
+async fn parallel_tools_concurrency_is_bounded_to_eight() {
+    let tool_id: CapabilityId = "tool:fixture".parse().unwrap();
+    let calls: Vec<ProviderStreamEvent> = (0..12)
+        .map(|i| ProviderStreamEvent::ToolCall {
+            call_id: format!("call-{i}"),
+            tool_id: tool_id.clone(),
+            arguments: serde_json::json!({}),
+        })
+        .chain(std::iter::once(ProviderStreamEvent::Finished {
+            reason: FinishReason::ToolCalls,
+        }))
+        .collect();
+
+    let provider = FixtureProvider::new([
+        calls,
+        vec![
+            ProviderStreamEvent::TextDelta {
+                text: "done".to_string(),
+            },
+            ProviderStreamEvent::Finished {
+                reason: FinishReason::Stop,
+            },
+        ],
+    ]);
+
+    let tools = ConfigurableFixtureTools::default();
+    tools.set_mode(tool_id, ExecutionMode::Parallel);
+    for i in 0..12 {
+        tools.set_delay(&format!("call-{i}"), 15);
+    }
+
+    let terminal = run_neutral_turn(runtime(&provider, &tools), request(3)).await.unwrap();
+    assert!(matches!(terminal, NeutralTurnTerminal::Completed(_)));
+
+    let max_concurrency = tools.max_observed_concurrency.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(max_concurrency <= 8, "concurrency was {max_concurrency}, expected <= 8");
+    assert!(max_concurrency >= 2);
+}
+
+#[tokio::test]
+async fn cancellation_during_parallel_execution_aborts_cleanly() {
+    let tool_id: CapabilityId = "tool:fixture".parse().unwrap();
+    let provider = FixtureProvider::new([vec![
+        ProviderStreamEvent::ToolCall {
+            call_id: "call-1".to_string(),
+            tool_id: tool_id.clone(),
+            arguments: serde_json::json!({}),
+        },
+        ProviderStreamEvent::ToolCall {
+            call_id: "call-2".to_string(),
+            tool_id: tool_id.clone(),
+            arguments: serde_json::json!({}),
+        },
+        ProviderStreamEvent::Finished {
+            reason: FinishReason::ToolCalls,
+        },
+    ]]);
+
+    let cancellation = CancellationSignal::default();
+    let tools = ConfigurableFixtureTools::default();
+    tools.set_mode(tool_id, ExecutionMode::Parallel);
+    tools.set_delay("call-1", 100);
+    tools.set_delay("call-2", 100);
+
+    let cancel_sig = cancellation.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(15)).await;
+        cancel_sig.cancel();
+    });
+
+    let terminal = run_neutral_turn(
+        NeutralTurnRuntime {
+            provider: &provider,
+            tools: &tools,
+            observer: &NoopTurnObserver,
+            cancellation: &cancellation,
+            steering: &NoopSteeringQueue,
+        },
+        request(2),
+    )
+    .await
+    .unwrap();
+
+    assert!(matches!(terminal, NeutralTurnTerminal::Cancelled(_)));
+}
+
 fn cancellation() -> &'static CancellationSignal {
     static SIGNAL: std::sync::OnceLock<CancellationSignal> = std::sync::OnceLock::new();
     SIGNAL.get_or_init(CancellationSignal::default)
@@ -75,6 +344,7 @@ fn runtime<'a>(provider: &'a FixtureProvider, tools: &'a dyn NeutralToolExecutor
         tools,
         observer: &NoopTurnObserver,
         cancellation: cancellation(),
+        steering: &NoopSteeringQueue,
     }
 }
 
@@ -220,6 +490,7 @@ async fn cancellation_returns_a_durable_continuation_boundary() {
             tools: &FixtureTools::default(),
             observer: &NoopTurnObserver,
             cancellation: &cancellation,
+            steering: &NoopSteeringQueue,
         },
         request(2),
     )

@@ -1,7 +1,7 @@
 use crate::plugin::capability::{CapabilityError, CapabilityId};
 use crate::plugin::contract::{
-    FinishReason, MessageContent, MessageRole, ModelMessage, ProviderCapability, ProviderRequest, ProviderStreamEvent,
-    ProviderToolDefinition, ScopedCredential,
+    ExecutionMode, FinishReason, MessageContent, MessageRole, ModelMessage, ProviderCapability, ProviderRequest,
+    ProviderStreamEvent, ProviderToolDefinition, ScopedCredential,
 };
 use async_trait::async_trait;
 use futures::StreamExt;
@@ -75,6 +75,7 @@ pub enum NeutralTurnError {
 #[derive(Clone, Default)]
 pub struct CancellationSignal {
     cancelled: Arc<AtomicBool>,
+    interrupted: Arc<AtomicBool>,
     notify: Arc<Notify>,
 }
 
@@ -84,12 +85,32 @@ impl CancellationSignal {
         self.notify.notify_waiters();
     }
 
+    pub fn interrupt_stream(&self) {
+        self.interrupted.store(true, Ordering::Release);
+        self.notify.notify_waiters();
+    }
+
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    pub fn is_interrupted(&self) -> bool {
+        self.interrupted.load(Ordering::Acquire)
+    }
+
+    pub fn reset_interrupted(&self) {
+        self.interrupted.store(false, Ordering::Release);
+    }
+
     async fn cancelled(&self) {
         if self.is_cancelled() {
+            return;
+        }
+        self.notify.notified().await;
+    }
+
+    async fn cancelled_or_interrupted(&self) {
+        if self.is_cancelled() || self.is_interrupted() {
             return;
         }
         self.notify.notified().await;
@@ -105,6 +126,10 @@ pub struct NeutralToolCall {
 
 #[async_trait]
 pub trait NeutralToolExecutor: Send + Sync {
+    fn execution_mode(&self, _tool_id: &CapabilityId) -> ExecutionMode {
+        ExecutionMode::Sequential
+    }
+
     async fn execute(&self, call: NeutralToolCall) -> Result<NeutralToolResult, NeutralTurnError>;
 }
 
@@ -123,11 +148,26 @@ pub trait NeutralTurnObserver: Send + Sync {
 pub struct NoopTurnObserver;
 impl NeutralTurnObserver for NoopTurnObserver {}
 
+#[async_trait]
+pub trait SteeringQueueProvider: Send + Sync {
+    async fn poll_steering(&self) -> Vec<String>;
+}
+
+pub struct NoopSteeringQueue;
+
+#[async_trait]
+impl SteeringQueueProvider for NoopSteeringQueue {
+    async fn poll_steering(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
 pub struct NeutralTurnRuntime<'a> {
     pub provider: &'a dyn ProviderCapability,
     pub tools: &'a dyn NeutralToolExecutor,
     pub observer: &'a dyn NeutralTurnObserver,
     pub cancellation: &'a CancellationSignal,
+    pub steering: &'a dyn SteeringQueueProvider,
 }
 
 pub async fn run_neutral_turn(
@@ -139,6 +179,7 @@ pub async fn run_neutral_turn(
         tools,
         observer,
         cancellation,
+        steering,
     } = runtime;
     let mut messages = request.messages;
     let mut usage = ProviderUsage::default();
@@ -183,12 +224,18 @@ pub async fn run_neutral_turn(
         let mut turn_text = String::new();
         let mut complete_calls = BTreeMap::<String, (CapabilityId, Value)>::new();
         let mut partial_calls = BTreeMap::<String, (CapabilityId, String)>::new();
+        let mut call_order = Vec::<String>::new();
         let mut finish = None;
 
         loop {
             let event = tokio::select! {
-                _ = cancellation.cancelled() => {
-                    return Ok(NeutralTurnTerminal::Cancelled(checkpoint(messages, completed_model_turns, usage)));
+                _ = cancellation.cancelled_or_interrupted() => {
+                    if cancellation.is_cancelled() {
+                        return Ok(NeutralTurnTerminal::Cancelled(checkpoint(messages, completed_model_turns, usage)));
+                    }
+                    cancellation.reset_interrupted();
+                    finish = Some(FinishReason::Stop);
+                    break;
                 }
                 event = stream.next() => event,
             };
@@ -211,6 +258,9 @@ pub async fn run_neutral_turn(
                     if complete_calls.contains_key(&call_id) {
                         return Err(NeutralTurnError::Malformed("tool-call delta followed a completed call"));
                     }
+                    if !call_order.contains(&call_id) {
+                        call_order.push(call_id.clone());
+                    }
                     let entry = partial_calls
                         .entry(call_id)
                         .or_insert_with(|| (tool_id.clone(), String::new()));
@@ -225,6 +275,9 @@ pub async fn run_neutral_turn(
                     arguments,
                 } => {
                     validate_call_identity(&call_id, &tool_id, &tool_ids)?;
+                    if !call_order.contains(&call_id) {
+                        call_order.push(call_id.clone());
+                    }
                     if complete_calls.insert(call_id.clone(), (tool_id, arguments)).is_some() {
                         return Err(NeutralTurnError::Malformed("duplicate tool-call identifier"));
                     }
@@ -254,17 +307,19 @@ pub async fn run_neutral_turn(
             total_text.push_str(&turn_text);
             assistant_content.push(MessageContent::Text { text: turn_text });
         }
-        for (call_id, (tool_id, arguments)) in &complete_calls {
-            observer.tool_call(&NeutralToolCall {
-                call_id: call_id.clone(),
-                tool_id: tool_id.clone(),
-                arguments: arguments.clone(),
-            });
-            assistant_content.push(MessageContent::ToolCall {
-                call_id: call_id.clone(),
-                tool_id: tool_id.clone(),
-                arguments: arguments.clone(),
-            });
+        for call_id in &call_order {
+            if let Some((tool_id, arguments)) = complete_calls.get(call_id) {
+                observer.tool_call(&NeutralToolCall {
+                    call_id: call_id.clone(),
+                    tool_id: tool_id.clone(),
+                    arguments: arguments.clone(),
+                });
+                assistant_content.push(MessageContent::ToolCall {
+                    call_id: call_id.clone(),
+                    tool_id: tool_id.clone(),
+                    arguments: arguments.clone(),
+                });
+            }
         }
         if !assistant_content.is_empty() {
             messages.push(ModelMessage {
@@ -274,6 +329,17 @@ pub async fn run_neutral_turn(
         }
 
         if complete_calls.is_empty() {
+            let pending_steering = steering.poll_steering().await;
+            if !pending_steering.is_empty() {
+                for steer_text in pending_steering {
+                    messages.push(ModelMessage {
+                        role: MessageRole::User,
+                        content: vec![MessageContent::Text { text: steer_text }],
+                    });
+                }
+                continue;
+            }
+
             if reason == FinishReason::ToolCalls {
                 return Err(NeutralTurnError::Malformed("tool-call finish contained no tool calls"));
             }
@@ -292,23 +358,103 @@ pub async fn run_neutral_turn(
             ));
         }
 
-        for (call_id, (tool_id, arguments)) in complete_calls {
-            let result = tools
-                .execute(NeutralToolCall {
-                    call_id: call_id.clone(),
-                    tool_id,
-                    arguments,
-                })
-                .await?;
-            tool_calls += 1;
-            messages.push(ModelMessage {
-                role: MessageRole::Tool,
-                content: vec![MessageContent::ToolResult {
-                    call_id,
-                    content: result.content,
-                    is_error: result.is_error,
-                }],
+        let all_parallel = !complete_calls.is_empty()
+            && call_order.iter().all(|call_id| {
+                if let Some((tool_id, _)) = complete_calls.get(call_id) {
+                    tools.execution_mode(tool_id) == ExecutionMode::Parallel
+                } else {
+                    false
+                }
             });
+
+        if all_parallel {
+            const MAX_CONCURRENT_TOOLS: usize = 8;
+            let semaphore = tokio::sync::Semaphore::new(MAX_CONCURRENT_TOOLS);
+            let futures = call_order.into_iter().enumerate().map(|(index, call_id)| {
+                let (tool_id, arguments) = complete_calls
+                    .remove(&call_id)
+                    .expect("call_id must exist in complete_calls");
+                let sem = &semaphore;
+                async move {
+                    let _permit = sem
+                        .acquire()
+                        .await
+                        .map_err(|_| NeutralTurnError::Tool("semaphore closed".to_string()))?;
+                    let result = tools
+                        .execute(NeutralToolCall {
+                            call_id: call_id.clone(),
+                            tool_id,
+                            arguments,
+                        })
+                        .await;
+                    Ok::<_, NeutralTurnError>((index, call_id, result))
+                }
+            });
+
+            let executed_results = tokio::select! {
+                _ = cancellation.cancelled() => {
+                    return Ok(NeutralTurnTerminal::Cancelled(checkpoint(messages, completed_model_turns, usage)));
+                }
+                res = futures::future::join_all(futures) => res,
+            };
+
+            let mut ordered_results = Vec::with_capacity(executed_results.len());
+            for outcome in executed_results {
+                let (index, call_id, result) = outcome?;
+                let tool_result = result?;
+                ordered_results.push((index, call_id, tool_result));
+            }
+            ordered_results.sort_by_key(|(index, _, _)| *index);
+
+            for (_index, call_id, result) in ordered_results {
+                tool_calls += 1;
+                messages.push(ModelMessage {
+                    role: MessageRole::Tool,
+                    content: vec![MessageContent::ToolResult {
+                        call_id,
+                        content: result.content,
+                        is_error: result.is_error,
+                    }],
+                });
+            }
+        } else {
+            for call_id in call_order {
+                if cancellation.is_cancelled() {
+                    return Ok(NeutralTurnTerminal::Cancelled(checkpoint(
+                        messages,
+                        completed_model_turns,
+                        usage,
+                    )));
+                }
+                if let Some((tool_id, arguments)) = complete_calls.remove(&call_id) {
+                    let result = tools
+                        .execute(NeutralToolCall {
+                            call_id: call_id.clone(),
+                            tool_id,
+                            arguments,
+                        })
+                        .await?;
+                    tool_calls += 1;
+                    messages.push(ModelMessage {
+                        role: MessageRole::Tool,
+                        content: vec![MessageContent::ToolResult {
+                            call_id,
+                            content: result.content,
+                            is_error: result.is_error,
+                        }],
+                    });
+                }
+            }
+        }
+
+        let pending_steering = steering.poll_steering().await;
+        if !pending_steering.is_empty() {
+            for steer_text in pending_steering {
+                messages.push(ModelMessage {
+                    role: MessageRole::User,
+                    content: vec![MessageContent::Text { text: steer_text }],
+                });
+            }
         }
     }
 }

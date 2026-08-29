@@ -56,6 +56,7 @@ fn fixture() -> Fixture {
         }),
         prompt_guidance: "Use the fixture replacement.".to_string(),
         effects: vec![OperationEffect::ExecuteProcess],
+        execution_mode: rho::plugin::contract::ExecutionMode::Sequential,
     });
     let handshake = response(&fragment(ProtocolMessage::TerminalResponse {
         result: TerminalResult::Handshake {
@@ -106,6 +107,7 @@ fn config_for(fixture: &Fixture, replacements: BTreeSet<CapabilityId>) -> Config
             path: fixture.executable.clone(),
             package: None,
             replaces: replacements,
+            ..Default::default()
         },
     );
     config
@@ -149,6 +151,7 @@ async fn invalid_configured_plugin_leaves_builtin_tools_active() {
             path: executable.clone(),
             package: None,
             replaces: BTreeSet::new(),
+            ..Default::default()
         },
     );
 

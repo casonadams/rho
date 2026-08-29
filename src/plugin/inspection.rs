@@ -272,6 +272,7 @@ mod tests {
                 path: configured_path,
                 package: None,
                 replaces: ["tool:bash".parse().unwrap()].into_iter().collect(),
+                ..Default::default()
             },
         );
         let validator = Validator(BTreeMap::from([(
@@ -309,6 +310,7 @@ mod tests {
                 path,
                 package: None,
                 replaces: Default::default(),
+                ..Default::default()
             },
         );
         let inspection = inspect_with(&config, None, &Validator(BTreeMap::new())).await.unwrap();

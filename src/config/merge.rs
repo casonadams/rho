@@ -51,6 +51,15 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(r) = file.region {
         config.region = r;
     }
+    if let Some(s) = file.steering_mode {
+        config.steering_mode = s;
+    }
+    if let Some(f) = file.follow_up_mode {
+        config.follow_up_mode = f;
+    }
+    if let Some(mcp) = file.mcp {
+        config.mcp = mcp;
+    }
     config.plugins = file.plugins;
 }
 
@@ -95,6 +104,12 @@ where
     }
     if let Some(val) = get("WEB_ALLOW_PRIVATE_NETWORK") {
         config.allow_private_network = parse_bool("WEB_ALLOW_PRIVATE_NETWORK", &val)?;
+    }
+    if let Some(val) = get("AI_STEERING_MODE") {
+        config.steering_mode = val.parse().map_err(AppError::Config)?;
+    }
+    if let Some(val) = get("AI_FOLLOW_UP_MODE") {
+        config.follow_up_mode = val.parse().map_err(AppError::Config)?;
     }
     Ok(())
 }

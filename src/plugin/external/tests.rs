@@ -1,8 +1,8 @@
 use super::*;
 use crate::plugin::capability::{CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest};
 use crate::plugin::contract::{
-    AuthenticationMethod, AuthenticationOperation, FinishReason, InteractionRequest, InteractionResponse,
-    InvocationContext, LifecycleEvent, ModelMetadata, PermissionDecision, ProviderStreamEvent,
+    AuthenticationMethod, AuthenticationOperation, ExecutionMode, FinishReason, InteractionRequest,
+    InteractionResponse, InvocationContext, LifecycleEvent, ModelMetadata, PermissionDecision, ProviderStreamEvent,
 };
 use crate::plugin::protocol::{ProtocolMessage, TerminalResult};
 use futures::StreamExt;
@@ -144,6 +144,7 @@ fn descriptors() -> Vec<CapabilityDescriptor> {
             }),
             prompt_guidance: String::new(),
             effects: Vec::new(),
+            execution_mode: ExecutionMode::Sequential,
         }),
         CapabilityDescriptor::Permission {
             id: "permission:fixture".parse().unwrap(),

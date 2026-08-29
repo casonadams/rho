@@ -114,13 +114,19 @@ impl AgentEngine {
         let mut checkpoint = None;
         let mut max_turns = self.config.max_turns;
 
+        let default_cancellation = CancellationSignal::default();
+        let cancellation = request.cancellation.unwrap_or(&default_cancellation);
+        let default_steering = crate::engine::provider::host_loop::NoopSteeringQueue;
+        let steering = request.steering.unwrap_or(&default_steering);
+
         loop {
             let terminal = run_neutral_turn(
                 NeutralTurnRuntime {
                     provider: provider.as_ref(),
                     tools: &executor,
                     observer: &observer,
-                    cancellation: &CancellationSignal::default(),
+                    cancellation,
+                    steering,
                 },
                 NeutralTurnRequest {
                     model: self.config.model.clone(),

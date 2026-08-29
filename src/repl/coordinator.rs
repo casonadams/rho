@@ -1,13 +1,15 @@
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::engine::AgentEngine;
-use crate::engine::runner::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, TurnRequest};
+use crate::engine::provider::host_loop::{CancellationSignal, SteeringQueueProvider};
+use crate::engine::runner::{PendingMessageQueue, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, TurnRequest};
 use crate::error::AppError;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::QueuedMessage;
+use crate::ui::interactive::{QueueKind, QueuedMessage};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoordinatorInput {
@@ -37,21 +39,53 @@ pub enum ActiveQueueResult<E> {
 }
 
 #[async_trait]
-pub trait ActivePromptRunner: Send {
+pub trait ActivePromptRunner: Send + Sync {
     type Error: Send;
 
-    async fn run_prompt(&mut self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
-    async fn cancel_active(&mut self) -> Result<(), Self::Error>;
+    async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
+    async fn steer(&self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
+    async fn cancel_active(&self) -> Result<(), Self::Error>;
+}
+
+#[derive(Clone, Default)]
+pub struct SharedSteeringQueue {
+    queue: Arc<Mutex<PendingMessageQueue<String>>>,
+}
+
+impl SharedSteeringQueue {
+    pub fn new(mode: crate::engine::runner::QueueMode) -> Self {
+        Self {
+            queue: Arc::new(Mutex::new(PendingMessageQueue::new(mode))),
+        }
+    }
+
+    pub fn enqueue(&self, msg: String) {
+        self.queue.lock().unwrap().enqueue(msg);
+    }
+}
+
+#[async_trait]
+impl SteeringQueueProvider for SharedSteeringQueue {
+    async fn poll_steering(&self) -> Vec<String> {
+        self.queue.lock().unwrap().drain()
+    }
 }
 
 pub struct ReplAgentRunner<'a> {
     engine: &'a AgentEngine,
     renderer: &'a TerminalRenderer,
+    cancellation: CancellationSignal,
+    steering: SharedSteeringQueue,
 }
 
 impl<'a> ReplAgentRunner<'a> {
     pub fn new(engine: &'a AgentEngine, renderer: &'a TerminalRenderer) -> Self {
-        Self { engine, renderer }
+        Self {
+            engine,
+            renderer,
+            cancellation: CancellationSignal::default(),
+            steering: SharedSteeringQueue::new(engine.config.steering_mode),
+        }
     }
 }
 
@@ -59,14 +93,28 @@ impl<'a> ReplAgentRunner<'a> {
 impl ActivePromptRunner for ReplAgentRunner<'_> {
     type Error = AppError;
 
-    async fn run_prompt(&mut self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
+    async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
         self.engine
-            .run_turn(TurnRequest { prompt: &prompt.text }, self.renderer)
+            .run_turn(
+                TurnRequest {
+                    prompt: &prompt.text,
+                    cancellation: Some(&self.cancellation),
+                    steering: Some(&self.steering),
+                },
+                self.renderer,
+            )
             .await
             .map(|_| ())
     }
 
-    async fn cancel_active(&mut self) -> Result<(), Self::Error> {
+    async fn steer(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
+        self.steering.enqueue(prompt.text.clone());
+        self.cancellation.interrupt_stream();
+        Ok(())
+    }
+
+    async fn cancel_active(&self) -> Result<(), Self::Error> {
+        self.cancellation.cancel();
         self.engine.record_cancellation("operator interrupt").await
     }
 }
@@ -74,7 +122,7 @@ impl ActivePromptRunner for ReplAgentRunner<'_> {
 pub async fn run_active_queue<R>(
     initial: QueuedMessage,
     input: &mut mpsc::UnboundedReceiver<CoordinatorInput>,
-    runner: &mut R,
+    runner: &R,
 ) -> ActiveQueueResult<R::Error>
 where
     R: ActivePromptRunner,
@@ -95,7 +143,14 @@ where
                     result = &mut run => break Some(result),
                     next = input.recv(), if accepting_input => {
                         match next {
-                            Some(CoordinatorInput::Prompt(prompt)) => queued.push_back(prompt),
+                            Some(CoordinatorInput::Prompt(prompt)) => {
+                                if prompt.kind == QueueKind::Steering {
+                                    let _ = runner.steer(&prompt).await;
+                                    delivered.push(prompt);
+                                } else {
+                                    queued.push_back(prompt);
+                                }
+                            }
                             Some(CoordinatorInput::Command(command)) => deferred_commands.push(command),
                             Some(CoordinatorInput::Cancel) => break None,
                             None => accepting_input = false,
@@ -175,7 +230,7 @@ mod tests {
     type Timeline = Arc<Mutex<Vec<String>>>;
 
     struct FakeRunner {
-        permits: mpsc::UnboundedReceiver<Result<(), &'static str>>,
+        permits: tokio::sync::Mutex<mpsc::UnboundedReceiver<Result<(), &'static str>>>,
         started: mpsc::UnboundedSender<String>,
         timeline: Timeline,
     }
@@ -184,15 +239,23 @@ mod tests {
     impl ActivePromptRunner for FakeRunner {
         type Error = &'static str;
 
-        async fn run_prompt(&mut self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
+        async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
             self.timeline.lock().unwrap().push(format!("started:{}", prompt.text));
             self.started.send(prompt.text.clone()).unwrap();
-            let result = self.permits.recv().await.unwrap();
+            let result = {
+                let mut guard = self.permits.lock().await;
+                guard.recv().await.unwrap()
+            };
             self.timeline.lock().unwrap().push(format!("finished:{}", prompt.text));
             result
         }
 
-        async fn cancel_active(&mut self) -> Result<(), Self::Error> {
+        async fn steer(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
+            self.timeline.lock().unwrap().push(format!("steered:{}", prompt.text));
+            Ok(())
+        }
+
+        async fn cancel_active(&self) -> Result<(), Self::Error> {
             self.timeline.lock().unwrap().push("cancelled".to_string());
             Ok(())
         }
@@ -211,7 +274,7 @@ mod tests {
         let timeline = Arc::new(Mutex::new(Vec::new()));
         (
             FakeRunner {
-                permits,
+                permits: tokio::sync::Mutex::new(permits),
                 started,
                 timeline: Arc::clone(&timeline),
             },
@@ -222,24 +285,72 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn queued_prompts_run_fifo_after_the_active_boundary() {
-        let (mut runner, permits, mut started, timeline) = fake_runner();
+    async fn steering_prompts_are_delivered_mid_run_and_follow_ups_run_after() {
+        let (runner, permits, mut started, timeline) = fake_runner();
         let (input_sender, mut input) = mpsc::unbounded_channel();
+        let runner_ref = Arc::new(runner);
+        let runner_clone = Arc::clone(&runner_ref);
         let task = tokio::spawn(async move {
-            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &mut runner).await
+            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &*runner_clone).await
         });
 
         assert_eq!(started.recv().await.as_deref(), Some("active"));
         input_sender
-            .send(CoordinatorInput::Prompt(prompt("follow", QueueKind::FollowUp)))
-            .unwrap();
-        input_sender
             .send(CoordinatorInput::Prompt(prompt("steer", QueueKind::Steering)))
             .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        input_sender
+            .send(CoordinatorInput::Prompt(prompt("follow", QueueKind::FollowUp)))
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         permits.send(Ok(())).unwrap();
         assert_eq!(started.recv().await.as_deref(), Some("follow"));
         permits.send(Ok(())).unwrap();
-        assert_eq!(started.recv().await.as_deref(), Some("steer"));
+
+        let ActiveQueueResult::Completed { delivered, .. } = task.await.unwrap() else {
+            panic!("queue should complete");
+        };
+        assert_eq!(
+            delivered,
+            [
+                prompt("steer", QueueKind::Steering),
+                prompt("active", QueueKind::Steering),
+                prompt("follow", QueueKind::FollowUp),
+            ]
+        );
+        assert_eq!(
+            *timeline.lock().unwrap(),
+            [
+                "started:active",
+                "steered:steer",
+                "finished:active",
+                "started:follow",
+                "finished:follow",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn multiple_follow_ups_run_fifo_after_active_run() {
+        let (runner, permits, mut started, timeline) = fake_runner();
+        let (input_sender, mut input) = mpsc::unbounded_channel();
+        let runner_ref = Arc::new(runner);
+        let runner_clone = Arc::clone(&runner_ref);
+        let task = tokio::spawn(async move {
+            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &*runner_clone).await
+        });
+
+        assert_eq!(started.recv().await.as_deref(), Some("active"));
+        input_sender
+            .send(CoordinatorInput::Prompt(prompt("follow1", QueueKind::FollowUp)))
+            .unwrap();
+        input_sender
+            .send(CoordinatorInput::Prompt(prompt("follow2", QueueKind::FollowUp)))
+            .unwrap();
+        permits.send(Ok(())).unwrap();
+        assert_eq!(started.recv().await.as_deref(), Some("follow1"));
+        permits.send(Ok(())).unwrap();
+        assert_eq!(started.recv().await.as_deref(), Some("follow2"));
         permits.send(Ok(())).unwrap();
 
         let ActiveQueueResult::Completed { delivered, .. } = task.await.unwrap() else {
@@ -249,8 +360,8 @@ mod tests {
             delivered,
             [
                 prompt("active", QueueKind::Steering),
-                prompt("follow", QueueKind::FollowUp),
-                prompt("steer", QueueKind::Steering),
+                prompt("follow1", QueueKind::FollowUp),
+                prompt("follow2", QueueKind::FollowUp),
             ]
         );
         assert_eq!(
@@ -258,20 +369,22 @@ mod tests {
             [
                 "started:active",
                 "finished:active",
-                "started:follow",
-                "finished:follow",
-                "started:steer",
-                "finished:steer",
+                "started:follow1",
+                "finished:follow1",
+                "started:follow2",
+                "finished:follow2",
             ]
         );
     }
 
     #[tokio::test]
     async fn failure_restores_prompts_that_have_not_reached_the_runner() {
-        let (mut runner, permits, mut started, _) = fake_runner();
+        let (runner, permits, mut started, _) = fake_runner();
         let (input_sender, mut input) = mpsc::unbounded_channel();
+        let runner_ref = Arc::new(runner);
+        let runner_clone = Arc::clone(&runner_ref);
         let task = tokio::spawn(async move {
-            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &mut runner).await
+            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &*runner_clone).await
         });
 
         started.recv().await.unwrap();
@@ -293,10 +406,12 @@ mod tests {
 
     #[tokio::test]
     async fn cancellation_restores_queue_and_retains_commands_for_idle_execution() {
-        let (mut runner, _permits, mut started, timeline) = fake_runner();
+        let (runner, _permits, mut started, timeline) = fake_runner();
         let (input_sender, mut input) = mpsc::unbounded_channel();
+        let runner_ref = Arc::new(runner);
+        let runner_clone = Arc::clone(&runner_ref);
         let task = tokio::spawn(async move {
-            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &mut runner).await
+            run_active_queue(prompt("active", QueueKind::Steering), &mut input, &*runner_clone).await
         });
 
         started.recv().await.unwrap();
@@ -304,7 +419,7 @@ mod tests {
             .send(CoordinatorInput::Command("/model next".to_string()))
             .unwrap();
         input_sender
-            .send(CoordinatorInput::Prompt(prompt("queued", QueueKind::Steering)))
+            .send(CoordinatorInput::Prompt(prompt("queued", QueueKind::FollowUp)))
             .unwrap();
         input_sender.send(CoordinatorInput::Cancel).unwrap();
 
@@ -312,7 +427,7 @@ mod tests {
             task.await.unwrap(),
             ActiveQueueResult::Cancelled {
                 delivered: Vec::new(),
-                restored: vec![prompt("queued", QueueKind::Steering)],
+                restored: vec![prompt("queued", QueueKind::FollowUp)],
                 deferred_commands: vec!["/model next".to_string()],
                 cancellation_error: None,
             }

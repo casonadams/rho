@@ -84,6 +84,7 @@ fn discovery() -> (CapabilityManifest, Vec<CapabilityDescriptor>) {
             }),
             prompt_guidance: "Use for protocol tests.".to_string(),
             effects: Vec::new(),
+            execution_mode: rho::plugin::contract::ExecutionMode::Sequential,
         }),
         CapabilityDescriptor::Permission {
             id: permission_id.clone(),

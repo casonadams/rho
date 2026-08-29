@@ -9,6 +9,7 @@ pub mod external;
 pub mod hook;
 pub mod inspection;
 pub mod loader;
+pub mod mcp;
 pub mod permission;
 pub mod process;
 pub mod protocol;

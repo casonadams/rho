@@ -55,6 +55,7 @@ fn fixture() -> Fixture {
         argument_schema: serde_json::json!({"type": "object"}),
         prompt_guidance: String::new(),
         effects: Vec::new(),
+        execution_mode: rho::plugin::contract::ExecutionMode::Sequential,
     });
     let manifest = CapabilityManifest {
         plugin_id: "protocol-fixture".parse().unwrap(),

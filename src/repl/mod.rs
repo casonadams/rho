@@ -225,13 +225,8 @@ impl ReplSession {
                     clear_submitted_input(input);
                     self.renderer.print_user_block(&effective_input);
                     self.renderer.write_output("\n");
-                    self.run_agent_turn(
-                        &engine,
-                        crate::engine::runner::TurnRequest {
-                            prompt: &effective_input,
-                        },
-                    )
-                    .await?;
+                    self.run_agent_turn(&engine, crate::engine::runner::TurnRequest::new(&effective_input))
+                        .await?;
                     engine.refresh_quota().await;
                 }
                 Ok(Signal::CtrlC) => {

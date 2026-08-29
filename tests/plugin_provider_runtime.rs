@@ -5,7 +5,7 @@ use rho::auth::{AuthStore, Credential};
 use rho::config::{Config, PluginConfig};
 use rho::engine::provider::host_loop::{
     CancellationSignal, NeutralToolCall, NeutralToolExecutor, NeutralToolResult, NeutralTurnError, NeutralTurnRequest,
-    NeutralTurnRuntime, NoopTurnObserver, run_neutral_turn,
+    NeutralTurnRuntime, NoopSteeringQueue, NoopTurnObserver, run_neutral_turn,
 };
 use rho::plugin::capability::{
     CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
@@ -142,6 +142,7 @@ fn engine_config(fixture: &Fixture) -> Config {
             path: fixture.executable.clone(),
             package: None,
             replaces: Default::default(),
+            ..Default::default()
         },
     );
     config
@@ -203,7 +204,7 @@ async fn configured_subprocess_provider_completes_a_host_owned_tool_turn() {
         .unwrap();
     let output = engine
         .run_turn(
-            rho::engine::runner::TurnRequest { prompt: "run fixture" },
+            rho::engine::runner::TurnRequest::new("run fixture"),
             &TerminalRenderer::default(),
         )
         .await
@@ -251,7 +252,7 @@ async fn second_turn_replays_prior_canonical_history_exactly_once() {
     for prompt in ["first turn", "second turn"] {
         engine
             .run_turn(
-                rho::engine::runner::TurnRequest { prompt },
+                rho::engine::runner::TurnRequest::new(prompt),
                 &TerminalRenderer::default(),
             )
             .await
@@ -288,7 +289,7 @@ async fn crashing_provider_stream_is_isolated_without_partial_commits() {
         .unwrap();
     let error = engine
         .run_turn(
-            rho::engine::runner::TurnRequest { prompt: "crash" },
+            rho::engine::runner::TurnRequest::new("crash"),
             &TerminalRenderer::default(),
         )
         .await
@@ -401,6 +402,7 @@ async fn cancelled_provider_streams_terminate_the_subprocess() {
             tools: &Rejecting,
             observer: &NoopTurnObserver,
             cancellation: &cancellation,
+            steering: &NoopSteeringQueue,
         },
         NeutralTurnRequest {
             model: "fixture-model".to_string(),

@@ -3,7 +3,7 @@ use crate::error::Result;
 use crate::plugin::builtin_tools::{BuiltinToolCatalog, DECLARATIONS};
 use crate::plugin::capability::{CapabilityError, CapabilityId, CapabilityKind, PluginId, PluginOrigin};
 use crate::plugin::contract::{
-    InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
+    ExecutionMode, InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
     PermissionDecision, RequestedOperation, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
 };
 use crate::plugin::external::ExternalPlugin;
@@ -145,6 +145,20 @@ impl ActiveToolSet {
                 },
             );
         }
+
+        let mcp_capabilities = crate::plugin::mcp::load_mcp_capabilities(config, base_dir).await;
+        for (target_id, capability) in mcp_capabilities {
+            let descriptor = capability.descriptor();
+            tools.insert(
+                target_id.name().to_string(),
+                ActiveTool {
+                    target_id,
+                    descriptor,
+                    capability,
+                },
+            );
+        }
+
         Ok(Self {
             tools,
             floor: Arc::new(floor(config, base_dir)?),
@@ -169,6 +183,13 @@ impl ActiveToolSet {
                 argument_schema: tool.descriptor.argument_schema.clone(),
             })
             .collect()
+    }
+
+    pub fn execution_mode(&self, tool_name: &str) -> ExecutionMode {
+        self.tools
+            .get(tool_name)
+            .map(|tool| tool.descriptor.execution_mode)
+            .unwrap_or(ExecutionMode::Sequential)
     }
 
     pub fn neutral_executor(self: &Arc<Self>, context: ToolContext) -> NeutralActiveToolExecutor {
@@ -514,6 +535,10 @@ pub struct NeutralActiveToolExecutor {
 
 #[async_trait]
 impl crate::engine::provider::host_loop::NeutralToolExecutor for NeutralActiveToolExecutor {
+    fn execution_mode(&self, tool_id: &CapabilityId) -> ExecutionMode {
+        self.tools.execution_mode(tool_id.name())
+    }
+
     async fn execute(
         &self,
         call: crate::engine::provider::host_loop::NeutralToolCall,
@@ -530,7 +555,10 @@ impl crate::engine::provider::host_loop::NeutralToolExecutor for NeutralActiveTo
             self.tools.tools.get(tool_id.name()).ok_or_else(|| {
                 crate::engine::provider::host_loop::NeutralTurnError::UnknownTool(tool_id.to_string())
             })?;
-        let mut context = self.context.lock().await;
+        let mut context = {
+            let guard = self.context.lock().await;
+            guard.clone()
+        };
         // Dispatch owns the full lifecycle: classification events, host floor,
         // composed permission evaluation, approval prompting, and invocation.
         let result = tool
@@ -612,7 +640,7 @@ impl ToolHost for RigToolHost<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::contract::{NetworkAccess, PathScope, ToolDescriptor, ToolInvocationResponse};
+    use crate::plugin::contract::{ExecutionMode, NetworkAccess, PathScope, ToolDescriptor, ToolInvocationResponse};
     use crate::tools::approval::{
         ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent, approval_context,
     };
@@ -730,6 +758,7 @@ mod tests {
             }),
             prompt_guidance: String::new(),
             effects,
+            execution_mode: ExecutionMode::Sequential,
         }
     }
 
@@ -828,6 +857,7 @@ mod tests {
             argument_schema: serde_json::json!({"type": "object"}),
             prompt_guidance: String::new(),
             effects: Vec::new(),
+            execution_mode: ExecutionMode::Sequential,
         };
         let (tools, _policies) = tool_set(
             &Config::default(),
@@ -864,6 +894,7 @@ mod tests {
             effects: vec![OperationEffect::WritePath {
                 scope: PathScope::Workspace,
             }],
+            execution_mode: ExecutionMode::Sequential,
         };
         let (tools, _policies) = tool_set(
             &Config::default(),
@@ -907,6 +938,7 @@ mod tests {
             effects: vec![OperationEffect::WritePath {
                 scope: PathScope::Workspace,
             }],
+            execution_mode: ExecutionMode::Sequential,
         };
         let (tools, _policies) = tool_set(
             &Config::default(),
@@ -953,6 +985,7 @@ mod tests {
             effects: vec![OperationEffect::ReadPath {
                 scope: PathScope::Explicit,
             }],
+            execution_mode: ExecutionMode::Sequential,
         };
         let (tools, _policies) = tool_set(
             &config,
@@ -988,6 +1021,7 @@ mod tests {
             }),
             prompt_guidance: String::new(),
             effects: Vec::new(),
+            execution_mode: ExecutionMode::Sequential,
         };
         let (tools, _policies) = tool_set(
             &Config::default(),
@@ -1023,6 +1057,7 @@ mod tests {
             effects: vec![OperationEffect::Network {
                 access: NetworkAccess::PublicInternet,
             }],
+            execution_mode: ExecutionMode::Sequential,
         };
         let (tools, _policies) = tool_set(
             &Config::default(),

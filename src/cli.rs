@@ -135,7 +135,7 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let renderer = TerminalRenderer::default();
 
         let res = engine
-            .run_turn(crate::engine::runner::TurnRequest { prompt: &prompt }, &renderer)
+            .run_turn(crate::engine::runner::TurnRequest::new(&prompt), &renderer)
             .await;
         renderer.flush();
 

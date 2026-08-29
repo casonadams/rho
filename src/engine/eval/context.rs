@@ -90,7 +90,7 @@ pub(super) async fn run_context_evaluation(input: ContextEvaluationInput<'_>) ->
         run_tracker: RunTracker::default(),
     };
     let TurnOutput { metrics, usage, .. } = engine
-        .run_turn(TurnRequest { prompt: "continue" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("continue"), &TerminalRenderer::default())
         .await
         .unwrap();
     let visible = &model.requests()[0].chat_history;

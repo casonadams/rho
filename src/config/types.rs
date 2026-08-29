@@ -22,6 +22,8 @@ pub(crate) enum ConfigKey {
     OutputMaxBytes,
     AllowPrivateNetwork,
     Region,
+    SteeringMode,
+    FollowUpMode,
 }
 
 impl FromStr for ConfigKey {
@@ -45,6 +47,8 @@ impl FromStr for ConfigKey {
             "output_max_bytes" => Ok(Self::OutputMaxBytes),
             "allow_private_network" => Ok(Self::AllowPrivateNetwork),
             "region" => Ok(Self::Region),
+            "steering_mode" => Ok(Self::SteeringMode),
+            "follow_up_mode" => Ok(Self::FollowUpMode),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -69,17 +73,68 @@ impl ConfigKey {
             Self::OutputMaxBytes => "output_max_bytes",
             Self::AllowPrivateNetwork => "allow_private_network",
             Self::Region => "region",
+            Self::SteeringMode => "steering_mode",
+            Self::FollowUpMode => "follow_up_mode",
         }
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PluginConfig {
+    #[serde(default)]
     pub path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub replaces: BTreeSet<CapabilityId>,
+}
+
+impl Default for PluginConfig {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::new(),
+            package: None,
+            version: None,
+            git: None,
+            branch: None,
+            tag: None,
+            enabled: true,
+            replaces: BTreeSet::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct McpConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub servers: BTreeMap<String, McpServerConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,7 +155,10 @@ pub struct Config {
     pub output_max_bytes: usize,
     pub allow_private_network: bool,
     pub region: String,
+    pub steering_mode: crate::engine::runner::QueueMode,
+    pub follow_up_mode: crate::engine::runner::QueueMode,
     pub plugins: BTreeMap<String, PluginConfig>,
+    pub mcp: McpConfig,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub auth_file: PathBuf,
@@ -126,7 +184,10 @@ impl Default for Config {
             output_max_bytes: 50_000,
             allow_private_network: false,
             region: "wt-wt".to_string(),
+            steering_mode: crate::engine::runner::QueueMode::OneAtATime,
+            follow_up_mode: crate::engine::runner::QueueMode::OneAtATime,
             plugins: BTreeMap::new(),
+            mcp: McpConfig::default(),
             sessions_dir: base_dir.join("sessions"),
             auth_file: base_dir.join("auth.json"),
             config_dir: base_dir,
@@ -152,8 +213,12 @@ pub(super) struct FileConfig {
     pub output_max_bytes: Option<usize>,
     pub allow_private_network: Option<bool>,
     pub region: Option<String>,
+    pub steering_mode: Option<crate::engine::runner::QueueMode>,
+    pub follow_up_mode: Option<crate::engine::runner::QueueMode>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
+    #[serde(default)]
+    pub mcp: Option<McpConfig>,
 }
 
 pub fn default_config_dir() -> PathBuf {

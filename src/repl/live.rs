@@ -432,7 +432,7 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
     let history = active.editor.history;
     let completions = active.editor.completions;
     let mut batch = LiveBatch::new();
-    let run = engine.run_turn(crate::engine::runner::TurnRequest { prompt: active.prompt }, renderer);
+    let run = engine.run_turn(crate::engine::runner::TurnRequest::new(active.prompt), renderer);
     tokio::pin!(run);
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

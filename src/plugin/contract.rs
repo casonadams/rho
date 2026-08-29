@@ -191,6 +191,14 @@ pub trait ProviderCapability: Send + Sync {
     ) -> Result<BoxStream<'static, Result<ProviderStreamEvent, CapabilityError>>, CapabilityError>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    #[default]
+    Sequential,
+    Parallel,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolDescriptor {
     pub id: CapabilityId,
@@ -198,6 +206,8 @@ pub struct ToolDescriptor {
     pub argument_schema: Value,
     pub prompt_guidance: String,
     pub effects: Vec<OperationEffect>,
+    #[serde(default)]
+    pub execution_mode: ExecutionMode,
 }
 
 impl ToolDescriptor {
@@ -531,6 +541,7 @@ mod tests {
                 argument_schema: serde_json::json!({"type": "object"}),
                 prompt_guidance: String::new(),
                 effects: Vec::new(),
+                execution_mode: ExecutionMode::Parallel,
             }
         }
 
@@ -625,6 +636,7 @@ mod tests {
             argument_schema: serde_json::json!({}),
             prompt_guidance: String::new(),
             effects: Vec::new(),
+            execution_mode: ExecutionMode::Sequential,
         };
         assert!(matches!(
             descriptor.validate(),
@@ -675,6 +687,24 @@ mod tests {
 
     #[test]
     fn contract_types_have_stable_tagged_serialization() {
+        assert_eq!(
+            serde_json::to_value(ExecutionMode::Parallel).unwrap(),
+            serde_json::json!("parallel")
+        );
+        assert_eq!(
+            serde_json::to_value(ExecutionMode::Sequential).unwrap(),
+            serde_json::json!("sequential")
+        );
+        assert_eq!(
+            serde_json::from_str::<ExecutionMode>("\"parallel\"").unwrap(),
+            ExecutionMode::Parallel
+        );
+        assert_eq!(
+            serde_json::from_str::<ExecutionMode>("\"sequential\"").unwrap(),
+            ExecutionMode::Sequential
+        );
+        assert_eq!(ExecutionMode::default(), ExecutionMode::Sequential);
+
         let decision = PermissionDecision::ApprovalRequired {
             rationale: "confirm".to_string(),
         };

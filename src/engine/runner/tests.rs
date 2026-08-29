@@ -67,7 +67,7 @@ fn final_event(usage: Usage) -> MockStreamEvent {
 }
 
 fn request(prompt: &str) -> TurnRequest<'_> {
-    TurnRequest { prompt }
+    TurnRequest::new(prompt)
 }
 
 #[test]

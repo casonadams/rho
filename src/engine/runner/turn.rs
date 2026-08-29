@@ -19,6 +19,8 @@ use super::helpers::redact_text;
 use super::history::{budget_history, checkpoint_messages, continuation_history, display_events, map_streaming_error};
 use super::sink::{TerminalApprovalSink, TerminalSinkConfig, TurnArtifacts};
 
+use crate::engine::provider::host_loop::{CancellationSignal, SteeringQueueProvider};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunStatus {
     Completed,
@@ -27,9 +29,20 @@ pub enum RunStatus {
 
 pub type UsageDetails = StructuralUsage;
 
-#[derive(Debug)]
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
+    pub cancellation: Option<&'a CancellationSignal>,
+    pub steering: Option<&'a dyn SteeringQueueProvider>,
+}
+
+impl<'a> TurnRequest<'a> {
+    pub fn new(prompt: &'a str) -> Self {
+        Self {
+            prompt,
+            cancellation: None,
+            steering: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

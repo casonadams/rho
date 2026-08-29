@@ -25,12 +25,7 @@ impl EvalHarness {
         let model = rig::test_utils::MockCompletionModel::from_stream_turns(scenario.turns.clone());
         let engine = mock_engine(model.clone(), base_dir, scenario.max_turns);
         let output = engine
-            .run_turn(
-                TurnRequest {
-                    prompt: scenario.prompt,
-                },
-                &TerminalRenderer::default(),
-            )
+            .run_turn(TurnRequest::new(scenario.prompt), &TerminalRenderer::default())
             .await
             .map_err(|_| EvalFailure {
                 scenario: scenario.name,

@@ -2,8 +2,8 @@ use crate::config::Config;
 use crate::error::{AppError, Result};
 use crate::plugin::capability::CapabilityId;
 use crate::plugin::contract::{
-    InteractionOption, InteractionRequest, InteractionResponse, NetworkAccess, OperationEffect, PathScope,
-    ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest, ToolInvocationResponse,
+    ExecutionMode, InteractionOption, InteractionRequest, InteractionResponse, NetworkAccess, OperationEffect,
+    PathScope, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest, ToolInvocationResponse,
 };
 use crate::tools::ask_user::{AskUserArgs, AskUserTool, InteractiveQuestionPort, UserAnswer, UserQuestion};
 use crate::tools::bash::{BashArgs, BashTool};
@@ -46,6 +46,7 @@ pub struct BuiltinToolDeclaration {
     pub prompt: &'static str,
     schema: fn() -> serde_json::Value,
     effects: &'static [OperationEffect],
+    pub execution_mode: ExecutionMode,
 }
 
 const READ_EFFECTS: &[OperationEffect] = &[OperationEffect::ReadPath {
@@ -68,6 +69,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_READ,
         schema: generated_schema::<ReadArgs>,
         effects: READ_EFFECTS,
+        execution_mode: ExecutionMode::Parallel,
     },
     BuiltinToolDeclaration {
         name: "write",
@@ -76,6 +78,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_WRITE,
         schema: generated_schema::<WriteArgs>,
         effects: WRITE_EFFECTS,
+        execution_mode: ExecutionMode::Sequential,
     },
     BuiltinToolDeclaration {
         name: "edit",
@@ -84,6 +87,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_EDIT,
         schema: generated_schema::<EditArgs>,
         effects: WRITE_EFFECTS,
+        execution_mode: ExecutionMode::Sequential,
     },
     BuiltinToolDeclaration {
         name: "bash",
@@ -92,6 +96,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_BASH,
         schema: generated_schema::<BashArgs>,
         effects: BASH_EFFECTS,
+        execution_mode: ExecutionMode::Sequential,
     },
     BuiltinToolDeclaration {
         name: "websearch",
@@ -100,6 +105,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_WEBSEARCH,
         schema: generated_schema::<SearchArgs>,
         effects: NETWORK_EFFECTS,
+        execution_mode: ExecutionMode::Parallel,
     },
     BuiltinToolDeclaration {
         name: "web_search",
@@ -108,6 +114,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_WEBSEARCH,
         schema: generated_schema::<SearchArgs>,
         effects: NETWORK_EFFECTS,
+        execution_mode: ExecutionMode::Parallel,
     },
     BuiltinToolDeclaration {
         name: "webfetch",
@@ -116,6 +123,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_WEBFETCH,
         schema: generated_schema::<FetchArgs>,
         effects: NETWORK_EFFECTS,
+        execution_mode: ExecutionMode::Parallel,
     },
     BuiltinToolDeclaration {
         name: "web_fetch",
@@ -124,6 +132,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_WEBFETCH,
         schema: generated_schema::<FetchArgs>,
         effects: NETWORK_EFFECTS,
+        execution_mode: ExecutionMode::Parallel,
     },
     BuiltinToolDeclaration {
         name: "ask_user",
@@ -132,6 +141,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_ASK_USER,
         schema: generated_schema::<AskUserArgs>,
         effects: INTERACTION_EFFECTS,
+        execution_mode: ExecutionMode::Sequential,
     },
     BuiltinToolDeclaration {
         name: "ask_user_question",
@@ -140,6 +150,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_ASK_USER,
         schema: generated_schema::<AskUserArgs>,
         effects: INTERACTION_EFFECTS,
+        execution_mode: ExecutionMode::Sequential,
     },
 ];
 
@@ -151,6 +162,7 @@ impl PartialEq for BuiltinToolDeclaration {
             && self.prompt == other.prompt
             && std::ptr::fn_addr_eq(self.schema, other.schema)
             && self.effects == other.effects
+            && self.execution_mode == other.execution_mode
     }
 }
 
@@ -164,6 +176,7 @@ impl BuiltinToolDeclaration {
             argument_schema: (self.schema)(),
             prompt_guidance: self.prompt.to_string(),
             effects: self.effects.to_vec(),
+            execution_mode: self.execution_mode,
         }
     }
 }
@@ -390,7 +403,17 @@ mod tests {
             assert_eq!(legacy.prompt, descriptor.prompt_guidance);
             assert_eq!(legacy.description, descriptor.description);
             assert_eq!(legacy.capability, declaration.capability);
+            assert_eq!(declaration.execution_mode, descriptor.execution_mode);
         }
+
+        let read_desc = capabilities.get(&"tool:read".parse().unwrap()).unwrap().descriptor();
+        assert_eq!(read_desc.execution_mode, ExecutionMode::Parallel);
+
+        let write_desc = capabilities.get(&"tool:write".parse().unwrap()).unwrap().descriptor();
+        assert_eq!(write_desc.execution_mode, ExecutionMode::Sequential);
+
+        let bash_desc = capabilities.get(&"tool:bash".parse().unwrap()).unwrap().descriptor();
+        assert_eq!(bash_desc.execution_mode, ExecutionMode::Sequential);
 
         assert_native_definition(&ReadTool::new(&root), &capabilities);
         assert_native_definition(&WriteTool::new(&root), &capabilities);

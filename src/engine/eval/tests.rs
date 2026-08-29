@@ -345,7 +345,7 @@ async fn agent_eval_core_finish_metadata_usage_and_budget_exhaustion() {
     ]]);
     let engine = mock_engine(model, &dir, 2);
     let output = engine
-        .run_turn(TurnRequest { prompt: "generate" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("generate"), &TerminalRenderer::default())
         .await
         .unwrap();
     assert_eq!(
@@ -361,7 +361,7 @@ async fn agent_eval_core_finish_metadata_usage_and_budget_exhaustion() {
     ]]);
     let engine = mock_engine(model.clone(), &dir, 1);
     let error = engine
-        .run_turn(TurnRequest { prompt: "loop" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("loop"), &TerminalRenderer::default())
         .await
         .unwrap_err();
     assert!(matches!(error, AppError::ModelBudgetExhausted { max_turns: 1 }));
@@ -384,11 +384,11 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
     ]);
     let first = mock_engine(first_model.clone(), &dir, 3);
     first
-        .run_turn(TurnRequest { prompt: "one" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("one"), &TerminalRenderer::default())
         .await
         .unwrap();
     first
-        .run_turn(TurnRequest { prompt: "two" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("two"), &TerminalRenderer::default())
         .await
         .unwrap();
     assert_eq!(text_occurrences(&first_model.requests()[1], "one"), 1);
@@ -409,7 +409,7 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
         },
     );
     resumed
-        .run_turn(TurnRequest { prompt: "three" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("three"), &TerminalRenderer::default())
         .await
         .unwrap();
     assert_eq!(text_occurrences(&resumed_model.requests()[0], "one"), 1);
@@ -425,7 +425,7 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
         },
     );
     switched
-        .run_turn(TurnRequest { prompt: "four" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("four"), &TerminalRenderer::default())
         .await
         .unwrap();
     assert_eq!(text_occurrences(&switched_model.requests()[0], "three"), 1);
@@ -434,7 +434,7 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
         MockCompletionModel::from_stream_turns([[MockStreamEvent::text("fresh"), final_event(Usage::new())]]);
     let cleared = mock_engine(cleared_model.clone(), &dir.join("clear"), 2);
     cleared
-        .run_turn(TurnRequest { prompt: "fresh prompt" }, &TerminalRenderer::default())
+        .run_turn(TurnRequest::new("fresh prompt"), &TerminalRenderer::default())
         .await
         .unwrap();
     assert!(prior_file.exists());
@@ -493,7 +493,7 @@ async fn agent_eval_session_cancellation_boundaries_remain_resumable() {
         let engine = mock_engine(model, &dir, 2);
         let timed = tokio::time::timeout(
             std::time::Duration::from_millis(40),
-            engine.run_turn(TurnRequest { prompt: "run" }, &TerminalRenderer::default()),
+            engine.run_turn(TurnRequest::new("run"), &TerminalRenderer::default()),
         )
         .await;
         assert!(timed.is_err());

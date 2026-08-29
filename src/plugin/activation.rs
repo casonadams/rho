@@ -149,6 +149,7 @@ where
             path: executable.clone(),
             package: Some(pending.package.to_string()),
             replaces: pending.authorized_replacements,
+            ..Default::default()
         };
         Config::add_plugin(&self.paths.config_dir, &name, plugin)?;
         Ok(InstalledPlugin {
@@ -450,6 +451,7 @@ mod tests {
                 path: root.join("bin/rho-plugin-fixture"),
                 package: Some("rho-plugin-fixture".to_string()),
                 replaces: BTreeSet::new(),
+                ..Default::default()
             },
         )
         .unwrap();
@@ -472,6 +474,7 @@ mod tests {
                 path: executable.clone(),
                 package: None,
                 replaces: BTreeSet::new(),
+                ..Default::default()
             },
         )
         .unwrap();

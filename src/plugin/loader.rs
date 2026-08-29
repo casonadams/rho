@@ -348,6 +348,7 @@ mod tests {
                     path: root.join("bin/rho-plugin-absolute"),
                     package: None,
                     replaces: Default::default(),
+                    ..Default::default()
                 },
             ),
             (
@@ -356,6 +357,7 @@ mod tests {
                     path: PathBuf::from("bin/../bin/rho-plugin-configured"),
                     package: None,
                     replaces: Default::default(),
+                    ..Default::default()
                 },
             ),
         ]);
@@ -387,6 +389,7 @@ mod tests {
                     path: "missing".into(),
                     package: None,
                     replaces: Default::default(),
+                    ..Default::default()
                 },
             ),
             (
@@ -395,6 +398,7 @@ mod tests {
                     path: "plain".into(),
                     package: None,
                     replaces: Default::default(),
+                    ..Default::default()
                 },
             ),
         ]);

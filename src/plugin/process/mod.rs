@@ -467,7 +467,9 @@ pub enum ProcessError {
 mod tests {
     use super::*;
     use crate::plugin::capability::{CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest};
-    use crate::plugin::contract::{InvocationContext, ToolDescriptor, ToolInvocationRequest, ToolInvocationResponse};
+    use crate::plugin::contract::{
+        ExecutionMode, InvocationContext, ToolDescriptor, ToolInvocationRequest, ToolInvocationResponse,
+    };
     use crate::plugin::protocol::StructuredError;
     use std::os::unix::fs::PermissionsExt;
 
@@ -546,6 +548,7 @@ mod tests {
                 argument_schema: serde_json::json!({"type": "object"}),
                 prompt_guidance: String::new(),
                 effects: Vec::new(),
+                execution_mode: ExecutionMode::Sequential,
             }),
         )
     }
