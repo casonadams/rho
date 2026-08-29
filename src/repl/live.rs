@@ -54,8 +54,8 @@ impl LiveBatch {
     fn flush(&mut self, controller: &mut LiveController, redraw: bool) -> Result<()> {
         let drained = self.ui.drain();
         let mut changed = false;
-        if let Some((name, args_summary)) = drained.tool_start {
-            controller.start_tool(name, args_summary)?;
+        if let Some(request) = drained.tool_start {
+            controller.start_tool(request)?;
             changed = true;
         }
         for chunk in &drained.tool_chunks {
@@ -244,7 +244,7 @@ impl ReplSession {
             crate::plugin::InputAction::Transform(transformed) => transformed,
             crate::plugin::InputAction::Handled { output } => {
                 if !output.is_empty() {
-                    self.renderer.write_output(&format!("{output}\n"));
+                    self.renderer.print_notice(&format!("{output}\n"));
                 }
                 drain_ui_events(controller, ui_events, &mut None)?;
                 return Ok(false);
@@ -346,6 +346,18 @@ async fn read_idle_input(
                     }
                     InputAction::ToggleExpandTools => {
                         controller.toggle_tools_expanded()?;
+                    }
+                    InputAction::DequeueQueued => {
+                        let queued = controller.state_mut().dequeue_all();
+                        if !queued.is_empty() {
+                            let text = queued
+                                .into_iter()
+                                .map(|m| m.text)
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            controller.state_mut().editor_mut().set_text(&text);
+                            batch.flush(controller, true)?;
+                        }
                     }
                     InputAction::EndOfInput if controller.state().editor().is_empty() => {
                         batch.flush(controller, false)?;
@@ -478,11 +490,23 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                     InputAction::ToggleExpandTools => {
                         controller.toggle_tools_expanded()?;
                     }
+                    InputAction::DequeueQueued => {
+                        let queued = controller.state_mut().dequeue_all();
+                        if !queued.is_empty() {
+                            let text = queued
+                                .into_iter()
+                                .map(|m| m.text)
+                                .collect::<Vec<_>>()
+                                .join("\n");
+                            controller.state_mut().editor_mut().set_text(&text);
+                            batch.flush(controller, true)?;
+                        }
+                    }
                     InputAction::Cancel => {
                         batch.flush(controller, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
-                        renderer.write_output("\nCanceled.\n");
+                        renderer.print_notice("\nCanceled.\n");
                         batch.drain_events(controller, ui_events)?;
                         batch.flush(controller, false)?;
                         return Ok(());
@@ -496,7 +520,7 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                 batch.flush(controller, false)?;
                 if let Err(error) = result {
                     restore_queued_messages(controller);
-                    renderer.write_output(&format!("\nError: {error}\n"));
+                    renderer.print_notice(&format!("\nError: {error}\n"));
                     batch.drain_events(controller, ui_events)?;
                     batch.flush(controller, false)?;
                 }
@@ -544,8 +568,8 @@ fn handle_ui_event(controller: &mut LiveController, event: UiEvent, modal: &mut 
         UiEvent::Transcript(item) => {
             controller.push_transcript_item(item)?;
         }
-        UiEvent::ToolStart { name, args_summary } => {
-            controller.start_tool(name, args_summary)?;
+        UiEvent::ToolStart(request) => {
+            controller.start_tool(request)?;
         }
         UiEvent::ToolChunk { chunk } => {
             controller.append_tool_chunk(&chunk)?;

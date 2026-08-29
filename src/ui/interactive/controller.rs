@@ -92,6 +92,7 @@ fn queue_vertical_move(stdout: &mut Stdout, mut rows: usize, upward: bool) -> io
 pub struct ActiveToolBlock {
     pub name: String,
     pub args_summary: String,
+    pub preview: Option<String>,
     pub output: String,
     pub started: std::time::Instant,
 }
@@ -150,10 +151,11 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(controller)
     }
 
-    pub fn start_tool(&mut self, name: String, args_summary: String) -> io::Result<()> {
+    pub fn start_tool(&mut self, request: super::ToolStartRequest) -> io::Result<()> {
         self.active_tool = Some(ActiveToolBlock {
-            name,
-            args_summary,
+            name: request.name,
+            args_summary: request.args_summary,
+            preview: request.preview,
             output: String::new(),
             started: std::time::Instant::now(),
         });
@@ -352,17 +354,22 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn current_layout(&self) -> InteractiveLayout {
+        let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
         layout(LayoutInput {
             editor: self.state.editor(),
             modal: self.state.active_modal(),
             footer: self.state.footer(),
-            queued_messages: self.state.queue_len(),
+            queued_messages: &queue_slice,
             terminal_width: self.width,
             spinner_frame: self.spinner_frame,
         })
     }
 
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
+        for line in &rendered.queued_lines {
+            self.backend.write_text(line)?;
+            self.backend.write_text("\r\n")?;
+        }
         if !rendered.working_line.is_empty() {
             self.backend.write_text(&rendered.working_line)?;
             self.backend.write_text("\r\n")?;
@@ -432,6 +439,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         let formatted = super::layout::format_active_tool_block(super::ActiveToolDisplayInput {
             tool_name: &tool.name,
             args_summary: &tool.args_summary,
+            preview: tool.preview.as_deref(),
             output: &tool.output,
             started: tool.started,
             theme: &self.theme,
@@ -761,7 +769,13 @@ mod tests {
     fn resize_rerenders_active_tool_block_at_new_width() {
         let (backend, operations, width) = FakeTerminal::new(60);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-        controller.start_tool("bash".into(), "cargo test".into()).unwrap();
+        controller
+            .start_tool(crate::ui::interactive::ToolStartRequest {
+                name: "bash".into(),
+                args_summary: "cargo test".into(),
+                preview: None,
+            })
+            .unwrap();
         operations.borrow_mut().clear();
         width.set(30);
 
@@ -901,7 +915,13 @@ mod tests {
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
         operations.borrow_mut().clear();
 
-        controller.start_tool("bash".into(), "cargo test".into()).unwrap();
+        controller
+            .start_tool(crate::ui::interactive::ToolStartRequest {
+                name: "bash".into(),
+                args_summary: "cargo test".into(),
+                preview: None,
+            })
+            .unwrap();
         let ops = operations.borrow();
         assert!(
             ops.iter()

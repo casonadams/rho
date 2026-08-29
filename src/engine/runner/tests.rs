@@ -213,7 +213,7 @@ fn auto_approved_bash_call_surfaces_the_running_command_and_finishing_duration()
 
     let tool_starts = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
-            UiEvent::ToolStart { name, args_summary } => Some((name, args_summary)),
+            UiEvent::ToolStart(req) => Some((req.name, req.args_summary)),
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -243,7 +243,7 @@ fn auto_approved_bash_call_surfaces_the_running_command_and_finishing_duration()
                 },
             )),
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            UiEvent::Activity(_) | UiEvent::RunningTool(_) | UiEvent::ToolStart { .. } | UiEvent::ToolChunk { .. } => {}
+            UiEvent::Activity(_) | UiEvent::RunningTool(_) | UiEvent::ToolStart(_) | UiEvent::ToolChunk { .. } => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }
@@ -966,7 +966,7 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
             }
             UiEvent::Activity(_)
             | UiEvent::RunningTool(_)
-            | UiEvent::ToolStart { .. }
+            | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
             | UiEvent::ToolEnd => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),

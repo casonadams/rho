@@ -55,13 +55,17 @@ enum Transport {
     Writer(Mutex<Box<dyn Write + Send>>),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolStartRequest {
+    pub name: String,
+    pub args_summary: String,
+    pub preview: Option<String>,
+}
+
 pub enum UiEvent {
     Output(OutputEvent),
     Activity(Activity),
-    ToolStart {
-        name: String,
-        args_summary: String,
-    },
+    ToolStart(ToolStartRequest),
     ToolChunk {
         chunk: String,
     },
@@ -97,7 +101,7 @@ pub struct PendingUiBatch {
     text: String,
     activity: Option<Activity>,
     running_tool: Option<Option<String>>,
-    tool_start: Option<(String, String)>,
+    tool_start: Option<ToolStartRequest>,
     tool_chunks: Vec<String>,
     tool_end: bool,
     transcript_items: Vec<super::TranscriptItem>,
@@ -109,7 +113,7 @@ pub struct PendingUiDrain {
     pub text: String,
     pub activity: Option<Activity>,
     pub running_tool: Option<Option<String>>,
-    pub tool_start: Option<(String, String)>,
+    pub tool_start: Option<ToolStartRequest>,
     pub tool_chunks: Vec<String>,
     pub tool_end: bool,
     pub transcript_items: Vec<super::TranscriptItem>,
@@ -146,8 +150,8 @@ impl PendingUiBatch {
                 self.activity = Some(activity);
                 BatchDecision::Pending
             }
-            UiEvent::ToolStart { name, args_summary } => {
-                self.tool_start = Some((name, args_summary));
+            UiEvent::ToolStart(request) => {
+                self.tool_start = Some(request);
                 BatchDecision::Flush(FlushBarrier::Newline)
             }
             UiEvent::ToolChunk { chunk } => {
@@ -254,10 +258,10 @@ impl InteractiveUi {
         }
     }
 
-    pub fn tool_start(&self, name: String, args_summary: String) -> Result<(), UiPortError> {
+    pub fn tool_start(&self, request: ToolStartRequest) -> Result<(), UiPortError> {
         match self.transport.as_ref() {
             Transport::Channel(sender) => sender
-                .send(UiEvent::ToolStart { name, args_summary })
+                .send(UiEvent::ToolStart(request))
                 .map_err(|_| UiPortError::Closed),
             Transport::Writer(_) => Ok(()),
         }

@@ -175,8 +175,19 @@ impl TerminalRenderer {
 
     pub fn start_tool_run(&self, name: &str, args: &serde_json::Value) {
         let summary = format_tool_args_summary(name, args);
+        let preview = if name == "edit" {
+            format_edit_diff(args, &self.theme)
+        } else if name == "write" {
+            format_write_preview(args, &self.theme)
+        } else {
+            None
+        };
         if let Some(ui) = &self.ui {
-            let _ = ui.tool_start(name.to_string(), summary);
+            let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
+                name: name.to_string(),
+                args_summary: summary,
+                preview,
+            });
         } else {
             self.print_tool_start(name, args);
         }
@@ -239,7 +250,20 @@ impl TerminalRenderer {
     pub fn print_session_status(&self, display: &SessionStatus<'_>) {
         let dim = self.theme.dimmed;
         let status = format_session_status(display);
-        self.write_output(&format!("{dim}{status}{dim:#}\n"));
+        let text = format!("{dim}{status}{dim:#}\n");
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text));
+        } else {
+            self.write_output(&text);
+        }
+    }
+
+    pub fn print_notice(&self, text: &str) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text.to_string()));
+        } else {
+            self.write_output(text);
+        }
     }
 
     pub fn start_spinner(&self, message: &str) -> RenderActivity {

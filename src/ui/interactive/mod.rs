@@ -8,7 +8,7 @@ mod transcript;
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
     BatchDecision, FlushBarrier, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
-    InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, UiEvent, UiPortError,
+    InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, ToolStartRequest, UiEvent, UiPortError,
 };
 pub use input::{InputAction, map_key};
 pub use layout::{

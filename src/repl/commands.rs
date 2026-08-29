@@ -56,7 +56,7 @@ impl SlashCommandHandler {
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" => {
-                ctx.renderer.write_output("  [Conversation context reset]\n");
+                ctx.renderer.print_notice("  [Conversation context reset]\n");
                 Ok(Some(CommandResult::ClearContext))
             }
             "model" => {
@@ -67,7 +67,7 @@ impl SlashCommandHandler {
                     if let Some(ref p) = new_provider {
                         ctx.config.provider = p.clone();
                     }
-                    ctx.renderer.write_output(&format!(
+                    ctx.renderer.print_notice(&format!(
                         "  [Switched model to {} ({})]\n",
                         ctx.config.model, ctx.config.provider
                     ));
@@ -89,7 +89,7 @@ impl SlashCommandHandler {
                         let provider_str = choice.split('(').nth(1).and_then(|s| s.strip_suffix(')')).unwrap_or("");
                         ctx.config.model = model_str.to_string();
                         ctx.config.provider = provider_str.to_string();
-                        ctx.renderer.write_output(&format!(
+                        ctx.renderer.print_notice(&format!(
                             "  [Switched model to {} ({})]\n",
                             ctx.config.model, ctx.config.provider
                         ));
@@ -118,13 +118,13 @@ impl SlashCommandHandler {
                     let Some(matched) = lookup(parts[1]) else {
                         let mut output = format!("  Skill '{}' not found. Available skills:\n", parts[1]);
                         list(&mut output);
-                        ctx.renderer.write_output(&output);
+                        ctx.renderer.print_notice(&output);
                         return Ok(Some(CommandResult::Continue));
                     };
                     // Content comes from the resolved record; overrides read
                     // their file, never execute it.
                     if let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name) {
-                        ctx.renderer.write_output(&format!(
+                        ctx.renderer.print_notice(&format!(
                             "\n[skill: {} ({})]\n{content}\n",
                             matched.metadata.name, matched.origin
                         ));
@@ -143,7 +143,7 @@ impl SlashCommandHandler {
                     match selected.and_then(|name| lookup(&name)) {
                         Some(matched) => {
                             if let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name) {
-                                ctx.renderer.write_output(&format!(
+                                ctx.renderer.print_notice(&format!(
                                     "\n[skill: {} ({})]\n{content}\n",
                                     matched.metadata.name, matched.origin
                                 ));
@@ -152,20 +152,20 @@ impl SlashCommandHandler {
                         None => {
                             let mut output = String::from("Available skills:\n");
                             list(&mut output);
-                            ctx.renderer.write_output(&output);
+                            ctx.renderer.print_notice(&output);
                         }
                     }
                 } else {
                     let mut output = String::from("Available skills:\n");
                     list(&mut output);
-                    ctx.renderer.write_output(&output);
+                    ctx.renderer.print_notice(&output);
                 }
                 Ok(Some(CommandResult::Continue))
             }
             "plugin" | "plugins" => {
                 let cwd = std::env::current_dir().ok();
                 let inspection = crate::plugin::inspection::inspect(ctx.config, cwd.as_deref()).await?;
-                ctx.renderer.write_output(&inspection.render());
+                ctx.renderer.print_notice(&inspection.render());
                 Ok(Some(CommandResult::Continue))
             }
             "login" => Ok(Some(CommandResult::Login {
@@ -175,7 +175,7 @@ impl SlashCommandHandler {
                 provider: parts.get(1).map(|value| (*value).to_string()),
             })),
             "exit" | "quit" => {
-                ctx.renderer.write_output("  Bye!\n");
+                ctx.renderer.print_notice("  Bye!\n");
                 Ok(Some(CommandResult::Exit))
             }
             custom => {
@@ -194,19 +194,19 @@ impl SlashCommandHandler {
                     match reg.dispatch_command(&req, ext_ctx).await {
                         Some(Ok(output)) => {
                             if !output.is_empty() {
-                                ctx.renderer.write_output(&format!("{output}\n"));
+                                ctx.renderer.print_notice(&format!("{output}\n"));
                             }
                             return Ok(Some(CommandResult::Continue));
                         }
                         Some(Err(err)) => {
                             ctx.renderer
-                                .write_output(&format!("  Error running /{custom}: {err}\n"));
+                                .print_notice(&format!("  Error running /{custom}: {err}\n"));
                             return Ok(Some(CommandResult::Continue));
                         }
                         None => {}
                     }
                 }
-                ctx.renderer.write_output(&format!(
+                ctx.renderer.print_notice(&format!(
                     "  Unknown command: /{custom}. Type /help for available commands.\n"
                 ));
                 Ok(Some(CommandResult::Continue))
@@ -267,7 +267,7 @@ fn print_help(config: &Config, registry: Option<&ExtensionRegistry>, renderer: &
         "confirmation required"
     };
     let _ = writeln!(output, "  Changes                     {approval}\n");
-    renderer.write_output(&output);
+    renderer.print_notice(&output);
 }
 
 #[cfg(test)]
@@ -288,6 +288,7 @@ mod tests {
         std::iter::from_fn(|| events.try_recv().ok())
             .filter_map(|event| match event {
                 UiEvent::Output(OutputEvent::Text(text)) => Some(text),
+                UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text)) => Some(text),
                 _ => None,
             })
             .collect()

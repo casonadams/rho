@@ -11,6 +11,7 @@ pub enum InputAction {
     Cancel,
     EndOfInput,
     ToggleExpandTools,
+    DequeueQueued,
     Ignore,
 }
 
@@ -20,6 +21,7 @@ pub fn map_key(event: KeyEvent) -> InputAction {
     }
 
     match (event.code, event.modifiers) {
+        (KeyCode::Up, modifiers) if modifiers.contains(KeyModifiers::ALT) => InputAction::DequeueQueued,
         (KeyCode::Enter, modifiers) if modifiers.contains(KeyModifiers::ALT) => {
             InputAction::Edit(UiAction::Submit(QueueKind::FollowUp))
         }
@@ -108,6 +110,7 @@ mod tests {
                 key(KeyCode::Right, KeyModifiers::NONE),
                 InputAction::Edit(UiAction::MoveRight),
             ),
+            (key(KeyCode::Up, KeyModifiers::ALT), InputAction::DequeueQueued),
             (key(KeyCode::Up, KeyModifiers::NONE), InputAction::HistoryPrevious),
             (key(KeyCode::Down, KeyModifiers::NONE), InputAction::HistoryNext),
             (key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete),

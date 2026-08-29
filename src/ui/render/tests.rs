@@ -47,7 +47,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
                     tools_expanded: false,
                 },
             )),
-            UiEvent::RunningTool(_) | UiEvent::ToolStart { .. } | UiEvent::ToolChunk { .. } | UiEvent::ToolEnd => {}
+            UiEvent::RunningTool(_) | UiEvent::ToolStart(_) | UiEvent::ToolChunk { .. } | UiEvent::ToolEnd => {}
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
@@ -87,7 +87,7 @@ fn finished_bash_block_includes_elapsed_duration() {
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Activity(_)
             | UiEvent::RunningTool(_)
-            | UiEvent::ToolStart { .. }
+            | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
             | UiEvent::ToolEnd => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
@@ -95,6 +95,33 @@ fn finished_bash_block_includes_elapsed_duration() {
     }
     assert!(output.contains("cargo test --all-targets"));
     assert!(output.contains("Took 5s"));
+}
+
+#[test]
+fn print_session_status_and_notice_emit_transcript_item() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.print_session_status(&SessionStatus {
+        model: "claude-sonnet",
+        provider: "anthropic",
+        context: "42% context",
+        quota: Some("80% quota"),
+        auto_approve: true,
+    });
+    renderer.print_notice("  [Notice message]\n");
+
+    let items = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text)) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].contains("claude-sonnet"));
+    assert!(items[0].contains("42% context"));
+    assert!(items[1].contains("[Notice message]"));
 }
 
 #[tokio::test]

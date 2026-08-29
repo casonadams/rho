@@ -36,6 +36,7 @@ pub fn truncate_to_visual_lines(text: &str, max_visual_lines: usize, width: usiz
 pub struct ActiveToolDisplayInput<'a> {
     pub tool_name: &'a str,
     pub args_summary: &'a str,
+    pub preview: Option<&'a str>,
     pub output: &'a str,
     pub started: std::time::Instant,
     pub theme: &'a crate::ui::theme::Theme,
@@ -54,6 +55,13 @@ pub fn format_active_tool_block(input: ActiveToolDisplayInput<'_>) -> String {
         input.tool_name, input.args_summary
     );
     let mut content = header;
+
+    if let Some(preview) = input.preview
+        && !preview.trim().is_empty()
+    {
+        content.push('\n');
+        content.push_str(preview);
+    }
 
     let clean_output = input.output.trim_end();
     if !clean_output.is_empty() {
@@ -97,17 +105,18 @@ pub struct CursorPosition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveLayout {
+    pub queued_lines: Vec<String>,
+    pub working_line: String,
     pub top_divider: String,
     pub editor_lines: Vec<String>,
     pub bottom_divider: String,
-    pub working_line: String,
     pub footer: String,
     pub cursor: CursorPosition,
 }
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + self.working_line.len().min(1) + 1;
+        let mut h = self.editor_lines.len() + self.working_line.len().min(1) + self.queued_lines.len() + 1;
         if !self.top_divider.is_empty() {
             h += 1;
         }
@@ -118,7 +127,10 @@ impl InteractiveLayout {
     }
 
     pub fn cursor_row(&self) -> usize {
-        self.cursor.row + self.working_line.len().min(1) + usize::from(!self.top_divider.is_empty())
+        self.cursor.row
+            + self.queued_lines.len()
+            + self.working_line.len().min(1)
+            + usize::from(!self.top_divider.is_empty())
     }
 }
 
@@ -126,35 +138,59 @@ pub struct LayoutInput<'a> {
     pub editor: &'a EditorState,
     pub modal: Option<&'a ModalState>,
     pub footer: &'a FooterState,
-    pub queued_messages: usize,
+    pub queued_messages: &'a [super::QueuedMessage],
     pub terminal_width: usize,
     pub spinner_frame: usize,
 }
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
-    let (top_divider, editor_lines, bottom_divider, cursor, working_line) = if let Some(modal) = input.modal {
-        let (lines, cursor) = render_modal_overlay(modal, width);
-        (String::new(), lines, String::new(), cursor, String::new())
-    } else {
-        let (lines, cursor) = wrap_editor(input.editor, width);
-        (
-            "─".repeat(width),
-            lines,
-            "─".repeat(width),
-            cursor,
-            working_line_text(&input.footer.activity, input.spinner_frame, width),
-        )
-    };
+    let (top_divider, editor_lines, bottom_divider, cursor, working_line, queued_lines) =
+        if let Some(modal) = input.modal {
+            let (lines, cursor) = render_modal_overlay(modal, width);
+            (String::new(), lines, String::new(), cursor, String::new(), Vec::new())
+        } else {
+            let (lines, cursor) = wrap_editor(input.editor, width);
+            (
+                "─".repeat(width),
+                lines,
+                "─".repeat(width),
+                cursor,
+                working_line_text(&input.footer.activity, input.spinner_frame, width),
+                queued_lines_text(input.queued_messages, width),
+            )
+        };
 
     InteractiveLayout {
+        queued_lines,
         top_divider,
         editor_lines,
         bottom_divider,
         working_line,
-        footer: truncate_to_width(&footer_text(input.footer, input.queued_messages), width),
+        footer: truncate_to_width(&footer_text(input.footer), width),
         cursor,
     }
+}
+
+fn queued_lines_text(queued: &[super::QueuedMessage], width: usize) -> Vec<String> {
+    if queued.is_empty() || width < 12 {
+        return Vec::new();
+    }
+    let dim = "\x1b[2m";
+    let reset = "\x1b[0m";
+    let accent = "\x1b[36m";
+    let mut lines = Vec::new();
+    for item in queued {
+        let kind_label = match item.kind {
+            super::QueueKind::Steering => "Steering",
+            super::QueueKind::FollowUp => "Follow-up",
+        };
+        let text = format!("{dim}⇣ {kind_label}: {}{reset}", item.text.replace('\n', " "));
+        lines.push(truncate_to_width(&text, width));
+    }
+    let hint = format!("{dim}↳ {accent}Alt+↑{reset}{dim} to edit queued messages{reset}");
+    lines.push(truncate_to_width(&hint, width));
+    lines
 }
 
 fn working_line_text(activity: &Activity, spinner_frame: usize, width: usize) -> String {
@@ -242,29 +278,15 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
     let mut lines = Vec::new();
     let mut cursor = CursorPosition { row: 0, column: 0 };
 
-    let title = format!(" {} ", modal.title.trim());
-    let title_w = visible_width(&title);
-    if title_w + 4 <= width {
-        let dashes = "─".repeat(width - title_w - 3);
-        lines.push(format!(
-            "\x1b[2m╭─\x1b[0m\x1b[1;36m{title}\x1b[0m\x1b[2m{dashes}╮\x1b[0m"
-        ));
-    } else {
-        let dashes = "─".repeat(width.saturating_sub(2));
-        lines.push(format!("\x1b[2m╭{dashes}╮\x1b[0m"));
-    }
-
-    let push_inner = |lines: &mut Vec<String>, content: &str| {
-        let vis_w = visible_width(content);
-        let pad = inner_width.saturating_sub(vis_w);
-        lines.push(format!("\x1b[2m│ \x1b[0m{content}{}\x1b[2m │\x1b[0m", " ".repeat(pad)));
-    };
+    lines.push("─".repeat(width));
+    lines.push(format!("  \x1b[1;36m{}\x1b[0m", modal.title.trim()));
+    lines.push(String::new());
 
     if !modal.body.trim().is_empty() {
         for line in wrap_to_width(&modal.body, inner_width) {
-            push_inner(&mut lines, &line);
+            lines.push(format!("  {line}"));
         }
-        push_inner(&mut lines, "");
+        lines.push(String::new());
     }
 
     for (i, opt) in modal.options.iter().enumerate() {
@@ -290,12 +312,12 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
         }
 
         for wrapped in wrap_to_width(&opt_line, inner_width) {
-            push_inner(&mut lines, &wrapped);
+            lines.push(format!("  {wrapped}"));
         }
     }
 
     if let ModalMode::Input { prompt_label } = &modal.mode {
-        push_inner(&mut lines, "");
+        lines.push(String::new());
         let prompt_prefix = format!("\x1b[1;36m{prompt_label}:\x1b[0m ");
         let input_text = modal.input.text();
         let prompt_line = format!("{prompt_prefix}{input_text}");
@@ -309,11 +331,11 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
         };
 
         for wrapped in wrap_to_width(&prompt_line, inner_width) {
-            push_inner(&mut lines, &wrapped);
+            lines.push(format!("  {wrapped}"));
         }
     }
 
-    push_inner(&mut lines, "");
+    lines.push(String::new());
 
     let hint = match &modal.mode {
         ModalMode::Select => {
@@ -333,15 +355,13 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
             }
         }
     };
-    push_inner(&mut lines, hint);
-
-    let dashes = "─".repeat(width.saturating_sub(2));
-    lines.push(format!("\x1b[2m╰{dashes}╯\x1b[0m"));
+    lines.push(format!("  {hint}"));
+    lines.push("─".repeat(width));
 
     (lines, cursor)
 }
 
-fn footer_text(footer: &FooterState, queued_messages: usize) -> String {
+fn footer_text(footer: &FooterState) -> String {
     let mut segments = Vec::new();
     if !footer.model.is_empty() {
         segments.push(footer.model.clone());
@@ -351,9 +371,6 @@ fn footer_text(footer: &FooterState, queued_messages: usize) -> String {
     }
     if let Some(quota) = footer.quota.as_deref().filter(|value| !value.is_empty()) {
         segments.push(quota.to_string());
-    }
-    if queued_messages > 0 {
-        segments.push(format!("{queued_messages} queued"));
     }
     if segments.is_empty() {
         segments.push(footer.activity.label().to_string());
@@ -438,7 +455,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 8,
             spinner_frame: 0,
         });
@@ -459,7 +476,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 20,
             spinner_frame: 0,
         });
@@ -478,7 +495,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 4,
             spinner_frame: 0,
         });
@@ -498,7 +515,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 3,
             spinner_frame: 0,
         });
@@ -516,7 +533,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 2,
             spinner_frame: 0,
         });
@@ -538,12 +555,47 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            queued_messages: 2,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
 
-        assert_eq!(layout.footer, "model | 42% context | 80% quota | 2 queued");
+        assert_eq!(layout.footer, "model | 42% context | 80% quota");
+    }
+
+    #[test]
+    fn queued_messages_render_above_the_working_line() {
+        let default_editor = EditorState::default();
+        let footer = FooterState {
+            activity: Activity::Working,
+            model: "model".into(),
+            context: None,
+            quota: None,
+        };
+        let queued = vec![
+            crate::ui::interactive::QueuedMessage {
+                text: "first steer".into(),
+                kind: crate::ui::interactive::QueueKind::Steering,
+            },
+            crate::ui::interactive::QueuedMessage {
+                text: "next follow".into(),
+                kind: crate::ui::interactive::QueueKind::FollowUp,
+            },
+        ];
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: None,
+            footer: &footer,
+            queued_messages: &queued,
+            terminal_width: 80,
+            spinner_frame: 0,
+        });
+
+        assert_eq!(layout.queued_lines.len(), 3);
+        assert!(layout.queued_lines[0].contains("Steering: first steer"));
+        assert!(layout.queued_lines[1].contains("Follow-up: next follow"));
+        assert!(layout.queued_lines[2].contains("Alt+↑"));
+        assert_eq!(layout.height(), 8);
     }
 
     #[test]
@@ -559,7 +611,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
@@ -584,7 +636,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
@@ -605,7 +657,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
@@ -632,7 +684,7 @@ mod tests {
             editor: &default_editor,
             modal: Some(&modal),
             footer: &footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
@@ -649,7 +701,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
@@ -668,7 +720,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 80,
             spinner_frame: 0,
         });
@@ -690,7 +742,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
-            queued_messages: 1,
+            queued_messages: &[],
             terminal_width: 5,
             spinner_frame: 1,
         });
@@ -700,7 +752,7 @@ mod tests {
     }
 
     #[test]
-    fn modal_layout_renders_rounded_box_overlay() {
+    fn modal_layout_renders_input_frame_style() {
         let default_editor = EditorState::default();
         let default_footer = FooterState::default();
         let modal = crate::ui::interactive::ModalState::new(
@@ -715,12 +767,13 @@ mod tests {
             editor: &default_editor,
             modal: Some(&modal),
             footer: &default_footer,
-            queued_messages: 0,
+            queued_messages: &[],
             terminal_width: 40,
             spinner_frame: 0,
         });
 
         assert!(layout.top_divider.is_empty());
+        assert!(layout.editor_lines.iter().any(|l| l.contains("─".repeat(40).as_str())));
         assert!(layout.editor_lines.iter().any(|l| l.contains("Permission Required")));
         assert!(layout.editor_lines.iter().any(|l| l.contains("tool   bash")));
         assert!(layout.editor_lines.iter().any(|l| l.contains("Allow")));
@@ -749,6 +802,7 @@ mod tests {
         let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
             tool_name: "bash",
             args_summary: "cargo test",
+            preview: None,
             output: "compiling...\ntest result: ok",
             started: std::time::Instant::now(),
             theme: &theme,
@@ -763,12 +817,35 @@ mod tests {
     }
 
     #[test]
+    fn format_active_tool_block_renders_diff_preview_for_edit() {
+        let theme = crate::ui::theme::Theme::default();
+        let diff_preview = "```diff\n- old text\n+ new text\n```";
+        let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
+            tool_name: "edit",
+            args_summary: "src/main.rs (1 edits)",
+            preview: Some(diff_preview),
+            output: "",
+            started: std::time::Instant::now(),
+            theme: &theme,
+            width: 60,
+            expanded: false,
+        });
+
+        assert!(formatted.contains("edit"));
+        assert!(formatted.contains("src/main.rs"));
+        assert!(formatted.contains("- old text"));
+        assert!(formatted.contains("+ new text"));
+        assert!(formatted.contains("Elapsed"));
+    }
+
+    #[test]
     fn format_active_tool_block_includes_expand_hint_when_truncated() {
         let theme = crate::ui::theme::Theme::default();
         let output = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
         let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
             tool_name: "bash",
             args_summary: "cargo test",
+            preview: None,
             output,
             started: std::time::Instant::now(),
             theme: &theme,
