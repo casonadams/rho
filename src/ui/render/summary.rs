@@ -54,7 +54,7 @@ pub(super) fn clean_command_paths(cmd: &str) -> String {
     cleaned
 }
 
-pub(super) fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) {
+pub(crate) fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) {
     let raw = args.get("path").and_then(|path| path.as_str()).unwrap_or("");
     let path = to_relative_path(raw);
     if args.get("offset").is_none() && args.get("limit").is_none() {
@@ -73,7 +73,7 @@ pub(super) fn read_summary_parts(args: &serde_json::Value) -> (String, Option<St
     (path, Some(format!(":{start}-{end}")))
 }
 
-pub(super) fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
+pub(crate) fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => {
             let (path, range) = read_summary_parts(args);

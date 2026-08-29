@@ -66,6 +66,7 @@ pub enum UiEvent {
         chunk: String,
     },
     ToolEnd,
+    Transcript(super::TranscriptItem),
     RunningTool(Option<String>),
     Interaction {
         prompt: InteractionPrompt,
@@ -99,6 +100,7 @@ pub struct PendingUiBatch {
     tool_start: Option<(String, String)>,
     tool_chunks: Vec<String>,
     tool_end: bool,
+    transcript_items: Vec<super::TranscriptItem>,
     max_text_bytes: usize,
 }
 
@@ -110,6 +112,7 @@ pub struct PendingUiDrain {
     pub tool_start: Option<(String, String)>,
     pub tool_chunks: Vec<String>,
     pub tool_end: bool,
+    pub transcript_items: Vec<super::TranscriptItem>,
 }
 
 impl PendingUiBatch {
@@ -121,6 +124,7 @@ impl PendingUiBatch {
             tool_start: None,
             tool_chunks: Vec::new(),
             tool_end: false,
+            transcript_items: Vec::new(),
             max_text_bytes: max_text_bytes.max(1),
         }
     }
@@ -154,6 +158,10 @@ impl PendingUiBatch {
                 self.tool_end = true;
                 BatchDecision::Flush(FlushBarrier::Newline)
             }
+            UiEvent::Transcript(item) => {
+                self.transcript_items.push(item);
+                BatchDecision::Flush(FlushBarrier::Newline)
+            }
             UiEvent::RunningTool(update) => {
                 self.running_tool = Some(update);
                 BatchDecision::Pending
@@ -170,6 +178,7 @@ impl PendingUiBatch {
             tool_start: self.tool_start.take(),
             tool_chunks: std::mem::take(&mut self.tool_chunks),
             tool_end: std::mem::replace(&mut self.tool_end, false),
+            transcript_items: std::mem::take(&mut self.transcript_items),
         }
     }
 
@@ -180,6 +189,7 @@ impl PendingUiBatch {
             && self.tool_start.is_none()
             && self.tool_chunks.is_empty()
             && !self.tool_end
+            && self.transcript_items.is_empty()
     }
 }
 
@@ -258,6 +268,13 @@ impl InteractiveUi {
             Transport::Channel(sender) => sender
                 .send(UiEvent::ToolChunk { chunk })
                 .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
+    pub fn push_transcript(&self, item: super::TranscriptItem) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender.send(UiEvent::Transcript(item)).map_err(|_| UiPortError::Closed),
             Transport::Writer(_) => Ok(()),
         }
     }

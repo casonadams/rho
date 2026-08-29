@@ -66,6 +66,10 @@ impl LiveBatch {
             controller.end_tool()?;
             changed = true;
         }
+        for item in drained.transcript_items {
+            controller.push_transcript_item(item)?;
+            changed = true;
+        }
         if let Some(activity) = drained.activity {
             controller.state_mut().footer_mut().activity = activity;
             changed = true;
@@ -341,8 +345,7 @@ async fn read_idle_input(
                         controller.redraw()?;
                     }
                     InputAction::ToggleExpandTools => {
-                        controller.state_mut().toggle_tools_expanded();
-                        batch.flush(controller, true)?;
+                        controller.toggle_tools_expanded()?;
                     }
                     InputAction::EndOfInput if controller.state().editor().is_empty() => {
                         batch.flush(controller, false)?;
@@ -473,8 +476,7 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                         }
                     }
                     InputAction::ToggleExpandTools => {
-                        controller.state_mut().toggle_tools_expanded();
-                        batch.flush(controller, true)?;
+                        controller.toggle_tools_expanded()?;
                     }
                     InputAction::Cancel => {
                         batch.flush(controller, false)?;
@@ -539,6 +541,9 @@ fn handle_ui_event(controller: &mut LiveController, event: UiEvent, modal: &mut 
             controller.redraw()?;
         }
         UiEvent::RunningTool(_) => {}
+        UiEvent::Transcript(item) => {
+            controller.push_transcript_item(item)?;
+        }
         UiEvent::ToolStart { name, args_summary } => {
             controller.start_tool(name, args_summary)?;
         }

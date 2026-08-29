@@ -3,6 +3,7 @@ mod events;
 mod input;
 mod layout;
 mod state;
+mod transcript;
 
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
@@ -18,3 +19,4 @@ pub use state::{
     Activity, EditorState, FooterState, InteractiveState, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
     RunningTool, UiAction, UiEffect,
 };
+pub use transcript::{ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, render_transcript_item};

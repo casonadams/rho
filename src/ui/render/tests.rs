@@ -39,6 +39,14 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     while let Ok(event) = events.try_recv() {
         match event {
             UiEvent::Activity(activity) => activity_events.push(activity),
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                },
+            )),
             UiEvent::RunningTool(_) | UiEvent::ToolStart { .. } | UiEvent::ToolChunk { .. } | UiEvent::ToolEnd => {}
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
@@ -68,6 +76,14 @@ fn finished_bash_block_includes_elapsed_duration() {
     let mut output = String::new();
     while let Ok(event) = events.try_recv() {
         match event {
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                },
+            )),
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Activity(_)
             | UiEvent::RunningTool(_)

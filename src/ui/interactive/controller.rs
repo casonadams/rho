@@ -109,6 +109,7 @@ pub struct TerminalController<B: TerminalBackend> {
     active_tool: Option<ActiveToolBlock>,
     active_tool_height: usize,
     theme: crate::ui::theme::Theme,
+    transcript: Vec<super::TranscriptItem>,
 }
 
 impl TerminalController<CrosstermBackend> {
@@ -140,6 +141,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             active_tool: None,
             active_tool_height: 0,
             theme: crate::ui::theme::Theme::default(),
+            transcript: Vec::new(),
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
@@ -168,6 +170,60 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn end_tool(&mut self) -> io::Result<()> {
         self.active_tool = None;
         self.redraw()
+    }
+
+    pub fn push_transcript_item(&mut self, item: super::TranscriptItem) -> io::Result<()> {
+        let rendered = super::render_transcript_item(super::TranscriptRenderInput {
+            item: &item,
+            theme: &self.theme,
+            width: self.width,
+            tools_expanded: self.state.tools_expanded(),
+        });
+        self.transcript.push(item);
+        if !rendered.is_empty() {
+            self.write_output(&rendered)?;
+        }
+        Ok(())
+    }
+
+    pub fn full_redraw(&mut self) -> io::Result<()> {
+        self.backend.hide_cursor()?;
+        self.erase_live_region()?;
+        self.erase_active_tool()?;
+        self.backend.write_text("\x1b[2J\x1b[H\x1b[3J")?;
+        self.output_line.clear();
+        self.output_line_open = false;
+
+        let tools_expanded = self.state.tools_expanded();
+        let rendered_items: Vec<String> = self
+            .transcript
+            .iter()
+            .map(|item| {
+                super::render_transcript_item(super::TranscriptRenderInput {
+                    item,
+                    theme: &self.theme,
+                    width: self.width,
+                    tools_expanded,
+                })
+            })
+            .filter(|rendered| !rendered.is_empty())
+            .map(|rendered| terminal_newlines(&rendered))
+            .collect();
+
+        for rendered in &rendered_items {
+            self.backend.write_text(rendered)?;
+            self.update_output_line(rendered);
+            if self.output_line_open {
+                self.backend.write_text("\r\n")?;
+            }
+        }
+
+        self.draw_active_tool()?;
+        let rendered = self.current_layout();
+        self.write_live_region(&rendered)?;
+        self.rendered = Some(rendered);
+        self.backend.show_cursor()?;
+        self.backend.flush()
     }
 
     pub fn state(&self) -> &InteractiveState {
@@ -220,8 +276,22 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(false);
         }
         self.width = width;
-        self.redraw()?;
+        if self.transcript.is_empty() {
+            self.redraw()?;
+        } else {
+            self.full_redraw()?;
+        }
         Ok(true)
+    }
+
+    pub fn toggle_tools_expanded(&mut self) -> io::Result<bool> {
+        let tools_expanded = self.state_mut().toggle_tools_expanded();
+        if self.transcript.is_empty() {
+            self.redraw()?;
+        } else {
+            self.full_redraw()?;
+        }
+        Ok(tools_expanded)
     }
 
     pub fn advance_spinner(&mut self) {
@@ -820,6 +890,28 @@ mod tests {
         assert!(
             !ops.iter()
                 .any(|op| matches!(op, Operation::Write(text) if text.contains("cargo test")))
+        );
+    }
+
+    #[test]
+    fn full_redraw_rerenders_all_transcript_items_on_resize() {
+        let (backend, operations, width) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(crate::ui::interactive::TranscriptItem::UserMessage(
+                "hello world message".into(),
+            ))
+            .unwrap();
+        operations.borrow_mut().clear();
+
+        width.set(40);
+        assert!(controller.refresh_size().unwrap());
+
+        let ops = operations.borrow();
+        assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[3J".into())));
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("hello world message")))
         );
     }
 

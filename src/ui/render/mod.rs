@@ -9,16 +9,19 @@
 //! Public API is re-exported here so external callers continue to use
 //! `crate::ui::render::{TerminalRenderer, ApprovalResult, BashApproval, ToolLine}` etc.
 
-mod formatters;
-mod renderer;
-mod summary;
+pub(crate) mod formatters;
+pub(crate) mod renderer;
+pub(crate) mod summary;
 mod types;
 
 #[cfg(test)]
 mod tests;
 
+pub(crate) use formatters::{format_edit_diff, format_thinking_block, format_write_preview};
 pub use renderer::{RenderActivity, TerminalRenderer};
+pub(crate) use renderer::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
 pub use summary::summarize_tool_output;
+pub(crate) use summary::{format_tool_args_summary, read_summary_parts};
 pub use types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 
 pub fn format_duration(duration: std::time::Duration) -> String {

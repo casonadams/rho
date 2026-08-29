@@ -234,6 +234,14 @@ fn auto_approved_bash_call_surfaces_the_running_command_and_finishing_duration()
     while let Ok(event) = events.try_recv() {
         match event {
             UiEvent::ToolEnd => tool_ended = true,
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                },
+            )),
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Activity(_) | UiEvent::RunningTool(_) | UiEvent::ToolStart { .. } | UiEvent::ToolChunk { .. } => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
@@ -942,6 +950,16 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
         match event {
             UiEvent::Output(OutputEvent::Text(text)) => {
                 displayed.push_str(&text);
+            }
+            UiEvent::Transcript(item) => {
+                displayed.push_str(&crate::ui::interactive::render_transcript_item(
+                    crate::ui::interactive::TranscriptRenderInput {
+                        item: &item,
+                        theme: &renderer.theme,
+                        width: 80,
+                        tools_expanded: false,
+                    },
+                ));
             }
             UiEvent::Activity(_)
             | UiEvent::RunningTool(_)

@@ -96,7 +96,7 @@ pub(super) fn format_bash_approval_card(request: &BashApproval<'_>, theme: &Them
         .render_styled(&content)
 }
 
-pub(super) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
+pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
     let edits = args.get("edits")?.as_array()?;
     if edits.is_empty() {
         return None;
@@ -108,7 +108,7 @@ pub(super) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
     Some(formatter.finish())
 }
 
-pub(super) fn format_write_preview(args: &serde_json::Value, theme: &Theme) -> Option<String> {
+pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme) -> Option<String> {
     let content = args.get("content")?.as_str()?;
     if content.trim().is_empty() {
         return None;
@@ -135,7 +135,7 @@ pub(super) fn format_session_status(session: &SessionStatus<'_>) -> String {
     parts.join(" | ")
 }
 
-pub(super) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {
+pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {
     let d = theme.dimmed;
     let mut out = String::new();
     for line in thinking_text.trim().lines() {

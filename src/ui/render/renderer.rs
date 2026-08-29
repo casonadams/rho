@@ -24,6 +24,7 @@ pub struct TerminalRenderer {
     pub theme: Theme,
     markdown: Arc<Mutex<MarkdownRenderer>>,
     ui: Option<InteractiveUi>,
+    assistant_turn_buffer: Arc<Mutex<String>>,
 }
 
 impl Default for TerminalRenderer {
@@ -32,6 +33,7 @@ impl Default for TerminalRenderer {
             theme: Theme::default(),
             markdown: Arc::new(Mutex::new(MarkdownRenderer::new())),
             ui: None,
+            assistant_turn_buffer: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -84,7 +86,7 @@ impl fmt::Display for BashApprovalChoice {
     }
 }
 
-pub(super) fn tool_title_style(is_error: bool) -> anstyle::Style {
+pub(crate) fn tool_title_style(is_error: bool) -> anstyle::Style {
     if is_error {
         anstyle::Style::new()
             .bold()
@@ -94,7 +96,7 @@ pub(super) fn tool_title_style(is_error: bool) -> anstyle::Style {
     }
 }
 
-pub(super) fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
+pub(crate) fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
     if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
         return match format.to_ascii_lowercase().as_str() {
             "pdf" => "pdf",
@@ -122,7 +124,7 @@ pub(super) fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static s
     }
 }
 
-pub(super) fn format_tool_output_preview(output: &str, fallback: &str) -> String {
+pub(crate) fn format_tool_output_preview(output: &str, fallback: &str) -> String {
     let lines: Vec<&str> = output.lines().collect();
     if lines.is_empty() {
         return fallback.to_string();
@@ -201,25 +203,37 @@ impl TerminalRenderer {
     }
 
     pub fn print_welcome(&self, display: &WelcomeDisplay<'_>) {
-        let highlight = self.theme.highlight;
-        let dim = self.theme.dimmed;
-        let session = if display.resumed {
-            "resumed session"
-        } else {
-            "new session"
-        };
         let location = std::env::current_dir()
             .ok()
             .map(|path| to_relative_path(&path.display().to_string()))
             .unwrap_or_else(|| ".".to_string());
-
-        self.write_output(&format!(
-            "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{} {dim}via {} | {session}{dim:#}\n{dim}{location} | {}{dim:#}\n{dim}/help commands | Tab complete | Ctrl+C cancel | Ctrl+D exit{dim:#}\n\n",
-            env!("CARGO_PKG_VERSION"),
-            display.model,
-            display.provider,
-            approval_mode(display.auto_approve)
-        ));
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(
+                crate::ui::interactive::WelcomeItem {
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    model: display.model.to_string(),
+                    provider: display.provider.to_string(),
+                    auto_approve: display.auto_approve,
+                    resumed: display.resumed,
+                    location,
+                },
+            ));
+        } else {
+            let highlight = self.theme.highlight;
+            let dim = self.theme.dimmed;
+            let session = if display.resumed {
+                "resumed session"
+            } else {
+                "new session"
+            };
+            self.write_output(&format!(
+                "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{} {dim}via {} | {session}{dim:#}\n{dim}{location} | {}{dim:#}\n{dim}/help commands | Tab complete | Ctrl+C cancel | Ctrl+D exit{dim:#}\n\n",
+                env!("CARGO_PKG_VERSION"),
+                display.model,
+                display.provider,
+                approval_mode(display.auto_approve)
+            ));
+        }
     }
 
     pub fn print_session_status(&self, display: &SessionStatus<'_>) {
@@ -449,15 +463,30 @@ impl TerminalRenderer {
     }
 
     pub fn print_user_block(&self, input: &str) {
-        let block = BlockFormat::new(self.theme.user_message_bg, terminal_width())
-            .with_vertical_padding()
-            .render_plain(input);
-        self.write_output(&format!("\n{block}"));
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::UserMessage(input.to_string()));
+        } else {
+            let block = BlockFormat::new(self.theme.user_message_bg, terminal_width())
+                .with_vertical_padding()
+                .render_plain(input);
+            self.write_output(&format!("\n{block}"));
+        }
     }
 
     pub fn finish_tool_line(&self, line: ToolLine<'_>) {
         if let Some(ui) = &self.ui {
             let _ = ui.tool_end();
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(
+                crate::ui::interactive::ToolItem {
+                    name: line.name.to_string(),
+                    arguments: line.arguments.clone(),
+                    is_error: line.is_error,
+                    output: line.output.to_string(),
+                    output_summary: line.output_summary.to_string(),
+                    duration: line.duration,
+                },
+            ));
+            return;
         }
         let background = if line.is_error {
             self.theme.tool_error_bg
@@ -517,6 +546,9 @@ impl TerminalRenderer {
     }
 
     pub fn print_token(&self, token: &str) {
+        if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
+            buf.push_str(token);
+        }
         let rendered = self
             .markdown
             .lock()
@@ -539,6 +571,14 @@ impl TerminalRenderer {
         if !remaining.is_empty() {
             self.write_output(&remaining);
         }
+        if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
+            let full_text = std::mem::take(&mut *buf);
+            if !full_text.is_empty()
+                && let Some(ui) = &self.ui
+            {
+                let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::AssistantText(full_text));
+            }
+        }
     }
 
     pub fn print_thinking(&self, thinking_text: &str) {
@@ -546,8 +586,12 @@ impl TerminalRenderer {
         if trimmed.is_empty() {
             return;
         }
-        let formatted = format_thinking_block(trimmed, &self.theme);
-        self.write_output(&formatted);
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string()));
+        } else {
+            let formatted = format_thinking_block(trimmed, &self.theme);
+            self.write_output(&formatted);
+        }
     }
 
     pub fn print_tool_start(&self, name: &str, args: &serde_json::Value) {
