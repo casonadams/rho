@@ -6222,12 +6222,10 @@ dependencies = [
  "anstyle",
  "anyhow",
  "async-trait",
- "brush-parser",
  "chrono",
  "clap",
  "crossterm 0.28.1",
  "csv",
- "dotenvy",
  "feed-rs",
  "futures",
  "html2text",
@@ -6242,6 +6240,7 @@ dependencies = [
  "reedline",
  "regex",
  "reqwest 0.12.28",
+ "rho-core",
  "rho-sdk",
  "rig",
  "rig-memory",
@@ -6255,6 +6254,27 @@ dependencies = [
  "toml",
  "unicode-width 0.2.2",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "rho-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brush-parser",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "futures",
+ "rho-sdk",
+ "rig",
+ "rig-memory",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "toml",
  "uuid",
 ]
 

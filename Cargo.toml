@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/rho-sdk"]
+members = [".", "crates/rho-sdk", "crates/rho-core"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,9 +14,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 async-trait = "0.1"
 futures = "0.3"
+tokio = { version = "1.43", default-features = false }
+uuid = "1.13"
 jsonschema = { version = "0.52", default-features = false }
 thiserror = "2.0"
+anyhow = "1.0"
 rho-sdk = { path = "crates/rho-sdk" }
+rho-core = { path = "crates/rho-core" }
 
 [package]
 name = "rho"
@@ -35,11 +39,11 @@ name = "rho"
 path = "src/main.rs"
 
 [dependencies]
-brush-parser = "0.4.0"
 rho-sdk.workspace = true
+rho-core.workspace = true
 
 # Async Runtime & Core
-tokio = { version = "1.43", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 futures.workspace = true
 async-trait.workspace = true
 
@@ -75,10 +79,9 @@ moka = { version = "0.12", features = ["future"] }
 
 # Utilities & Config
 toml = "0.8"
-dotenvy = "0.15"
 thiserror = "2.0"
 anyhow = "1.0"
-uuid = { version = "1.13", features = ["v4", "serde"] }
+uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1.11"
 unicode-width = "0.2"

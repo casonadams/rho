@@ -60,7 +60,7 @@ pub(super) struct Analyzer {
 }
 
 impl Analyzer {
-    pub(in crate::tools::bash_ast) fn new(options: ParserOptions) -> Self {
+    pub(in crate::bash_ast) fn new(options: ParserOptions) -> Self {
         Self {
             options,
             tier: RiskTier::ReadOnly,
@@ -70,7 +70,7 @@ impl Analyzer {
         }
     }
 
-    pub(in crate::tools::bash_ast) fn finish(mut self) -> SafetyAnalysis {
+    pub(in crate::bash_ast) fn finish(mut self) -> SafetyAnalysis {
         self.reasons.sort();
         self.reasons.dedup();
         self.commands.dedup();

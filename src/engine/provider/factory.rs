@@ -11,7 +11,7 @@
 //! [`build_chatgpt_model`], [`build_copilot_model`], and [`build_ollama_model`]
 //! based on the provider's [`crate::engine::provider::CredentialStrategy`].
 
-use super::id::ProviderId;
+use super::ProviderId;
 use crate::auth::{AuthStore, chatgpt_client, copilot_client};
 use crate::error::{AppError, Result};
 use rig::agent::ModelHandle;

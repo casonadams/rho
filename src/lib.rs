@@ -1,12 +1,11 @@
 mod cli;
 
 pub mod auth;
-pub mod config;
+
 pub mod engine;
-pub mod error;
+pub use rho_core::{config, error, session};
 pub mod plugin;
 pub mod repl;
-pub mod session;
 pub mod skills;
 pub mod tools;
 pub mod ui;

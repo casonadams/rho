@@ -1,0 +1,27 @@
+[package]
+name = "rho-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "rho host domain: deterministic workspace, session, config, and provider identity"
+license.workspace = true
+
+[dependencies]
+rho-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow = "1.0"
+brush-parser = "0.4.0"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.5", features = ["derive", "env"] }
+dotenvy = "0.15"
+rig = "0.42"
+rig-memory = "0.42"
+toml = "0.8"
+tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+futures.workspace = true

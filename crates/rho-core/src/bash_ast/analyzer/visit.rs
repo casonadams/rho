@@ -17,7 +17,7 @@ use std::io::Cursor;
 use std::path::Path;
 
 impl Analyzer {
-    pub(in crate::tools::bash_ast) fn visit_list(&mut self, list: &CompoundList, depth: usize) {
+    pub(in crate::bash_ast) fn visit_list(&mut self, list: &CompoundList, depth: usize) {
         if depth > super::MAX_AST_DEPTH {
             self.flag_depth_overrun();
             return;

@@ -1,14 +1,13 @@
 mod helpers;
 mod history;
 mod neutral_turn;
-pub mod queue;
 mod sink;
 #[cfg(test)]
 mod tests;
 mod turn;
 
 pub use history::{DisplayEvent, map_completion_error, map_prompt_error, map_streaming_error};
-pub use queue::{PendingMessageQueue, QueueMode};
+pub use rho_core::queue::{PendingMessageQueue, QueueMode};
 pub use sink::{
     CompletedTool, DisplayKind, TerminalApprovalSink, TerminalSinkConfig, TerminalSinkState, TurnArtifacts,
 };

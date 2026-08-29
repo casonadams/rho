@@ -19,12 +19,11 @@
 mod catalog;
 mod factory;
 pub mod host_loop;
-mod id;
 mod verifier;
 
 pub use catalog::{ModelCatalog, curated, list_models};
 pub use factory::{ModelRequest, ProviderFactory};
-pub use id::{CredentialStrategy, ProviderId};
+pub use rho_core::provider::{CredentialStrategy, ProviderId};
 pub use verifier::RigCredentialVerifier;
 
 #[cfg(test)]

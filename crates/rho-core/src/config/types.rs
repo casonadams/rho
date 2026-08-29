@@ -1,4 +1,4 @@
-use crate::plugin::capability::CapabilityId;
+use rho_sdk::capability::CapabilityId;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -155,8 +155,8 @@ pub struct Config {
     pub output_max_bytes: usize,
     pub allow_private_network: bool,
     pub region: String,
-    pub steering_mode: crate::engine::runner::QueueMode,
-    pub follow_up_mode: crate::engine::runner::QueueMode,
+    pub steering_mode: crate::queue::QueueMode,
+    pub follow_up_mode: crate::queue::QueueMode,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub mcp: McpConfig,
     pub config_dir: PathBuf,
@@ -184,8 +184,8 @@ impl Default for Config {
             output_max_bytes: 50_000,
             allow_private_network: false,
             region: "wt-wt".to_string(),
-            steering_mode: crate::engine::runner::QueueMode::OneAtATime,
-            follow_up_mode: crate::engine::runner::QueueMode::OneAtATime,
+            steering_mode: crate::queue::QueueMode::OneAtATime,
+            follow_up_mode: crate::queue::QueueMode::OneAtATime,
             plugins: BTreeMap::new(),
             mcp: McpConfig::default(),
             sessions_dir: base_dir.join("sessions"),
@@ -213,8 +213,8 @@ pub(super) struct FileConfig {
     pub output_max_bytes: Option<usize>,
     pub allow_private_network: Option<bool>,
     pub region: Option<String>,
-    pub steering_mode: Option<crate::engine::runner::QueueMode>,
-    pub follow_up_mode: Option<crate::engine::runner::QueueMode>,
+    pub steering_mode: Option<crate::queue::QueueMode>,
+    pub follow_up_mode: Option<crate::queue::QueueMode>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
     #[serde(default)]

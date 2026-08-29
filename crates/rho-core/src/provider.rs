@@ -89,7 +89,7 @@ impl ProviderId {
         }
     }
 
-    pub(crate) fn api_key_env(self) -> Option<&'static str> {
+    pub fn api_key_env(self) -> Option<&'static str> {
         match self {
             Self::Anthropic => Some("ANTHROPIC_API_KEY"),
             Self::OpenAi => Some("OPENAI_API_KEY"),

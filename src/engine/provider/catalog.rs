@@ -1,8 +1,8 @@
 //! Model discovery: live listings where rig supports it, curated fallbacks
 //! otherwise.
 
+use super::ProviderId;
 use super::factory::api_key;
-use super::id::ProviderId;
 use crate::auth::{AuthStore, copilot_client};
 use crate::error::{AppError, Result};
 use rig::client::ModelListingClient;

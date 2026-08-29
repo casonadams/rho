@@ -50,7 +50,7 @@ impl Config {
             ));
         }
         for (name, plugin) in &self.plugins {
-            name.parse::<crate::plugin::capability::PluginId>()
+            name.parse::<rho_sdk::capability::PluginId>()
                 .map_err(|error| AppError::Config(error.to_string()))?;
             if plugin.path.as_os_str().is_empty() {
                 return Err(AppError::Config(format!("plugin '{name}' path must not be empty")));
@@ -113,7 +113,7 @@ impl Config {
     }
 
     pub fn add_plugin(config_dir: &std::path::Path, name: &str, plugin: PluginConfig) -> Result<()> {
-        name.parse::<crate::plugin::capability::PluginId>()
+        name.parse::<rho_sdk::capability::PluginId>()
             .map_err(|error| AppError::Config(error.to_string()))?;
         if plugin.path.as_os_str().is_empty() {
             return Err(AppError::Config("plugin path must not be empty".to_string()));

@@ -801,7 +801,14 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
         .unwrap();
     for request in resumed_model.requests() {
         let history = serde_json::to_string(&request.chat_history).unwrap();
-        assert_eq!(history.matches("inspect").count(), 1);
+        // Match the serialized user message node exactly: prompt text alone would
+        // collide with file names in the git-status noise embedded in the system prompt.
+        assert_eq!(
+            history
+                .matches(r#""role":"user","content":[{"type":"text","text":"inspect"}"#)
+                .count(),
+            1
+        );
         assert_eq!(history.matches(probe_path).count(), 2);
     }
     assert!(resumed.session_manager.load_checkpoint().await.unwrap().is_none());

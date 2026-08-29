@@ -5,7 +5,7 @@
 //! return [`VerificationStatus::Deferred`] — the actual verification happens
 //! later when the token is exchanged.
 
-use super::id::ProviderId;
+use super::ProviderId;
 use crate::auth::{ApiKeyVerifier, VerificationStatus};
 use crate::error::{AppError, Result};
 use rig::client::VerifyClient;
