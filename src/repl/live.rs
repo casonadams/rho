@@ -12,8 +12,8 @@ use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, BatchDecision, InputAction, InteractionResponder, InteractionResponse, InteractiveState, ModalState,
-    OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiAction, UiEffect, UiEvent,
-    map_key,
+    OutputEvent, PendingUiBatch, QueuedMessage, RunningTool, TerminalBackend, TerminalController, UiAction, UiEffect,
+    UiEvent, map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
@@ -53,14 +53,18 @@ impl LiveBatch {
 
     fn flush(&mut self, controller: &mut LiveController, redraw: bool) -> Result<()> {
         let drained = self.ui.drain();
-        let activity_changed = if let Some(activity) = drained.activity {
-            controller.state_mut().footer_mut().activity = activity;
+        let mut changed = if let Some(update) = drained.running_tool {
+            controller.state_mut().set_running_tool(update.map(RunningTool::new));
             true
         } else {
             false
         };
+        if let Some(activity) = drained.activity {
+            controller.state_mut().footer_mut().activity = activity;
+            changed = true;
+        }
         if drained.text.is_empty() {
-            if activity_changed || redraw {
+            if changed || redraw {
                 controller.redraw()?;
             }
         } else {
@@ -460,6 +464,7 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                         }
                     }
                     InputAction::Cancel => {
+                        controller.state_mut().set_running_tool(None);
                         batch.flush(controller, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
@@ -472,6 +477,7 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
                 }
             }
             result = &mut run => {
+                controller.state_mut().set_running_tool(None);
                 renderer.flush();
                 batch.drain_events(controller, ui_events)?;
                 batch.flush(controller, false)?;

@@ -46,8 +46,8 @@ impl ToolExecutionPolicy {
         }
         match tool_name {
             "read" if valid::<ReadArgs>(arguments) => ExecutionClass::ReadOnly,
-            "websearch" if valid::<SearchArgs>(arguments) => ExecutionClass::ReadOnly,
-            "webfetch" if valid::<FetchArgs>(arguments) => ExecutionClass::ReadOnly,
+            "websearch" | "web_search" if valid::<SearchArgs>(arguments) => ExecutionClass::ReadOnly,
+            "webfetch" | "web_fetch" if valid::<FetchArgs>(arguments) => ExecutionClass::ReadOnly,
             "ask_user" | "ask_user_question" => ExecutionClass::ReadOnly,
             "write" => classify_write(arguments, working_dir),
             "edit" => classify_edit(arguments, working_dir),
@@ -62,8 +62,8 @@ impl ToolExecutionPolicy {
             "write" => canonical::<WriteArgs>(arguments),
             "edit" => canonical::<EditArgs>(arguments),
             "bash" => canonical::<BashArgs>(arguments),
-            "websearch" => canonical::<SearchArgs>(arguments),
-            "webfetch" => canonical::<FetchArgs>(arguments),
+            "websearch" | "web_search" => canonical::<SearchArgs>(arguments),
+            "webfetch" | "web_fetch" => canonical::<FetchArgs>(arguments),
             "ask_user" | "ask_user_question" => canonical::<AskUserArgs>(arguments),
             _ => Some(arguments.clone()),
         }

@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use super::helpers::{clear_spinner, needs_approval, redact_value};
 use super::history::DisplayEvent;
@@ -35,10 +36,16 @@ pub enum DisplayKind {
     Tool,
 }
 
+pub struct PendingToolCall {
+    pub name: String,
+    pub arguments: Value,
+    pub started: Option<Instant>,
+}
+
 pub struct TerminalSinkState {
     pub auto_approve: bool,
     pub spinner: Option<RenderActivity>,
-    pub pending: HashMap<String, (String, Value)>,
+    pub pending: HashMap<String, PendingToolCall>,
     pub reasoning: Vec<String>,
     pub completed: Vec<CompletedTool>,
     pub last_display: DisplayKind,
@@ -236,18 +243,39 @@ impl ApprovalEventSink for TerminalApprovalSink {
                 let arguments = redact_value(&self.session_manager, &arguments);
                 let mut state = self.state.lock().unwrap_or_else(|_| unreachable!());
                 clear_spinner(&mut state);
-                if !needs_approval(&state, &class) && tool_name != "ask_user" && tool_name != "ask_user_question" {
+                let runs_immediately =
+                    !needs_approval(&state, &class) && tool_name != "ask_user" && tool_name != "ask_user_question";
+                if runs_immediately {
                     state.spinner = Some(self.renderer.start_tool_spinner(&tool_name, &arguments));
+                    if tool_name == "bash"
+                        && let Some(command) = arguments.get("command").and_then(Value::as_str)
+                    {
+                        self.renderer.start_bash_run(command);
+                    }
                 }
-                state.pending.insert(internal_call_id, (tool_name, arguments));
+                state.pending.insert(
+                    internal_call_id,
+                    PendingToolCall {
+                        name: tool_name,
+                        arguments,
+                        started: runs_immediately.then(Instant::now),
+                    },
+                );
             }
             ToolEvent::ApprovalGranted { internal_call_id, .. } => {
                 if let Ok(mut state) = self.state.lock()
-                    && let Some((tool_name, arguments)) = state.pending.get(&internal_call_id)
-                    && tool_name != "ask_user"
-                    && tool_name != "ask_user_question"
+                    && let Some(call) = state.pending.get_mut(&internal_call_id)
+                    && call.name != "ask_user"
+                    && call.name != "ask_user_question"
                 {
-                    state.spinner = Some(self.renderer.start_tool_spinner(tool_name, arguments));
+                    if call.name == "bash"
+                        && let Some(command) = call.arguments.get("command").and_then(Value::as_str)
+                    {
+                        self.renderer.start_bash_run(command);
+                    }
+                    call.started = Some(Instant::now());
+                    let (name, arguments) = (call.name.clone(), call.arguments.clone());
+                    state.spinner = Some(self.renderer.start_tool_spinner(&name, &arguments));
                 }
             }
             ToolEvent::ApprovalDenied { .. } => {}
@@ -260,8 +288,15 @@ impl ApprovalEventSink for TerminalApprovalSink {
             } => {
                 self.run_tracker.tool_finished(&status);
                 if let Ok(mut state) = self.state.lock() {
+                    let finished = state.pending.remove(&internal_call_id);
+                    let bash_started = finished
+                        .filter(|call| call.name == "bash")
+                        .and_then(|call| call.started);
+                    let duration = bash_started.map(|started| started.elapsed());
+                    if bash_started.is_some() {
+                        self.renderer.finish_bash_run();
+                    }
                     clear_spinner(&mut state);
-                    state.pending.remove(&internal_call_id);
                     state.last_display = DisplayKind::Tool;
                     let arguments = redact_value(&self.session_manager, &arguments);
                     let output = self.session_manager.redact_credentials(&output);
@@ -272,6 +307,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
                         is_error: status != "success",
                         output: &output,
                         output_summary: &output_summary,
+                        duration,
                     });
                     state.completed.push(CompletedTool {
                         internal_call_id,

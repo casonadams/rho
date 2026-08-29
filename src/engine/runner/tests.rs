@@ -191,6 +191,58 @@ fn approval_required_holds_spinner_until_granted() {
     assert!(sink.state.lock().unwrap().spinner.is_some());
 }
 
+#[test]
+fn auto_approved_bash_call_surfaces_the_running_command_and_finishing_duration() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let sink = TerminalApprovalSink::new(
+        &renderer,
+        TerminalSinkConfig {
+            model_label: "model".to_string(),
+            auto_approve: true,
+            run_tracker: crate::engine::metrics::RunTracker::default(),
+        },
+        terminal_session(),
+    );
+    sink.emit(ToolEvent::CallClassified {
+        internal_call_id: "call-1".to_string(),
+        tool_name: "bash".to_string(),
+        arguments: serde_json::json!({ "command": "cargo test --all-targets" }),
+        class: ExecutionClass::ReadOnly,
+    });
+
+    let updates = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::RunningTool(update) => Some(update),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].as_deref(), Some("cargo test --all-targets"));
+
+    sink.emit(ToolEvent::Finished {
+        internal_call_id: "call-1".to_string(),
+        tool_name: "bash".to_string(),
+        arguments: serde_json::json!({ "command": "cargo test --all-targets" }),
+        output: "test result: ok".to_string(),
+        status: "success".to_string(),
+    });
+
+    let mut updates = Vec::new();
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::RunningTool(update) => updates.push(update),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            UiEvent::Activity(_) => {}
+            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+        }
+    }
+    assert_eq!(updates, [None]);
+    assert!(output.contains("cargo test --all-targets"));
+    assert!(output.contains("ms)"));
+}
+
 #[tokio::test]
 async fn interactive_approval_sink_awaits_typed_ui_response() {
     let (ui, mut events) = InteractiveUi::channel();

@@ -36,6 +36,7 @@ pub struct WebSearchConfig {
     pub timeout_sec: u64,
 }
 
+#[derive(Clone)]
 pub struct WebSearchTool {
     pub http: HttpClient,
     pub rate_limiter: SearchRateLimiter,

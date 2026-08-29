@@ -367,10 +367,11 @@ mod tests {
         cell::{Cell, RefCell},
         io,
         rc::Rc,
+        time::{Duration, Instant},
     };
 
     use super::{TerminalBackend, TerminalController, output_cursor};
-    use crate::ui::interactive::{Activity, InteractiveState, OutputEvent, PendingUiBatch, UiEvent};
+    use crate::ui::interactive::{Activity, InteractiveState, OutputEvent, PendingUiBatch, RunningTool, UiEvent};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Operation {
@@ -631,6 +632,49 @@ mod tests {
             operations
                 .borrow()
                 .contains(&Operation::Write("\u{1b}[2m⠙ thinking\u{1b}[0m".into()))
+        );
+    }
+
+    #[test]
+    fn running_bash_block_renders_in_the_live_region() {
+        let (backend, operations, _) = FakeTerminal::new(60);
+        let mut state = InteractiveState::default();
+        state.footer_mut().activity = Activity::Working;
+        state.set_running_tool(Some(RunningTool {
+            command: "cargo build".into(),
+            started: Instant::now() - Duration::from_secs(3),
+        }));
+        let mut controller = TerminalController::new(backend, state).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.tick().unwrap();
+
+        let operations = operations.borrow();
+        assert!(operations.iter().any(|operation| matches!(
+            operation,
+            Operation::Write(text) if text.contains("cargo build") && text.contains("(3s)") && text.contains("bash")
+        )));
+    }
+
+    #[test]
+    fn running_bash_block_hidden_within_the_display_delay_rerenders_without_it() {
+        let (backend, operations, _) = FakeTerminal::new(60);
+        let mut state = InteractiveState::default();
+        state.footer_mut().activity = Activity::Working;
+        state.set_running_tool(Some(RunningTool {
+            command: "echo fast".into(),
+            started: Instant::now(),
+        }));
+        let mut controller = TerminalController::new(backend, state).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.tick().unwrap();
+
+        assert!(
+            !operations
+                .borrow()
+                .iter()
+                .any(|operation| matches!(operation, Operation::Write(text) if text.contains("echo fast")))
         );
     }
 

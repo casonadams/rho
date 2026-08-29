@@ -76,7 +76,7 @@ fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Path) -
         ToolExecutionPolicy::canonical_arguments(tool_name, arguments).unwrap_or_else(|| arguments.clone());
     match tool_name {
         "bash" => normalize_bash(&mut normalized, working_dir),
-        "websearch" => normalize_web_search(&mut normalized),
+        "websearch" | "web_search" => normalize_web_search(&mut normalized),
         _ => {}
     }
     serde_json::to_string(&(tool_name, normalized)).unwrap_or_else(|_| format!("{tool_name}:<invalid>"))

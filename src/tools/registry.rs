@@ -57,7 +57,9 @@ mod tests {
             "edit",
             "bash",
             "websearch",
+            "web_search",
             "webfetch",
+            "web_fetch",
             "ask_user",
             "ask_user_question",
         ] {

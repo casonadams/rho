@@ -1,5 +1,7 @@
 //! Tests for the `ui::render` module.
 
+use std::time::Duration;
+
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
@@ -29,6 +31,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
         is_error: false,
         output: "contents",
         output_summary: "contents",
+        duration: None,
     });
 
     let mut activity_events = Vec::new();
@@ -46,6 +49,32 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     assert!(output.contains("answer"));
     assert!(output.contains("read"));
     assert!(output.contains("src/lib.rs"));
+}
+
+#[test]
+fn finished_bash_block_includes_elapsed_duration() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.finish_tool_line(ToolLine {
+        name: "bash",
+        arguments: &serde_json::json!({"command": "cargo test --all-targets"}),
+        is_error: false,
+        output: "test result: ok",
+        output_summary: "test result: ok",
+        duration: Some(Duration::from_secs(5)),
+    });
+
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            UiEvent::Activity(_) | UiEvent::RunningTool(_) => {}
+            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+        }
+    }
+    assert!(output.contains("cargo test --all-targets"));
+    assert!(output.contains("(5s)"));
 }
 
 #[tokio::test]

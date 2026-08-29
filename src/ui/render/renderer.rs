@@ -235,6 +235,18 @@ impl TerminalRenderer {
         self.start_spinner(&msg)
     }
 
+    pub fn start_bash_run(&self, command: &str) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.set_running_tool(Some(clean_command_paths(command)));
+        }
+    }
+
+    pub fn finish_bash_run(&self) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.set_running_tool(None);
+        }
+    }
+
     pub async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
         if let Some(ui) = &self.ui {
             let response = ui
@@ -462,6 +474,12 @@ impl TerminalRenderer {
         } else {
             format!("{title}{}{title:#} {accent}{summary}{accent:#}", line.name)
         };
+        if line.name == "bash"
+            && let Some(duration) = line.duration
+        {
+            let dim = self.theme.dimmed;
+            content.push_str(&format!(" {dim}({}){dim:#}", super::format_duration(duration)));
+        }
 
         if !line.is_error && line.name == "edit" {
             if let Some(diff) = format_edit_diff(line.arguments, &self.theme) {

@@ -1,6 +1,7 @@
 //! Public data types used across the `ui::render` module.
 
 use crate::tools::bash_ast::RiskTier;
+use std::time::Duration;
 
 pub struct WelcomeDisplay<'a> {
     pub model: &'a str,
@@ -39,6 +40,7 @@ pub struct ToolLine<'a> {
     pub is_error: bool,
     pub output: &'a str,
     pub output_summary: &'a str,
+    pub duration: Option<Duration>,
 }
 
 /// Inputs for rendering a tool-completion summary.

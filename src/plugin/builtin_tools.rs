@@ -102,7 +102,23 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         effects: NETWORK_EFFECTS,
     },
     BuiltinToolDeclaration {
+        name: "web_search",
+        capability: BuiltinToolKind::Network,
+        description: "Search the web and return structured search results with titles, summaries, and URLs.",
+        prompt: PROMPT_WEBSEARCH,
+        schema: generated_schema::<SearchArgs>,
+        effects: NETWORK_EFFECTS,
+    },
+    BuiltinToolDeclaration {
         name: "webfetch",
+        capability: BuiltinToolKind::Network,
+        description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
+        prompt: PROMPT_WEBFETCH,
+        schema: generated_schema::<FetchArgs>,
+        effects: NETWORK_EFFECTS,
+    },
+    BuiltinToolDeclaration {
+        name: "web_fetch",
         capability: BuiltinToolKind::Network,
         description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
         prompt: PROMPT_WEBFETCH,
@@ -187,8 +203,10 @@ impl BuiltinToolCatalog {
                 [&config.config_dir, &config.sessions_dir],
             )),
             BuiltinTool::Bash(BashTool::new(base_dir)),
-            BuiltinTool::WebSearch(search),
-            BuiltinTool::WebFetch(fetch),
+            BuiltinTool::WebSearch(search.clone(), "websearch"),
+            BuiltinTool::WebSearch(search, "web_search"),
+            BuiltinTool::WebFetch(fetch.clone(), "webfetch"),
+            BuiltinTool::WebFetch(fetch, "web_fetch"),
             BuiltinTool::AskUser(AskUserTool::new(), "ask_user"),
             BuiltinTool::AskUser(AskUserTool::new(), "ask_user_question"),
         ];
@@ -217,8 +235,8 @@ enum BuiltinTool {
     Write(WriteTool),
     Edit(EditTool),
     Bash(BashTool),
-    WebSearch(WebSearchTool),
-    WebFetch(WebFetchTool),
+    WebSearch(WebSearchTool, &'static str),
+    WebFetch(WebFetchTool, &'static str),
     AskUser(AskUserTool, &'static str),
 }
 
@@ -229,8 +247,8 @@ impl BuiltinTool {
             Self::Write(_) => "write",
             Self::Edit(_) => "edit",
             Self::Bash(_) => "bash",
-            Self::WebSearch(_) => "websearch",
-            Self::WebFetch(_) => "webfetch",
+            Self::WebSearch(_, name) => name,
+            Self::WebFetch(_, name) => name,
             Self::AskUser(_, name) => name,
         }
     }
@@ -257,8 +275,8 @@ impl ToolCapability for BuiltinTool {
             Self::Write(tool) => tool.execute(parse(request.arguments)?).await,
             Self::Edit(tool) => tool.execute(parse(request.arguments)?).await,
             Self::Bash(tool) => tool.execute(parse(request.arguments)?).await,
-            Self::WebSearch(tool) => tool.execute(parse(request.arguments)?).await,
-            Self::WebFetch(tool) => tool.execute(parse(request.arguments)?).await,
+            Self::WebSearch(tool, _) => tool.execute(parse(request.arguments)?).await,
+            Self::WebFetch(tool, _) => tool.execute(parse(request.arguments)?).await,
             Self::AskUser(tool, _) => {
                 let port = HostQuestionPort(host);
                 tool.execute(&port, parse(request.arguments)?).await

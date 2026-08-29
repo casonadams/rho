@@ -108,11 +108,11 @@ pub(super) fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> 
                 format!("`{clean}`")
             }
         }
-        "websearch" => {
+        "websearch" | "web_search" => {
             let q = args.get("query").and_then(|q| q.as_str()).unwrap_or("");
             format!("\"{q}\"")
         }
-        "webfetch" => {
+        "webfetch" | "web_fetch" => {
             let raw_url = args.get("url").and_then(|u| u.as_str()).unwrap_or("");
             to_relative_path(raw_url)
         }

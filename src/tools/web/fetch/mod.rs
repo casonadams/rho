@@ -28,6 +28,7 @@ pub struct WebFetchConfig {
     pub default_limit: usize,
 }
 
+#[derive(Clone)]
 pub struct WebFetchTool {
     pub http: HttpClient,
     pub cache: FetchCache,
