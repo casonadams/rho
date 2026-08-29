@@ -375,6 +375,10 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.backend.write_text(&rendered.bottom_divider)?;
             self.backend.write_text("\r\n")?;
         }
+        if !rendered.working_line.is_empty() {
+            self.backend.write_text(&rendered.working_line)?;
+            self.backend.write_text("\r\n")?;
+        }
         let footer_style = self.footer_style;
         self.backend
             .write_text(&format!("{footer_style}{}{footer_style:#}", rendered.footer))?;
@@ -785,8 +789,8 @@ mod tests {
     }
 
     #[test]
-    fn tick_advances_the_active_footer_spinner() {
-        let (backend, operations, _) = FakeTerminal::new(20);
+    fn busy_working_line_renders_above_the_editor() {
+        let (backend, operations, _) = FakeTerminal::new(60);
         let mut state = InteractiveState::default();
         state.footer_mut().activity = Activity::Thinking;
         let mut controller = TerminalController::new(backend, state).unwrap();
@@ -794,28 +798,52 @@ mod tests {
 
         controller.tick().unwrap();
 
+        let ops = operations.borrow();
+        assert!(ops.iter().any(|op| matches!(
+            op,
+            Operation::Write(text) if text.contains("Working...")
+        )));
+    }
+
+    #[test]
+    fn busy_working_line_disappears_when_idle() {
+        let (backend, operations, _) = FakeTerminal::new(20);
+        let mut state = InteractiveState::default();
+        state.footer_mut().activity = Activity::Working;
+        let mut controller = TerminalController::new(backend, state).unwrap();
+        controller.state_mut().footer_mut().activity = Activity::Idle;
+        operations.borrow_mut().clear();
+
+        controller.tick().unwrap();
+
+        let ops = operations.borrow();
         assert!(
-            operations
-                .borrow()
-                .contains(&Operation::Write("\u{1b}[2m⠙ thinking\u{1b}[0m".into()))
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("Working...")))
         );
     }
 
     #[test]
-    fn editor_region_renders_dividers_and_footer() {
+    fn footer_carries_no_spinner_or_activity_label_when_busy() {
         let (backend, operations, _) = FakeTerminal::new(60);
         let mut state = InteractiveState::default();
         state.footer_mut().activity = Activity::Working;
+        state.footer_mut().model = "model".into();
         let mut controller = TerminalController::new(backend, state).unwrap();
         operations.borrow_mut().clear();
 
         controller.tick().unwrap();
 
-        let operations = operations.borrow();
-        assert!(operations.iter().any(|operation| matches!(
-            operation,
-            Operation::Write(text) if text.contains("working")
-        )));
+        let ops = operations.borrow();
+        assert!(ops.contains(&Operation::Write("\u{1b}[2mmodel\u{1b}[0m".into())));
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("working")))
+        );
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("thinking")))
+        );
     }
 
     #[test]

@@ -100,13 +100,14 @@ pub struct InteractiveLayout {
     pub top_divider: String,
     pub editor_lines: Vec<String>,
     pub bottom_divider: String,
+    pub working_line: String,
     pub footer: String,
     pub cursor: CursorPosition,
 }
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + 1;
+        let mut h = self.editor_lines.len() + self.working_line.len().min(1) + 1;
         if !self.top_divider.is_empty() {
             h += 1;
         }
@@ -117,7 +118,7 @@ impl InteractiveLayout {
     }
 
     pub fn cursor_row(&self) -> usize {
-        self.cursor.row + usize::from(!self.top_divider.is_empty())
+        self.cursor.row + self.working_line.len().min(1) + usize::from(!self.top_divider.is_empty())
     }
 }
 
@@ -132,23 +133,47 @@ pub struct LayoutInput<'a> {
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
-    let (top_divider, editor_lines, bottom_divider, cursor) = if let Some(modal) = input.modal {
+    let (top_divider, editor_lines, bottom_divider, cursor, working_line) = if let Some(modal) = input.modal {
         let (lines, cursor) = render_modal_overlay(modal, width);
-        (String::new(), lines, String::new(), cursor)
+        (String::new(), lines, String::new(), cursor, String::new())
     } else {
         let (lines, cursor) = wrap_editor(input.editor, width);
-        ("─".repeat(width), lines, "─".repeat(width), cursor)
+        (
+            "─".repeat(width),
+            lines,
+            "─".repeat(width),
+            cursor,
+            working_line_text(&input.footer.activity, input.spinner_frame, width),
+        )
     };
 
     InteractiveLayout {
         top_divider,
         editor_lines,
         bottom_divider,
-        footer: truncate_to_width(
-            &footer_text(input.footer, input.queued_messages, input.spinner_frame),
-            width,
-        ),
+        working_line,
+        footer: truncate_to_width(&footer_text(input.footer, input.queued_messages), width),
         cursor,
+    }
+}
+
+fn working_line_text(activity: &Activity, spinner_frame: usize, width: usize) -> String {
+    if matches!(activity, Activity::Idle) || width < "\u{280b} Working".width().max(1) {
+        return String::new();
+    }
+    let spinner = SPINNER_FRAMES[spinner_frame % SPINNER_FRAMES.len()];
+    let accent = "\x1b[36m";
+    let reset = "\x1b[0m";
+    let dim = "\x1b[2m";
+    let full = format!("{accent}{spinner}{reset} {dim}Working...{reset}");
+    if full.width() <= width {
+        full
+    } else {
+        // Show the spinner with as much of the label as fits instead of truncating mid-glyph.
+        let plain = "\u{280b} Working";
+        let shown = truncate_to_width(plain, width.saturating_sub(1));
+        let dots = width.saturating_sub(shown.width() + 1).min(3);
+        format!("{accent}{spinner}{reset} {dim}{}{}{reset}", shown, ".".repeat(dots))
     }
 }
 
@@ -316,15 +341,8 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
     (lines, cursor)
 }
 
-fn footer_text(footer: &FooterState, queued_messages: usize, spinner_frame: usize) -> String {
-    let activity = match &footer.activity {
-        Activity::Idle => footer.activity.label().to_string(),
-        Activity::Thinking | Activity::Working => {
-            let spinner = SPINNER_FRAMES[spinner_frame % SPINNER_FRAMES.len()];
-            format!("{spinner} {}", footer.activity.label())
-        }
-    };
-    let mut segments = vec![activity];
+fn footer_text(footer: &FooterState, queued_messages: usize) -> String {
+    let mut segments = Vec::new();
     if !footer.model.is_empty() {
         segments.push(footer.model.clone());
     }
@@ -336,6 +354,9 @@ fn footer_text(footer: &FooterState, queued_messages: usize, spinner_frame: usiz
     }
     if queued_messages > 0 {
         segments.push(format!("{queued_messages} queued"));
+    }
+    if segments.is_empty() {
+        segments.push(footer.activity.label().to_string());
     }
     segments.join(" | ")
 }
@@ -522,11 +543,11 @@ mod tests {
             spinner_frame: 0,
         });
 
-        assert_eq!(layout.footer, "⠋ thinking | model | 42% context | 80% quota | 2 queued");
+        assert_eq!(layout.footer, "model | 42% context | 80% quota | 2 queued");
     }
 
     #[test]
-    fn tool_activity_shows_the_generic_working_label() {
+    fn busy_activity_renders_working_line_above_the_editor() {
         let default_editor = EditorState::default();
         let footer = FooterState {
             activity: Activity::Working,
@@ -540,10 +561,83 @@ mod tests {
             footer: &footer,
             queued_messages: 0,
             terminal_width: 80,
-            spinner_frame: 1,
+            spinner_frame: 0,
         });
 
-        assert_eq!(layout.footer, "⠙ working | model");
+        assert!(layout.working_line.contains('\u{280b}'));
+        assert!(layout.working_line.contains("Working..."));
+        assert!(layout.working_line.contains("\u{1b}[2m"));
+        assert_eq!(layout.footer, "model");
+        assert_eq!(layout.height(), 5);
+    }
+
+    #[test]
+    fn thinking_activity_also_renders_the_working_line() {
+        let default_editor = EditorState::default();
+        let footer = FooterState {
+            activity: Activity::Thinking,
+            model: "model".into(),
+            context: None,
+            quota: None,
+        };
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: None,
+            footer: &footer,
+            queued_messages: 0,
+            terminal_width: 80,
+            spinner_frame: 0,
+        });
+
+        assert!(layout.working_line.contains("Working..."));
+    }
+
+    #[test]
+    fn idle_activity_renders_no_working_line() {
+        let default_editor = EditorState::default();
+        let footer = FooterState {
+            activity: Activity::Idle,
+            model: "model".into(),
+            context: None,
+            quota: None,
+        };
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: None,
+            footer: &footer,
+            queued_messages: 0,
+            terminal_width: 80,
+            spinner_frame: 0,
+        });
+
+        assert_eq!(layout.working_line, "");
+        assert_eq!(layout.height(), 4);
+    }
+
+    #[test]
+    fn busy_activity_under_modal_hides_working_line() {
+        let default_editor = EditorState::default();
+        let footer = FooterState {
+            activity: Activity::Working,
+            model: "model".into(),
+            context: None,
+            quota: None,
+        };
+        let modal = crate::ui::interactive::ModalState::new(
+            "Permission Required",
+            "tool   bash\nscope  cargo test",
+            vec![crate::ui::interactive::ModalOption::from("Allow")],
+        );
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: Some(&modal),
+            footer: &footer,
+            queued_messages: 0,
+            terminal_width: 80,
+            spinner_frame: 0,
+        });
+
+        assert_eq!(layout.working_line, "");
     }
 
     #[test]

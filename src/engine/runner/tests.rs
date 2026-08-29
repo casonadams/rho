@@ -757,8 +757,11 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
 
 #[tokio::test]
 async fn failed_checkpoint_continuation_remains_available_until_success() {
+    // The probe path must be unique-enough that environment noise (for example
+    // the git-status text embedded in the system prompt) cannot also match it.
+    let probe_path = "checkpoint-probe-missing-3f9b";
     let first_model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path":"missing"})),
+        MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": probe_path})),
         final_event(Usage::new()),
     ]]);
     let first = test_engine(
@@ -799,7 +802,7 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
     for request in resumed_model.requests() {
         let history = serde_json::to_string(&request.chat_history).unwrap();
         assert_eq!(history.matches("inspect").count(), 1);
-        assert_eq!(history.matches("missing").count(), 2);
+        assert_eq!(history.matches(probe_path).count(), 2);
     }
     assert!(resumed.session_manager.load_checkpoint().await.unwrap().is_none());
 
