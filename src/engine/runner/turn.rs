@@ -5,7 +5,7 @@ use crate::engine::runtime::build_runner;
 use crate::error::{AppError, Result};
 use crate::session::SessionEventKind;
 use crate::session::context::context_memory;
-use crate::tools::{ApprovalCapability, ApprovalHook, RepeatedCallHook, approval_context};
+use crate::tools::{ApprovalCapability, RepeatedCallHook, approval_context};
 use crate::ui::TerminalRenderer;
 use futures::StreamExt;
 use rig::agent::MultiTurnStreamItem;
@@ -112,13 +112,14 @@ impl AgentEngine {
             let crate::engine::AgentBackend::Rig(agent) = &self.backend else {
                 return Err(AppError::Provider("internal provider runtime mismatch".to_string()));
             };
+            // Dispatch (ActiveToolSet) owns approval sequencing and tool
+            // lifecycle events; the legacy ApprovalHook would duplicate them.
             let runner = build_runner(agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
                 .tool_context(tool_context)
                 .add_hook(RepeatedCallHook::new(std::env::current_dir()?).with_sink(sink.clone()))
-                .add_hook(ApprovalHook::new(capability.clone()))
                 .add_hook(crate::plugin::ExtensionHook::new(
                     self.extension_registry.clone(),
                     ext_context.clone(),
@@ -261,6 +262,7 @@ impl AgentEngine {
             tool_calls_count,
             completed_tools,
         } = artifacts;
+
         for tool in &completed_tools {
             self.session_manager
                 .append_event(

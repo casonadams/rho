@@ -1,23 +1,29 @@
 use crate::config::Config;
 use crate::error::Result;
-use crate::plugin::builtin_tools::BuiltinToolCatalog;
+use crate::plugin::builtin_tools::{BuiltinToolCatalog, DECLARATIONS};
 use crate::plugin::capability::{CapabilityError, CapabilityId, CapabilityKind, PluginId, PluginOrigin};
 use crate::plugin::contract::{
-    InteractionRequest, InteractionResponse, NetworkAccess, OperationEffect, PathScope, ToolCapability, ToolDescriptor,
-    ToolHost, ToolInvocationRequest,
+    InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
+    PermissionDecision, RequestedOperation, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
 };
 use crate::plugin::external::ExternalPlugin;
 use crate::plugin::loader::{ConfiguredStatus, PluginLoader};
+use crate::plugin::permission::{PermissionRequest, PolicyEvaluator, PolicyFailureMode, PolicyLimits};
 use crate::plugin::process::ProcessLimits;
 use crate::plugin::resolver::{CapabilityPlugin, CapabilityResolver};
-use crate::tools::approval::enforce_approval;
+use crate::plugin::safety_floor::{FloorDenial, FloorRequest, SafetyFloor};
+use crate::tools::RiskTier;
+use crate::tools::approval::{
+    ApprovalCapability, ApprovalDecision, ApprovalRequest, DispatchedCall, DispatchedResult, ToolEvent,
+    emit_tool_finished, format_denial,
+};
 use crate::tools::ask_user::{QuestionPort, UserAnswer, UserQuestion, UserQuestionOption};
+use crate::tools::policy::ToolExecutionPolicy;
 use crate::tools::web::HttpClient;
-use crate::tools::workspace::Workspace;
 use async_trait::async_trait;
 use rig::tool::{DynamicTool, ToolContext, ToolExecutionError, ToolOutput};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -27,22 +33,17 @@ struct ActiveTool {
     capability: Arc<dyn ToolCapability>,
 }
 
-#[derive(Clone)]
-struct HostFloor {
-    base_dir: PathBuf,
-    excluded: Vec<PathBuf>,
-    http: HttpClient,
-}
-
 struct DispatchContext<'a> {
-    floor: &'a HostFloor,
+    floor: &'a SafetyFloor,
+    policies: &'a PolicyEvaluator,
     tool: &'a mut ToolContext,
 }
 
 #[derive(Clone)]
 pub struct ActiveToolSet {
     tools: BTreeMap<String, ActiveTool>,
-    floor: Arc<HostFloor>,
+    floor: Arc<SafetyFloor>,
+    policies: Arc<PolicyEvaluator>,
 }
 
 impl ActiveToolSet {
@@ -65,7 +66,12 @@ impl ActiveToolSet {
             .collect();
         Ok(Self {
             tools,
-            floor: floor(config, base_dir)?,
+            floor: Arc::new(floor(config, base_dir)?),
+            policies: Arc::new(PolicyEvaluator::spawn(
+                Vec::new(),
+                PolicyFailureMode::Deny,
+                PolicyLimits::default(),
+            )),
         })
     }
 
@@ -100,7 +106,19 @@ impl ActiveToolSet {
         let resolution =
             CapabilityResolver::resolve(vec![crate::plugin::builtin::capability_plugin()], external_manifests);
         let mut tools = BTreeMap::new();
+        let mut policies: Vec<Arc<dyn PermissionCapability>> = Vec::new();
         for (target_id, active) in resolution.active {
+            if target_id.kind() == CapabilityKind::Permission {
+                if active.plugin_id.as_str() == "rho.builtin" {
+                    continue;
+                }
+                if let Some(plugin) = external_plugins.get(&active.plugin_id)
+                    && let Ok(policy) = plugin.permission(&active.id)
+                {
+                    policies.push(Arc::new(policy) as Arc<dyn PermissionCapability>);
+                }
+                continue;
+            }
             if target_id.kind() != CapabilityKind::Tool {
                 continue;
             }
@@ -129,7 +147,12 @@ impl ActiveToolSet {
         }
         Ok(Self {
             tools,
-            floor: floor(config, base_dir)?,
+            floor: Arc::new(floor(config, base_dir)?),
+            policies: Arc::new(PolicyEvaluator::spawn(
+                policies,
+                PolicyFailureMode::Deny,
+                PolicyLimits::default(),
+            )),
         })
     }
 
@@ -162,13 +185,16 @@ impl ActiveToolSet {
                 let description = tool.descriptor.description.clone();
                 let schema = tool.descriptor.argument_schema.clone();
                 let floor = Arc::clone(&self.floor);
+                let policies = Arc::clone(&self.policies);
                 DynamicTool::new(name, description, schema, move |context, arguments| {
                     let floor = Arc::clone(&floor);
+                    let policies = Arc::clone(&policies);
                     let tool = tool.clone();
                     Box::pin(async move {
                         tool.dispatch(
                             DispatchContext {
                                 floor: &floor,
+                                policies: &policies,
                                 tool: context,
                             },
                             arguments,
@@ -181,46 +207,157 @@ impl ActiveToolSet {
     }
 }
 
-fn floor(config: &Config, base_dir: &Path) -> Result<Arc<HostFloor>> {
-    Ok(Arc::new(HostFloor {
-        base_dir: base_dir.to_path_buf(),
-        excluded: vec![config.config_dir.clone(), config.sessions_dir.clone()],
-        http: HttpClient::new(config.allow_private_network)?,
-    }))
+fn floor(config: &Config, base_dir: &Path) -> Result<SafetyFloor> {
+    let workspace = crate::tools::workspace::Workspace::with_exclusions(
+        base_dir,
+        [config.config_dir.clone(), config.sessions_dir.clone()],
+    );
+    Ok(SafetyFloor::new(
+        workspace,
+        HttpClient::new(config.allow_private_network)?,
+    ))
+}
+
+/// A pending approval prompt paired with its dispatched call so events,
+/// grants, and denials stay on the same call identity.
+struct ApprovalPrompt<'a> {
+    call: &'a DispatchedCall<'a>,
+    request: ApprovalRequest,
 }
 
 impl ActiveTool {
+    /// Host dispatch boundary: the host floor runs before any permission
+    /// evaluation or invocation, for built-in and external tools alike.
     async fn dispatch(
         &self,
-        runtime: DispatchContext<'_>,
+        mut runtime: DispatchContext<'_>,
         arguments: serde_json::Value,
     ) -> std::result::Result<ToolOutput, ToolExecutionError> {
-        crate::plugin::schema::CompiledSchema::compile(&self.descriptor.argument_schema)
-            .and_then(|schema| schema.validate(&arguments))
-            .map_err(|_| {
-                ToolExecutionError::invalid_args(
-                    "failed to parse tool arguments: arguments do not match the declared schema",
-                )
-            })?;
-        self.validate_host_floor(runtime.floor, &arguments)?;
-        enforce_approval(runtime.tool, self.target_id.name(), &arguments)?;
-        let invocation_context = runtime
-            .tool
-            .get::<crate::plugin::contract::InvocationContext>()
-            .cloned()
-            .unwrap_or_else(|| crate::plugin::contract::InvocationContext {
-                session_id: String::new(),
-                working_directory: runtime.floor.base_dir.display().to_string(),
-                has_interactive_ui: runtime.tool.get::<QuestionPort>().is_some(),
-            });
+        let internal_call_id = uuid::Uuid::new_v4().to_string();
+        let call = DispatchedCall {
+            internal_call_id: &internal_call_id,
+            tool_name: self.target_id.name(),
+            arguments: &arguments,
+        };
+        emit_call_classified(runtime.tool, &call);
+        self.run_authorized(&mut runtime, &call).await
+    }
+
+    /// Host floor, then composed permission evaluation, then invocation. The
+    /// terminal finish event always runs, even when an earlier stage refuses.
+    async fn run_authorized(
+        &self,
+        runtime: &mut DispatchContext<'_>,
+        call: &DispatchedCall<'_>,
+    ) -> std::result::Result<ToolOutput, ToolExecutionError> {
+        let outcome = self.authorize_and_invoke(runtime, call).await;
+        emit_call_finished(runtime.tool, call, &outcome);
+        outcome
+    }
+
+    async fn authorize_and_invoke(
+        &self,
+        runtime: &mut DispatchContext<'_>,
+        call: &DispatchedCall<'_>,
+    ) -> std::result::Result<ToolOutput, ToolExecutionError> {
+        self.enforce_floor(runtime, call)?;
+        let operation = self.permission_operation(runtime, call);
+        match self.resolve_permission(runtime, &operation).await {
+            Ok(PermissionDecision::Allow) => self.invoke(runtime, call).await,
+            Ok(PermissionDecision::Deny { rationale }) => {
+                emit_denied(runtime.tool, call);
+                Err(ToolExecutionError::refused(rationale))
+            }
+            Ok(PermissionDecision::ApprovalRequired { rationale }) => {
+                let prompt = ApprovalPrompt {
+                    call,
+                    request: approval_request(call, rationale),
+                };
+                self.approve(runtime, prompt).await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Record an approval decision against the capability, then invoke on
+    /// grant or refuse on denial.
+    async fn approve(
+        &self,
+        runtime: &mut DispatchContext<'_>,
+        prompt: ApprovalPrompt<'_>,
+    ) -> std::result::Result<ToolOutput, ToolExecutionError> {
+        let ApprovalPrompt { call, request } = prompt;
+        let Some(capability) = runtime.tool.get::<ApprovalCapability>().cloned() else {
+            return Err(ToolExecutionError::refused(MISSING_APPROVAL_MESSAGE));
+        };
+        match capability.request_approval_sink(request.clone()).await {
+            ApprovalDecision::Denied { reason } => {
+                capability.deny_once(request, reason.clone());
+                emit_denied(runtime.tool, call);
+                Err(ToolExecutionError::refused(format_denial(reason)))
+            }
+            ApprovalDecision::Approved => {
+                capability.grant_once(call.tool_name, call.arguments);
+                emit_granted(runtime.tool, call);
+                self.invoke(runtime, call).await
+            }
+            ApprovalDecision::ApprovedForSession => {
+                capability.grant_for_session(call.tool_name, call.arguments);
+                emit_granted(runtime.tool, call);
+                self.invoke(runtime, call).await
+            }
+        }
+    }
+
+    fn enforce_floor(
+        &self,
+        runtime: &DispatchContext<'_>,
+        call: &DispatchedCall<'_>,
+    ) -> std::result::Result<(), ToolExecutionError> {
+        let effects = self.effective_effects();
+        runtime
+            .floor
+            .enforce(FloorRequest {
+                schema: &self.descriptor.argument_schema,
+                effects: &effects,
+                arguments: call.arguments,
+            })
+            .map_err(floor_error)
+    }
+
+    async fn resolve_permission(
+        &self,
+        runtime: &DispatchContext<'_>,
+        operation: &RequestedOperation,
+    ) -> std::result::Result<PermissionDecision, ToolExecutionError> {
+        let class = ToolExecutionPolicy::classify(operation.tool_id.name(), &operation.arguments);
+        let default_decision = match runtime.tool.get::<ApprovalCapability>() {
+            Some(capability) => capability.decision(operation, &class),
+            None => classification_decision(class),
+        };
+        runtime
+            .policies
+            .evaluate(PermissionRequest {
+                operation: operation.clone(),
+                default_decision,
+            })
+            .await
+            .map_err(|error| ToolExecutionError::refused(error.to_string()))
+    }
+
+    async fn invoke(
+        &self,
+        runtime: &DispatchContext<'_>,
+        call: &DispatchedCall<'_>,
+    ) -> std::result::Result<ToolOutput, ToolExecutionError> {
         let host = RigToolHost(runtime.tool);
         let response = self
             .capability
             .invoke(
                 &host,
                 ToolInvocationRequest {
-                    arguments,
-                    context: invocation_context,
+                    arguments: call.arguments.clone(),
+                    context: invocation_context(runtime),
                 },
             )
             .await
@@ -232,84 +369,141 @@ impl ActiveTool {
         }
     }
 
-    fn validate_host_floor(
-        &self,
-        floor: &HostFloor,
-        arguments: &serde_json::Value,
-    ) -> std::result::Result<(), ToolExecutionError> {
-        let workspace = Workspace::with_exclusions(&floor.base_dir, &floor.excluded);
-        let mut effects = self
-            .descriptor
-            .effects
-            .iter()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>();
-        if let Some(declaration) = crate::plugin::builtin_tools::DECLARATIONS
+    /// Declared effects for the operation: the active descriptor's effects
+    /// unioned with the built-in declaration for a replaced tool, so a
+    /// replacement cannot weaken the floor.
+    fn permission_operation(&self, runtime: &DispatchContext<'_>, call: &DispatchedCall<'_>) -> RequestedOperation {
+        let effects = self.effective_effects();
+        RequestedOperation {
+            tool_id: self.target_id.clone(),
+            arguments: call.arguments.clone(),
+            effects,
+            context: invocation_context(runtime),
+        }
+    }
+
+    fn effective_effects(&self) -> Vec<OperationEffect> {
+        let mut effects: std::collections::BTreeSet<_> = self.descriptor.effects.iter().cloned().collect();
+        if let Some(declaration) = DECLARATIONS
             .iter()
             .find(|declaration| declaration.name == self.target_id.name())
         {
             effects.extend(declaration.descriptor().effects);
         }
-        for effect in &effects {
-            match effect {
-                OperationEffect::ReadPath { scope } => {
-                    let path = required_string(arguments, "path")?;
-                    if workspace.is_excluded(path) {
-                        return Err(ToolExecutionError::permission_denied(
-                            "reading protected rho configuration or session storage is not permitted",
-                        ));
-                    }
-                    if *scope == PathScope::Workspace && !workspace.is_within(path) {
-                        return Err(ToolExecutionError::permission_denied(
-                            "read target is outside the permitted workspace",
-                        ));
-                    }
-                }
-                OperationEffect::WritePath { .. } => {
-                    let path = required_string(arguments, "path")?;
-                    if !workspace.can_mutate(path) {
-                        return Err(ToolExecutionError::permission_denied(
-                            "write target is outside the permitted workspace or is protected",
-                        ));
-                    }
-                }
-                OperationEffect::Network {
-                    access: NetworkAccess::ExplicitHosts,
-                } => {
-                    return Err(ToolExecutionError::permission_denied(
-                        "explicit-host network access requires a host allowlist",
-                    ));
-                }
-                OperationEffect::Network {
-                    access: NetworkAccess::PublicInternet,
-                } => {
-                    if let Some(url) = arguments.get("url").and_then(serde_json::Value::as_str) {
-                        floor
-                            .http
-                            .validate_url(url)
-                            .map_err(|_| ToolExecutionError::permission_denied("network target is not permitted"))?;
-                    }
-                }
-                OperationEffect::Network {
-                    access: NetworkAccess::None,
-                }
-                | OperationEffect::ExecuteProcess
-                | OperationEffect::UserInteraction => {}
-            }
-        }
-        Ok(())
+        effects.into_iter().collect()
     }
 }
 
-fn required_string<'a>(
-    arguments: &'a serde_json::Value,
-    field: &str,
-) -> std::result::Result<&'a str, ToolExecutionError> {
-    arguments
-        .get(field)
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| ToolExecutionError::invalid_args(format!("{field} must be a non-empty string")))
+fn emit_call_classified(tool: &ToolContext, call: &DispatchedCall<'_>) {
+    let Some(capability) = tool.get::<ApprovalCapability>() else {
+        return;
+    };
+    capability.emit_sink(ToolEvent::CallClassified {
+        internal_call_id: call.internal_call_id.to_string(),
+        tool_name: call.tool_name.to_string(),
+        arguments: call.arguments.clone(),
+        class: ToolExecutionPolicy::classify(call.tool_name, call.arguments),
+    });
+}
+
+fn emit_call_finished(
+    tool: &ToolContext,
+    call: &DispatchedCall<'_>,
+    outcome: &std::result::Result<ToolOutput, ToolExecutionError>,
+) {
+    let Some(capability) = tool.get::<ApprovalCapability>() else {
+        return;
+    };
+    let result = match outcome {
+        Ok(output) => DispatchedResult {
+            output: output.as_text().unwrap_or_default().to_string(),
+            status: "success",
+        },
+        Err(error) => DispatchedResult {
+            output: error.model_output().as_text().unwrap_or_default().to_string(),
+            status: if error.is_refusal() { "denied" } else { "error" },
+        },
+    };
+    emit_tool_finished(capability, *call, result);
+}
+
+fn emit_denied(tool: &ToolContext, call: &DispatchedCall<'_>) {
+    emit_event(
+        tool,
+        ToolEvent::ApprovalDenied {
+            internal_call_id: call.internal_call_id.to_string(),
+            tool_name: call.tool_name.to_string(),
+        },
+    );
+}
+
+fn emit_granted(tool: &ToolContext, call: &DispatchedCall<'_>) {
+    emit_event(
+        tool,
+        ToolEvent::ApprovalGranted {
+            internal_call_id: call.internal_call_id.to_string(),
+            tool_name: call.tool_name.to_string(),
+        },
+    );
+}
+
+/// Build the approval-prompt request from the host classification, upgrading
+/// policy-required permissions on otherwise classified operations.
+fn approval_request(call: &DispatchedCall<'_>, rationale: String) -> ApprovalRequest {
+    let (tier, reasons) = match ToolExecutionPolicy::classify(call.tool_name, call.arguments) {
+        crate::tools::policy::ExecutionClass::ApprovalRequired { tier, reasons } => (tier, reasons),
+        crate::tools::policy::ExecutionClass::ReadOnly | crate::tools::policy::ExecutionClass::WorkspaceMutation => {
+            (RiskTier::Mutating, vec![rationale])
+        }
+    };
+    ApprovalRequest {
+        tool_name: call.tool_name.to_string(),
+        arguments: call.arguments.clone(),
+        tier,
+        reasons,
+    }
+}
+
+fn emit_event(tool: &ToolContext, event: ToolEvent) {
+    if let Some(capability) = tool.get::<ApprovalCapability>() {
+        capability.emit_sink(event);
+    }
+}
+
+const MISSING_APPROVAL_MESSAGE: &str = "Approval context is missing; no operation was executed";
+
+/// Decision contributed by the host classification when no approval
+/// capability is present in the tool context.
+fn classification_decision(class: crate::tools::policy::ExecutionClass) -> PermissionDecision {
+    match class {
+        crate::tools::policy::ExecutionClass::ReadOnly | crate::tools::policy::ExecutionClass::WorkspaceMutation => {
+            PermissionDecision::Allow
+        }
+        crate::tools::policy::ExecutionClass::ApprovalRequired { reasons, .. } => {
+            PermissionDecision::ApprovalRequired {
+                rationale: reasons.join("; "),
+            }
+        }
+    }
+}
+
+fn invocation_context(runtime: &DispatchContext<'_>) -> InvocationContext {
+    runtime
+        .tool
+        .get::<InvocationContext>()
+        .cloned()
+        .unwrap_or(InvocationContext {
+            session_id: String::new(),
+            working_directory: String::new(),
+            has_interactive_ui: runtime.tool.get::<QuestionPort>().is_some(),
+        })
+}
+
+fn floor_error(denial: FloorDenial) -> ToolExecutionError {
+    match denial {
+        FloorDenial::InvalidArguments(message) => ToolExecutionError::invalid_args(message),
+        FloorDenial::Operation(message) => ToolExecutionError::permission_denied(message),
+    }
 }
 
 pub struct NeutralActiveToolExecutor {
@@ -336,70 +530,27 @@ impl crate::engine::provider::host_loop::NeutralToolExecutor for NeutralActiveTo
                 crate::engine::provider::host_loop::NeutralTurnError::UnknownTool(tool_id.to_string())
             })?;
         let mut context = self.context.lock().await;
-        let internal_call_id = uuid::Uuid::new_v4().to_string();
-        let capability = context.get::<crate::tools::ApprovalCapability>().cloned();
-        if let Some(capability) = &capability {
-            crate::tools::authorize_dispatch(
-                capability,
-                crate::tools::DispatchedCall {
-                    internal_call_id: &internal_call_id,
-                    tool_name: tool_id.name(),
-                    arguments: &arguments,
-                },
-            )
-            .await;
-        }
+        // Dispatch owns the full lifecycle: classification events, host floor,
+        // composed permission evaluation, approval prompting, and invocation.
         let result = tool
             .dispatch(
                 DispatchContext {
                     floor: &self.tools.floor,
+                    policies: &self.tools.policies,
                     tool: &mut context,
                 },
-                arguments.clone(),
+                arguments,
             )
             .await;
         match result {
-            Ok(output) => {
-                if let Some(capability) = &capability {
-                    crate::tools::approval::emit_tool_finished(
-                        capability,
-                        crate::tools::DispatchedCall {
-                            internal_call_id: &internal_call_id,
-                            tool_name: tool_id.name(),
-                            arguments: &arguments,
-                        },
-                        crate::tools::DispatchedResult {
-                            output: output.as_text().unwrap_or_default().to_string(),
-                            status: "success",
-                        },
-                    );
-                }
-                Ok(crate::engine::provider::host_loop::NeutralToolResult {
-                    content: output.as_text().unwrap_or_default().to_string(),
-                    is_error: false,
-                })
-            }
-            Err(error) => {
-                if let Some(capability) = &capability {
-                    let status = if error.is_refusal() { "denied" } else { "error" };
-                    crate::tools::approval::emit_tool_finished(
-                        capability,
-                        crate::tools::DispatchedCall {
-                            internal_call_id: &internal_call_id,
-                            tool_name: tool_id.name(),
-                            arguments: &arguments,
-                        },
-                        crate::tools::DispatchedResult {
-                            output: error.model_output().as_text().unwrap_or_default().to_string(),
-                            status,
-                        },
-                    );
-                }
-                Err(crate::engine::provider::host_loop::NeutralTurnError::Tool(format!(
-                    "{call_id}: {}",
-                    error.message()
-                )))
-            }
+            Ok(output) => Ok(crate::engine::provider::host_loop::NeutralToolResult {
+                content: output.as_text().unwrap_or_default().to_string(),
+                is_error: false,
+            }),
+            Err(error) => Err(crate::engine::provider::host_loop::NeutralTurnError::Tool(format!(
+                "{call_id}: {}",
+                error.message()
+            ))),
         }
     }
 }
@@ -454,7 +605,7 @@ impl ToolHost for RigToolHost<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::contract::{ToolDescriptor, ToolInvocationResponse};
+    use crate::plugin::contract::{NetworkAccess, PathScope, ToolDescriptor, ToolInvocationResponse};
     use crate::tools::approval::{
         ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent, approval_context,
     };
@@ -481,6 +632,113 @@ mod tests {
         }
     }
 
+    struct DenyPolicy(Arc<std::sync::atomic::AtomicBool>);
+
+    #[async_trait]
+    impl PermissionCapability for DenyPolicy {
+        fn id(&self) -> CapabilityId {
+            "permission:deny-fixture".parse().unwrap()
+        }
+
+        async fn evaluate(
+            &self,
+            _request: RequestedOperation,
+        ) -> std::result::Result<PermissionDecision, CapabilityError> {
+            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            Ok(PermissionDecision::Deny {
+                rationale: "denied by fixture policy".to_string(),
+            })
+        }
+    }
+
+    struct AllowPolicy(Arc<std::sync::atomic::AtomicBool>);
+
+    #[async_trait]
+    impl PermissionCapability for AllowPolicy {
+        fn id(&self) -> CapabilityId {
+            "permission:allow-fixture".parse().unwrap()
+        }
+
+        async fn evaluate(
+            &self,
+            _request: RequestedOperation,
+        ) -> std::result::Result<PermissionDecision, CapabilityError> {
+            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            Ok(PermissionDecision::Allow)
+        }
+    }
+
+    struct RecordingSink {
+        requests: std::sync::Mutex<usize>,
+        events: std::sync::Mutex<Vec<ToolEvent>>,
+        decision: std::sync::Mutex<ApprovalDecision>,
+    }
+
+    fn recording_sink(decision: ApprovalDecision) -> Arc<RecordingSink> {
+        Arc::new(RecordingSink {
+            requests: std::sync::Mutex::new(0),
+            events: std::sync::Mutex::new(Vec::new()),
+            decision: std::sync::Mutex::new(decision),
+        })
+    }
+
+    #[async_trait]
+    impl ApprovalEventSink for RecordingSink {
+        async fn request_approval(&self, _request: ApprovalRequest) -> ApprovalDecision {
+            *self.requests.lock().unwrap() += 1;
+            self.decision.lock().unwrap().clone()
+        }
+
+        fn emit(&self, event: ToolEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
+
+    fn event_names(sink: &RecordingSink) -> Vec<&'static str> {
+        sink.events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|event| match event {
+                ToolEvent::CallClassified { .. } => "classified",
+                ToolEvent::ApprovalGranted { .. } => "granted",
+                ToolEvent::ApprovalDenied { .. } => "denied",
+                ToolEvent::Finished { status, .. } => match status.as_str() {
+                    "success" => "finished-success",
+                    "denied" => "finished-denied",
+                    _ => "finished-error",
+                },
+            })
+            .collect()
+    }
+
+    fn fixture_descriptor(id: &str, effects: Vec<OperationEffect>) -> ToolDescriptor {
+        ToolDescriptor {
+            id: format!("tool:{id}").parse().unwrap(),
+            description: "fixture".to_string(),
+            argument_schema: serde_json::json!({
+                "type": "object",
+                "required": ["path"],
+                "properties": {"path": {"type": "string"}}
+            }),
+            prompt_guidance: String::new(),
+            effects,
+        }
+    }
+
+    fn fixture_tool(
+        id: &str,
+        effects: Vec<OperationEffect>,
+        executed: &Arc<std::sync::atomic::AtomicBool>,
+    ) -> ActiveTool {
+        let descriptor = fixture_descriptor(id, effects);
+        ActiveTool {
+            target_id: descriptor.id.clone(),
+            descriptor: descriptor.clone(),
+            capability: Arc::new(FixtureTool(descriptor, Arc::clone(executed))),
+        }
+    }
+
     struct FixtureTool(ToolDescriptor, Arc<std::sync::atomic::AtomicBool>);
 
     #[async_trait]
@@ -503,12 +761,39 @@ mod tests {
         }
     }
 
-    fn tool_set(config: &Config, base_dir: &Path, tool: ActiveTool) -> ToolSet {
+    /// A tool fixture plus configured restrictive policies for one test set.
+    struct DispatchFixture {
+        tool: ActiveTool,
+        policies: Vec<Arc<dyn PermissionCapability>>,
+    }
+
+    impl DispatchFixture {
+        fn tool(tool: ActiveTool) -> Self {
+            Self {
+                tool,
+                policies: Vec::new(),
+            }
+        }
+
+        fn with_policy(mut self, policy: Arc<dyn PermissionCapability>) -> Self {
+            self.policies.push(policy);
+            self
+        }
+    }
+
+    fn tool_set(config: &Config, base_dir: &Path, fixture: DispatchFixture) -> (ToolSet, Arc<PolicyEvaluator>) {
+        let DispatchFixture { tool, policies } = fixture;
+        let policies = Arc::new(PolicyEvaluator::spawn(
+            policies,
+            PolicyFailureMode::Deny,
+            PolicyLimits::default(),
+        ));
         let active = ActiveToolSet {
             tools: BTreeMap::from([(tool.target_id.name().to_string(), tool)]),
-            floor: floor(config, base_dir).unwrap(),
+            floor: Arc::new(floor(config, base_dir).unwrap()),
+            policies: Arc::clone(&policies),
         };
-        ToolSet::from_dynamic_tools(active.into_rig_tools())
+        (ToolSet::from_dynamic_tools(active.into_rig_tools()), policies)
     }
 
     #[tokio::test]
@@ -537,14 +822,14 @@ mod tests {
             prompt_guidance: String::new(),
             effects: Vec::new(),
         };
-        let tools = tool_set(
+        let (tools, _policies) = tool_set(
             &Config::default(),
             &root,
-            ActiveTool {
+            DispatchFixture::tool(ActiveTool {
                 target_id: "tool:external".parse().unwrap(),
                 descriptor: descriptor.clone(),
                 capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
-            },
+            }),
         );
         let capability = ApprovalCapability::new(false, Arc::new(ApprovalSink));
         capability.grant_once("external", &serde_json::json!({"value": 1}));
@@ -573,14 +858,14 @@ mod tests {
                 scope: PathScope::Workspace,
             }],
         };
-        let tools = tool_set(
+        let (tools, _policies) = tool_set(
             &Config::default(),
             &root,
-            ActiveTool {
+            DispatchFixture::tool(ActiveTool {
                 target_id: "tool:external-write".parse().unwrap(),
                 descriptor: descriptor.clone(),
                 capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
-            },
+            }),
         );
         let mut context = ToolContext::new();
 
@@ -616,14 +901,14 @@ mod tests {
                 scope: PathScope::Workspace,
             }],
         };
-        let tools = tool_set(
+        let (tools, _policies) = tool_set(
             &Config::default(),
             &root,
-            ActiveTool {
+            DispatchFixture::tool(ActiveTool {
                 target_id: "tool:external-write".parse().unwrap(),
                 descriptor: descriptor.clone(),
                 capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
-            },
+            }),
         );
         let result = tools
             .execute(
@@ -662,14 +947,14 @@ mod tests {
                 scope: PathScope::Explicit,
             }],
         };
-        let tools = tool_set(
+        let (tools, _policies) = tool_set(
             &config,
             &root,
-            ActiveTool {
+            DispatchFixture::tool(ActiveTool {
                 target_id: "tool:external-read".parse().unwrap(),
                 descriptor: descriptor.clone(),
                 capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
-            },
+            }),
         );
         let arguments = serde_json::json!({"path": protected.join("credentials.json")}).to_string();
         let result = tools
@@ -697,14 +982,14 @@ mod tests {
             prompt_guidance: String::new(),
             effects: Vec::new(),
         };
-        let tools = tool_set(
+        let (tools, _policies) = tool_set(
             &Config::default(),
             &root,
-            ActiveTool {
+            DispatchFixture::tool(ActiveTool {
                 target_id: "tool:write".parse().unwrap(),
                 descriptor: descriptor.clone(),
                 capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
-            },
+            }),
         );
         let result = tools
             .execute("write", r#"{"path":"../outside"}"#, &mut ToolContext::new())
@@ -732,14 +1017,14 @@ mod tests {
                 access: NetworkAccess::PublicInternet,
             }],
         };
-        let tools = tool_set(
+        let (tools, _policies) = tool_set(
             &Config::default(),
             &root,
-            ActiveTool {
+            DispatchFixture::tool(ActiveTool {
                 target_id: "tool:external-fetch".parse().unwrap(),
                 descriptor: descriptor.clone(),
                 capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
-            },
+            }),
         );
         let result = tools
             .execute(
@@ -750,5 +1035,97 @@ mod tests {
             .await;
         assert!(result.is_error_kind(ToolErrorKind::PermissionDenied));
         assert!(!executed.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn a_policy_deny_blocks_an_allowed_tool_without_side_effect() {
+        let root = std::env::temp_dir();
+        let executed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tools, _policies) = tool_set(
+            &Config::default(),
+            &root,
+            DispatchFixture::tool(fixture_tool("read", Vec::new(), &executed)).with_policy(Arc::new(DenyPolicy(
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            ))),
+        );
+        let result = tools
+            .execute("read", r#"{"path":"notes.md"}"#, &mut ToolContext::new())
+            .await;
+
+        assert!(result.is_refused());
+        assert!(!executed.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn a_policy_allow_cannot_bypass_the_host_floor_or_idle_evaluation() {
+        let root = std::env::temp_dir().join(format!("dispatch_policy_floor_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let consulted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let descriptor = fixture_descriptor(
+            "replacement-write",
+            vec![OperationEffect::WritePath {
+                scope: PathScope::Workspace,
+            }],
+        );
+        let (tools, _policies) = tool_set(
+            &Config::default(),
+            &root,
+            DispatchFixture::tool(ActiveTool {
+                target_id: "tool:write".parse().unwrap(),
+                descriptor: descriptor.clone(),
+                capability: Arc::new(FixtureTool(descriptor, Arc::clone(&executed))),
+            })
+            .with_policy(Arc::new(AllowPolicy(Arc::clone(&consulted)))),
+        );
+        let result = tools
+            .execute("write", r#"{"path":"../outside"}"#, &mut ToolContext::new())
+            .await;
+
+        assert!(result.is_error_kind(ToolErrorKind::PermissionDenied));
+        assert!(!executed.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(!consulted.load(std::sync::atomic::Ordering::Relaxed));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn dispatch_emits_exactly_one_lifecycle_history_per_call() {
+        let root = std::env::temp_dir().join(format!("dispatch_events_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let executed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tools, _policies) = tool_set(
+            &Config::default(),
+            &root,
+            DispatchFixture::tool(fixture_tool(
+                "write",
+                vec![OperationEffect::WritePath {
+                    scope: PathScope::Workspace,
+                }],
+                &executed,
+            )),
+        );
+
+        let approved = recording_sink(ApprovalDecision::Approved);
+        let capability = ApprovalCapability::new(false, Arc::clone(&approved) as Arc<dyn ApprovalEventSink>);
+        let mut context = approval_context(capability);
+        let approved_result = tools.execute("write", r#"{"path":"out.txt"}"#, &mut context).await;
+        assert!(approved_result.is_success());
+        assert_eq!(
+            event_names(&approved),
+            vec!["classified", "granted", "finished-success"],
+            "exactly one classification, approval, and finish event"
+        );
+        assert_eq!(*approved.requests.lock().unwrap(), 1);
+
+        let denied = recording_sink(ApprovalDecision::Denied {
+            reason: "not now".to_string(),
+        });
+        let capability = ApprovalCapability::new(false, Arc::clone(&denied) as Arc<dyn ApprovalEventSink>);
+        let mut context = approval_context(capability);
+        let result = tools.execute("write", r#"{"path":"out.txt"}"#, &mut context).await;
+        assert!(result.is_refused());
+        assert_eq!(event_names(&denied), vec!["classified", "denied", "finished-denied"]);
+        assert_eq!(*denied.requests.lock().unwrap(), 1);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -57,6 +57,15 @@ impl AgentHook for RepeatedCallHook {
                 arguments: arguments.clone(),
                 class: ToolExecutionPolicy::classify(event.tool_name, &arguments),
             });
+            // The call is skipped before any dispatch boundary runs, so this
+            // hook also owes the terminal event for the classified call.
+            sink.emit(ToolEvent::Finished {
+                internal_call_id: event.internal_call_id.to_string(),
+                tool_name: event.tool_name.to_string(),
+                arguments,
+                output: REPEATED_CALL_MESSAGE.to_string(),
+                status: "skipped".to_string(),
+            });
         }
         ToolCallAction::skip(REPEATED_CALL_MESSAGE)
     }
@@ -169,8 +178,7 @@ fn normalize_shell_whitespace(command: &str) -> String {
 mod tests {
     use super::*;
     use crate::tools::{
-        ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalHook, ApprovalRequest, BashTool,
-        approval_context,
+        ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, BashTool, approval_context,
     };
     use async_trait::async_trait;
     use rig::agent::AgentBuilder;
@@ -277,8 +285,7 @@ mod tests {
         let capability = ApprovalCapability::new(false, Arc::new(Deny));
         let agent = AgentBuilder::new(model.clone())
             .tool(crate::tools::WriteTool::new(&dir))
-            .add_hook(RepeatedCallHook::new(&dir))
-            .add_hook(ApprovalHook::new(capability.clone()))
+            .add_hook(RepeatedCallHook::new(&dir).with_sink(Arc::new(Approve)))
             .build();
         agent
             .runner("repeat denied")

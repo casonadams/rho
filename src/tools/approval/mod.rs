@@ -15,7 +15,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use capability::ApprovalCapability;
+pub use capability::{ApprovalCapability, format_denial};
 pub use context::{
     DispatchedCall, DispatchedResult, approval_context, authorize_dispatch, emit_tool_finished, enforce_approval,
 };

@@ -1,5 +1,9 @@
+use crate::plugin::capability::{CapabilityError, CapabilityId};
+use crate::plugin::contract::{PermissionCapability, PermissionDecision, RequestedOperation};
 use crate::tools::approval::context::{approval_key, consume_grant};
 use crate::tools::approval::types::{ApprovalEventSink, ApprovalRequest, DENIED_MESSAGE, ToolEvent};
+use crate::tools::policy::{ExecutionClass, ToolExecutionPolicy};
+use async_trait::async_trait;
 use rig::tool::ToolExecutionError;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -106,6 +110,36 @@ impl ApprovalCapability {
             .unwrap_or_else(|| DENIED_MESSAGE.to_string());
         Err(ToolExecutionError::refused(reason))
     }
+
+    /// Built-in default permission decision for a normalized operation:
+    /// allow what the host classifies as safe, auto-approved, or
+    /// session-granted; require approval for everything else.
+    pub fn decision(&self, operation: &RequestedOperation, class: &ExecutionClass) -> PermissionDecision {
+        if class.allows_without_approval()
+            || self.inner.auto_approve
+            || self.is_session_approved(operation.tool_id.name(), &operation.arguments)
+        {
+            return PermissionDecision::Allow;
+        }
+        let crate::tools::policy::ExecutionClass::ApprovalRequired { reasons, .. } = class else {
+            return PermissionDecision::Allow;
+        };
+        PermissionDecision::ApprovalRequired {
+            rationale: reasons.join("; "),
+        }
+    }
+}
+
+#[async_trait]
+impl PermissionCapability for ApprovalCapability {
+    fn id(&self) -> CapabilityId {
+        "permission:default".parse().expect("default permission id is valid")
+    }
+
+    async fn evaluate(&self, request: RequestedOperation) -> Result<PermissionDecision, CapabilityError> {
+        let class = ToolExecutionPolicy::classify(request.tool_id.name(), &request.arguments);
+        Ok(self.decision(&request, &class))
+    }
 }
 
 fn session_patterns(tool_name: &str, arguments: &Value) -> Option<Vec<String>> {
@@ -117,7 +151,7 @@ fn session_patterns(tool_name: &str, arguments: &Value) -> Option<Vec<String>> {
     (!patterns.is_empty()).then_some(patterns)
 }
 
-fn format_denial(reason: String) -> String {
+pub fn format_denial(reason: String) -> String {
     let trimmed = reason.trim().trim_start_matches("Denied by user:").trim();
     if trimmed.is_empty() || trimmed == "Execution denied by user." || trimmed == "Execution canceled by user." {
         DENIED_MESSAGE.to_string()
