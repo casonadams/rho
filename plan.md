@@ -83,13 +83,13 @@ Record the baseline result in the change summary. If the baseline fails, fix or 
 
 ## Phase 3: Extensibility and hardening
 
-### 8. Define plugin permissions
+### 8. Define plugin permissions — complete
 
 - Add explicit plugin capabilities.
 - Add deterministic ordering, timeout/error isolation, compatibility checks, and lifecycle audit events.
 - Test plugin failures and conflicting plugin decisions.
 
-### 9. Expand contract and fault-injection testing
+### 9. Expand contract and fault-injection testing — complete
 
 Add offline tests for:
 
