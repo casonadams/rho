@@ -205,11 +205,19 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
         ModalMode::Select => {
             if modal.title.contains("Permission") || modal.title.contains("Approve") {
                 "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"
+            } else if modal.allow_custom {
+                "\x1b[2m↑/↓ select • Enter confirm • Esc cancel • or type custom\x1b[0m"
             } else {
                 "\x1b[2m↑/↓ select • Enter confirm • Esc cancel\x1b[0m"
             }
         }
-        ModalMode::Input { .. } => "\x1b[2mEnter submit • Esc cancel\x1b[0m",
+        ModalMode::Input { .. } => {
+            if modal.options.is_empty() {
+                "\x1b[2mEnter submit • Esc cancel\x1b[0m"
+            } else {
+                "\x1b[2mEnter submit • Esc back\x1b[0m"
+            }
+        }
     };
     push_inner(&mut lines, hint);
 

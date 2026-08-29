@@ -26,19 +26,31 @@ impl InteractiveQuestionPort for UiQuestionPort {
             .collect();
         if question.allow_custom
             && !options.is_empty()
-            && !options
-                .iter()
-                .any(|opt| opt.label.starts_with("Type a custom") || opt.label.starts_with("Type your own"))
+            && !options.iter().any(|opt| {
+                opt.label.starts_with("Type a custom")
+                    || opt.label.starts_with("Type something")
+                    || opt.label.starts_with("Type your own")
+            })
         {
             options.push(InteractionOption {
                 label: "Type a custom answer...".to_string(),
                 description: Some("Provide your own response".to_string()),
             });
         }
+        let total_options = options.len();
+        let custom_index = if question.allow_custom && total_options > 0 {
+            Some(total_options - 1)
+        } else {
+            None
+        };
+        let title = match question.header {
+            Some(header) if !header.trim().is_empty() => header,
+            _ => "Question".to_string(),
+        };
         let response = self
             .0
             .request(InteractionPrompt {
-                title: question.header.unwrap_or_else(|| "Question".to_string()),
+                title,
                 body: question.question,
                 options,
                 initial_selection: 0,
@@ -47,6 +59,7 @@ impl InteractiveQuestionPort for UiQuestionPort {
             .await
             .map_err(|_| AppError::Cancelled("Question cancelled because the interactive UI closed".to_string()))?;
         Ok(match response {
+            InteractionResponse::Selected(index) if Some(index) == custom_index => UserAnswer::Custom(String::new()),
             InteractionResponse::Selected(index) => UserAnswer::Selected(index),
             InteractionResponse::Custom(answer) => UserAnswer::Custom(answer),
             InteractionResponse::Cancelled => UserAnswer::Cancelled,
