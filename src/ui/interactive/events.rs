@@ -58,6 +58,7 @@ enum Transport {
 pub enum UiEvent {
     Output(OutputEvent),
     Activity(Activity),
+    RunningTool(Option<String>),
     Interaction {
         prompt: InteractionPrompt,
         responder: InteractionResponder,
@@ -86,6 +87,7 @@ pub enum BatchDecision {
 pub struct PendingUiBatch {
     text: String,
     activity: Option<Activity>,
+    running_tool: Option<Option<String>>,
     max_text_bytes: usize,
 }
 
@@ -93,6 +95,7 @@ pub struct PendingUiBatch {
 pub struct PendingUiDrain {
     pub text: String,
     pub activity: Option<Activity>,
+    pub running_tool: Option<Option<String>>,
 }
 
 impl PendingUiBatch {
@@ -100,6 +103,7 @@ impl PendingUiBatch {
         Self {
             text: String::new(),
             activity: None,
+            running_tool: None,
             max_text_bytes: max_text_bytes.max(1),
         }
     }
@@ -121,6 +125,10 @@ impl PendingUiBatch {
                 self.activity = Some(activity);
                 BatchDecision::Pending
             }
+            UiEvent::RunningTool(update) => {
+                self.running_tool = Some(update);
+                BatchDecision::Pending
+            }
             event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
         }
     }
@@ -129,11 +137,12 @@ impl PendingUiBatch {
         PendingUiDrain {
             text: std::mem::take(&mut self.text),
             activity: self.activity.take(),
+            running_tool: self.running_tool.take(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.text.is_empty() && self.activity.is_none()
+        self.text.is_empty() && self.activity.is_none() && self.running_tool.is_none()
     }
 }
 
@@ -184,6 +193,15 @@ impl InteractiveUi {
         match self.transport.as_ref() {
             Transport::Channel(sender) => sender
                 .send(UiEvent::Activity(activity))
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
+    pub fn set_running_tool(&self, command: Option<String>) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::RunningTool(command))
                 .map_err(|_| UiPortError::Closed),
             Transport::Writer(_) => Ok(()),
         }
@@ -327,12 +345,24 @@ mod tests {
         ));
         batch.push(UiEvent::Activity(Activity::Thinking));
         batch.push(UiEvent::Output(OutputEvent::Text(" two".into())));
-        batch.push(UiEvent::Activity(Activity::Tool("bash".into())));
+        batch.push(UiEvent::Activity(Activity::Working));
 
         let drained = batch.drain();
         assert_eq!(drained.text.as_bytes(), b"one two");
-        assert_eq!(drained.activity, Some(Activity::Tool("bash".into())));
+        assert_eq!(drained.activity, Some(Activity::Working));
         assert!(batch.is_empty());
+    }
+
+    #[test]
+    fn pending_batch_keeps_the_latest_running_tool_update() {
+        let mut batch = PendingUiBatch::new(1024);
+        batch.push(UiEvent::RunningTool(Some("cargo test".into())));
+        batch.push(UiEvent::RunningTool(None));
+        batch.push(UiEvent::RunningTool(Some("cargo build".into())));
+
+        let drained = batch.drain();
+        assert_eq!(drained.running_tool, Some(Some("cargo build".to_string())));
+        assert!(batch.drain().running_tool.is_none());
     }
 
     #[test]

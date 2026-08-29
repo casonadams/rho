@@ -521,6 +521,12 @@ fn handle_ui_event(controller: &mut LiveController, event: UiEvent, modal: &mut 
             controller.state_mut().footer_mut().activity = activity;
             controller.redraw()?;
         }
+        UiEvent::RunningTool(tool) => {
+            controller
+                .state_mut()
+                .set_running_tool(tool.map(crate::ui::interactive::RunningTool::new));
+            controller.redraw()?;
+        }
         event @ UiEvent::Interaction { .. } => {
             install_interaction(controller, event, modal);
             controller.redraw()?;

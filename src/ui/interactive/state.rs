@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Instant};
 
 use unicode_width::UnicodeWidthChar;
 
@@ -19,7 +19,7 @@ pub enum Activity {
     #[default]
     Idle,
     Thinking,
-    Tool(String),
+    Working,
 }
 
 impl Activity {
@@ -27,7 +27,22 @@ impl Activity {
         match self {
             Self::Idle => "idle",
             Self::Thinking => "thinking",
-            Self::Tool(label) => label,
+            Self::Working => "working",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningTool {
+    pub command: String,
+    pub started: Instant,
+}
+
+impl RunningTool {
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            started: Instant::now(),
         }
     }
 }
@@ -334,6 +349,7 @@ struct ModalFrame {
 pub struct InteractiveState {
     editor: EditorState,
     footer: FooterState,
+    running_tool: Option<RunningTool>,
     queue: VecDeque<QueuedMessage>,
     modals: Vec<ModalFrame>,
 }
@@ -341,6 +357,21 @@ pub struct InteractiveState {
 impl InteractiveState {
     pub fn editor(&self) -> &EditorState {
         &self.editor
+    }
+
+    pub fn running_tool(&self) -> Option<&RunningTool> {
+        self.running_tool.as_ref()
+    }
+
+    pub fn running_tool_display(&self) -> Option<super::RunningToolDisplay> {
+        self.running_tool.as_ref().map(|tool| super::RunningToolDisplay {
+            command: tool.command.clone(),
+            elapsed: tool.started.elapsed(),
+        })
+    }
+
+    pub fn set_running_tool(&mut self, tool: Option<RunningTool>) {
+        self.running_tool = tool;
     }
 
     pub fn editor_mut(&mut self) -> &mut EditorState {
@@ -422,7 +453,9 @@ impl InteractiveState {
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractiveState, ModalOption, ModalState, QueueKind, UiAction, UiEffect};
+    use std::time::Duration;
+
+    use super::{InteractiveState, ModalOption, ModalState, QueueKind, RunningTool, UiAction, UiEffect};
 
     #[test]
     fn editor_inserts_and_deletes_at_unicode_boundaries() {
@@ -507,6 +540,28 @@ mod tests {
         state.editor_mut().set_text(" \n ");
         assert_eq!(state.apply(UiAction::Submit(QueueKind::Steering)), UiEffect::None);
         assert_eq!(state.queue_len(), 0);
+    }
+
+    #[test]
+    fn running_tool_updates_replace_and_clear_the_active_command() {
+        let mut state = InteractiveState::default();
+        assert!(state.running_tool().is_none());
+
+        state.set_running_tool(Some(RunningTool::new("cargo test")));
+        assert_eq!(state.running_tool().unwrap().command, "cargo test");
+
+        state.set_running_tool(Some(RunningTool::new("cargo build")));
+        assert_eq!(state.running_tool().unwrap().command, "cargo build");
+
+        state.set_running_tool(None);
+        assert!(state.running_tool().is_none());
+    }
+
+    #[test]
+    fn running_tool_exposes_elapsed_time() {
+        let mut state = InteractiveState::default();
+        state.set_running_tool(Some(RunningTool::new("sleep 1")));
+        assert!(state.running_tool().unwrap().started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

@@ -1,8 +1,17 @@
+use std::time::Duration;
+
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{Activity, EditorState, FooterState, ModalMode, ModalState};
 
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const RUNNING_TOOL_DISPLAY_DELAY: Duration = Duration::from_millis(150);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningToolDisplay {
+    pub command: String,
+    pub elapsed: Duration,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CursorPosition {
@@ -13,6 +22,7 @@ pub struct CursorPosition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveLayout {
     pub top_divider: String,
+    pub tool_lines: Vec<String>,
     pub editor_lines: Vec<String>,
     pub bottom_divider: String,
     pub footer: String,
@@ -21,7 +31,7 @@ pub struct InteractiveLayout {
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + 1;
+        let mut h = self.editor_lines.len() + self.tool_lines.len() + 1;
         if !self.top_divider.is_empty() {
             h += 1;
         }
@@ -30,12 +40,17 @@ impl InteractiveLayout {
         }
         h
     }
+
+    pub fn cursor_row(&self) -> usize {
+        self.cursor.row + self.tool_lines.len() + usize::from(!self.top_divider.is_empty())
+    }
 }
 
 pub struct LayoutInput<'a> {
     pub editor: &'a EditorState,
     pub modal: Option<&'a ModalState>,
     pub footer: &'a FooterState,
+    pub running_tool: Option<RunningToolDisplay>,
     pub queued_messages: usize,
     pub terminal_width: usize,
     pub spinner_frame: usize,
@@ -53,6 +68,10 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
 
     InteractiveLayout {
         top_divider,
+        tool_lines: input
+            .running_tool
+            .as_ref()
+            .map_or_else(Vec::new, |running| running_tool_lines(running, width)),
         editor_lines,
         bottom_divider,
         footer: truncate_to_width(
@@ -61,6 +80,20 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         ),
         cursor,
     }
+}
+
+fn running_tool_lines(running: &RunningToolDisplay, width: usize) -> Vec<String> {
+    if running.elapsed < RUNNING_TOOL_DISPLAY_DELAY {
+        return Vec::new();
+    }
+    let bullet = "\u{1b}[36m●\u{1b}[0m";
+    let name = "\u{1b}[1mbash\u{1b}[0m";
+    let command = format!("\u{1b}[36m`{}`\u{1b}[0m", running.command);
+    let elapsed = format!(
+        "\u{1b}[2m({})\u{1b}[0m",
+        crate::ui::render::format_duration(running.elapsed)
+    );
+    wrap_to_width(&format!("{bullet} {name} {command} {elapsed}"), width.max(1))
 }
 
 fn visible_width(content: &str) -> usize {
@@ -230,7 +263,7 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
 fn footer_text(footer: &FooterState, queued_messages: usize, spinner_frame: usize) -> String {
     let activity = match &footer.activity {
         Activity::Idle => footer.activity.label().to_string(),
-        Activity::Thinking | Activity::Tool(_) => {
+        Activity::Thinking | Activity::Working => {
             let spinner = SPINNER_FRAMES[spinner_frame % SPINNER_FRAMES.len()];
             format!("{spinner} {}", footer.activity.label())
         }
@@ -316,7 +349,9 @@ fn truncate_to_width(value: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorPosition, LayoutInput, layout};
+    use std::time::Duration;
+
+    use super::{CursorPosition, LayoutInput, RunningToolDisplay, layout, visible_width};
     use crate::ui::interactive::{Activity, EditorState, FooterState};
     use unicode_width::UnicodeWidthStr;
 
@@ -328,6 +363,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &default_footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 8,
             spinner_frame: 0,
@@ -349,6 +385,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 20,
             spinner_frame: 0,
@@ -368,6 +405,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 4,
             spinner_frame: 0,
@@ -388,6 +426,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 3,
             spinner_frame: 0,
@@ -406,6 +445,7 @@ mod tests {
             editor: &editor,
             modal: None,
             footer: &default_footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 2,
             spinner_frame: 0,
@@ -428,6 +468,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
+            running_tool: None,
             queued_messages: 2,
             terminal_width: 80,
             spinner_frame: 0,
@@ -437,10 +478,10 @@ mod tests {
     }
 
     #[test]
-    fn tool_activity_uses_the_requested_spinner_frame() {
+    fn tool_activity_shows_the_generic_working_label() {
         let default_editor = EditorState::default();
         let footer = FooterState {
-            activity: Activity::Tool("read src/lib.rs".into()),
+            activity: Activity::Working,
             model: "model".into(),
             context: None,
             quota: None,
@@ -449,19 +490,93 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 80,
             spinner_frame: 1,
         });
 
-        assert_eq!(layout.footer, "⠙ read src/lib.rs | model");
+        assert_eq!(layout.footer, "⠙ working | model");
+    }
+
+    #[test]
+    fn running_bash_block_renders_command_and_elapsed_above_the_editor() {
+        let mut editor = EditorState::default();
+        editor.set_text("draft");
+        let default_footer = FooterState::default();
+        let running_tool = Some(RunningToolDisplay {
+            command: "cargo test --all-targets".into(),
+            elapsed: Duration::from_secs(2),
+        });
+        let layout = layout(LayoutInput {
+            editor: &editor,
+            modal: None,
+            footer: &default_footer,
+            running_tool: running_tool.clone(),
+            queued_messages: 0,
+            terminal_width: 80,
+            spinner_frame: 0,
+        });
+
+        assert_eq!(layout.tool_lines.len(), 1);
+        assert!(layout.tool_lines[0].contains('\u{1b}'));
+        assert!(layout.tool_lines[0].contains("bash"));
+        assert!(layout.tool_lines[0].contains("cargo test --all-targets"));
+        assert!(layout.tool_lines[0].contains("(2s)"));
+        assert_eq!(layout.height(), 5);
+        assert_eq!(layout.cursor_row(), 2);
+    }
+
+    #[test]
+    fn running_bash_block_wraps_long_commands() {
+        let default_editor = EditorState::default();
+        let default_footer = FooterState::default();
+        let running_tool = Some(RunningToolDisplay {
+            command: "echo aaaaaaaaaa bbbbbbbbbb cccccccccc dddddddddd eeeeeeeeee".into(),
+            elapsed: Duration::from_secs(2),
+        });
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: None,
+            footer: &default_footer,
+            running_tool,
+            queued_messages: 0,
+            terminal_width: 20,
+            spinner_frame: 0,
+        });
+
+        assert!(layout.tool_lines.len() > 1);
+        for line in &layout.tool_lines {
+            assert!(visible_width(line) <= 20);
+        }
+    }
+
+    #[test]
+    fn running_bash_block_hides_within_the_display_delay() {
+        let default_editor = EditorState::default();
+        let default_footer = FooterState::default();
+        let running_tool = Some(RunningToolDisplay {
+            command: "echo fast".into(),
+            elapsed: Duration::from_millis(100),
+        });
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: None,
+            footer: &default_footer,
+            running_tool,
+            queued_messages: 0,
+            terminal_width: 40,
+            spinner_frame: 0,
+        });
+
+        assert!(layout.tool_lines.is_empty());
     }
 
     #[test]
     fn narrow_layout_never_exceeds_terminal_width() {
         let default_editor = EditorState::default();
         let footer = FooterState {
-            activity: Activity::Tool("界tool".into()),
+            activity: Activity::Working,
             model: "model".into(),
             context: None,
             quota: None,
@@ -470,6 +585,7 @@ mod tests {
             editor: &default_editor,
             modal: None,
             footer: &footer,
+            running_tool: None,
             queued_messages: 1,
             terminal_width: 5,
             spinner_frame: 1,
@@ -495,6 +611,7 @@ mod tests {
             editor: &default_editor,
             modal: Some(&modal),
             footer: &default_footer,
+            running_tool: None,
             queued_messages: 0,
             terminal_width: 40,
             spinner_frame: 0,

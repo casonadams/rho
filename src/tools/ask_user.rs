@@ -142,6 +142,16 @@ fn extract_parsed_option(option: &Value) -> ParsedOption {
             description: None,
             value: value.clone(),
         },
+        Value::Object(object) if object.len() == 1 => {
+            let (key, value) = object.iter().next().unwrap();
+            let label = key.clone();
+            let val_str = value.as_str().map_or_else(|| value.to_string(), ToString::to_string);
+            ParsedOption {
+                label,
+                description: None,
+                value: val_str,
+            }
+        }
         Value::Object(object) => {
             let label = object
                 .get("label")
@@ -326,6 +336,26 @@ mod tests {
             answers: Mutex::new(answers.into_iter().collect()),
             questions: Arc::new(Mutex::new(Vec::new())),
         })
+    }
+
+    #[tokio::test]
+    async fn single_key_object_option_uses_key_as_label_and_value() {
+        let port = QuestionPort::new(FakePort {
+            answers: Mutex::new(VecDeque::from([UserAnswer::Selected(0)])),
+            questions: Arc::new(Mutex::new(Vec::new())),
+        });
+        let result = AskUserTool
+            .execute(
+                &port,
+                serde_json::from_value(serde_json::json!({
+                    "question": "Color?",
+                    "options": [{"blue": "Blue"}, {"red": "Red"}]
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.content, "Blue");
     }
 
     #[tokio::test]

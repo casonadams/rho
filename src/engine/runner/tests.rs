@@ -155,14 +155,7 @@ fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        activities,
-        [
-            Activity::Thinking,
-            Activity::Idle,
-            Activity::Tool("read src/lib.rs".to_string())
-        ]
-    );
+    assert_eq!(activities, [Activity::Thinking, Activity::Idle, Activity::Working]);
 }
 
 #[test]
@@ -894,10 +887,10 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
     let mut displayed = String::new();
     while let Ok(event) = events.try_recv() {
         match event {
-            UiEvent::Output(OutputEvent::Text(text)) | UiEvent::Activity(Activity::Tool(text)) => {
+            UiEvent::Output(OutputEvent::Text(text)) => {
                 displayed.push_str(&text);
             }
-            UiEvent::Activity(_) => {}
+            UiEvent::Activity(_) | UiEvent::RunningTool(_) => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }

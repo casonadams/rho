@@ -20,3 +20,14 @@ mod tests;
 pub use renderer::{RenderActivity, TerminalRenderer};
 pub use summary::summarize_tool_output;
 pub use types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
+
+pub fn format_duration(duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    if secs >= 60 {
+        format!("{}m {}s", secs / 60, secs % 60)
+    } else if secs > 0 {
+        format!("{secs}s")
+    } else {
+        format!("{}ms", duration.as_millis())
+    }
+}

@@ -169,7 +169,7 @@ mod tests {
         assert!(prompt.contains("Platform:"));
         assert!(prompt.contains("Use read to examine files instead of cat or sed"));
         assert!(prompt.contains("Inspect the repository before asking"));
-        assert!(prompt.contains("one ask_user call"));
+        assert!(prompt.contains("one ask_user_question call"));
 
         let _ = tokio::fs::remove_dir_all(temp_dir).await;
     }

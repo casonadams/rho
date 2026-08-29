@@ -213,7 +213,7 @@ impl TerminalRenderer {
             let activity = if message.starts_with("thinking") {
                 Activity::Thinking
             } else {
-                Activity::Tool(message.to_string())
+                Activity::Working
             };
             let _ = ui.set_activity(activity);
             return RenderActivity::Interactive(ui.clone());

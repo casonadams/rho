@@ -245,6 +245,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             editor: self.state.editor(),
             modal: self.state.active_modal(),
             footer: self.state.footer(),
+            running_tool: self.state.running_tool_display(),
             queued_messages: self.state.queue_len(),
             terminal_width: self.width,
             spinner_frame: self.spinner_frame,
@@ -254,6 +255,10 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
         if !rendered.top_divider.is_empty() {
             self.backend.write_text(&rendered.top_divider)?;
+            self.backend.write_text("\r\n")?;
+        }
+        for line in &rendered.tool_lines {
+            self.backend.write_text(line)?;
             self.backend.write_text("\r\n")?;
         }
         for line in &rendered.editor_lines {
@@ -268,12 +273,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.backend
             .write_text(&format!("{footer_style}{}{footer_style:#}", rendered.footer))?;
 
-        let cursor_row = if rendered.top_divider.is_empty() {
-            rendered.cursor.row
-        } else {
-            rendered.cursor.row + 1
-        };
-        self.backend.move_up(rendered.height() - 1 - cursor_row)?;
+        self.backend.move_up(rendered.height() - 1 - rendered.cursor_row())?;
         self.backend.move_to_column(rendered.cursor.column)
     }
 
@@ -282,11 +282,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         };
         let height = rendered.height();
-        let cursor_row = if rendered.top_divider.is_empty() {
-            rendered.cursor.row
-        } else {
-            rendered.cursor.row + 1
-        };
+        let cursor_row = rendered.cursor_row();
         self.backend.move_down(height - 1 - cursor_row)?;
         self.backend.move_to_column(0)?;
         for row in (0..height).rev() {

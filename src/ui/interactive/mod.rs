@@ -10,8 +10,8 @@ pub use events::{
     InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, UiEvent, UiPortError,
 };
 pub use input::{InputAction, map_key};
-pub use layout::{CursorPosition, InteractiveLayout, LayoutInput, layout};
+pub use layout::{CursorPosition, InteractiveLayout, LayoutInput, RunningToolDisplay, layout};
 pub use state::{
     Activity, EditorState, FooterState, InteractiveState, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
-    UiAction, UiEffect,
+    RunningTool, UiAction, UiEffect,
 };

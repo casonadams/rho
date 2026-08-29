@@ -36,6 +36,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     while let Ok(event) = events.try_recv() {
         match event {
             UiEvent::Activity(activity) => activity_events.push(activity),
+            UiEvent::RunningTool(_) => {}
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
