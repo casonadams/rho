@@ -17,6 +17,7 @@ pub struct AgentEngineBuilder {
     auth_store: AuthStore,
     resume_id: Option<String>,
     session_manager: Option<SessionManager>,
+    session_approvals: Option<std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>>,
     base_dir: Option<PathBuf>,
 }
 
@@ -27,6 +28,7 @@ impl AgentEngineBuilder {
             auth_store,
             resume_id: None,
             session_manager: None,
+            session_approvals: None,
             base_dir: None,
         }
     }
@@ -38,6 +40,14 @@ impl AgentEngineBuilder {
 
     pub fn session(mut self, session_manager: SessionManager) -> Self {
         self.session_manager = Some(session_manager);
+        self
+    }
+
+    pub fn session_approvals(
+        mut self,
+        session_approvals: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    ) -> Self {
+        self.session_approvals = Some(session_approvals);
         self
     }
 
@@ -102,10 +112,14 @@ impl AgentEngineBuilder {
             }
         };
         let extension_registry = ExtensionRegistry::new();
+        let session_approvals = self
+            .session_approvals
+            .unwrap_or_else(|| std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())));
         Ok(AgentEngine {
             config: self.config.clone(),
             session_manager,
             extension_registry,
+            session_approvals,
             backend,
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),

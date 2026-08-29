@@ -96,7 +96,11 @@ impl AgentEngine {
             },
             self.session_manager.clone(),
         );
-        let capability = ApprovalCapability::new(self.config.auto_approve, sink.clone());
+        let capability = ApprovalCapability::with_session_grants(
+            self.config.auto_approve,
+            sink.clone(),
+            self.session_approvals.clone(),
+        );
         let mut current_prompt = request.prompt.to_string();
         let mut total_tool_calls = 0;
         let mut current_budget = self.config.max_turns;

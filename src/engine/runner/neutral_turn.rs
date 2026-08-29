@@ -73,7 +73,11 @@ impl AgentEngine {
             },
             self.session_manager.clone(),
         );
-        let approval = ApprovalCapability::new(self.config.auto_approve, sink.clone());
+        let approval = ApprovalCapability::with_session_grants(
+            self.config.auto_approve,
+            sink.clone(),
+            self.session_approvals.clone(),
+        );
         let mut tool_context = approval_context(approval);
         tool_context.insert(renderer.question_port());
         tool_context.insert(crate::plugin::contract::InvocationContext {

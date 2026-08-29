@@ -82,6 +82,7 @@ pub(super) async fn run_context_evaluation(input: ContextEvaluationInput<'_>) ->
         config,
         session_manager: store,
         extension_registry: crate::plugin::ExtensionRegistry::new(),
+        session_approvals: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         backend: crate::engine::AgentBackend::Rig(Box::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

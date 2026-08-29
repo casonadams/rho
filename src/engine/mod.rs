@@ -36,6 +36,7 @@ pub struct AgentEngine {
     pub config: Config,
     pub session_manager: SessionManager,
     pub extension_registry: ExtensionRegistry,
+    pub(crate) session_approvals: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     pub(crate) backend: AgentBackend,
     usage: UsageTracker,
     quota: QuotaTracker,
@@ -54,6 +55,7 @@ impl AgentEngine {
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
         builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
+            .session_approvals(self.session_approvals.clone())
             .base_dir(std::env::current_dir()?)
             .build()
             .await

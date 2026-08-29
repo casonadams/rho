@@ -13,7 +13,7 @@ struct ApprovalCapabilityInner {
     auto_approve: bool,
     sink: Arc<dyn ApprovalEventSink>,
     grants: Mutex<HashMap<String, usize>>,
-    session_grants: Mutex<HashSet<String>>,
+    session_grants: Arc<Mutex<HashSet<String>>>,
     denials: Mutex<HashMap<String, String>>,
 }
 
@@ -25,12 +25,20 @@ pub struct ApprovalCapability {
 
 impl ApprovalCapability {
     pub fn new(auto_approve: bool, sink: Arc<dyn ApprovalEventSink>) -> Self {
+        Self::with_session_grants(auto_approve, sink, Arc::new(Mutex::new(HashSet::new())))
+    }
+
+    pub fn with_session_grants(
+        auto_approve: bool,
+        sink: Arc<dyn ApprovalEventSink>,
+        session_grants: Arc<Mutex<HashSet<String>>>,
+    ) -> Self {
         Self {
             inner: Arc::new(ApprovalCapabilityInner {
                 auto_approve,
                 sink,
                 grants: Mutex::new(HashMap::new()),
-                session_grants: Mutex::new(HashSet::new()),
+                session_grants,
                 denials: Mutex::new(HashMap::new()),
             }),
         }

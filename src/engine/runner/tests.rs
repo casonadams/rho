@@ -48,6 +48,7 @@ fn test_engine_with_session(
         config,
         session_manager,
         extension_registry: crate::plugin::ExtensionRegistry::new(),
+        session_approvals: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         backend: crate::engine::AgentBackend::Rig(Box::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
@@ -916,6 +917,53 @@ fn cancellation_reason_is_redacted() {
 #[test]
 fn auth_store_type_remains_constructible_for_public_engine_api() {
     let _ = AuthStore::default();
+}
+
+#[tokio::test]
+async fn session_approval_persists_across_multiple_engine_turns() {
+    let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let model = MockCompletionModel::from_stream_turns([
+        [
+            MockStreamEvent::tool_call("call-1", "bash", serde_json::json!({"command": "touch first.txt"})),
+            final_event(Usage::new()),
+        ],
+        [MockStreamEvent::text("done 1"), final_event(Usage::new())],
+        [
+            MockStreamEvent::tool_call("call-2", "bash", serde_json::json!({"command": "touch second.txt"})),
+            final_event(Usage::new()),
+        ],
+        [MockStreamEvent::text("done 2"), final_event(Usage::new())],
+    ]);
+    let engine = test_engine(model, Config::default());
+
+    let approvals = engine.session_approvals.clone();
+    let turn1_engine = engine;
+    let turn1_renderer = renderer.clone();
+    let runner_turn_1 = tokio::spawn(async move {
+        let output = turn1_engine.run_turn(request("turn 1"), &turn1_renderer).await;
+        (turn1_engine, output)
+    });
+
+    let event = loop {
+        let event = events.recv().await.unwrap();
+        if matches!(event, crate::ui::interactive::UiEvent::Interaction { .. }) {
+            break event;
+        }
+    };
+    let crate::ui::interactive::UiEvent::Interaction { responder, .. } = event else {
+        unreachable!();
+    };
+    responder
+        .respond(crate::ui::interactive::InteractionResponse::Selected(1))
+        .unwrap();
+
+    let (engine, output_1) = runner_turn_1.await.unwrap();
+    assert_eq!(output_1.unwrap().tool_calls_count, 1);
+    assert!(approvals.lock().unwrap().contains("touch *"));
+
+    let output_2 = engine.run_turn(request("turn 2"), &renderer).await.unwrap();
+    assert_eq!(output_2.tool_calls_count, 1);
 }
 
 #[tokio::test]

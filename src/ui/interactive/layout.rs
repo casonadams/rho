@@ -43,19 +43,18 @@ pub struct LayoutInput<'a> {
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
-    let (top_divider, editor_lines, cursor) = if let Some(modal) = input.modal {
+    let (top_divider, editor_lines, bottom_divider, cursor) = if let Some(modal) = input.modal {
         let (lines, cursor) = render_modal_overlay(modal, width);
-        (String::new(), lines, cursor)
+        (String::new(), lines, String::new(), cursor)
     } else {
         let (lines, cursor) = wrap_editor(input.editor, width);
-        ("─".repeat(width), lines, cursor)
+        ("─".repeat(width), lines, "─".repeat(width), cursor)
     };
-    let divider = "─".repeat(width);
 
     InteractiveLayout {
         top_divider,
         editor_lines,
-        bottom_divider: divider,
+        bottom_divider,
         footer: truncate_to_width(
             &footer_text(input.footer, input.queued_messages, input.spinner_frame),
             width,
@@ -131,8 +130,8 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
 
     let title = format!(" {} ", modal.title.trim());
     let title_w = visible_width(&title);
-    if title_w + 5 <= width {
-        let dashes = "─".repeat(width - title_w - 4);
+    if title_w + 4 <= width {
+        let dashes = "─".repeat(width - title_w - 3);
         lines.push(format!(
             "\x1b[2m╭─\x1b[0m\x1b[1;36m{title}\x1b[0m\x1b[2m{dashes}╮\x1b[0m"
         ));
