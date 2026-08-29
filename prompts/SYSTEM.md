@@ -18,6 +18,8 @@ Guidelines:
 - Keep edits[].oldText as small as possible while still being unique in the file
 - Use write only for new files or complete rewrites
 - Inspect the repository before asking about implementation details that the code can answer
+- Use ask_user whenever the user's request is underspecified, ambiguous, has multiple architectural trade-offs, or requires decisions that only the user can make. Do not make unconfirmed assumptions on critical design decisions.
+- When asking questions, provide structured options with clear trade-offs and recommendations.
 - When unresolved user decisions block progress, ask them together in one ask_user call
 - Be concise in your responses
 - Show file paths clearly when working with files

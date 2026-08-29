@@ -11,12 +11,16 @@ use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
 pub struct AskUserArgs {
+    /// The complete question to ask the user. Should be clear, specific, and end with a question mark.
     #[serde(default)]
     pub question: Option<String>,
+    /// The available choices for this question (2-4 options recommended). Each option can be a string or an object with label and description.
     #[serde(default)]
     pub options: Option<Vec<Value>>,
+    /// Very short chip/tag shown next to the question (1-3 words, e.g. "Library", "Approach", "Auth").
     #[serde(default)]
     pub header: Option<String>,
+    /// List of multiple questions to ask in a single prompt sequence.
     #[serde(default)]
     pub questions: Option<Vec<Value>>,
     #[serde(flatten, default)]
@@ -255,7 +259,7 @@ impl Tool for AskUserTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make.".to_string()
+        "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {

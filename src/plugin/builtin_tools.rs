@@ -112,7 +112,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
     BuiltinToolDeclaration {
         name: "ask_user",
         capability: BuiltinToolKind::Interactive,
-        description: "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make.",
+        description: "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.",
         prompt: PROMPT_ASK_USER,
         schema: generated_schema::<AskUserArgs>,
         effects: INTERACTION_EFFECTS,
@@ -120,7 +120,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
     BuiltinToolDeclaration {
         name: "ask_user_question",
         capability: BuiltinToolKind::Interactive,
-        description: "After inspecting available context, ask one consolidated set of questions for unresolved decisions that only the user can make.",
+        description: "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.",
         prompt: PROMPT_ASK_USER,
         schema: generated_schema::<AskUserArgs>,
         effects: INTERACTION_EFFECTS,
