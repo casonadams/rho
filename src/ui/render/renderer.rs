@@ -3,7 +3,7 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
+use super::summary::{clean_command_paths, format_tool_args_summary, read_summary_parts, to_relative_path};
 use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use crate::tools::{QuestionPort, RiskTier};
 use crate::ui::block::{BlockFormat, terminal_width};
@@ -266,7 +266,8 @@ impl TerminalRenderer {
 
     pub async fn prompt_tool_approval(&self, name: &str, args: &serde_json::Value) -> ApprovalResult {
         if let Some(ui) = &self.ui {
-            let mut body = format_tool_args_summary(name, args);
+            let summary = format_tool_args_summary(name, args);
+            let mut body = format!("tool   {name}\nscope  {summary}");
             if name == "edit"
                 && let Some(diff) = format_edit_diff(args, &self.theme)
             {
@@ -282,7 +283,16 @@ impl TerminalRenderer {
                 .request(InteractionPrompt {
                     title: format!("Approve {name}"),
                     body,
-                    options: vec![interaction_option("Apply once"), interaction_option("Deny")],
+                    options: vec![
+                        InteractionOption {
+                            label: "Allow".to_string(),
+                            description: Some("Allow this single invocation".to_string()),
+                        },
+                        InteractionOption {
+                            label: "Deny with reason".to_string(),
+                            description: Some("Deny and provide feedback to the agent".to_string()),
+                        },
+                    ],
                     initial_selection: 0,
                     allow_custom: false,
                 })
@@ -326,6 +336,7 @@ impl TerminalRenderer {
             actions.push(BashApprovalChoice::AllowForSession(patterns.join("; ")));
         }
         actions.push(BashApprovalChoice::Deny);
+
         let starting_cursor = if request.tier == RiskTier::HighRisk {
             actions.len() - 1
         } else {
@@ -333,24 +344,41 @@ impl TerminalRenderer {
         };
 
         if let Some(ui) = &self.ui {
+            let mut options = vec![InteractionOption {
+                label: "Allow".to_string(),
+                description: Some("Allow this single invocation".to_string()),
+            }];
+            if let Some(patterns) = crate::tools::analyze_command_safety(request.command).session_patterns {
+                options.push(InteractionOption {
+                    label: "Allow for session".to_string(),
+                    description: Some(format!("Allow {} for session", patterns.join("; "))),
+                });
+            }
+            options.push(InteractionOption {
+                label: "Deny with reason".to_string(),
+                description: Some("Deny and provide feedback to the agent".to_string()),
+            });
+
+            let mut body = format!("tool   bash\nscope  {}", clean_command_paths(request.command));
+            if request.tier == RiskTier::HighRisk && !request.reasons.is_empty() {
+                body.push_str("\n\n");
+                body.push_str(&request.reasons.join("\n"));
+            }
             let response = ui
                 .request(InteractionPrompt {
                     title: "Bash command requires approval".to_string(),
-                    body: format_bash_approval_card(&request, &self.theme, terminal_width()),
-                    options: actions
-                        .iter()
-                        .map(|action| interaction_option(&action.to_string()))
-                        .collect(),
+                    body,
+                    options: options.clone(),
                     initial_selection: starting_cursor,
                     allow_custom: false,
                 })
                 .await;
             return match response {
-                Ok(InteractionResponse::Selected(index)) => match actions.get(index) {
-                    Some(BashApprovalChoice::AllowOnce) => ApprovalResult::Approved,
-                    Some(BashApprovalChoice::AllowForSession(_)) => ApprovalResult::ApprovedForSession,
-                    Some(BashApprovalChoice::Deny) => self.prompt_denial_feedback().await,
-                    None => denied(String::new()),
+                Ok(InteractionResponse::Selected(index)) => match options.get(index).map(|opt| opt.label.as_str()) {
+                    Some("Allow") => ApprovalResult::Approved,
+                    Some("Allow for session") => ApprovalResult::ApprovedForSession,
+                    Some("Deny with reason") => self.prompt_denial_feedback().await,
+                    _ => denied(String::new()),
                 },
                 Ok(InteractionResponse::Custom(reason)) => denied(reason),
                 Ok(InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
@@ -404,7 +432,6 @@ impl TerminalRenderer {
     }
 
     pub fn finish_tool_line(&self, line: ToolLine<'_>) {
-        println!();
         let background = if line.is_error {
             self.theme.tool_error_bg
         } else {

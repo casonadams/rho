@@ -3,7 +3,7 @@ use regex::Regex;
 use std::sync::LazyLock;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-static ANSI_PATTERN: LazyLock<Regex> =
+pub(crate) static ANSI_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("valid ANSI escape pattern"));
 
 const HORIZONTAL_PADDING: usize = 2;
@@ -185,7 +185,7 @@ fn wrap_plain_text(content: &str, width: usize) -> Vec<String> {
     output
 }
 
-fn visible_width(content: &str) -> usize {
+pub(crate) fn visible_width(content: &str) -> usize {
     UnicodeWidthStr::width(ANSI_PATTERN.replace_all(content, "").as_ref())
 }
 

@@ -12,5 +12,6 @@ pub use events::{
 pub use input::{InputAction, map_key};
 pub use layout::{CursorPosition, InteractiveLayout, LayoutInput, layout};
 pub use state::{
-    Activity, EditorState, FooterState, InteractiveState, ModalState, QueueKind, QueuedMessage, UiAction, UiEffect,
+    Activity, EditorState, FooterState, InteractiveState, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
+    UiAction, UiEffect,
 };

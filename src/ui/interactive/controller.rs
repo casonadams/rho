@@ -1,5 +1,6 @@
 use std::io::{self, Stdout, Write};
 
+use anstyle::Style;
 use crossterm::{
     cursor::{Hide, MoveDown, MoveToColumn, MoveUp, Show},
     queue,
@@ -7,7 +8,7 @@ use crossterm::{
 };
 use unicode_width::UnicodeWidthChar;
 
-use super::{EditorState, InteractiveLayout, InteractiveState, LayoutInput, layout};
+use super::{InteractiveLayout, InteractiveState, LayoutInput, layout};
 
 pub trait TerminalBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()>;
@@ -96,6 +97,7 @@ pub struct TerminalController<B: TerminalBackend> {
     output_line_open: bool,
     spinner_frame: usize,
     active: bool,
+    footer_style: Style,
 }
 
 impl TerminalController<CrosstermBackend> {
@@ -123,6 +125,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             output_line_open: false,
             spinner_frame: 0,
             active: true,
+            footer_style: crate::ui::theme::Theme::default().dimmed,
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
@@ -238,24 +241,9 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn current_layout(&self) -> InteractiveLayout {
-        let mut modal_editor = EditorState::default();
-        let editor = if let Some(modal) = self.state.active_modal() {
-            let mut text = format!("{}\n{}", modal.title, modal.body);
-            for (index, option) in modal.options.iter().enumerate() {
-                let marker = if index == modal.selected { ">" } else { " " };
-                text.push_str(&format!("\n{marker} {option}"));
-            }
-            if !self.state.editor().is_empty() {
-                text.push_str("\n\n");
-                text.push_str(self.state.editor().text());
-            }
-            modal_editor.set_text(text);
-            &modal_editor
-        } else {
-            self.state.editor()
-        };
         layout(LayoutInput {
-            editor,
+            editor: self.state.editor(),
+            modal: self.state.active_modal(),
             footer: self.state.footer(),
             queued_messages: self.state.queue_len(),
             terminal_width: self.width,
@@ -264,17 +252,27 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
-        self.backend.write_text(&rendered.top_divider)?;
-        self.backend.write_text("\r\n")?;
+        if !rendered.top_divider.is_empty() {
+            self.backend.write_text(&rendered.top_divider)?;
+            self.backend.write_text("\r\n")?;
+        }
         for line in &rendered.editor_lines {
             self.backend.write_text(line)?;
             self.backend.write_text("\r\n")?;
         }
-        self.backend.write_text(&rendered.bottom_divider)?;
-        self.backend.write_text("\r\n")?;
-        self.backend.write_text(&rendered.footer)?;
+        if !rendered.bottom_divider.is_empty() {
+            self.backend.write_text(&rendered.bottom_divider)?;
+            self.backend.write_text("\r\n")?;
+        }
+        let footer_style = self.footer_style;
+        self.backend
+            .write_text(&format!("{footer_style}{}{footer_style:#}", rendered.footer))?;
 
-        let cursor_row = rendered.cursor.row + 1;
+        let cursor_row = if rendered.top_divider.is_empty() {
+            rendered.cursor.row
+        } else {
+            rendered.cursor.row + 1
+        };
         self.backend.move_up(rendered.height() - 1 - cursor_row)?;
         self.backend.move_to_column(rendered.cursor.column)
     }
@@ -284,7 +282,11 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         };
         let height = rendered.height();
-        let cursor_row = rendered.cursor.row + 1;
+        let cursor_row = if rendered.top_divider.is_empty() {
+            rendered.cursor.row
+        } else {
+            rendered.cursor.row + 1
+        };
         self.backend.move_down(height - 1 - cursor_row)?;
         self.backend.move_to_column(0)?;
         for row in (0..height).rev() {
@@ -629,7 +631,26 @@ mod tests {
 
         controller.tick().unwrap();
 
-        assert!(operations.borrow().contains(&Operation::Write("⠙ thinking".into())));
+        assert!(
+            operations
+                .borrow()
+                .contains(&Operation::Write("\u{1b}[2m⠙ thinking\u{1b}[0m".into()))
+        );
+    }
+
+    #[test]
+    fn idle_footer_is_rendered_dimmed() {
+        let (backend, operations, _) = FakeTerminal::new(20);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.tick().unwrap();
+
+        assert!(
+            operations
+                .borrow()
+                .contains(&Operation::Write("\u{1b}[2midle\u{1b}[0m".into()))
+        );
     }
 
     #[test]

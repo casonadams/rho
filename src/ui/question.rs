@@ -16,19 +16,31 @@ struct UiQuestionPort(InteractiveUi);
 #[async_trait]
 impl InteractiveQuestionPort for UiQuestionPort {
     async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError> {
+        let mut options: Vec<InteractionOption> = question
+            .options
+            .into_iter()
+            .map(|option| InteractionOption {
+                label: option.label,
+                description: option.description,
+            })
+            .collect();
+        if question.allow_custom
+            && !options.is_empty()
+            && !options
+                .iter()
+                .any(|opt| opt.label.starts_with("Type a custom") || opt.label.starts_with("Type your own"))
+        {
+            options.push(InteractionOption {
+                label: "Type a custom answer...".to_string(),
+                description: Some("Provide your own response".to_string()),
+            });
+        }
         let response = self
             .0
             .request(InteractionPrompt {
                 title: question.header.unwrap_or_else(|| "Question".to_string()),
                 body: question.question,
-                options: question
-                    .options
-                    .into_iter()
-                    .map(|option| InteractionOption {
-                        label: option.label,
-                        description: option.description,
-                    })
-                    .collect(),
+                options,
                 initial_selection: 0,
                 allow_custom: question.allow_custom,
             })

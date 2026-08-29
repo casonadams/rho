@@ -12,7 +12,8 @@ use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
     Activity, BatchDecision, InputAction, InteractionResponder, InteractionResponse, InteractiveState, ModalState,
-    OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiEffect, UiEvent, map_key,
+    OutputEvent, PendingUiBatch, QueuedMessage, TerminalBackend, TerminalController, UiAction, UiEffect, UiEvent,
+    map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
@@ -24,7 +25,6 @@ const SPINNER_FRAME_INTERVALS: usize = 5;
 
 struct PendingModal {
     responder: InteractionResponder,
-    allow_custom: bool,
 }
 
 struct LiveBatch {
@@ -499,18 +499,15 @@ fn install_interaction(controller: &mut LiveController, event: UiEvent, modal: &
     let options = prompt
         .options
         .into_iter()
-        .map(|option| match option.description {
-            Some(description) => format!("{} - {description}", option.label),
-            None => option.label,
+        .map(|option| crate::ui::interactive::ModalOption {
+            label: option.label,
+            description: option.description,
         })
         .collect();
-    let mut state = ModalState::new(prompt.title, prompt.body, options);
+    let mut state = ModalState::new(prompt.title, prompt.body, options).with_custom(prompt.allow_custom);
     state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
     controller.state_mut().push_modal(state);
-    *modal = Some(PendingModal {
-        responder,
-        allow_custom: prompt.allow_custom,
-    });
+    *modal = Some(PendingModal { responder });
 }
 
 fn handle_ui_event(controller: &mut LiveController, event: UiEvent, modal: &mut Option<PendingModal>) -> Result<()> {
@@ -533,36 +530,92 @@ fn handle_modal_key(
     key: crossterm::event::KeyEvent,
     pending: &mut Option<PendingModal>,
 ) -> Result<bool> {
-    if pending.is_none() {
+    let Some(active) = controller.state().active_modal() else {
         return Ok(false);
-    }
-    match key.code {
-        KeyCode::Up => controller.state_mut().select_previous_modal_option(),
-        KeyCode::Down => controller.state_mut().select_next_modal_option(),
-        KeyCode::Esc => {
-            controller.state_mut().pop_modal();
-            if let Some(pending) = pending.take() {
-                let _ = pending.responder.respond(InteractionResponse::Cancelled);
+    };
+
+    match &active.mode {
+        crate::ui::interactive::ModalMode::Input { .. } => match key.code {
+            KeyCode::Esc => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    modal.exit_input_mode();
+                }
             }
-        }
-        KeyCode::Enter => {
-            let custom = controller.state().editor().text().trim().to_string();
-            let selected = controller.state().active_modal().map_or(0, |modal| modal.selected);
-            controller.state_mut().pop_modal();
-            if let Some(pending) = pending.take() {
-                let response = if pending.allow_custom && !custom.is_empty() {
-                    InteractionResponse::Custom(custom)
+            KeyCode::Enter => {
+                let custom = controller
+                    .state()
+                    .active_modal()
+                    .map(|m| m.input.text().trim().to_string())
+                    .unwrap_or_default();
+                controller.state_mut().pop_modal();
+                if let Some(pending) = pending.take() {
+                    let response = if !custom.is_empty() {
+                        InteractionResponse::Custom(custom)
+                    } else {
+                        InteractionResponse::Cancelled
+                    };
+                    let _ = pending.responder.respond(response);
+                }
+            }
+            _ => {
+                if let InputAction::Edit(action) = map_key(key)
+                    && let Some(modal) = controller.state_mut().active_modal_mut()
+                {
+                    match action {
+                        UiAction::Insert(c) => modal.input.insert(c),
+                        UiAction::Backspace => modal.input.backspace(),
+                        UiAction::Delete => modal.input.delete(),
+                        UiAction::MoveLeft => modal.input.move_left(),
+                        UiAction::MoveRight => modal.input.move_right(),
+                        UiAction::MoveToStart => modal.input.move_to_start(),
+                        UiAction::MoveToEnd => modal.input.move_to_end(),
+                        _ => {}
+                    }
+                }
+            }
+        },
+        crate::ui::interactive::ModalMode::Select => match key.code {
+            KeyCode::Up | KeyCode::BackTab => controller.state_mut().select_previous_modal_option(),
+            KeyCode::Down | KeyCode::Tab => controller.state_mut().select_next_modal_option(),
+            KeyCode::Esc => {
+                controller.state_mut().pop_modal();
+                if let Some(pending) = pending.take() {
+                    let _ = pending.responder.respond(InteractionResponse::Cancelled);
+                }
+            }
+            KeyCode::Enter => {
+                let selected = controller.state().active_modal().map_or(0, |modal| modal.selected);
+                let selected_label = controller
+                    .state()
+                    .active_modal()
+                    .and_then(|m| m.selected_option())
+                    .map(|opt| opt.label.clone())
+                    .unwrap_or_default();
+
+                let triggers_input = selected_label.contains("with reason")
+                    || selected_label.contains("with feedback")
+                    || selected_label.contains("custom answer")
+                    || selected_label.contains("custom input")
+                    || selected_label == "Deny with reason";
+
+                if triggers_input {
+                    let prompt_label = if selected_label.contains("reason") || selected_label.contains("feedback") {
+                        "reason"
+                    } else {
+                        "answer"
+                    };
+                    if let Some(modal) = controller.state_mut().active_modal_mut() {
+                        modal.enter_input_mode(prompt_label);
+                    }
                 } else {
-                    InteractionResponse::Selected(selected)
-                };
-                let _ = pending.responder.respond(response);
+                    controller.state_mut().pop_modal();
+                    if let Some(pending) = pending.take() {
+                        let _ = pending.responder.respond(InteractionResponse::Selected(selected));
+                    }
+                }
             }
-        }
-        _ => {
-            if let InputAction::Edit(action) = map_key(key) {
-                controller.state_mut().apply(action);
-            }
-        }
+            _ => {}
+        },
     }
     controller.redraw()?;
     Ok(true)
