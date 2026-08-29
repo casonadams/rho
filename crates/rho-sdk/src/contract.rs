@@ -1,4 +1,4 @@
-use crate::plugin::capability::{CapabilityError, CapabilityId, CapabilityKind, CapabilityValidationError};
+use crate::capability::{CapabilityError, CapabilityId, CapabilityKind, CapabilityValidationError};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use serde::{Deserialize, Serialize};
@@ -447,7 +447,7 @@ impl CapabilityDescriptor {
             Self::Provider(descriptor) => descriptor.validate(),
             Self::Tool(descriptor) => {
                 descriptor.validate()?;
-                crate::plugin::schema::CompiledSchema::compile(&descriptor.argument_schema)
+                crate::schema::CompiledSchema::compile(&descriptor.argument_schema)
                     .map(|_| ())
                     .map_err(|_| ContractValidationError::InvalidToolSchema)
             }

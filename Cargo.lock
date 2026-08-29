@@ -6233,7 +6233,6 @@ dependencies = [
  "html2text",
  "indicatif",
  "inquire",
- "jsonschema",
  "moka",
  "pdf-extract",
  "percent-encoding",
@@ -6243,6 +6242,7 @@ dependencies = [
  "reedline",
  "regex",
  "reqwest 0.12.28",
+ "rho-sdk",
  "rig",
  "rig-memory",
  "schemars 1.2.2",
@@ -6256,6 +6256,18 @@ dependencies = [
  "unicode-width 0.2.2",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "rho-sdk"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

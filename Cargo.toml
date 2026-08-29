@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["."]
+members = [".", "crates/rho-sdk"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,6 +8,15 @@ edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
 license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+futures = "0.3"
+jsonschema = { version = "0.52", default-features = false }
+thiserror = "2.0"
+rho-sdk = { path = "crates/rho-sdk" }
 
 [package]
 name = "rho"
@@ -27,19 +36,19 @@ path = "src/main.rs"
 
 [dependencies]
 brush-parser = "0.4.0"
+rho-sdk.workspace = true
 
 # Async Runtime & Core
 tokio = { version = "1.43", features = ["full"] }
-futures = "0.3"
-async-trait = "0.1"
+futures.workspace = true
+async-trait.workspace = true
 
 # AI & LLM Engine
 rig = "0.42"
 rig-memory = "0.42"
 schemars = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json = "1.0"
-jsonschema = { version = "0.52", default-features = false }
 
 # CLI & REPL
 clap = { version = "4.5", features = ["derive", "env"] }

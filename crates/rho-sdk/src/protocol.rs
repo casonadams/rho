@@ -1,5 +1,5 @@
-use crate::plugin::capability::{CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION};
-use crate::plugin::contract::{
+use crate::capability::{CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION};
+use crate::contract::{
     AuthenticationRequest, AuthenticationResponse, CapabilityDescriptor, CommandInvocationRequest,
     CommandInvocationResponse, LifecycleEvent, PermissionDecision, ProviderRequest, ProviderStreamEvent,
     RequestedOperation, SkillAsset, ToolInvocationRequest, ToolInvocationResponse,

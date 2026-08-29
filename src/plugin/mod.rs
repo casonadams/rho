@@ -1,9 +1,8 @@
 pub mod activation;
 pub mod builtin;
 pub mod builtin_tools;
-pub mod capability;
+pub use rho_sdk::{capability, contract, protocol, schema};
 pub mod context;
-pub mod contract;
 pub mod extension;
 pub mod external;
 pub mod hook;
@@ -12,12 +11,10 @@ pub mod loader;
 pub mod mcp;
 pub mod permission;
 pub mod process;
-pub mod protocol;
 pub mod provider;
 pub mod registry;
 pub mod resolver;
 pub mod safety_floor;
-pub mod schema;
 pub mod tool_dispatch;
 pub mod types;
 
