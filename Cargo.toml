@@ -1,10 +1,21 @@
-[package]
-name = "rho"
+[workspace]
+resolver = "2"
+members = ["."]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
 license = "MIT OR Apache-2.0"
+
+[package]
+name = "rho"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+license.workspace = true
 
 [lib]
 name = "rho"
