@@ -29,8 +29,57 @@ impl ToolResult {
     }
 }
 
+pub fn normalize_schema(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Bool(true) => {
+            *value = serde_json::Value::Object(serde_json::Map::new());
+        }
+        serde_json::Value::Object(map) => {
+            for (k, v) in map.iter_mut() {
+                match k.as_str() {
+                    "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas" => {
+                        if let serde_json::Value::Object(submap) = v {
+                            for subval in submap.values_mut() {
+                                normalize_schema(subval);
+                            }
+                        }
+                    }
+                    "items" => {
+                        if let serde_json::Value::Array(arr) = v {
+                            for item in arr {
+                                normalize_schema(item);
+                            }
+                        } else {
+                            normalize_schema(v);
+                        }
+                    }
+                    "prefixItems" | "allOf" | "anyOf" | "oneOf" => {
+                        if let serde_json::Value::Array(arr) = v {
+                            for item in arr {
+                                normalize_schema(item);
+                            }
+                        }
+                    }
+                    "not" | "if" | "then" | "else" | "contains" | "propertyNames" => {
+                        normalize_schema(v);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                normalize_schema(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub fn generated_schema<T: JsonSchema>() -> serde_json::Value {
-    serde_json::to_value(schemars::schema_for!(T)).expect("generated JSON Schema must serialize")
+    let mut schema = serde_json::to_value(schemars::schema_for!(T)).expect("generated JSON Schema must serialize");
+    normalize_schema(&mut schema);
+    schema
 }
 
 pub fn into_rig_result(result: Result<ToolResult, AppError>) -> Result<String, ToolExecutionError> {
@@ -43,6 +92,7 @@ pub fn into_rig_result(result: Result<ToolResult, AppError>) -> Result<String, T
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::tools::web::{
         FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
     };
@@ -76,6 +126,38 @@ mod tests {
             },
         ));
         tools
+    }
+
+    #[test]
+    fn normalize_schema_replaces_boolean_subschemas() {
+        let mut schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": ["array", "null"],
+                    "items": true
+                },
+                "extra": true
+            },
+            "prefixItems": [true],
+            "anyOf": [true, {"type": "string"}]
+        });
+        normalize_schema(&mut schema);
+        assert_eq!(
+            schema,
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "options": {
+                        "type": ["array", "null"],
+                        "items": {}
+                    },
+                    "extra": {}
+                },
+                "prefixItems": [{}],
+                "anyOf": [{}, {"type": "string"}]
+            })
+        );
     }
 
     #[test]

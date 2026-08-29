@@ -183,7 +183,8 @@ impl ActiveToolSet {
             .into_iter()
             .map(|(name, tool)| {
                 let description = tool.descriptor.description.clone();
-                let schema = tool.descriptor.argument_schema.clone();
+                let mut schema = tool.descriptor.argument_schema.clone();
+                crate::tools::types::normalize_schema(&mut schema);
                 let floor = Arc::clone(&self.floor);
                 let policies = Arc::clone(&self.policies);
                 DynamicTool::new(name, description, schema, move |context, arguments| {
