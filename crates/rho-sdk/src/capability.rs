@@ -15,6 +15,7 @@ pub enum CapabilityKind {
     Command,
     Lifecycle,
     Skill,
+    Ui,
 }
 
 impl Display for CapabilityKind {
@@ -26,6 +27,7 @@ impl Display for CapabilityKind {
             Self::Command => "command",
             Self::Lifecycle => "lifecycle",
             Self::Skill => "skill",
+            Self::Ui => "ui",
         })
     }
 }
@@ -41,6 +43,7 @@ impl FromStr for CapabilityKind {
             "command" => Ok(Self::Command),
             "lifecycle" => Ok(Self::Lifecycle),
             "skill" => Ok(Self::Skill),
+            "ui" => Ok(Self::Ui),
             _ => Err(CapabilityValidationError::InvalidCapabilityId(value.to_string())),
         }
     }

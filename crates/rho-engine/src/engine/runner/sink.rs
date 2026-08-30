@@ -1,7 +1,7 @@
 use crate::engine::metrics::RunTracker;
 use async_trait::async_trait;
 use rho_core::approval::{ApprovalEventSink, ApprovalRequest, ToolEvent};
-use rho_core::presentation::types::{ApprovalResult, BashApproval, ToolLine};
+use rho_core::presentation::{ApprovalResult, BashApproval, ToolLine};
 use rho_core::presentation::{Presenter, summarize_tool_output};
 use rho_core::session::SessionManager;
 use serde_json::Value;
@@ -214,9 +214,9 @@ impl ApprovalEventSink for TerminalApprovalSink {
             let command = arguments.get("command").and_then(Value::as_str).unwrap_or_default();
             self.presenter
                 .prompt_bash_approval(BashApproval {
-                    command,
+                    command: command.to_string(),
                     tier: request.tier,
-                    reasons: &request.reasons,
+                    reasons: request.reasons.clone(),
                 })
                 .await
         } else {
@@ -290,12 +290,12 @@ impl ApprovalEventSink for TerminalApprovalSink {
                     let output = self.session_manager.redact_credentials(&output);
                     let output_summary = summarize_tool_output(&output);
                     self.presenter.finish_tool_line(ToolLine {
-                        name: &tool_name,
-                        arguments: &arguments,
+                        name: tool_name.clone(),
+                        arguments: arguments.clone(),
                         is_error: status != "success",
-                        output: &output,
-                        output_summary: &output_summary,
-                        duration,
+                        output: output.clone(),
+                        output_summary: output_summary.clone(),
+                        duration_ms: duration.map(|d| d.as_millis() as u64),
                     });
                     state.completed.push(CompletedTool {
                         internal_call_id,

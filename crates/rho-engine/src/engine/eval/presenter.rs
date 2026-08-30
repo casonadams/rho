@@ -8,7 +8,7 @@ use rho_core::presentation::activity::ActivityToken;
 use rho_core::presentation::presenter::Presenter;
 use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::ToolStreamPort;
-use rho_core::presentation::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
+use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
 
 #[derive(Default)]
 pub struct NoopPresenter;
@@ -30,13 +30,13 @@ impl rho_core::presentation::questions::InteractiveQuestionPort for NoopQuestion
 #[async_trait]
 impl Presenter for NoopPresenter {
     fn write_output(&self, _text: &str) {}
-    fn print_welcome(&self, _display: &WelcomeDisplay<'_>) {}
-    fn print_session_status(&self, _display: &SessionStatus<'_>) {}
+    fn print_welcome(&self, _display: &WelcomeDisplay) {}
+    fn print_session_status(&self, _display: &SessionStatus) {}
     fn print_notice(&self, _text: &str) {}
     fn print_user_block(&self, _input: &str) {}
     fn print_token(&self, _token: &str) {}
     fn print_thinking_token(&self, _token: &str) {}
-    fn finish_tool_line(&self, _line: ToolLine<'_>) {}
+    fn finish_tool_line(&self, _line: ToolLine) {}
     fn flush(&self) {}
     fn has_interactive_ui(&self) -> bool {
         false
@@ -57,7 +57,7 @@ impl Presenter for NoopPresenter {
     async fn prompt_tool_approval(&self, _name: &str, _arguments: &serde_json::Value) -> ApprovalResult {
         ApprovalResult::Approved
     }
-    async fn prompt_bash_approval(&self, _request: BashApproval<'_>) -> ApprovalResult {
+    async fn prompt_bash_approval(&self, _request: BashApproval) -> ApprovalResult {
         ApprovalResult::Approved
     }
     async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {

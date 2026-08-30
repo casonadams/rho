@@ -18,10 +18,8 @@ use rho_core::presentation::stream::ToolStreamPort;
 use rho_core::presentation::summary::{
     clean_command_paths, format_tool_args_summary, read_summary_parts, to_relative_path,
 };
-use rho_core::presentation::types::{
-    ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
-};
 use rho_core::presentation::{ActivityToken, activity_token};
+use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use serde_json::Value;
 use std::fmt;
 use std::io::{self, Write};
@@ -70,7 +68,7 @@ enum ToolApprovalChoice {
 }
 
 impl fmt::Display for ToolApprovalChoice {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str(match self {
             Self::ApplyOnce => "Apply once",
             Self::Deny => "Deny",
@@ -86,7 +84,7 @@ enum BashApprovalChoice {
 }
 
 impl fmt::Display for BashApprovalChoice {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::AllowOnce => formatter.write_str("Allow once"),
             Self::AllowForSession(scope) => write!(formatter, "Allow {scope} for session"),
@@ -226,7 +224,7 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_welcome(&self, display: &WelcomeDisplay<'_>) {
+    pub fn print_welcome(&self, display: &WelcomeDisplay) {
         let location = std::env::current_dir()
             .ok()
             .map(|path| to_relative_path(&path.display().to_string()))
@@ -260,7 +258,7 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_session_status(&self, display: &SessionStatus<'_>) {
+    pub fn print_session_status(&self, display: &SessionStatus) {
         let dim = self.theme.dimmed;
         let status = format_session_status(display);
         let text = format!("{dim}{status}{dim:#}\n");
@@ -405,9 +403,9 @@ impl TerminalRenderer {
         }
     }
 
-    pub async fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
+    pub async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
         let mut actions = vec![BashApprovalChoice::AllowOnce];
-        if let Some(patterns) = crate::tools::analyze_command_safety(request.command).session_patterns {
+        if let Some(patterns) = crate::tools::analyze_command_safety(&request.command).session_patterns {
             actions.push(BashApprovalChoice::AllowForSession(patterns.join("; ")));
         }
         actions.push(BashApprovalChoice::Deny);
@@ -423,7 +421,7 @@ impl TerminalRenderer {
                 label: "Allow".to_string(),
                 description: Some("Allow this single invocation".to_string()),
             }];
-            if let Some(patterns) = crate::tools::analyze_command_safety(request.command).session_patterns {
+            if let Some(patterns) = crate::tools::analyze_command_safety(&request.command).session_patterns {
                 options.push(InteractionOption {
                     label: "Allow for session".to_string(),
                     description: Some(format!("Allow {} for session", patterns.join("; "))),
@@ -434,7 +432,7 @@ impl TerminalRenderer {
                 description: Some("Deny and provide feedback to the agent".to_string()),
             });
 
-            let mut body = format!("tool   bash\nscope  {}", clean_command_paths(request.command));
+            let mut body = format!("tool   bash\nscope  {}", clean_command_paths(&request.command));
             if request.tier == RiskTier::HighRisk && !request.reasons.is_empty() {
                 body.push_str("\n\n");
                 body.push_str(&request.reasons.join("\n"));
@@ -510,17 +508,17 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn finish_tool_line(&self, line: ToolLine<'_>) {
+    pub fn finish_tool_line(&self, line: ToolLine) {
         if let Some(ui) = &self.ui {
             let _ = ui.tool_end();
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(
                 crate::ui::interactive::ToolItem {
-                    name: line.name.to_string(),
+                    name: line.name.clone(),
                     arguments: line.arguments.clone(),
                     is_error: line.is_error,
-                    output: line.output.to_string(),
-                    output_summary: line.output_summary.to_string(),
-                    duration: line.duration,
+                    output: line.output.clone(),
+                    output_summary: line.output_summary.clone(),
+                    duration_ms: line.duration_ms,
                 },
             ));
             return;
@@ -532,9 +530,9 @@ impl TerminalRenderer {
         };
         let title = tool_title_style(line.is_error);
         let accent = self.theme.highlight;
-        let summary = format_tool_args_summary(line.name, line.arguments);
+        let summary = format_tool_args_summary(&line.name, &line.arguments);
         let mut content = if line.name == "read" && !line.is_error {
-            let (path, range) = read_summary_parts(line.arguments);
+            let (path, range) = read_summary_parts(&line.arguments);
             let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
             format!(
                 "{title}read{title:#} {accent}{path}{accent:#}{}",
@@ -548,7 +546,7 @@ impl TerminalRenderer {
                 .unwrap_or("");
             let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
             let dim = self.theme.dimmed;
-            let kind = webfetch_content_kind(line.arguments);
+            let kind = webfetch_content_kind(&line.arguments);
             format!(
                 "{title}webfetch{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}"
             )
@@ -556,24 +554,24 @@ impl TerminalRenderer {
             format!("{title}{}{title:#} {accent}{summary}{accent:#}", line.name)
         };
         if !line.is_error && line.name == "edit" {
-            if let Some(diff) = format_edit_diff(line.arguments, &self.theme) {
+            if let Some(diff) = format_edit_diff(&line.arguments, &self.theme) {
                 content.push('\n');
                 content.push_str(&diff);
             }
         } else if !line.is_error && line.name == "write" {
-            if let Some(preview) = format_write_preview(line.arguments, &self.theme) {
+            if let Some(preview) = format_write_preview(&line.arguments, &self.theme) {
                 content.push('\n');
                 content.push_str(&preview);
             }
         } else if line.name == "bash" || line.is_error {
             content.push_str("\n\n");
-            content.push_str(&format_tool_output_preview(line.output, line.output_summary));
+            content.push_str(&format_tool_output_preview(&line.output, &line.output_summary));
         }
 
-        if let Some(duration) = line.duration {
+        if let Some(duration) = line.duration_ms {
             let dim = self.theme.dimmed;
             content.push('\n');
-            content.push_str(&format!("{dim}Took {}{dim:#}", super::format_duration(duration)));
+            content.push_str(&format!("{dim}Took {}{dim:#}", super::format_duration_ms(duration)));
         }
 
         let block = BlockFormat::new(background, terminal_width())
@@ -638,7 +636,7 @@ impl TerminalRenderer {
         self.write_output(&format!("{header}{name}{header:#} {dim}{summary}{dim:#}\n"));
     }
 
-    pub fn print_tool_end(&self, outcome: ToolOutcome<'_>) {
+    pub fn print_tool_end(&self, outcome: ToolOutcome) {
         if outcome.is_error {
             let err = self.theme.tool_err;
             self.write_output(&format!(
@@ -668,11 +666,11 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::write_output(self, text);
     }
 
-    fn print_welcome(&self, display: &WelcomeDisplay<'_>) {
+    fn print_welcome(&self, display: &WelcomeDisplay) {
         TerminalRenderer::print_welcome(self, display);
     }
 
-    fn print_session_status(&self, display: &SessionStatus<'_>) {
+    fn print_session_status(&self, display: &SessionStatus) {
         TerminalRenderer::print_session_status(self, display);
     }
 
@@ -692,7 +690,7 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::print_thinking_token(self, token);
     }
 
-    fn finish_tool_line(&self, line: ToolLine<'_>) {
+    fn finish_tool_line(&self, line: ToolLine) {
         TerminalRenderer::finish_tool_line(self, line);
     }
 
@@ -733,7 +731,7 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::prompt_tool_approval(self, name, arguments).await
     }
 
-    async fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
+    async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
         TerminalRenderer::prompt_bash_approval(self, request).await
     }
 

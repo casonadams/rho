@@ -7,7 +7,7 @@ use crate::ui::block::BlockFormat;
 use crate::ui::theme::Theme;
 use rho_core::bash_ast::RiskTier;
 use rho_core::presentation::summary::{approval_heading, bash_approval_details};
-use rho_core::presentation::types::{BashApproval, SessionStatus};
+use rho_core::presentation::{BashApproval, SessionStatus};
 
 struct DiffFormatter<'a> {
     theme: &'a Theme,
@@ -65,7 +65,7 @@ impl<'a> DiffFormatter<'a> {
     }
 }
 
-pub(super) fn format_bash_approval_card(request: &BashApproval<'_>, theme: &Theme, width: usize) -> String {
+pub(super) fn format_bash_approval_card(request: &BashApproval, theme: &Theme, width: usize) -> String {
     let high_risk = request.tier == RiskTier::HighRisk;
     let title = anstyle::Style::new().bold().fg_color(Some(if high_risk {
         anstyle::AnsiColor::Red.into()
@@ -127,9 +127,9 @@ pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme) -> O
     Some(out)
 }
 
-pub(super) fn format_session_status(session: &SessionStatus<'_>) -> String {
-    let mut parts = vec![session.model.to_string(), session.context.to_string()];
-    if let Some(usage) = session.quota {
+pub fn format_session_status(session: &SessionStatus) -> String {
+    let mut parts = vec![session.model.clone(), session.context.to_string()];
+    if let Some(usage) = session.quota.as_deref() {
         parts.push(usage.to_string());
     }
     parts.join(" | ")

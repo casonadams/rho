@@ -1,4 +1,4 @@
-use rho_sdk::capability::{ActiveCapability, CapabilityId, PluginOrigin, ValidatedManifest};
+use rho_sdk::capability::{ActiveCapability, CapabilityId, CapabilityKind, PluginOrigin, ValidatedManifest};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +129,13 @@ fn resolve_plugin(report: &mut ResolutionReport, plugin: CapabilityPlugin, built
                     "capability {} conflicts without an authorized replacement",
                     declaration.id
                 ));
+            }
+            // A session resolves exactly one presentation capability: a second
+            // ui capability must go through the authorized replacement path.
+            if declaration.id.kind() == CapabilityKind::Ui
+                && report.active.keys().any(|active| active.kind() == CapabilityKind::Ui)
+            {
+                return Err("a second presentation capability conflicts with the active one".to_string());
             }
             &declaration.id
         };
@@ -313,5 +320,65 @@ mod tests {
             ],
         );
         assert_eq!(report.active[&id("tool:bash")].plugin_id.as_str(), "zeta");
+    }
+
+    #[test]
+    fn two_ui_presenters_reject_without_authorized_replacement_and_the_bundled_stays_active() {
+        let report = CapabilityResolver::resolve(
+            vec![plugin(
+                "rho.builtin",
+                &[("tool:bash", None), ("ui:bundled-terminal", None)],
+                (false, &[]),
+            )],
+            vec![plugin("second-ui", &[("ui:second", None)], (true, &[]))],
+        );
+        let second = report
+            .plugins
+            .iter()
+            .find(|resolution| resolution.plugin_id.as_str() == "second-ui")
+            .unwrap();
+        assert!(matches!(second.status, PluginResolutionStatus::Rejected { .. }));
+        assert_eq!(
+            report.active[&id("ui:bundled-terminal")].plugin_id.as_str(),
+            "rho.builtin"
+        );
+        assert_eq!(report.active.len(), 2);
+    }
+
+    #[test]
+    fn an_authorized_ui_replacement_deactivates_the_bundled_presenter() {
+        let report = CapabilityResolver::resolve(
+            vec![plugin(
+                "rho.builtin",
+                &[("tool:bash", None), ("ui:bundled", None)],
+                (false, &[]),
+            )],
+            vec![plugin(
+                "fancy-ui",
+                &[("ui:fancy", Some("ui:bundled"))],
+                (true, &["ui:bundled"]),
+            )],
+        );
+        assert_eq!(report.active[&id("ui:bundled")].plugin_id.as_str(), "fancy-ui");
+        assert_eq!(report.active[&id("ui:bundled")].replaces, Some(id("ui:bundled")));
+    }
+
+    #[test]
+    fn a_failed_ui_plugin_leaves_unrelated_capabilities_active() {
+        let report = CapabilityResolver::resolve(
+            vec![built_in()],
+            vec![plugin(
+                "broken-ui",
+                &[("ui:broken", Some("ui:missing"))],
+                (true, &["ui:missing"]),
+            )],
+        );
+        let broken = report
+            .plugins
+            .iter()
+            .find(|resolution| resolution.plugin_id.as_str() == "broken-ui")
+            .unwrap();
+        assert!(matches!(broken.status, PluginResolutionStatus::Rejected { .. }));
+        assert_eq!(report.active.len(), 3);
     }
 }

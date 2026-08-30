@@ -6,12 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum RiskTier {
-    ReadOnly,
-    Mutating,
-    HighRisk,
-}
+pub use rho_sdk::ui::RiskTier;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SafetyAnalysis {

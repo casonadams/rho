@@ -1,12 +1,12 @@
 //! Path-cleaning, tool-arg summarization, and bash-approval helpers.
 
-use super::types::BashApproval;
 use crate::args::read::DEFAULT_READ_LIMIT;
-use crate::bash_ast::RiskTier;
+use rho_sdk::ui::BashApproval;
+use rho_sdk::ui::RiskTier;
 use std::path::Path;
 
-pub fn bash_approval_details(request: &BashApproval<'_>) -> Vec<String> {
-    let mut lines = vec![format!("$ {}", clean_command_paths(request.command))];
+pub fn bash_approval_details(request: &BashApproval) -> Vec<String> {
+    let mut lines = vec![format!("$ {}", clean_command_paths(&request.command))];
     if request.tier == RiskTier::HighRisk && !request.reasons.is_empty() {
         lines.push(String::new());
         lines.extend(request.reasons.iter().map(|reason| reason.to_string()));

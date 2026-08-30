@@ -19,8 +19,8 @@ pub use renderer::{RenderActivity, TerminalRenderer};
 pub(crate) use renderer::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
 pub use rho_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
-pub use rho_core::presentation::types::{
-    ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
+pub use rho_core::presentation::{
+    ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
 };
 
 pub fn format_duration(duration: std::time::Duration) -> String {
@@ -31,5 +31,22 @@ pub fn format_duration(duration: std::time::Duration) -> String {
         format!("{secs}s")
     } else {
         format!("{}ms", duration.as_millis())
+    }
+}
+
+/// Formats a tool duration given in milliseconds.
+pub fn format_duration_ms(duration_ms: u64) -> String {
+    let seconds = duration_ms / 1000;
+    let millis = duration_ms % 1000;
+    if seconds >= 60 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else if seconds > 0 {
+        if millis == 0 {
+            format!("{}s", seconds)
+        } else {
+            format!("{}.{:03}s", seconds, millis)
+        }
+    } else {
+        format!("{}ms", duration_ms)
     }
 }

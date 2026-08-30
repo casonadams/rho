@@ -118,8 +118,8 @@ impl ReplSession {
         let mut controller = TerminalController::stdout(state)?;
         let mut input = TerminalInputReader::spawn()?;
         self.renderer.print_welcome(&WelcomeDisplay {
-            model: &self.config.model,
-            provider: &self.config.provider,
+            model: self.config.model.clone(),
+            provider: self.config.provider.clone(),
             auto_approve: self.config.auto_approve,
             resumed: self.resume_id.is_some(),
         });

@@ -143,3 +143,31 @@ The plan is complete when:
 - plugin permissions and failure behavior are explicit;
 - cross-layer, fault-injection, redaction, and offline tests pass;
 - the full repository verification gate passes from a clean checkout.
+
+## Sources
+
+### README accuracy verification (2026-08-29)
+
+Verified README claims against source in crates/rho-engine (engine/provider/registry.rs, engine/quota.rs), crates/rho-core (provider.rs, error.rs, config.rs) and crates/rho-sdk (capability.rs). Findings:
+
+- All documented providers, auth env vars, context ceilings (gpt-5/luna/codex=376k, claude/gemini=1000k, deepseek=128k; o1/o3=200k), the five-hour quota window, and ChatGPT & Copilot OAuth flows match the code exactly.
+- Code catalog is a superset: README lists 8 providers; `ProviderId::ALL` has 12 — `xAi`, `mistral`, `cohere` are present in the catalog but undocumented. Plus the o1/o3 200k context ceiling.
+- README under-reports (additive only); no factual inaccuracies.
+
+### CLI verification (2026-08-29)
+
+Verified against src/cli.rs and crates/rho-core/src/config/cli.rs. Findings:
+
+- `rho` (REPL), `-p ""` one-shot, `--model`/`--provider`, `--resume <SESSION_ID>`, `rho config <key> <value>` (set) / `rho config` (show), and `rho plugin install <pkg>` / `rho plugin list` (plus `remove`, `inspect`) all exist and match the README.
+- One factual discrepancy: example model ids `claude-sonnet-4-6` and `gpt-5.6-luna` are fictional. The default engine model is `claude-3-7-sonnet-20250219`; the CLI accepts `--model` as an opaque string with no catalog validation. CLI form is valid but the model string does not map to a real/default model.
+- Default config: `src/cli.rs` dispatch, config merge precedence (file -> env -> CLI) in crates/rho-core/src/config/merge.rs:71-79.
+
+### Interactive UI verification (2026-08-29)
+
+Verified against src/ui/interactive/layout.rs, src/ui/interactive/controller.rs, src/repl/live.rs, src/repl/mod.rs, src/cli.rs. Findings:
+
+- Live UI is gated on both stdin AND stdout being TTYs (`src/repl/live.rs:103-104`, `src/repl/mod.rs:101`); legacy reedline fallback + queue-free when either is non-TTY; one-shot print path in src/cli.rs:57-130 — all match README.
+- Live editor uses the **normal** screen (alternate screen absent everywhere; controller.rs only enables raw mode), editor grows upward — matches README.
+- Footer = `model | context | quota`, falling back to `activity.label()` only when all empty (`layout.rs:364-379`).
+- Queued messages render as separate **lines above the editor**, not as a `N queued` footer segment (`layout.rs:175-193`).
+- **Discrepancy:** the README example footer lines `⠋ thinking | gpt-5.6-luna | 2.9% (376k) | 74% (5d9h) | 2 queued` — the `2 queued` is not a footer segment in code, and the leading `⠋ thinking` word is not shown in the footer either (the working line shows `Working...`, not "thinking"; activity label appears in the footer only when model/context/quota are all empty). README prose "queued-message count" is also slightly off — it is a count of queued lines above the editor, not a footer count.

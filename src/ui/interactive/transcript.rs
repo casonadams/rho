@@ -1,8 +1,6 @@
-use std::time::Duration;
-
 use crate::ui::block::BlockFormat;
 use crate::ui::render::{
-    format_duration, format_edit_diff, format_thinking_block, format_tool_args_summary, format_tool_output_preview,
+    format_duration_ms, format_edit_diff, format_thinking_block, format_tool_args_summary, format_tool_output_preview,
     format_write_preview, read_summary_parts, tool_title_style, webfetch_content_kind,
 };
 use crate::ui::theme::Theme;
@@ -24,7 +22,7 @@ pub struct ToolItem {
     pub is_error: bool,
     pub output: String,
     pub output_summary: String,
-    pub duration: Option<Duration>,
+    pub duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,10 +137,10 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 }
             }
 
-            if let Some(duration) = tool.duration {
+            if let Some(duration_ms) = tool.duration_ms {
                 let dim = theme.dimmed;
                 content.push('\n');
-                content.push_str(&format!("{dim}Took {}{dim:#}", format_duration(duration)));
+                content.push_str(&format!("{dim}Took {}{dim:#}", format_duration_ms(duration_ms)));
             }
 
             let block = BlockFormat::new(background, width)
@@ -180,7 +178,7 @@ mod tests {
             is_error: false,
             output: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10".into(),
             output_summary: "summary".into(),
-            duration: Some(Duration::from_millis(150)),
+            duration_ms: Some(150),
         });
 
         let collapsed = render_transcript_item(TranscriptRenderInput {

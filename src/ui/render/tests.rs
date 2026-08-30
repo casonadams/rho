@@ -1,7 +1,5 @@
 //! Tests for the `ui::render` module.
 
-use std::time::Duration;
-
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
@@ -13,7 +11,7 @@ use crate::ui::theme::Theme;
 use rho_core::presentation::summary::{
     approval_heading, bash_approval_details, clean_command_paths, read_summary_parts, to_relative_path,
 };
-use rho_core::presentation::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine};
+use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine};
 
 #[test]
 fn interactive_renderer_emits_formatted_output_and_activity_events() {
@@ -26,12 +24,12 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     renderer.print_token("answer");
     renderer.flush();
     renderer.finish_tool_line(ToolLine {
-        name: "read",
-        arguments: &serde_json::json!({"path": "src/lib.rs"}),
+        name: "read".to_string(),
+        arguments: serde_json::json!({"path": "src/lib.rs"}),
         is_error: false,
-        output: "contents",
-        output_summary: "contents",
-        duration: None,
+        output: "contents".to_string(),
+        output_summary: "contents".to_string(),
+        duration_ms: None,
     });
 
     let mut activity_events = Vec::new();
@@ -65,12 +63,12 @@ fn finished_bash_block_includes_elapsed_duration() {
     let renderer = TerminalRenderer::with_ui(ui);
 
     renderer.finish_tool_line(ToolLine {
-        name: "bash",
-        arguments: &serde_json::json!({"command": "cargo test --all-targets"}),
+        name: "bash".to_string(),
+        arguments: serde_json::json!({"command": "cargo test --all-targets"}),
         is_error: false,
-        output: "test result: ok",
-        output_summary: "test result: ok",
-        duration: Some(Duration::from_secs(5)),
+        output: "test result: ok".to_string(),
+        output_summary: "test result: ok".to_string(),
+        duration_ms: Some(5000),
     });
 
     let mut output = String::new();
@@ -103,10 +101,10 @@ fn print_session_status_and_notice_emit_transcript_item() {
     let renderer = TerminalRenderer::with_ui(ui);
 
     renderer.print_session_status(&SessionStatus {
-        model: "claude-sonnet",
-        provider: "anthropic",
-        context: "42% context",
-        quota: Some("80% quota"),
+        model: "claude-sonnet".to_string(),
+        provider: "anthropic".to_string(),
+        context: "42% context".to_string(),
+        quota: Some("80% quota".to_string()),
         auto_approve: true,
     });
     renderer.print_notice("  [Notice message]\n");
@@ -175,9 +173,9 @@ async fn interactive_bash_approval_preserves_session_and_high_risk_defaults() {
     let session_approval = tokio::spawn(async move {
         session_renderer
             .prompt_bash_approval(BashApproval {
-                command: "cargo test",
+                command: "cargo test".to_string(),
                 tier: RiskTier::Mutating,
-                reasons: &[],
+                reasons: Vec::new(),
             })
             .await
     });
@@ -193,9 +191,9 @@ async fn interactive_bash_approval_preserves_session_and_high_risk_defaults() {
         let reasons = vec!["Discards changes".to_string()];
         high_risk_renderer
             .prompt_bash_approval(BashApproval {
-                command: "git reset --hard",
+                command: "git reset --hard".to_string(),
                 tier: RiskTier::HighRisk,
-                reasons: &reasons,
+                reasons: reasons.clone(),
             })
             .await
     });
@@ -235,9 +233,9 @@ async fn interactive_budget_confirmation_fails_closed() {
 fn ordinary_bash_approval_shows_only_the_command() {
     let reasons = vec!["Writes output through file redirection".to_string()];
     let details = bash_approval_details(&BashApproval {
-        command: "echo test > output.txt",
+        command: "echo test > output.txt".to_string(),
         tier: RiskTier::Mutating,
-        reasons: &reasons,
+        reasons: reasons.clone(),
     });
 
     assert_eq!(details, ["$ echo test > output.txt"]);
@@ -247,9 +245,9 @@ fn ordinary_bash_approval_shows_only_the_command() {
 fn high_risk_bash_approval_explains_the_risk() {
     let reasons = vec!["Discards uncommitted changes".to_string()];
     let details = bash_approval_details(&BashApproval {
-        command: "git reset --hard",
+        command: "git reset --hard".to_string(),
         tier: RiskTier::HighRisk,
-        reasons: &reasons,
+        reasons: reasons.clone(),
     });
 
     assert_eq!(details, ["$ git reset --hard", "", "Discards uncommitted changes"]);
@@ -262,9 +260,9 @@ fn bash_approval_cards_match_transcript_blocks() {
     let theme = Theme::default();
     let ordinary = format_bash_approval_card(
         &BashApproval {
-            command: "cargo test",
+            command: "cargo test".to_string(),
             tier: RiskTier::Mutating,
-            reasons: &[],
+            reasons: Vec::new(),
         },
         &theme,
         40,
@@ -276,9 +274,9 @@ fn bash_approval_cards_match_transcript_blocks() {
     let reasons = vec!["Discards uncommitted changes".to_string()];
     let high_risk = format_bash_approval_card(
         &BashApproval {
-            command: "git reset --hard",
+            command: "git reset --hard".to_string(),
             tier: RiskTier::HighRisk,
-            reasons: &reasons,
+            reasons: reasons.clone(),
         },
         &theme,
         40,
@@ -392,19 +390,19 @@ fn tool_output_previews_are_bounded() {
 fn session_status_keeps_runtime_context_visible() {
     assert_eq!(
         format_session_status(&SessionStatus {
-            model: "claude-sonnet",
-            provider: "anthropic",
-            context: "27.4% (1M)",
-            quota: Some("93% (3h22m)"),
+            model: "claude-sonnet".to_string(),
+            provider: "anthropic".to_string(),
+            context: "27.4% (1M)".to_string(),
+            quota: Some("93% (3h22m)".to_string()),
             auto_approve: false,
         }),
         "claude-sonnet | 27.4% (1M) | 93% (3h22m)"
     );
     assert_eq!(
         format_session_status(&SessionStatus {
-            model: "qwen",
-            provider: "ollama",
-            context: "0% (376k)",
+            model: "qwen".to_string(),
+            provider: "ollama".to_string(),
+            context: "0% (376k)".to_string(),
             quota: None,
             auto_approve: true,
         }),

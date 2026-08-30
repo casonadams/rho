@@ -107,8 +107,8 @@ impl ReplSession {
 
     async fn run_legacy(&mut self) -> Result<()> {
         self.renderer.print_welcome(&WelcomeDisplay {
-            model: &self.config.model,
-            provider: &self.config.provider,
+            model: self.config.model.clone(),
+            provider: self.config.provider.clone(),
             auto_approve: self.config.auto_approve,
             resumed: self.resume_id.is_some(),
         });
@@ -155,10 +155,10 @@ impl ReplSession {
 
             let quota = engine.quota_display();
             self.renderer.print_session_status(&SessionStatus {
-                model: &self.config.model,
-                provider: &self.config.provider,
-                context: &engine.context_remaining_display(),
-                quota: quota.as_deref(),
+                model: self.config.model.clone(),
+                provider: self.config.provider.clone(),
+                context: engine.context_remaining_display(),
+                quota: quota.clone(),
                 auto_approve: self.config.auto_approve,
             });
 
