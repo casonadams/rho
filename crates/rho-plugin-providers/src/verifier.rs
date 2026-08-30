@@ -5,9 +5,9 @@
 //! return [`VerificationStatus::Deferred`] — the actual verification happens
 //! later when the token is exchanged.
 
-use super::ProviderId;
 use crate::auth::{ApiKeyVerifier, VerificationStatus};
 use rho_core::error::{AppError, Result};
+use rho_core::provider::ProviderId;
 use rig::client::VerifyClient;
 
 pub struct RigCredentialVerifier;

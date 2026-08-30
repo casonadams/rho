@@ -1,4 +1,3 @@
-use super::ProviderId;
 use super::catalog::ModelCatalog;
 use super::catalog::curated;
 use crate::auth::{AuthStore, CredentialScope};
@@ -7,6 +6,7 @@ use futures::stream::BoxStream;
 use rho_core::config::Config;
 use rho_core::error::{AppError, Result};
 use rho_core::provider::CredentialStrategy;
+use rho_core::provider::ProviderId;
 use rho_host::external::{ExternalPlugin, ExternalProvider};
 use rho_host::loader::{ConfiguredStatus, PluginLoader};
 use rho_host::process::ProcessLimits;

@@ -5,8 +5,8 @@
 //! permissions. The on-disk helpers ([`set_private_file_permissions`],
 //! [`non_empty`]) are file-local because nothing outside this module needs them.
 
-use crate::engine::provider::{CredentialStrategy, ProviderId};
 use rho_core::error::{AppError, Result};
+use rho_core::provider::{CredentialStrategy, ProviderId};
 use rho_sdk::capability::{CapabilityId, PluginId};
 use rho_sdk::contract::ScopedCredential;
 use serde::{Deserialize, Serialize};
@@ -212,7 +212,7 @@ impl AuthStore {
             .insert(key, VersionedCredential { generation, credential });
     }
 
-    pub(crate) fn secret_values(&self) -> Vec<String> {
+    pub fn secret_values(&self) -> Vec<String> {
         self.credentials
             .values()
             .chain(self.scoped_credentials.values().map(|record| &record.credential))

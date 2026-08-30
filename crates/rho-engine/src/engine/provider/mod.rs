@@ -16,17 +16,8 @@
 //! `ModelRequest`, `RigCredentialVerifier`, `ModelCatalog`, `list_models`,
 //! `curated`) is preserved exactly.
 
-mod catalog;
-mod factory;
-pub mod host_loop;
-pub mod registry;
-mod verifier;
-
-pub use catalog::{ModelCatalog, curated, list_models};
-pub use factory::{ModelRequest, ProviderFactory};
 pub use rho_core::provider::{CredentialStrategy, ProviderId};
-pub use verifier::RigCredentialVerifier;
-
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
+pub use rho_plugin_providers::{
+    ModelCatalog, ModelRequest, ProviderFactory, RigCredentialVerifier, curated, list_models, registry,
+};
+pub mod host_loop;

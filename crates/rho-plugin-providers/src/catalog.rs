@@ -1,10 +1,10 @@
 //! Model discovery: live listings where rig supports it, curated fallbacks
 //! otherwise.
 
-use super::ProviderId;
 use super::factory::api_key;
 use crate::auth::{AuthStore, copilot_client};
 use rho_core::error::{AppError, Result};
+use rho_core::provider::ProviderId;
 use rig::client::ModelListingClient;
 use std::path::Path;
 

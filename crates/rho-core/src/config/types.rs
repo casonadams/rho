@@ -24,6 +24,8 @@ pub(crate) enum ConfigKey {
     Region,
     SteeringMode,
     FollowUpMode,
+    ReserveTokens,
+    KeepRecentTokens,
 }
 
 impl FromStr for ConfigKey {
@@ -49,6 +51,8 @@ impl FromStr for ConfigKey {
             "region" => Ok(Self::Region),
             "steering_mode" => Ok(Self::SteeringMode),
             "follow_up_mode" => Ok(Self::FollowUpMode),
+            "reserve_tokens" => Ok(Self::ReserveTokens),
+            "keep_recent_tokens" => Ok(Self::KeepRecentTokens),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -75,6 +79,8 @@ impl ConfigKey {
             Self::Region => "region",
             Self::SteeringMode => "steering_mode",
             Self::FollowUpMode => "follow_up_mode",
+            Self::ReserveTokens => "reserve_tokens",
+            Self::KeepRecentTokens => "keep_recent_tokens",
         }
     }
 }
@@ -147,6 +153,8 @@ pub struct Config {
     pub context_limit: Option<usize>,
     pub context_window_messages: usize,
     pub compaction_max_bytes: usize,
+    pub reserve_tokens: usize,
+    pub keep_recent_tokens: usize,
     pub search_min_interval_ms: u64,
     pub search_timeout_sec: u64,
     pub fetch_timeout_sec: u64,
@@ -176,6 +184,8 @@ impl Default for Config {
             context_limit: None,
             context_window_messages: crate::session::context::DEFAULT_CONTEXT_WINDOW_MESSAGES,
             compaction_max_bytes: crate::session::context::DEFAULT_COMPACTION_MAX_BYTES,
+            reserve_tokens: crate::tokens::DEFAULT_RESERVE_TOKENS,
+            keep_recent_tokens: crate::tokens::DEFAULT_KEEP_RECENT_TOKENS,
             search_min_interval_ms: 2000,
             search_timeout_sec: 12,
             fetch_timeout_sec: 8,
@@ -205,6 +215,8 @@ pub(super) struct FileConfig {
     pub context_limit: Option<usize>,
     pub context_window_messages: Option<usize>,
     pub compaction_max_bytes: Option<usize>,
+    pub reserve_tokens: Option<usize>,
+    pub keep_recent_tokens: Option<usize>,
     pub search_min_interval_ms: Option<u64>,
     pub search_timeout_sec: Option<u64>,
     pub fetch_timeout_sec: Option<u64>,

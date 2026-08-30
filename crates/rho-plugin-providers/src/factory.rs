@@ -11,9 +11,9 @@
 //! [`build_chatgpt_model`], [`build_copilot_model`], and [`build_ollama_model`]
 //! based on the provider's [`crate::engine::provider::CredentialStrategy`].
 
-use super::ProviderId;
 use crate::auth::{AuthStore, chatgpt_client, copilot_client};
 use rho_core::error::{AppError, Result};
+use rho_core::provider::ProviderId;
 use rig::agent::ModelHandle;
 use rig::client::CompletionClient;
 use std::path::Path;

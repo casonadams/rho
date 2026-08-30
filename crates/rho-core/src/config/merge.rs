@@ -27,6 +27,12 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(value) = file.compaction_max_bytes {
         config.compaction_max_bytes = value;
     }
+    if let Some(value) = file.reserve_tokens {
+        config.reserve_tokens = value;
+    }
+    if let Some(value) = file.keep_recent_tokens {
+        config.keep_recent_tokens = value;
+    }
     if let Some(s) = file.search_min_interval_ms {
         config.search_min_interval_ms = s;
     }
@@ -92,6 +98,12 @@ where
     }
     if let Some(val) = get("AI_COMPACTION_MAX_BYTES") {
         config.compaction_max_bytes = parse_positive("AI_COMPACTION_MAX_BYTES", &val)?;
+    }
+    if let Some(val) = get("AI_RESERVE_TOKENS") {
+        config.reserve_tokens = parse_positive("AI_RESERVE_TOKENS", &val)?;
+    }
+    if let Some(val) = get("AI_KEEP_RECENT_TOKENS") {
+        config.keep_recent_tokens = parse_positive("AI_KEEP_RECENT_TOKENS", &val)?;
     }
     if let Some(val) = get("AI_MAX_OUTPUT_TOKENS") {
         config.max_output_tokens = Some(parse_positive("AI_MAX_OUTPUT_TOKENS", &val)?);

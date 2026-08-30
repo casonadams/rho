@@ -9,10 +9,10 @@ use super::{
     ApiKeyVerifier, AuthStore, Credential, CredentialScope, CredentialUpdate, OAuthManager, PendingApiKey,
     VerificationStatus, cancellable_oauth, store_api_key_after_verification,
 };
-use crate::engine::provider::registry::ProviderRegistry;
+use crate::registry::ProviderRegistry;
 
-use crate::engine::provider::ProviderId;
 use rho_core::error::AppError;
+use rho_core::provider::ProviderId;
 use std::path::PathBuf;
 use std::sync::Mutex;
 

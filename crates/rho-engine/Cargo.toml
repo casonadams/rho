@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 rho-core.workspace = true
 rho-host.workspace = true
+rho-plugin-providers.workspace = true
 rho-sdk.workspace = true
 async-trait.workspace = true
 futures.workspace = true

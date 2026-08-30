@@ -24,6 +24,7 @@ rig-memory = "0.42"
 toml = "0.8"
 tokio = { workspace = true, features = ["sync", "rt", "macros"] }
 uuid = { workspace = true, features = ["v4"] }
+tiktoken-rs.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -1,10 +1,10 @@
 pub use crate::repeat;
 pub use crate::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
+pub use rho_plugin_providers::quota;
 pub mod builder;
 pub mod context;
 pub mod metrics;
 pub mod provider;
-pub mod quota;
 pub mod runner;
 pub mod runtime;
 pub mod tracking;

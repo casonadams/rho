@@ -9,8 +9,8 @@
 //! token files per provider.
 
 use crate::auth::credential::set_private_file_permissions;
-use crate::engine::provider::{CredentialStrategy, ProviderId};
 use rho_core::error::{AppError, Result};
+use rho_core::provider::{CredentialStrategy, ProviderId};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]

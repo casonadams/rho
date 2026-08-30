@@ -11,4 +11,5 @@ pub mod provider;
 pub mod queue;
 pub mod session;
 pub mod skills;
+pub mod tokens;
 pub mod workspace;

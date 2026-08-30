@@ -1,0 +1,26 @@
+[package]
+name = "rho-plugin-providers"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "rho built-in provider identity, contexts, catalogs, oauth, and scoped-credential operations"
+license.workspace = true
+
+[dependencies]
+rho-core.workspace = true
+rho-host.workspace = true
+rho-sdk.workspace = true
+async-trait = "0.1"
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "rt", "time"] }
+uuid.workspace = true
+rig = "0.42"
+rig-memory = "0.42"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+[dev-dependencies]

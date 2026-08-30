@@ -11,8 +11,8 @@
 //! paths can be exercised without network access.
 
 use crate::auth::AuthStore;
-use crate::engine::provider::ProviderId;
 use rho_core::error::{AppError, Result};
+use rho_core::provider::ProviderId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationStatus {

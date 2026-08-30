@@ -5,6 +5,7 @@ members = [
     "crates/rho-sdk",
     "crates/rho-core",
     "crates/rho-plugin-builtin",
+    "crates/rho-plugin-providers",
     "crates/rho-engine",
     "crates/rho-host",
 ]
@@ -26,9 +27,11 @@ uuid = "1.13"
 jsonschema = { version = "0.52", default-features = false }
 thiserror = "2.0"
 anyhow = "1.0"
+tiktoken-rs = "0.6"
 rho-sdk = { path = "crates/rho-sdk" }
 rho-core = { path = "crates/rho-core" }
 rho-plugin-builtin = { path = "crates/rho-plugin-builtin" }
+rho-plugin-providers = { path = "crates/rho-plugin-providers" }
 rho-engine = { path = "crates/rho-engine" }
 rho-host = { path = "crates/rho-host" }
 

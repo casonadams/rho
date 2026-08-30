@@ -106,6 +106,20 @@ impl AgentEngine {
         let mut checkpoint = None;
         let mut max_turns = self.config.max_turns;
 
+        let window_size = self
+            .context_limit()
+            .unwrap_or_else(|| rho_core::tokens::context_window_size(&self.config.model));
+        let token_stats = rho_core::tokens::calculate_context_tokens(&messages, None, &self.config.model);
+        if rho_core::tokens::should_compact(token_stats.total_tokens, window_size, self.config.reserve_tokens) {
+            let cut_idx =
+                rho_core::tokens::find_token_cut_point(&messages, self.config.keep_recent_tokens, &self.config.model);
+            if cut_idx > 1 && cut_idx < messages.len() {
+                let mut compacted = vec![messages[0].clone()];
+                compacted.extend_from_slice(&messages[cut_idx..]);
+                messages = compacted;
+            }
+        }
+
         let default_cancellation = CancellationSignal::default();
         let cancellation = request.cancellation.unwrap_or(&default_cancellation);
         let default_steering = crate::engine::provider::host_loop::NoopSteeringQueue;
