@@ -37,6 +37,10 @@ pub struct Cli {
     #[arg(long = "resume")]
     pub resume: Option<String>,
 
+    /// Continue the last session in the current working directory
+    #[arg(short = 'c', long = "continue", default_value_t = false)]
+    pub r#continue: bool,
+
     /// Subcommand to execute
     #[command(subcommand)]
     pub command: Option<Commands>,

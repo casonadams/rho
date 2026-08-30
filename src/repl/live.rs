@@ -132,7 +132,10 @@ impl ReplSession {
                 .into_iter()
                 .map(|skill| skill.metadata.name)
                 .collect();
-        let completions = CompletionSet::rho(&[], skill_names);
+        let assembly = crate::platform::active_tools(&self.config, &std::env::current_dir()?).await?;
+        self.commands = assembly.commands;
+        let ext_cmds: Vec<(&str, &str)> = self.commands.keys().map(|k| (k.as_str(), "")).collect();
+        let completions = CompletionSet::rho(&ext_cmds, skill_names);
 
         loop {
             let message = match controller.state_mut().pop_queued() {
@@ -194,6 +197,8 @@ impl ReplSession {
                 config: &mut self.config,
                 auth_store: &mut self.auth_store,
                 renderer: &self.renderer,
+                commands: Some(&self.commands),
+                session_id: Some(&engine.session_manager.session_id),
             };
             let result = SlashCommandHandler::handle(input, &mut command_context).await;
             let controller_result = controller.resume();
@@ -223,6 +228,60 @@ impl ReplSession {
                 CommandResult::Login { provider } => {
                     crate::cli::login_provider(provider.as_deref(), &self.config, &mut self.auth_store).await?;
                     *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
+                }
+                CommandResult::Compact { .. } => {
+                    let session_id = engine.session_manager.session_id.clone();
+                    self.renderer.print_notice("  [Compacting conversation context...]\n");
+                    let memory = crate::session::context::context_memory(
+                        engine.session_manager.clone(),
+                        1,
+                        self.config.compaction_max_bytes,
+                    );
+                    let _ = memory.load(&session_id).await;
+                    self.renderer.print_notice("  [Context compaction completed]\n");
+                }
+                CommandResult::Tree => {
+                    let turns = engine.session_manager.load_turns().await?;
+                    let mut out = format!("\nConversation Tree (Session: {})\n", engine.session_manager.session_id);
+                    if turns.is_empty() {
+                        out.push_str("  (No conversation turns recorded yet)\n");
+                    } else {
+                        let total = turns.len();
+                        for (idx, turn) in turns.iter().enumerate() {
+                            let is_last = idx + 1 == total;
+                            let marker = if is_last { "└──" } else { "├──" };
+                            let current_tag = if is_last { " (Current)" } else { "" };
+                            let prompt_preview = if turn.user_prompt.chars().count() > 40 {
+                                format!("{}...", turn.user_prompt.chars().take(37).collect::<String>())
+                            } else {
+                                turn.user_prompt.clone()
+                            };
+                            let assistant_preview = if turn.assistant_preview.chars().count() > 40 {
+                                format!("{}...", turn.assistant_preview.chars().take(37).collect::<String>())
+                            } else {
+                                turn.assistant_preview.clone()
+                            };
+                            let tools_tag = if turn.tool_calls_count > 0 {
+                                format!(" ({} tool calls)", turn.tool_calls_count)
+                            } else {
+                                String::new()
+                            };
+                            use std::fmt::Write as _;
+                            let _ = writeln!(
+                                out,
+                                "  {marker} [Turn {}]{current_tag} User: \"{}\" -> Assistant: \"{}\"{tools_tag}",
+                                turn.turn_number, prompt_preview, assistant_preview
+                            );
+                        }
+                        out.push_str("  (Use /rewind <turn_number> to fork or rewind context)\n");
+                    }
+                    self.renderer.print_notice(&out);
+                }
+                CommandResult::Rewind { turn } => {
+                    let retained_count = engine.session_manager.rewind_to_turn(turn).await?;
+                    self.renderer.print_notice(&format!(
+                        "  [Rewound context to Turn {turn} ({retained_count} messages retained)]\n"
+                    ));
                 }
                 CommandResult::Logout { provider } => {
                     crate::cli::logout_provider(provider.as_deref(), &self.config, &mut self.auth_store)?;

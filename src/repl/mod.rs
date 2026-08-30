@@ -23,7 +23,10 @@ use reedline::{
     ColumnarMenu, Completer, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent,
     ReedlineMenu, Signal, Span, Suggestion, default_emacs_keybindings,
 };
+use rho_sdk::contract::CommandCapability;
+use std::collections::BTreeMap;
 use std::io::Write;
+use std::sync::Arc;
 use unicode_width::UnicodeWidthStr;
 
 fn submitted_input_rows(input: &str, terminal_width: usize) -> u16 {
@@ -85,6 +88,7 @@ pub struct ReplSession {
     pub auth_store: AuthStore,
     pub renderer: TerminalRenderer,
     pub resume_id: Option<String>,
+    pub commands: BTreeMap<String, Arc<dyn CommandCapability>>,
 }
 
 impl ReplSession {
@@ -94,6 +98,7 @@ impl ReplSession {
             auth_store,
             renderer: TerminalRenderer::default(),
             resume_id,
+            commands: BTreeMap::new(),
         }
     }
 
@@ -118,6 +123,9 @@ impl ReplSession {
                 .await?;
         engine.refresh_quota().await;
 
+        let assembly = crate::platform::active_tools(&self.config, &std::env::current_dir()?).await?;
+        self.commands = assembly.commands;
+        let ext_cmds: Vec<(&str, &str)> = self.commands.keys().map(|k| (k.as_str(), "")).collect();
         let history_file = self.config.config_dir.join("history.txt");
         let history =
             Box::new(FileBackedHistory::with_file(1000, history_file).unwrap_or_else(|_| FileBackedHistory::default()));
@@ -126,7 +134,7 @@ impl ReplSession {
                 .into_iter()
                 .map(|skill| skill.metadata.name)
                 .collect();
-        let completer = RhoCompleter::new(&[], skill_names);
+        let completer = RhoCompleter::new(&ext_cmds, skill_names);
         let completion_menu = Box::new(ColumnarMenu::default().with_name("slash_commands"));
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(
@@ -176,6 +184,8 @@ impl ReplSession {
                         config: &mut self.config,
                         auth_store: &mut self.auth_store,
                         renderer: &self.renderer,
+                        commands: Some(&self.commands),
+                        session_id: Some(&engine.session_manager.session_id),
                     };
                     if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut cmd_ctx).await? {
                         match cmd_res {
@@ -201,6 +211,48 @@ impl ReplSession {
                                 crate::cli::login_provider(provider.as_deref(), &self.config, &mut self.auth_store)
                                     .await?;
                                 engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
+                                continue;
+                            }
+                            CommandResult::Compact { .. } => {
+                                let session_id = engine.session_manager.session_id.clone();
+                                self.renderer.print_notice("  [Compacting conversation context...]\n");
+                                let memory = crate::session::context::context_memory(
+                                    engine.session_manager.clone(),
+                                    1,
+                                    self.config.compaction_max_bytes,
+                                );
+                                let _ = memory.load(&session_id).await;
+                                self.renderer.print_notice("  [Context compaction completed]\n");
+                                continue;
+                            }
+                            CommandResult::Tree => {
+                                let turns = engine.session_manager.load_turns().await?;
+                                let mut out =
+                                    format!("\nConversation Tree (Session: {})\n", engine.session_manager.session_id);
+                                if turns.is_empty() {
+                                    out.push_str("  (No conversation turns recorded yet)\n");
+                                } else {
+                                    let total = turns.len();
+                                    for (idx, turn) in turns.iter().enumerate() {
+                                        let is_last = idx + 1 == total;
+                                        let marker = if is_last { "└──" } else { "├──" };
+                                        let current_tag = if is_last { " (Current)" } else { "" };
+                                        use std::fmt::Write as _;
+                                        let _ = writeln!(
+                                            out,
+                                            "  {marker} [Turn {}]{current_tag} User: \"{}\" -> Assistant: \"{}\"",
+                                            turn.turn_number, turn.user_prompt, turn.assistant_preview
+                                        );
+                                    }
+                                }
+                                self.renderer.print_notice(&out);
+                                continue;
+                            }
+                            CommandResult::Rewind { turn } => {
+                                let count = engine.session_manager.rewind_to_turn(turn).await?;
+                                self.renderer.print_notice(&format!(
+                                    "  [Rewound context to Turn {turn} ({count} messages retained)]\n"
+                                ));
                                 continue;
                             }
                             CommandResult::Logout { provider } => {

@@ -7,6 +7,7 @@ use crate::engine::provider::{CredentialStrategy, ProviderId, RigCredentialVerif
 use crate::error::{AppError, Result};
 use crate::repl::ReplSession;
 use crate::ui::TerminalRenderer;
+use rho_core::session::SessionManager;
 use std::future::Future;
 use std::io::Read;
 use std::path::Path;
@@ -130,8 +131,15 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    let resume_target = if cli.r#continue {
+        let cwd = std::env::current_dir()?;
+        SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?
+    } else {
+        cli.resume
+    };
+
     if let Some(prompt) = prompt_text {
-        let engine = crate::platform::agent_engine(config, auth_store, cli.resume.as_deref()).await?;
+        let engine = crate::platform::agent_engine(config, auth_store, resume_target.as_deref()).await?;
         let renderer = TerminalRenderer::default();
 
         let res = engine
@@ -151,7 +159,7 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
         }
     } else {
-        let mut session = ReplSession::new(config, auth_store, cli.resume);
+        let mut session = ReplSession::new(config, auth_store, resume_target);
         session.run().await?;
         Ok(())
     }

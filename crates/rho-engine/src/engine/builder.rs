@@ -9,7 +9,9 @@ use rho_core::config::Config;
 use rho_core::dispatch::NeutralToolExecutor;
 use rho_core::error::Result;
 use rho_core::session::SessionManager;
+use rho_sdk::contract::{ContextCapability, LifecycleCapability};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Constructs an engine while keeping provider, session, and plugin setup out
 /// of the run coordinator.
@@ -22,6 +24,8 @@ pub struct AgentEngineBuilder {
     base_dir: Option<PathBuf>,
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
     neutral_executor: Option<std::sync::Arc<dyn NeutralToolExecutor>>,
+    contexts: Vec<Arc<dyn ContextCapability>>,
+    lifecycles: Vec<Arc<dyn LifecycleCapability>>,
 }
 
 impl AgentEngineBuilder {
@@ -35,6 +39,8 @@ impl AgentEngineBuilder {
             session_manager: None,
             session_approvals: None,
             base_dir: None,
+            contexts: Vec::new(),
+            lifecycles: Vec::new(),
         }
     }
 
@@ -69,6 +75,16 @@ impl AgentEngineBuilder {
 
     pub fn base_dir(mut self, base_dir: PathBuf) -> Self {
         self.base_dir = Some(base_dir);
+        self
+    }
+
+    pub fn contexts(mut self, contexts: Vec<Arc<dyn ContextCapability>>) -> Self {
+        self.contexts = contexts;
+        self
+    }
+
+    pub fn lifecycles(mut self, lifecycles: Vec<Arc<dyn LifecycleCapability>>) -> Self {
+        self.lifecycles = lifecycles;
         self
     }
 
@@ -143,6 +159,8 @@ impl AgentEngineBuilder {
             session_manager,
             session_approvals,
             backend,
+            contexts: self.contexts,
+            lifecycles: self.lifecycles,
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
             context: ContextTracker::new(self.config.context_limit),

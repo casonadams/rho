@@ -13,6 +13,13 @@ pub enum CommandResult {
         new_provider: Option<String>,
     },
     ClearContext,
+    Compact {
+        instructions: Option<String>,
+    },
+    Tree,
+    Rewind {
+        turn: usize,
+    },
     Login {
         provider: Option<String>,
     },
@@ -26,10 +33,14 @@ pub struct SlashCommandContext<'a> {
     pub config: &'a mut Config,
     pub auth_store: &'a mut AuthStore,
     pub renderer: &'a TerminalRenderer,
+    pub commands:
+        Option<&'a std::collections::BTreeMap<String, std::sync::Arc<dyn rho_sdk::contract::CommandCapability>>>,
+    pub session_id: Option<&'a str>,
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
-    "/help", "/model", "/skill", "/plugin", "/clear", "/login", "/logout", "/exit",
+    "/help", "/model", "/skill", "/plugin", "/session", "/compact", "/tree", "/rewind", "/clear", "/login", "/logout",
+    "/exit",
 ];
 
 pub struct SlashCommandHandler;
@@ -49,12 +60,59 @@ impl SlashCommandHandler {
         let cmd_name = parts[0].to_lowercase();
         match cmd_name.as_str() {
             "help" => {
-                print_help(ctx.config, ctx.renderer);
+                print_help(ctx.config, ctx.renderer, ctx.commands);
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" => {
                 ctx.renderer.print_notice("  [Conversation context reset]\n");
                 Ok(Some(CommandResult::ClearContext))
+            }
+            "session" => {
+                let mut out = String::new();
+                let _ = writeln!(out, "\nSession Diagnostics");
+                let _ = writeln!(out, "  Model:                       {}", ctx.config.model);
+                let _ = writeln!(out, "  Provider:                    {}", ctx.config.provider);
+                let window = rho_core::tokens::context_window_size(&ctx.config.model);
+                let _ = writeln!(out, "  Context Capacity:            {} tokens", window);
+                let _ = writeln!(
+                    out,
+                    "  Reserve Threshold:           {} tokens",
+                    ctx.config.reserve_tokens
+                );
+                let _ = writeln!(
+                    out,
+                    "  Keep Recent Window:          {} tokens",
+                    ctx.config.keep_recent_tokens
+                );
+                let _ = writeln!(out, "  Auto-Approve:                {}", ctx.config.auto_approve);
+                let _ = writeln!(out, "  Max Turns:                   {}", ctx.config.max_turns);
+                let _ = writeln!(out, "  Steering Mode:               {}", ctx.config.steering_mode);
+                let _ = writeln!(out, "  Follow-up Mode:              {}", ctx.config.follow_up_mode);
+                if let Some(id) = ctx.session_id {
+                    let _ = writeln!(out, "  Session ID:                  {id}");
+                }
+                let _ = writeln!(out);
+                ctx.renderer.print_notice(&out);
+                Ok(Some(CommandResult::Continue))
+            }
+            "compact" => {
+                let instructions = if parts.len() > 1 {
+                    Some(parts[1..].join(" "))
+                } else {
+                    None
+                };
+                Ok(Some(CommandResult::Compact { instructions }))
+            }
+            "tree" => Ok(Some(CommandResult::Tree)),
+            "rewind" => {
+                if parts.len() > 1
+                    && let Ok(turn) = parts[1].parse::<usize>()
+                {
+                    Ok(Some(CommandResult::Rewind { turn }))
+                } else {
+                    ctx.renderer.print_notice("  Usage: /rewind <turn_number>\n");
+                    Ok(Some(CommandResult::Continue))
+                }
             }
             "model" => {
                 if parts.len() > 1 {
@@ -176,6 +234,33 @@ impl SlashCommandHandler {
                 Ok(Some(CommandResult::Exit))
             }
             custom => {
+                if let Some(commands) = ctx.commands
+                    && let Some(cmd) = commands.get(custom)
+                {
+                    let args = parse_command_args(&trimmed[1 + custom.len()..]);
+                    let req = rho_sdk::contract::CommandInvocationRequest {
+                        arguments: args,
+                        context: rho_sdk::contract::InvocationContext {
+                            session_id: String::new(),
+                            working_directory: std::env::current_dir()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_else(|_| ".".to_string()),
+                            has_interactive_ui: ctx.renderer.has_interactive_ui(),
+                        },
+                    };
+                    match cmd.invoke(req).await {
+                        Ok(response) => {
+                            if !response.output.is_empty() {
+                                ctx.renderer.print_notice(&format!("{}\n", response.output.trim_end()));
+                            }
+                        }
+                        Err(e) => {
+                            ctx.renderer.print_notice(&format!("  Command failed: {e}\n"));
+                        }
+                    }
+                    return Ok(Some(CommandResult::Continue));
+                }
+
                 ctx.renderer.print_notice(&format!(
                     "  Unknown command: /{custom}. Type /help for available commands.\n"
                 ));
@@ -185,17 +270,66 @@ impl SlashCommandHandler {
     }
 }
 
-fn print_help(config: &Config, renderer: &TerminalRenderer) {
+fn parse_command_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut quote_char = ' ';
+
+    for ch in input.trim().chars() {
+        match ch {
+            '"' | '\'' if in_quotes && ch == quote_char => {
+                in_quotes = false;
+            }
+            '"' | '\'' if !in_quotes => {
+                in_quotes = true;
+                quote_char = ch;
+            }
+            c if c.is_whitespace() && !in_quotes => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            c => {
+                current.push(c);
+            }
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
+fn print_help(
+    config: &Config,
+    renderer: &TerminalRenderer,
+    commands: Option<&std::collections::BTreeMap<String, std::sync::Arc<dyn rho_sdk::contract::CommandCapability>>>,
+) {
     let mut output = "\nCommands\n\
   /help                       Show this reference\n\
   /model [model] [provider]   Inspect or switch the model\n\
   /skill [name]               List or inspect skills\n\
   /plugin                     List discovered plugins\n\
+  /session                    Display token capacity and session diagnostics\n\
+  /compact [instructions]     Summarize earlier context to free context space\n\
+  /tree                       View conversation turn history\n\
+  /rewind <turn>              Rewind context to a specific prior turn\n\
   /clear                      Start a new session; preserve history\n\
   /login [provider]           Add API-key or subscription auth\n\
   /logout [provider]          Remove stored provider auth\n\
   /exit                       Exit rho\n"
         .to_string();
+
+    if let Some(commands) = commands
+        && !commands.is_empty()
+    {
+        output.push_str("\nInstalled Plugin Commands\n");
+        for (name, cmd) in commands {
+            let desc = cmd.descriptor().description;
+            let _ = writeln!(output, "  /{:<26} {}", name, desc);
+        }
+    }
 
     output.push_str(
         "\nShortcuts\n\
@@ -273,6 +407,8 @@ mod tests {
             config: &mut config,
             auth_store: &mut auth,
             renderer: &renderer,
+            commands: None,
+            session_id: None,
         };
 
         let listing = SlashCommandHandler::handle("/skills", &mut context).await.unwrap();
@@ -305,6 +441,8 @@ mod tests {
             config: &mut config,
             auth_store: &mut auth,
             renderer: &renderer,
+            commands: None,
+            session_id: None,
         };
 
         let result = SlashCommandHandler::handle("/skill does-not-exist", &mut context)
@@ -326,6 +464,8 @@ mod tests {
             config: &mut config,
             auth_store: &mut auth,
             renderer: &renderer,
+            commands: None,
+            session_id: None,
         };
 
         let result = SlashCommandHandler::handle("/help", &mut context).await.unwrap();
@@ -345,6 +485,8 @@ mod tests {
             config: &mut config,
             auth_store: &mut auth,
             renderer: &renderer,
+            commands: None,
+            session_id: None,
         };
         let result = SlashCommandHandler::handle("/login chatgpt", &mut context)
             .await
@@ -366,6 +508,8 @@ mod tests {
             config: &mut config,
             auth_store: &mut auth,
             renderer: &renderer,
+            commands: None,
+            session_id: None,
         };
         let result = SlashCommandHandler::handle("/model gpt-4o openai", &mut context)
             .await
@@ -375,5 +519,112 @@ mod tests {
         assert_eq!(config.model, "gpt-4o");
         assert_eq!(config.provider, "openai");
         assert!(collected_output(&mut events).contains("Switched model to gpt-4o (openai)"));
+    }
+
+    struct MockCommand {
+        name: String,
+        description: String,
+    }
+
+    #[async_trait::async_trait]
+    impl rho_sdk::contract::CommandCapability for MockCommand {
+        fn descriptor(&self) -> rho_sdk::contract::CommandDescriptor {
+            rho_sdk::contract::CommandDescriptor {
+                id: format!("command:{}", self.name).parse().unwrap(),
+                name: self.name.clone(),
+                description: self.description.clone(),
+            }
+        }
+
+        async fn invoke(
+            &self,
+            request: rho_sdk::contract::CommandInvocationRequest,
+        ) -> std::result::Result<rho_sdk::contract::CommandInvocationResponse, rho_sdk::capability::CapabilityError>
+        {
+            Ok(rho_sdk::contract::CommandInvocationResponse {
+                output: format!("{}: {}", self.name, request.arguments.join(", ")),
+                exit_code: 0,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn dynamic_plugin_command_dispatches_with_arguments() {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let (renderer, mut events) = collecting_renderer();
+        let mock_cmd: std::sync::Arc<dyn rho_sdk::contract::CommandCapability> = std::sync::Arc::new(MockCommand {
+            name: "kiln".to_string(),
+            description: "Kiln local memory".to_string(),
+        });
+        let commands = std::collections::BTreeMap::from([("kiln".to_string(), mock_cmd)]);
+
+        let mut context = SlashCommandContext {
+            config: &mut config,
+            auth_store: &mut auth,
+            renderer: &renderer,
+            commands: Some(&commands),
+            session_id: None,
+        };
+
+        let result = SlashCommandHandler::handle("/kiln fire \"./docs path\" --force", &mut context)
+            .await
+            .unwrap();
+
+        assert!(matches!(result, Some(CommandResult::Continue)));
+        let output = collected_output(&mut events);
+        assert!(output.contains("kiln: fire, ./docs path, --force"));
+    }
+
+    #[tokio::test]
+    async fn session_command_prints_diagnostics() {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let (renderer, mut events) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
+            auth_store: &mut auth,
+            renderer: &renderer,
+            commands: None,
+            session_id: Some("sess_xyz123"),
+        };
+
+        let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
+
+        assert!(matches!(result, Some(CommandResult::Continue)));
+        let output = collected_output(&mut events);
+        assert!(output.contains("Session Diagnostics"));
+        assert!(output.contains("Context Capacity:"));
+        assert!(output.contains("Session ID:                  sess_xyz123"));
+    }
+
+    #[tokio::test]
+    async fn compact_tree_and_rewind_commands_return_expected_results() {
+        let mut config = Config::default();
+        let mut auth = AuthStore::default();
+        let (renderer, _) = collecting_renderer();
+        let mut context = SlashCommandContext {
+            config: &mut config,
+            auth_store: &mut auth,
+            renderer: &renderer,
+            commands: None,
+            session_id: Some("sess_1"),
+        };
+
+        let compact_res = SlashCommandHandler::handle("/compact preserve error details", &mut context)
+            .await
+            .unwrap();
+        assert!(matches!(
+            compact_res,
+            Some(CommandResult::Compact {
+                instructions: Some(ref s)
+            }) if s == "preserve error details"
+        ));
+
+        let tree_res = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
+        assert!(matches!(tree_res, Some(CommandResult::Tree)));
+
+        let rewind_res = SlashCommandHandler::handle("/rewind 2", &mut context).await.unwrap();
+        assert!(matches!(rewind_res, Some(CommandResult::Rewind { turn: 2 })));
     }
 }

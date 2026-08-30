@@ -270,7 +270,7 @@ impl ToolCapability for ExternalTool {
 
     async fn invoke(
         &self,
-        _host: &dyn ToolHost,
+        host: &dyn ToolHost,
         request: ToolInvocationRequest,
     ) -> Result<ToolInvocationResponse, CapabilityError> {
         self.schema
@@ -278,13 +278,19 @@ impl ToolCapability for ExternalTool {
             .map_err(|_| CapabilityError::InvalidRequest {
                 message: "tool arguments do not match the declared schema".to_string(),
             })?;
-        match invoke_terminal(
-            &self.client,
-            self.descriptor.id.clone(),
-            InvocationRequest::Tool(request),
-        )
-        .await?
-        {
+        let output = self
+            .client
+            .invoke(self.descriptor.id.clone(), InvocationRequest::Tool(request))
+            .await
+            .map_err(capability_error)?;
+        for event in output.events {
+            match event {
+                StreamEvent::Progress { message } => host.stream_chunk(&message),
+                StreamEvent::CommandOutput { content } => host.stream_chunk(&content),
+                _ => {}
+            }
+        }
+        match output.terminal {
             TerminalResult::Tool(response) => Ok(response),
             _ => Err(invalid_response()),
         }

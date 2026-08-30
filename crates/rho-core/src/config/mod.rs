@@ -386,6 +386,7 @@ model = "haiku"
             max_turns: Some(40),
             auto_approve: false,
             resume: None,
+            r#continue: false,
             command: None,
         };
         merge::apply_cli_overrides(&mut config, Some(&cli));

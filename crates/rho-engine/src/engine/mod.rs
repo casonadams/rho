@@ -15,8 +15,12 @@ use crate::auth::AuthStore;
 use rho_core::config::Config;
 use rho_core::dispatch::NeutralToolExecutor;
 use rho_core::error::Result;
+use rho_core::presentation::Presenter;
 use rho_core::session::SessionManager;
-use rho_sdk::contract::{ProviderCapability, ScopedCredential};
+use rho_sdk::contract::{
+    ContextCapability, ContextRequest, InvocationContext, LifecycleCapability, LifecycleEvent, ProviderCapability,
+    ScopedCredential,
+};
 use rig::agent::Agent;
 use std::sync::Arc;
 use tracking::{ContextTracker, QuotaTracker, UsageTracker};
@@ -39,6 +43,8 @@ pub struct AgentEngine {
     pub session_manager: SessionManager,
     pub session_approvals: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     pub(crate) backend: AgentBackend,
+    pub(crate) contexts: Vec<Arc<dyn ContextCapability>>,
+    pub(crate) lifecycles: Vec<Arc<dyn LifecycleCapability>>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
     pub(crate) context: ContextTracker,
@@ -57,6 +63,8 @@ impl AgentEngine {
         builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
             .session_approvals(self.session_approvals.clone())
+            .contexts(self.contexts.clone())
+            .lifecycles(self.lifecycles.clone())
             .base_dir(std::env::current_dir()?)
             .build()
             .await
@@ -139,5 +147,285 @@ impl AgentEngine {
 
     pub(crate) fn record_usage(&self, usage: metrics::StructuralUsage) {
         self.usage.record(usage);
+    }
+
+    pub(crate) async fn augment_prompt_with_context(&self, prompt: &str, presenter: &Arc<dyn Presenter>) -> String {
+        if self.contexts.is_empty() {
+            return prompt.to_string();
+        }
+        let session_id = self.session_manager.session_id.clone();
+        let working_directory = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        let has_interactive_ui = presenter.has_interactive_ui();
+        let token_budget = self.config.context_injection_max_tokens;
+
+        let mut futures = Vec::new();
+        for ctx_cap in &self.contexts {
+            let cap = Arc::clone(ctx_cap);
+            let req = ContextRequest {
+                prompt: prompt.to_string(),
+                context: InvocationContext {
+                    session_id: session_id.clone(),
+                    working_directory: working_directory.clone(),
+                    has_interactive_ui,
+                },
+                token_budget: Some(token_budget),
+            };
+            futures.push(async move {
+                match tokio::time::timeout(std::time::Duration::from_millis(2000), cap.retrieve(req)).await {
+                    Ok(Ok(response)) => Ok(response.snippets),
+                    Ok(Err(e)) => Err(format!("Context retrieval failed: {e}")),
+                    Err(_) => Err("Context retrieval timed out after 2000ms".to_string()),
+                }
+            });
+        }
+
+        let results = futures::future::join_all(futures).await;
+        let mut all_snippets = Vec::new();
+        for res in results {
+            match res {
+                Ok(snippets) => all_snippets.extend(snippets),
+                Err(err) => {
+                    presenter.print_notice(&format!("  [{err}]\n"));
+                }
+            }
+        }
+
+        if all_snippets.is_empty() {
+            return prompt.to_string();
+        }
+
+        all_snippets.sort_by(|a, b| {
+            b.score
+                .unwrap_or(0.0)
+                .partial_cmp(&a.score.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut context_block = String::from("<retrieved_context>\n");
+        let mut total_chars = 0;
+        let max_chars = token_budget * 4;
+
+        for snippet in all_snippets {
+            let snippet_text = if let Some(title) = &snippet.title {
+                format!(
+                    "<document source=\"{}\" title=\"{}\">\n{}\n</document>\n",
+                    snippet.source, title, snippet.content
+                )
+            } else {
+                format!(
+                    "<document source=\"{}\">\n{}\n</document>\n",
+                    snippet.source, snippet.content
+                )
+            };
+            if total_chars + snippet_text.len() > max_chars && total_chars > 0 {
+                break;
+            }
+            total_chars += snippet_text.len();
+            context_block.push_str(&snippet_text);
+        }
+        context_block.push_str("</retrieved_context>\n\n");
+        context_block.push_str(prompt);
+        context_block
+    }
+
+    pub(crate) async fn notify_before_turn(&self, prompt: &str) {
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        for lifecycle in &self.lifecycles {
+            let _ = lifecycle
+                .notify(LifecycleEvent::BeforeTurn {
+                    session_id: self.session_manager.session_id.clone(),
+                    prompt: prompt.to_string(),
+                    working_directory: cwd.clone(),
+                })
+                .await;
+        }
+    }
+
+    pub(crate) async fn notify_after_turn(&self, success: bool) {
+        for lifecycle in &self.lifecycles {
+            let _ = lifecycle
+                .notify(LifecycleEvent::AfterTurn {
+                    session_id: self.session_manager.session_id.clone(),
+                    success,
+                })
+                .await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use rho_sdk::capability::CapabilityError;
+    use rho_sdk::contract::{ContextDescriptor, ContextResponse, ContextSnippet};
+    use rig::test_utils::MockCompletionModel;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct TestContextCap {
+        snippets: Vec<ContextSnippet>,
+        should_fail: bool,
+    }
+
+    #[async_trait]
+    impl ContextCapability for TestContextCap {
+        fn descriptor(&self) -> ContextDescriptor {
+            ContextDescriptor {
+                id: "context:test".parse().unwrap(),
+                display_name: "Test Context".to_string(),
+                description: "Test".to_string(),
+                max_snippets: Some(5),
+            }
+        }
+
+        async fn retrieve(&self, _request: ContextRequest) -> std::result::Result<ContextResponse, CapabilityError> {
+            if self.should_fail {
+                Err(CapabilityError::Failed {
+                    message: "database locked".to_string(),
+                })
+            } else {
+                Ok(ContextResponse {
+                    snippets: self.snippets.clone(),
+                })
+            }
+        }
+    }
+
+    struct TestLifecycleCap {
+        before_called: Arc<AtomicBool>,
+        after_called: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl LifecycleCapability for TestLifecycleCap {
+        fn id(&self) -> rho_sdk::capability::CapabilityId {
+            "lifecycle:test".parse().unwrap()
+        }
+
+        async fn notify(&self, event: LifecycleEvent) -> std::result::Result<(), CapabilityError> {
+            match event {
+                LifecycleEvent::BeforeTurn { prompt, .. } if prompt == "hello" => {
+                    self.before_called.store(true, Ordering::Relaxed);
+                }
+                LifecycleEvent::AfterTurn { success, .. } if success => {
+                    self.after_called.store(true, Ordering::Relaxed);
+                }
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn context_augmentation_formats_snippets_and_caps_tokens() {
+        let temp_dir = std::env::temp_dir().join(format!("ctx_aug_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let ctx_cap = Arc::new(TestContextCap {
+            snippets: vec![
+                ContextSnippet {
+                    source: "doc1.md".to_string(),
+                    title: Some("Doc 1".to_string()),
+                    content: "Content 1".to_string(),
+                    score: Some(0.8),
+                },
+                ContextSnippet {
+                    source: "doc2.md".to_string(),
+                    title: None,
+                    content: "Content 2".to_string(),
+                    score: Some(0.95),
+                },
+            ],
+            should_fail: false,
+        });
+
+        let config = Config {
+            context_injection_max_tokens: 1000,
+            ..Config::default()
+        };
+
+        let mut engine = eval::mock::mock_engine(
+            MockCompletionModel::new(vec![]),
+            eval::mock::MockEngineConfig {
+                base_dir: &temp_dir,
+                app_config: config,
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        engine.contexts = vec![ctx_cap];
+
+        let presenter = eval::presenter::presenter();
+        let augmented = engine.augment_prompt_with_context("what is doc?", &presenter).await;
+        assert!(augmented.starts_with("<retrieved_context>\n"));
+        assert!(augmented.contains("<document source=\"doc2.md\">\nContent 2\n</document>"));
+        assert!(augmented.contains("<document source=\"doc1.md\" title=\"Doc 1\">\nContent 1\n</document>"));
+        assert!(augmented.ends_with("what is doc?"));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    async fn context_retrieval_failure_proceeds_with_unaugmented_prompt() {
+        let temp_dir = std::env::temp_dir().join(format!("ctx_fail_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let ctx_cap = Arc::new(TestContextCap {
+            snippets: Vec::new(),
+            should_fail: true,
+        });
+
+        let mut engine = eval::mock::mock_engine(
+            MockCompletionModel::new(vec![]),
+            eval::mock::MockEngineConfig {
+                base_dir: &temp_dir,
+                app_config: Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        engine.contexts = vec![ctx_cap];
+
+        let presenter = eval::presenter::presenter();
+        let augmented = engine.augment_prompt_with_context("plain prompt", &presenter).await;
+        assert_eq!(augmented, "plain prompt");
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[tokio::test]
+    async fn lifecycle_notifications_reach_active_listeners() {
+        let temp_dir = std::env::temp_dir().join(format!("lifecycle_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let before_called = Arc::new(AtomicBool::new(false));
+        let after_called = Arc::new(AtomicBool::new(false));
+        let lifecycle_cap = Arc::new(TestLifecycleCap {
+            before_called: Arc::clone(&before_called),
+            after_called: Arc::clone(&after_called),
+        });
+
+        let mut engine = eval::mock::mock_engine(
+            MockCompletionModel::new(vec![]),
+            eval::mock::MockEngineConfig {
+                base_dir: &temp_dir,
+                app_config: Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        engine.lifecycles = vec![lifecycle_cap];
+
+        engine.notify_before_turn("hello").await;
+        assert!(before_called.load(Ordering::Relaxed));
+
+        engine.notify_after_turn(true).await;
+        assert!(after_called.load(Ordering::Relaxed));
+
+        let _ = std::fs::remove_dir_all(temp_dir);
     }
 }

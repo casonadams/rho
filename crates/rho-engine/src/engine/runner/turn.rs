@@ -70,10 +70,13 @@ impl AgentEngine {
         request: TurnRequest<'_>,
         presenter: std::sync::Arc<dyn Presenter>,
     ) -> Result<TurnOutput> {
-        match &self.backend {
+        self.notify_before_turn(request.prompt).await;
+        let result = match &self.backend {
             crate::engine::AgentBackend::Rig(_) => self.run_rig_turn(request, presenter).await,
             crate::engine::AgentBackend::External { .. } => self.run_external_turn(request, presenter).await,
-        }
+        };
+        self.notify_after_turn(result.is_ok()).await;
+        result
     }
 
     async fn run_rig_turn(
@@ -81,6 +84,7 @@ impl AgentEngine {
         request: TurnRequest<'_>,
         presenter: std::sync::Arc<dyn Presenter>,
     ) -> Result<TurnOutput> {
+        let augmented_prompt = self.augment_prompt_with_context(request.prompt, &presenter).await;
         let context = ProjectContext::discover(std::env::current_dir()?, Some(&self.config.config_dir)).await;
         self.session_manager
             .append_event(
@@ -115,7 +119,7 @@ impl AgentEngine {
             sink.clone(),
             self.session_approvals.clone(),
         );
-        let mut current_prompt = request.prompt.to_string();
+        let mut current_prompt = augmented_prompt;
         let mut total_tool_calls = 0;
         let mut current_budget = self.config.max_turns;
 

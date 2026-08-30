@@ -67,6 +67,11 @@ fn fixture(capabilities: Vec<CapabilityDescriptor>) -> Fixture {
             user_message: None,
         }),
     }));
+    let tool_progress = emit(&message_fragment(ProtocolMessage::StreamEvent {
+        event: StreamEvent::Progress {
+            message: "indexing-chunk".to_string(),
+        },
+    }));
     let tool = emit(&message_fragment(ProtocolMessage::TerminalResponse {
         result: TerminalResult::Tool(ToolInvocationResponse {
             content: "tool-ok".to_string(),
@@ -117,7 +122,7 @@ case "$request" in
   *\"type\":\"discovery_request\"*) {discovery} ;;
   *\"kind\":\"provider_stream\"*) {provider_event}{provider_terminal} ;;
   *\"kind\":\"provider_authenticate\"*) {auth} ;;
-  *\"kind\":\"tool\"*) {tool} ;;
+  *\"kind\":\"tool\"*) {tool_progress}{tool} ;;
   *\"kind\":\"permission\"*) {permission} ;;
   *\"kind\":\"command\"*) {command} ;;
   *\"kind\":\"lifecycle\"*) {lifecycle} ;;
@@ -192,6 +197,21 @@ impl ToolHost for NoopHost {
     }
 }
 
+struct CapturingHost(std::sync::Mutex<Vec<String>>);
+
+#[async_trait]
+impl ToolHost for CapturingHost {
+    async fn interact(&self, _request: InteractionRequest) -> Result<InteractionResponse, CapabilityError> {
+        Err(CapabilityError::Unavailable {
+            message: "interaction unavailable".to_string(),
+        })
+    }
+
+    fn stream_chunk(&self, chunk: &str) {
+        self.0.lock().unwrap().push(chunk.to_string());
+    }
+}
+
 fn context() -> InvocationContext {
     InvocationContext {
         session_id: "session".to_string(),
@@ -238,9 +258,10 @@ async fn invokes_every_external_capability_contract() {
 
     let tool_id = "tool:fixture".parse().unwrap();
     let tool = plugin.tool(&tool_id).unwrap();
+    let capturing_host = CapturingHost(std::sync::Mutex::new(Vec::new()));
     let response = tool
         .invoke(
-            &NoopHost,
+            &capturing_host,
             ToolInvocationRequest {
                 arguments: serde_json::json!({"message": "hello"}),
                 context: context(),
@@ -249,6 +270,7 @@ async fn invokes_every_external_capability_contract() {
         .await
         .unwrap();
     assert_eq!(response.content, "tool-ok");
+    assert_eq!(capturing_host.0.lock().unwrap().as_slice(), &["indexing-chunk"]);
     assert!(matches!(
         tool.invoke(
             &NoopHost,

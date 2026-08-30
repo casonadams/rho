@@ -91,6 +91,7 @@ impl AgentEngine {
         .load(&self.session_manager.session_id)
         .await
         .map_err(|_| AppError::Session("Model-visible session history could not be loaded".to_string()))?;
+        let augmented_prompt = self.augment_prompt_with_context(request.prompt, &presenter).await;
         let mut messages = vec![ModelMessage {
             role: MessageRole::System,
             content: vec![MessageContent::Text { text: preamble }],
@@ -99,9 +100,7 @@ impl AgentEngine {
         let new_history_start = messages.len();
         messages.push(ModelMessage {
             role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: request.prompt.to_string(),
-            }],
+            content: vec![MessageContent::Text { text: augmented_prompt }],
         });
         let mut checkpoint = None;
         let mut max_turns = self.config.max_turns;

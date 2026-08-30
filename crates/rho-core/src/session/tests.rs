@@ -370,3 +370,65 @@ async fn credential_values_are_rejected_without_persistence_or_error_echo() {
     let persisted = std::fs::read_to_string(&store.file_path).unwrap();
     assert!(!persisted.contains("credential-sentinel"));
 }
+
+#[test]
+fn last_session_for_cwd_tracks_and_resolves() {
+    let sessions_dir = temp_dir();
+    let project_a = temp_dir();
+    let project_b = temp_dir();
+    std::fs::create_dir_all(&sessions_dir).unwrap();
+    std::fs::create_dir_all(&project_a).unwrap();
+    std::fs::create_dir_all(&project_b).unwrap();
+
+    SessionManager::record_session_for_cwd(&sessions_dir, &project_a, "sess-a1").unwrap();
+    SessionManager::record_session_for_cwd(&sessions_dir, &project_b, "sess-b1").unwrap();
+    SessionManager::record_session_for_cwd(&sessions_dir, &project_a, "sess-a2").unwrap();
+
+    assert_eq!(
+        SessionManager::last_session_for_cwd(&sessions_dir, &project_a)
+            .unwrap()
+            .as_deref(),
+        Some("sess-a2")
+    );
+    assert_eq!(
+        SessionManager::last_session_for_cwd(&sessions_dir, &project_b)
+            .unwrap()
+            .as_deref(),
+        Some("sess-b1")
+    );
+}
+
+#[tokio::test]
+async fn test_session_turns_and_rewind() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+
+    let m1 = Message::user("first prompt");
+    let m2 = Message::assistant("first answer");
+    session
+        .append_messages(&session.session_id, vec![m1, m2])
+        .await
+        .unwrap();
+
+    let m3 = Message::user("second prompt");
+    let m4 = Message::assistant("second answer");
+    session
+        .append_messages(&session.session_id, vec![m3, m4])
+        .await
+        .unwrap();
+
+    let turns = session.load_turns().await.unwrap();
+    assert_eq!(turns.len(), 2);
+    assert_eq!(turns[0].turn_number, 1);
+    assert_eq!(turns[0].user_prompt, "first prompt");
+    assert_eq!(turns[1].turn_number, 2);
+    assert_eq!(turns[1].user_prompt, "second prompt");
+
+    // Rewind back to turn 1
+    let retained = session.rewind_to_turn(1).await.unwrap();
+    assert_eq!(retained, 2);
+
+    let turns_after = session.load_turns().await.unwrap();
+    assert_eq!(turns_after.len(), 1);
+    assert_eq!(turns_after[0].user_prompt, "first prompt");
+}
