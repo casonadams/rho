@@ -143,6 +143,52 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubagentsConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_subagent_concurrency")]
+    pub max_concurrency: usize,
+    #[serde(default = "default_subagent_turns")]
+    pub max_turns_per_agent: usize,
+    #[serde(default)]
+    pub default_model: Option<String>,
+    #[serde(default)]
+    pub agents: BTreeMap<String, AgentDefinition>,
+}
+
+fn default_subagent_concurrency() -> usize {
+    8
+}
+
+fn default_subagent_turns() -> usize {
+    30
+}
+
+impl Default for SubagentsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_concurrency: 8,
+            max_turns_per_agent: 30,
+            default_model: None,
+            agents: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct AgentDefinition {
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub model: String,
@@ -165,8 +211,10 @@ pub struct Config {
     pub region: String,
     pub steering_mode: crate::queue::QueueMode,
     pub follow_up_mode: crate::queue::QueueMode,
+    pub context_injection_max_tokens: usize,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub mcp: McpConfig,
+    pub subagents: SubagentsConfig,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub auth_file: PathBuf,
@@ -196,8 +244,10 @@ impl Default for Config {
             region: "wt-wt".to_string(),
             steering_mode: crate::queue::QueueMode::OneAtATime,
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
+            context_injection_max_tokens: 4000,
             plugins: BTreeMap::new(),
             mcp: McpConfig::default(),
+            subagents: SubagentsConfig::default(),
             sessions_dir: base_dir.join("sessions"),
             auth_file: base_dir.join("auth.json"),
             config_dir: base_dir,
@@ -227,10 +277,13 @@ pub(super) struct FileConfig {
     pub region: Option<String>,
     pub steering_mode: Option<crate::queue::QueueMode>,
     pub follow_up_mode: Option<crate::queue::QueueMode>,
+    pub context_injection_max_tokens: Option<usize>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
     #[serde(default)]
     pub mcp: Option<McpConfig>,
+    #[serde(default)]
+    pub subagents: Option<SubagentsConfig>,
 }
 
 pub fn default_config_dir() -> PathBuf {

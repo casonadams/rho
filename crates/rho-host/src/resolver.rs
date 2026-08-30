@@ -364,6 +364,25 @@ mod tests {
     }
 
     #[test]
+    fn context_and_command_capabilities_resolve_cleanly() {
+        let report = CapabilityResolver::resolve(
+            vec![built_in()],
+            vec![plugin(
+                "kiln",
+                &[
+                    ("context:kiln", None),
+                    ("command:kiln", None),
+                    ("tool:kiln_search", None),
+                ],
+                (true, &[]),
+            )],
+        );
+        assert_eq!(report.active[&id("context:kiln")].plugin_id.as_str(), "kiln");
+        assert_eq!(report.active[&id("command:kiln")].plugin_id.as_str(), "kiln");
+        assert_eq!(report.active[&id("tool:kiln_search")].plugin_id.as_str(), "kiln");
+    }
+
+    #[test]
     fn a_failed_ui_plugin_leaves_unrelated_capabilities_active() {
         let report = CapabilityResolver::resolve(
             vec![built_in()],

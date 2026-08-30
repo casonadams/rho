@@ -3,8 +3,8 @@ use rho::plugin::capability::{
 };
 use rho::plugin::contract::{
     AuthenticationMethod, AuthenticationResponse, CapabilityDescriptor, CommandDescriptor, CommandInvocationResponse,
-    FinishReason, ModelMetadata, PermissionDecision, ProviderDescriptor, ProviderStreamEvent, SkillAsset,
-    ToolDescriptor, ToolInvocationResponse,
+    ContextDescriptor, ContextResponse, ContextSnippet, FinishReason, ModelMetadata, PermissionDecision,
+    ProviderDescriptor, ProviderStreamEvent, SkillAsset, ToolDescriptor, ToolInvocationResponse,
 };
 use rho::plugin::protocol::{
     Envelope, ErrorCode, InvocationRequest, ProtocolMessage, StreamEvent, StructuredError, TerminalResult,
@@ -60,6 +60,7 @@ fn discovery() -> (CapabilityManifest, Vec<CapabilityDescriptor>) {
     let command_id: CapabilityId = "command:fixture".parse().unwrap();
     let lifecycle_id: CapabilityId = "lifecycle:fixture".parse().unwrap();
     let skill_id: CapabilityId = "skill:fixture".parse().unwrap();
+    let context_id: CapabilityId = "context:fixture".parse().unwrap();
     let capabilities = vec![
         CapabilityDescriptor::Provider(ProviderDescriptor {
             id: provider_id.clone(),
@@ -98,16 +99,30 @@ fn discovery() -> (CapabilityManifest, Vec<CapabilityDescriptor>) {
             id: lifecycle_id.clone(),
         },
         CapabilityDescriptor::Skill { id: skill_id.clone() },
+        CapabilityDescriptor::Context(ContextDescriptor {
+            id: context_id.clone(),
+            display_name: "Fixture Context".to_string(),
+            description: "Provide fixture context snippets".to_string(),
+            max_snippets: Some(5),
+        }),
     ];
     let manifest = CapabilityManifest {
         plugin_id: "fixture".parse().unwrap(),
         plugin_version: "1.0.0".to_string(),
         api_version: CAPABILITY_API_VERSION,
         protocol_version: PLUGIN_PROTOCOL_VERSION,
-        capabilities: [provider_id, tool_id, permission_id, command_id, lifecycle_id, skill_id]
-            .into_iter()
-            .map(|id| CapabilityDeclaration { id, replaces: None })
-            .collect(),
+        capabilities: [
+            provider_id,
+            tool_id,
+            permission_id,
+            command_id,
+            lifecycle_id,
+            skill_id,
+            context_id,
+        ]
+        .into_iter()
+        .map(|id| CapabilityDeclaration { id, replaces: None })
+        .collect(),
     };
     (manifest, capabilities)
 }
@@ -176,6 +191,18 @@ fn invoke(
                 description: "Fixture skill".to_string(),
                 markdown: "# Fixture".to_string(),
             }]),
+        )?,
+        InvocationRequest::Context(_) => terminal(
+            stdout,
+            request_id,
+            TerminalResult::Context(ContextResponse {
+                snippets: vec![ContextSnippet {
+                    source: "fixture://docs/overview.md".to_string(),
+                    title: Some("Fixture Overview".to_string()),
+                    content: "This is fixture context content.".to_string(),
+                    score: Some(1.0),
+                }],
+            }),
         )?,
     }
     Ok(())

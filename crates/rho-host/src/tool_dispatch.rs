@@ -18,8 +18,9 @@ use rho_core::presentation::questions::{QuestionPort, UserAnswer, UserQuestion, 
 use rho_plugin_builtin::{BuiltinToolCatalog, DECLARATIONS};
 use rho_sdk::capability::{CapabilityError, CapabilityId, CapabilityKind, PluginId, PluginOrigin};
 use rho_sdk::contract::{
-    ExecutionMode, InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
-    PermissionDecision, RequestedOperation, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
+    CommandCapability, ContextCapability, ExecutionMode, InteractionRequest, InteractionResponse, InvocationContext,
+    LifecycleCapability, OperationEffect, PermissionCapability, PermissionDecision, RequestedOperation, ToolCapability,
+    ToolDescriptor, ToolHost, ToolInvocationRequest,
 };
 use rig::tool::{DynamicTool, ToolContext, ToolExecutionError, ToolOutput};
 use std::collections::BTreeMap;
@@ -42,6 +43,9 @@ struct DispatchContext<'a> {
 #[derive(Clone)]
 pub struct ActiveToolSet {
     tools: BTreeMap<String, ActiveTool>,
+    contexts: BTreeMap<CapabilityId, Arc<dyn ContextCapability>>,
+    commands: BTreeMap<String, Arc<dyn CommandCapability>>,
+    lifecycles: Vec<Arc<dyn LifecycleCapability>>,
     floor: Arc<SafetyFloor>,
     policies: Arc<PolicyEvaluator>,
 }
@@ -66,6 +70,9 @@ impl ActiveToolSet {
             .collect();
         Ok(Self {
             tools,
+            contexts: BTreeMap::new(),
+            commands: BTreeMap::new(),
+            lifecycles: Vec::new(),
             floor: Arc::new(floor(config, base_dir)?),
             policies: Arc::new(PolicyEvaluator::spawn(
                 Vec::new(),
@@ -105,6 +112,9 @@ impl ActiveToolSet {
 
         let resolution = CapabilityResolver::resolve(vec![crate::builtin::capability_plugin()], external_manifests);
         let mut tools = BTreeMap::new();
+        let mut contexts = BTreeMap::new();
+        let mut commands = BTreeMap::new();
+        let mut lifecycles = Vec::new();
         let mut policies: Vec<Arc<dyn PermissionCapability>> = Vec::new();
         for (target_id, active) in resolution.active {
             if target_id.kind() == CapabilityKind::Permission {
@@ -115,6 +125,33 @@ impl ActiveToolSet {
                     && let Ok(policy) = plugin.permission(&active.id)
                 {
                     policies.push(Arc::new(policy) as Arc<dyn PermissionCapability>);
+                }
+                continue;
+            }
+            if target_id.kind() == CapabilityKind::Context {
+                if let Some(plugin) = external_plugins.get(&active.plugin_id)
+                    && let Ok(ctx_cap) = plugin.context(&active.id)
+                {
+                    contexts.insert(target_id.clone(), Arc::new(ctx_cap) as Arc<dyn ContextCapability>);
+                }
+                continue;
+            }
+            if target_id.kind() == CapabilityKind::Command {
+                if let Some(plugin) = external_plugins.get(&active.plugin_id)
+                    && let Ok(cmd_cap) = plugin.command(&active.id)
+                {
+                    commands.insert(
+                        cmd_cap.descriptor().name.clone(),
+                        Arc::new(cmd_cap) as Arc<dyn CommandCapability>,
+                    );
+                }
+                continue;
+            }
+            if target_id.kind() == CapabilityKind::Lifecycle {
+                if let Some(plugin) = external_plugins.get(&active.plugin_id)
+                    && let Ok(lifecycle_cap) = plugin.lifecycle(&active.id)
+                {
+                    lifecycles.push(Arc::new(lifecycle_cap) as Arc<dyn LifecycleCapability>);
                 }
                 continue;
             }
@@ -158,8 +195,24 @@ impl ActiveToolSet {
             );
         }
 
+        let subagent_capabilities = rho_plugin_builtin::subagents::load_subagent_capabilities(config, base_dir, None);
+        for (target_id, capability) in subagent_capabilities {
+            let descriptor = capability.descriptor();
+            tools.insert(
+                target_id.name().to_string(),
+                ActiveTool {
+                    target_id,
+                    descriptor,
+                    capability,
+                },
+            );
+        }
+
         Ok(Self {
             tools,
+            contexts,
+            commands,
+            lifecycles,
             floor: Arc::new(floor(config, base_dir)?),
             policies: Arc::new(PolicyEvaluator::spawn(
                 policies,
@@ -167,6 +220,18 @@ impl ActiveToolSet {
                 PolicyLimits::default(),
             )),
         })
+    }
+
+    pub fn active_contexts(&self) -> Vec<Arc<dyn ContextCapability>> {
+        self.contexts.values().cloned().collect()
+    }
+
+    pub fn active_commands(&self) -> BTreeMap<String, Arc<dyn CommandCapability>> {
+        self.commands.clone()
+    }
+
+    pub fn active_lifecycles(&self) -> Vec<Arc<dyn LifecycleCapability>> {
+        self.lifecycles.clone()
     }
 
     pub fn definitions(&self) -> Vec<ToolDescriptor> {
@@ -820,6 +885,9 @@ mod tests {
         ));
         let active = ActiveToolSet {
             tools: BTreeMap::from([(tool.target_id.name().to_string(), tool)]),
+            contexts: BTreeMap::new(),
+            commands: BTreeMap::new(),
+            lifecycles: Vec::new(),
             floor: Arc::new(floor(config, base_dir).unwrap()),
             policies: Arc::clone(&policies),
         };
@@ -830,6 +898,9 @@ mod tests {
     async fn builtin_interaction_routes_through_the_host_context() {
         let config = Config::default();
         let active = ActiveToolSet::builtins(&config, &std::env::temp_dir()).unwrap();
+        assert!(active.active_contexts().is_empty());
+        assert!(active.active_commands().is_empty());
+        assert!(active.active_lifecycles().is_empty());
         let tools = ToolSet::from_dynamic_tools(active.into_rig_tools());
         let mut context = ToolContext::new();
         context.insert(QuestionPort::new(AnswerPort));

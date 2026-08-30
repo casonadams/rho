@@ -114,10 +114,14 @@ fn config_for(fixture: &Fixture, replacements: BTreeSet<CapabilityId>) -> Config
 }
 
 fn builtin_tool_names() -> Vec<String> {
-    DECLARATIONS
+    let mut names: Vec<String> = DECLARATIONS
         .iter()
         .map(|declaration| declaration.name.to_string())
-        .collect()
+        .collect();
+    names.push("agent".to_string());
+    names.push("get_subagent_result".to_string());
+    names.push("steer_subagent".to_string());
+    names
 }
 
 #[tokio::test]

@@ -16,6 +16,7 @@ pub enum CapabilityKind {
     Lifecycle,
     Skill,
     Ui,
+    Context,
 }
 
 impl Display for CapabilityKind {
@@ -28,6 +29,7 @@ impl Display for CapabilityKind {
             Self::Lifecycle => "lifecycle",
             Self::Skill => "skill",
             Self::Ui => "ui",
+            Self::Context => "context",
         })
     }
 }
@@ -44,6 +46,7 @@ impl FromStr for CapabilityKind {
             "lifecycle" => Ok(Self::Lifecycle),
             "skill" => Ok(Self::Skill),
             "ui" => Ok(Self::Ui),
+            "context" => Ok(Self::Context),
             _ => Err(CapabilityValidationError::InvalidCapabilityId(value.to_string())),
         }
     }
@@ -365,7 +368,12 @@ mod tests {
 
     #[test]
     fn validates_capability_ids() {
-        for valid in ["tool:bash", "provider:openai-compatible", "permission:org.default"] {
+        for valid in [
+            "tool:bash",
+            "provider:openai-compatible",
+            "permission:org.default",
+            "context:kiln",
+        ] {
             assert_eq!(valid.parse::<CapabilityId>().unwrap().to_string(), valid);
         }
         for invalid in ["bash", "tool:", "Tool:bash", "tool:Bash", "tool:-bash", "tool:bash:"] {

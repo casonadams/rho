@@ -4,10 +4,10 @@ use futures::stream::BoxStream;
 use rho_sdk::capability::{CapabilityError, CapabilityId, CapabilityKind, ValidatedManifest};
 use rho_sdk::contract::{
     AuthenticationRequest, AuthenticationResponse, CapabilityDescriptor, CommandCapability, CommandDescriptor,
-    CommandInvocationRequest, CommandInvocationResponse, LifecycleCapability, LifecycleEvent, PermissionCapability,
-    PermissionDecision, ProviderCapability, ProviderDescriptor, ProviderRequest, ProviderStreamEvent,
-    RequestedOperation, SkillAsset, SkillCapability, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
-    ToolInvocationResponse,
+    CommandInvocationRequest, CommandInvocationResponse, ContextCapability, ContextDescriptor, ContextRequest,
+    ContextResponse, LifecycleCapability, LifecycleEvent, PermissionCapability, PermissionDecision, ProviderCapability,
+    ProviderDescriptor, ProviderRequest, ProviderStreamEvent, RequestedOperation, SkillAsset, SkillCapability,
+    ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest, ToolInvocationResponse,
 };
 use rho_sdk::protocol::{InvocationRequest, StreamEvent, TerminalResult};
 use std::collections::{BTreeMap, BTreeSet};
@@ -144,6 +144,16 @@ impl ExternalPlugin {
             CapabilityDescriptor::Skill { .. } => Ok(ExternalSkill {
                 client: self.client.clone(),
                 id: id.clone(),
+            }),
+            _ => Err(wrong_kind(id)),
+        }
+    }
+
+    pub fn context(&self, id: &CapabilityId) -> Result<ExternalContext, CapabilityError> {
+        match self.descriptor(id)? {
+            CapabilityDescriptor::Context(descriptor) => Ok(ExternalContext {
+                client: self.client.clone(),
+                descriptor: descriptor.clone(),
             }),
             _ => Err(wrong_kind(id)),
         }
@@ -372,6 +382,37 @@ impl SkillCapability for ExternalSkill {
                     asset.validate().map_err(|_| invalid_response())?;
                 }
                 Ok(assets)
+            }
+            _ => Err(invalid_response()),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ExternalContext {
+    client: PluginProcessClient,
+    descriptor: ContextDescriptor,
+}
+
+#[async_trait]
+impl ContextCapability for ExternalContext {
+    fn descriptor(&self) -> ContextDescriptor {
+        self.descriptor.clone()
+    }
+
+    async fn retrieve(&self, request: ContextRequest) -> Result<ContextResponse, CapabilityError> {
+        match invoke_terminal(
+            &self.client,
+            self.descriptor.id.clone(),
+            InvocationRequest::Context(request),
+        )
+        .await?
+        {
+            TerminalResult::Context(response) => {
+                for snippet in &response.snippets {
+                    snippet.validate().map_err(|_| invalid_response())?;
+                }
+                Ok(response)
             }
             _ => Err(invalid_response()),
         }

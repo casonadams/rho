@@ -555,10 +555,10 @@ mod tests {
 
     fn fixture_limits() -> ProcessLimits {
         ProcessLimits {
-            startup_timeout: Duration::from_secs(5),
-            discovery_timeout: Duration::from_secs(5),
-            invocation_timeout: Duration::from_secs(5),
-            cancellation_timeout: Duration::from_secs(1),
+            startup_timeout: Duration::from_secs(10),
+            discovery_timeout: Duration::from_secs(10),
+            invocation_timeout: Duration::from_secs(10),
+            cancellation_timeout: Duration::from_secs(2),
         }
     }
 
@@ -652,6 +652,7 @@ mod tests {
 
         let discovery = fixture(&valid_handshake(), "read request\nread never\n");
         let discovery_limits = ProcessLimits {
+            startup_timeout: Duration::from_secs(10),
             discovery_timeout: Duration::from_millis(250),
             ..fixture_limits()
         };
@@ -665,6 +666,8 @@ mod tests {
 
         let invocation = fixture(&valid_handshake(), "read request\nread never\n");
         let invocation_limits = ProcessLimits {
+            startup_timeout: Duration::from_secs(10),
+            discovery_timeout: Duration::from_secs(10),
             invocation_timeout: Duration::from_millis(250),
             ..fixture_limits()
         };

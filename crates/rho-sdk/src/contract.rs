@@ -385,10 +385,21 @@ pub trait CommandCapability: Send + Sync {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LifecycleEvent {
     HostStarted,
-    SessionStarted { context: InvocationContext },
-    BeforeTurn { session_id: String },
-    AfterTurn { session_id: String },
-    SessionEnded { session_id: String },
+    SessionStarted {
+        context: InvocationContext,
+    },
+    BeforeTurn {
+        session_id: String,
+        prompt: String,
+        working_directory: String,
+    },
+    AfterTurn {
+        session_id: String,
+        success: bool,
+    },
+    SessionEnded {
+        session_id: String,
+    },
     HostStopping,
 }
 
@@ -396,6 +407,74 @@ pub enum LifecycleEvent {
 pub trait LifecycleCapability: Send + Sync {
     fn id(&self) -> CapabilityId;
     async fn notify(&self, event: LifecycleEvent) -> Result<(), CapabilityError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextDescriptor {
+    pub id: CapabilityId,
+    pub display_name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_snippets: Option<usize>,
+}
+
+impl ContextDescriptor {
+    pub fn validate(&self) -> Result<(), ContractValidationError> {
+        self.id.require_kind(CapabilityKind::Context)?;
+        require_text("context display name", &self.display_name)?;
+        require_text("context description", &self.description)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextRequest {
+    pub prompt: String,
+    pub context: InvocationContext,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSnippet {
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+}
+
+impl PartialEq for ContextSnippet {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source
+            && self.title == other.title
+            && self.content == other.content
+            && match (self.score, other.score) {
+                (Some(a), Some(b)) => a.to_bits() == b.to_bits(),
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
+
+impl Eq for ContextSnippet {}
+
+impl ContextSnippet {
+    pub fn validate(&self) -> Result<(), ContractValidationError> {
+        require_text("snippet source", &self.source)?;
+        require_text("snippet content", &self.content)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextResponse {
+    pub snippets: Vec<ContextSnippet>,
+}
+
+#[async_trait]
+pub trait ContextCapability: Send + Sync {
+    fn descriptor(&self) -> ContextDescriptor;
+    async fn retrieve(&self, request: ContextRequest) -> Result<ContextResponse, CapabilityError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -430,6 +509,7 @@ pub enum CapabilityDescriptor {
     Command(CommandDescriptor),
     Lifecycle { id: CapabilityId },
     Skill { id: CapabilityId },
+    Context(ContextDescriptor),
 }
 
 impl CapabilityDescriptor {
@@ -439,6 +519,7 @@ impl CapabilityDescriptor {
             Self::Tool(descriptor) => &descriptor.id,
             Self::Permission { id } | Self::Lifecycle { id } | Self::Skill { id } => id,
             Self::Command(descriptor) => &descriptor.id,
+            Self::Context(descriptor) => &descriptor.id,
         }
     }
 
@@ -455,6 +536,7 @@ impl CapabilityDescriptor {
             Self::Command(descriptor) => descriptor.validate(),
             Self::Lifecycle { id } => id.require_kind(CapabilityKind::Lifecycle).map_err(Into::into),
             Self::Skill { id } => id.require_kind(CapabilityKind::Skill).map_err(Into::into),
+            Self::Context(descriptor) => descriptor.validate(),
         }
     }
 }
@@ -612,6 +694,29 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl ContextCapability for Fixture {
+        fn descriptor(&self) -> ContextDescriptor {
+            ContextDescriptor {
+                id: id("context:fixture"),
+                display_name: "Fixture context".to_string(),
+                description: "Fixture context retrieval".to_string(),
+                max_snippets: Some(5),
+            }
+        }
+
+        async fn retrieve(&self, _request: ContextRequest) -> Result<ContextResponse, CapabilityError> {
+            Ok(ContextResponse {
+                snippets: vec![ContextSnippet {
+                    source: "fixture.md".to_string(),
+                    title: Some("Fixture Title".to_string()),
+                    content: "Fixture content".to_string(),
+                    score: Some(0.95),
+                }],
+            })
+        }
+    }
+
     fn assert_contracts<T>()
     where
         T: ProviderCapability
@@ -619,7 +724,8 @@ mod tests {
             + PermissionCapability
             + CommandCapability
             + LifecycleCapability
-            + SkillCapability,
+            + SkillCapability
+            + ContextCapability,
     {
     }
 
@@ -717,5 +823,34 @@ mod tests {
         };
         let encoded = serde_json::to_string(&event).unwrap();
         assert_eq!(serde_json::from_str::<ProviderStreamEvent>(&encoded).unwrap(), event);
+
+        let context_desc = ContextDescriptor {
+            id: id("context:fixture"),
+            display_name: "Fixture Context".to_string(),
+            description: "Retrieval fixture".to_string(),
+            max_snippets: Some(10),
+        };
+        context_desc.validate().unwrap();
+
+        let lifecycle_before = LifecycleEvent::BeforeTurn {
+            session_id: "s1".to_string(),
+            prompt: "what is rho".to_string(),
+            working_directory: "/app".to_string(),
+        };
+        let encoded = serde_json::to_string(&lifecycle_before).unwrap();
+        assert_eq!(
+            serde_json::from_str::<LifecycleEvent>(&encoded).unwrap(),
+            lifecycle_before
+        );
+
+        let lifecycle_after = LifecycleEvent::AfterTurn {
+            session_id: "s1".to_string(),
+            success: true,
+        };
+        let encoded = serde_json::to_string(&lifecycle_after).unwrap();
+        assert_eq!(
+            serde_json::from_str::<LifecycleEvent>(&encoded).unwrap(),
+            lifecycle_after
+        );
     }
 }

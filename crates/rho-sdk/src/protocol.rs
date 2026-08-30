@@ -1,8 +1,8 @@
 use crate::capability::{CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION};
 use crate::contract::{
     AuthenticationRequest, AuthenticationResponse, CapabilityDescriptor, CommandInvocationRequest,
-    CommandInvocationResponse, LifecycleEvent, PermissionDecision, ProviderRequest, ProviderStreamEvent,
-    RequestedOperation, SkillAsset, ToolInvocationRequest, ToolInvocationResponse,
+    CommandInvocationResponse, ContextRequest, ContextResponse, LifecycleEvent, PermissionDecision, ProviderRequest,
+    ProviderStreamEvent, RequestedOperation, SkillAsset, ToolInvocationRequest, ToolInvocationResponse,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
@@ -120,6 +120,7 @@ pub enum InvocationRequest {
     Command(CommandInvocationRequest),
     Lifecycle(LifecycleEvent),
     Skills,
+    Context(ContextRequest),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,6 +147,7 @@ pub enum TerminalResult {
     Command(CommandInvocationResponse),
     Lifecycle,
     Skills(Vec<SkillAsset>),
+    Context(ContextResponse),
     StreamCompleted,
     Cancelled,
 }
@@ -492,5 +494,44 @@ mod tests {
 
         let public = StructuredError::public(ErrorCode::InvalidRequest, "é".repeat(4096), false);
         assert!(public.message.len() <= MAX_PROTOCOL_ERROR_MESSAGE_BYTES);
+    }
+
+    #[test]
+    fn context_invocation_and_terminal_response_roundtrip() {
+        let envelope = Envelope::new(
+            request_id("ctx-1"),
+            ProtocolMessage::InvocationRequest {
+                capability_id: "context:kiln".parse().unwrap(),
+                invocation: InvocationRequest::Context(ContextRequest {
+                    prompt: "how to auth".to_string(),
+                    context: crate::contract::InvocationContext {
+                        session_id: "sess-123".to_string(),
+                        working_directory: "/workspace".to_string(),
+                        has_interactive_ui: true,
+                    },
+                    token_budget: Some(2048),
+                }),
+            },
+        );
+        let encoded = encode_line(&envelope).unwrap();
+        let decoded = decode_line(&encoded).unwrap();
+        assert_eq!(decoded, envelope);
+
+        let response_env = Envelope::new(
+            request_id("ctx-1"),
+            ProtocolMessage::TerminalResponse {
+                result: TerminalResult::Context(ContextResponse {
+                    snippets: vec![crate::contract::ContextSnippet {
+                        source: "auth.md".to_string(),
+                        title: Some("Auth Flow".to_string()),
+                        content: "Use OAuth".to_string(),
+                        score: Some(0.92),
+                    }],
+                }),
+            },
+        );
+        let resp_encoded = encode_line(&response_env).unwrap();
+        let resp_decoded = decode_line(&resp_encoded).unwrap();
+        assert_eq!(resp_decoded, response_env);
     }
 }

@@ -3,6 +3,7 @@
 pub mod commands;
 pub mod mcp;
 pub mod skills;
+pub mod subagents;
 pub mod tools;
 
 pub use commands::BuiltinCommand;

@@ -2,8 +2,9 @@ use super::*;
 use futures::StreamExt;
 use rho_sdk::capability::{CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest};
 use rho_sdk::contract::{
-    AuthenticationMethod, AuthenticationOperation, ExecutionMode, FinishReason, InteractionRequest,
-    InteractionResponse, InvocationContext, LifecycleEvent, ModelMetadata, PermissionDecision, ProviderStreamEvent,
+    AuthenticationMethod, AuthenticationOperation, ContextDescriptor, ContextRequest, ContextResponse, ContextSnippet,
+    ExecutionMode, FinishReason, InteractionRequest, InteractionResponse, InvocationContext, LifecycleEvent,
+    ModelMetadata, PermissionDecision, ProviderStreamEvent,
 };
 use rho_sdk::protocol::{ProtocolMessage, TerminalResult};
 use std::os::unix::fs::PermissionsExt;
@@ -93,6 +94,16 @@ fn fixture(capabilities: Vec<CapabilityDescriptor>) -> Fixture {
             markdown: "# Fixture".to_string(),
         }]),
     }));
+    let context_response = emit(&message_fragment(ProtocolMessage::TerminalResponse {
+        result: TerminalResult::Context(ContextResponse {
+            snippets: vec![ContextSnippet {
+                source: "doc.md".to_string(),
+                title: Some("Doc".to_string()),
+                content: "Doc content".to_string(),
+                score: Some(0.9),
+            }],
+        }),
+    }));
     let root = std::env::temp_dir().join(format!("rho_external_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let executable = root.join("plugin");
@@ -111,6 +122,7 @@ case "$request" in
   *\"kind\":\"command\"*) {command} ;;
   *\"kind\":\"lifecycle\"*) {lifecycle} ;;
   *\"kind\":\"skills\"*) {skills} ;;
+  *\"kind\":\"context\"*) {context_response} ;;
 esac
 "#
     );
@@ -160,6 +172,12 @@ fn descriptors() -> Vec<CapabilityDescriptor> {
         CapabilityDescriptor::Skill {
             id: "skill:fixture".parse().unwrap(),
         },
+        CapabilityDescriptor::Context(ContextDescriptor {
+            id: "context:fixture".parse().unwrap(),
+            display_name: "Fixture Context".to_string(),
+            description: "Fixture context".to_string(),
+            max_snippets: Some(5),
+        }),
     ]
 }
 
@@ -283,6 +301,18 @@ async fn invokes_every_external_capability_contract() {
         .await
         .unwrap();
     assert_eq!(assets[0].name, "Fixture");
+
+    let context_cap = plugin.context(&"context:fixture".parse().unwrap()).unwrap();
+    let ctx_res = context_cap
+        .retrieve(ContextRequest {
+            prompt: "test".to_string(),
+            context: context(),
+            token_budget: Some(1000),
+        })
+        .await
+        .unwrap();
+    assert_eq!(ctx_res.snippets.len(), 1);
+    assert_eq!(ctx_res.snippets[0].source, "doc.md");
 }
 
 #[tokio::test]

@@ -63,8 +63,14 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(f) = file.follow_up_mode {
         config.follow_up_mode = f;
     }
+    if let Some(tokens) = file.context_injection_max_tokens {
+        config.context_injection_max_tokens = tokens;
+    }
     if let Some(mcp) = file.mcp {
         config.mcp = mcp;
+    }
+    if let Some(subagents) = file.subagents {
+        config.subagents = subagents;
     }
     config.plugins = file.plugins;
 }
@@ -110,6 +116,9 @@ where
     }
     if let Some(val) = get("AI_MAX_TURNS") {
         config.max_turns = parse_positive("AI_MAX_TURNS", &val)?;
+    }
+    if let Some(val) = get("AI_CONTEXT_INJECTION_MAX_TOKENS") {
+        config.context_injection_max_tokens = parse_positive("AI_CONTEXT_INJECTION_MAX_TOKENS", &val)?;
     }
     if let Some(val) = get("WEB_REGION") {
         config.region = val;
