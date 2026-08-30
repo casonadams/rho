@@ -1055,37 +1055,3 @@ async fn session_approval_persists_across_multiple_engine_turns() {
     let output_2 = engine.run_turn(request("turn 2"), presenter(&renderer)).await.unwrap();
     assert_eq!(output_2.tool_calls_count, 1);
 }
-
-#[tokio::test]
-async fn extension_augments_preamble_in_turn() {
-    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(Usage::new())]]);
-    let config = Config {
-        auto_approve: true,
-        ..Config::default()
-    };
-    let mut engine = test_engine_with_session(model.clone(), config, Some(terminal_session()));
-
-    struct ExtraPreambleExtension;
-    #[async_trait::async_trait]
-    impl crate::plugin::Extension for ExtraPreambleExtension {
-        fn name(&self) -> &str {
-            "extra_preamble"
-        }
-        async fn before_turn(
-            &self,
-            event: &mut crate::plugin::TurnEvent<'_>,
-            _ctx: &crate::plugin::ExtensionContext,
-        ) -> crate::error::Result<()> {
-            event.system_prompt.push_str("\n[Custom Extension Guideline]");
-            Ok(())
-        }
-    }
-
-    engine.extension_registry.register(ExtraPreambleExtension);
-    let renderer = TerminalRenderer::default();
-    engine.run_turn(request("test"), presenter(&renderer)).await.unwrap();
-    let requests = model.requests();
-    assert_eq!(requests.len(), 1);
-    let serialized = serde_json::to_string(&requests[0].chat_history).unwrap();
-    assert!(serialized.contains("[Custom Extension Guideline]"));
-}

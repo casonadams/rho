@@ -1,114 +1,101 @@
 ---
 name: create-plugin
-description: Create, test, and package a plugin or extension for rho. Use when asked to write a plugin, extension, guard, or custom command for rho.
+description: Create, test, and package a capability plugin for rho. Use when asked to write a plugin, capability, tool replacement, or provider for rho.
 argument-hint: "<plugin-idea-or-specification>"
 ---
 
-# Creating a Plugin for `rho`
+# Creating a Capability Plugin for `rho`
 
-When authoring a plugin for `rho`:
+`rho` plugins are standalone executables communicating over a versioned standard input/output protocol using `rho-sdk`.
 
 ## 1. Quick Template
 
-A `rho` plugin implements the `rho::plugin::Extension` trait:
+A `rho` capability plugin defines capabilities and responds to standard JSON protocol requests:
 
 ```rust
-use async_trait::async_trait;
-use rho::plugin::{
-    CommandHandler, CommandRequest, Extension, ExtensionCommand, ExtensionContext, ExtensionRegistry,
-    InputAction, ToolCallDecision, ToolCallEvent, ToolResultEvent, TurnEvent,
+use rho_sdk::capability::{
+    CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
 };
-use std::sync::Arc;
+use rho_sdk::contract::{
+    ExecutionMode, OperationEffect, PathScope, ToolDescriptor, ToolInvocationRequest, ToolInvocationResponse,
+};
+use rho_sdk::protocol::{
+    Envelope, ErrorCode, InvocationRequest, ProtocolMessage, RequestId, StreamEvent, StructuredError, TerminalResult,
+    decode_line, encode_line,
+};
+use std::io::{BufRead, Write};
 
-pub struct MyPlugin;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout().lock();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        let request = match decode_line(line.as_bytes()) {
+            Ok(request) => request,
+            Err(_) => continue,
+        };
 
-#[async_trait]
-impl Extension for MyPlugin {
-    fn name(&self) -> &str {
-        "my_plugin"
-    }
-
-    /// Intercept, transform, or short-circuit user prompts
-    async fn on_input(&self, input: &str, _ctx: &ExtensionContext) -> rho::error::Result<InputAction> {
-        if input == "ping" {
-            return Ok(InputAction::Handled { output: "pong".to_string() });
+        match request.message {
+            ProtocolMessage::HandshakeRequest { supported_versions } => {
+                let envelope = Envelope::new(
+                    request.request_id,
+                    ProtocolMessage::TerminalResponse {
+                        result: TerminalResult::Handshake { selected_version: 1 },
+                    },
+                );
+                stdout.write_all(&encode_line(&envelope)?)?;
+            }
+            ProtocolMessage::DiscoveryRequest => {
+                let manifest = CapabilityManifest {
+                    plugin_id: "rho-plugin-mytool".parse()?,
+                    plugin_version: "1.0.0".to_string(),
+                    api_version: CAPABILITY_API_VERSION,
+                    protocol_version: PLUGIN_PROTOCOL_VERSION,
+                    capabilities: vec![CapabilityDeclaration {
+                        id: "tool:mytool".parse()?,
+                        replaces: None,
+                    }],
+                }
+                .validate()?;
+                let envelope = Envelope::new(
+                    request.request_id,
+                    ProtocolMessage::TerminalResponse {
+                        result: TerminalResult::Discovery { manifest },
+                    },
+                );
+                stdout.write_all(&encode_line(&envelope)?)?;
+            }
+            _ => {}
         }
-        Ok(InputAction::Continue)
     }
-
-    /// Augment system prompt before model turns
-    async fn before_turn(&self, event: &mut TurnEvent<'_>, _ctx: &ExtensionContext) -> rho::error::Result<()> {
-        event.system_prompt.push_str("\n[Custom instruction from my_plugin]");
-        Ok(())
-    }
-
-    /// Inspect or block tool execution
-    async fn on_tool_call(
-        &self,
-        event: &ToolCallEvent<'_>,
-        _ctx: &ExtensionContext,
-    ) -> rho::error::Result<ToolCallDecision> {
-        if event.tool_name == "bash"
-            && let Some(cmd) = event.args.get("command").and_then(|c| c.as_str())
-            && cmd.contains("dangerous_command")
-        {
-            return Ok(ToolCallDecision::Block {
-                reason: "Command blocked by security policy".to_string(),
-                terminate: false,
-            });
-        }
-        Ok(ToolCallDecision::Allow)
-    }
-
-    /// Post-process tool results
-    async fn on_tool_result(&self, _event: &mut ToolResultEvent<'_>, _ctx: &ExtensionContext) -> rho::error::Result<()> {
-        Ok(())
-    }
-
-    /// Register slash commands in the REPL (e.g. `/mycommand`)
-    fn register_commands(&self) -> Vec<ExtensionCommand> {
-        vec![ExtensionCommand {
-            name: "mycommand".to_string(),
-            description: "A custom command".to_string(),
-            handler: Arc::new(MyCommandHandler),
-        }]
-    }
-}
-
-struct MyCommandHandler;
-
-#[async_trait]
-impl CommandHandler for MyCommandHandler {
-    async fn execute(&self, args: &str, ctx: &ExtensionContext) -> rho::error::Result<String> {
-        Ok(format!("Executed in {} with args: {args}", ctx.cwd.display()))
-    }
+    Ok(())
 }
 ```
 
-## 2. Testing in Isolation
+## 2. Testing with the Protocol
 
-Plugin authors can test all hooks deterministically in standard Rust unit tests without launching the full agent or needing network calls:
+Plugin authors can test protocol messages deterministically in standard Rust unit tests:
 
 ```rust
-#[tokio::test]
-async fn test_my_plugin_isolated() {
-    let mut registry = ExtensionRegistry::new();
-    registry.register(MyPlugin);
-    let ctx = ExtensionContext::new(".", "test_session");
-
-    // Test input handling
-    let action = registry.dispatch_input("ping", &ctx).await.unwrap();
-    assert_eq!(action, InputAction::Handled { output: "pong".to_string() });
-
-    // Test command
-    let res = registry.dispatch_command(&CommandRequest { name: "mycommand", args: "test" }, &ctx).await.unwrap().unwrap();
-    assert!(res.contains("test"));
+#[test]
+fn test_manifest_validation() {
+    let manifest = CapabilityManifest {
+        plugin_id: "rho-plugin-sample".parse().unwrap(),
+        plugin_version: "1.0.0".to_string(),
+        api_version: CAPABILITY_API_VERSION,
+        protocol_version: PLUGIN_PROTOCOL_VERSION,
+        capabilities: vec![CapabilityDeclaration {
+            id: "tool:sample".parse().unwrap(),
+            replaces: None,
+        }],
+    };
+    assert!(manifest.validate().is_ok());
 }
 ```
 
 ## 3. Distribution & Publishing to crates.io
 
-1. Set up a cargo binary crate:
+1. Set up a cargo binary crate depending on `rho-sdk`:
    - Package name: `rho-plugin-<name>` or `rho-<name>`
    - `[[bin]] name = "rho-plugin-<name>"`
 2. Publish with `cargo publish`.

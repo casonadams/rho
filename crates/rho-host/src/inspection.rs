@@ -1,7 +1,7 @@
-use crate::plugin::activation::{PluginValidator, ProtocolPluginValidator};
-use crate::plugin::builtin;
-use crate::plugin::loader::{ConfiguredStatus, DiscoveredCandidate, DiscoveredKind, PluginLoader};
-use crate::plugin::resolver::{CapabilityPlugin, CapabilityResolver, PluginResolutionStatus, ResolutionReport};
+use crate::activation::{PluginValidator, ProtocolPluginValidator};
+use crate::builtin;
+use crate::loader::{ConfiguredStatus, DiscoveredCandidate, DiscoveredKind, PluginLoader};
+use crate::resolver::{CapabilityPlugin, CapabilityResolver, PluginResolutionStatus, ResolutionReport};
 use rho_core::config::Config;
 use rho_core::error::Result;
 use rho_sdk::capability::PluginOrigin;
@@ -189,7 +189,6 @@ impl PluginInspection {
         }
         for candidate in &self.ignored {
             let identity = match &candidate.kind {
-                DiscoveredKind::Manifest(manifest) => manifest.name.as_str(),
                 DiscoveredKind::Executable => candidate
                     .path
                     .file_name()

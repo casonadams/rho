@@ -1,20 +1,15 @@
 pub mod activation;
-pub mod context;
-pub mod extension;
+pub mod builtin;
 pub mod external;
+pub mod inspection;
 pub mod loader;
-pub mod mcp;
 pub mod permission;
 pub mod process;
-pub mod registry;
 pub mod resolver;
-pub mod types;
+pub mod safety_floor;
+pub mod tool_dispatch;
 
-pub use context::ExtensionContext;
-pub use extension::Extension;
-pub use loader::{PluginDiscovery, PluginLoader};
-pub use registry::ExtensionRegistry;
-pub use types::{
-    CommandHandler, CommandRequest, ExtensionCommand, InputAction, PluginCapability, PluginManifest, ToolCallDecision,
-    ToolCallEvent, ToolResultEvent, TurnEvent,
+pub use loader::{
+    ConfiguredCandidate, ConfiguredStatus, DiscoveredCandidate, DiscoveredKind, DiscoverySource, PluginDiscovery,
+    PluginLoader,
 };

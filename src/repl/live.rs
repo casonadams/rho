@@ -132,7 +132,7 @@ impl ReplSession {
                 .into_iter()
                 .map(|skill| skill.metadata.name)
                 .collect();
-        let completions = CompletionSet::rho(&engine.extension_registry.list_commands(), skill_names);
+        let completions = CompletionSet::rho(&[], skill_names);
 
         loop {
             let message = match controller.state_mut().pop_queued() {
@@ -187,15 +187,12 @@ impl ReplSession {
         let ui_events = live.io.events;
         let input_reader = live.io.input;
         let input = live.message.text.trim();
-        let extension_context = engine.extension_context();
         let command_result = if input.starts_with('/') {
             let paused_input = input_reader.pause()?;
             controller.suspend()?;
             let mut command_context = SlashCommandContext {
                 config: &mut self.config,
                 auth_store: &mut self.auth_store,
-                registry: Some(&engine.extension_registry),
-                context: Some(&extension_context),
                 renderer: &self.renderer,
             };
             let result = SlashCommandHandler::handle(input, &mut command_context).await;
@@ -236,21 +233,7 @@ impl ReplSession {
             return Ok(false);
         }
 
-        let effective = match engine
-            .extension_registry
-            .dispatch_input(input, &extension_context)
-            .await?
-        {
-            crate::plugin::InputAction::Continue => input.to_string(),
-            crate::plugin::InputAction::Transform(transformed) => transformed,
-            crate::plugin::InputAction::Handled { output } => {
-                if !output.is_empty() {
-                    self.renderer.print_notice(&format!("{output}\n"));
-                }
-                drain_ui_events(controller, ui_events, &mut None)?;
-                return Ok(false);
-            }
-        };
+        let effective = input.to_string();
         self.renderer.print_user_block(&effective);
         run_active_turn(
             engine,

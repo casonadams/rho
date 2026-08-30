@@ -88,15 +88,7 @@ impl AgentEngine {
                 serde_json::json!({ "prompt": request.prompt }),
             )
             .await?;
-        let ext_context = self.extension_context();
-        let mut preamble = context.build_system_prompt();
-        let mut turn_event = rho_host::TurnEvent {
-            prompt: request.prompt,
-            system_prompt: &mut preamble,
-        };
-        self.extension_registry
-            .dispatch_before_turn(&mut turn_event, &ext_context)
-            .await?;
+        let preamble = context.build_system_prompt();
         let visible_history = context_memory(
             self.session_manager.clone(),
             self.config.context_window_messages,
@@ -146,11 +138,7 @@ impl AgentEngine {
                 .preamble(&preamble)
                 .max_turns(current_budget)
                 .tool_context(tool_context)
-                .add_hook(RepeatedCallHook::new(std::env::current_dir()?).with_sink(sink.clone()))
-                .add_hook(crate::hook::ExtensionHook::new(
-                    self.extension_registry.clone(),
-                    ext_context.clone(),
-                ));
+                .add_hook(RepeatedCallHook::new(std::env::current_dir()?).with_sink(sink.clone()));
             let runner = match checkpoint.as_ref() {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),
                 None => runner,

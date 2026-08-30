@@ -60,7 +60,6 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
     AgentEngine {
         config: app_config,
         session_manager,
-        extension_registry: rho_host::ExtensionRegistry::new(),
         session_approvals: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         backend: crate::engine::AgentBackend::Rig(Box::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),

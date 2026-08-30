@@ -21,13 +21,13 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-pub static PROMPT_READ: &str = include_str!("../../prompts/tools/read.md");
-pub static PROMPT_WRITE: &str = include_str!("../../prompts/tools/write.md");
-pub static PROMPT_EDIT: &str = include_str!("../../prompts/tools/edit.md");
-pub static PROMPT_BASH: &str = include_str!("../../prompts/tools/bash.md");
-pub static PROMPT_ASK_USER: &str = include_str!("../../prompts/tools/ask_user.md");
-pub static PROMPT_WEBSEARCH: &str = include_str!("../../prompts/tools/websearch.md");
-pub static PROMPT_WEBFETCH: &str = include_str!("../../prompts/tools/webfetch.md");
+pub static PROMPT_READ: &str = include_str!("../../../../prompts/tools/read.md");
+pub static PROMPT_WRITE: &str = include_str!("../../../../prompts/tools/write.md");
+pub static PROMPT_EDIT: &str = include_str!("../../../../prompts/tools/edit.md");
+pub static PROMPT_BASH: &str = include_str!("../../../../prompts/tools/bash.md");
+pub static PROMPT_ASK_USER: &str = include_str!("../../../../prompts/tools/ask_user.md");
+pub static PROMPT_WEBSEARCH: &str = include_str!("../../../../prompts/tools/websearch.md");
+pub static PROMPT_WEBFETCH: &str = include_str!("../../../../prompts/tools/webfetch.md");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {

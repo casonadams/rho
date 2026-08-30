@@ -2,11 +2,11 @@
 //! (built-in tools + configured plugins + MCP) and hands the prepared forms
 //! to the engine.
 
-use crate::plugin::tool_dispatch::ActiveToolSet;
 use rho_core::config::Config;
 use rho_core::error::Result;
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::{AgentEngine, builder::AgentEngineBuilder};
+use rho_host::tool_dispatch::ActiveToolSet;
 use std::path::Path;
 use std::sync::Arc;
 

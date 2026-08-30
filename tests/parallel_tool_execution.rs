@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
+use rho::approval::{ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context};
 use rho::config::Config;
 use rho::engine::provider::host_loop::{
     CancellationSignal, NeutralTurnRequest, NeutralTurnRuntime, NeutralTurnTerminal, NoopSteeringQueue,
@@ -13,9 +14,6 @@ use rho::plugin::contract::{
     ProviderCapability, ProviderDescriptor, ProviderRequest, ProviderStreamEvent, ProviderToolDefinition,
 };
 use rho::plugin::tool_dispatch::ActiveToolSet;
-use rho::tools::approval::{
-    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context,
-};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

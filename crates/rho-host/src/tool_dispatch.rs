@@ -1,12 +1,9 @@
-use crate::plugin::builtin_tools::{BuiltinToolCatalog, DECLARATIONS};
-use crate::plugin::external::ExternalPlugin;
-use crate::plugin::loader::{ConfiguredStatus, PluginLoader};
-use crate::plugin::permission::{PermissionRequest, PolicyEvaluator, PolicyFailureMode, PolicyLimits};
-use crate::plugin::process::ProcessLimits;
-use crate::plugin::resolver::{CapabilityPlugin, CapabilityResolver};
-use crate::plugin::safety_floor::{FloorDenial, FloorRequest, SafetyFloor};
-use crate::tools::ask_user::{QuestionPort, UserAnswer, UserQuestion, UserQuestionOption};
-use crate::tools::web::HttpClient;
+use crate::external::ExternalPlugin;
+use crate::loader::{ConfiguredStatus, PluginLoader};
+use crate::permission::{PermissionRequest, PolicyEvaluator, PolicyFailureMode, PolicyLimits};
+use crate::process::ProcessLimits;
+use crate::resolver::{CapabilityPlugin, CapabilityResolver};
+use crate::safety_floor::{FloorDenial, FloorRequest, SafetyFloor};
 use async_trait::async_trait;
 use rho_core::approval::{
     ApprovalCapability, ApprovalDecision, ApprovalRequest, DispatchedCall, DispatchedResult, ToolEvent,
@@ -17,6 +14,8 @@ use rho_core::config::Config;
 use rho_core::dispatch::{NeutralToolCall, NeutralToolResult, NeutralTurnError};
 use rho_core::error::Result;
 use rho_core::policy::ToolExecutionPolicy;
+use rho_core::presentation::questions::{QuestionPort, UserAnswer, UserQuestion, UserQuestionOption};
+use rho_plugin_builtin::{BuiltinToolCatalog, DECLARATIONS};
 use rho_sdk::capability::{CapabilityError, CapabilityId, CapabilityKind, PluginId, PluginOrigin};
 use rho_sdk::contract::{
     ExecutionMode, InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
@@ -104,8 +103,7 @@ impl ActiveToolSet {
             external_plugins.insert(plugin_id, plugin);
         }
 
-        let resolution =
-            CapabilityResolver::resolve(vec![crate::plugin::builtin::capability_plugin()], external_manifests);
+        let resolution = CapabilityResolver::resolve(vec![crate::builtin::capability_plugin()], external_manifests);
         let mut tools = BTreeMap::new();
         let mut policies: Vec<Arc<dyn PermissionCapability>> = Vec::new();
         for (target_id, active) in resolution.active {
@@ -147,7 +145,7 @@ impl ActiveToolSet {
             );
         }
 
-        let mcp_capabilities = crate::plugin::mcp::load_mcp_capabilities(config, base_dir).await;
+        let mcp_capabilities = rho_plugin_builtin::mcp::load_mcp_capabilities(config, base_dir).await;
         for (target_id, capability) in mcp_capabilities {
             let descriptor = capability.descriptor();
             tools.insert(
@@ -206,7 +204,7 @@ impl ActiveToolSet {
             .map(|(name, tool)| {
                 let description = tool.descriptor.description.clone();
                 let mut schema = tool.descriptor.argument_schema.clone();
-                crate::tools::types::normalize_schema(&mut schema);
+                rho_plugin_builtin::tools::normalize_schema(&mut schema);
                 let floor = Arc::clone(&self.floor);
                 let policies = Arc::clone(&self.policies);
                 DynamicTool::new(name, description, schema, move |context, arguments| {
@@ -231,14 +229,11 @@ impl ActiveToolSet {
 }
 
 fn floor(config: &Config, base_dir: &Path) -> Result<SafetyFloor> {
-    let workspace = crate::tools::workspace::Workspace::with_exclusions(
+    let workspace = rho_core::workspace::Workspace::with_exclusions(
         base_dir,
         [config.config_dir.clone(), config.sessions_dir.clone()],
     );
-    Ok(SafetyFloor::new(
-        workspace,
-        HttpClient::new(config.allow_private_network)?,
-    ))
+    Ok(SafetyFloor::new(workspace, config.allow_private_network))
 }
 
 /// A pending approval prompt paired with its dispatched call so events,
@@ -639,10 +634,10 @@ impl ToolHost for RigToolHost<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::ask_user::{InteractiveQuestionPort, UserAnswer, UserQuestion};
     use rho_core::approval::{
         ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent, approval_context,
     };
+    use rho_core::presentation::questions::{InteractiveQuestionPort, UserAnswer, UserQuestion};
     use rho_sdk::contract::{ExecutionMode, NetworkAccess, PathScope, ToolDescriptor, ToolInvocationResponse};
     use rig::tool::{ToolErrorKind, ToolSet};
 

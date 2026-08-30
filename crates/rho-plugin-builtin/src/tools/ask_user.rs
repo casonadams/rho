@@ -1,9 +1,9 @@
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde_json::Value;
 
-use crate::error::AppError;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 pub use rho_core::args::AskUserArgs;
+use rho_core::error::AppError;
 
 pub use rho_core::presentation::questions::{
     InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion, UserQuestionOption,

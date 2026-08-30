@@ -1,4 +1,4 @@
-use crate::error::AppError;
+use rho_core::error::AppError;
 use rig::tool::ToolExecutionError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

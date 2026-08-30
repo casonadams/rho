@@ -1,4 +1,4 @@
-use crate::error::{AppError, Result};
+use rho_core::error::{AppError, Result};
 use url::Url;
 
 pub fn extract_html(html: &str, base_url: &str, mode: &str) -> String {

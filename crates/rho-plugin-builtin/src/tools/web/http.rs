@@ -1,5 +1,5 @@
-use crate::error::{AppError, Result};
 use reqwest::Client;
+use rho_core::error::{AppError, Result};
 pub use rho_core::net::{BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, validate_url};
 use std::time::Duration;
 use url::Url;

@@ -1,4 +1,3 @@
-use crate::types::PluginManifest;
 use rho_core::config::PluginConfig;
 use rho_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
@@ -14,9 +13,8 @@ pub enum DiscoverySource {
     Path,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiscoveredKind {
-    Manifest(PluginManifest),
     Executable,
 }
 
@@ -161,25 +159,7 @@ impl PluginLoader {
         candidates: &mut BTreeMap<PathBuf, DiscoveredCandidate>,
     ) -> Result<()> {
         for path in sorted_entries(directory)? {
-            if path.is_dir() {
-                let manifest_path = path.join("plugin.toml");
-                let Ok(content) = std::fs::read_to_string(&manifest_path) else {
-                    continue;
-                };
-                let Ok(manifest) = toml::from_str::<PluginManifest>(&content) else {
-                    continue;
-                };
-                if manifest.api_version == 1 {
-                    insert_candidate(
-                        candidates,
-                        DiscoveredCandidate {
-                            path: canonical_or_normalized(&path),
-                            source,
-                            kind: DiscoveredKind::Manifest(manifest),
-                        },
-                    );
-                }
-            } else if path.is_file() && is_plugin_binary(&path) {
+            if path.is_file() && is_plugin_binary(&path) {
                 insert_candidate(
                     candidates,
                     DiscoveredCandidate {
@@ -239,15 +219,12 @@ fn insert_candidate(candidates: &mut BTreeMap<PathBuf, DiscoveredCandidate>, can
 }
 
 fn candidate_identity(candidate: &DiscoveredCandidate) -> String {
-    match &candidate.kind {
-        DiscoveredKind::Manifest(manifest) => manifest.name.clone(),
-        DiscoveredKind::Executable => candidate
-            .path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default()
-            .to_string(),
-    }
+    candidate
+        .path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn is_plugin_binary(path: &Path) -> bool {

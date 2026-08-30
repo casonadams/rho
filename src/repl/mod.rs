@@ -126,7 +126,7 @@ impl ReplSession {
                 .into_iter()
                 .map(|skill| skill.metadata.name)
                 .collect();
-        let completer = RhoCompleter::new(&engine.extension_registry.list_commands(), skill_names);
+        let completer = RhoCompleter::new(&[], skill_names);
         let completion_menu = Box::new(ColumnarMenu::default().with_name("slash_commands"));
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(
@@ -169,15 +169,12 @@ impl ReplSession {
                     if input.is_empty() {
                         continue;
                     }
-                    let ext_ctx = engine.extension_context();
                     if input.starts_with('/') {
                         self.renderer.write_output("\n");
                     }
                     let mut cmd_ctx = crate::repl::commands::SlashCommandContext {
                         config: &mut self.config,
                         auth_store: &mut self.auth_store,
-                        registry: Some(&engine.extension_registry),
-                        context: Some(&ext_ctx),
                         renderer: &self.renderer,
                     };
                     if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut cmd_ctx).await? {
@@ -214,16 +211,7 @@ impl ReplSession {
                         }
                     }
 
-                    let effective_input = match engine.extension_registry.dispatch_input(input, &ext_ctx).await? {
-                        crate::plugin::InputAction::Continue => input.to_string(),
-                        crate::plugin::InputAction::Transform(transformed) => transformed,
-                        crate::plugin::InputAction::Handled { output } => {
-                            if !output.is_empty() {
-                                self.renderer.write_output(&format!("{output}\n"));
-                            }
-                            continue;
-                        }
-                    };
+                    let effective_input = input.to_string();
 
                     clear_submitted_input(input);
                     self.renderer.print_user_block(&effective_input);

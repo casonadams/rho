@@ -12,8 +12,8 @@ use rho::engine::eval::mock::{MockEngineConfig, final_event, mock_engine, mock_e
 use rho::engine::eval::types::{EvalFailure, EvalScenario, NormalizedPart, NormalizedRequest};
 use rho::engine::runner::TurnRequest;
 
+use rho::approval::ApprovalHook;
 use rho::plugin::tool_dispatch::ActiveToolSet;
-use rho::tools::approval::ApprovalHook;
 use rho_core::error::AppError;
 use rho_core::session::{SessionEventKind, SessionManager};
 

@@ -4,13 +4,13 @@ pub mod firecrawl;
 pub mod result;
 pub mod yahoo;
 
-use crate::error::AppError;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::web::http::{BRAVE_CHROME_UA, HttpClient, HttpRequest, LYNX_UA};
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 use rand::seq::SliceRandom;
 use result::SearchResult;
 pub use rho_core::args::SearchArgs;
+use rho_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::collections::HashSet;
 use url::Url;

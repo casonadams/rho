@@ -16,7 +16,6 @@ use rho_core::config::Config;
 use rho_core::dispatch::NeutralToolExecutor;
 use rho_core::error::Result;
 use rho_core::session::SessionManager;
-use rho_host::{ExtensionContext, ExtensionRegistry};
 use rho_sdk::contract::{ProviderCapability, ScopedCredential};
 use rig::agent::Agent;
 use std::sync::Arc;
@@ -38,7 +37,6 @@ pub enum AgentBackend {
 pub struct AgentEngine {
     pub config: Config,
     pub session_manager: SessionManager,
-    pub extension_registry: ExtensionRegistry,
     pub session_approvals: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     pub(crate) backend: AgentBackend,
     pub(crate) usage: UsageTracker,
@@ -62,12 +60,6 @@ impl AgentEngine {
             .base_dir(std::env::current_dir()?)
             .build()
             .await
-    }
-
-    pub fn extension_context(&self) -> ExtensionContext {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        ExtensionContext::new(cwd, &self.session_manager.session_id)
-            .with_model_info(&self.config.model, &self.config.provider)
     }
 
     pub fn context_limit(&self) -> Option<usize> {

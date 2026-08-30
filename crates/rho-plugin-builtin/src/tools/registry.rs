@@ -1,7 +1,7 @@
-use crate::plugin::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
+use crate::tools::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
 use rho_core::policy::ExecutionClass;
 
-pub use crate::plugin::builtin_tools::{
+pub use crate::tools::builtin_tools::{
     PROMPT_ASK_USER, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH, PROMPT_WEBSEARCH, PROMPT_WRITE,
 };
 
@@ -46,7 +46,7 @@ impl ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::builtin_tools::BuiltinToolCatalog;
+    use crate::tools::builtin_tools::BuiltinToolCatalog;
 
     #[test]
     fn descriptors_cover_every_registered_tool() {

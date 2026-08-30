@@ -1,6 +1,6 @@
-use crate::engine::provider::ProviderId;
-use crate::plugin::builtin_tools::BuiltinToolCatalog;
-use crate::plugin::resolver::CapabilityPlugin;
+use crate::resolver::CapabilityPlugin;
+use rho_core::provider::ProviderId;
+use rho_plugin_builtin::BuiltinToolCatalog;
 use rho_sdk::capability::{
     CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
 };

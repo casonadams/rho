@@ -4,10 +4,10 @@ use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
 use super::renderer::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
-use crate::tools::bash_ast::RiskTier;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractionResponse, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
+use rho_core::bash_ast::RiskTier;
 use rho_core::presentation::summary::{
     approval_heading, bash_approval_details, clean_command_paths, read_summary_parts, to_relative_path,
 };

@@ -1,11 +1,11 @@
 pub mod cache;
 pub mod extract;
 
-use crate::error::AppError;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::web::http::{HttpClient, HttpRequest};
 use cache::FetchCache;
 pub use rho_core::args::FetchArgs;
+use rho_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 
 pub struct WebFetchConfig {

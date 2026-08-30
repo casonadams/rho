@@ -2,7 +2,6 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::provider::ProviderId;
 use crate::error::Result;
-use crate::plugin::{CommandRequest, ExtensionContext, ExtensionRegistry};
 use crate::ui::TerminalRenderer;
 use std::fmt::Write as _;
 use std::str::FromStr;
@@ -26,8 +25,6 @@ pub enum CommandResult {
 pub struct SlashCommandContext<'a> {
     pub config: &'a mut Config,
     pub auth_store: &'a mut AuthStore,
-    pub registry: Option<&'a ExtensionRegistry>,
-    pub context: Option<&'a ExtensionContext>,
     pub renderer: &'a TerminalRenderer,
 }
 
@@ -52,7 +49,7 @@ impl SlashCommandHandler {
         let cmd_name = parts[0].to_lowercase();
         match cmd_name.as_str() {
             "help" => {
-                print_help(ctx.config, ctx.registry, ctx.renderer);
+                print_help(ctx.config, ctx.renderer);
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" => {
@@ -179,33 +176,6 @@ impl SlashCommandHandler {
                 Ok(Some(CommandResult::Exit))
             }
             custom => {
-                if let (Some(reg), Some(ext_ctx)) = (ctx.registry, ctx.context)
-                    && reg.has_command(custom)
-                {
-                    let args_str = if parts.len() > 1 {
-                        parts[1..].join(" ")
-                    } else {
-                        String::new()
-                    };
-                    let req = CommandRequest {
-                        name: custom,
-                        args: &args_str,
-                    };
-                    match reg.dispatch_command(&req, ext_ctx).await {
-                        Some(Ok(output)) => {
-                            if !output.is_empty() {
-                                ctx.renderer.print_notice(&format!("{output}\n"));
-                            }
-                            return Ok(Some(CommandResult::Continue));
-                        }
-                        Some(Err(err)) => {
-                            ctx.renderer
-                                .print_notice(&format!("  Error running /{custom}: {err}\n"));
-                            return Ok(Some(CommandResult::Continue));
-                        }
-                        None => {}
-                    }
-                }
                 ctx.renderer.print_notice(&format!(
                     "  Unknown command: /{custom}. Type /help for available commands.\n"
                 ));
@@ -215,7 +185,7 @@ impl SlashCommandHandler {
     }
 }
 
-fn print_help(config: &Config, registry: Option<&ExtensionRegistry>, renderer: &TerminalRenderer) {
+fn print_help(config: &Config, renderer: &TerminalRenderer) {
     let mut output = "\nCommands\n\
   /help                       Show this reference\n\
   /model [model] [provider]   Inspect or switch the model\n\
@@ -226,16 +196,6 @@ fn print_help(config: &Config, registry: Option<&ExtensionRegistry>, renderer: &
   /logout [provider]          Remove stored provider auth\n\
   /exit                       Exit rho\n"
         .to_string();
-
-    if let Some(registry) = registry {
-        let commands = registry.list_commands();
-        if !commands.is_empty() {
-            output.push_str("\nExtension commands\n");
-            for (name, description) in commands {
-                let _ = writeln!(output, "  /{name:<26} {description}");
-            }
-        }
-    }
 
     output.push_str(
         "\nShortcuts\n\
@@ -272,10 +232,7 @@ fn print_help(config: &Config, registry: Option<&ExtensionRegistry>, renderer: &
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::plugin::{CommandHandler, Extension, ExtensionCommand};
     use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
     use tokio::sync::mpsc;
 
@@ -315,8 +272,6 @@ mod tests {
         let mut context = SlashCommandContext {
             config: &mut config,
             auth_store: &mut auth,
-            registry: None,
-            context: None,
             renderer: &renderer,
         };
 
@@ -349,8 +304,6 @@ mod tests {
         let mut context = SlashCommandContext {
             config: &mut config,
             auth_store: &mut auth,
-            registry: None,
-            context: None,
             renderer: &renderer,
         };
 
@@ -372,8 +325,6 @@ mod tests {
         let mut context = SlashCommandContext {
             config: &mut config,
             auth_store: &mut auth,
-            registry: None,
-            context: None,
             renderer: &renderer,
         };
 
@@ -393,8 +344,6 @@ mod tests {
         let mut context = SlashCommandContext {
             config: &mut config,
             auth_store: &mut auth,
-            registry: None,
-            context: None,
             renderer: &renderer,
         };
         let result = SlashCommandHandler::handle("/login chatgpt", &mut context)
@@ -416,8 +365,6 @@ mod tests {
         let mut context = SlashCommandContext {
             config: &mut config,
             auth_store: &mut auth,
-            registry: None,
-            context: None,
             renderer: &renderer,
         };
         let result = SlashCommandHandler::handle("/model gpt-4o openai", &mut context)
@@ -428,53 +375,5 @@ mod tests {
         assert_eq!(config.model, "gpt-4o");
         assert_eq!(config.provider, "openai");
         assert!(collected_output(&mut events).contains("Switched model to gpt-4o (openai)"));
-    }
-
-    struct EchoHandler;
-
-    #[async_trait::async_trait]
-    impl CommandHandler for EchoHandler {
-        async fn execute(&self, args: &str, _context: &ExtensionContext) -> Result<String> {
-            Ok(format!("extension: {args}"))
-        }
-    }
-
-    struct EchoExtension;
-
-    #[async_trait::async_trait]
-    impl Extension for EchoExtension {
-        fn name(&self) -> &str {
-            "echo-extension"
-        }
-
-        fn register_commands(&self) -> Vec<ExtensionCommand> {
-            vec![ExtensionCommand {
-                name: "echo".to_string(),
-                description: "Echo arguments".to_string(),
-                handler: Arc::new(EchoHandler),
-            }]
-        }
-    }
-
-    #[tokio::test]
-    async fn extension_command_output_is_emitted_through_the_renderer() {
-        let mut config = Config::default();
-        let mut auth = AuthStore::default();
-        let mut registry = ExtensionRegistry::new();
-        registry.register(EchoExtension);
-        let extension_context = ExtensionContext::new(std::env::temp_dir(), "session");
-        let (renderer, mut events) = collecting_renderer();
-        let mut context = SlashCommandContext {
-            config: &mut config,
-            auth_store: &mut auth,
-            registry: Some(&registry),
-            context: Some(&extension_context),
-            renderer: &renderer,
-        };
-
-        let result = SlashCommandHandler::handle("/echo hello", &mut context).await.unwrap();
-
-        assert!(matches!(result, Some(CommandResult::Continue)));
-        assert_eq!(collected_output(&mut events), "extension: hello\n");
     }
 }

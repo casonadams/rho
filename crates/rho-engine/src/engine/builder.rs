@@ -1,7 +1,7 @@
+use super::AgentEngine;
 use super::provider::registry::{ActiveProvider, ProviderRegistry};
 use super::runtime::CodingRuntime;
 use super::tracking::{ContextTracker, QuotaTracker, UsageTracker};
-use super::{AgentEngine, ExtensionRegistry};
 use crate::auth::AuthStore;
 use crate::engine::AgentBackend;
 use crate::engine::provider::{CredentialStrategy, ModelRequest, ProviderFactory};
@@ -135,14 +135,12 @@ impl AgentEngineBuilder {
                 }
             }
         };
-        let extension_registry = ExtensionRegistry::new();
         let session_approvals = self
             .session_approvals
             .unwrap_or_else(|| std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())));
         Ok(AgentEngine {
             config: self.config.clone(),
             session_manager,
-            extension_registry,
             session_approvals,
             backend,
             usage: UsageTracker::default(),

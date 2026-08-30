@@ -1,5 +1,5 @@
-use rho_core::approval::ApprovalCapability;
-use rho_core::approval::{DispatchedCall, DispatchedResult, authorize_dispatch, emit_tool_finished};
+use super::ApprovalCapability;
+use super::{DispatchedCall, DispatchedResult, authorize_dispatch, emit_tool_finished};
 use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent};
 use serde_json::Value;
 

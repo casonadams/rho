@@ -1,5 +1,4 @@
-use crate::tools::web::HttpClient;
-use crate::tools::workspace::Workspace;
+use rho_core::workspace::Workspace;
 use rho_sdk::contract::{NetworkAccess, OperationEffect, PathScope};
 use serde_json::Value;
 
@@ -33,12 +32,15 @@ pub struct FloorRequest<'a> {
 #[derive(Clone)]
 pub struct SafetyFloor {
     workspace: Workspace,
-    http: HttpClient,
+    allow_private_network: bool,
 }
 
 impl SafetyFloor {
-    pub fn new(workspace: Workspace, http: HttpClient) -> Self {
-        Self { workspace, http }
+    pub fn new(workspace: Workspace, allow_private_network: bool) -> Self {
+        Self {
+            workspace,
+            allow_private_network,
+        }
     }
 
     pub fn enforce(&self, request: FloorRequest<'_>) -> Result<(), FloorDenial> {
@@ -90,8 +92,7 @@ impl SafetyFloor {
     }
 
     fn check_url(&self, raw_url: &str) -> Result<(), FloorDenial> {
-        self.http
-            .validate_url(raw_url)
+        rho_core::net::validate_url(raw_url, self.allow_private_network)
             .map(|_| ())
             .map_err(|_| FloorDenial::Operation(DENIED_NETWORK_MESSAGE.to_string()))
     }
@@ -159,10 +160,7 @@ mod tests {
         let sessions = root.join("sessions");
         std::fs::create_dir_all(&config).unwrap();
         std::fs::create_dir_all(&sessions).unwrap();
-        let floor = SafetyFloor::new(
-            Workspace::with_exclusions(&root, [&config, &sessions]),
-            HttpClient::new(false).unwrap(),
-        );
+        let floor = SafetyFloor::new(Workspace::with_exclusions(&root, [&config, &sessions]), false);
         FloorFixture { root, floor }
     }
 

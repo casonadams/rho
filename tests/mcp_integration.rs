@@ -1,12 +1,10 @@
 #![cfg(unix)]
 
 use async_trait::async_trait;
+use rho::approval::{ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context};
 use rho::config::{Config, McpConfig, McpServerConfig};
 use rho::engine::provider::host_loop::{NeutralToolCall, NeutralToolExecutor};
 use rho::plugin::tool_dispatch::ActiveToolSet;
-use rho::tools::approval::{
-    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context,
-};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;

@@ -53,15 +53,7 @@ impl AgentEngine {
                 serde_json::json!({"prompt": request.prompt}),
             )
             .await?;
-        let ext_context = self.extension_context();
-        let mut preamble = context.build_system_prompt();
-        let mut turn_event = rho_host::TurnEvent {
-            prompt: request.prompt,
-            system_prompt: &mut preamble,
-        };
-        self.extension_registry
-            .dispatch_before_turn(&mut turn_event, &ext_context)
-            .await?;
+        let preamble = context.build_system_prompt();
 
         self.run_tracker.start();
         let sink = TerminalApprovalSink::new(
