@@ -1,10 +1,10 @@
-use crate::config::Config;
-use crate::error::Result;
 use crate::plugin::activation::{PluginValidator, ProtocolPluginValidator};
 use crate::plugin::builtin;
-use crate::plugin::capability::PluginOrigin;
 use crate::plugin::loader::{ConfiguredStatus, DiscoveredCandidate, DiscoveredKind, PluginLoader};
 use crate::plugin::resolver::{CapabilityPlugin, CapabilityResolver, PluginResolutionStatus, ResolutionReport};
+use rho_core::config::Config;
+use rho_core::error::Result;
+use rho_sdk::capability::PluginOrigin;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::path::Path;
@@ -129,7 +129,7 @@ pub async fn inspect_with<V: PluginValidator>(
 }
 
 impl PluginInspection {
-    pub fn render_capability(&self, capability: &crate::plugin::capability::CapabilityId) -> String {
+    pub fn render_capability(&self, capability: &rho_sdk::capability::CapabilityId) -> String {
         match self.resolution.active.get(capability) {
             Some(active) => {
                 let replacement = active
@@ -210,12 +210,12 @@ impl PluginInspection {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::PluginConfig;
-    use crate::error::AppError;
-    use crate::plugin::capability::{
+    use async_trait::async_trait;
+    use rho_core::config::PluginConfig;
+    use rho_core::error::AppError;
+    use rho_sdk::capability::{
         CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest, PLUGIN_PROTOCOL_VERSION, ValidatedManifest,
     };
-    use async_trait::async_trait;
 
     struct Validator(BTreeMap<String, ValidatedManifest>);
 

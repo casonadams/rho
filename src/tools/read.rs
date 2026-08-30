@@ -1,22 +1,12 @@
 use crate::error::AppError;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::workspace::Workspace;
+pub use rho_core::args::ReadArgs;
+use rho_core::args::read::DEFAULT_READ_LIMIT;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const DEFAULT_READ_LIMIT: usize = 2000;
 pub const MAX_READ_BYTES: usize = 50 * 1024; // 50 KB
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ReadArgs {
-    /// Path to the file to read (relative or absolute)
-    pub path: String,
-    /// Line number to start reading from (1-indexed, default: 1)
-    pub offset: Option<usize>,
-    /// Maximum number of lines to read (default: 2000)
-    pub limit: Option<usize>,
-}
 
 pub struct ReadTool {
     pub base_dir: PathBuf,

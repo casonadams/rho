@@ -107,7 +107,8 @@ pub(super) fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool
 impl ReplSession {
     pub(super) async fn run_live(&mut self) -> Result<()> {
         let mut engine =
-            AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
+            crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref())
+                .await?;
         engine.refresh_quota().await;
 
         let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
@@ -210,7 +211,7 @@ impl ReplSession {
             match result {
                 CommandResult::Exit => return Ok(true),
                 CommandResult::ClearContext => {
-                    *engine = AgentEngine::new(self.config.clone(), self.auth_store.clone(), None).await?;
+                    *engine = crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), None).await?;
                 }
                 CommandResult::ModelChanged {
                     new_model,
@@ -432,7 +433,10 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, acti
     let history = active.editor.history;
     let completions = active.editor.completions;
     let mut batch = LiveBatch::new();
-    let run = engine.run_turn(crate::engine::runner::TurnRequest::new(active.prompt), renderer);
+    let run = engine.run_turn(
+        crate::engine::runner::TurnRequest::new(active.prompt),
+        std::sync::Arc::new(renderer.clone()),
+    );
     tokio::pin!(run);
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

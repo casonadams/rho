@@ -1,9 +1,9 @@
 use crate::engine::provider::ProviderId;
 use crate::plugin::builtin_tools::BuiltinToolCatalog;
-use crate::plugin::capability::{
+use crate::plugin::resolver::CapabilityPlugin;
+use rho_sdk::capability::{
     CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityId, CapabilityManifest, PLUGIN_PROTOCOL_VERSION,
 };
-use crate::plugin::resolver::CapabilityPlugin;
 
 pub fn capability_plugin() -> CapabilityPlugin {
     let mut capabilities: Vec<_> = ProviderId::ALL
@@ -26,7 +26,7 @@ pub fn capability_plugin() -> CapabilityPlugin {
         }
         .validate()
         .unwrap(),
-        origin: crate::plugin::capability::PluginOrigin::BuiltIn,
+        origin: rho_sdk::capability::PluginOrigin::BuiltIn,
         authorized_replacements: Default::default(),
         configured: false,
     }

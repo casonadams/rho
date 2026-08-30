@@ -101,7 +101,7 @@ impl ActivePromptRunner for ReplAgentRunner<'_> {
                     cancellation: Some(&self.cancellation),
                     steering: Some(&self.steering),
                 },
-                self.renderer,
+                std::sync::Arc::new(self.renderer.clone()),
             )
             .await
             .map(|_| ())

@@ -8,9 +8,12 @@ license.workspace = true
 
 [dependencies]
 rho-sdk.workspace = true
+async-trait = "0.1"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+schemars = "1.0"
+url = "2.5"
 anyhow = "1.0"
 brush-parser = "0.4.0"
 chrono = { version = "0.4", features = ["serde"] }

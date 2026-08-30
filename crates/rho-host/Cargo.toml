@@ -1,0 +1,22 @@
+[package]
+name = "rho-host"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "rho plugin platform: activation, discovery, resolution, and external plugin runtime"
+license.workspace = true
+
+[dependencies]
+rho-core.workspace = true
+rho-sdk.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars = "1.0"
+toml = "0.8"
+thiserror.workspace = true
+anyhow = "1.0"
+uuid = { workspace = true, features = ["v4"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "rt", "process", "io-util", "time"] }
+chrono = { version = "0.4", features = ["serde"] }

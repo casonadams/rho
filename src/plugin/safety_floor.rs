@@ -1,6 +1,6 @@
-use crate::plugin::contract::{NetworkAccess, OperationEffect, PathScope};
 use crate::tools::web::HttpClient;
 use crate::tools::workspace::Workspace;
+use rho_sdk::contract::{NetworkAccess, OperationEffect, PathScope};
 use serde_json::Value;
 
 const PROTECTED_READ_MESSAGE: &str = "reading protected rho configuration or session storage is not permitted";
@@ -106,7 +106,7 @@ impl SafetyFloor {
 }
 
 fn validate_schema(schema: &Value, arguments: &Value) -> Result<(), FloorDenial> {
-    crate::plugin::schema::CompiledSchema::compile(schema)
+    rho_sdk::schema::CompiledSchema::compile(schema)
         .and_then(|schema| schema.validate(arguments))
         .map_err(|_| FloorDenial::InvalidArguments(INVALID_SCHEMA_MESSAGE.to_string()))
 }

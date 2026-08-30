@@ -6241,6 +6241,8 @@ dependencies = [
  "regex",
  "reqwest 0.12.28",
  "rho-core",
+ "rho-engine",
+ "rho-host",
  "rho-sdk",
  "rig",
  "rig-memory",
@@ -6262,6 +6264,7 @@ name = "rho-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "brush-parser",
  "chrono",
  "clap",
@@ -6270,6 +6273,48 @@ dependencies = [
  "rho-sdk",
  "rig",
  "rig-memory",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "toml",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "rho-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures",
+ "reqwest 0.12.28",
+ "rho-core",
+ "rho-host",
+ "rho-sdk",
+ "rig",
+ "rig-memory",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "rho-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "futures",
+ "rho-core",
+ "rho-sdk",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "thiserror 2.0.20",

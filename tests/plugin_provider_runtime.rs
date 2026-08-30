@@ -126,6 +126,17 @@ esac
     }
 }
 
+async fn platform_for(
+    config: &rho::config::Config,
+    root: &std::path::Path,
+) -> (
+    Vec<rig::tool::DynamicTool>,
+    std::sync::Arc<dyn rho::dispatch::NeutralToolExecutor>,
+) {
+    let assembly = rho::platform::active_tools(config, root).await.unwrap();
+    assembly.into_parts()
+}
+
 fn engine_config(fixture: &Fixture) -> Config {
     let mut config = Config {
         provider: "fixture".to_string(),
@@ -197,15 +208,15 @@ async fn configured_subprocess_provider_completes_a_host_owned_tool_turn() {
     let fixture = fixture_with(&complete_tool_turn(), &continue_turn());
     let config = engine_config(&fixture);
 
-    let engine = rho::engine::builder::AgentEngineBuilder::new(config, fixture_auth())
+    let engine = rho::engine::builder::AgentEngineBuilder::new(config.clone(), fixture_auth())
         .base_dir(fixture.root.clone())
-        .build()
+        .build_with_assembly(platform_for(&config, &fixture.root).await)
         .await
         .unwrap();
     let output = engine
         .run_turn(
             rho::engine::runner::TurnRequest::new("run fixture"),
-            &TerminalRenderer::default(),
+            std::sync::Arc::new(TerminalRenderer::default()),
         )
         .await
         .unwrap();
@@ -244,16 +255,16 @@ async fn second_turn_replays_prior_canonical_history_exactly_once() {
     let fixture = fixture_with(&complete_tool_turn(), &continue_turn());
     let config = engine_config(&fixture);
 
-    let engine = rho::engine::builder::AgentEngineBuilder::new(config, fixture_auth())
+    let engine = rho::engine::builder::AgentEngineBuilder::new(config.clone(), fixture_auth())
         .base_dir(fixture.root.clone())
-        .build()
+        .build_with_assembly(platform_for(&config, &fixture.root).await)
         .await
         .unwrap();
     for prompt in ["first turn", "second turn"] {
         engine
             .run_turn(
                 rho::engine::runner::TurnRequest::new(prompt),
-                &TerminalRenderer::default(),
+                std::sync::Arc::new(TerminalRenderer::default()),
             )
             .await
             .unwrap();
@@ -282,15 +293,15 @@ async fn crashing_provider_stream_is_isolated_without_partial_commits() {
     let fixture = fixture(&crash);
     let config = engine_config(&fixture);
 
-    let engine = rho::engine::builder::AgentEngineBuilder::new(config, fixture_auth())
+    let engine = rho::engine::builder::AgentEngineBuilder::new(config.clone(), fixture_auth())
         .base_dir(fixture.root.clone())
-        .build()
+        .build_with_assembly(platform_for(&config, &fixture.root).await)
         .await
         .unwrap();
     let error = engine
         .run_turn(
             rho::engine::runner::TurnRequest::new("crash"),
-            &TerminalRenderer::default(),
+            std::sync::Arc::new(TerminalRenderer::default()),
         )
         .await
         .unwrap_err();

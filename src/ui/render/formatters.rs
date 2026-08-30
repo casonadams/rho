@@ -3,11 +3,11 @@
 //! These are `pub(crate)` because they are only consumed by `renderer.rs`,
 //! but they remain exposed as module-private items so future tools can reuse them.
 
-use super::summary::{approval_heading, bash_approval_details};
-use super::types::{BashApproval, SessionStatus};
-use crate::tools::RiskTier;
 use crate::ui::block::BlockFormat;
 use crate::ui::theme::Theme;
+use rho_core::bash_ast::RiskTier;
+use rho_core::presentation::summary::{approval_heading, bash_approval_details};
+use rho_core::presentation::types::{BashApproval, SessionStatus};
 
 struct DiffFormatter<'a> {
     theme: &'a Theme,

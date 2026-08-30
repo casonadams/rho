@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/rho-sdk", "crates/rho-core"]
+members = [".", "crates/rho-sdk", "crates/rho-core", "crates/rho-engine", "crates/rho-host"]
 
 [workspace.package]
 version = "0.1.0"
@@ -21,6 +21,8 @@ thiserror = "2.0"
 anyhow = "1.0"
 rho-sdk = { path = "crates/rho-sdk" }
 rho-core = { path = "crates/rho-core" }
+rho-engine = { path = "crates/rho-engine" }
+rho-host = { path = "crates/rho-host" }
 
 [package]
 name = "rho"
@@ -41,6 +43,8 @@ path = "src/main.rs"
 [dependencies]
 rho-sdk.workspace = true
 rho-core.workspace = true
+rho-engine.workspace = true
+rho-host.workspace = true
 
 # Async Runtime & Core
 tokio = { workspace = true, features = ["full"] }

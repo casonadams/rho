@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use crate::error::AppError;
-use crate::tools::{InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion};
 use crate::ui::interactive::{InteractionOption, InteractionPrompt, InteractionResponse, InteractiveUi};
+use rho_core::presentation::questions::{InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion};
 
 pub fn question_port(ui: Option<InteractiveUi>) -> QuestionPort {
     match ui {

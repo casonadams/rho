@@ -114,7 +114,8 @@ impl ReplSession {
         });
 
         let mut engine =
-            AgentEngine::new(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref()).await?;
+            crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref())
+                .await?;
         engine.refresh_quota().await;
 
         let history_file = self.config.config_dir.join("history.txt");
@@ -183,7 +184,9 @@ impl ReplSession {
                         match cmd_res {
                             CommandResult::Exit => break,
                             CommandResult::ClearContext => {
-                                engine = AgentEngine::new(self.config.clone(), self.auth_store.clone(), None).await?;
+                                engine =
+                                    crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), None)
+                                        .await?;
                                 continue;
                             }
                             CommandResult::ModelChanged {
@@ -252,7 +255,7 @@ impl ReplSession {
         request: crate::engine::runner::TurnRequest<'_>,
     ) -> Result<()> {
         let renderer = &self.renderer;
-        let run_future = engine.run_turn(request, renderer);
+        let run_future = engine.run_turn(request, std::sync::Arc::new(renderer.clone()));
         tokio::select! {
             run_res = run_future => {
                 renderer.flush();

@@ -1,5 +1,5 @@
 use crate::plugin::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
-use crate::tools::policy::ExecutionClass;
+use rho_core::policy::ExecutionClass;
 
 pub use crate::plugin::builtin_tools::{
     PROMPT_ASK_USER, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH, PROMPT_WEBSEARCH, PROMPT_WRITE,

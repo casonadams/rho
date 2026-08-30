@@ -1,26 +1,27 @@
-use crate::config::Config;
-use crate::error::Result;
 use crate::plugin::builtin_tools::{BuiltinToolCatalog, DECLARATIONS};
-use crate::plugin::capability::{CapabilityError, CapabilityId, CapabilityKind, PluginId, PluginOrigin};
-use crate::plugin::contract::{
-    ExecutionMode, InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
-    PermissionDecision, RequestedOperation, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
-};
 use crate::plugin::external::ExternalPlugin;
 use crate::plugin::loader::{ConfiguredStatus, PluginLoader};
 use crate::plugin::permission::{PermissionRequest, PolicyEvaluator, PolicyFailureMode, PolicyLimits};
 use crate::plugin::process::ProcessLimits;
 use crate::plugin::resolver::{CapabilityPlugin, CapabilityResolver};
 use crate::plugin::safety_floor::{FloorDenial, FloorRequest, SafetyFloor};
-use crate::tools::RiskTier;
-use crate::tools::approval::{
+use crate::tools::ask_user::{QuestionPort, UserAnswer, UserQuestion, UserQuestionOption};
+use crate::tools::web::HttpClient;
+use async_trait::async_trait;
+use rho_core::approval::{
     ApprovalCapability, ApprovalDecision, ApprovalRequest, DispatchedCall, DispatchedResult, ToolEvent,
     emit_tool_finished, format_denial,
 };
-use crate::tools::ask_user::{QuestionPort, UserAnswer, UserQuestion, UserQuestionOption};
-use crate::tools::policy::ToolExecutionPolicy;
-use crate::tools::web::HttpClient;
-use async_trait::async_trait;
+use rho_core::bash_ast::RiskTier;
+use rho_core::config::Config;
+use rho_core::dispatch::{NeutralToolCall, NeutralToolResult, NeutralTurnError};
+use rho_core::error::Result;
+use rho_core::policy::ToolExecutionPolicy;
+use rho_sdk::capability::{CapabilityError, CapabilityId, CapabilityKind, PluginId, PluginOrigin};
+use rho_sdk::contract::{
+    ExecutionMode, InteractionRequest, InteractionResponse, InvocationContext, OperationEffect, PermissionCapability,
+    PermissionDecision, RequestedOperation, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest,
+};
 use rig::tool::{DynamicTool, ToolContext, ToolExecutionError, ToolOutput};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -174,10 +175,10 @@ impl ActiveToolSet {
         self.tools.values().map(|tool| tool.descriptor.clone()).collect()
     }
 
-    pub fn provider_definitions(&self) -> Vec<crate::plugin::contract::ProviderToolDefinition> {
+    pub fn provider_definitions(&self) -> Vec<rho_sdk::contract::ProviderToolDefinition> {
         self.tools
             .iter()
-            .map(|(name, tool)| crate::plugin::contract::ProviderToolDefinition {
+            .map(|(name, tool)| rho_sdk::contract::ProviderToolDefinition {
                 id: format!("tool:{name}").parse().unwrap(),
                 description: tool.descriptor.description.clone(),
                 argument_schema: tool.descriptor.argument_schema.clone(),
@@ -473,8 +474,8 @@ fn emit_granted(tool: &ToolContext, call: &DispatchedCall<'_>) {
 /// policy-required permissions on otherwise classified operations.
 fn approval_request(call: &DispatchedCall<'_>, rationale: String) -> ApprovalRequest {
     let (tier, reasons) = match ToolExecutionPolicy::classify(call.tool_name, call.arguments) {
-        crate::tools::policy::ExecutionClass::ApprovalRequired { tier, reasons } => (tier, reasons),
-        crate::tools::policy::ExecutionClass::ReadOnly | crate::tools::policy::ExecutionClass::WorkspaceMutation => {
+        rho_core::policy::ExecutionClass::ApprovalRequired { tier, reasons } => (tier, reasons),
+        rho_core::policy::ExecutionClass::ReadOnly | rho_core::policy::ExecutionClass::WorkspaceMutation => {
             (RiskTier::Mutating, vec![rationale])
         }
     };
@@ -496,16 +497,14 @@ const MISSING_APPROVAL_MESSAGE: &str = "Approval context is missing; no operatio
 
 /// Decision contributed by the host classification when no approval
 /// capability is present in the tool context.
-fn classification_decision(class: crate::tools::policy::ExecutionClass) -> PermissionDecision {
+fn classification_decision(class: rho_core::policy::ExecutionClass) -> PermissionDecision {
     match class {
-        crate::tools::policy::ExecutionClass::ReadOnly | crate::tools::policy::ExecutionClass::WorkspaceMutation => {
+        rho_core::policy::ExecutionClass::ReadOnly | rho_core::policy::ExecutionClass::WorkspaceMutation => {
             PermissionDecision::Allow
         }
-        crate::tools::policy::ExecutionClass::ApprovalRequired { reasons, .. } => {
-            PermissionDecision::ApprovalRequired {
-                rationale: reasons.join("; "),
-            }
-        }
+        rho_core::policy::ExecutionClass::ApprovalRequired { reasons, .. } => PermissionDecision::ApprovalRequired {
+            rationale: reasons.join("; "),
+        },
     }
 }
 
@@ -534,27 +533,30 @@ pub struct NeutralActiveToolExecutor {
 }
 
 #[async_trait]
-impl crate::engine::provider::host_loop::NeutralToolExecutor for NeutralActiveToolExecutor {
+impl rho_core::dispatch::NeutralToolExecutor for NeutralActiveToolExecutor {
     fn execution_mode(&self, tool_id: &CapabilityId) -> ExecutionMode {
         self.tools.execution_mode(tool_id.name())
     }
 
-    async fn execute(
-        &self,
-        call: crate::engine::provider::host_loop::NeutralToolCall,
-    ) -> std::result::Result<
-        crate::engine::provider::host_loop::NeutralToolResult,
-        crate::engine::provider::host_loop::NeutralTurnError,
-    > {
-        let crate::engine::provider::host_loop::NeutralToolCall {
+    fn provider_definitions(&self) -> Vec<rho_sdk::contract::ProviderToolDefinition> {
+        self.tools.provider_definitions()
+    }
+
+    async fn begin_turn(&self, tool_context: &mut rig::tool::ToolContext) {
+        *self.context.lock().await = tool_context.clone();
+    }
+
+    async fn execute(&self, call: NeutralToolCall) -> std::result::Result<NeutralToolResult, NeutralTurnError> {
+        let NeutralToolCall {
             call_id,
             tool_id,
             arguments,
         } = call;
-        let tool =
-            self.tools.tools.get(tool_id.name()).ok_or_else(|| {
-                crate::engine::provider::host_loop::NeutralTurnError::UnknownTool(tool_id.to_string())
-            })?;
+        let tool = self
+            .tools
+            .tools
+            .get(tool_id.name())
+            .ok_or_else(|| NeutralTurnError::UnknownTool(tool_id.to_string()))?;
         let mut context = {
             let guard = self.context.lock().await;
             guard.clone()
@@ -572,14 +574,11 @@ impl crate::engine::provider::host_loop::NeutralToolExecutor for NeutralActiveTo
             )
             .await;
         match result {
-            Ok(output) => Ok(crate::engine::provider::host_loop::NeutralToolResult {
+            Ok(output) => Ok(NeutralToolResult {
                 content: output.as_text().unwrap_or_default().to_string(),
                 is_error: false,
             }),
-            Err(error) => Err(crate::engine::provider::host_loop::NeutralTurnError::Tool(format!(
-                "{call_id}: {}",
-                error.message()
-            ))),
+            Err(error) => Err(NeutralTurnError::Tool(format!("{call_id}: {}", error.message()))),
         }
     }
 }
@@ -631,7 +630,7 @@ impl ToolHost for RigToolHost<'_> {
     }
 
     fn stream_chunk(&self, chunk: &str) {
-        if let Some(port) = self.0.get::<crate::ui::ToolStreamPort>() {
+        if let Some(port) = self.0.get::<rho_core::presentation::stream::ToolStreamPort>() {
             port.stream_chunk(chunk);
         }
     }
@@ -640,11 +639,11 @@ impl ToolHost for RigToolHost<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin::contract::{ExecutionMode, NetworkAccess, PathScope, ToolDescriptor, ToolInvocationResponse};
-    use crate::tools::approval::{
+    use crate::tools::ask_user::{InteractiveQuestionPort, UserAnswer, UserQuestion};
+    use rho_core::approval::{
         ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent, approval_context,
     };
-    use crate::tools::ask_user::{InteractiveQuestionPort, UserAnswer, UserQuestion};
+    use rho_sdk::contract::{ExecutionMode, NetworkAccess, PathScope, ToolDescriptor, ToolInvocationResponse};
     use rig::tool::{ToolErrorKind, ToolSet};
 
     struct ApprovalSink;
@@ -662,7 +661,7 @@ mod tests {
 
     #[async_trait]
     impl InteractiveQuestionPort for AnswerPort {
-        async fn ask(&self, _question: UserQuestion) -> std::result::Result<UserAnswer, crate::error::AppError> {
+        async fn ask(&self, _question: UserQuestion) -> std::result::Result<UserAnswer, rho_core::error::AppError> {
             Ok(UserAnswer::Custom("host answer".to_string()))
         }
     }

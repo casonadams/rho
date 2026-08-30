@@ -1,77 +1,13 @@
-use std::sync::Arc;
-
-use async_trait::async_trait;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::AppError;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+pub use rho_core::args::AskUserArgs;
 
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, Default)]
-pub struct AskUserArgs {
-    /// The complete question to ask the user. Should be clear, specific, and end with a question mark.
-    #[serde(default)]
-    pub question: Option<String>,
-    /// The available choices for this question (2-4 options recommended). Each option can be a string or an object with label and description.
-    #[serde(default)]
-    pub options: Option<Vec<Value>>,
-    /// Very short chip/tag shown next to the question (1-3 words, e.g. "Library", "Approach", "Auth").
-    #[serde(default)]
-    pub header: Option<String>,
-    /// List of multiple questions to ask in a single prompt sequence.
-    #[serde(default)]
-    pub questions: Option<Vec<Value>>,
-    #[serde(flatten, default)]
-    pub extra: serde_json::Map<String, Value>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserQuestionOption {
-    pub label: String,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserQuestion {
-    pub question: String,
-    pub header: Option<String>,
-    pub options: Vec<UserQuestionOption>,
-    pub allow_custom: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UserAnswer {
-    Selected(usize),
-    Custom(String),
-    Cancelled,
-}
-
-#[async_trait]
-pub trait InteractiveQuestionPort: Send + Sync {
-    async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError>;
-}
-
-#[derive(Clone)]
-pub struct QuestionPort(Arc<dyn InteractiveQuestionPort>);
-
-impl QuestionPort {
-    pub fn new(port: impl InteractiveQuestionPort + 'static) -> Self {
-        Self(Arc::new(port))
-    }
-
-    pub async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError> {
-        self.0.ask(question).await
-    }
-}
-
-#[async_trait]
-impl InteractiveQuestionPort for QuestionPort {
-    async fn ask(&self, question: UserQuestion) -> Result<UserAnswer, AppError> {
-        self.0.ask(question).await
-    }
-}
+pub use rho_core::presentation::questions::{
+    InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion, UserQuestionOption,
+};
 
 #[derive(Clone, Default)]
 pub struct AskUserTool;
@@ -313,6 +249,7 @@ impl Tool for AskUserQuestionTool {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
 

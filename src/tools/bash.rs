@@ -3,8 +3,8 @@ use crate::tools::approval::enforce_approval;
 use crate::tools::bash_ast::{RiskTier, analyze_command_safety};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::workspace::Workspace;
+pub use rho_core::args::BashArgs;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -13,14 +13,6 @@ use tokio::process::Command;
 pub const DEFAULT_BASH_TIMEOUT_SEC: u64 = 30;
 pub const MAX_BASH_BYTES: usize = 50 * 1024; // 50 KB
 pub const MAX_BASH_LINES: usize = 2000;
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct BashArgs {
-    /// Command to execute
-    pub command: String,
-    /// Timeout in seconds (default: 30)
-    pub timeout: Option<u64>,
-}
 
 pub struct BashTool {
     pub base_dir: PathBuf,

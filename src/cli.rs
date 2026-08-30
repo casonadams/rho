@@ -131,11 +131,14 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     if let Some(prompt) = prompt_text {
-        let engine = crate::engine::AgentEngine::new(config, auth_store, cli.resume.as_deref()).await?;
+        let engine = crate::platform::agent_engine(config, auth_store, cli.resume.as_deref()).await?;
         let renderer = TerminalRenderer::default();
 
         let res = engine
-            .run_turn(crate::engine::runner::TurnRequest::new(&prompt), &renderer)
+            .run_turn(
+                crate::engine::runner::TurnRequest::new(&prompt),
+                std::sync::Arc::new(renderer.clone()),
+            )
             .await;
         renderer.flush();
 
@@ -156,7 +159,7 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 pub(crate) async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let provider = select_provider(provider, &config.provider)?;
-    let strategy = crate::plugin::provider::ProviderRegistry::builtins()
+    let strategy = crate::engine::provider::registry::ProviderRegistry::builtins()
         .get(provider.as_str())?
         .credential_strategy();
     match strategy {
@@ -209,7 +212,7 @@ async fn login_api_key(provider: ProviderId, auth_store: &mut AuthStore) -> Resu
 
 pub(crate) fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let provider = select_provider(provider, &config.provider)?;
-    let strategy = crate::plugin::provider::ProviderRegistry::builtins()
+    let strategy = crate::engine::provider::registry::ProviderRegistry::builtins()
         .get(provider.as_str())?
         .credential_strategy();
     match strategy {

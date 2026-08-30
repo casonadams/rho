@@ -1,10 +1,3 @@
-use crate::config::Config;
-use crate::error::{AppError, Result};
-use crate::plugin::capability::CapabilityId;
-use crate::plugin::contract::{
-    ExecutionMode, InteractionOption, InteractionRequest, InteractionResponse, NetworkAccess, OperationEffect,
-    PathScope, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest, ToolInvocationResponse,
-};
 use crate::tools::ask_user::{AskUserArgs, AskUserTool, InteractiveQuestionPort, UserAnswer, UserQuestion};
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
@@ -17,6 +10,13 @@ use crate::tools::web::{
 };
 use crate::tools::write::{WriteArgs, WriteTool};
 use async_trait::async_trait;
+use rho_core::config::Config;
+use rho_core::error::{AppError, Result};
+use rho_sdk::capability::CapabilityId;
+use rho_sdk::contract::{
+    ExecutionMode, InteractionOption, InteractionRequest, InteractionResponse, NetworkAccess, OperationEffect,
+    PathScope, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest, ToolInvocationResponse,
+};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -282,7 +282,7 @@ impl ToolCapability for BuiltinTool {
         &self,
         host: &dyn ToolHost,
         request: ToolInvocationRequest,
-    ) -> std::result::Result<ToolInvocationResponse, crate::plugin::capability::CapabilityError> {
+    ) -> std::result::Result<ToolInvocationResponse, rho_sdk::capability::CapabilityError> {
         let result = match self {
             Self::Read(tool) => tool.execute(parse(request.arguments)?).await,
             Self::Write(tool) => tool.execute(parse(request.arguments)?).await,
@@ -315,8 +315,8 @@ impl ToolCapability for BuiltinTool {
 
 fn parse<T: serde::de::DeserializeOwned>(
     value: serde_json::Value,
-) -> std::result::Result<T, crate::plugin::capability::CapabilityError> {
-    serde_json::from_value(value).map_err(|_| crate::plugin::capability::CapabilityError::InvalidRequest {
+) -> std::result::Result<T, rho_sdk::capability::CapabilityError> {
+    serde_json::from_value(value).map_err(|_| rho_sdk::capability::CapabilityError::InvalidRequest {
         message: "tool arguments do not match the declared schema".to_string(),
     })
 }
@@ -329,10 +329,10 @@ fn map_result(result: ToolResult) -> ToolInvocationResponse {
     }
 }
 
-fn map_app_error(error: AppError) -> crate::plugin::capability::CapabilityError {
+fn map_app_error(error: AppError) -> rho_sdk::capability::CapabilityError {
     match error {
-        AppError::Cancelled(_) => crate::plugin::capability::CapabilityError::Cancelled,
-        other => crate::plugin::capability::CapabilityError::Failed {
+        AppError::Cancelled(_) => rho_sdk::capability::CapabilityError::Cancelled,
+        other => rho_sdk::capability::CapabilityError::Failed {
             message: other.to_string(),
         },
     }

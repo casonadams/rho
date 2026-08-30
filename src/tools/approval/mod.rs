@@ -1,23 +1,13 @@
 //! Approval gating for mutating tool calls.
 //!
-//! Splits cleanly into:
-//! - [`types`]: data carried through the approval pipeline (request, decision, event).
-//! - [`capability`]: the shared, cloneable state held in the [`ToolContext`].
-//! - [`hook`]: the [`AgentHook`] that drives approval during a turn.
-//! - [`context`]: free functions called from individual tools and the small
-//!   helpers that build approval keys, consume grants, and format denials.
+//! Classification, request/decision types, and the capability glue live in
+//! `rho-core::approval`; this module retains the rig AgentHook bridge (`hook`)
+//! that drives approval during a rig turn.
 
-mod capability;
-mod context;
-mod hook;
-mod types;
+pub mod hook;
 
-#[cfg(test)]
-mod tests;
-
-pub use capability::{ApprovalCapability, format_denial};
-pub use context::{
-    DispatchedCall, DispatchedResult, approval_context, authorize_dispatch, emit_tool_finished, enforce_approval,
-};
 pub use hook::ApprovalHook;
-pub use types::{ApprovalDecision, ApprovalEventSink, ApprovalRequest, ToolEvent};
+pub use rho_core::approval::{
+    ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, DispatchedCall, DispatchedResult,
+    ToolEvent, approval_context, authorize_dispatch, emit_tool_finished, enforce_approval, format_denial,
+};

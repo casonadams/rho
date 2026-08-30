@@ -2,17 +2,9 @@ use crate::error::AppError;
 use crate::tools::approval::enforce_approval;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::workspace::Workspace;
+pub use rho_core::args::WriteArgs;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct WriteArgs {
-    /// Path to the file to write (relative or absolute)
-    pub path: String,
-    /// Content to write to the file
-    pub content: String,
-}
 
 pub struct WriteTool {
     pub base_dir: PathBuf,

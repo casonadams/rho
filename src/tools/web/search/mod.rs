@@ -10,18 +10,10 @@ use crate::tools::web::http::{BRAVE_CHROME_UA, HttpClient, HttpRequest, LYNX_UA}
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 use rand::seq::SliceRandom;
 use result::SearchResult;
+pub use rho_core::args::SearchArgs;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use url::Url;
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct SearchArgs {
-    /// Search query
-    pub query: String,
-    /// Maximum number of search results to return (default: 5)
-    pub limit: Option<usize>,
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EngineKind {

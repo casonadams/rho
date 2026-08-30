@@ -3,17 +3,26 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::summary::{clean_command_paths, format_tool_args_summary, read_summary_parts, to_relative_path};
-use super::types::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
-use crate::tools::{QuestionPort, RiskTier};
-use crate::ui::ToolStreamPort;
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::interactive::{
     Activity, InteractionOption, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
 };
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::theme::Theme;
+use async_trait::async_trait;
 use indicatif::{ProgressBar, ProgressStyle};
+use rho_core::bash_ast::RiskTier;
+use rho_core::presentation::presenter::Presenter;
+use rho_core::presentation::questions::QuestionPort;
+use rho_core::presentation::stream::ToolStreamPort;
+use rho_core::presentation::summary::{
+    clean_command_paths, format_tool_args_summary, read_summary_parts, to_relative_path,
+};
+use rho_core::presentation::types::{
+    ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
+};
+use rho_core::presentation::{ActivityToken, activity_token};
+use serde_json::Value;
 use std::fmt;
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
@@ -170,7 +179,11 @@ impl TerminalRenderer {
     }
 
     pub fn stream_port(&self) -> ToolStreamPort {
-        ToolStreamPort::new(self.ui.clone())
+        ToolStreamPort::new(
+            self.ui
+                .clone()
+                .map(|ui| std::sync::Arc::new(InteractiveStreamSink(Some(ui))) as _),
+        )
     }
 
     pub fn start_tool_run(&self, name: &str, args: &serde_json::Value) {
@@ -636,5 +649,95 @@ impl TerminalRenderer {
             let ok = self.theme.tool_ok;
             self.write_output(&format!("{ok}{}{ok:#}\n", outcome.name));
         }
+    }
+}
+
+struct InteractiveStreamSink(Option<InteractiveUi>);
+
+impl rho_core::presentation::stream::ToolStreamSink for InteractiveStreamSink {
+    fn tool_chunk(&self, chunk: String) {
+        if let Some(ui) = &self.0 {
+            let _ = ui.tool_chunk(chunk);
+        }
+    }
+}
+
+#[async_trait]
+impl Presenter for TerminalRenderer {
+    fn write_output(&self, text: &str) {
+        TerminalRenderer::write_output(self, text);
+    }
+
+    fn print_welcome(&self, display: &WelcomeDisplay<'_>) {
+        TerminalRenderer::print_welcome(self, display);
+    }
+
+    fn print_session_status(&self, display: &SessionStatus<'_>) {
+        TerminalRenderer::print_session_status(self, display);
+    }
+
+    fn print_notice(&self, text: &str) {
+        TerminalRenderer::print_notice(self, text);
+    }
+
+    fn print_user_block(&self, input: &str) {
+        TerminalRenderer::print_user_block(self, input);
+    }
+
+    fn print_token(&self, token: &str) {
+        TerminalRenderer::print_token(self, token);
+    }
+
+    fn print_thinking_token(&self, token: &str) {
+        TerminalRenderer::print_thinking_token(self, token);
+    }
+
+    fn finish_tool_line(&self, line: ToolLine<'_>) {
+        TerminalRenderer::finish_tool_line(self, line);
+    }
+
+    fn flush(&self) {
+        TerminalRenderer::flush(self);
+    }
+
+    fn has_interactive_ui(&self) -> bool {
+        TerminalRenderer::has_interactive_ui(self)
+    }
+
+    fn start_spinner(&self, message: &str) -> ActivityToken {
+        let activity = TerminalRenderer::start_spinner(self, message);
+        activity_token(move || activity.finish_and_clear())
+    }
+
+    fn start_tool_spinner(&self, name: &str, arguments: &Value) -> ActivityToken {
+        let activity = TerminalRenderer::start_tool_spinner(self, name, arguments);
+        activity_token(move || activity.finish_and_clear())
+    }
+
+    fn start_tool_run(&self, name: &str, arguments: &Value) {
+        TerminalRenderer::start_tool_run(self, name, arguments);
+    }
+
+    fn stream_port(&self) -> rho_core::presentation::stream::ToolStreamPort {
+        rho_core::presentation::stream::ToolStreamPort::new(self.ui.clone().map(|ui| {
+            std::sync::Arc::new(InteractiveStreamSink(Some(ui)))
+                as std::sync::Arc<dyn rho_core::presentation::stream::ToolStreamSink>
+        }))
+    }
+
+    fn question_port(&self) -> QuestionPort {
+        TerminalRenderer::question_port(self)
+    }
+
+    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {
+        TerminalRenderer::prompt_tool_approval(self, name, arguments).await
+    }
+
+    async fn prompt_bash_approval(&self, request: BashApproval<'_>) -> ApprovalResult {
+        TerminalRenderer::prompt_bash_approval(self, request).await
+    }
+
+    async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
+        TerminalRenderer::prompt_continue_budget(self, max_turns).await
     }
 }
