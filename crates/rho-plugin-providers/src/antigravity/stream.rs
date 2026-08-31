@@ -308,6 +308,26 @@ impl ProviderCapability for AntigravityProvider {
     }
 }
 
+fn ensure_root_object_schema(mut schema: serde_json::Value) -> serde_json::Value {
+    if let serde_json::Value::Object(ref mut map) = schema {
+        if !map.contains_key("type") {
+            map.insert("type".to_string(), serde_json::Value::String("object".to_string()));
+        }
+        if !map.contains_key("properties") {
+            map.insert(
+                "properties".to_string(),
+                serde_json::Value::Object(serde_json::Map::new()),
+            );
+        }
+        schema
+    } else {
+        serde_json::json!({
+            "type": "object",
+            "properties": {}
+        })
+    }
+}
+
 fn strip_meta_schema(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => {
@@ -327,9 +347,6 @@ fn strip_meta_schema(value: &serde_json::Value) -> serde_json::Value {
                 ) {
                     out.insert(k.clone(), strip_meta_schema(v));
                 }
-            }
-            if !out.contains_key("type") {
-                out.insert("type".to_string(), serde_json::Value::String("object".to_string()));
             }
             serde_json::Value::Object(out)
         }
@@ -542,11 +559,12 @@ pub fn build_antigravity_request(
             .tools
             .iter()
             .map(|t| {
-                let schema = strip_meta_schema(&t.argument_schema);
+                let stripped = strip_meta_schema(&t.argument_schema);
+                let root_schema = ensure_root_object_schema(stripped);
                 GeminiFunctionDeclaration {
                     name: t.id.name().to_string(),
                     description: Some(t.description.clone()),
-                    parameters_json_schema: Some(schema),
+                    parameters_json_schema: Some(root_schema),
                     parameters: None,
                 }
             })

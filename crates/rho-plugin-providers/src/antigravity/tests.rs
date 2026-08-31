@@ -96,6 +96,15 @@ fn test_build_antigravity_request_formats_messages_and_tools() {
         req.request.tools.as_ref().unwrap()[0].function_declarations[0].name,
         "read"
     );
+    let schema = req.request.tools.as_ref().unwrap()[0].function_declarations[0]
+        .parameters_json_schema
+        .as_ref()
+        .unwrap();
+    assert_eq!(schema["type"], "object");
+    // Ensure properties is clean and does not have type="object" injected
+    assert!(schema["properties"]["path"].is_object());
+    assert_eq!(schema["properties"]["path"]["type"], "string");
+    assert!(schema["properties"].get("type").is_none());
 }
 
 #[test]
