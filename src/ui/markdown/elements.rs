@@ -55,6 +55,27 @@ pub fn render_inline_elements(text: &str, theme: &Theme) -> String {
     out
 }
 
+pub fn render_mermaid_block(source: &str, theme: &Theme) -> String {
+    let header = theme.tool_header;
+    let dim = theme.dimmed;
+
+    let mut out = format!("\n{header}[mermaid diagram]{header:#}\n");
+    match meraid::render(source, meraid::ThemeType::default()) {
+        Ok(rendered) => {
+            for line in rendered.lines() {
+                out.push_str(&format!("{line}\n"));
+            }
+        }
+        Err(_) => {
+            for line in source.lines() {
+                out.push_str(&format!("{dim}│{dim:#} {line}\n"));
+            }
+        }
+    }
+    out.push('\n');
+    out
+}
+
 pub fn is_table_line(trimmed: &str) -> bool {
     (trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 2) || is_table_divider(trimmed)
 }

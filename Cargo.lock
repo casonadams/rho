@@ -4696,6 +4696,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "meraid"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "390c39e080d7fd87ae6430c77d3c40567c83cf50c7b385153bcee72ac54a57df"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
 name = "micromap"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6271,6 +6284,7 @@ dependencies = [
  "futures",
  "indicatif",
  "inquire",
+ "meraid",
  "pulldown-cmark",
  "reedline",
  "regex",
@@ -6423,6 +6437,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]

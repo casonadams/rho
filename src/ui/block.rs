@@ -6,8 +6,6 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub(crate) static ANSI_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("valid ANSI escape pattern"));
 
-const HORIZONTAL_PADDING: usize = 2;
-
 pub struct BlockFormat {
     style: Style,
     width: usize,
@@ -29,13 +27,13 @@ impl BlockFormat {
     }
 
     pub fn render_plain(&self, content: &str) -> String {
-        let inner_width = self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1);
+        let inner_width = self.width.max(1);
         let lines = wrap_plain_text(content, inner_width);
         self.render_lines(&lines)
     }
 
     pub fn render_styled(&self, content: &str) -> String {
-        let inner_width = self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1);
+        let inner_width = self.width.max(1);
         let lines: Vec<String> = content
             .lines()
             .flat_map(|line| wrap_styled_line(line, inner_width, self.style))
@@ -44,7 +42,7 @@ impl BlockFormat {
     }
 
     pub fn render_line(&self, content: &str) -> String {
-        let inner_width = self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1);
+        let inner_width = self.width.max(1);
         let lines = wrap_styled_line(content, inner_width, self.style);
         let mut rendered = self.render_lines(&lines);
         rendered.pop();
@@ -67,8 +65,7 @@ impl BlockFormat {
 
     fn padded_line(&self, content: &str) -> String {
         let visible = visible_width(content);
-        let occupied = HORIZONTAL_PADDING.saturating_add(visible);
-        let trailing = self.width.saturating_sub(occupied);
+        let trailing = self.width.saturating_sub(visible);
         let style = self.style;
         let bg_str = style.render().to_string();
         let reset_str = if bg_str.is_empty() {
@@ -76,11 +73,7 @@ impl BlockFormat {
         } else {
             "\x1b[0m".to_string()
         };
-        format!(
-            "{style}{}{content}{style}{}{reset_str}\n",
-            " ".repeat(HORIZONTAL_PADDING.min(self.width)),
-            " ".repeat(trailing)
-        )
+        format!("{style}{content}{style}{}{reset_str}\n", " ".repeat(trailing))
     }
 }
 
@@ -200,22 +193,22 @@ mod tests {
 
     #[test]
     fn plain_blocks_wrap_and_pad_to_the_requested_width() {
-        let rendered = BlockFormat::new(background(), 10)
+        let rendered = BlockFormat::new(background(), 6)
             .with_vertical_padding()
             .render_plain("abcdefghij");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 4);
-        assert!(lines.iter().all(|line| visible_width(line) == 10));
+        assert!(lines.iter().all(|line| visible_width(line) == 6));
         assert!(rendered.contains("abcdef"));
         assert!(rendered.contains("ghij"));
     }
 
     #[test]
     fn styled_blocks_wrap_to_full_width_and_preserve_active_color() {
-        let rendered = BlockFormat::new(background(), 12).render_styled("\x1b[36mabcdefghijkl\x1b[0m");
+        let rendered = BlockFormat::new(background(), 8).render_styled("\x1b[36mabcdefghijkl\x1b[0m");
         let lines: Vec<&str> = rendered.lines().collect();
         assert_eq!(lines.len(), 2);
-        assert!(lines.iter().all(|line| visible_width(line) == 12));
+        assert!(lines.iter().all(|line| visible_width(line) == 8));
         assert!(lines[1].contains("\x1b[36mijkl"));
     }
 
@@ -237,7 +230,7 @@ mod tests {
         assert_eq!(lines.len(), 5);
         for line in &lines {
             assert_eq!(visible_width(line), 24);
-            assert!(line.starts_with("\x1b[40m  "));
+            assert!(line.starts_with("\x1b[40m"));
         }
         assert!(rendered.contains("\x1b[0m\x1b[40m extra"));
     }

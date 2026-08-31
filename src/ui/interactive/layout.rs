@@ -116,7 +116,10 @@ pub struct InteractiveLayout {
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + self.working_line.len().min(1) + self.queued_lines.len() + 1;
+        let mut h = self.editor_lines.len() + self.queued_lines.len() + 1;
+        if !self.working_line.is_empty() {
+            h += 3;
+        }
         if !self.top_divider.is_empty() {
             h += 1;
         }
@@ -129,7 +132,7 @@ impl InteractiveLayout {
     pub fn cursor_row(&self) -> usize {
         self.cursor.row
             + self.queued_lines.len()
-            + self.working_line.len().min(1)
+            + if !self.working_line.is_empty() { 3 } else { 0 }
             + usize::from(!self.top_divider.is_empty())
     }
 }
@@ -201,10 +204,7 @@ fn working_line_text(activity: &Activity, spinner_frame: usize, width: usize) ->
     let accent = "\x1b[36m";
     let reset = "\x1b[0m";
     let dim = "\x1b[2m";
-    let label = match activity {
-        Activity::Thinking => "Thinking...",
-        _ => "Working...",
-    };
+    let label = "Working...";
     let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
     if visible_width(&full) <= width {
         full
@@ -598,7 +598,7 @@ mod tests {
         assert!(layout.queued_lines[0].contains("Steering: first steer"));
         assert!(layout.queued_lines[1].contains("Follow-up: next follow"));
         assert!(layout.queued_lines[2].contains("Alt+↑"));
-        assert_eq!(layout.height(), 8);
+        assert_eq!(layout.height(), 10);
     }
 
     #[test]
@@ -623,7 +623,7 @@ mod tests {
         assert!(layout.working_line.contains("Working..."));
         assert!(layout.working_line.contains("\u{1b}[2m"));
         assert_eq!(layout.footer, "model");
-        assert_eq!(layout.height(), 5);
+        assert_eq!(layout.height(), 7);
     }
 
     #[test]
@@ -645,7 +645,7 @@ mod tests {
         });
 
         assert!(layout.working_line.contains('\u{280b}'));
-        assert!(layout.working_line.contains("Thinking..."));
+        assert!(layout.working_line.contains("Working..."));
     }
 
     #[test]

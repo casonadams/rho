@@ -148,7 +148,7 @@ impl PendingUiBatch {
             }
             UiEvent::Activity(activity) => {
                 self.activity = Some(activity);
-                BatchDecision::Pending
+                BatchDecision::Flush(FlushBarrier::Newline)
             }
             UiEvent::ToolStart(request) => {
                 self.tool_start = Some(request);

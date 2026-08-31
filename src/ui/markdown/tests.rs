@@ -107,17 +107,13 @@ fn test_split_list_marker_does_not_drop_item_text() {
 }
 
 #[test]
-fn mermaid_is_rendered_as_a_standard_fenced_code_block() {
+fn test_mermaid_rendering() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
 
     let chunk = "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n";
     let out = md.render_token(chunk, &theme);
-    assert!(out.contains("```mermaid"));
-    assert!(out.contains("graph TD"));
-    assert!(out.contains("```"));
-    assert!(!out.contains("mermaid diagram"));
-    assert!(!out.contains('│'));
+    assert!(out.contains("mermaid diagram"));
 }
 
 #[test]

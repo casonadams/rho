@@ -3,7 +3,7 @@
 //! Owns the streaming state (current line, open code blocks, table buffer)
 //! and dispatches each input line to the appropriate handler.
 
-use super::elements::{is_table_line, render_inline_elements, render_markdown_table};
+use super::elements::{is_table_line, render_inline_elements, render_markdown_table, render_mermaid_block};
 use super::highlight::highlight_code_line;
 use crate::ui::theme::Theme;
 use std::sync::LazyLock;
@@ -14,10 +14,12 @@ static ORDERED_LIST: LazyLock<regex::Regex> =
 #[derive(Default)]
 pub struct MarkdownRenderer {
     in_code_block: bool,
+    in_mermaid_block: bool,
     code_lang: Option<String>,
     current_line: String,
     emitted_on_current_line: bool,
     table_lines: Vec<String>,
+    mermaid_lines: Vec<String>,
     in_bold: bool,
     in_italic: bool,
     in_code: bool,
@@ -71,7 +73,7 @@ impl MarkdownRenderer {
     }
 
     fn should_buffer_current_line(&self) -> bool {
-        if self.in_code_block || !self.table_lines.is_empty() {
+        if self.in_code_block || self.in_mermaid_block || !self.table_lines.is_empty() {
             return true;
         }
 
@@ -156,6 +158,11 @@ impl MarkdownRenderer {
             let lines = std::mem::take(&mut self.table_lines);
             out.push_str(&render_markdown_table(&lines, theme));
         }
+        if self.in_mermaid_block && !self.mermaid_lines.is_empty() {
+            let lines = std::mem::take(&mut self.mermaid_lines);
+            self.in_mermaid_block = false;
+            out.push_str(&render_mermaid_block(&lines.join("\n"), theme));
+        }
         if !self.current_line.is_empty() {
             if !self.emitted_on_current_line {
                 let line = std::mem::take(&mut self.current_line);
@@ -174,6 +181,15 @@ impl MarkdownRenderer {
     fn process_line(&mut self, line: &str, theme: &Theme) -> String {
         let trimmed = line.trim();
 
+        if let Some(rendered) = self.check_mermaid_toggle(trimmed, theme) {
+            return rendered;
+        }
+
+        if self.in_mermaid_block {
+            self.mermaid_lines.push(line.to_string());
+            return String::new();
+        }
+
         if is_table_line(trimmed) {
             self.table_lines.push(line.to_string());
             return String::new();
@@ -188,6 +204,24 @@ impl MarkdownRenderer {
         out.push_str(&self.render_line(line, theme));
         out.push('\n');
         out
+    }
+
+    fn check_mermaid_toggle(&mut self, trimmed: &str, theme: &Theme) -> Option<String> {
+        if !trimmed.starts_with("```") {
+            return None;
+        }
+        let tag = trimmed.trim_start_matches('`').trim();
+        if self.in_mermaid_block {
+            self.in_mermaid_block = false;
+            let src = std::mem::take(&mut self.mermaid_lines).join("\n");
+            Some(render_mermaid_block(&src, theme))
+        } else if tag.eq_ignore_ascii_case("mermaid") {
+            self.in_mermaid_block = true;
+            self.mermaid_lines.clear();
+            Some(String::new())
+        } else {
+            None
+        }
     }
 
     pub fn render_line(&mut self, line: &str, theme: &Theme) -> String {
