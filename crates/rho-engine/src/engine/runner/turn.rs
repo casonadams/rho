@@ -1,5 +1,4 @@
 use crate::engine::AgentEngine;
-use crate::engine::context::ProjectContext;
 use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus};
 use crate::engine::runtime::build_runner;
 use crate::repeat::RepeatedCallHook;
@@ -85,7 +84,7 @@ impl AgentEngine {
         presenter: std::sync::Arc<dyn Presenter>,
     ) -> Result<TurnOutput> {
         let augmented_prompt = self.augment_prompt_with_context(request.prompt, &presenter).await;
-        let context = ProjectContext::discover(std::env::current_dir()?, Some(&self.config.config_dir)).await;
+        let context = self.project_context().await?;
         self.session_manager
             .append_event(
                 SessionEventKind::UserMessage,

@@ -30,6 +30,7 @@ pub struct AppSubagentExecutor {
     config: Config,
     auth_store: AuthStore,
     base_dir: PathBuf,
+    tool_platform: tokio::sync::OnceCell<Arc<ActiveToolSet>>,
 }
 
 impl AppSubagentExecutor {
@@ -38,7 +39,20 @@ impl AppSubagentExecutor {
             config,
             auth_store,
             base_dir,
+            tool_platform: tokio::sync::OnceCell::new(),
         }
+    }
+
+    async fn shared_tool_platform(&self) -> Result<Arc<ActiveToolSet>> {
+        self.tool_platform
+            .get_or_try_init(|| async {
+                // The platform depends on directories, network policy, and
+                // plugin/MCP config only; model overrides are engine-level.
+                // A failed load leaves the cell uninitialized to retry later.
+                ActiveToolSet::load(&self.config, &self.base_dir).await.map(Arc::new)
+            })
+            .await
+            .cloned()
     }
 }
 
@@ -120,7 +134,7 @@ impl SubagentExecutor for AppSubagentExecutor {
         }
         subagent_config.auto_approve = true;
 
-        let active_tools = Arc::new(ActiveToolSet::load(&subagent_config, &self.base_dir).await?);
+        let active_tools = self.shared_tool_platform().await?;
         let rig_tools = ActiveToolSet::clone(&active_tools).into_rig_tools();
         let neutral_executor = Arc::new(active_tools.neutral_executor(rig::tool::ToolContext::default()));
 

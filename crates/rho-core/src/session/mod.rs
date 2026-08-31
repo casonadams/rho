@@ -11,9 +11,9 @@ use secrets::SecretGuard;
 
 pub use cwd::{last_session_for_cwd, record_session_for_cwd};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
-pub(crate) use format::{append_record, create_session_file, load_file};
+pub(crate) use format::{append_durable_record, append_record, create_session_file, load_file};
 pub use turns::ConversationTurn;
-pub(crate) use validation::{validate_canonical_history, validate_checkpoint_history};
+use validation::CanonicalHistory;
 
 use crate::error::{AppError, Result};
 use chrono::Utc;
@@ -66,6 +66,7 @@ impl SessionManager {
                     messages: Vec::new(),
                     checkpoint: None,
                     events: Vec::new(),
+                    integrity: CanonicalHistory::new(),
                 }
             }
         };
@@ -125,7 +126,7 @@ impl SessionManager {
             session_id: self.session_id.clone(),
             event: event.clone(),
         };
-        append_record(&self.file_path, &record)?;
+        append_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
         state.events.push(event);
         Ok(())
@@ -149,16 +150,14 @@ impl SessionManager {
         }
         self.reject_secrets(&messages)?;
         let mut state = self.state.lock().await;
-        let mut combined = state.messages.clone();
-        combined.extend(messages.iter().cloned());
-        validate_checkpoint_history(&combined)?;
+        state.integrity.check_checkpoint_batch(&messages)?;
         let record = SessionRecord::RunCheckpoint {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
             messages: messages.clone(),
         };
-        append_record(&self.file_path, &record)?;
+        append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
         state.checkpoint = Some(messages);
         Ok(())
@@ -173,16 +172,14 @@ impl SessionManager {
             .ok_or_else(|| session_error("run checkpoint is missing"))?;
         let mut promoted = checkpoint;
         promoted.extend(messages);
-        let mut combined = state.messages.clone();
-        combined.extend(promoted.iter().cloned());
-        validate_canonical_history(&combined)?;
+        state.integrity.check_canonical_batch(&promoted)?;
         let record = SessionRecord::CheckpointPromoted {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
             messages: promoted.clone(),
         };
-        append_record(&self.file_path, &record)?;
+        append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
         state.messages.extend(promoted);
         state.checkpoint = None;
@@ -232,16 +229,14 @@ impl SessionManager {
                 "pending run checkpoint must be continued before appending history",
             ));
         }
-        let mut combined = state.messages.clone();
-        combined.extend(messages.iter().cloned());
-        validate_canonical_history(&combined)?;
+        state.integrity.check_canonical_batch(&messages)?;
         let record = SessionRecord::CanonicalMessages {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
             messages: messages.clone(),
         };
-        append_record(&self.file_path, &record)?;
+        append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
         state.messages.extend(messages);
         Ok(())
@@ -255,10 +250,11 @@ impl SessionManager {
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
         };
-        append_record(&self.file_path, &record)?;
+        append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
         state.messages.clear();
         state.checkpoint = None;
+        state.integrity.clear();
         Ok(())
     }
 

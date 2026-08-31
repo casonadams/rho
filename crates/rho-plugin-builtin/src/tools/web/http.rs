@@ -1,9 +1,26 @@
+use futures::StreamExt;
 use reqwest::Client;
 use rho_core::error::{AppError, Result};
 pub use rho_core::net::{BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, validate_url};
 use std::sync::LazyLock;
 use std::time::Duration;
 use url::Url;
+
+async fn read_limited(response: reqwest::Response, max_bytes: usize) -> std::result::Result<Vec<u8>, reqwest::Error> {
+    let capacity = max_bytes.min(256 * 1024);
+    let mut body: Vec<u8> = Vec::with_capacity(capacity);
+    let mut stream = response.bytes_stream();
+    while body.len() < max_bytes {
+        let Some(chunk) = stream.next().await else {
+            break;
+        };
+        let chunk = chunk?;
+        let remaining = max_bytes - body.len();
+        let take = remaining.min(chunk.len());
+        body.extend_from_slice(&chunk[..take]);
+    }
+    Ok(body)
+}
 
 static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
@@ -86,18 +103,11 @@ impl HttpClient {
             return Err(AppError::Tool(format!("HTTP error {status} from {}", request.url)));
         }
 
-        let bytes = resp
-            .bytes()
+        let bytes = read_limited(resp, request.max_bytes)
             .await
             .map_err(|e| AppError::Tool(format!("Failed to read response body from {}: {e}", request.url)))?;
 
-        let slice = if bytes.len() > request.max_bytes {
-            &bytes[..request.max_bytes]
-        } else {
-            &bytes[..]
-        };
-
-        let body = String::from_utf8_lossy(slice).to_string();
+        let body = String::from_utf8_lossy(&bytes).to_string();
         Ok((body, content_type))
     }
 
@@ -126,18 +136,11 @@ impl HttpClient {
             return Err(AppError::Tool(format!("HTTP error {status} from {}", request.url)));
         }
 
-        let bytes = resp
-            .bytes()
+        let bytes = read_limited(resp, request.max_bytes)
             .await
             .map_err(|e| AppError::Tool(format!("Failed to read body from {}: {e}", request.url)))?;
 
-        let truncated = if bytes.len() > request.max_bytes {
-            bytes[..request.max_bytes].to_vec()
-        } else {
-            bytes.to_vec()
-        };
-
-        Ok((truncated, content_type))
+        Ok((bytes, content_type))
     }
 }
 

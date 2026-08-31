@@ -1,4 +1,5 @@
 use std::fmt;
+use std::io::Read;
 use std::path::Path;
 
 include!(concat!(env!("OUT_DIR"), "/builtin_skills.rs"));
@@ -132,8 +133,12 @@ fn upsert_by_name(resolved: &mut Vec<ResolvedSkill>, origin: SkillOrigin, metada
     }
 }
 
+/// Read a bounded prefix of the file; skills declare their metadata in the
+/// leading frontmatter, so full reads are unnecessary while scanning.
+const SKILL_METADATA_PREFIX_BYTES: u64 = 4096;
+
 fn parse_skill_file(path: &Path) -> Option<SkillMetadata> {
-    let content = std::fs::read_to_string(path).ok()?;
+    let content = read_skill_prefix(path)?;
     let declared_name = if path.file_name().is_some_and(|name| name == "SKILL.md") {
         // Directory skills: `<name>/SKILL.md` is named for the directory.
         path.parent()
@@ -148,6 +153,15 @@ fn parse_skill_file(path: &Path) -> Option<SkillMetadata> {
 }
 
 const FALLBACK_DESCRIPTION: &str = "Custom agent skill";
+
+fn read_skill_prefix(path: &Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let limited = file.take(SKILL_METADATA_PREFIX_BYTES);
+    let mut prefix = String::new();
+    let mut reader = std::io::BufReader::new(limited);
+    reader.read_to_string(&mut prefix).ok()?;
+    Some(prefix)
+}
 
 fn build_metadata(path: &Path, declared_name: Option<String>, content: &str) -> SkillMetadata {
     let mut name = declared_name.unwrap_or_else(|| "skill".to_string());

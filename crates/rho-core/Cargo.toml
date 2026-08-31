@@ -22,7 +22,7 @@ dotenvy = "0.15"
 rig = "0.42"
 rig-memory = "0.42"
 toml = "0.8"
-tokio = { workspace = true, features = ["sync", "rt", "macros"] }
+tokio = { workspace = true, features = ["sync", "rt", "macros", "fs", "io-util"] }
 uuid = { workspace = true, features = ["v4"] }
 tiktoken-rs.workspace = true
 

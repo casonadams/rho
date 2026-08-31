@@ -139,16 +139,24 @@ pub async fn run_neutral_turn(
         cancellation,
         steering,
     } = runtime;
-    let mut messages = request.messages;
+    let NeutralTurnRequest {
+        model,
+        messages,
+        credential,
+        max_output_tokens,
+        tools: tool_definitions,
+        max_turns,
+        checkpoint: continuation,
+    } = request;
+    let mut messages = messages;
     let mut usage = ProviderUsage::default();
     let mut completed_model_turns = 0;
-    if let Some(checkpoint) = request.checkpoint {
+    if let Some(checkpoint) = continuation {
         messages.extend(checkpoint.messages);
         usage = checkpoint.usage;
         completed_model_turns = checkpoint.completed_model_turns;
     }
-    let tool_ids = request
-        .tools
+    let tool_ids = tool_definitions
         .iter()
         .map(|tool| tool.id.clone())
         .collect::<BTreeSet<_>>();
@@ -163,7 +171,7 @@ pub async fn run_neutral_turn(
                 usage,
             )));
         }
-        if completed_model_turns >= request.max_turns {
+        if completed_model_turns >= max_turns {
             return Ok(NeutralTurnTerminal::Checkpoint(checkpoint(
                 messages,
                 completed_model_turns,
@@ -171,12 +179,14 @@ pub async fn run_neutral_turn(
             )));
         }
 
+        // ProviderRequest is the plugin wire-protocol message; the provider
+        // stream takes ownership, so each model turn needs an owned copy.
         let provider_request = ProviderRequest {
-            model: request.model.clone(),
+            model: model.clone(),
             messages: messages.clone(),
-            credential: request.credential.clone(),
-            max_output_tokens: request.max_output_tokens,
-            tools: request.tools.clone(),
+            credential: credential.clone(),
+            max_output_tokens,
+            tools: tool_definitions.clone(),
         };
         let mut stream = provider.stream(provider_request).await.map_err(map_provider_error)?;
         let mut turn_text = String::new();

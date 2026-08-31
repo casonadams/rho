@@ -441,10 +441,7 @@ async fn test_session_turns_counts_tool_calls_accurately() {
     let mut messages = complete_tool_turn(&["call-1"]);
     messages.push(Message::assistant("finished tool execution"));
 
-    session
-        .append_messages(&session.session_id, messages)
-        .await
-        .unwrap();
+    session.append_messages(&session.session_id, messages).await.unwrap();
 
     let turns = session.load_turns().await.unwrap();
     assert_eq!(turns.len(), 1);

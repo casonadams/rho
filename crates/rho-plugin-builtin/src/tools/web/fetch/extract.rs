@@ -1,5 +1,16 @@
 use rho_core::error::{AppError, Result};
+use std::sync::LazyLock;
 use url::Url;
+
+static BOILERPLATE_TAGS: LazyLock<Vec<regex::Regex>> = LazyLock::new(|| {
+    ["script", "style", "svg", "noscript", "nav", "footer", "header", "aside"]
+        .iter()
+        .filter_map(|tag| regex::Regex::new(&format!(r"(?is)<{tag}[^>]*>.*?</{tag}>")).ok())
+        .collect()
+});
+
+static MARKDOWN_LINK: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").expect("valid markdown link pattern"));
 
 pub fn extract_html(html: &str, base_url: &str, mode: &str) -> String {
     let mode_lower = mode.to_lowercase();
@@ -16,12 +27,10 @@ pub fn extract_html(html: &str, base_url: &str, mode: &str) -> String {
 }
 
 fn strip_boilerplate_tags(html: &str) -> String {
-    let tags = ["script", "style", "svg", "noscript", "nav", "footer", "header", "aside"];
     let mut out = html.to_string();
-    for tag in tags {
-        let pattern = format!(r"(?is)<{tag}[^>]*>.*?</{tag}>");
-        if let Ok(re) = regex::Regex::new(&pattern) {
-            out = re.replace_all(&out, "").to_string();
+    for re in BOILERPLATE_TAGS.iter() {
+        if re.is_match(&out) {
+            out = re.replace_all(&out, "").into_owned();
         }
     }
     out
@@ -149,7 +158,7 @@ pub fn resolve_markdown_links(text: &str, base_url: &str) -> String {
         return text.to_string();
     };
 
-    let re_link = regex::Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+    let re_link = &*MARKDOWN_LINK;
     re_link
         .replace_all(text, |caps: &regex::Captures| {
             let label = &caps[1];

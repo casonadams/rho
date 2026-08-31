@@ -88,6 +88,10 @@ fn queue_vertical_move(stdout: &mut Stdout, mut rows: usize, upward: bool) -> io
     Ok(())
 }
 
+/// Live preview cap for the active tool block; the full result still arrives
+/// with the completion event, so the preview drops old bytes past this cap.
+pub const MAX_ACTIVE_TOOL_OUTPUT_BYTES: usize = 32 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveToolBlock {
     pub name: String,
@@ -95,6 +99,7 @@ pub struct ActiveToolBlock {
     pub preview: Option<String>,
     pub output: String,
     pub started: std::time::Instant,
+    truncated: bool,
 }
 
 pub struct TerminalController<B: TerminalBackend> {
@@ -158,15 +163,45 @@ impl<B: TerminalBackend> TerminalController<B> {
             preview: request.preview,
             output: String::new(),
             started: std::time::Instant::now(),
+            truncated: false,
         });
         self.redraw()
     }
 
     pub fn append_tool_chunk(&mut self, chunk: &str) -> io::Result<()> {
-        if let Some(tool) = &mut self.active_tool {
-            tool.output.push_str(chunk);
+        self.append_tool_chunks(std::iter::once(chunk))
+    }
+
+    /// Append several chunks and redraw once; a redraw per chunk would
+    /// re-wrap the whole live block per chunk.
+    pub fn append_tool_chunks<'chunk, I: IntoIterator<Item = &'chunk str>>(&mut self, chunks: I) -> io::Result<()> {
+        let mut changed = false;
+        if let Some(tool) = self.active_tool.as_mut() {
+            for chunk in chunks {
+                if tool.truncated {
+                    break;
+                }
+                let room = MAX_ACTIVE_TOOL_OUTPUT_BYTES.saturating_sub(tool.output.len());
+                let take = room.min(chunk.len());
+                let take = if take == chunk.len() || chunk.is_char_boundary(take) {
+                    take
+                } else {
+                    (0..take).rev().find(|&i| chunk.is_char_boundary(i)).unwrap_or(0)
+                };
+                if take > 0
+                    && let Some(prefix) = chunk.get(..take)
+                {
+                    tool.output.push_str(prefix);
+                    changed = true;
+                }
+                if tool.output.len() >= MAX_ACTIVE_TOOL_OUTPUT_BYTES {
+                    tool.truncated = true;
+                    tool.output
+                        .push_str("\n[output truncated while running; full result follows]");
+                }
+            }
         }
-        self.redraw()
+        if changed { self.redraw() } else { Ok(()) }
     }
 
     pub fn end_tool(&mut self) -> io::Result<()> {
@@ -992,5 +1027,61 @@ mod tests {
         let operations = operations.borrow();
         assert!(operations.contains(&Operation::Show));
         assert!(operations.contains(&Operation::Raw(false)));
+    }
+
+    #[test]
+    fn tool_chunk_batches_trigger_one_redraw_per_batch() {
+        let (backend, operations, _) = FakeTerminal::new(40);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller.append_tool_chunks(["a", "b", "c"]).unwrap();
+        let no_tool_flushes = operations.borrow().iter().filter(|op| **op == Operation::Flush).count();
+        assert_eq!(no_tool_flushes, 0);
+
+        controller
+            .start_tool(crate::ui::interactive::ToolStartRequest {
+                name: "bash".to_string(),
+                args_summary: "cmd".to_string(),
+                preview: None,
+            })
+            .unwrap();
+        let baseline = operations.borrow().len();
+        controller.append_tool_chunks(["a", "b", "c"]).unwrap();
+        let flushes = operations.borrow()[baseline..]
+            .iter()
+            .filter(|op| **op == Operation::Flush)
+            .count();
+        assert_eq!(flushes, 1);
+    }
+
+    #[test]
+    fn active_tool_output_is_capped_while_running() {
+        let (backend, _operations, _) = FakeTerminal::new(40);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .start_tool(crate::ui::interactive::ToolStartRequest {
+                name: "bash".to_string(),
+                args_summary: "cmd".to_string(),
+                preview: None,
+            })
+            .unwrap();
+
+        let full = "x".repeat(super::MAX_ACTIVE_TOOL_OUTPUT_BYTES);
+        let oversized = format!("{full}Y");
+        controller.append_tool_chunks([oversized.as_str()]).unwrap();
+        controller.append_tool_chunks(["dropped"]).unwrap();
+        controller.append_tool_chunk("dropped too").unwrap();
+
+        let block = controller.active_tool.as_ref().unwrap();
+        assert!(
+            block.output.len()
+                <= super::MAX_ACTIVE_TOOL_OUTPUT_BYTES
+                    + "\n[output truncated while running; full result follows]".len(),
+            "retained {} bytes",
+            block.output.len()
+        );
+        assert!(block.output.contains("output truncated while running"));
+        assert!(!block.output.contains("dropped"));
     }
 }

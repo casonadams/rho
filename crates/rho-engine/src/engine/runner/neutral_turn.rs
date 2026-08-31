@@ -1,6 +1,5 @@
 use super::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use super::turn::{RunStatus, TurnOutput, TurnRequest};
-use crate::engine::context::ProjectContext;
 use crate::engine::metrics::{StructuralUsage, TerminalStatus};
 use crate::engine::provider::host_loop::{
     CancellationSignal, NeutralTurnObserver, NeutralTurnRequest, NeutralTurnRuntime, NeutralTurnTerminal,
@@ -46,7 +45,7 @@ impl AgentEngine {
         else {
             return Err(AppError::Provider("external provider runtime mismatch".to_string()));
         };
-        let context = ProjectContext::discover(std::env::current_dir()?, Some(&self.config.config_dir)).await;
+        let context = self.project_context().await?;
         self.session_manager
             .append_event(
                 SessionEventKind::UserMessage,

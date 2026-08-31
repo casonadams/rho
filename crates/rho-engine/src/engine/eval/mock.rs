@@ -68,6 +68,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         quota: crate::engine::tracking::QuotaTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
+        project_context: std::sync::Arc::default(),
     }
 }
 

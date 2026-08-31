@@ -185,6 +185,7 @@ impl AgentEngineBuilder {
             quota: QuotaTracker::default(),
             context: ContextTracker::new(self.config.context_limit),
             run_tracker: super::metrics::RunTracker::default(),
+            project_context: Arc::default(),
         })
     }
 }

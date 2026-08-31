@@ -6,6 +6,10 @@
 use super::elements::{is_table_line, render_inline_elements, render_markdown_table};
 use super::highlight::highlight_code_line;
 use crate::ui::theme::Theme;
+use std::sync::LazyLock;
+
+static ORDERED_LIST: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^(\d+\.)\s+(.*)$").expect("valid ordered list pattern"));
 
 #[derive(Default)]
 pub struct MarkdownRenderer {
@@ -239,7 +243,7 @@ impl MarkdownRenderer {
             let formatted = render_inline_elements(rest, theme);
             return Some(format!("{p}•{p:#} {formatted}"));
         }
-        if let Some(caps) = regex::Regex::new(r"^(\d+\.)\s+(.*)$").ok()?.captures(line) {
+        if let Some(caps) = ORDERED_LIST.captures(line) {
             let num = &caps[1];
             let rest = &caps[2];
             let p = theme.prompt;

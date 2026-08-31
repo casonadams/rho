@@ -58,6 +58,13 @@ impl ProjectContext {
         }
     }
 
+    /// Re-read only the per-turn volatile fields; files and skill metadata are
+    /// cached by the caller for the lifetime of the working directory.
+    pub async fn refresh_runtime_state(&mut self) {
+        self.git_status = get_git_summary(&self.current_dir).await;
+        self.date_str = chrono::Local::now().format("%A, %B %d, %Y, %H:%M:%S %Z").to_string();
+    }
+
     fn load_candidate_instructions(dir: &Path, files: &mut Vec<(String, String)>) {
         let candidates = ["AGENTS.md", "CLAUDE.md", ".cursorrules"];
         for filename in candidates {

@@ -14,7 +14,7 @@ pub mod eval;
 use crate::auth::AuthStore;
 use rho_core::config::Config;
 use rho_core::dispatch::NeutralToolExecutor;
-use rho_core::error::Result;
+use rho_core::error::{AppError, Result};
 use rho_core::presentation::Presenter;
 use rho_core::session::SessionManager;
 use rho_sdk::contract::{
@@ -49,6 +49,7 @@ pub struct AgentEngine {
     pub(crate) quota: QuotaTracker,
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
+    pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
 }
 
 impl AgentEngine {
@@ -72,6 +73,25 @@ impl AgentEngine {
 
     pub fn context_limit(&self) -> Option<usize> {
         self.context.limit_for(&self.config.model)
+    }
+
+    /// Discover project context once per working directory and reuse it for
+    /// subsequent turns of the session; only the wall-clock-dependent parts
+    /// (git status, current date) are refreshed per turn.
+    pub(crate) async fn project_context(&self) -> Result<context::ProjectContext> {
+        let cwd = std::env::current_dir()?;
+        let mut cache = self.project_context.lock().await;
+        if cache.as_ref().map(|(dir, _)| dir.as_path()) != Some(cwd.as_path()) {
+            *cache = Some((
+                cwd.clone(),
+                context::ProjectContext::discover(&cwd, Some(&self.config.config_dir)).await,
+            ));
+        }
+        let Some((_, cached)) = cache.as_mut() else {
+            return Err(AppError::Other(anyhow::anyhow!("project context cache unavailable")));
+        };
+        cached.refresh_runtime_state().await;
+        Ok(cached.clone())
     }
 
     pub fn context_usage_percent(&self) -> Option<usize> {

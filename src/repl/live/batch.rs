@@ -41,9 +41,8 @@ impl LiveBatch {
             controller.start_tool(request)?;
             changed = true;
         }
-        for chunk in &drained.tool_chunks {
-            controller.append_tool_chunk(chunk)?;
-            changed = true;
+        if !drained.tool_chunks.is_empty() {
+            controller.append_tool_chunks(drained.tool_chunks.iter().map(String::as_str))?;
         }
         if drained.tool_end {
             controller.end_tool()?;

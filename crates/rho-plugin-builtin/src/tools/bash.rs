@@ -13,6 +13,9 @@ use tokio::process::Command;
 pub const DEFAULT_BASH_TIMEOUT_SEC: u64 = 30;
 pub const MAX_BASH_BYTES: usize = 50 * 1024; // 50 KB
 pub const MAX_BASH_LINES: usize = 2000;
+/// Live-output retention cap while the child is still running; everything past
+/// this point streams to the display but is dropped from the captured result.
+pub const MAX_RETAINED_BASH_BYTES: usize = 64 * 1024;
 
 pub struct BashTool {
     pub base_dir: PathBuf,
@@ -100,10 +103,27 @@ impl BashTool {
         });
 
         let mut combined = String::new();
+        let mut total_bytes = 0_usize;
+        let mut total_newlines = 0_usize;
+        let mut stream_ends_newline = true;
         let execution_future = async {
             while let Some(chunk) = chunk_rx.recv().await {
                 on_chunk(&chunk);
-                combined.push_str(&chunk);
+                total_bytes = total_bytes.saturating_add(chunk.len());
+                total_newlines += chunk.bytes().filter(|&byte| byte == b'\n').count();
+                if !chunk.is_empty() {
+                    stream_ends_newline = chunk.ends_with('\n');
+                }
+                let room = MAX_RETAINED_BASH_BYTES.saturating_sub(combined.len());
+                let take = room.min(chunk.len());
+                let take = if take == chunk.len() || chunk.is_char_boundary(take) {
+                    take
+                } else {
+                    (0..take).rev().find(|&i| chunk.is_char_boundary(i)).unwrap_or(0)
+                };
+                if let Some(prefix) = chunk.get(..take) {
+                    combined.push_str(prefix);
+                }
             }
             let _ = stdout_task.await;
             let _ = stderr_task.await;
@@ -128,7 +148,8 @@ impl BashTool {
         };
 
         let exit_code = status.code().unwrap_or(-1);
-        let truncated_output = truncate_bash_output(&combined);
+        let total_lines = total_newlines + usize::from(!stream_ends_newline && total_bytes > 0);
+        let truncated_output = truncate_bash_output(&combined, total_bytes, total_lines);
 
         if status.success() {
             let res = if truncated_output.trim().is_empty() {
@@ -152,9 +173,9 @@ pub fn is_read_only_command(command: &str) -> bool {
     analyze_command_safety(command).tier == RiskTier::ReadOnly
 }
 
-fn truncate_bash_output(output: &str) -> String {
-    let lines: Vec<&str> = output.lines().collect();
-    if lines.len() > MAX_BASH_LINES || output.len() > MAX_BASH_BYTES {
+fn truncate_bash_output(retained: &str, total_bytes: usize, total_lines: usize) -> String {
+    let lines: Vec<&str> = retained.lines().collect();
+    if total_lines > MAX_BASH_LINES || retained.len() > MAX_BASH_BYTES {
         let keep_lines = lines.len().min(MAX_BASH_LINES);
         let mut truncated = String::new();
         let mut bytes = 0;
@@ -169,13 +190,11 @@ fn truncate_bash_output(output: &str) -> String {
         }
 
         truncated.push_str(&format!(
-            "\n[Output truncated: {} total lines, {} total bytes]",
-            lines.len(),
-            output.len()
+            "\n[Output truncated: {total_lines} total lines, {total_bytes} total bytes]",
         ));
         truncated
     } else {
-        output.to_string()
+        retained.to_string()
     }
 }
 
@@ -230,9 +249,24 @@ mod tests {
     #[test]
     fn test_bash_output_truncation_preserves_limits() {
         let output = format!("{}\n", "x".repeat(MAX_BASH_BYTES + 100));
-        let truncated = truncate_bash_output(&output);
+        let truncated = truncate_bash_output(&output, output.len(), output.lines().count());
         assert!(truncated.contains("[Output truncated:"));
         assert!(truncated.len() <= MAX_BASH_BYTES + 100);
+    }
+
+    #[tokio::test]
+    async fn test_bash_retained_output_is_capped_while_streaming() {
+        let tool = BashTool::new(std::env::current_dir().unwrap());
+        let res = tool
+            .execute(BashArgs {
+                command: "yes | head -c 2000000".to_string(),
+                timeout: Some(10),
+            })
+            .await
+            .unwrap();
+        assert!(!res.is_error);
+        assert!(res.content.contains("[Output truncated: "));
+        assert!(res.content.len() <= MAX_RETAINED_BASH_BYTES + 100);
     }
 
     #[tokio::test]

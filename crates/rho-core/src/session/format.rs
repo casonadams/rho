@@ -5,8 +5,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
+use tokio::io::AsyncWriteExt;
 
 use super::session_error;
+use super::validation::CanonicalHistory;
 
 pub(super) const SESSION_VERSION: u32 = 2;
 
@@ -88,6 +90,7 @@ pub struct StoreState {
     pub messages: Vec<Message>,
     pub checkpoint: Option<Vec<Message>>,
     pub events: Vec<SessionEvent>,
+    pub(super) integrity: CanonicalHistory,
 }
 
 pub(crate) fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
@@ -111,13 +114,28 @@ pub(crate) fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn append_record(path: &Path, record: &SessionRecord) -> Result<()> {
+async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
     let mut line = serde_json::to_vec(record).map_err(|_| session_error("session record serialization failed"))?;
     line.push(b'\n');
-    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
-    file.write_all(&line)?;
-    file.sync_data()?;
+    let mut file = tokio::fs::OpenOptions::new().append(true).open(path).await?;
+    file.write_all(&line).await?;
+    if durable {
+        // Durable boundary: full state transitions fsync; audit events do not.
+        file.sync_data().await?;
+    }
     Ok(())
+}
+
+/// Append an audit event without an fsync; the JSONL loader drops a torn
+/// trailing line, so at most the newest unflushed events are lost on a crash.
+pub(crate) async fn append_record(path: &Path, record: &SessionRecord) -> Result<()> {
+    write_record(path, record, false).await
+}
+
+/// Append a canonical-history state transition and fsync it so a resumable
+/// session never replays a half-committed state change.
+pub(crate) async fn append_durable_record(path: &Path, record: &SessionRecord) -> Result<()> {
+    write_record(path, record, true).await
 }
 
 pub(crate) fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
@@ -139,6 +157,7 @@ pub(crate) fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
         messages: Vec::new(),
         checkpoint: None,
         events: Vec::new(),
+        integrity: CanonicalHistory::new(),
     };
     for line in committed.iter().skip(1) {
         let record: SessionRecord =
@@ -213,20 +232,19 @@ pub(crate) fn apply_record(state: &mut StoreState, record: SessionRecord, expect
             if messages.is_empty() {
                 return Err(session_error("canonical message batches cannot be empty"));
             }
+            state.integrity.check_canonical_batch(&messages)?;
             state.messages.extend(messages);
-            super::validation::validate_canonical_history(&state.messages)?;
         }
         SessionRecord::CanonicalReset { .. } => {
             state.messages.clear();
             state.checkpoint = None;
+            state.integrity.clear();
         }
         SessionRecord::RunCheckpoint { messages, .. } => {
             if messages.is_empty() {
                 return Err(session_error("run checkpoints cannot be empty"));
             }
-            let mut combined = state.messages.clone();
-            combined.extend(messages.iter().cloned());
-            super::validate_checkpoint_history(&combined)?;
+            state.integrity.check_checkpoint_batch(&messages)?;
             state.checkpoint = Some(messages);
         }
         SessionRecord::CheckpointPromoted { messages, .. } => {
@@ -237,8 +255,8 @@ pub(crate) fn apply_record(state: &mut StoreState, record: SessionRecord, expect
             if messages.is_empty() || !messages.starts_with(checkpoint) {
                 return Err(session_error("checkpoint promotion does not match pending history"));
             }
+            state.integrity.check_canonical_batch(&messages)?;
             state.messages.extend(messages);
-            super::validation::validate_canonical_history(&state.messages)?;
             state.checkpoint = None;
         }
         SessionRecord::AuditEvent { event, .. } => state.events.push(event),
