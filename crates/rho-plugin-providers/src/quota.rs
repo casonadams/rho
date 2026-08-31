@@ -55,7 +55,7 @@ impl QuotaWindow {
     pub fn format_summary(&self) -> String {
         let percent = format!("{:.0}%", self.remaining_percent());
         if let Some(countdown) = self.format_countdown() {
-            format!("{percent} ({countdown})")
+            format!("{percent} {countdown}")
         } else {
             percent
         }
@@ -96,22 +96,6 @@ pub fn parse_codex_usage(data: &CodexUsageResponse) -> Vec<QuotaWindow> {
     let limits = data.rate_limit.as_ref().or(data.rate_limits.as_ref());
     let mut windows = Vec::new();
     if let Some(limits) = limits {
-        if let Some(primary) = limits.primary_window.as_ref().or(limits.five_hour.as_ref()) {
-            let used = primary
-                .used_percent
-                .or_else(|| primary.percent_left.map(|p| 100.0 - p))
-                .or_else(|| primary.remaining_percent.map(|p| 100.0 - p))
-                .unwrap_or(0.0);
-            windows.push(QuotaWindow {
-                label: "5h".to_string(),
-                used_percent: used,
-                resets_at: parse_reset_time(&primary.reset_at),
-                used_value: used,
-                limit_value: 100.0,
-                is_currency: false,
-                limited: false,
-            });
-        }
         if let Some(secondary) = limits.secondary_window.as_ref().or(limits.weekly.as_ref()) {
             let used = secondary
                 .used_percent
@@ -122,6 +106,22 @@ pub fn parse_codex_usage(data: &CodexUsageResponse) -> Vec<QuotaWindow> {
                 label: "7d".to_string(),
                 used_percent: used,
                 resets_at: parse_reset_time(&secondary.reset_at),
+                used_value: used,
+                limit_value: 100.0,
+                is_currency: false,
+                limited: false,
+            });
+        }
+        if let Some(primary) = limits.primary_window.as_ref().or(limits.five_hour.as_ref()) {
+            let used = primary
+                .used_percent
+                .or_else(|| primary.percent_left.map(|p| 100.0 - p))
+                .or_else(|| primary.remaining_percent.map(|p| 100.0 - p))
+                .unwrap_or(0.0);
+            windows.push(QuotaWindow {
+                label: "5h".to_string(),
+                used_percent: used,
+                resets_at: parse_reset_time(&primary.reset_at),
                 used_value: used,
                 limit_value: 100.0,
                 is_currency: false,
@@ -290,6 +290,17 @@ pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
         }
     }
 
+    windows.sort_by_key(|w| {
+        let l = w.label.to_lowercase();
+        if l.contains("7d") || l.contains("week") {
+            0
+        } else if l.contains("5h") || l.contains("hour") {
+            1
+        } else {
+            2
+        }
+    });
+
     windows
 }
 
@@ -365,7 +376,7 @@ pub fn parse_ollama_usage(body: &OllamaUsageResponse) -> Vec<QuotaWindow> {
         return Vec::new();
     };
     let mut windows = Vec::new();
-    for (label, limit) in [("5h", session), ("7d", weekly)] {
+    for (label, limit) in [("7d", weekly), ("5h", session)] {
         let Some(usage) = limit.usage else {
             continue;
         };
@@ -408,6 +419,34 @@ mod tests {
     }
 
     #[test]
+    fn test_format_quota_windows_multiple() {
+        let now = Utc::now();
+        let windows = vec![
+            QuotaWindow {
+                label: "7d".to_string(),
+                used_percent: 2.0,
+                resets_at: Some(now + Duration::days(6) + Duration::hours(1)),
+                used_value: 2.0,
+                limit_value: 100.0,
+                is_currency: false,
+                limited: false,
+            },
+            QuotaWindow {
+                label: "5h".to_string(),
+                used_percent: 7.0,
+                resets_at: Some(now + Duration::hours(3) + Duration::minutes(22)),
+                used_value: 7.0,
+                limit_value: 100.0,
+                is_currency: false,
+                limited: false,
+            },
+        ];
+
+        let formatted = format_quota_windows(&windows).unwrap();
+        assert_eq!(formatted, "98% 6d1h 93% 3h22m");
+    }
+
+    #[test]
     fn test_parse_antigravity_usage_groups_and_buckets() {
         let json = serde_json::json!({
             "groups": [
@@ -430,10 +469,10 @@ mod tests {
 
         let windows = parse_antigravity_usage(&json);
         assert_eq!(windows.len(), 2);
-        assert_eq!(windows[0].label, "5 Hours");
-        assert!((windows[0].remaining_percent() - 85.0).abs() < 0.01);
-        assert_eq!(windows[1].label, "Weekly");
-        assert!((windows[1].remaining_percent() - 95.0).abs() < 0.01);
+        assert_eq!(windows[0].label, "Weekly");
+        assert!((windows[0].remaining_percent() - 95.0).abs() < 0.01);
+        assert_eq!(windows[1].label, "5 Hours");
+        assert!((windows[1].remaining_percent() - 85.0).abs() < 0.01);
     }
 
     #[test]
@@ -467,10 +506,10 @@ mod tests {
         };
         let windows = parse_ollama_usage(&body);
         assert_eq!(windows.len(), 2);
-        assert_eq!(windows[0].label, "5h");
-        assert!((windows[0].used_percent - 31.3).abs() < 0.01);
-        assert_eq!(windows[1].label, "7d");
-        assert!((windows[1].used_percent - 44.5).abs() < 0.01);
+        assert_eq!(windows[0].label, "7d");
+        assert!((windows[0].used_percent - 44.5).abs() < 0.01);
+        assert_eq!(windows[1].label, "5h");
+        assert!((windows[1].used_percent - 31.3).abs() < 0.01);
         assert!(windows.iter().all(|w| w.resets_at.is_none()));
     }
 
