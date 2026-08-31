@@ -226,7 +226,11 @@ impl ProviderCapability for AntigravityProvider {
                             })?;
                         }
 
-                        if let Some(candidates) = chunk_data.candidates {
+                        let candidates = chunk_data
+                            .candidates
+                            .or_else(|| chunk_data.response.as_ref().and_then(|r| r.candidates.clone()));
+
+                        if let Some(candidates) = candidates {
                             for cand in candidates {
                                 if let Some(content) = cand.content {
                                     for part in content.parts {
@@ -259,7 +263,11 @@ impl ProviderCapability for AntigravityProvider {
                             }
                         }
 
-                        if let Some(usage) = chunk_data.usage_metadata {
+                        let usage = chunk_data
+                            .usage_metadata
+                            .or_else(|| chunk_data.response.as_ref().and_then(|r| r.usage_metadata.clone()));
+
+                        if let Some(usage) = usage {
                             yield ProviderStreamEvent::Usage {
                                 input_tokens: usage.prompt_tokens.unwrap_or(0),
                                 output_tokens: usage.candidates_tokens.unwrap_or(0),
@@ -416,6 +424,7 @@ pub fn build_antigravity_request(
         temperature: Some(0.2),
         max_output_tokens: request.max_output_tokens.or(Some(8192)),
         thinking_config: Some(GeminiThinkingConfig {
+            include_thoughts: Some(true),
             thinking_level: Some("HIGH".to_string()),
             thinking_budget: None,
         }),

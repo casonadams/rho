@@ -97,3 +97,54 @@ fn test_build_antigravity_request_formats_messages_and_tools() {
         "read"
     );
 }
+
+#[test]
+fn test_stream_chunk_parses_wrapped_and_unwrapped_response() {
+    use super::types::StreamChunkResponse;
+
+    let wrapped_json = r#"{
+        "response": {
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [{"text": "Hello from Google"}]
+                },
+                "finishReason": "STOP"
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 12,
+                "candidatesTokenCount": 4,
+                "totalTokenCount": 16
+            }
+        }
+    }"#;
+
+    let chunk: StreamChunkResponse = serde_json::from_str(wrapped_json).unwrap();
+    let candidates = chunk
+        .candidates
+        .or_else(|| chunk.response.as_ref().and_then(|r| r.candidates.clone()))
+        .unwrap();
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(
+        candidates[0].content.as_ref().unwrap().parts[0].text.as_deref(),
+        Some("Hello from Google")
+    );
+
+    let unwrapped_json = r#"{
+        "candidates": [{
+            "content": {
+                "role": "model",
+                "parts": [{"text": "Direct candidate"}]
+            }
+        }]
+    }"#;
+    let chunk2: StreamChunkResponse = serde_json::from_str(unwrapped_json).unwrap();
+    let candidates2 = chunk2
+        .candidates
+        .or_else(|| chunk2.response.as_ref().and_then(|r| r.candidates.clone()))
+        .unwrap();
+    assert_eq!(
+        candidates2[0].content.as_ref().unwrap().parts[0].text.as_deref(),
+        Some("Direct candidate")
+    );
+}

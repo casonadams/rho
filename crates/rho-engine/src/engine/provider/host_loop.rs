@@ -289,12 +289,13 @@ pub async fn run_neutral_turn(
                 });
             }
         }
-        if !assistant_content.is_empty() {
-            messages.push(ModelMessage {
-                role: MessageRole::Assistant,
-                content: assistant_content,
-            });
+        if assistant_content.is_empty() {
+            assistant_content.push(MessageContent::Text { text: String::new() });
         }
+        messages.push(ModelMessage {
+            role: MessageRole::Assistant,
+            content: assistant_content,
+        });
 
         if complete_calls.is_empty() {
             let pending_steering = steering.poll_steering().await;

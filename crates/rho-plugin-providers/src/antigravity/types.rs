@@ -77,6 +77,8 @@ pub struct GeminiGenerationConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GeminiThinkingConfig {
+    #[serde(rename = "includeThoughts", skip_serializing_if = "Option::is_none")]
+    pub include_thoughts: Option<bool>,
     #[serde(rename = "thinkingLevel", skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<String>,
     #[serde(rename = "thinkingBudget", skip_serializing_if = "Option::is_none")]
@@ -147,8 +149,16 @@ pub struct StreamChunkUsage {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct StreamChunkResponse {
+    pub response: Option<StreamResponsePayload>,
     pub candidates: Option<Vec<StreamChunkCandidate>>,
     #[serde(rename = "usageMetadata")]
     pub usage_metadata: Option<StreamChunkUsage>,
     pub error: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StreamResponsePayload {
+    pub candidates: Option<Vec<StreamChunkCandidate>>,
+    #[serde(rename = "usageMetadata")]
+    pub usage_metadata: Option<StreamChunkUsage>,
 }
