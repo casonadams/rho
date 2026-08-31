@@ -137,7 +137,13 @@ impl TerminalApprovalSink {
         if text.is_empty() {
             return;
         }
-        self.finish_spinner();
+        if !self.presenter.has_interactive_ui() {
+            self.finish_spinner();
+        } else if self.state.lock().is_ok_and(|state| state.spinner.is_none())
+            && let Ok(mut state) = self.state.lock()
+        {
+            state.spinner = Some(self.presenter.start_spinner("thinking..."));
+        }
         let mut prefix_blank = false;
         let mut text_to_stream = text.to_string();
 
@@ -170,8 +176,13 @@ impl TerminalApprovalSink {
 
     pub fn emit_text(&self, text: &str) {
         self.flush_reasoning();
-        self.finish_spinner();
+        if !self.presenter.has_interactive_ui() {
+            self.finish_spinner();
+        }
         if let Ok(mut state) = self.state.lock() {
+            if self.presenter.has_interactive_ui() && state.last_display != DisplayKind::Text {
+                state.spinner = Some(self.presenter.start_spinner("working..."));
+            }
             if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Thinking {
                 self.presenter.write_output("\n");
             }

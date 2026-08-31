@@ -434,16 +434,89 @@ async fn test_session_turns_and_rewind() {
 }
 
 #[tokio::test]
-async fn test_session_turns_counts_tool_calls_accurately() {
+async fn test_session_tree_dag_branching_and_ancestors() {
     let dir = temp_dir();
     let session = SessionManager::new(&dir, None).unwrap();
 
-    let mut messages = complete_tool_turn(&["call-1"]);
-    messages.push(Message::assistant("finished tool execution"));
+    session
+        .append_messages(
+            &session.session_id,
+            vec![Message::user("Root prompt"), Message::assistant("Root answer")],
+        )
+        .await
+        .unwrap();
 
-    session.append_messages(&session.session_id, messages).await.unwrap();
+    let tree = session.load_tree().await.unwrap();
+    assert_eq!(tree.len(), 1);
+    let root_leaf_id = tree.active_leaf_id.clone().unwrap();
 
-    let turns = session.load_turns().await.unwrap();
-    assert_eq!(turns.len(), 1);
-    assert_eq!(turns[0].tool_calls_count, 1);
+    session
+        .append_messages(
+            &session.session_id,
+            vec![Message::user("Branch A prompt"), Message::assistant("Branch A answer")],
+        )
+        .await
+        .unwrap();
+
+    let tree_a = session.load_tree().await.unwrap();
+    assert_eq!(tree_a.len(), 2);
+    let branch_a_leaf = tree_a.active_leaf_id.clone().unwrap();
+
+    let switched_msgs = session.switch_branch(Some(root_leaf_id.clone())).await.unwrap();
+    assert_eq!(switched_msgs.len(), 2);
+    assert_eq!(switched_msgs[0], Message::user("Root prompt"));
+
+    session
+        .append_messages(
+            &session.session_id,
+            vec![Message::user("Branch B prompt"), Message::assistant("Branch B answer")],
+        )
+        .await
+        .unwrap();
+
+    let tree_b = session.load_tree().await.unwrap();
+    assert_eq!(tree_b.len(), 3);
+    let branch_b_leaf = tree_b.active_leaf_id.clone().unwrap();
+
+    let (unique_a, unique_b) = tree_b.branch_divergence(&branch_a_leaf, &branch_b_leaf);
+    assert_eq!(unique_a.len(), 1);
+    assert_eq!(unique_b.len(), 1);
+
+    let resumed = SessionManager::new(&dir, Some(&session.session_id)).unwrap();
+    let resumed_tree = resumed.load_tree().await.unwrap();
+    assert_eq!(resumed_tree.len(), 3);
+    assert_eq!(resumed_tree.active_leaf_id, Some(branch_b_leaf));
+    let resumed_msgs = resumed.load_messages().await.unwrap();
+    assert_eq!(resumed_msgs.len(), 4);
+    assert_eq!(resumed_msgs[2], Message::user("Branch B prompt"));
+}
+
+#[tokio::test]
+async fn test_session_tree_node_label_and_naming() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+
+    session.set_session_name("Refactor Auth").await.unwrap();
+    assert_eq!(
+        session.get_session_name().await.unwrap(),
+        Some("Refactor Auth".to_string())
+    );
+
+    session
+        .append_messages(
+            &session.session_id,
+            vec![Message::user("prompt"), Message::assistant("reply")],
+        )
+        .await
+        .unwrap();
+
+    let leaf_id = session.active_leaf_id().await.unwrap().unwrap();
+    session
+        .set_node_label(&leaf_id, Some("milestone-1".to_string()))
+        .await
+        .unwrap();
+
+    let tree = session.load_tree().await.unwrap();
+    let node = tree.get_node(&leaf_id).unwrap();
+    assert_eq!(node.label, Some("milestone-1".to_string()));
 }

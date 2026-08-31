@@ -2,8 +2,10 @@ mod controller;
 mod events;
 mod input;
 mod layout;
+pub mod session_picker;
 mod state;
 mod transcript;
+pub mod tree_view;
 
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{

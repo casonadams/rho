@@ -387,6 +387,8 @@ model = "haiku"
             auto_approve: false,
             resume: None,
             r#continue: false,
+            resume_picker: false,
+            mode: "interactive".to_string(),
             command: None,
         };
         merge::apply_cli_overrides(&mut config, Some(&cli));

@@ -12,6 +12,7 @@ pub enum InputAction {
     EndOfInput,
     ToggleExpandTools,
     DequeueQueued,
+    ExternalEditor,
     Ignore,
 }
 
@@ -34,6 +35,9 @@ pub fn map_key(event: KeyEvent) -> InputAction {
         }
         (KeyCode::Char('o' | 'O'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
             InputAction::ToggleExpandTools
+        }
+        (KeyCode::Char('g' | 'G'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            InputAction::ExternalEditor
         }
         (KeyCode::Char('d' | 'D'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => InputAction::EndOfInput,
         (KeyCode::Char('c' | 'C'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => InputAction::Cancel,

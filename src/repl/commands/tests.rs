@@ -41,6 +41,7 @@ async fn skill_command_lists_resolved_overrides_with_origin() {
         renderer: &renderer,
         commands: None,
         session_id: None,
+        session_manager: None,
     };
 
     let listing = SlashCommandHandler::handle("/skills", &mut context).await.unwrap();
@@ -74,6 +75,7 @@ async fn skill_command_reports_unknown_names_with_available_skills() {
         renderer: &renderer,
         commands: None,
         session_id: None,
+        session_manager: None,
     };
 
     let result = SlashCommandHandler::handle("/skill does-not-exist", &mut context)
@@ -97,6 +99,7 @@ async fn help_is_emitted_through_the_renderer() {
         renderer: &renderer,
         commands: None,
         session_id: None,
+        session_manager: None,
     };
 
     let result = SlashCommandHandler::handle("/help", &mut context).await.unwrap();
@@ -118,6 +121,7 @@ async fn login_is_dispatched_without_collecting_credentials() {
         renderer: &renderer,
         commands: None,
         session_id: None,
+        session_manager: None,
     };
     let result = SlashCommandHandler::handle("/login chatgpt", &mut context)
         .await
@@ -141,6 +145,7 @@ async fn model_switch_is_emitted_and_updates_configuration() {
         renderer: &renderer,
         commands: None,
         session_id: None,
+        session_manager: None,
     };
     let result = SlashCommandHandler::handle("/model gpt-4o openai", &mut context)
         .await
@@ -195,6 +200,7 @@ async fn dynamic_plugin_command_dispatches_with_arguments() {
         renderer: &renderer,
         commands: Some(&commands),
         session_id: None,
+        session_manager: None,
     };
 
     let result = SlashCommandHandler::handle("/kiln fire \"./docs path\" --force", &mut context)
@@ -223,6 +229,7 @@ async fn help_displays_installed_plugin_commands() {
         renderer: &renderer,
         commands: Some(&commands),
         session_id: None,
+        session_manager: None,
     };
 
     let result = SlashCommandHandler::handle("/help", &mut context).await.unwrap();
@@ -245,6 +252,7 @@ async fn session_command_prints_diagnostics() {
         renderer: &renderer,
         commands: None,
         session_id: Some("sess_xyz123"),
+        session_manager: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
@@ -267,6 +275,7 @@ async fn compact_tree_and_rewind_commands_return_expected_results() {
         renderer: &renderer,
         commands: None,
         session_id: Some("sess_1"),
+        session_manager: None,
     };
 
     let compact_res = SlashCommandHandler::handle("/compact preserve error details", &mut context)
@@ -281,6 +290,27 @@ async fn compact_tree_and_rewind_commands_return_expected_results() {
 
     let tree_res = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
     assert!(matches!(tree_res, Some(CommandResult::Tree)));
+
+    let fork_res = SlashCommandHandler::handle("/fork node_123", &mut context)
+        .await
+        .unwrap();
+    assert!(matches!(
+        fork_res,
+        Some(CommandResult::ForkSession {
+            turn_or_node_id: Some(ref id)
+        }) if id == "node_123"
+    ));
+
+    let clone_res = SlashCommandHandler::handle("/clone", &mut context).await.unwrap();
+    assert!(matches!(clone_res, Some(CommandResult::CloneSession)));
+
+    let name_res = SlashCommandHandler::handle("/name Refactor Module", &mut context)
+        .await
+        .unwrap();
+    assert!(matches!(
+        name_res,
+        Some(CommandResult::NameSession { ref name }) if name == "Refactor Module"
+    ));
 
     let rewind_res = SlashCommandHandler::handle("/rewind 2", &mut context).await.unwrap();
     assert!(matches!(rewind_res, Some(CommandResult::Rewind { turn: 2 })));

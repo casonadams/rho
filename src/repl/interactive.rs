@@ -36,6 +36,7 @@ pub struct CompletionSet {
     skills: Vec<String>,
     models: Vec<String>,
     providers: Vec<String>,
+    files: Vec<String>,
 }
 
 struct MatchRequest<'a> {
@@ -45,21 +46,34 @@ struct MatchRequest<'a> {
 }
 
 impl CompletionSet {
-    pub fn rho(extension_commands: &[(&str, &str)], skill_names: Vec<String>) -> Self {
+    pub fn rho(extension_commands: &[(&str, &str)], skill_names: Vec<String>, prompt_templates: Vec<String>) -> Self {
         let mut commands = SLASH_COMMANDS
             .iter()
             .map(|command| (*command).to_string())
             .collect::<Vec<_>>();
         commands.extend(extension_commands.iter().map(|(name, _)| format!("/{name}")));
+        commands.extend(prompt_templates.iter().map(|name| format!("/{name}")));
         commands.sort();
         commands.dedup();
+
+        let cwd = std::env::current_dir().ok();
+        let files = cwd
+            .as_deref()
+            .map(|d| rho_core::workspace::list_relative_files(d, 2000))
+            .unwrap_or_default();
 
         Self {
             commands,
             skills: skill_names,
             models: CURATED_MODELS.iter().map(|(model, _)| (*model).to_string()).collect(),
             providers: PROVIDERS.iter().map(|provider| (*provider).to_string()).collect(),
+            files,
         }
+    }
+
+    pub fn with_files(mut self, files: Vec<String>) -> Self {
+        self.files = files;
+        self
     }
 
     pub fn complete(&self, line: &str, cursor: usize) -> Vec<Completion> {
@@ -105,6 +119,22 @@ impl CompletionSet {
                     cursor,
                 },
             )
+        } else if let Some(at_idx) = prefix.rfind('@') {
+            let at_is_word_start = at_idx == 0 || prefix[..at_idx].ends_with(char::is_whitespace);
+            if at_is_word_start {
+                let file_prefix = &prefix[at_idx + 1..];
+                self.files
+                    .iter()
+                    .filter(|f| f.to_lowercase().contains(&file_prefix.to_lowercase()))
+                    .take(25)
+                    .map(|f| Completion {
+                        value: f.clone(),
+                        replacement: at_idx..cursor,
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            }
         } else if prefix.starts_with('/') {
             matches(
                 &self.commands,
@@ -208,7 +238,7 @@ mod tests {
 
     #[test]
     fn completion_reports_replacement_spans_for_commands_and_arguments() {
-        let completions = CompletionSet::rho(&[("deploy", "Deploy")], Vec::new());
+        let completions = CompletionSet::rho(&[("deploy", "Deploy")], Vec::new(), Vec::new());
 
         let command = completions.complete("/dep trailing", 4);
         assert_eq!(command[0].value, "/deploy");
@@ -221,7 +251,7 @@ mod tests {
 
     #[test]
     fn completion_rejects_invalid_cursor_boundaries() {
-        let completions = CompletionSet::rho(&[], Vec::new());
+        let completions = CompletionSet::rho(&[], Vec::new(), Vec::new());
         assert!(completions.complete("/model 界", 8).is_empty());
         assert!(completions.complete("/model", 99).is_empty());
     }

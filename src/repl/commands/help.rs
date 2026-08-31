@@ -19,7 +19,10 @@ pub fn print_help(
   /plugin                     List discovered plugins\n\
   /session                    Display token capacity and session diagnostics\n\
   /compact [instructions]     Summarize earlier context to free context space\n\
-  /tree                       View conversation turn history\n\
+  /tree                       View conversation turn and branch tree\n\
+  /fork [id]                  Fork session from turn or node into a new session\n\
+  /clone                      Duplicate active branch into a new session\n\
+  /name [name]                Assign a human-readable name to the session\n\
   /rewind <turn>              Rewind context to a specific prior turn\n\
   /clear                      Start a new session; preserve history\n\
   /login [provider]           Add API-key or subscription auth\n\

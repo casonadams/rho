@@ -166,6 +166,50 @@ fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
 }
 
 #[test]
+fn interactive_stream_preserves_spinner_until_finished() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let sink = TerminalApprovalSink::new(
+        &presenter(&renderer),
+        TerminalSinkConfig {
+            model_label: "model".to_string(),
+            auto_approve: true,
+            run_tracker: crate::engine::metrics::RunTracker::default(),
+        },
+        terminal_session(),
+    );
+
+    assert!(sink.state.lock().unwrap().spinner.is_some());
+
+    // Reasoning keeps spinner active (Thinking)
+    sink.emit_reasoning("thinking about solution");
+    assert!(sink.state.lock().unwrap().spinner.is_some());
+
+    // Text transitions to Working and keeps spinner active
+    sink.emit_text("Here is the answer");
+    assert!(sink.state.lock().unwrap().spinner.is_some());
+
+    // Stream more text tokens - spinner remains active
+    sink.emit_text(" and more details");
+    assert!(sink.state.lock().unwrap().spinner.is_some());
+
+    // Finally finished at turn end
+    sink.finish_spinner();
+    assert!(sink.state.lock().unwrap().spinner.is_none());
+
+    let activities = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::Activity(activity) => Some(activity),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        activities,
+        [Activity::Thinking, Activity::Idle, Activity::Working, Activity::Idle]
+    );
+}
+
+#[test]
 fn approval_required_holds_spinner_until_granted() {
     let renderer = TerminalRenderer::default();
     let sink = TerminalApprovalSink::new(

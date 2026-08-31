@@ -4,6 +4,7 @@ mod format;
 mod secrets;
 #[cfg(test)]
 mod tests;
+pub mod tree;
 mod turns;
 mod validation;
 
@@ -12,14 +13,15 @@ use secrets::SecretGuard;
 pub use cwd::{last_session_for_cwd, record_session_for_cwd};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use format::{append_durable_record, append_record, create_session_file, load_file};
+pub use tree::{SessionTree, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
 use validation::CanonicalHistory;
 
 use crate::error::{AppError, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::message::Message;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -41,6 +43,16 @@ impl std::fmt::Debug for SessionManager {
             .field("file_path", &self.file_path)
             .finish_non_exhaustive()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionSummary {
+    pub session_id: String,
+    pub name: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_modified: DateTime<Utc>,
+    pub turn_count: usize,
+    pub preview: String,
 }
 
 impl SessionManager {
@@ -66,6 +78,7 @@ impl SessionManager {
                     messages: Vec::new(),
                     checkpoint: None,
                     events: Vec::new(),
+                    tree: SessionTree::new(),
                     integrity: CanonicalHistory::new(),
                 }
             }
@@ -81,6 +94,131 @@ impl SessionManager {
             secrets,
             memory_error: Arc::new(Mutex::new(None)),
         })
+    }
+
+    pub async fn load_tree(&self) -> Result<SessionTree> {
+        Ok(self.state.lock().await.tree.clone())
+    }
+
+    pub async fn active_leaf_id(&self) -> Result<Option<String>> {
+        Ok(self.state.lock().await.tree.active_leaf_id.clone())
+    }
+
+    pub async fn switch_branch(&self, leaf_id: Option<String>) -> Result<Vec<Message>> {
+        let mut state = self.state.lock().await;
+        state.tree.set_active_leaf(leaf_id.clone());
+        let messages = state.tree.active_messages();
+        state.messages = messages.clone();
+        let record = SessionRecord::ActiveLeafChanged {
+            sequence: state.next_sequence,
+            session_id: self.session_id.clone(),
+            timestamp: Utc::now(),
+            active_leaf_id: leaf_id,
+        };
+        append_durable_record(&self.file_path, &record).await?;
+        state.next_sequence += 1;
+        Ok(messages)
+    }
+
+    pub async fn set_node_label(&self, node_id: &str, label: Option<String>) -> Result<()> {
+        let mut state = self.state.lock().await;
+        state.tree.set_node_label(node_id, label.clone());
+        let record = SessionRecord::SessionLabel {
+            sequence: state.next_sequence,
+            session_id: self.session_id.clone(),
+            timestamp: Utc::now(),
+            node_id: node_id.to_string(),
+            label,
+        };
+        append_durable_record(&self.file_path, &record).await?;
+        state.next_sequence += 1;
+        Ok(())
+    }
+
+    pub async fn set_session_name(&self, name: &str) -> Result<()> {
+        let mut state = self.state.lock().await;
+        state.tree.set_session_name(name.to_string());
+        let record = SessionRecord::SessionNamed {
+            sequence: state.next_sequence,
+            session_id: self.session_id.clone(),
+            timestamp: Utc::now(),
+            name: name.to_string(),
+        };
+        append_durable_record(&self.file_path, &record).await?;
+        state.next_sequence += 1;
+        Ok(())
+    }
+
+    pub async fn get_session_name(&self) -> Result<Option<String>> {
+        Ok(self.state.lock().await.tree.session_name.clone())
+    }
+
+    pub async fn append_branch_summary(&self, summary: &str, source_leaf_id: &str) -> Result<()> {
+        self.reject_secrets(&summary)?;
+        let mut state = self.state.lock().await;
+        let parent_id = state.tree.active_leaf_id.clone();
+        let node_id = uuid::Uuid::new_v4().to_string();
+        let summary_message = Message::assistant(format!("[Branch Summary from {source_leaf_id}]: {summary}"));
+        let node = TreeNodeData {
+            id: node_id,
+            parent_id,
+            timestamp: Utc::now(),
+            kind: TreeNodeKind::BranchSummary,
+            messages: vec![summary_message],
+            label: Some("Branch Summary".to_string()),
+            metadata: Some(serde_json::json!({ "source_leaf_id": source_leaf_id })),
+        };
+        let record = SessionRecord::TreeNode {
+            sequence: state.next_sequence,
+            session_id: self.session_id.clone(),
+            node: node.clone(),
+        };
+        append_durable_record(&self.file_path, &record).await?;
+        state.next_sequence += 1;
+        state.tree.add_node(node);
+        state.messages = state.tree.active_messages();
+        Ok(())
+    }
+
+    pub async fn fork_session(
+        &self,
+        sessions_dir: &Path,
+        target_leaf_or_turn_id: Option<&str>,
+    ) -> Result<SessionManager> {
+        let tree = self.load_tree().await?;
+        let target_node_id = if let Some(id_or_turn) = target_leaf_or_turn_id {
+            if let Ok(turn_num) = id_or_turn.parse::<usize>() {
+                let turns = self.load_turns().await?;
+                if turn_num > 0 && turn_num <= turns.len() {
+                    let nodes = match &tree.active_leaf_id {
+                        Some(leaf) => tree.ancestor_nodes(leaf),
+                        None => Vec::new(),
+                    };
+                    nodes.get(turn_num.saturating_sub(1)).map(|n| n.id.clone())
+                } else {
+                    Some(id_or_turn.to_string())
+                }
+            } else {
+                Some(id_or_turn.to_string())
+            }
+        } else {
+            tree.active_leaf_id.clone()
+        };
+
+        let forked = SessionManager::new(sessions_dir, None)?;
+        if let Some(target_id) = target_node_id {
+            let ancestors = tree.ancestor_nodes(&target_id);
+            for node in ancestors {
+                forked
+                    .append_messages(&forked.session_id, node.messages.clone())
+                    .await?;
+            }
+        }
+        Ok(forked)
+    }
+
+    pub async fn clone_session(&self, sessions_dir: &Path) -> Result<SessionManager> {
+        self.fork_session(sessions_dir, None).await
     }
 
     pub async fn load_turns(&self) -> Result<Vec<ConversationTurn>> {
@@ -173,15 +311,27 @@ impl SessionManager {
         let mut promoted = checkpoint;
         promoted.extend(messages);
         state.integrity.check_canonical_batch(&promoted)?;
-        let record = SessionRecord::CheckpointPromoted {
+        let now = Utc::now();
+        let node_id = uuid::Uuid::new_v4().to_string();
+        let parent_id = state.tree.active_leaf_id.clone();
+        let node = TreeNodeData {
+            id: node_id,
+            parent_id,
+            timestamp: now,
+            kind: TreeNodeKind::AssistantTurn,
+            messages: promoted.clone(),
+            label: None,
+            metadata: None,
+        };
+        let record = SessionRecord::TreeNode {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-            messages: promoted.clone(),
+            node: node.clone(),
         };
         append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
-        state.messages.extend(promoted);
+        state.tree.add_node(node);
+        state.messages = state.tree.active_messages();
         state.checkpoint = None;
         Ok(())
     }
@@ -217,6 +367,65 @@ impl SessionManager {
         Ok(ids)
     }
 
+    pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
+        if !sessions_dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut summaries = Vec::new();
+        for entry in std::fs::read_dir(sessions_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|value| value.to_str()) == Some("jsonl")
+                && let Some(stem) = path.file_stem().and_then(|value| value.to_str())
+                && let Ok(state) = load_file(&path, stem)
+            {
+                let metadata = std::fs::metadata(&path)?;
+                let last_modified: DateTime<Utc> = metadata
+                    .modified()
+                    .map(DateTime::<Utc>::from)
+                    .unwrap_or_else(|_| Utc::now());
+                let turn_count = state.tree.len();
+                let preview = state
+                    .tree
+                    .root_nodes()
+                    .first()
+                    .and_then(|n| {
+                        n.messages.iter().find_map(|m| match m {
+                            Message::User { content } => content.first().map(|c| match c {
+                                rig::message::UserContent::Text(t) => t.text.clone(),
+                                _ => String::new(),
+                            }),
+                            _ => None,
+                        })
+                    })
+                    .unwrap_or_else(|| "Empty session".to_string());
+                let preview_truncated = if preview.chars().count() > 50 {
+                    format!("{}...", preview.chars().take(47).collect::<String>())
+                } else {
+                    preview
+                };
+                summaries.push(SessionSummary {
+                    session_id: stem.to_string(),
+                    name: state.tree.session_name,
+                    created_at: last_modified,
+                    last_modified,
+                    turn_count,
+                    preview: preview_truncated,
+                });
+            }
+        }
+        summaries.sort_by_key(|b| std::cmp::Reverse(b.last_modified));
+        Ok(summaries)
+    }
+
+    pub fn delete_session(sessions_dir: &Path, session_id: &str) -> Result<()> {
+        let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
+        if file_path.exists() {
+            std::fs::remove_file(file_path)?;
+        }
+        Ok(())
+    }
+
     async fn append_messages(&self, conversation_id: &str, messages: Vec<Message>) -> Result<()> {
         self.ensure_conversation(conversation_id)?;
         if messages.is_empty() {
@@ -230,15 +439,27 @@ impl SessionManager {
             ));
         }
         state.integrity.check_canonical_batch(&messages)?;
-        let record = SessionRecord::CanonicalMessages {
+        let now = Utc::now();
+        let node_id = uuid::Uuid::new_v4().to_string();
+        let parent_id = state.tree.active_leaf_id.clone();
+        let node = TreeNodeData {
+            id: node_id,
+            parent_id,
+            timestamp: now,
+            kind: TreeNodeKind::UserTurn,
+            messages: messages.clone(),
+            label: None,
+            metadata: None,
+        };
+        let record = SessionRecord::TreeNode {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-            messages: messages.clone(),
+            node: node.clone(),
         };
         append_durable_record(&self.file_path, &record).await?;
         state.next_sequence += 1;
-        state.messages.extend(messages);
+        state.tree.add_node(node);
+        state.messages = state.tree.active_messages();
         Ok(())
     }
 
@@ -255,6 +476,7 @@ impl SessionManager {
         state.messages.clear();
         state.checkpoint = None;
         state.integrity.clear();
+        state.tree = SessionTree::new();
         Ok(())
     }
 

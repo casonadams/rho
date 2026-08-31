@@ -75,6 +75,52 @@ impl Workspace {
     pub fn can_mutate(&self, raw_path: &str) -> bool {
         self.is_within(raw_path) && !self.is_protected(raw_path) && !self.is_excluded(raw_path)
     }
+
+    pub fn list_files(&self, max_files: usize) -> Vec<String> {
+        list_relative_files(&self.root, max_files)
+    }
+}
+
+pub fn list_relative_files(root: &Path, max_files: usize) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut dirs_to_visit = vec![root.to_path_buf()];
+
+    while let Some(current_dir) = dirs_to_visit.pop() {
+        let Ok(entries) = std::fs::read_dir(&current_dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let name_str = file_name.to_string_lossy();
+
+            if name_str.starts_with('.')
+                || name_str == "target"
+                || name_str == "node_modules"
+                || name_str == "dist"
+                || name_str == "build"
+            {
+                continue;
+            }
+
+            if path.is_dir() {
+                dirs_to_visit.push(path);
+            } else if path.is_file()
+                && let Ok(rel) = path.strip_prefix(root)
+            {
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                files.push(rel_str);
+                if files.len() >= max_files {
+                    break;
+                }
+            }
+        }
+        if files.len() >= max_files {
+            break;
+        }
+    }
+    files.sort();
+    files
 }
 
 fn canonicalize_path(path: &Path) -> PathBuf {

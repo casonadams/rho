@@ -59,9 +59,9 @@ pub struct RhoCompleter {
 }
 
 impl RhoCompleter {
-    pub fn new(extension_commands: &[(&str, &str)], skill_names: Vec<String>) -> Self {
+    pub fn new(extension_commands: &[(&str, &str)], skill_names: Vec<String>, prompt_templates: Vec<String>) -> Self {
         Self {
-            completions: CompletionSet::rho(extension_commands, skill_names),
+            completions: CompletionSet::rho(extension_commands, skill_names, prompt_templates),
         }
     }
 }
@@ -134,7 +134,14 @@ impl ReplSession {
                 .into_iter()
                 .map(|skill| skill.metadata.name)
                 .collect();
-        let completer = RhoCompleter::new(&ext_cmds, skill_names);
+        let prompt_templates = rho_core::prompts::discover_prompt_templates(
+            Some(&self.config.config_dir),
+            std::env::current_dir().ok().as_deref(),
+        )
+        .into_iter()
+        .map(|t| t.metadata.name)
+        .collect::<Vec<_>>();
+        let completer = RhoCompleter::new(&ext_cmds, skill_names, prompt_templates);
         let completion_menu = Box::new(ColumnarMenu::default().with_name("slash_commands"));
         let mut keybindings = default_emacs_keybindings();
         keybindings.add_binding(
@@ -186,6 +193,7 @@ impl ReplSession {
                         renderer: &self.renderer,
                         commands: Some(&self.commands),
                         session_id: Some(&engine.session_manager.session_id),
+                        session_manager: Some(&engine.session_manager),
                     };
                     if let Some(cmd_res) = SlashCommandHandler::handle(input, &mut cmd_ctx).await? {
                         match cmd_res {
@@ -226,26 +234,83 @@ impl ReplSession {
                                 continue;
                             }
                             CommandResult::Tree => {
-                                let turns = engine.session_manager.load_turns().await?;
-                                let mut out =
-                                    format!("\nConversation Tree (Session: {})\n", engine.session_manager.session_id);
-                                if turns.is_empty() {
-                                    out.push_str("  (No conversation turns recorded yet)\n");
-                                } else {
-                                    let total = turns.len();
-                                    for (idx, turn) in turns.iter().enumerate() {
-                                        let is_last = idx + 1 == total;
-                                        let marker = if is_last { "└──" } else { "├──" };
-                                        let current_tag = if is_last { " (Current)" } else { "" };
-                                        use std::fmt::Write as _;
-                                        let _ = writeln!(
-                                            out,
-                                            "  {marker} [Turn {}]{current_tag} User: \"{}\" -> Assistant: \"{}\"",
-                                            turn.turn_number, turn.user_prompt, turn.assistant_preview
-                                        );
-                                    }
+                                let tree = engine.session_manager.load_tree().await?;
+                                let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
+                                self.renderer.print_notice(&format!(
+                                    "\nConversation Tree (Session: {}):\n{rendered}\n",
+                                    engine.session_manager.session_id
+                                ));
+                                continue;
+                            }
+                            CommandResult::SwitchBranch { leaf_id } => {
+                                let old_leaf = engine.session_manager.active_leaf_id().await?.unwrap_or_default();
+                                let tree = engine.session_manager.load_tree().await?;
+                                let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
+                                let has_assistant = abandoned
+                                    .iter()
+                                    .any(|n| n.kind == rho_core::session::TreeNodeKind::AssistantTurn);
+                                if has_assistant
+                                    && self.renderer.has_interactive_ui()
+                                    && let Ok(true) = inquire::Confirm::new(
+                                        "Summarize discoveries from abandoned branch before switching?",
+                                    )
+                                    .with_default(true)
+                                    .prompt()
+                                {
+                                    let summary_text = abandoned
+                                        .iter()
+                                        .map(|n| format!("{:?}", n.messages))
+                                        .collect::<Vec<_>>()
+                                        .join(" ");
+                                    let _ = engine
+                                        .session_manager
+                                        .append_branch_summary(&summary_text, &old_leaf)
+                                        .await;
                                 }
-                                self.renderer.print_notice(&out);
+                                let _ = engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
+                                engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
+                                self.renderer
+                                    .print_notice(&format!("  [Switched active branch to {leaf_id}]\n"));
+                                continue;
+                            }
+                            CommandResult::ForkSession { turn_or_node_id } => {
+                                let forked = engine
+                                    .session_manager
+                                    .fork_session(&self.config.sessions_dir, turn_or_node_id.as_deref())
+                                    .await?;
+                                self.renderer
+                                    .print_notice(&format!("  [Forked session into {}]\n", forked.session_id));
+                                continue;
+                            }
+                            CommandResult::CloneSession => {
+                                let cloned = engine.session_manager.clone_session(&self.config.sessions_dir).await?;
+                                self.renderer
+                                    .print_notice(&format!("  [Cloned session into {}]\n", cloned.session_id));
+                                continue;
+                            }
+                            CommandResult::ResumeSession { session_id } => {
+                                engine = crate::platform::agent_engine(
+                                    self.config.clone(),
+                                    self.auth_store.clone(),
+                                    Some(&session_id),
+                                )
+                                .await?;
+                                self.renderer
+                                    .print_notice(&format!("  [Resumed session {session_id}]\n"));
+                                continue;
+                            }
+                            CommandResult::NameSession { name } => {
+                                engine.session_manager.set_session_name(&name).await?;
+                                self.renderer.print_notice(&format!("  [Named session: \"{name}\"]\n"));
+                                continue;
+                            }
+                            CommandResult::ExpandedPrompt { text } => {
+                                self.renderer.print_notice("  [Expanded template]\n");
+                                self.renderer.print_user_block(&text);
+                                self.renderer.write_output("\n");
+                                self.run_agent_turn(&engine, crate::engine::runner::TurnRequest::new(&text))
+                                    .await?;
+                                engine.refresh_quota().await;
                                 continue;
                             }
                             CommandResult::Rewind { turn } => {
@@ -263,7 +328,79 @@ impl ReplSession {
                         }
                     }
 
-                    let effective_input = input.to_string();
+                    if let Some(cmd) = input.strip_prefix("!!") {
+                        let cmd = cmd.trim();
+                        if !cmd.is_empty() {
+                            self.renderer
+                                .print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
+                            #[cfg(unix)]
+                            let out = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
+                            #[cfg(windows)]
+                            let out = tokio::process::Command::new("cmd.exe")
+                                .arg("/c")
+                                .arg(cmd)
+                                .output()
+                                .await;
+                            match out {
+                                Ok(res) => {
+                                    let stdout = String::from_utf8_lossy(&res.stdout);
+                                    let stderr = String::from_utf8_lossy(&res.stderr);
+                                    if !stdout.is_empty() {
+                                        self.renderer.write_output(&stdout);
+                                    }
+                                    if !stderr.is_empty() {
+                                        self.renderer.write_output(&stderr);
+                                    }
+                                }
+                                Err(e) => {
+                                    self.renderer
+                                        .print_notice(&format!("  Command execution failed: {e}\n"));
+                                }
+                            }
+                            continue;
+                        }
+                    }
+
+                    let effective_input = if let Some(cmd) = input.strip_prefix('!') {
+                        let cmd = cmd.trim();
+                        if !cmd.is_empty() {
+                            self.renderer
+                                .print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
+                            #[cfg(unix)]
+                            let out = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
+                            #[cfg(windows)]
+                            let out = tokio::process::Command::new("cmd.exe")
+                                .arg("/c")
+                                .arg(cmd)
+                                .output()
+                                .await;
+                            match out {
+                                Ok(res) => {
+                                    let stdout = String::from_utf8_lossy(&res.stdout);
+                                    let stderr = String::from_utf8_lossy(&res.stderr);
+                                    if !stdout.is_empty() {
+                                        self.renderer.write_output(&stdout);
+                                    }
+                                    if !stderr.is_empty() {
+                                        self.renderer.write_output(&stderr);
+                                    }
+                                    format!(
+                                        "Executed local shell command: `{cmd}`\n\nOutput:\n```\n{}{}\n```",
+                                        stdout, stderr
+                                    )
+                                }
+                                Err(e) => {
+                                    self.renderer
+                                        .print_notice(&format!("  Command execution failed: {e}\n"));
+                                    format!("Failed to execute local shell command `{cmd}`: {e}")
+                                }
+                            }
+                        } else {
+                            input.to_string()
+                        }
+                    } else {
+                        input.to_string()
+                    };
 
                     clear_submitted_input(input);
                     self.renderer.print_user_block(&effective_input);
@@ -321,10 +458,14 @@ mod tests {
 
     #[test]
     fn slash_commands_complete_from_a_prefix() {
-        let mut completer = RhoCompleter::new(&[], Vec::new());
+        let mut completer = RhoCompleter::new(&[], Vec::new(), vec!["review".to_string()]);
         let suggestions = completer.complete("/mo", 3);
         assert_eq!(suggestions.len(), 1);
         assert_eq!(suggestions[0].value, "/model");
+
+        let tmpl_suggestions = completer.complete("/rev", 4);
+        assert_eq!(tmpl_suggestions.len(), 1);
+        assert_eq!(tmpl_suggestions[0].value, "/review");
     }
 
     #[test]
@@ -333,7 +474,7 @@ mod tests {
             .into_iter()
             .map(|skill| skill.metadata.name)
             .collect();
-        let mut completer = RhoCompleter::new(&[], skill_names);
+        let mut completer = RhoCompleter::new(&[], skill_names, Vec::new());
         let suggestions = completer.complete("/skill pl", 9);
         assert!(suggestions.iter().any(|s| s.value == "/skill plan"));
     }

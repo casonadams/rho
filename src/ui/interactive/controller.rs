@@ -851,7 +851,7 @@ mod tests {
         let working_index = ops.iter().position(|op| {
             matches!(
                 op,
-                Operation::Write(text) if text.contains("Working...")
+                Operation::Write(text) if text.contains("Thinking...") || text.contains("Working...")
             )
         });
         let divider_index = ops.iter().position(|op| op == &Operation::Write("\u{2500}".repeat(60)));
@@ -872,10 +872,9 @@ mod tests {
         controller.tick().unwrap();
 
         let ops = operations.borrow();
-        assert!(
-            !ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("Working...")))
-        );
+        assert!(!ops.iter().any(
+            |op| matches!(op, Operation::Write(text) if text.contains("Working...") || text.contains("Thinking..."))
+        ));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use std::path::Path;
 use tokio::io::AsyncWriteExt;
 
 use super::session_error;
+use super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use super::validation::CanonicalHistory;
 
 pub(super) const SESSION_VERSION: u32 = 2;
@@ -58,6 +59,30 @@ pub enum SessionRecord {
         session_id: String,
         event: SessionEvent,
     },
+    TreeNode {
+        sequence: u64,
+        session_id: String,
+        node: TreeNodeData,
+    },
+    ActiveLeafChanged {
+        sequence: u64,
+        session_id: String,
+        timestamp: DateTime<Utc>,
+        active_leaf_id: Option<String>,
+    },
+    SessionLabel {
+        sequence: u64,
+        session_id: String,
+        timestamp: DateTime<Utc>,
+        node_id: String,
+        label: Option<String>,
+    },
+    SessionNamed {
+        sequence: u64,
+        session_id: String,
+        timestamp: DateTime<Utc>,
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -90,6 +115,7 @@ pub struct StoreState {
     pub messages: Vec<Message>,
     pub checkpoint: Option<Vec<Message>>,
     pub events: Vec<SessionEvent>,
+    pub tree: SessionTree,
     pub(super) integrity: CanonicalHistory,
 }
 
@@ -122,6 +148,8 @@ async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Res
     if durable {
         // Durable boundary: full state transitions fsync; audit events do not.
         file.sync_data().await?;
+    } else {
+        file.flush().await?;
     }
     Ok(())
 }
@@ -157,6 +185,7 @@ pub(crate) fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
         messages: Vec::new(),
         checkpoint: None,
         events: Vec::new(),
+        tree: SessionTree::new(),
         integrity: CanonicalHistory::new(),
     };
     for line in committed.iter().skip(1) {
@@ -219,6 +248,18 @@ pub(crate) fn apply_record(state: &mut StoreState, record: SessionRecord, expect
         }
         | SessionRecord::AuditEvent {
             sequence, session_id, ..
+        }
+        | SessionRecord::TreeNode {
+            sequence, session_id, ..
+        }
+        | SessionRecord::ActiveLeafChanged {
+            sequence, session_id, ..
+        }
+        | SessionRecord::SessionLabel {
+            sequence, session_id, ..
+        }
+        | SessionRecord::SessionNamed {
+            sequence, session_id, ..
         } => (*sequence, session_id),
     };
     if session_id != expected_id {
@@ -228,17 +269,31 @@ pub(crate) fn apply_record(state: &mut StoreState, record: SessionRecord, expect
         return Err(session_error("session record ordering is invalid"));
     }
     match record {
-        SessionRecord::CanonicalMessages { messages, .. } => {
+        SessionRecord::CanonicalMessages {
+            messages, timestamp, ..
+        } => {
             if messages.is_empty() {
                 return Err(session_error("canonical message batches cannot be empty"));
             }
             state.integrity.check_canonical_batch(&messages)?;
-            state.messages.extend(messages);
+            state.messages.extend(messages.clone());
+            let node_id = uuid::Uuid::new_v4().to_string();
+            let parent_id = state.tree.active_leaf_id.clone();
+            state.tree.add_node(TreeNodeData {
+                id: node_id,
+                parent_id,
+                timestamp,
+                kind: TreeNodeKind::UserTurn,
+                messages,
+                label: None,
+                metadata: None,
+            });
         }
         SessionRecord::CanonicalReset { .. } => {
             state.messages.clear();
             state.checkpoint = None;
             state.integrity.clear();
+            state.tree = SessionTree::new();
         }
         SessionRecord::RunCheckpoint { messages, .. } => {
             if messages.is_empty() {
@@ -247,7 +302,9 @@ pub(crate) fn apply_record(state: &mut StoreState, record: SessionRecord, expect
             state.integrity.check_checkpoint_batch(&messages)?;
             state.checkpoint = Some(messages);
         }
-        SessionRecord::CheckpointPromoted { messages, .. } => {
+        SessionRecord::CheckpointPromoted {
+            messages, timestamp, ..
+        } => {
             let checkpoint = state
                 .checkpoint
                 .as_ref()
@@ -256,10 +313,36 @@ pub(crate) fn apply_record(state: &mut StoreState, record: SessionRecord, expect
                 return Err(session_error("checkpoint promotion does not match pending history"));
             }
             state.integrity.check_canonical_batch(&messages)?;
-            state.messages.extend(messages);
+            state.messages.extend(messages.clone());
             state.checkpoint = None;
+            let node_id = uuid::Uuid::new_v4().to_string();
+            let parent_id = state.tree.active_leaf_id.clone();
+            state.tree.add_node(TreeNodeData {
+                id: node_id,
+                parent_id,
+                timestamp,
+                kind: TreeNodeKind::AssistantTurn,
+                messages,
+                label: None,
+                metadata: None,
+            });
         }
         SessionRecord::AuditEvent { event, .. } => state.events.push(event),
+        SessionRecord::TreeNode { node, .. } => {
+            state.tree.add_node(node);
+            state.messages = state.tree.active_messages();
+            state.checkpoint = None;
+        }
+        SessionRecord::ActiveLeafChanged { active_leaf_id, .. } => {
+            state.tree.set_active_leaf(active_leaf_id);
+            state.messages = state.tree.active_messages();
+        }
+        SessionRecord::SessionLabel { node_id, label, .. } => {
+            state.tree.set_node_label(&node_id, label);
+        }
+        SessionRecord::SessionNamed { name, .. } => {
+            state.tree.set_session_name(name);
+        }
     }
     state.next_sequence += 1;
     Ok(())

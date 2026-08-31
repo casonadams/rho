@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod rpc;
 
 #[cfg(test)]
 mod tests;
@@ -135,12 +136,47 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let resume_target = if cli.r#continue {
+    let resume_target = if cli.resume_picker {
+        crate::ui::interactive::session_picker::prompt_session_picker(&config.sessions_dir)?
+    } else if cli.r#continue {
         let cwd = std::env::current_dir()?;
         SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?
     } else {
         cli.resume
     };
+
+    if cli.mode == "rpc" {
+        return rpc::run_rpc_daemon(config, auth_store).await.map_err(Into::into);
+    }
+
+    if cli.mode == "json" {
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<rho_core::rpc::protocol::RpcEvent>();
+        let (presenter, _) = crate::ui::render::RpcPresenter::new(event_tx);
+        let presenter_arc: std::sync::Arc<dyn rho_core::presentation::Presenter> = std::sync::Arc::new(presenter);
+
+        let writer_task = tokio::spawn(async move {
+            let mut writer = rho_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
+            while let Some(event) = event_rx.recv().await {
+                let _ = writer.write_message(&event).await;
+            }
+        });
+
+        if let Some(prompt) = prompt_text {
+            let engine = crate::platform::agent_engine(config, auth_store, resume_target.as_deref()).await?;
+            let res = engine
+                .run_turn(crate::engine::runner::TurnRequest::new(&prompt), presenter_arc.clone())
+                .await;
+            drop(presenter_arc);
+            let _ = writer_task.await;
+            return match res {
+                Ok(_) => Ok(()),
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+        }
+    }
 
     if let Some(prompt) = prompt_text {
         let engine = crate::platform::agent_engine(config, auth_store, resume_target.as_deref()).await?;

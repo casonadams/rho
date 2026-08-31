@@ -194,21 +194,24 @@ fn queued_lines_text(queued: &[super::QueuedMessage], width: usize) -> Vec<Strin
 }
 
 fn working_line_text(activity: &Activity, spinner_frame: usize, width: usize) -> String {
-    if matches!(activity, Activity::Idle) || width < "\u{280b} Working".width().max(1) {
+    if matches!(activity, Activity::Idle) || width < 3 {
         return String::new();
     }
     let spinner = SPINNER_FRAMES[spinner_frame % SPINNER_FRAMES.len()];
     let accent = "\x1b[36m";
     let reset = "\x1b[0m";
     let dim = "\x1b[2m";
-    let full = format!("{accent}{spinner}{reset} {dim}Working...{reset}");
-    if full.width() <= width {
+    let label = match activity {
+        Activity::Thinking => "Thinking...",
+        _ => "Working...",
+    };
+    let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
+    if visible_width(&full) <= width {
         full
     } else {
-        // Show the spinner with as much of the label as fits instead of truncating mid-glyph.
-        let plain = "\u{280b} Working";
-        let shown = truncate_to_width(plain, width.saturating_sub(1));
-        let dots = width.saturating_sub(shown.width() + 1).min(3);
+        let label_width = width.saturating_sub(2);
+        let shown = truncate_to_width(label, label_width);
+        let dots = width.saturating_sub(visible_width(&shown) + 2).min(3);
         format!("{accent}{spinner}{reset} {dim}{}{}{reset}", shown, ".".repeat(dots))
     }
 }
@@ -641,7 +644,8 @@ mod tests {
             spinner_frame: 0,
         });
 
-        assert!(layout.working_line.contains("Working..."));
+        assert!(layout.working_line.contains('\u{280b}'));
+        assert!(layout.working_line.contains("Thinking..."));
     }
 
     #[test]

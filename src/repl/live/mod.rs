@@ -24,7 +24,7 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
-    InputAction, InteractiveState, QueuedMessage, TerminalController, UiEffect, UiEvent, map_key,
+    Activity, InputAction, InteractiveState, QueuedMessage, TerminalController, UiEffect, UiEvent, map_key,
 };
 use crate::ui::render::WelcomeDisplay;
 
@@ -86,7 +86,14 @@ impl ReplSession {
         let assembly = crate::platform::active_tools(&self.config, &std::env::current_dir()?).await?;
         self.commands = assembly.commands;
         let ext_cmds: Vec<(&str, &str)> = self.commands.keys().map(|k| (k.as_str(), "")).collect();
-        let completions = CompletionSet::rho(&ext_cmds, skill_names);
+        let prompt_templates = rho_core::prompts::discover_prompt_templates(
+            Some(&self.config.config_dir),
+            std::env::current_dir().ok().as_deref(),
+        )
+        .into_iter()
+        .map(|t| t.metadata.name)
+        .collect::<Vec<_>>();
+        let completions = CompletionSet::rho(&ext_cmds, skill_names, prompt_templates);
 
         loop {
             let message = match controller.state_mut().pop_queued() {
@@ -150,6 +157,7 @@ impl ReplSession {
                 renderer: &self.renderer,
                 commands: Some(&self.commands),
                 session_id: Some(&engine.session_manager.session_id),
+                session_manager: Some(&engine.session_manager),
             };
             let result = SlashCommandHandler::handle(input, &mut command_context).await;
             let controller_result = controller.resume();
@@ -192,41 +200,87 @@ impl ReplSession {
                     self.renderer.print_notice("  [Context compaction completed]\n");
                 }
                 CommandResult::Tree => {
-                    let turns = engine.session_manager.load_turns().await?;
-                    let mut out = format!("\nConversation Tree (Session: {})\n", engine.session_manager.session_id);
-                    if turns.is_empty() {
-                        out.push_str("  (No conversation turns recorded yet)\n");
-                    } else {
-                        let total = turns.len();
-                        for (idx, turn) in turns.iter().enumerate() {
-                            let is_last = idx + 1 == total;
-                            let marker = if is_last { "└──" } else { "├──" };
-                            let current_tag = if is_last { " (Current)" } else { "" };
-                            let prompt_preview = if turn.user_prompt.chars().count() > 40 {
-                                format!("{}...", turn.user_prompt.chars().take(37).collect::<String>())
-                            } else {
-                                turn.user_prompt.clone()
-                            };
-                            let assistant_preview = if turn.assistant_preview.chars().count() > 40 {
-                                format!("{}...", turn.assistant_preview.chars().take(37).collect::<String>())
-                            } else {
-                                turn.assistant_preview.clone()
-                            };
-                            let tools_tag = if turn.tool_calls_count > 0 {
-                                format!(" ({} tool calls)", turn.tool_calls_count)
-                            } else {
-                                String::new()
-                            };
-                            use std::fmt::Write as _;
-                            let _ = writeln!(
-                                out,
-                                "  {marker} [Turn {}]{current_tag} User: \"{}\" -> Assistant: \"{}\"{tools_tag}",
-                                turn.turn_number, prompt_preview, assistant_preview
-                            );
-                        }
-                        out.push_str("  (Use /rewind <turn_number> to fork or rewind context)\n");
+                    let tree = engine.session_manager.load_tree().await?;
+                    let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
+                    self.renderer.print_notice(&format!(
+                        "\nConversation Tree (Session: {}):\n{rendered}\n",
+                        engine.session_manager.session_id
+                    ));
+                }
+                CommandResult::SwitchBranch { leaf_id } => {
+                    let old_leaf = engine.session_manager.active_leaf_id().await?.unwrap_or_default();
+                    let tree = engine.session_manager.load_tree().await?;
+                    let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
+                    let has_assistant = abandoned
+                        .iter()
+                        .any(|n| n.kind == rho_core::session::TreeNodeKind::AssistantTurn);
+                    if has_assistant
+                        && self.renderer.has_interactive_ui()
+                        && let Ok(true) =
+                            inquire::Confirm::new("Summarize discoveries from abandoned branch before switching?")
+                                .with_default(true)
+                                .prompt()
+                    {
+                        let summary_text = abandoned
+                            .iter()
+                            .map(|n| format!("{:?}", n.messages))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let _ = engine
+                            .session_manager
+                            .append_branch_summary(&summary_text, &old_leaf)
+                            .await;
                     }
-                    self.renderer.print_notice(&out);
+                    let _ = engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
+                    *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
+                    self.renderer
+                        .print_notice(&format!("  [Switched active branch to {leaf_id}]\n"));
+                }
+                CommandResult::ForkSession { turn_or_node_id } => {
+                    let forked = engine
+                        .session_manager
+                        .fork_session(&self.config.sessions_dir, turn_or_node_id.as_deref())
+                        .await?;
+                    self.renderer
+                        .print_notice(&format!("  [Forked session into {}]\n", forked.session_id));
+                }
+                CommandResult::CloneSession => {
+                    let cloned = engine.session_manager.clone_session(&self.config.sessions_dir).await?;
+                    self.renderer
+                        .print_notice(&format!("  [Cloned session into {}]\n", cloned.session_id));
+                }
+                CommandResult::ResumeSession { session_id } => {
+                    *engine =
+                        crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), Some(&session_id))
+                            .await?;
+                    self.renderer
+                        .print_notice(&format!("  [Resumed session {session_id}]\n"));
+                }
+                CommandResult::NameSession { name } => {
+                    engine.session_manager.set_session_name(&name).await?;
+                    self.renderer.print_notice(&format!("  [Named session: \"{name}\"]\n"));
+                }
+                CommandResult::ExpandedPrompt { text } => {
+                    self.renderer.print_notice("  [Expanded template]\n");
+                    drain_ui_events(controller, ui_events, &mut None)?;
+                    let effective = text;
+                    self.renderer.print_user_block(&effective);
+                    run_active_turn(
+                        engine,
+                        &self.renderer,
+                        ActiveTurn {
+                            io: LiveIo {
+                                controller,
+                                events: ui_events,
+                                input: input_reader,
+                            },
+                            editor: live.editor,
+                            prompt: &effective,
+                        },
+                    )
+                    .await?;
+                    engine.refresh_quota().await;
+                    return Ok(false);
                 }
                 CommandResult::Rewind { turn } => {
                     let retained_count = engine.session_manager.rewind_to_turn(turn).await?;
@@ -243,7 +297,80 @@ impl ReplSession {
             return Ok(false);
         }
 
-        let effective = input.to_string();
+        if let Some(cmd) = input.strip_prefix("!!") {
+            let cmd = cmd.trim();
+            if !cmd.is_empty() {
+                self.renderer
+                    .print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
+                #[cfg(unix)]
+                let out = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
+                #[cfg(windows)]
+                let out = tokio::process::Command::new("cmd.exe")
+                    .arg("/c")
+                    .arg(cmd)
+                    .output()
+                    .await;
+                match out {
+                    Ok(res) => {
+                        let stdout = String::from_utf8_lossy(&res.stdout);
+                        let stderr = String::from_utf8_lossy(&res.stderr);
+                        if !stdout.is_empty() {
+                            self.renderer.write_output(&stdout);
+                        }
+                        if !stderr.is_empty() {
+                            self.renderer.write_output(&stderr);
+                        }
+                    }
+                    Err(e) => {
+                        self.renderer
+                            .print_notice(&format!("  Command execution failed: {e}\n"));
+                    }
+                }
+                drain_ui_events(controller, ui_events, &mut None)?;
+                return Ok(false);
+            }
+        }
+
+        let effective = if let Some(cmd) = input.strip_prefix('!') {
+            let cmd = cmd.trim();
+            if !cmd.is_empty() {
+                self.renderer
+                    .print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
+                #[cfg(unix)]
+                let out = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
+                #[cfg(windows)]
+                let out = tokio::process::Command::new("cmd.exe")
+                    .arg("/c")
+                    .arg(cmd)
+                    .output()
+                    .await;
+                match out {
+                    Ok(res) => {
+                        let stdout = String::from_utf8_lossy(&res.stdout);
+                        let stderr = String::from_utf8_lossy(&res.stderr);
+                        if !stdout.is_empty() {
+                            self.renderer.write_output(&stdout);
+                        }
+                        if !stderr.is_empty() {
+                            self.renderer.write_output(&stderr);
+                        }
+                        format!(
+                            "Executed local shell command: `{cmd}`\n\nOutput:\n```\n{}{}\n```",
+                            stdout, stderr
+                        )
+                    }
+                    Err(e) => {
+                        self.renderer
+                            .print_notice(&format!("  Command execution failed: {e}\n"));
+                        format!("Failed to execute local shell command `{cmd}`: {e}")
+                    }
+                }
+            } else {
+                input.to_string()
+            }
+        } else {
+            input.to_string()
+        };
         self.renderer.print_user_block(&effective);
         run_active_turn(
             engine,
@@ -330,6 +457,34 @@ async fn read_idle_input(
                     InputAction::ToggleExpandTools => {
                         controller.toggle_tools_expanded()?;
                     }
+                    InputAction::ExternalEditor => {
+                        let current_text = controller.state().editor().text().to_string();
+                        let temp_file =
+                            std::env::temp_dir().join(format!("rho_draft_{}.md", uuid::Uuid::new_v4()));
+                        let _ = std::fs::write(&temp_file, &current_text);
+                        let editor = std::env::var("VISUAL")
+                            .or_else(|_| std::env::var("EDITOR"))
+                            .unwrap_or_else(|_| "nano".to_string());
+                        let paused = input.pause()?;
+                        controller.suspend()?;
+                        let status = std::process::Command::new(&editor)
+                            .arg(&temp_file)
+                            .status();
+                        let controller_res = controller.resume();
+                        let input_res = paused.resume();
+                        controller_res?;
+                        input_res?;
+                        if status.is_ok()
+                            && let Ok(edited_text) = std::fs::read_to_string(&temp_file)
+                        {
+                            controller
+                                .state_mut()
+                                .editor_mut()
+                                .set_text(edited_text.trim_end());
+                        }
+                        let _ = std::fs::remove_file(temp_file);
+                        batch.flush(controller, true)?;
+                    }
                     InputAction::DequeueQueued => {
                         let queued = controller.state_mut().dequeue_all();
                         if !queued.is_empty() {
@@ -381,11 +536,14 @@ async fn run_active_turn(engine: &AgentEngine, renderer: &TerminalRenderer, turn
             biased;
             _ = frame.tick() => {
                 spinner_tick += 1;
-                if spinner_tick >= SPINNER_FRAME_INTERVALS {
+                let spinner_advanced = if spinner_tick >= SPINNER_FRAME_INTERVALS {
                     spinner_tick = 0;
                     controller.advance_spinner();
-                }
-                batch.flush(controller, false)?;
+                    !matches!(controller.state().footer().activity, Activity::Idle)
+                } else {
+                    false
+                };
+                batch.flush(controller, spinner_advanced)?;
             }
             event = input_reader.recv() => {
                 let event = match event {

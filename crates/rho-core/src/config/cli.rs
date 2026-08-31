@@ -41,6 +41,14 @@ pub struct Cli {
     #[arg(short = 'c', long = "continue", default_value_t = false)]
     pub r#continue: bool,
 
+    /// Browse and select from previous sessions to resume
+    #[arg(short = 'r', long = "resume-picker", default_value_t = false)]
+    pub resume_picker: bool,
+
+    /// Execution mode: interactive, rpc, or json
+    #[arg(long = "mode", default_value = "interactive")]
+    pub mode: String,
+
     /// Subcommand to execute
     #[command(subcommand)]
     pub command: Option<Commands>,

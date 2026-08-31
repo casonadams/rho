@@ -13,6 +13,7 @@ pub(crate) mod formatters;
 pub(crate) mod presenter;
 pub(crate) mod preview;
 pub(crate) mod renderer;
+pub mod rpc_presenter;
 
 #[cfg(test)]
 mod tests;
@@ -25,6 +26,7 @@ pub(crate) use rho_core::presentation::summary::{format_tool_args_summary, read_
 pub use rho_core::presentation::{
     ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
 };
+pub use rpc_presenter::RpcPresenter;
 
 pub fn format_duration(duration: std::time::Duration) -> String {
     let secs = duration.as_secs();
