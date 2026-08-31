@@ -373,7 +373,14 @@ pub fn build_antigravity_request(
     runtime_model: &str,
 ) -> AntigravityGenerateRequest {
     let mut contents = Vec::new();
-    let mut system_parts = Vec::new();
+    let mut system_parts = vec![
+        GeminiTextPart {
+            text: "You are Antigravity, a powerful agentic AI coding assistant designed by Google DeepMind. You are pair programming with a user to solve coding tasks. Be concise, practical, and tool-aware.".to_string(),
+        },
+        GeminiTextPart {
+            text: "CRITICAL: NEVER output rule checks, formatting guidelines, constraint checklists (e.g. \"No emdashes\"), or your thinking/personality preambles in the final response. Output only the final response.".to_string(),
+        },
+    ];
     let mut call_id_to_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for msg in &request.messages {
@@ -506,14 +513,10 @@ pub fn build_antigravity_request(
         );
     }
 
-    let system_instruction = if !system_parts.is_empty() {
-        Some(GeminiSystemInstruction {
-            role: "user".to_string(),
-            parts: system_parts,
-        })
-    } else {
-        None
-    };
+    let system_instruction = Some(GeminiSystemInstruction {
+        role: "user".to_string(),
+        parts: system_parts,
+    });
 
     let is_claude = request.model.starts_with("claude-") || runtime_model.starts_with("claude-");
     let tools = if !request.tools.is_empty() {

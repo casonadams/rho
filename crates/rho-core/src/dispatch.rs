@@ -8,8 +8,8 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NeutralTurnError {
-    #[error("provider operation failed")]
-    Provider,
+    #[error("provider operation failed: {0}")]
+    Provider(String),
     #[error("provider stream is malformed: {0}")]
     Malformed(&'static str),
     #[error("provider requested unknown tool: {0}")]

@@ -456,11 +456,11 @@ fn validate_call_identity(
 
 fn map_provider_error(error: CapabilityError) -> NeutralTurnError {
     match error {
-        CapabilityError::Cancelled => NeutralTurnError::Provider,
-        CapabilityError::InvalidRequest { .. }
-        | CapabilityError::PermissionDenied { .. }
-        | CapabilityError::Unavailable { .. }
-        | CapabilityError::Failed { .. } => NeutralTurnError::Provider,
+        CapabilityError::Cancelled => NeutralTurnError::Provider("operation cancelled".to_string()),
+        CapabilityError::InvalidRequest { message }
+        | CapabilityError::PermissionDenied { message }
+        | CapabilityError::Unavailable { message }
+        | CapabilityError::Failed { message } => NeutralTurnError::Provider(message),
     }
 }
 
