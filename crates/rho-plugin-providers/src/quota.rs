@@ -197,40 +197,79 @@ pub fn is_ollama_cloud_model(model_id: &str) -> bool {
     model_id.ends_with(":cloud")
 }
 
-pub async fn fetch_antigravity_quota(config_dir: &Path) -> Option<String> {
-    let token_dir = config_dir.join("tokens/antigravity");
-    let tokens = crate::antigravity::load_saved_tokens(&token_dir).ok()??;
-    let usage = crate::antigravity::fetch_account_usage(&tokens.access_token)
-        .await
-        .ok()?;
-    let buckets = usage.get("buckets").or_else(|| usage.get("quotaBuckets"))?;
-    if let Some(arr) = buckets.as_array() {
-        let mut windows = Vec::new();
-        for item in arr.iter().take(2) {
-            let label = item
-                .get("label")
-                .or_else(|| item.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("pool");
-            let fraction = item
+pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
+    let groups = usage
+        .get("groups")
+        .or_else(|| usage.get("userQuota").and_then(|u| u.get("groups")))
+        .or_else(|| usage.get("quota").and_then(|q| q.get("groups")));
+
+    let mut windows = Vec::new();
+
+    if let Some(arr) = groups.and_then(|g| g.as_array()) {
+        for group in arr {
+            if let Some(buckets) = group.get("buckets").and_then(|b| b.as_array()) {
+                for bucket in buckets {
+                    let fraction = bucket
+                        .get("remainingFraction")
+                        .or_else(|| bucket.get("fraction"))
+                        .and_then(|v| v.as_f64());
+                    if let Some(frac) = fraction {
+                        let used_percent = ((1.0 - frac) * 100.0).clamp(0.0, 100.0);
+                        let label = bucket
+                            .get("displayName")
+                            .or_else(|| bucket.get("label"))
+                            .or_else(|| bucket.get("window"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("pool");
+                        windows.push(QuotaWindow {
+                            label: label.to_string(),
+                            used_percent,
+                            resets_at: parse_reset_time(&bucket.get("resetTime").cloned()),
+                            used_value: used_percent,
+                            limit_value: 100.0,
+                            is_currency: false,
+                            limited: false,
+                        });
+                    }
+                }
+            }
+        }
+    } else if let Some(buckets) = usage.get("buckets").and_then(|b| b.as_array()) {
+        for bucket in buckets {
+            let fraction = bucket
                 .get("remainingFraction")
-                .or_else(|| item.get("fraction"))
+                .or_else(|| bucket.get("fraction"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(1.0);
             let used_percent = ((1.0 - fraction) * 100.0).clamp(0.0, 100.0);
+            let label = bucket
+                .get("label")
+                .or_else(|| bucket.get("displayName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("pool");
             windows.push(QuotaWindow {
                 label: label.to_string(),
                 used_percent,
-                resets_at: None,
+                resets_at: parse_reset_time(&bucket.get("resetTime").cloned()),
                 used_value: used_percent,
                 limit_value: 100.0,
                 is_currency: false,
                 limited: false,
             });
         }
-        return format_quota_windows(&windows);
     }
-    None
+
+    windows
+}
+
+pub async fn fetch_antigravity_quota(config_dir: &Path) -> Option<String> {
+    let token_dir = config_dir.join("tokens/antigravity");
+    let tokens = crate::antigravity::load_saved_tokens(&token_dir).ok()??;
+    let usage = crate::antigravity::fetch_account_usage(&tokens.access_token, tokens.project_id.as_deref())
+        .await
+        .ok()?;
+    let windows = parse_antigravity_usage(&usage);
+    format_quota_windows(&windows)
 }
 
 pub async fn fetch_ollama_cloud_quota(config_dir: &Path, model_id: &str) -> Option<String> {
@@ -338,32 +377,32 @@ mod tests {
     }
 
     #[test]
-    fn test_format_quota_windows_multiple() {
-        let now = Utc::now();
-        let windows = vec![
-            QuotaWindow {
-                label: "5h".to_string(),
-                used_percent: 7.0,
-                resets_at: Some(now + Duration::hours(3) + Duration::minutes(22)),
-                used_value: 7.0,
-                limit_value: 100.0,
-                is_currency: false,
-                limited: false,
-            },
-            QuotaWindow {
-                label: "7d".to_string(),
-                used_percent: 2.0,
-                resets_at: Some(now + Duration::days(6) + Duration::hours(1)),
-                used_value: 2.0,
-                limit_value: 100.0,
-                is_currency: false,
-                limited: false,
-            },
-        ];
+    fn test_parse_antigravity_usage_groups_and_buckets() {
+        let json = serde_json::json!({
+            "groups": [
+                {
+                    "displayName": "Gemini",
+                    "buckets": [
+                        {
+                            "displayName": "5 Hours",
+                            "remainingFraction": 0.85,
+                            "resetTime": "2026-08-31T03:00:00Z"
+                        },
+                        {
+                            "displayName": "Weekly",
+                            "remainingFraction": 0.95
+                        }
+                    ]
+                }
+            ]
+        });
 
-        let formatted = format_quota_windows(&windows).unwrap();
-        assert!(formatted.contains("93% (3h22m)"));
-        assert!(formatted.contains("98% (6d1h)"));
+        let windows = parse_antigravity_usage(&json);
+        assert_eq!(windows.len(), 2);
+        assert_eq!(windows[0].label, "5 Hours");
+        assert!((windows[0].remaining_percent() - 85.0).abs() < 0.01);
+        assert_eq!(windows[1].label, "Weekly");
+        assert!((windows[1].remaining_percent() - 95.0).abs() < 0.01);
     }
 
     #[test]

@@ -102,16 +102,15 @@ pub async fn discover_project_id(access_token: &str) -> Option<String> {
     None
 }
 
-pub async fn fetch_account_usage(access_token: &str) -> Result<serde_json::Value> {
+pub async fn fetch_account_usage(access_token: &str, project_id: Option<&str>) -> Result<serde_json::Value> {
+    let body = match project_id {
+        Some(p) => serde_json::json!({ "project": p }),
+        None => serde_json::json!({}),
+    };
     for endpoint in endpoint_candidates() {
         let url = format!("{endpoint}/v1internal:fetchAccountUsage");
         let headers = antigravity_headers(access_token);
-        let res = HTTP_CLIENT
-            .post(&url)
-            .headers(headers)
-            .json(&serde_json::json!({}))
-            .send()
-            .await;
+        let res = HTTP_CLIENT.post(&url).headers(headers).json(&body).send().await;
         if let Ok(response) = res
             && response.status().is_success()
             && let Ok(val) = response.json::<serde_json::Value>().await
