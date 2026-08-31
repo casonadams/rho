@@ -105,12 +105,16 @@ impl AgentEngine {
     }
 
     pub fn context_percent_f64(&self) -> Option<f64> {
-        let usage = self.usage.latest()?;
-        if !usage.has_values() {
-            return None;
-        }
         let limit = self.context_limit()?;
-        Some(((usage.input_tokens as f64 / limit as f64) * 100.0).min(100.0))
+        let usage = self.usage.latest();
+        let consumed = match usage {
+            Some(u) if u.has_values() => {
+                u.input_tokens + u.cached_input_tokens.unwrap_or(0) + u.cache_creation_input_tokens.unwrap_or(0)
+            }
+            _ => 0,
+        };
+        let remaining = limit.saturating_sub(consumed as usize);
+        Some(((remaining as f64 / limit as f64) * 100.0).clamp(0.0, 100.0))
     }
 
     pub fn session_usage_totals(&self) -> SessionUsageTotals {
@@ -122,28 +126,30 @@ impl AgentEngine {
     }
 
     pub fn context_display(&self) -> String {
+        self.context_remaining_display()
+    }
+
+    pub fn context_remaining_display(&self) -> String {
         let limit = self.context_limit();
         let usage = self.usage.latest();
         match (usage, limit) {
             (Some(usage), Some(limit)) if usage.has_values() => {
-                let percent = (usage.input_tokens as f64 / limit as f64) * 100.0;
-                let percent_str = if percent < 0.05 && usage.input_tokens > 0 {
-                    "0.1%".to_string()
-                } else if (percent.fract() * 10.0).round() == 0.0 {
+                let consumed = usage.input_tokens
+                    + usage.cached_input_tokens.unwrap_or(0)
+                    + usage.cache_creation_input_tokens.unwrap_or(0);
+                let remaining = limit.saturating_sub(consumed as usize);
+                let percent = (remaining as f64 / limit as f64) * 100.0;
+                let percent_str = if (percent.fract() * 10.0).round() == 0.0 {
                     format!("{percent:.0}%")
                 } else {
                     format!("{percent:.1}%")
                 };
                 format!("{percent_str} ({})", format_tokens(limit as u64))
             }
-            (None, Some(limit)) | (Some(_), Some(limit)) => format!("0% ({})", format_tokens(limit as u64)),
+            (None, Some(limit)) | (Some(_), Some(limit)) => format!("100% ({})", format_tokens(limit as u64)),
             (Some(usage), None) if usage.has_values() => format!("{} tokens", format_tokens(usage.input_tokens)),
-            _ => "0%".to_string(),
+            _ => "100%".to_string(),
         }
-    }
-
-    pub fn context_remaining_display(&self) -> String {
-        self.context_display()
     }
 
     pub fn context_usage_display(&self) -> String {

@@ -168,10 +168,15 @@ pub(crate) fn neutral_history_to_rig(messages: &[ModelMessage]) -> Vec<rig::mess
 }
 
 pub(crate) fn structural_usage(usage: ProviderUsage) -> StructuralUsage {
+    let active_input = if usage.last_input_tokens > 0 {
+        usage.last_input_tokens
+    } else {
+        usage.input_tokens
+    };
     StructuralUsage {
-        input_tokens: usage.input_tokens,
+        input_tokens: active_input,
         output_tokens: usage.output_tokens,
-        total_tokens: usage.input_tokens.saturating_add(usage.output_tokens),
+        total_tokens: active_input.saturating_add(usage.output_tokens),
         cached_input_tokens: None,
         cache_creation_input_tokens: None,
         tool_use_prompt_tokens: None,

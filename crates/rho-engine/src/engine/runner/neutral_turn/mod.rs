@@ -220,10 +220,15 @@ impl AgentEngine {
                 serde_json::json!({"content": output.text}),
             )
             .await?;
+        let generation_elapsed_ms = output.usage.generation_elapsed_ms;
         let usage = structural_usage(output.usage);
         let usage = usage.has_values().then_some(usage);
         if let Some(usage) = usage {
-            self.record_usage(usage);
+            if generation_elapsed_ms > 0 {
+                self.usage.record_with_duration(usage, generation_elapsed_ms);
+            } else {
+                self.record_usage(usage);
+            }
         }
         self.session_manager
             .append_event(

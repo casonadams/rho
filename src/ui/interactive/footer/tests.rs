@@ -73,7 +73,7 @@ fn stats_line_formats_usage_and_model() {
         total_cache_read_tokens: 10_000,
         total_cache_write_tokens: 2_000,
         total_cost: Some(0.012),
-        context_percent: Some(1.2),
+        context_percent: Some(99.4),
         context_window: 200_000,
         tokens_per_second: Some(45.2),
         ..FooterState::default()
@@ -84,7 +84,7 @@ fn stats_line_formats_usage_and_model() {
     assert!(line.contains("R10k"));
     assert!(line.contains("W2.0k"));
     assert!(line.contains("$0.012"));
-    assert!(line.contains("1.2%/200k"));
+    assert!(line.contains("99.4%/200k"));
     assert!(line.contains("@45.2t/s"));
     assert!(line.ends_with("claude-3-7-sonnet • medium"));
 }

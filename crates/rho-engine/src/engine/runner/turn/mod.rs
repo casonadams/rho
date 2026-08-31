@@ -17,6 +17,7 @@ use rig::completion::FinishReason;
 use rig::memory::ConversationMemory;
 use rig::streaming::StreamedAssistantContent;
 use std::collections::HashSet;
+use std::time::Instant;
 
 use super::helpers::redact_text;
 use super::history::{budget_history, checkpoint_messages, continuation_history, display_events, map_streaming_error};
@@ -105,6 +106,7 @@ impl AgentEngine {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),
                 None => runner,
             };
+            let stream_start = Instant::now();
             let mut stream = runner.stream().await;
             let mut final_response = None;
             let mut reasoning_parts = HashSet::new();
@@ -168,6 +170,7 @@ impl AgentEngine {
                 continue;
             }
 
+            let generation_elapsed_ms = stream_start.elapsed().as_millis().max(1) as u64;
             sink.finish_spinner();
             sink.flush_display();
             let Some(response) = final_response else {
@@ -193,6 +196,7 @@ impl AgentEngine {
                     response,
                     tool_calls_count: total_tool_calls,
                     completed_tools: sink.completed(),
+                    generation_elapsed_ms,
                 })
                 .await?;
             return Ok(output);
@@ -238,6 +242,7 @@ impl AgentEngine {
             response,
             tool_calls_count,
             completed_tools,
+            generation_elapsed_ms,
         } = artifacts;
 
         for tool in &completed_tools {
@@ -272,7 +277,11 @@ impl AgentEngine {
 
         let usage = response.usage;
         let usage_details = usage.has_values().then(|| usage.into());
-        self.record_usage(usage.into());
+        if generation_elapsed_ms > 0 {
+            self.usage.record_with_duration(usage.into(), generation_elapsed_ms);
+        } else {
+            self.record_usage(usage.into());
+        }
         self.session_manager
             .append_event(
                 SessionEventKind::UsageMetrics,

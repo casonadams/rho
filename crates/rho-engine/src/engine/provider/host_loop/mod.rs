@@ -82,12 +82,15 @@ pub async fn run_neutral_turn(
             max_output_tokens,
             tools: tool_definitions.clone(),
         };
+        let stream_start = std::time::Instant::now();
         let mut stream = provider.stream(provider_request).await.map_err(map_provider_error)?;
         let mut turn_text = String::new();
         let mut complete_calls = BTreeMap::<String, (CapabilityId, Value)>::new();
         let mut partial_calls = BTreeMap::<String, (CapabilityId, String)>::new();
         let mut call_order = Vec::<String>::new();
         let mut finish = None;
+        let mut stream_input_tokens = 0_u64;
+        let mut stream_output_tokens = 0_u64;
 
         loop {
             let event = tokio::select! {
@@ -148,10 +151,21 @@ pub async fn run_neutral_turn(
                 ProviderStreamEvent::Usage {
                     input_tokens,
                     output_tokens,
-                } => usage.add(input_tokens, output_tokens),
+                } => {
+                    stream_input_tokens = input_tokens;
+                    stream_output_tokens = output_tokens;
+                }
                 ProviderStreamEvent::Finished { reason } => finish = Some(reason),
             }
         }
+        let stream_elapsed_ms = stream_start.elapsed().as_millis().max(1) as u64;
+        let effective_output_tokens = if stream_output_tokens > 0 {
+            stream_output_tokens
+        } else {
+            rho_core::tokens::estimate_text_tokens(&turn_text, &model) as u64
+        };
+        usage.add(stream_input_tokens, effective_output_tokens);
+        usage.add_duration(stream_elapsed_ms);
         completed_model_turns += 1;
         let reason = finish.ok_or(NeutralTurnError::Malformed("stream ended without a finish reason"))?;
 

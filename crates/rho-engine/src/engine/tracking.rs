@@ -32,6 +32,13 @@ impl SpeedTracker {
         }
     }
 
+    pub fn record_generation(&mut self, output_tokens: u64, elapsed_ms: u64) {
+        if output_tokens > 0 && elapsed_ms > 0 {
+            self.total_output_tokens += output_tokens;
+            self.total_elapsed_ms += elapsed_ms;
+        }
+    }
+
     pub fn tokens_per_second(&self) -> Option<f64> {
         if self.total_output_tokens == 0 || self.total_elapsed_ms == 0 {
             return None;
@@ -63,6 +70,30 @@ impl UsageTracker {
     pub fn end_response(&self, output_tokens: u64) {
         if let Ok(mut speed) = self.speed.lock() {
             speed.response_end(output_tokens);
+        }
+    }
+
+    pub fn record_generation(&self, output_tokens: u64, elapsed_ms: u64) {
+        if let Ok(mut speed) = self.speed.lock() {
+            speed.record_generation(output_tokens, elapsed_ms);
+        }
+    }
+
+    pub fn record_with_duration(&self, usage: StructuralUsage, elapsed_ms: u64) {
+        if let Ok(mut latest) = self.latest.lock() {
+            *latest = usage.has_values().then_some(usage);
+        }
+        if let Ok(mut totals) = self.totals.lock() {
+            totals.total_input += usage.input_tokens;
+            totals.total_output += usage.output_tokens;
+            totals.total_cache_read += usage.cached_input_tokens.unwrap_or(0);
+            totals.total_cache_write += usage.cache_creation_input_tokens.unwrap_or(0);
+            totals.total_reasoning += usage.reasoning_tokens.unwrap_or(0);
+        }
+        if elapsed_ms > 0 {
+            self.record_generation(usage.output_tokens, elapsed_ms);
+        } else {
+            self.end_response(usage.output_tokens);
         }
     }
 
@@ -169,13 +200,10 @@ mod tests {
     #[test]
     fn speed_tracker_computes_rate_and_resets() {
         let mut speed = SpeedTracker::default();
-        speed.response_start();
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        speed.response_end(100);
+        speed.record_generation(100, 2000);
 
         let tps = speed.tokens_per_second();
-        assert!(tps.is_some());
-        assert!(tps.unwrap() > 0.0);
+        assert_eq!(tps, Some(50.0));
 
         speed.reset();
         assert_eq!(speed.tokens_per_second(), None);

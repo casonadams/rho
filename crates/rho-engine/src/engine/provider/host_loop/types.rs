@@ -5,12 +5,23 @@ use serde::{Deserialize, Serialize};
 pub struct ProviderUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    #[serde(default)]
+    pub last_input_tokens: u64,
+    #[serde(default)]
+    pub generation_elapsed_ms: u64,
 }
 
 impl ProviderUsage {
     pub fn add(&mut self, input_tokens: u64, output_tokens: u64) {
         self.input_tokens = self.input_tokens.saturating_add(input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(output_tokens);
+        if input_tokens > 0 {
+            self.last_input_tokens = input_tokens;
+        }
+    }
+
+    pub fn add_duration(&mut self, elapsed_ms: u64) {
+        self.generation_elapsed_ms = self.generation_elapsed_ms.saturating_add(elapsed_ms);
     }
 }
 

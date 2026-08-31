@@ -15,6 +15,7 @@ pub struct TurnArtifacts {
     pub response: rig::agent::PromptResponse,
     pub tool_calls_count: usize,
     pub completed_tools: Vec<CompletedTool>,
+    pub generation_elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
