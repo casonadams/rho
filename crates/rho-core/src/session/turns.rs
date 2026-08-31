@@ -31,17 +31,11 @@ pub fn extract_turns(messages: &[Message]) -> Vec<ConversationTurn> {
                     current_tool_calls = 0;
                 }
                 for part in content {
-                    match part {
-                        rig::message::UserContent::Text(t) => {
-                            if !current_prompt.is_empty() {
-                                current_prompt.push(' ');
-                            }
-                            current_prompt.push_str(&t.text);
+                    if let rig::message::UserContent::Text(t) = part {
+                        if !current_prompt.is_empty() {
+                            current_prompt.push(' ');
                         }
-                        rig::message::UserContent::ToolResult(_) => {
-                            current_tool_calls += 1;
-                        }
-                        _ => {}
+                        current_prompt.push_str(&t.text);
                     }
                 }
             }

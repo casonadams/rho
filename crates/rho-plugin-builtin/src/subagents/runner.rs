@@ -9,6 +9,7 @@ pub struct SubagentExecuteRequest<'a> {
     pub template: &'a AgentTemplate,
     pub prompt: &'a str,
     pub model_override: Option<&'a str>,
+    pub steering_rx: Option<Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<String>>>>,
 }
 
 #[async_trait]

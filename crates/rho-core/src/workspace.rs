@@ -55,7 +55,8 @@ impl Workspace {
         let Some(candidate) = self.resolve(raw_path) else {
             return false;
         };
-        candidate
+        let canonical = canonicalize_path(&candidate);
+        canonical
             .strip_prefix(&self.root)
             .ok()
             .is_some_and(|relative| relative.components().any(|c| c.as_os_str() == ".git"))
@@ -128,8 +129,13 @@ mod tests {
     fn protects_git_and_rejects_escape() {
         let root = std::env::temp_dir().join(format!("workspace_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("subdir")).unwrap();
         let workspace = Workspace::new(&root);
         assert!(workspace.is_protected(".git/config"));
+        assert!(workspace.is_protected("subdir/../.git/config"));
+        assert!(workspace.is_protected(&root.join(".git/config").display().to_string()));
+        assert!(!workspace.can_mutate(".git/config"));
+        assert!(!workspace.can_mutate("subdir/../.git/config"));
         assert!(!workspace.is_within("../outside.txt"));
         std::fs::remove_dir_all(root).unwrap();
     }

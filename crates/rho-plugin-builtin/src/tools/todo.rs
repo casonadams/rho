@@ -149,11 +149,18 @@ impl TodoStore {
             status,
             active_form: params.active_form,
             owner: params.owner,
-            blocked_by: blocked,
+            blocked_by: blocked.into_iter().filter(|b| *b != id).collect(),
             metadata: params.metadata,
         };
 
         let mut tasks_guard = self.tasks.lock().unwrap();
+        let mut speculative = tasks_guard.clone();
+        speculative.push(task.clone());
+        if has_cycle(&speculative) {
+            *id_guard -= 1;
+            return Err("Circular dependency detected in blockedBy relations".to_string());
+        }
+
         tasks_guard.push(task.clone());
 
         Ok(format!("Created #{id}: {} ({status})", task.subject))
@@ -162,45 +169,46 @@ impl TodoStore {
     pub fn update(&self, params: TodoUpdateParams) -> Result<String, String> {
         let id = params.id;
         let mut tasks_guard = self.tasks.lock().unwrap();
-        let task = tasks_guard
-            .iter_mut()
-            .find(|t| t.id == id)
+        let task_idx = tasks_guard
+            .iter()
+            .position(|t| t.id == id)
             .ok_or_else(|| format!("Task #{id} not found"))?;
 
-        let old_status = task.status;
+        let mut updated = tasks_guard[task_idx].clone();
+        let old_status = updated.status;
 
         if let Some(sub) = params.subject {
             let sub = sub.trim().to_string();
             if !sub.is_empty() {
-                task.subject = sub;
+                updated.subject = sub;
             }
         }
         if let Some(desc) = params.description {
-            task.description = Some(desc);
+            updated.description = Some(desc);
         }
         if let Some(st) = params.status {
-            task.status = st;
+            updated.status = st;
         }
         if let Some(af) = params.active_form {
-            task.active_form = Some(af);
+            updated.active_form = Some(af);
         }
         if let Some(ow) = params.owner {
-            task.owner = Some(ow);
+            updated.owner = Some(ow);
         }
         if let Some(to_remove) = params.remove_blocked_by {
             let remove_set: HashSet<usize> = to_remove.into_iter().collect();
-            task.blocked_by.retain(|b| !remove_set.contains(b));
+            updated.blocked_by.retain(|b| !remove_set.contains(b));
         }
         if let Some(to_add) = params.add_blocked_by {
             for b in to_add {
-                if b != id && !task.blocked_by.contains(&b) {
-                    task.blocked_by.push(b);
+                if b != id && !updated.blocked_by.contains(&b) {
+                    updated.blocked_by.push(b);
                 }
             }
         }
         if let Some(new_meta) = params.metadata {
             if let Some(new_obj) = new_meta.as_object() {
-                let mut base_map = match &task.metadata {
+                let mut base_map = match &updated.metadata {
                     Some(serde_json::Value::Object(map)) => map.clone(),
                     _ => serde_json::Map::new(),
                 };
@@ -211,16 +219,20 @@ impl TodoStore {
                         base_map.insert(k.clone(), v.clone());
                     }
                 }
-                task.metadata = Some(serde_json::Value::Object(base_map));
+                updated.metadata = Some(serde_json::Value::Object(base_map));
             } else {
-                task.metadata = Some(new_meta);
+                updated.metadata = Some(new_meta);
             }
         }
 
-        // Check for dependency cycles
-        if has_cycle(&tasks_guard) {
+        // Check for dependency cycles using speculative update
+        let mut speculative = tasks_guard.clone();
+        speculative[task_idx] = updated.clone();
+        if has_cycle(&speculative) {
             return Err("Circular dependency detected in blockedBy relations".to_string());
         }
+
+        tasks_guard[task_idx] = updated;
 
         if let Some(new_status) = params.status
             && new_status != old_status
@@ -587,5 +599,9 @@ mod tests {
             })
             .unwrap_err();
         assert!(err.contains("Circular dependency"));
+
+        // Task 1 should not have been mutated
+        let task1 = store.get(1).unwrap();
+        assert!(!task1.contains("blocked by"));
     }
 }

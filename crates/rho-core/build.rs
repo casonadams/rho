@@ -17,6 +17,7 @@ fn main() {
         "cargo:rerun-if-changed={}",
         workspace.join("prompts/SYSTEM.md").display()
     );
+    println!("cargo:rerun-if-changed={}", workspace.join("skills").display());
 
     let mut generated = String::new();
     generated.push_str("pub struct BuiltinSkill {\n");

@@ -92,6 +92,25 @@ impl Presenter for SubagentHostPresenter {
     }
 }
 
+struct SubagentSteeringQueue {
+    receiver: Option<Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<String>>>>,
+}
+
+#[async_trait]
+impl rho_engine::engine::provider::host_loop::SteeringQueueProvider for SubagentSteeringQueue {
+    async fn poll_steering(&self) -> Vec<String> {
+        let Some(rx) = &self.receiver else {
+            return Vec::new();
+        };
+        let mut guard = rx.lock().await;
+        let mut messages = Vec::new();
+        while let Ok(msg) = guard.try_recv() {
+            messages.push(msg);
+        }
+        messages
+    }
+}
+
 #[async_trait]
 impl SubagentExecutor for AppSubagentExecutor {
     async fn execute(&self, request: SubagentExecuteRequest<'_>, host: &dyn ToolHost) -> Result<AgentExecutionResult> {
@@ -118,8 +137,16 @@ impl SubagentExecutor for AppSubagentExecutor {
         });
         let prompt_with_instructions = format!("{}\n\nTask:\n{}", request.template.system_prompt, request.prompt);
 
+        let steering_queue = SubagentSteeringQueue {
+            receiver: request.steering_rx.clone(),
+        };
+
         let turn_future = engine.run_turn(
-            rho_engine::engine::runner::TurnRequest::new(&prompt_with_instructions),
+            rho_engine::engine::runner::TurnRequest {
+                prompt: &prompt_with_instructions,
+                cancellation: None,
+                steering: Some(&steering_queue),
+            },
             presenter,
         );
 

@@ -94,17 +94,15 @@ impl CancellationSignal {
     }
 
     async fn cancelled(&self) {
-        if self.is_cancelled() {
-            return;
+        while !self.is_cancelled() {
+            self.notify.notified().await;
         }
-        self.notify.notified().await;
     }
 
     async fn cancelled_or_interrupted(&self) {
-        if self.is_cancelled() || self.is_interrupted() {
-            return;
+        while !self.is_cancelled() && !self.is_interrupted() {
+            self.notify.notified().await;
         }
-        self.notify.notified().await;
     }
 }
 

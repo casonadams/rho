@@ -2,11 +2,9 @@ use crate::tools::web::search::result::SearchResult;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct FirecrawlResponse {
     pub success: Option<bool>,
     pub data: Option<FirecrawlData>,
-    pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

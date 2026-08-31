@@ -63,6 +63,7 @@ impl SubagentSupervisor {
                     template: request.template,
                     prompt: request.prompt,
                     model_override: request.model_override,
+                    steering_rx: None,
                 },
                 host,
             )
@@ -75,7 +76,8 @@ impl SubagentSupervisor {
             .description
             .unwrap_or_else(|| format!("{}: {}", request.template.name, request.prompt));
 
-        let (steering_tx, _steering_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let (steering_tx, steering_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let steering_rx = Arc::new(tokio::sync::Mutex::new(steering_rx));
         let chunks = Arc::new(Mutex::new(Vec::new()));
 
         let entry = JobEntry {
@@ -113,6 +115,7 @@ impl SubagentSupervisor {
                         template: &template,
                         prompt: &prompt,
                         model_override: model_override.as_deref(),
+                        steering_rx: Some(steering_rx),
                     },
                     &bg_host,
                 )
@@ -160,7 +163,8 @@ impl SubagentSupervisor {
         let guard = self.jobs.lock().unwrap();
         if let Some(job) = guard.get(job_id) {
             if let Some(tx) = &job.steering_tx {
-                let _ = tx.send(message.to_string());
+                tx.send(message.to_string())
+                    .map_err(|_| AppError::Plugin("Steering channel closed".to_string()))?;
                 Ok(())
             } else {
                 Err(AppError::Plugin("Steering channel closed".to_string()))

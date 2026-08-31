@@ -5,13 +5,32 @@ use std::sync::LazyLock;
 use std::time::Duration;
 use url::Url;
 
-static SHARED_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 {
+                return attempt.error("too many redirects");
+            }
+            if let Some(host) = attempt.url().host_str()
+                && is_private_host(host)
+            {
+                return attempt.error("redirect to private network host blocked");
+            }
+            attempt.follow()
+        }))
+        .build()
+        .expect("Failed to build public HTTP client")
+});
+
+static PRIVATE_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()
-        .expect("Failed to build HTTP client")
+        .expect("Failed to build private HTTP client")
 });
 
 #[derive(Clone)]
@@ -22,8 +41,13 @@ pub struct HttpClient {
 
 impl HttpClient {
     pub fn new(allow_private_network: bool) -> Result<Self> {
+        let client = if allow_private_network {
+            PRIVATE_CLIENT.clone()
+        } else {
+            PUBLIC_CLIENT.clone()
+        };
         Ok(Self {
-            client: SHARED_CLIENT.clone(),
+            client,
             allow_private_network,
         })
     }

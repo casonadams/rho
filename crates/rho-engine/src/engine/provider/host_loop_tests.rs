@@ -480,6 +480,30 @@ async fn budget_checkpoint_resumes_without_replaying_completed_tools() {
 }
 
 #[tokio::test]
+async fn stream_interruption_does_not_wake_cancelled() {
+    let cancellation = CancellationSignal::default();
+    let signal = cancellation.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = signal.cancelled() => {
+                let _ = tx.send("cancelled").await;
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {
+                let _ = tx.send("timed_out").await;
+            }
+        }
+    });
+
+    cancellation.interrupt_stream();
+    let result = rx.recv().await.unwrap();
+    assert_eq!(result, "timed_out");
+    assert!(!cancellation.is_cancelled());
+    assert!(cancellation.is_interrupted());
+}
+
+#[tokio::test]
 async fn cancellation_returns_a_durable_continuation_boundary() {
     let provider = FixtureProvider::new(std::iter::empty::<Vec<ProviderStreamEvent>>());
     let cancellation = CancellationSignal::default();
