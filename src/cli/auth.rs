@@ -37,12 +37,29 @@ where
     Ok(())
 }
 
-pub async fn login_api_key(provider: ProviderId, auth_store: &mut AuthStore) -> Result<()> {
-    let key = inquire::Password::new(&format!("Enter API key for {provider}:"))
+#[cfg(feature = "ui")]
+fn prompt_password(prompt: &str) -> Result<String> {
+    inquire::Password::new(prompt)
         .with_display_mode(inquire::PasswordDisplayMode::Masked)
         .without_confirmation()
         .prompt()
-        .map_err(|_| AppError::Cancelled(format!("{provider} login cancelled")))?;
+        .map_err(|_| AppError::Cancelled("Input cancelled".to_string()))
+}
+
+#[cfg(not(feature = "ui"))]
+fn prompt_password(prompt: &str) -> Result<String> {
+    use std::io::BufRead;
+    println!("{prompt}");
+    let mut buffer = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut buffer)
+        .map_err(|e| AppError::Other(e.into()))?;
+    Ok(buffer.trim_end_matches(&['\r', '\n'][..]).to_string())
+}
+
+pub async fn login_api_key(provider: ProviderId, auth_store: &mut AuthStore) -> Result<()> {
+    let key = prompt_password(&format!("Enter API key for {provider}:"))?;
     let key = key.trim();
     if key.is_empty() {
         return Err(AppError::Auth("API key cannot be empty".to_string()));
@@ -93,11 +110,7 @@ pub fn set_ollama_cloud_key(config_dir: &Path) -> Result<()> {
     println!(
         "Create a key at https://ollama.com/settings/keys, then paste it below to show usage for ollama :cloud models."
     );
-    let key = inquire::Password::new("Enter Ollama Cloud API key:")
-        .with_display_mode(inquire::PasswordDisplayMode::Masked)
-        .without_confirmation()
-        .prompt()
-        .map_err(|_| AppError::Cancelled("Ollama Cloud login cancelled".to_string()))?;
+    let key = prompt_password("Enter Ollama Cloud API key:")?;
     let key = key.trim();
     if key.is_empty() {
         return Err(AppError::Auth("API key cannot be empty".to_string()));

@@ -9,7 +9,9 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::config::cli::{Cli, Commands};
 use crate::engine::provider::ProviderId;
+#[cfg(feature = "ui")]
 use crate::repl::ReplSession;
+#[cfg(feature = "ui")]
 use crate::ui::TerminalRenderer;
 use rho_core::session::SessionManager;
 use std::io::Read;
@@ -189,5 +191,6 @@ pub(crate) fn parse_replacements(
 }
 
 fn atty_check() -> bool {
-    crossterm::tty::IsTty::is_tty(&std::io::stdin())
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
 }

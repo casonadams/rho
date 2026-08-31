@@ -249,3 +249,13 @@ fn ndjson_envelope_serialization_roundtrips() {
         }
     );
 }
+
+#[test]
+fn headless_interactive_mode_diagnostic_message_is_actionable() {
+    let error = rho_core::error::AppError::Session(
+        "interactive REPL is unavailable in headless mode (compiled without 'ui' feature); provide a prompt via -p or piped stdin".to_string(),
+    );
+    let msg = error.to_string();
+    assert!(msg.contains("interactive REPL is unavailable in headless mode"));
+    assert!(msg.contains("-p or piped stdin"));
+}
