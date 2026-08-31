@@ -1,8 +1,20 @@
 use super::types::{AgentExecutionResult, AgentTemplate};
 use async_trait::async_trait;
+use rho_core::config::Config;
 use rho_core::error::Result;
 use rho_sdk::contract::ToolHost;
 use std::sync::Arc;
+
+pub fn resolve_subagent_model<'a>(
+    config: &'a Config,
+    template: &'a AgentTemplate,
+    model_override: Option<&'a str>,
+) -> &'a str {
+    model_override
+        .or(template.model.as_deref())
+        .or(config.subagents.default_model.as_deref())
+        .unwrap_or(&config.model)
+}
 
 pub struct SubagentExecuteRequest<'a> {
     pub job_id: Option<&'a str>,
@@ -56,3 +68,62 @@ impl SubagentExecutor for NoopExecutor {
 
 // Re-export for compatibility
 pub use NoopExecutor as NoopProvider;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_template(model: Option<&str>) -> AgentTemplate {
+        AgentTemplate {
+            name: "test-agent".to_string(),
+            description: "A test agent".to_string(),
+            system_prompt: "You are a test agent".to_string(),
+            tools: vec!["read".to_string()],
+            model: model.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn test_resolve_model_explicit_override_wins() {
+        let mut config = Config::default();
+        config.model = "parent-model".to_string();
+        config.subagents.default_model = Some("subagents-default".to_string());
+        let template = dummy_template(Some("template-model"));
+
+        let resolved = resolve_subagent_model(&config, &template, Some("explicit-override"));
+        assert_eq!(resolved, "explicit-override");
+    }
+
+    #[test]
+    fn test_resolve_model_template_wins_over_default_and_parent() {
+        let mut config = Config::default();
+        config.model = "parent-model".to_string();
+        config.subagents.default_model = Some("subagents-default".to_string());
+        let template = dummy_template(Some("template-model"));
+
+        let resolved = resolve_subagent_model(&config, &template, None);
+        assert_eq!(resolved, "template-model");
+    }
+
+    #[test]
+    fn test_resolve_model_subagents_default_wins_over_parent() {
+        let mut config = Config::default();
+        config.model = "parent-model".to_string();
+        config.subagents.default_model = Some("subagents-default".to_string());
+        let template = dummy_template(None);
+
+        let resolved = resolve_subagent_model(&config, &template, None);
+        assert_eq!(resolved, "subagents-default");
+    }
+
+    #[test]
+    fn test_resolve_model_fallback_to_parent_model() {
+        let mut config = Config::default();
+        config.model = "parent-model".to_string();
+        config.subagents.default_model = None;
+        let template = dummy_template(None);
+
+        let resolved = resolve_subagent_model(&config, &template, None);
+        assert_eq!(resolved, "parent-model");
+    }
+}

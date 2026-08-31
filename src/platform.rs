@@ -12,7 +12,9 @@ use rho_core::presentation::{
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::{AgentEngine, builder::AgentEngineBuilder};
 use rho_host::tool_dispatch::ActiveToolSet;
-use rho_plugin_builtin::subagents::{AgentExecutionResult, SubagentExecuteRequest, SubagentExecutor};
+use rho_plugin_builtin::subagents::{
+    AgentExecutionResult, SubagentExecuteRequest, SubagentExecutor, resolve_subagent_model,
+};
 use rho_sdk::contract::{CommandCapability, ContextCapability, LifecycleCapability, ToolHost};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -129,9 +131,8 @@ impl rho_engine::engine::provider::host_loop::SteeringQueueProvider for Subagent
 impl SubagentExecutor for AppSubagentExecutor {
     async fn execute(&self, request: SubagentExecuteRequest<'_>, host: &dyn ToolHost) -> Result<AgentExecutionResult> {
         let mut subagent_config = self.config.clone();
-        if let Some(model) = request.model_override.or(request.template.model.as_deref()) {
-            subagent_config.model = model.to_string();
-        }
+        let model = resolve_subagent_model(&self.config, request.template, request.model_override);
+        subagent_config.model = model.to_string();
         subagent_config.auto_approve = true;
 
         let active_tools = self.shared_tool_platform().await?;

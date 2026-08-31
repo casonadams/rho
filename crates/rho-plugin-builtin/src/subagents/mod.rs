@@ -8,7 +8,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 pub use discovery::{builtin_templates, discover_templates, parse_agent_markdown};
-pub use runner::{NoopExecutor, NoopProvider, SubagentExecuteRequest, SubagentExecutor, SubagentRunner};
+pub use runner::{
+    NoopExecutor, NoopProvider, SubagentExecuteRequest, SubagentExecutor, SubagentRunner, resolve_subagent_model,
+};
 pub use supervisor::SubagentSupervisor;
 pub use tools::{AgentTool, GetSubagentResultTool, SteerSubagentTool, create_subagent_tools};
 pub use types::{AgentExecutionResult, AgentInvocationArgs, AgentTemplate};

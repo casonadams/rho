@@ -5,7 +5,7 @@ use rho::config::{Config, SubagentsConfig};
 use rho::plugin::tool_dispatch::ActiveToolSet;
 use rho_plugin_builtin::subagents::{
     AgentExecutionResult, SubagentExecuteRequest, SubagentExecutor, SubagentRunner, SubagentSupervisor,
-    create_subagent_tools,
+    create_subagent_tools, resolve_subagent_model,
 };
 use rho_sdk::capability::CapabilityError;
 use rho_sdk::contract::ToolHost;
@@ -137,6 +137,7 @@ async fn test_foreground_subagent_execution_end_to_end() {
                     session_id: "test".to_string(),
                     working_directory: ".".to_string(),
                     has_interactive_ui: false,
+                    plugin_config: None,
                 },
             },
         )
@@ -201,6 +202,7 @@ async fn test_background_subagent_execution_and_steering() {
                     session_id: "test".to_string(),
                     working_directory: ".".to_string(),
                     has_interactive_ui: false,
+                    plugin_config: None,
                 },
             },
         )
@@ -224,6 +226,7 @@ async fn test_background_subagent_execution_and_steering() {
                     session_id: "test".to_string(),
                     working_directory: ".".to_string(),
                     has_interactive_ui: false,
+                    plugin_config: None,
                 },
             },
         )
@@ -245,6 +248,7 @@ async fn test_background_subagent_execution_and_steering() {
                     session_id: "test".to_string(),
                     working_directory: ".".to_string(),
                     has_interactive_ui: false,
+                    plugin_config: None,
                 },
             },
         )
@@ -254,6 +258,167 @@ async fn test_background_subagent_execution_and_steering() {
     let result_parsed: serde_json::Value = serde_json::from_str(&result_response.content).unwrap();
     assert_eq!(result_parsed["status"], "completed");
     assert_eq!(result_parsed["text"], "Background task completed");
+
+    let _ = std::fs::remove_dir_all(workspace);
+}
+
+#[tokio::test]
+async fn test_subagent_model_resolution_and_override_propagation() {
+    let workspace = temp_workspace();
+    let last_override = Arc::new(std::sync::Mutex::new(None));
+    let last_template_model = Arc::new(std::sync::Mutex::new(None));
+
+    struct ModelCapturingExecutor {
+        last_override: Arc<std::sync::Mutex<Option<String>>>,
+        last_template_model: Arc<std::sync::Mutex<Option<String>>>,
+    }
+
+    #[async_trait]
+    impl SubagentExecutor for ModelCapturingExecutor {
+        async fn execute(
+            &self,
+            request: SubagentExecuteRequest<'_>,
+            host: &dyn ToolHost,
+        ) -> rho_core::error::Result<AgentExecutionResult> {
+            *self.last_override.lock().unwrap() = request.model_override.map(str::to_string);
+            *self.last_template_model.lock().unwrap() = request.template.model.clone();
+            host.stream_chunk("model captured");
+            Ok(AgentExecutionResult {
+                job_id: String::new(),
+                status: "completed".to_string(),
+                text: "model captured".to_string(),
+                tool_calls_count: 0,
+                is_error: false,
+            })
+        }
+    }
+
+    let executor = Arc::new(ModelCapturingExecutor {
+        last_override: Arc::clone(&last_override),
+        last_template_model: Arc::clone(&last_template_model),
+    });
+
+    let mut config = Config {
+        model: "parent-claude-model".to_string(),
+        subagents: SubagentsConfig {
+            enabled: true,
+            max_concurrency: 4,
+            max_turns_per_agent: 10,
+            default_model: Some("subagent-fast-default".to_string()),
+            ..SubagentsConfig::default()
+        },
+        auto_approve: true,
+        ..Config::default()
+    };
+
+    let runner = Arc::new(SubagentRunner::new(executor, config.subagents.max_turns_per_agent));
+    let supervisor = SubagentSupervisor::new(runner, config.subagents.max_concurrency);
+
+    let tools = create_subagent_tools(supervisor, &config, &workspace);
+    let agent_tool = &tools[0].1;
+
+    struct DummyHost;
+    #[async_trait]
+    impl rho_sdk::contract::ToolHost for DummyHost {
+        async fn interact(
+            &self,
+            _request: rho_sdk::contract::InteractionRequest,
+        ) -> Result<rho_sdk::contract::InteractionResponse, CapabilityError> {
+            unreachable!()
+        }
+
+        fn stream_chunk(&self, _chunk: &str) {}
+    }
+
+    // 1. Invocation with explicit model override
+    agent_tool
+        .invoke(
+            &DummyHost,
+            rho_sdk::contract::ToolInvocationRequest {
+                arguments: serde_json::json!({
+                    "subagent_type": "explore",
+                    "prompt": "find auth",
+                    "model": "explicit-override-model",
+                    "run_in_background": false
+                }),
+                context: rho_sdk::contract::InvocationContext {
+                    session_id: "test".to_string(),
+                    working_directory: ".".to_string(),
+                    has_interactive_ui: false,
+                    plugin_config: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        last_override.lock().unwrap().as_deref(),
+        Some("explicit-override-model")
+    );
+
+    // 2. Invocation with template model (explore defaults to haiku) and no override
+    agent_tool
+        .invoke(
+            &DummyHost,
+            rho_sdk::contract::ToolInvocationRequest {
+                arguments: serde_json::json!({
+                    "subagent_type": "explore",
+                    "prompt": "find auth",
+                    "run_in_background": false
+                }),
+                context: rho_sdk::contract::InvocationContext {
+                    session_id: "test".to_string(),
+                    working_directory: ".".to_string(),
+                    has_interactive_ui: false,
+                    plugin_config: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(last_override.lock().unwrap().as_deref(), None);
+    assert_eq!(last_template_model.lock().unwrap().as_deref(), Some("haiku"));
+
+    // 3. Invocation with ad-hoc agent type (no template model) -> uses subagents.default_model
+    agent_tool
+        .invoke(
+            &DummyHost,
+            rho_sdk::contract::ToolInvocationRequest {
+                arguments: serde_json::json!({
+                    "subagent_type": "adhoc-worker",
+                    "prompt": "do adhoc work",
+                    "run_in_background": false
+                }),
+                context: rho_sdk::contract::InvocationContext {
+                    session_id: "test".to_string(),
+                    working_directory: ".".to_string(),
+                    has_interactive_ui: false,
+                    plugin_config: None,
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(last_override.lock().unwrap().as_deref(), None);
+    assert_eq!(last_template_model.lock().unwrap().as_deref(), None);
+
+    let adhoc_template = rho_plugin_builtin::subagents::AgentTemplate {
+        name: "adhoc-worker".to_string(),
+        description: "adhoc".to_string(),
+        system_prompt: "prompt".to_string(),
+        tools: vec![],
+        model: None,
+    };
+    let resolved = resolve_subagent_model(&config, &adhoc_template, None);
+    assert_eq!(resolved, "subagent-fast-default");
+
+    // 4. Fallback to parent model when default_model is None
+    config.subagents.default_model = None;
+    let resolved_fallback = resolve_subagent_model(&config, &adhoc_template, None);
+    assert_eq!(resolved_fallback, "parent-claude-model");
 
     let _ = std::fs::remove_dir_all(workspace);
 }
