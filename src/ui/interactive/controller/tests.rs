@@ -526,3 +526,24 @@ fn active_tool_output_is_capped_while_running() {
     assert!(block.output.contains("output truncated while running"));
     assert!(!block.output.contains("dropped"));
 }
+
+#[test]
+fn assistant_transcript_item_is_recorded_without_duplicate_write_output() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    operations.borrow_mut().clear();
+
+    controller
+        .push_transcript_item(crate::ui::interactive::TranscriptItem::AssistantText(
+            "streamed response answer".into(),
+        ))
+        .unwrap();
+
+    assert_eq!(controller.transcript().len(), 1);
+    let ops = operations.borrow();
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("streamed response answer"))),
+        "pushing already-streamed assistant text should not write to output again"
+    );
+}

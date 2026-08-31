@@ -124,6 +124,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn push_transcript_item(&mut self, item: super::TranscriptItem) -> io::Result<()> {
+        let is_streamed_assistant = matches!(item, super::TranscriptItem::AssistantText(_));
         let rendered = super::render_transcript_item(super::TranscriptRenderInput {
             item: &item,
             theme: &self.theme,
@@ -131,7 +132,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             tools_expanded: self.state.tools_expanded(),
         });
         self.transcript.push(item);
-        if !rendered.is_empty() {
+        if !rendered.is_empty() && !is_streamed_assistant {
             self.write_output(&rendered)?;
         }
         Ok(())
