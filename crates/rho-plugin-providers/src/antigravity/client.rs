@@ -162,6 +162,32 @@ pub async fn fetch_account_usage(access_token: &str, project_id: Option<&str>) -
     ))
 }
 
+pub fn runtime_candidates(model: &str) -> Vec<String> {
+    match model {
+        "gemini-3.7-flash" => vec![
+            "gemini-3.7-flash-high".to_string(),
+            "gemini-3.7-flash-low".to_string(),
+            "gemini-3.6-flash-high".to_string(),
+            "gemini-3.7-flash".to_string(),
+        ],
+        "gemini-3.6-flash" => vec![
+            "gemini-3.6-flash-high".to_string(),
+            "gemini-3.6-flash-low".to_string(),
+            "gemini-3.6-flash".to_string(),
+        ],
+        "gemini-3.5-flash" => vec![
+            "gemini-3-flash-agent".to_string(),
+            "gemini-3.5-flash-low".to_string(),
+            "gemini-3.5-flash-extra-low".to_string(),
+        ],
+        "gemini-3.1-pro" => vec!["gemini-pro-agent".to_string(), "gemini-3.1-pro-low".to_string()],
+        "claude-sonnet-4-6" => vec!["claude-sonnet-4-6".to_string()],
+        "claude-opus-4-6" => vec!["claude-opus-4-6-thinking".to_string()],
+        "gpt-oss-120b" => vec!["gpt-oss-120b-medium".to_string()],
+        other => vec![other.to_string()],
+    }
+}
+
 pub fn map_runtime_model(model: &str) -> String {
     match model {
         "gemini-3.7-flash" => "gemini-3.7-flash-high".to_string(),

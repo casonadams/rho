@@ -1,4 +1,4 @@
-use super::client::{HTTP_CLIENT, antigravity_headers, default_project_id, endpoint_candidates, map_runtime_model};
+use super::client::{HTTP_CLIENT, antigravity_headers, default_project_id, endpoint_candidates};
 use super::oauth::{load_saved_tokens, refresh_access_token, save_tokens};
 use super::types::*;
 use async_stream::try_stream;
@@ -160,41 +160,59 @@ impl ProviderCapability for AntigravityProvider {
             .clone()
             .unwrap_or_else(|| default_project_id(tokens.email.as_deref()));
 
-        let runtime_model = map_runtime_model(&request.model);
-        let generate_req = build_antigravity_request(&request, &project_id, &runtime_model);
-
         let stream = try_stream! {
             let mut response_opt = None;
             let mut last_error = String::new();
+            let candidates = super::client::runtime_candidates(&request.model);
 
-            for endpoint in endpoint_candidates() {
-                let url = format!("{endpoint}/v1internal:streamGenerateContent?alt=sse");
-                let headers = antigravity_headers(&tokens.access_token);
-                let res = HTTP_CLIENT
-                    .post(&url)
-                    .headers(headers)
-                    .json(&generate_req)
-                    .send()
-                    .await;
+            'retry_loop: for attempt in 0..=2 {
+                if attempt > 0 {
+                    let delay_ms = 500 * (1 << (attempt - 1));
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
 
-                match res {
-                    Ok(response) if response.status().is_success() => {
-                        response_opt = Some(response);
-                        break;
-                    }
-                    Ok(response) => {
-                        let status = response.status();
-                        let text = response.text().await.unwrap_or_default();
-                        last_error = format!("Status {status}: {text}");
-                    }
-                    Err(e) => {
-                        last_error = e.to_string();
+                for runtime_model in &candidates {
+                    let generate_req = build_antigravity_request(&request, &project_id, runtime_model);
+
+                    for endpoint in endpoint_candidates() {
+                        let url = format!("{endpoint}/v1internal:streamGenerateContent?alt=sse");
+                        let headers = antigravity_headers(&tokens.access_token);
+                        let res = HTTP_CLIENT
+                            .post(&url)
+                            .headers(headers)
+                            .json(&generate_req)
+                            .send()
+                            .await;
+
+                        match res {
+                            Ok(response) if response.status().is_success() => {
+                                response_opt = Some(response);
+                                break 'retry_loop;
+                            }
+                            Ok(response) => {
+                                let status = response.status();
+                                let text = response.text().await.unwrap_or_default();
+                                last_error = format!("Status {status} on {endpoint} ({runtime_model}): {text}");
+                                if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                                    || status == reqwest::StatusCode::SERVICE_UNAVAILABLE
+                                    || status == reqwest::StatusCode::BAD_GATEWAY
+                                    || status == reqwest::StatusCode::GATEWAY_TIMEOUT
+                                    || status == reqwest::StatusCode::NOT_FOUND
+                                {
+                                    continue;
+                                }
+                                break 'retry_loop;
+                            }
+                            Err(e) => {
+                                last_error = format!("Connection error on {endpoint}: {e}");
+                            }
+                        }
                     }
                 }
             }
 
             let response = response_opt.ok_or_else(|| CapabilityError::Unavailable {
-                message: format!("Antigravity request failed across all endpoints: {last_error}"),
+                message: format!("Antigravity request failed: {last_error}"),
             })?;
 
             let mut byte_stream = response.bytes_stream();
