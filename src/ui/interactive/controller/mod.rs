@@ -428,7 +428,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             width: self.width,
             expanded: self.state.tools_expanded(),
         });
-        let formatted = terminal_newlines(&formatted);
+        let formatted = terminal_newlines(&format!("\n{formatted}"));
         let mut count = 0;
         for line in formatted.lines() {
             self.backend.write_text(line)?;

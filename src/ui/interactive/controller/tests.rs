@@ -553,3 +553,42 @@ fn assistant_transcript_item_is_recorded_without_duplicate_write_output() {
         "pushing already-streamed assistant text should not write to output again"
     );
 }
+
+#[test]
+fn consecutive_tools_are_separated_by_blank_line() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+    // First tool completes and is recorded in transcript
+    controller
+        .push_transcript_item(crate::ui::interactive::TranscriptItem::Tool(
+            crate::ui::interactive::ToolItem {
+                name: "bash".into(),
+                arguments: serde_json::json!({"command": "echo 1"}),
+                is_error: false,
+                output: "1".into(),
+                output_summary: "1".into(),
+                duration_ms: Some(10),
+            },
+        ))
+        .unwrap();
+
+    operations.borrow_mut().clear();
+
+    // Second tool starts running
+    controller
+        .start_tool(crate::ui::interactive::ToolStartRequest {
+            name: "bash".into(),
+            args_summary: "echo 2".into(),
+            preview: None,
+        })
+        .unwrap();
+
+    let ops = operations.borrow();
+    // Verify that active tool is drawn with a leading newline separation
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.is_empty())),
+        "active tool should have a leading empty line to separate from preceding transcript"
+    );
+}
