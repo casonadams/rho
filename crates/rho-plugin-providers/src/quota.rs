@@ -234,6 +234,37 @@ pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
                 }
             }
         }
+    } else if let Some(models) = usage.get("models").and_then(|m| m.as_object()) {
+        for (model_id, info) in models {
+            if model_id.contains("3.7-flash") || model_id.contains("flash") || windows.is_empty() {
+                if let Some(qi) = info.get("quotaInfo") {
+                    let fraction = qi
+                        .get("remainingFraction")
+                        .or_else(|| qi.get("fraction"))
+                        .and_then(|v| v.as_f64());
+                    if let Some(frac) = fraction {
+                        let used_percent = ((1.0 - frac) * 100.0).clamp(0.0, 100.0);
+                        let label = qi
+                            .get("displayName")
+                            .or_else(|| qi.get("label"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("pool");
+                        windows.push(QuotaWindow {
+                            label: label.to_string(),
+                            used_percent,
+                            resets_at: parse_reset_time(&qi.get("resetTime").cloned()),
+                            used_value: used_percent,
+                            limit_value: 100.0,
+                            is_currency: false,
+                            limited: false,
+                        });
+                        if windows.len() >= 2 {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     } else if let Some(buckets) = usage.get("buckets").and_then(|b| b.as_array()) {
         for bucket in buckets {
             let fraction = bucket
@@ -263,8 +294,8 @@ pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
 }
 
 pub async fn fetch_antigravity_quota(config_dir: &Path) -> Option<String> {
-    let token_dir = config_dir.join("tokens/antigravity");
-    let tokens = crate::antigravity::load_saved_tokens(&token_dir).ok()??;
+    let provider = crate::antigravity::AntigravityProvider::new(config_dir.to_path_buf());
+    let tokens = provider.ensure_valid_tokens().await.ok()?;
     let usage = crate::antigravity::fetch_account_usage(&tokens.access_token, tokens.project_id.as_deref())
         .await
         .ok()?;
@@ -403,6 +434,27 @@ mod tests {
         assert!((windows[0].remaining_percent() - 85.0).abs() < 0.01);
         assert_eq!(windows[1].label, "Weekly");
         assert!((windows[1].remaining_percent() - 95.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_antigravity_usage_models_catalog() {
+        let json = serde_json::json!({
+            "models": {
+                "gemini-3.7-flash": {
+                    "displayName": "Gemini 3.7 Flash",
+                    "quotaInfo": {
+                        "displayName": "5 Hours",
+                        "remainingFraction": 0.92,
+                        "resetTime": "2026-08-31T03:00:00Z"
+                    }
+                }
+            }
+        });
+
+        let windows = parse_antigravity_usage(&json);
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].label, "5 Hours");
+        assert!((windows[0].remaining_percent() - 92.0).abs() < 0.01);
     }
 
     #[test]

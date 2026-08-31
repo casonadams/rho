@@ -77,10 +77,36 @@ pub fn antigravity_headers(token: &str) -> HeaderMap {
     headers
 }
 
+pub fn antigravity_json_headers(token: &str) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    let auth = format!("Bearer {token}");
+    if let Ok(val) = HeaderValue::from_str(&auth) {
+        headers.insert(reqwest::header::AUTHORIZATION, val);
+    }
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        HeaderValue::from_static("antigravity/hub/2.8.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"),
+    );
+    headers.insert(
+        "X-Goog-Api-Client",
+        HeaderValue::from_static("google-cloud-sdk vscode_cloudshelleditor/0.1"),
+    );
+    headers.insert(
+        "Client-Metadata",
+        HeaderValue::from_static("{\"ideType\":\"ANTIGRAVITY\",\"platform\":\"MACOS\",\"pluginType\":\"GEMINI\"}"),
+    );
+    headers
+}
+
 pub async fn discover_project_id(access_token: &str) -> Option<String> {
     for endpoint in endpoint_candidates() {
         let url = format!("{endpoint}/v1internal:loadCodeAssist");
-        let headers = antigravity_headers(access_token);
+        let headers = antigravity_json_headers(access_token);
         let res = HTTP_CLIENT
             .post(&url)
             .headers(headers)
@@ -108,12 +134,25 @@ pub async fn fetch_account_usage(access_token: &str, project_id: Option<&str>) -
         None => serde_json::json!({}),
     };
     for endpoint in endpoint_candidates() {
-        let url = format!("{endpoint}/v1internal:fetchAccountUsage");
-        let headers = antigravity_headers(access_token);
-        let res = HTTP_CLIENT.post(&url).headers(headers).json(&body).send().await;
-        if let Ok(response) = res
-            && response.status().is_success()
-            && let Ok(val) = response.json::<serde_json::Value>().await
+        let headers = antigravity_json_headers(access_token);
+
+        let summary_url = format!("{endpoint}/v1internal:retrieveUserQuotaSummary");
+        if let Ok(res) = HTTP_CLIENT
+            .post(&summary_url)
+            .headers(headers.clone())
+            .json(&body)
+            .send()
+            .await
+            && res.status().is_success()
+            && let Ok(val) = res.json::<serde_json::Value>().await
+        {
+            return Ok(val);
+        }
+
+        let models_url = format!("{endpoint}/v1internal:fetchAvailableModels");
+        if let Ok(res) = HTTP_CLIENT.post(&models_url).headers(headers).json(&body).send().await
+            && res.status().is_success()
+            && let Ok(val) = res.json::<serde_json::Value>().await
         {
             return Ok(val);
         }
