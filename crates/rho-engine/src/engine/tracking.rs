@@ -33,6 +33,7 @@ impl SpeedTracker {
     }
 
     pub fn record_generation(&mut self, output_tokens: u64, elapsed_ms: u64) {
+        self.started_at = None;
         if output_tokens > 0 && elapsed_ms > 0 {
             self.total_output_tokens += output_tokens;
             self.total_elapsed_ms += elapsed_ms;

@@ -101,20 +101,22 @@ impl AgentEngine {
             return None;
         }
         let limit = self.context_limit()?;
-        Some(((usage.input_tokens as usize * 100) / limit).min(100))
+        let consumed = usage.input_tokens
+            + usage.cached_input_tokens.unwrap_or(0)
+            + usage.cache_creation_input_tokens.unwrap_or(0);
+        Some(((consumed as usize * 100) / limit).min(100))
     }
 
     pub fn context_percent_f64(&self) -> Option<f64> {
+        let usage = self.usage.latest()?;
+        if !usage.has_values() {
+            return None;
+        }
         let limit = self.context_limit()?;
-        let usage = self.usage.latest();
-        let consumed = match usage {
-            Some(u) if u.has_values() => {
-                u.input_tokens + u.cached_input_tokens.unwrap_or(0) + u.cache_creation_input_tokens.unwrap_or(0)
-            }
-            _ => 0,
-        };
-        let remaining = limit.saturating_sub(consumed as usize);
-        Some(((remaining as f64 / limit as f64) * 100.0).clamp(0.0, 100.0))
+        let consumed = usage.input_tokens
+            + usage.cached_input_tokens.unwrap_or(0)
+            + usage.cache_creation_input_tokens.unwrap_or(0);
+        Some(((consumed as f64 / limit as f64) * 100.0).clamp(0.0, 100.0))
     }
 
     pub fn session_usage_totals(&self) -> SessionUsageTotals {
@@ -159,15 +161,18 @@ impl AgentEngine {
         if !usage.has_values() {
             return "usage unavailable".to_string();
         }
+        let consumed = usage.input_tokens
+            + usage.cached_input_tokens.unwrap_or(0)
+            + usage.cache_creation_input_tokens.unwrap_or(0);
         if let Some(limit) = self.context_limit() {
-            let percent = ((usage.input_tokens as usize * 100) / limit).min(100);
+            let percent = ((consumed as usize * 100) / limit).min(100);
             format!(
                 "{}/{} ({percent}%)",
-                format_tokens(usage.input_tokens),
+                format_tokens(consumed),
                 format_tokens(limit as u64)
             )
         } else {
-            format!("{} input tokens", format_tokens(usage.input_tokens))
+            format!("{} input tokens", format_tokens(consumed))
         }
     }
 

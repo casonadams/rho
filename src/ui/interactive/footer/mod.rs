@@ -216,7 +216,9 @@ pub fn format_stats_line(footer: &FooterState, width: usize) -> String {
 
     let context_percent_str = match footer.context_percent {
         Some(percent) => {
-            if (percent.fract() * 10.0).round() == 0.0 {
+            if percent < 0.05 && footer.total_input_tokens > 0 {
+                "0.1%".to_string()
+            } else if (percent.fract() * 10.0).round() == 0.0 {
                 format!("{percent:.0}%")
             } else {
                 format!("{percent:.1}%")
@@ -224,7 +226,7 @@ pub fn format_stats_line(footer: &FooterState, width: usize) -> String {
         }
         None => {
             if footer.context_window > 0 {
-                "100%".to_string()
+                "0%".to_string()
             } else if let Some(context_str) = &footer.context {
                 context_str.clone()
             } else {

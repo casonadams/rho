@@ -155,6 +155,8 @@ async fn parallel_tools_execute_concurrently_and_preserve_emission_order() {
 
     let tools = ConfigurableFixtureTools::default();
     tools.set_mode(tool_id, ExecutionMode::Parallel);
+    // Warm up static BPE parser so dictionary load isn't counted in concurrency delay
+    let _ = rho_core::tokens::estimate_text_tokens("warmup", "fixture");
     // call-1 finishes last (60ms), call-3 finishes first (10ms)
     tools.set_delay("call-1", 60);
     tools.set_delay("call-2", 30);
@@ -165,7 +167,7 @@ async fn parallel_tools_execute_concurrently_and_preserve_emission_order() {
     let elapsed = start.elapsed();
 
     assert!(matches!(terminal, NeutralTurnTerminal::Completed(_)));
-    // If sequential: 60 + 30 + 10 = 100ms. If concurrent: max(60, 30, 10) ~= 60ms.
+    // If sequential: 60 + 30 + 10 = 100ms + overhead. If concurrent: max(60, 30, 10) ~= 60ms.
     assert!(elapsed.as_millis() < 95);
     assert!(tools.max_observed_concurrency.load(std::sync::atomic::Ordering::SeqCst) >= 2);
 
