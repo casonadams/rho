@@ -141,6 +141,8 @@ impl ReplSession {
             {
                 break;
             }
+            update_footer(controller.state_mut(), self, &engine);
+            controller.redraw()?;
         }
         Ok(())
     }
