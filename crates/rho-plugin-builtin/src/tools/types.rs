@@ -30,46 +30,102 @@ impl ToolResult {
 }
 
 pub fn normalize_schema(value: &mut serde_json::Value) {
+    let mut defs = std::collections::HashMap::new();
+    collect_definitions(value, &mut defs);
+    inline_refs(value, &defs);
+    clean_schema(value);
+    if let serde_json::Value::Object(map) = value {
+        map.remove("$defs");
+        map.remove("definitions");
+        map.remove("$schema");
+    }
+}
+
+fn collect_definitions(value: &serde_json::Value, defs: &mut std::collections::HashMap<String, serde_json::Value>) {
+    if let serde_json::Value::Object(map) = value {
+        for key in ["$defs", "definitions"] {
+            if let Some(serde_json::Value::Object(submap)) = map.get(key) {
+                for (name, def) in submap {
+                    defs.insert(format!("#/{key}/{name}"), def.clone());
+                    defs.insert(format!("#/$defs/{name}"), def.clone());
+                    defs.insert(format!("#/definitions/{name}"), def.clone());
+                    defs.insert(name.clone(), def.clone());
+                }
+            }
+        }
+        for subval in map.values() {
+            collect_definitions(subval, defs);
+        }
+    } else if let serde_json::Value::Array(arr) = value {
+        for item in arr {
+            collect_definitions(item, defs);
+        }
+    }
+}
+
+fn inline_refs(value: &mut serde_json::Value, defs: &std::collections::HashMap<String, serde_json::Value>) {
+    if let serde_json::Value::Object(map) = value {
+        if let Some(serde_json::Value::String(ref_target)) = map.get("$ref")
+            && let Some(target_def) = defs.get(ref_target)
+        {
+            let mut inlined = target_def.clone();
+            inline_refs(&mut inlined, defs);
+            *value = inlined;
+            return;
+        }
+        for subval in map.values_mut() {
+            inline_refs(subval, defs);
+        }
+    } else if let serde_json::Value::Array(arr) = value {
+        for item in arr {
+            inline_refs(item, defs);
+        }
+    }
+}
+
+fn clean_schema(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Bool(true) => {
             *value = serde_json::Value::Object(serde_json::Map::new());
         }
         serde_json::Value::Object(map) => {
-            for (k, v) in map.iter_mut() {
-                match k.as_str() {
-                    "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas" => {
-                        if let serde_json::Value::Object(submap) = v {
-                            for subval in submap.values_mut() {
-                                normalize_schema(subval);
-                            }
-                        }
-                    }
-                    "items" => {
-                        if let serde_json::Value::Array(arr) = v {
-                            for item in arr {
-                                normalize_schema(item);
-                            }
-                        } else {
-                            normalize_schema(v);
-                        }
-                    }
-                    "prefixItems" | "allOf" | "anyOf" | "oneOf" => {
-                        if let serde_json::Value::Array(arr) = v {
-                            for item in arr {
-                                normalize_schema(item);
-                            }
-                        }
-                    }
-                    "not" | "if" | "then" | "else" | "contains" | "propertyNames" => {
-                        normalize_schema(v);
-                    }
-                    _ => {}
+            if map.get("default") == Some(&serde_json::Value::Null) {
+                map.remove("default");
+            }
+            if let Some(serde_json::Value::Array(arr)) = map.get("type") {
+                let non_null: Vec<_> = arr
+                    .iter()
+                    .filter(|item| item.as_str() != Some("null"))
+                    .cloned()
+                    .collect();
+                if non_null.len() == 1 {
+                    map.insert("type".to_string(), non_null[0].clone());
                 }
+            }
+            if let Some(serde_json::Value::Array(arr)) = map.get("anyOf") {
+                let non_null: Vec<_> = arr
+                    .iter()
+                    .filter(|item| {
+                        !(item.is_object()
+                            && item.as_object().unwrap().get("type")
+                                == Some(&serde_json::Value::String("null".to_string())))
+                    })
+                    .cloned()
+                    .collect();
+                if non_null.len() == 1 {
+                    let mut single = non_null[0].clone();
+                    clean_schema(&mut single);
+                    *value = single;
+                    return;
+                }
+            }
+            for subval in map.values_mut() {
+                clean_schema(subval);
             }
         }
         serde_json::Value::Array(arr) => {
             for item in arr {
-                normalize_schema(item);
+                clean_schema(item);
             }
         }
         _ => {}
@@ -131,11 +187,19 @@ mod tests {
     #[test]
     fn normalize_schema_replaces_boolean_subschemas() {
         let mut schema = serde_json::json!({
+            "$defs": {
+                "Item": {
+                    "type": "string"
+                }
+            },
             "type": "object",
             "properties": {
                 "options": {
                     "type": ["array", "null"],
                     "items": true
+                },
+                "item": {
+                    "$ref": "#/$defs/Item"
                 },
                 "extra": true
             },
@@ -149,8 +213,11 @@ mod tests {
                 "type": "object",
                 "properties": {
                     "options": {
-                        "type": ["array", "null"],
+                        "type": "array",
                         "items": {}
+                    },
+                    "item": {
+                        "type": "string"
                     },
                     "extra": {}
                 },

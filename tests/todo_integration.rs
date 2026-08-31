@@ -126,5 +126,75 @@ async fn test_todo_tool_lifecycle_via_active_tool_set() {
     assert!(res.is_success());
     assert!(res.output().as_text().unwrap().contains("Cleared all tasks."));
 
+    // 10. Flexible arguments (snake_case aliases, optional fields)
+    let res = tools
+        .execute(
+            "todo",
+            r#"{"action":"create","subject":"Test flexible parsing","active_form":"doing work"}"#,
+            &mut context,
+        )
+        .await;
+    assert!(res.is_success());
+    assert!(
+        res.output()
+            .as_text()
+            .unwrap()
+            .contains("Created #1: Test flexible parsing (pending)")
+    );
+
+    let res = tools
+        .execute(
+            "todo",
+            r#"{"action":"update","id":1,"status":"in_progress"}"#,
+            &mut context,
+        )
+        .await;
+    assert!(res.is_success());
+    assert!(
+        res.output()
+            .as_text()
+            .unwrap()
+            .contains("Updated #1 (pending → in_progress)")
+    );
+
+    let res = tools.execute("todo", r#"{"action":"get","id":1}"#, &mut context).await;
+    assert!(res.is_success());
+    assert!(
+        res.output()
+            .as_text()
+            .unwrap()
+            .contains("Subject: Test flexible parsing")
+    );
+
+    let res = tools
+        .execute("todo", r#"{"action":"delete","id":1}"#, &mut context)
+        .await;
+    assert!(res.is_success());
+    assert!(
+        res.output()
+            .as_text()
+            .unwrap()
+            .contains("Deleted #1: Test flexible parsing")
+    );
+
+    // 11. Error handling for missing required fields
+    let res = tools.execute("todo", r#"{"action":"create"}"#, &mut context).await;
+    assert!(!res.is_success());
+    assert!(
+        res.output()
+            .as_text()
+            .unwrap()
+            .contains("Task 'subject' is required for create")
+    );
+
+    let res = tools.execute("todo", r#"{"action":"update"}"#, &mut context).await;
+    assert!(!res.is_success());
+    assert!(
+        res.output()
+            .as_text()
+            .unwrap()
+            .contains("Task 'id' is required for update")
+    );
+
     let _ = std::fs::remove_dir_all(workspace);
 }

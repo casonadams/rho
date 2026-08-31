@@ -13,8 +13,9 @@ pub use rho_core::workspace::Workspace;
 pub use rho_engine::repeat::RepeatedCallHook;
 pub use rho_plugin_builtin::tools::{
     AskUserArgs, AskUserQuestionTool, AskUserTool, BashArgs, BashTool, BuiltinToolCatalog, BuiltinToolDeclaration,
-    BuiltinToolKind, DECLARATIONS, EditArgs, EditTool, FetchArgs, FetchCache, HttpClient, HttpRequest, ReadArgs,
-    ReadTool, SearchArgs, SearchRateLimiter, ToolRegistry, ToolResult, WebFetchConfig, WebFetchTool, WebSearchConfig,
-    WebSearchTool, WriteArgs, WriteTool, ask_user, bash, builtin_tools, edit, generated_schema, into_rig_result,
-    normalize_schema, read, registry, types, web, write,
+    BuiltinToolKind, DECLARATIONS, EditArgs, EditTool, FetchArgs, FetchCache, HttpClient, HttpRequest, PROMPT_TODO,
+    ReadArgs, ReadTool, SearchArgs, SearchRateLimiter, TaskStatus, TodoAction, TodoArgs, TodoStore, TodoTask, TodoTool,
+    ToolRegistry, ToolResult, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool, WriteArgs, WriteTool,
+    ask_user, bash, builtin_tools, edit, generated_schema, into_rig_result, normalize_schema, read, registry, todo,
+    types, web, write,
 };

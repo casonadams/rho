@@ -1,9 +1,10 @@
-use crate::tools::types::ToolResult;
+use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use async_trait::async_trait;
 use rho_sdk::capability::{CapabilityError, CapabilityId, CapabilityKind};
 use rho_sdk::contract::{
     ExecutionMode, ToolCapability, ToolDescriptor, ToolHost, ToolInvocationRequest, ToolInvocationResponse,
 };
+use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -11,13 +12,32 @@ use std::sync::{Arc, Mutex};
 
 pub static PROMPT_TODO: &str = include_str!("../../../../prompts/tools/todo.md");
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Pending,
     InProgress,
     Completed,
     Deleted,
+}
+
+impl<'de> Deserialize<'de> for TaskStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let normalized = s.trim().to_ascii_lowercase().replace(['-', ' '], "_");
+        match normalized.as_str() {
+            "pending" => Ok(Self::Pending),
+            "in_progress" | "inprogress" => Ok(Self::InProgress),
+            "completed" => Ok(Self::Completed),
+            "deleted" => Ok(Self::Deleted),
+            other => Err(serde::de::Error::custom(format!(
+                "Unknown status '{other}'. Expected pending, in_progress, completed, deleted"
+            ))),
+        }
+    }
 }
 
 impl std::fmt::Display for TaskStatus {
@@ -48,7 +68,7 @@ pub struct TodoTask {
     pub metadata: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TodoAction {
     Create,
@@ -59,10 +79,124 @@ pub enum TodoAction {
     Clear,
 }
 
+impl<'de> Deserialize<'de> for TodoAction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.trim().to_ascii_lowercase().as_str() {
+            "create" => Ok(Self::Create),
+            "update" => Ok(Self::Update),
+            "list" => Ok(Self::List),
+            "get" => Ok(Self::Get),
+            "delete" => Ok(Self::Delete),
+            "clear" => Ok(Self::Clear),
+            other => Err(serde::de::Error::custom(format!(
+                "Unknown action '{other}'. Expected create, update, list, get, delete, clear"
+            ))),
+        }
+    }
+}
+
+fn deserialize_optional_id<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let val: Option<serde_json::Value> = Deserialize::deserialize(deserializer)?;
+    match val {
+        Some(serde_json::Value::Number(n)) => {
+            if let Some(u) = n.as_u64() {
+                Ok(Some(u as usize))
+            } else if let Some(f) = n.as_f64() {
+                Ok(Some(f as usize))
+            } else {
+                Err(serde::de::Error::custom("id must be a non-negative integer"))
+            }
+        }
+        Some(serde_json::Value::String(s)) => {
+            let s = s.trim();
+            if s.is_empty() {
+                Ok(None)
+            } else {
+                s.parse::<usize>()
+                    .map(Some)
+                    .map_err(|_| serde::de::Error::custom(format!("Invalid integer id '{s}'")))
+            }
+        }
+        Some(serde_json::Value::Null) | None => Ok(None),
+        _ => Err(serde::de::Error::custom("id must be an integer or numeric string")),
+    }
+}
+
+fn deserialize_optional_id_vec<'de, D>(deserializer: D) -> Result<Option<Vec<usize>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let val: Option<serde_json::Value> = Deserialize::deserialize(deserializer)?;
+    match val {
+        Some(serde_json::Value::Array(items)) => {
+            let mut ids = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    serde_json::Value::Number(n) => {
+                        if let Some(u) = n.as_u64() {
+                            ids.push(u as usize);
+                        } else if let Some(f) = n.as_f64() {
+                            ids.push(f as usize);
+                        }
+                    }
+                    serde_json::Value::String(s) => {
+                        if let Ok(u) = s.trim().parse::<usize>() {
+                            ids.push(u);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Some(ids))
+        }
+        Some(serde_json::Value::Number(n)) => {
+            if let Some(u) = n.as_u64() {
+                Ok(Some(vec![u as usize]))
+            } else {
+                Ok(None)
+            }
+        }
+        Some(serde_json::Value::String(s)) => {
+            if let Ok(u) = s.trim().parse::<usize>() {
+                Ok(Some(vec![u]))
+            } else {
+                Ok(None)
+            }
+        }
+        Some(serde_json::Value::Null) | None => Ok(None),
+        _ => Err(serde::de::Error::custom("expected an array of integer task IDs")),
+    }
+}
+
+fn deserialize_optional_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let val: Option<serde_json::Value> = Deserialize::deserialize(deserializer)?;
+    match val {
+        Some(serde_json::Value::Bool(b)) => Ok(Some(b)),
+        Some(serde_json::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" | "yes" => Ok(Some(true)),
+            "false" | "0" | "no" => Ok(Some(false)),
+            _ => Ok(None),
+        },
+        Some(serde_json::Value::Number(n)) => Ok(Some(n.as_u64().unwrap_or(0) != 0)),
+        Some(serde_json::Value::Null) | None => Ok(None),
+        _ => Ok(None),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TodoArgs {
     pub action: TodoAction,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_id")]
     pub id: Option<usize>,
     #[serde(default)]
     pub subject: Option<String>,
@@ -70,19 +204,43 @@ pub struct TodoArgs {
     pub description: Option<String>,
     #[serde(default)]
     pub status: Option<TaskStatus>,
-    #[serde(default, rename = "activeForm")]
+    #[serde(default, alias = "active_form", alias = "activeForm", rename = "activeForm")]
     pub active_form: Option<String>,
     #[serde(default)]
     pub owner: Option<String>,
-    #[serde(default, rename = "blockedBy")]
+    #[serde(
+        default,
+        alias = "blocked_by",
+        alias = "blockedBy",
+        rename = "blockedBy",
+        deserialize_with = "deserialize_optional_id_vec"
+    )]
     pub blocked_by: Option<Vec<usize>>,
-    #[serde(default, rename = "addBlockedBy")]
+    #[serde(
+        default,
+        alias = "add_blocked_by",
+        alias = "addBlockedBy",
+        rename = "addBlockedBy",
+        deserialize_with = "deserialize_optional_id_vec"
+    )]
     pub add_blocked_by: Option<Vec<usize>>,
-    #[serde(default, rename = "removeBlockedBy")]
+    #[serde(
+        default,
+        alias = "remove_blocked_by",
+        alias = "removeBlockedBy",
+        rename = "removeBlockedBy",
+        deserialize_with = "deserialize_optional_id_vec"
+    )]
     pub remove_blocked_by: Option<Vec<usize>>,
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
-    #[serde(default, rename = "includeDeleted")]
+    #[serde(
+        default,
+        alias = "include_deleted",
+        alias = "includeDeleted",
+        rename = "includeDeleted",
+        deserialize_with = "deserialize_optional_bool"
+    )]
     pub include_deleted: Option<bool>,
 }
 
@@ -391,7 +549,7 @@ pub struct TodoTool {
 
 impl TodoTool {
     pub fn new(store: TodoStore) -> Self {
-        let schema = crate::tools::types::generated_schema::<TodoArgs>();
+        let schema = generated_schema::<TodoArgs>();
         let descriptor = ToolDescriptor {
             id: CapabilityId::new(CapabilityKind::Tool, "todo").unwrap(),
             description: "Manage a task list for tracking multi-step progress. Actions: create, update, list, get, delete, clear.".to_string(),
@@ -407,7 +565,9 @@ impl TodoTool {
     pub async fn execute(&self, args: TodoArgs) -> Result<ToolResult, rho_core::error::AppError> {
         match args.action {
             TodoAction::Create => {
-                let subject = args.subject.unwrap_or_default();
+                let Some(subject) = args.subject.filter(|s| !s.trim().is_empty()) else {
+                    return Ok(ToolResult::error("Task 'subject' is required for create"));
+                };
                 match self.store.create(TodoCreateParams {
                     subject,
                     description: args.description,
@@ -425,6 +585,17 @@ impl TodoTool {
                 let Some(id) = args.id else {
                     return Ok(ToolResult::error("Task 'id' is required for update"));
                 };
+                if args.subject.is_none()
+                    && args.description.is_none()
+                    && args.status.is_none()
+                    && args.active_form.is_none()
+                    && args.owner.is_none()
+                    && args.add_blocked_by.is_none()
+                    && args.remove_blocked_by.is_none()
+                    && args.metadata.is_none()
+                {
+                    return Ok(ToolResult::error("At least one field to update must be provided"));
+                }
                 match self.store.update(TodoUpdateParams {
                     id,
                     subject: args.subject,
@@ -464,6 +635,30 @@ impl TodoTool {
             }
             TodoAction::Clear => Ok(ToolResult::success(self.store.clear())),
         }
+    }
+}
+
+impl Tool for TodoTool {
+    const NAME: &'static str = "todo";
+    type Args = TodoArgs;
+    type Output = String;
+    type Error = ToolExecutionError;
+
+    fn description(&self) -> String {
+        "Manage a task list for tracking multi-step progress. Actions: create, update, list, get, delete, clear."
+            .to_string()
+    }
+
+    fn parameters(&self) -> serde_json::Value {
+        generated_schema::<TodoArgs>()
+    }
+
+    async fn call(
+        &self,
+        _context: &mut ToolContext,
+        args: Self::Args,
+    ) -> std::result::Result<Self::Output, Self::Error> {
+        into_rig_result(self.execute(args).await)
     }
 }
 
@@ -603,5 +798,137 @@ mod tests {
         // Task 1 should not have been mutated
         let task1 = store.get(1).unwrap();
         assert!(!task1.contains("blocked by"));
+    }
+
+    #[tokio::test]
+    async fn test_todo_schema_compilation_and_validation() {
+        let schema_val = crate::tools::types::generated_schema::<TodoArgs>();
+        let compiled = rho_sdk::schema::CompiledSchema::compile(&schema_val).expect("Schema must compile");
+
+        // Assert schema has no $defs, $ref, or $schema left over
+        assert!(schema_val.get("$defs").is_none());
+        assert!(schema_val.get("definitions").is_none());
+        assert!(schema_val.get("$schema").is_none());
+
+        let valid_cases = vec![
+            ("list plain", serde_json::json!({"action": "list"})),
+            (
+                "create with subject",
+                serde_json::json!({"action": "create", "subject": "test"}),
+            ),
+            (
+                "create with description",
+                serde_json::json!({"action": "create", "subject": "test", "description": "foo"}),
+            ),
+            (
+                "create with empty blockedBy",
+                serde_json::json!({"action": "create", "subject": "test", "blockedBy": []}),
+            ),
+            (
+                "create with snake_case active_form",
+                serde_json::json!({"action": "create", "subject": "test", "active_form": "doing things"}),
+            ),
+            (
+                "create with snake_case blocked_by",
+                serde_json::json!({"action": "create", "subject": "test", "blocked_by": []}),
+            ),
+            (
+                "update with id and status",
+                serde_json::json!({"action": "update", "id": 1, "status": "in_progress"}),
+            ),
+            (
+                "create with status pending",
+                serde_json::json!({"action": "create", "subject": "test", "status": "pending"}),
+            ),
+            (
+                "list with status pending",
+                serde_json::json!({"action": "list", "status": "pending"}),
+            ),
+            (
+                "list with snake include_deleted",
+                serde_json::json!({"action": "list", "include_deleted": false}),
+            ),
+            (
+                "list with camel includeDeleted",
+                serde_json::json!({"action": "list", "includeDeleted": false}),
+            ),
+            ("get with int id", serde_json::json!({"action": "get", "id": 1})),
+            ("delete with int id", serde_json::json!({"action": "delete", "id": 1})),
+            ("clear plain", serde_json::json!({"action": "clear"})),
+        ];
+
+        for (label, case) in valid_cases {
+            assert!(
+                compiled.validate(&case).is_ok(),
+                "Schema validation failed for '{label}': {case}"
+            );
+            assert!(
+                serde_json::from_value::<TodoArgs>(case.clone()).is_ok(),
+                "Serde deserialization failed for '{label}': {case}"
+            );
+        }
+
+        // Additional flexible serde deserialization cases
+        let serde_flexible_cases = vec![
+            (
+                "update with string id",
+                serde_json::json!({"action": "update", "id": "1", "status": "in_progress"}),
+            ),
+            ("get with string id", serde_json::json!({"action": "get", "id": "1"})),
+            (
+                "delete with string id",
+                serde_json::json!({"action": "delete", "id": "1"}),
+            ),
+            (
+                "capitalized action",
+                serde_json::json!({"action": "Create", "subject": "test"}),
+            ),
+            (
+                "pascal status",
+                serde_json::json!({"action": "create", "subject": "test", "status": "InProgress"}),
+            ),
+            (
+                "kebab status",
+                serde_json::json!({"action": "create", "subject": "test", "status": "in-progress"}),
+            ),
+        ];
+
+        for (label, case) in serde_flexible_cases {
+            assert!(
+                serde_json::from_value::<TodoArgs>(case.clone()).is_ok(),
+                "Serde flexible deserialization failed for '{label}': {case}"
+            );
+        }
+
+        // Test executing tool directly with flexible args
+        let tool = TodoTool::new(TodoStore::new());
+        let res = tool
+            .execute(
+                serde_json::from_value(serde_json::json!({
+                    "action": "CREATE",
+                    "subject": "flexible task",
+                    "status": "InProgress",
+                    "active_form": "running tests"
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(!res.is_error);
+        assert!(res.content.contains("Created #1: flexible task (in_progress)"));
+
+        let res2 = tool
+            .execute(
+                serde_json::from_value(serde_json::json!({
+                    "action": "update",
+                    "id": "1",
+                    "status": "completed"
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(!res2.is_error);
+        assert!(res2.content.contains("Updated #1 (in_progress → completed)"));
     }
 }
