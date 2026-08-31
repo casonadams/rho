@@ -1,5 +1,13 @@
 # Repository instructions
 
+## Code structure
+
+- Keep files concise (~150 lines target). Treat growth beyond ~150 lines as a
+  signal to check cohesion and split along natural architectural seams when it
+  clarifies responsibilities.
+- Avoid premature fragmentation: do not break straightforward logic into tiny,
+  artificially separated helpers that obscure control flow.
+
 ## Lint policy
 
 - Do not add Clippy `allow`, `expect`, command-line exclusions, or crate-level
