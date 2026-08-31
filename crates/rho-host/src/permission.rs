@@ -203,11 +203,7 @@ mod tests {
             tool_id: format!("tool:{tool_name}").parse().unwrap(),
             arguments: serde_json::json!({}),
             effects: Vec::new(),
-            context: InvocationContext {
-                session_id: "session".to_string(),
-                working_directory: ".".to_string(),
-                has_interactive_ui: false,
-            },
+            context: InvocationContext::new("session", ".", false),
         }
     }
 

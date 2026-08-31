@@ -121,6 +121,7 @@ async fn discovers_and_invokes_a_subprocess_plugin_end_to_end() {
                     session_id: "session".to_string(),
                     working_directory: "/workspace".to_string(),
                     has_interactive_ui: false,
+                    plugin_config: None,
                 },
             },
         )

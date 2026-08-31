@@ -189,6 +189,7 @@ impl AgentEngine {
                     session_id: session_id.clone(),
                     working_directory: working_directory.clone(),
                     has_interactive_ui,
+                    plugin_config: None,
                 },
                 token_budget: Some(token_budget),
             };
@@ -265,12 +266,13 @@ impl AgentEngine {
         }
     }
 
-    pub(crate) async fn notify_after_turn(&self, success: bool) {
+    pub(crate) async fn notify_after_turn(&self, success: bool, files_modified: Vec<String>) {
         for lifecycle in &self.lifecycles {
             let _ = lifecycle
                 .notify(LifecycleEvent::AfterTurn {
                     session_id: self.session_manager.session_id.clone(),
                     success,
+                    files_modified: files_modified.clone(),
                 })
                 .await;
         }
@@ -443,7 +445,7 @@ mod tests {
         engine.notify_before_turn("hello").await;
         assert!(before_called.load(Ordering::Relaxed));
 
-        engine.notify_after_turn(true).await;
+        engine.notify_after_turn(true, Vec::new()).await;
         assert!(after_called.load(Ordering::Relaxed));
 
         let _ = std::fs::remove_dir_all(temp_dir);

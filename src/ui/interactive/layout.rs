@@ -118,7 +118,7 @@ impl InteractiveLayout {
     pub fn height(&self) -> usize {
         let mut h = self.editor_lines.len() + self.queued_lines.len() + 1;
         if !self.working_line.is_empty() {
-            h += 3;
+            h += 2;
         }
         if !self.top_divider.is_empty() {
             h += 1;
@@ -132,7 +132,7 @@ impl InteractiveLayout {
     pub fn cursor_row(&self) -> usize {
         self.cursor.row
             + self.queued_lines.len()
-            + if !self.working_line.is_empty() { 3 } else { 0 }
+            + if !self.working_line.is_empty() { 2 } else { 0 }
             + usize::from(!self.top_divider.is_empty())
     }
 }
@@ -598,7 +598,7 @@ mod tests {
         assert!(layout.queued_lines[0].contains("Steering: first steer"));
         assert!(layout.queued_lines[1].contains("Follow-up: next follow"));
         assert!(layout.queued_lines[2].contains("Alt+↑"));
-        assert_eq!(layout.height(), 10);
+        assert_eq!(layout.height(), 9);
     }
 
     #[test]
@@ -623,7 +623,7 @@ mod tests {
         assert!(layout.working_line.contains("Working..."));
         assert!(layout.working_line.contains("\u{1b}[2m"));
         assert_eq!(layout.footer, "model");
-        assert_eq!(layout.height(), 7);
+        assert_eq!(layout.height(), 6);
     }
 
     #[test]

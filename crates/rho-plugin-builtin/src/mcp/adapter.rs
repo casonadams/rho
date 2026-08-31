@@ -101,11 +101,7 @@ echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\
                 &host,
                 ToolInvocationRequest {
                     arguments: serde_json::json!({}),
-                    context: rho_sdk::contract::InvocationContext {
-                        session_id: "test".to_string(),
-                        working_directory: ".".to_string(),
-                        has_interactive_ui: false,
-                    },
+                    context: rho_sdk::contract::InvocationContext::new("test", ".", false),
                 },
             )
             .await

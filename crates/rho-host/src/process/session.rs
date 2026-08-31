@@ -150,11 +150,19 @@ impl SupervisedProcess {
     }
 
     pub async fn handshake(&mut self) -> Result<(), ProcessError> {
+        self.handshake_with_config(None).await
+    }
+
+    pub async fn handshake_with_config(
+        &mut self,
+        plugin_config: Option<serde_json::Value>,
+    ) -> Result<(), ProcessError> {
         let request_id = new_request_id("handshake")?;
         self.write(&Envelope::new(
             request_id.clone(),
             ProtocolMessage::HandshakeRequest {
                 supported_versions: vec![PLUGIN_PROTOCOL_VERSION],
+                plugin_config,
             },
         ))
         .await?;
@@ -172,8 +180,8 @@ impl SupervisedProcess {
 
     pub async fn write(&mut self, envelope: &Envelope) -> Result<(), ProcessError> {
         let encoded = encode_line(envelope).map_err(|_| ProcessError::MalformedProtocol)?;
-        self.input.write_all(&encoded).await.map_err(|_| ProcessError::Io)?;
-        self.input.flush().await.map_err(|_| ProcessError::Io)
+        self.input.write_all(&encoded).await.map_err(map_io_error)?;
+        self.input.flush().await.map_err(map_io_error)
     }
 
     pub async fn stop(&mut self) -> bool {
@@ -190,6 +198,15 @@ impl SupervisedProcess {
         } else {
             error
         }
+    }
+}
+
+fn map_io_error(err: std::io::Error) -> ProcessError {
+    match err.kind() {
+        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::WriteZero => {
+            ProcessError::UnexpectedEof
+        }
+        _ => ProcessError::Io,
     }
 }
 

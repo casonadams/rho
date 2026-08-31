@@ -74,7 +74,7 @@ impl AgentEngine {
             crate::engine::AgentBackend::Rig(_) => self.run_rig_turn(request, presenter).await,
             crate::engine::AgentBackend::External { .. } => self.run_external_turn(request, presenter).await,
         };
-        self.notify_after_turn(result.is_ok()).await;
+        self.notify_after_turn(result.is_ok(), Vec::new()).await;
         result
     }
 
@@ -130,6 +130,7 @@ impl AgentEngine {
                 session_id: self.session_manager.session_id.clone(),
                 working_directory: std::env::current_dir()?.display().to_string(),
                 has_interactive_ui: presenter.has_interactive_ui(),
+                plugin_config: None,
             });
             let crate::engine::AgentBackend::Rig(agent) = &self.backend else {
                 return Err(AppError::Provider("internal provider runtime mismatch".to_string()));

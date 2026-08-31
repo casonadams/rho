@@ -37,7 +37,7 @@ pub enum ActiveProvider {
     Builtin(BuiltinProvider),
     External {
         plugin_id: PluginId,
-        capability: ExternalProvider,
+        capability: Box<ExternalProvider>,
     },
 }
 
@@ -60,7 +60,7 @@ impl ActiveProvider {
     pub fn capability(&self) -> Option<Arc<dyn ProviderCapability>> {
         match self {
             Self::Builtin(_) => None,
-            Self::External { capability, .. } => Some(Arc::new(capability.clone())),
+            Self::External { capability, .. } => Some(Arc::new((**capability).clone())),
         }
     }
 
@@ -202,7 +202,7 @@ impl ProviderRegistry {
                     target.name().to_string(),
                     ActiveProvider::External {
                         plugin_id: plugin_id.clone(),
-                        capability: provider,
+                        capability: Box::new(provider),
                     },
                 );
             }

@@ -330,11 +330,7 @@ mod tests {
                         "prompt": "search auth files",
                         "run_in_background": true
                     }),
-                    context: rho_sdk::contract::InvocationContext {
-                        session_id: "test".to_string(),
-                        working_directory: ".".to_string(),
-                        has_interactive_ui: false,
-                    },
+                    context: rho_sdk::contract::InvocationContext::new("test", ".", false),
                 },
             )
             .await
@@ -351,11 +347,7 @@ mod tests {
                 &host,
                 ToolInvocationRequest {
                     arguments: serde_json::json!({ "agent_id": job_id }),
-                    context: rho_sdk::contract::InvocationContext {
-                        session_id: "test".to_string(),
-                        working_directory: ".".to_string(),
-                        has_interactive_ui: false,
-                    },
+                    context: rho_sdk::contract::InvocationContext::new("test", ".", false),
                 },
             )
             .await

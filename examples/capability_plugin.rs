@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Err(_) => continue,
         };
         match request.message {
-            ProtocolMessage::HandshakeRequest { supported_versions }
+            ProtocolMessage::HandshakeRequest { supported_versions, .. }
                 if supported_versions.contains(&PLUGIN_PROTOCOL_VERSION) =>
             {
                 terminal(

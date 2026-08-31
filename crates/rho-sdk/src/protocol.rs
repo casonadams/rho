@@ -84,6 +84,8 @@ impl Envelope {
 pub enum ProtocolMessage {
     HandshakeRequest {
         supported_versions: Vec<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        plugin_config: Option<Value>,
     },
     DiscoveryRequest,
     InvocationRequest {
@@ -351,6 +353,7 @@ mod tests {
             request_id("req-1"),
             ProtocolMessage::HandshakeRequest {
                 supported_versions: vec![1],
+                plugin_config: None,
             },
         );
         let encoded = String::from_utf8(encode_line(&envelope).unwrap()).unwrap();
@@ -508,6 +511,7 @@ mod tests {
                         session_id: "sess-123".to_string(),
                         working_directory: "/workspace".to_string(),
                         has_interactive_ui: true,
+                        plugin_config: None,
                     },
                     token_budget: Some(2048),
                 }),

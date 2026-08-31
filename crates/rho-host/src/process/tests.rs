@@ -102,11 +102,7 @@ fn handshake_fragment() -> String {
 fn tool_invocation_request() -> InvocationRequest {
     InvocationRequest::Tool(ToolInvocationRequest {
         arguments: serde_json::json!({"message": "hello"}),
-        context: InvocationContext {
-            session_id: "session".to_string(),
-            working_directory: "/workspace".to_string(),
-            has_interactive_ui: false,
-        },
+        context: InvocationContext::new("session", "/workspace", false),
     })
 }
 

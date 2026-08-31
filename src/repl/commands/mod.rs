@@ -355,6 +355,7 @@ impl SlashCommandHandler {
                                 .map(|p| p.display().to_string())
                                 .unwrap_or_else(|_| ".".to_string()),
                             has_interactive_ui: ctx.renderer.has_interactive_ui(),
+                            plugin_config: None,
                         },
                     };
                     match cmd.invoke(req).await {

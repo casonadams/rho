@@ -75,7 +75,10 @@ impl ActiveToolSet {
             if candidate.status != ConfiguredStatus::Eligible {
                 continue;
             }
-            let Ok(plugin) = ExternalPlugin::load(&candidate.path, ProcessLimits::default()).await else {
+            let plugin_config = config.plugins.get(&candidate.name).and_then(|p| p.config.clone());
+            let Ok(plugin) =
+                ExternalPlugin::load_with_config(&candidate.path, ProcessLimits::default(), plugin_config).await
+            else {
                 continue;
             };
             if plugin.manifest().plugin_id.as_str() != candidate.name {

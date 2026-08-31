@@ -107,6 +107,8 @@ pub struct PluginConfig {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub replaces: BTreeSet<CapabilityId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<serde_json::Value>,
 }
 
 impl Default for PluginConfig {
@@ -120,6 +122,7 @@ impl Default for PluginConfig {
             tag: None,
             enabled: true,
             replaces: BTreeSet::new(),
+            config: None,
         }
     }
 }

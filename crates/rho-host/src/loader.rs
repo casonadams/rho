@@ -126,11 +126,30 @@ impl PluginLoader {
         config_dir: &Path,
         configured: &BTreeMap<String, PluginConfig>,
     ) -> Vec<ConfiguredCandidate> {
+        let project_dir = std::env::current_dir().ok();
+        Self::configured_candidates_with_project(config_dir, project_dir.as_deref(), configured)
+    }
+
+    pub fn configured_candidates_with_project(
+        config_dir: &Path,
+        project_dir: Option<&Path>,
+        configured: &BTreeMap<String, PluginConfig>,
+    ) -> Vec<ConfiguredCandidate> {
         configured
             .iter()
             .map(|(name, plugin)| {
                 let joined = if plugin.path.is_absolute() {
                     plugin.path.clone()
+                } else if config_dir.join(&plugin.path).exists() {
+                    config_dir.join(&plugin.path)
+                } else if let Some(proj) = project_dir
+                    && proj.join(".rho").join(&plugin.path).exists()
+                {
+                    proj.join(".rho").join(&plugin.path)
+                } else if let Some(proj) = project_dir
+                    && proj.join(&plugin.path).exists()
+                {
+                    proj.join(&plugin.path)
                 } else {
                     config_dir.join(&plugin.path)
                 };

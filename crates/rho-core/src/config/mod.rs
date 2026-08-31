@@ -26,6 +26,16 @@ impl Config {
             merge::merge_file(&mut config, file_cfg);
         }
 
+        if let Ok(cwd) = std::env::current_dir() {
+            let project_config_file = cwd.join(".rho").join("config.toml");
+            if project_config_file.exists()
+                && let Ok(content) = std::fs::read_to_string(&project_config_file)
+                && let Ok(project_file_cfg) = toml::from_str::<FileConfig>(&content)
+            {
+                merge::merge_file(&mut config, project_file_cfg);
+            }
+        }
+
         merge::apply_env_overrides(&mut config)?;
         merge::apply_cli_overrides(&mut config, cli);
         config.validate()?;
@@ -238,6 +248,7 @@ mod tests {
                 tag: None,
                 enabled: true,
                 replaces: Default::default(),
+                config: None,
             },
         );
         assert!(config.validate().is_err());

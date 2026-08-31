@@ -181,6 +181,7 @@ impl TerminalApprovalSink {
         }
         if let Ok(mut state) = self.state.lock() {
             if self.presenter.has_interactive_ui() && state.last_display != DisplayKind::Text {
+                clear_spinner(&mut state);
                 state.spinner = Some(self.presenter.start_spinner("working..."));
             }
             if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Thinking {
@@ -279,6 +280,7 @@ impl ApprovalEventSink for TerminalApprovalSink {
                 {
                     call.started = Some(Instant::now());
                     let (name, arguments) = (call.name.clone(), call.arguments.clone());
+                    clear_spinner(&mut state);
                     state.spinner = Some(self.presenter.start_tool_spinner(&name, &arguments));
                     self.presenter.start_tool_run(&name, &arguments);
                 }

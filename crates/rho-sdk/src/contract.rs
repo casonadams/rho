@@ -248,6 +248,24 @@ pub struct InvocationContext {
     pub session_id: String,
     pub working_directory: String,
     pub has_interactive_ui: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_config: Option<Value>,
+}
+
+impl InvocationContext {
+    pub fn new(session_id: impl Into<String>, working_directory: impl Into<String>, has_interactive_ui: bool) -> Self {
+        Self {
+            session_id: session_id.into(),
+            working_directory: working_directory.into(),
+            has_interactive_ui,
+            plugin_config: None,
+        }
+    }
+
+    pub fn with_plugin_config(mut self, plugin_config: Option<Value>) -> Self {
+        self.plugin_config = plugin_config;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -289,6 +307,7 @@ pub enum InteractionResponse {
 pub trait ToolHost: Send + Sync {
     async fn interact(&self, request: InteractionRequest) -> Result<InteractionResponse, CapabilityError>;
     fn stream_chunk(&self, _chunk: &str) {}
+    fn progress(&self, _message: &str) {}
 }
 
 #[async_trait]
@@ -396,6 +415,8 @@ pub enum LifecycleEvent {
     AfterTurn {
         session_id: String,
         success: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        files_modified: Vec<String>,
     },
     SessionEnded {
         session_id: String,
@@ -766,6 +787,7 @@ mod tests {
                 session_id: "session".to_string(),
                 working_directory: "/workspace".to_string(),
                 has_interactive_ui: true,
+                plugin_config: None,
             },
         };
         assert_eq!(operation.validate(), Err(ContractValidationError::EffectsNotNormalized));
@@ -846,6 +868,7 @@ mod tests {
         let lifecycle_after = LifecycleEvent::AfterTurn {
             session_id: "s1".to_string(),
             success: true,
+            files_modified: vec!["src/main.rs".to_string()],
         };
         let encoded = serde_json::to_string(&lifecycle_after).unwrap();
         assert_eq!(

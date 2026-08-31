@@ -13,3 +13,4 @@ async-trait.workspace = true
 futures.workspace = true
 jsonschema.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "io-std", "sync", "rt", "macros"] }

@@ -213,11 +213,7 @@ impl ToolHost for CapturingHost {
 }
 
 fn context() -> InvocationContext {
-    InvocationContext {
-        session_id: "session".to_string(),
-        working_directory: "/workspace".to_string(),
-        has_interactive_ui: false,
-    }
+    InvocationContext::new("session", "/workspace", false)
 }
 
 #[tokio::test]

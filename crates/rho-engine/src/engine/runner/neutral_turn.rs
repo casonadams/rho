@@ -76,6 +76,7 @@ impl AgentEngine {
             session_id: self.session_manager.session_id.clone(),
             working_directory: std::env::current_dir()?.display().to_string(),
             has_interactive_ui: presenter.has_interactive_ui(),
+            plugin_config: None,
         });
         tools.begin_turn(&mut tool_context).await;
         let observer = TurnObserver {

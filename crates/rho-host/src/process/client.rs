@@ -33,13 +33,23 @@ impl Default for ProcessLimits {
 pub struct PluginProcessClient {
     executable: Arc<PathBuf>,
     limits: ProcessLimits,
+    config: Option<serde_json::Value>,
 }
 
 impl PluginProcessClient {
     pub fn new(executable: impl Into<PathBuf>, limits: ProcessLimits) -> Self {
+        Self::with_config(executable, limits, None)
+    }
+
+    pub fn with_config(
+        executable: impl Into<PathBuf>,
+        limits: ProcessLimits,
+        config: Option<serde_json::Value>,
+    ) -> Self {
         Self {
             executable: Arc::new(executable.into()),
             limits,
+            config,
         }
     }
 
@@ -150,7 +160,11 @@ impl PluginProcessClient {
 
     async fn start(&self) -> Result<SupervisedProcess, ProcessError> {
         let mut process = SupervisedProcess::spawn(&self.executable).await?;
-        let handshake = tokio::time::timeout(self.limits.startup_timeout, process.handshake()).await;
+        let handshake = tokio::time::timeout(
+            self.limits.startup_timeout,
+            process.handshake_with_config(self.config.clone()),
+        )
+        .await;
         match handshake {
             Ok(Ok(())) => Ok(process),
             Ok(Err(error)) => Err(process.fail(error).await),

@@ -290,6 +290,7 @@ pub fn invocation_context(runtime: &DispatchContext<'_>) -> InvocationContext {
             session_id: String::new(),
             working_directory: String::new(),
             has_interactive_ui: runtime.tool.get::<QuestionPort>().is_some(),
+            plugin_config: None,
         })
 }
 
@@ -349,6 +350,12 @@ impl ToolHost for RigToolHost<'_> {
     fn stream_chunk(&self, chunk: &str) {
         if let Some(port) = self.0.get::<rho_core::presentation::stream::ToolStreamPort>() {
             port.stream_chunk(chunk);
+        }
+    }
+
+    fn progress(&self, message: &str) {
+        if let Some(port) = self.0.get::<rho_core::presentation::stream::ToolStreamPort>() {
+            port.stream_chunk(message);
         }
     }
 }

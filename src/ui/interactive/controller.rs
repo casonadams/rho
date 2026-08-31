@@ -408,7 +408,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if !rendered.working_line.is_empty() {
             self.backend.write_text("\r\n")?;
             self.backend.write_text(&rendered.working_line)?;
-            self.backend.write_text("\r\n\r\n")?;
+            self.backend.write_text("\r\n")?;
         }
         if !rendered.top_divider.is_empty() {
             self.backend.write_text(&rendered.top_divider)?;

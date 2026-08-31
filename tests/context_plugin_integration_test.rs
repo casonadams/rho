@@ -200,6 +200,7 @@ async fn kiln_plugin_full_capabilities_integration_test() {
                 session_id: "sess-kiln".to_string(),
                 working_directory: "/workspace".to_string(),
                 has_interactive_ui: true,
+                plugin_config: None,
             },
             token_budget: Some(2048),
         })
@@ -220,6 +221,7 @@ async fn kiln_plugin_full_capabilities_integration_test() {
                 session_id: "sess-kiln".to_string(),
                 working_directory: "/workspace".to_string(),
                 has_interactive_ui: true,
+                plugin_config: None,
             },
         })
         .await
@@ -243,6 +245,7 @@ async fn kiln_plugin_full_capabilities_integration_test() {
         .notify(LifecycleEvent::AfterTurn {
             session_id: "sess-kiln".to_string(),
             success: true,
+            files_modified: vec!["docs/architecture.md".to_string()],
         })
         .await
         .unwrap();
@@ -259,6 +262,7 @@ async fn kiln_plugin_full_capabilities_integration_test() {
                     session_id: "sess-kiln".to_string(),
                     working_directory: "/workspace".to_string(),
                     has_interactive_ui: true,
+                    plugin_config: None,
                 },
             },
         )

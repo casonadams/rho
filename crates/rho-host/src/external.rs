@@ -25,7 +25,15 @@ pub struct ExternalPlugin {
 
 impl ExternalPlugin {
     pub async fn load(executable: impl Into<PathBuf>, limits: ProcessLimits) -> Result<Self, CapabilityError> {
-        let client = PluginProcessClient::new(executable, limits);
+        Self::load_with_config(executable, limits, None).await
+    }
+
+    pub async fn load_with_config(
+        executable: impl Into<PathBuf>,
+        limits: ProcessLimits,
+        config: Option<serde_json::Value>,
+    ) -> Result<Self, CapabilityError> {
+        let client = PluginProcessClient::with_config(executable, limits, config);
         let discovery = client.discover().await.map_err(capability_error)?;
         let declared: BTreeSet<_> = discovery
             .manifest
