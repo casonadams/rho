@@ -136,9 +136,9 @@ pub async fn fetch_account_usage(access_token: &str, project_id: Option<&str>) -
     for endpoint in endpoint_candidates() {
         let headers = antigravity_json_headers(access_token);
 
-        let summary_url = format!("{endpoint}/v1internal:retrieveUserQuotaSummary");
+        let models_url = format!("{endpoint}/v1internal:fetchAvailableModels");
         if let Ok(res) = HTTP_CLIENT
-            .post(&summary_url)
+            .post(&models_url)
             .headers(headers.clone())
             .json(&body)
             .send()
@@ -149,8 +149,8 @@ pub async fn fetch_account_usage(access_token: &str, project_id: Option<&str>) -
             return Ok(val);
         }
 
-        let models_url = format!("{endpoint}/v1internal:fetchAvailableModels");
-        if let Ok(res) = HTTP_CLIENT.post(&models_url).headers(headers).json(&body).send().await
+        let summary_url = format!("{endpoint}/v1internal:retrieveUserQuotaSummary");
+        if let Ok(res) = HTTP_CLIENT.post(&summary_url).headers(headers).json(&body).send().await
             && res.status().is_success()
             && let Ok(val) = res.json::<serde_json::Value>().await
         {

@@ -290,6 +290,29 @@ impl ProviderCapability for AntigravityProvider {
     }
 }
 
+fn append_turn(contents: &mut Vec<GeminiContent>, role: &str, mut parts: Vec<GeminiPart>) {
+    parts.retain(|p| {
+        if let Some(text) = &p.text {
+            !text.trim().is_empty()
+        } else {
+            p.function_call.is_some() || p.function_response.is_some() || p.inline_data.is_some()
+        }
+    });
+    if parts.is_empty() {
+        return;
+    }
+    if let Some(last) = contents.last_mut() {
+        if last.role == role {
+            last.parts.extend(parts);
+            return;
+        }
+    }
+    contents.push(GeminiContent {
+        role: role.to_string(),
+        parts,
+    });
+}
+
 pub fn build_antigravity_request(
     request: &ProviderRequest,
     project_id: &str,
@@ -297,13 +320,24 @@ pub fn build_antigravity_request(
 ) -> AntigravityGenerateRequest {
     let mut contents = Vec::new();
     let mut system_parts = Vec::new();
+    let mut call_id_to_name: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    for msg in &request.messages {
+        for content in &msg.content {
+            if let MessageContent::ToolCall { call_id, tool_id, .. } = content {
+                call_id_to_name.insert(call_id.clone(), tool_id.name().to_string());
+            }
+        }
+    }
 
     for msg in &request.messages {
         match msg.role {
             MessageRole::System => {
                 for content in &msg.content {
                     if let MessageContent::Text { text } = content {
-                        system_parts.push(GeminiTextPart { text: text.clone() });
+                        if !text.trim().is_empty() {
+                            system_parts.push(GeminiTextPart { text: text.clone() });
+                        }
                     }
                 }
             }
@@ -311,27 +345,7 @@ pub fn build_antigravity_request(
                 let mut parts = Vec::new();
                 for content in &msg.content {
                     if let MessageContent::Text { text } = content {
-                        parts.push(GeminiPart {
-                            text: Some(text.clone()),
-                            thought: None,
-                            inline_data: None,
-                            function_call: None,
-                            function_response: None,
-                        });
-                    }
-                }
-                if !parts.is_empty() {
-                    contents.push(GeminiContent {
-                        role: "user".to_string(),
-                        parts,
-                    });
-                }
-            }
-            MessageRole::Assistant => {
-                let mut parts = Vec::new();
-                for content in &msg.content {
-                    match content {
-                        MessageContent::Text { text } => {
+                        if !text.trim().is_empty() {
                             parts.push(GeminiPart {
                                 text: Some(text.clone()),
                                 thought: None,
@@ -339,6 +353,25 @@ pub fn build_antigravity_request(
                                 function_call: None,
                                 function_response: None,
                             });
+                        }
+                    }
+                }
+                append_turn(&mut contents, "user", parts);
+            }
+            MessageRole::Assistant => {
+                let mut parts = Vec::new();
+                for content in &msg.content {
+                    match content {
+                        MessageContent::Text { text } => {
+                            if !text.trim().is_empty() {
+                                parts.push(GeminiPart {
+                                    text: Some(text.clone()),
+                                    thought: None,
+                                    inline_data: None,
+                                    function_call: None,
+                                    function_response: None,
+                                });
+                            }
                         }
                         MessageContent::ToolCall { tool_id, arguments, .. } => {
                             parts.push(GeminiPart {
@@ -355,42 +388,63 @@ pub fn build_antigravity_request(
                         MessageContent::ToolResult { .. } => {}
                     }
                 }
-                if !parts.is_empty() {
-                    contents.push(GeminiContent {
-                        role: "model".to_string(),
-                        parts,
-                    });
-                }
+                append_turn(&mut contents, "model", parts);
             }
             MessageRole::Tool => {
                 let mut parts = Vec::new();
                 for content in &msg.content {
                     if let MessageContent::ToolResult {
-                        call_id: _,
+                        call_id,
                         content,
                         is_error: _,
                     } = content
                     {
+                        let tool_name = call_id_to_name
+                            .get(call_id)
+                            .cloned()
+                            .unwrap_or_else(|| "tool".to_string());
                         parts.push(GeminiPart {
                             text: None,
                             thought: None,
                             inline_data: None,
                             function_call: None,
                             function_response: Some(GeminiFunctionResponse {
-                                name: "tool_result".to_string(),
+                                name: tool_name,
                                 response: serde_json::json!({ "result": content }),
                             }),
                         });
                     }
                 }
-                if !parts.is_empty() {
-                    contents.push(GeminiContent {
-                        role: "user".to_string(),
-                        parts,
-                    });
-                }
+                append_turn(&mut contents, "user", parts);
             }
         }
+    }
+
+    if contents.is_empty() {
+        contents.push(GeminiContent {
+            role: "user".to_string(),
+            parts: vec![GeminiPart {
+                text: Some("Hello".to_string()),
+                thought: None,
+                inline_data: None,
+                function_call: None,
+                function_response: None,
+            }],
+        });
+    } else if contents[0].role != "user" {
+        contents.insert(
+            0,
+            GeminiContent {
+                role: "user".to_string(),
+                parts: vec![GeminiPart {
+                    text: Some("Hello".to_string()),
+                    thought: None,
+                    inline_data: None,
+                    function_call: None,
+                    function_response: None,
+                }],
+            },
+        );
     }
 
     let system_instruction = if !system_parts.is_empty() {

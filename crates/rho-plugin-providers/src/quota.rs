@@ -197,7 +197,73 @@ pub fn is_ollama_cloud_model(model_id: &str) -> bool {
     model_id.ends_with(":cloud")
 }
 
-pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
+pub fn parse_antigravity_usage(usage: &serde_json::Value, model_id: Option<&str>) -> Vec<QuotaWindow> {
+    if let Some(models) = usage.get("models").and_then(|m| m.as_object()) {
+        let normalized = model_id.map(|s| s.to_ascii_lowercase());
+        let mut candidates: Vec<(&String, &serde_json::Value)> = Vec::new();
+
+        if let Some(target) = &normalized {
+            for (id, info) in models {
+                let id_lower = id.to_ascii_lowercase();
+                if id_lower == *target || id_lower.starts_with(&format!("{target}-")) {
+                    if info.get("quotaInfo").is_some() {
+                        candidates.push((id, info));
+                    }
+                }
+            }
+        }
+
+        if candidates.is_empty() {
+            for (id, info) in models {
+                if info.get("quotaInfo").is_some() {
+                    candidates.push((id, info));
+                }
+            }
+        }
+
+        let selected = candidates.iter().min_by(|a, b| {
+            let frac_a =
+                a.1.get("quotaInfo")
+                    .and_then(|qi| qi.get("remainingFraction"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0);
+            let frac_b =
+                b.1.get("quotaInfo")
+                    .and_then(|qi| qi.get("remainingFraction"))
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(1.0);
+            frac_a.partial_cmp(&frac_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        if let Some((_, info)) = selected
+            && let Some(qi) = info.get("quotaInfo")
+        {
+            let fraction = qi
+                .get("remainingFraction")
+                .or_else(|| qi.get("fraction"))
+                .and_then(|v| v.as_f64());
+            if let Some(frac) = fraction {
+                let used_percent = ((1.0 - frac) * 100.0).clamp(0.0, 100.0);
+                let resets_at = parse_reset_time(&qi.get("resetTime").cloned());
+                let label = if let Some(reset) = resets_at {
+                    let total_seconds = (reset - Utc::now()).num_seconds();
+                    if total_seconds > 36 * 3600 { "7d" } else { "5h" }
+                } else {
+                    "pool"
+                };
+                return vec![QuotaWindow {
+                    label: label.to_string(),
+                    used_percent,
+                    resets_at,
+                    used_value: used_percent,
+                    limit_value: 100.0,
+                    is_currency: false,
+                    limited: false,
+                }];
+            }
+        }
+    }
+
     let groups = usage
         .get("groups")
         .or_else(|| usage.get("userQuota").and_then(|u| u.get("groups")))
@@ -230,37 +296,6 @@ pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
                             is_currency: false,
                             limited: false,
                         });
-                    }
-                }
-            }
-        }
-    } else if let Some(models) = usage.get("models").and_then(|m| m.as_object()) {
-        for (model_id, info) in models {
-            if model_id.contains("3.7-flash") || model_id.contains("flash") || windows.is_empty() {
-                if let Some(qi) = info.get("quotaInfo") {
-                    let fraction = qi
-                        .get("remainingFraction")
-                        .or_else(|| qi.get("fraction"))
-                        .and_then(|v| v.as_f64());
-                    if let Some(frac) = fraction {
-                        let used_percent = ((1.0 - frac) * 100.0).clamp(0.0, 100.0);
-                        let label = qi
-                            .get("displayName")
-                            .or_else(|| qi.get("label"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("pool");
-                        windows.push(QuotaWindow {
-                            label: label.to_string(),
-                            used_percent,
-                            resets_at: parse_reset_time(&qi.get("resetTime").cloned()),
-                            used_value: used_percent,
-                            limit_value: 100.0,
-                            is_currency: false,
-                            limited: false,
-                        });
-                        if windows.len() >= 2 {
-                            break;
-                        }
                     }
                 }
             }
@@ -304,13 +339,13 @@ pub fn parse_antigravity_usage(usage: &serde_json::Value) -> Vec<QuotaWindow> {
     windows
 }
 
-pub async fn fetch_antigravity_quota(config_dir: &Path) -> Option<String> {
+pub async fn fetch_antigravity_quota(config_dir: &Path, model_id: &str) -> Option<String> {
     let provider = crate::antigravity::AntigravityProvider::new(config_dir.to_path_buf());
     let tokens = provider.ensure_valid_tokens().await.ok()?;
     let usage = crate::antigravity::fetch_account_usage(&tokens.access_token, tokens.project_id.as_deref())
         .await
         .ok()?;
-    let windows = parse_antigravity_usage(&usage);
+    let windows = parse_antigravity_usage(&usage, Some(model_id));
     format_quota_windows(&windows)
 }
 
@@ -467,7 +502,7 @@ mod tests {
             ]
         });
 
-        let windows = parse_antigravity_usage(&json);
+        let windows = parse_antigravity_usage(&json, None);
         assert_eq!(windows.len(), 2);
         assert_eq!(windows[0].label, "Weekly");
         assert!((windows[0].remaining_percent() - 95.0).abs() < 0.01);
@@ -483,17 +518,17 @@ mod tests {
                     "displayName": "Gemini 3.7 Flash",
                     "quotaInfo": {
                         "displayName": "5 Hours",
-                        "remainingFraction": 0.92,
+                        "remainingFraction": 0.24,
                         "resetTime": "2026-08-31T03:00:00Z"
                     }
                 }
             }
         });
 
-        let windows = parse_antigravity_usage(&json);
+        let windows = parse_antigravity_usage(&json, Some("gemini-3.7-flash"));
         assert_eq!(windows.len(), 1);
-        assert_eq!(windows[0].label, "5 Hours");
-        assert!((windows[0].remaining_percent() - 92.0).abs() < 0.01);
+        assert_eq!(windows[0].label, "5h");
+        assert!((windows[0].remaining_percent() - 24.0).abs() < 0.01);
     }
 
     #[test]

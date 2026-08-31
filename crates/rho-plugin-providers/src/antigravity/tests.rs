@@ -148,3 +148,63 @@ fn test_stream_chunk_parses_wrapped_and_unwrapped_response() {
         Some("Direct candidate")
     );
 }
+
+#[test]
+fn test_build_antigravity_request_multi_turn_alternation() {
+    let request = ProviderRequest {
+        model: "gemini-3.7-flash".to_string(),
+        messages: vec![
+            ModelMessage {
+                role: MessageRole::User,
+                content: vec![MessageContent::Text {
+                    text: "Turn 1 question".to_string(),
+                }],
+            },
+            ModelMessage {
+                role: MessageRole::Assistant,
+                content: vec![
+                    MessageContent::Text {
+                        text: "Let me check".to_string(),
+                    },
+                    MessageContent::ToolCall {
+                        call_id: "call-1".to_string(),
+                        tool_id: CapabilityId::new(rho_sdk::capability::CapabilityKind::Tool, "read").unwrap(),
+                        arguments: serde_json::json!({"path": "test.txt"}),
+                    },
+                ],
+            },
+            ModelMessage {
+                role: MessageRole::Tool,
+                content: vec![MessageContent::ToolResult {
+                    call_id: "call-1".to_string(),
+                    content: "file contents".to_string(),
+                    is_error: false,
+                }],
+            },
+            ModelMessage {
+                role: MessageRole::Assistant,
+                content: vec![MessageContent::Text {
+                    text: "Turn 1 answer".to_string(),
+                }],
+            },
+            ModelMessage {
+                role: MessageRole::User,
+                content: vec![MessageContent::Text {
+                    text: "Turn 2 question".to_string(),
+                }],
+            },
+        ],
+        credential: None,
+        max_output_tokens: Some(4096),
+        tools: Vec::new(),
+    };
+
+    let req = build_antigravity_request(&request, "my-project", "gemini-3.7-flash-high");
+    // Verify strict role alternation
+    let roles: Vec<&str> = req.request.contents.iter().map(|c| c.role.as_str()).collect();
+    assert_eq!(roles, vec!["user", "model", "user", "model", "user"]);
+
+    // Verify tool result uses matching function declaration name ("read")
+    let tool_turn = &req.request.contents[2];
+    assert_eq!(tool_turn.parts[0].function_response.as_ref().unwrap().name, "read");
+}

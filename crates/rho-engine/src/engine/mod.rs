@@ -171,7 +171,8 @@ impl AgentEngine {
         {
             self.quota.replace(Some(formatted));
         } else if self.config.provider == "antigravity"
-            && let Some(formatted) = crate::engine::quota::fetch_antigravity_quota(&self.config.config_dir).await
+            && let Some(formatted) =
+                crate::engine::quota::fetch_antigravity_quota(&self.config.config_dir, &self.config.model).await
         {
             self.quota.replace(Some(formatted));
         } else if self.config.provider == "ollama"
