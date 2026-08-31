@@ -1,7 +1,7 @@
 use crate::ui::block::BlockFormat;
 use crate::ui::render::{
-    format_duration_ms, format_edit_diff, format_thinking_block, format_tool_args_summary, format_tool_output_preview,
-    format_write_preview, read_summary_parts, tool_title_style, webfetch_content_kind,
+    format_duration_ms, format_edit_diff, format_thinking_block, format_tool_args_summary, format_write_preview,
+    read_summary_parts, tool_title_style, webfetch_content_kind,
 };
 use crate::ui::theme::Theme;
 
@@ -130,10 +130,10 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 }
             } else if tool.name == "bash" || tool.is_error {
                 content.push_str("\n\n");
-                if input.tools_expanded && !tool.output.is_empty() {
+                if !tool.output.is_empty() {
                     content.push_str(&tool.output);
-                } else {
-                    content.push_str(&format_tool_output_preview(&tool.output, &tool.output_summary));
+                } else if !tool.output_summary.is_empty() {
+                    content.push_str(&tool.output_summary);
                 }
             }
 
@@ -170,7 +170,7 @@ mod tests {
     }
 
     #[test]
-    fn render_transcript_tool_collapsed_and_expanded() {
+    fn render_transcript_tool_preserves_full_output() {
         let theme = Theme::default();
         let item = TranscriptItem::Tool(ToolItem {
             name: "bash".into(),
@@ -181,22 +181,14 @@ mod tests {
             duration_ms: Some(150),
         });
 
-        let collapsed = render_transcript_item(TranscriptRenderInput {
+        let rendered = render_transcript_item(TranscriptRenderInput {
             item: &item,
             theme: &theme,
             width: 80,
             tools_expanded: false,
         });
-        assert!(collapsed.contains("more lines"));
-        assert!(collapsed.contains("Took 150ms"));
-
-        let expanded = render_transcript_item(TranscriptRenderInput {
-            item: &item,
-            theme: &theme,
-            width: 80,
-            tools_expanded: true,
-        });
-        assert!(expanded.contains("line10"));
-        assert!(expanded.contains("Took 150ms"));
+        assert!(rendered.contains("line1"));
+        assert!(rendered.contains("line10"));
+        assert!(rendered.contains("Took 150ms"));
     }
 }

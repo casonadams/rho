@@ -36,18 +36,6 @@ pub fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
     }
 }
 
-pub fn format_tool_output_preview(output: &str, fallback: &str) -> String {
-    let lines: Vec<&str> = output.lines().collect();
-    if lines.is_empty() {
-        return fallback.to_string();
-    }
-    let mut preview = lines.iter().take(8).copied().collect::<Vec<_>>().join("\n");
-    if lines.len() > 8 {
-        preview.push_str(&format!("\n... ({} more lines)", lines.len() - 8));
-    }
-    preview
-}
-
 pub fn approval_mode(auto_approve: bool) -> &'static str {
     if auto_approve {
         "auto-approve"

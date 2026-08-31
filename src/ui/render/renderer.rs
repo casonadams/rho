@@ -1,7 +1,7 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::preview::{approval_mode, format_tool_output_preview, tool_title_style, webfetch_content_kind};
+use super::preview::{approval_mode, tool_title_style, webfetch_content_kind};
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
@@ -261,7 +261,11 @@ impl TerminalRenderer {
             }
         } else if line.name == "bash" || line.is_error {
             content.push_str("\n\n");
-            content.push_str(&format_tool_output_preview(&line.output, &line.output_summary));
+            if !line.output.is_empty() {
+                content.push_str(&line.output);
+            } else if !line.output_summary.is_empty() {
+                content.push_str(&line.output_summary);
+            }
         }
 
         if let Some(duration) = line.duration_ms {

@@ -82,3 +82,38 @@ fn active_history_navigation_uses_visual_boundaries_and_restores_the_draft() {
     drop(history);
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn live_batch_flushes_tool_end_with_transcript_without_intermediate_redraw() {
+    let mut batch = super::LiveBatch::new();
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    controller
+        .start_tool(crate::ui::interactive::ToolStartRequest {
+            name: "bash".into(),
+            args_summary: "cargo test".into(),
+            preview: None,
+        })
+        .unwrap();
+
+    batch
+        .enqueue(&mut controller, crate::ui::interactive::UiEvent::ToolEnd)
+        .unwrap();
+    batch
+        .enqueue(
+            &mut controller,
+            crate::ui::interactive::UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Tool(
+                crate::ui::interactive::ToolItem {
+                    name: "bash".into(),
+                    arguments: serde_json::json!({"command": "cargo test"}),
+                    is_error: false,
+                    output: "all tests passed".into(),
+                    output_summary: "ok".into(),
+                    duration_ms: Some(50),
+                },
+            )),
+        )
+        .unwrap();
+
+    batch.flush(&mut controller, false).unwrap();
+    assert_eq!(controller.transcript().len(), 1);
+}

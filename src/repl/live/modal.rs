@@ -8,8 +8,8 @@ pub struct PendingModal {
     pub(crate) responder: InteractionResponder,
 }
 
-pub fn install_interaction(
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
     event: UiEvent,
     modal: &mut Option<PendingModal>,
 ) {

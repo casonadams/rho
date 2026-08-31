@@ -19,7 +19,7 @@ pub mod rpc_presenter;
 mod tests;
 
 pub(crate) use formatters::{format_edit_diff, format_thinking_block, format_write_preview};
-pub(crate) use preview::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
+pub(crate) use preview::{tool_title_style, webfetch_content_kind};
 pub use renderer::{RenderActivity, TerminalRenderer};
 pub use rho_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts};

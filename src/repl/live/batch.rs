@@ -23,7 +23,11 @@ impl LiveBatch {
         }
     }
 
-    pub fn enqueue(&mut self, controller: &mut LiveController, event: UiEvent) -> Result<()> {
+    pub fn enqueue<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+        event: UiEvent,
+    ) -> Result<()> {
         match self.ui.push(event) {
             BatchDecision::Pending => Ok(()),
             BatchDecision::Flush(_) => self.flush(controller, false),
@@ -34,7 +38,11 @@ impl LiveBatch {
         }
     }
 
-    pub fn flush(&mut self, controller: &mut LiveController, redraw: bool) -> Result<()> {
+    pub fn flush<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+        redraw: bool,
+    ) -> Result<()> {
         let drained = self.ui.drain();
         let mut changed = false;
         if let Some(request) = drained.tool_start {
@@ -45,8 +53,12 @@ impl LiveBatch {
             controller.append_tool_chunks(drained.tool_chunks.iter().map(String::as_str))?;
         }
         if drained.tool_end {
-            controller.end_tool()?;
-            changed = true;
+            if drained.transcript_items.is_empty() {
+                controller.end_tool()?;
+                changed = true;
+            } else {
+                controller.clear_active_tool();
+            }
         }
         for item in drained.transcript_items {
             controller.push_transcript_item(item)?;
@@ -64,9 +76,9 @@ impl LiveBatch {
         Ok(())
     }
 
-    pub fn drain_events(
+    pub fn drain_events<B: crate::ui::interactive::TerminalBackend>(
         &mut self,
-        controller: &mut LiveController,
+        controller: &mut TerminalController<B>,
         events: &mut mpsc::UnboundedReceiver<UiEvent>,
     ) -> Result<()> {
         while let Ok(event) = events.try_recv() {
@@ -76,8 +88,8 @@ impl LiveBatch {
     }
 }
 
-pub fn handle_ui_event(
-    controller: &mut LiveController,
+pub fn handle_ui_event<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
     event: UiEvent,
     modal: &mut Option<PendingModal>,
 ) -> Result<()> {
@@ -108,8 +120,8 @@ pub fn handle_ui_event(
     Ok(())
 }
 
-pub fn drain_ui_events(
-    controller: &mut LiveController,
+pub fn drain_ui_events<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
     events: &mut mpsc::UnboundedReceiver<UiEvent>,
     modal: &mut Option<PendingModal>,
 ) -> Result<()> {

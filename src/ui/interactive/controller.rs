@@ -204,6 +204,10 @@ impl<B: TerminalBackend> TerminalController<B> {
         if changed { self.redraw() } else { Ok(()) }
     }
 
+    pub fn clear_active_tool(&mut self) {
+        self.active_tool = None;
+    }
+
     pub fn end_tool(&mut self) -> io::Result<()> {
         self.active_tool = None;
         self.redraw()
@@ -265,6 +269,10 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn state(&self) -> &InteractiveState {
         &self.state
+    }
+
+    pub fn transcript(&self) -> &[super::TranscriptItem] {
+        &self.transcript
     }
 
     pub fn state_mut(&mut self) -> &mut InteractiveState {
@@ -489,7 +497,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         });
         let formatted = terminal_newlines(&formatted);
         let mut count = 0;
-        for line in formatted.split("\r\n") {
+        for line in formatted.lines() {
             self.backend.write_text(line)?;
             self.backend.write_text("\r\n")?;
             count += 1;

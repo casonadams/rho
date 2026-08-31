@@ -3,7 +3,7 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::preview::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
+use super::preview::{tool_title_style, webfetch_content_kind};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractionResponse, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
@@ -370,20 +370,6 @@ fn webfetch_content_kind_uses_format_or_url_extension() {
         webfetch_content_kind(&serde_json::json!({"url": "https://example.com/file", "format": "pdf"})),
         "pdf"
     );
-}
-
-#[test]
-fn tool_output_previews_are_bounded() {
-    let output = (1..=10)
-        .map(|line| format!("line {line}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let preview = format_tool_output_preview(&output, "empty");
-    assert!(preview.contains("line 1"));
-    assert!(preview.contains("line 8"));
-    assert!(!preview.contains("line 9"));
-    assert!(preview.ends_with("... (2 more lines)"));
-    assert_eq!(format_tool_output_preview("", "empty"), "empty");
 }
 
 #[test]
