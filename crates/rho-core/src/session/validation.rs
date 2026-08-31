@@ -10,7 +10,7 @@ use super::session_error;
 /// Appended batches validate standalone: the prefix always ends with all tool
 /// calls paired, so batch-local checks plus the persistent id set reproduce
 /// full-history semantics exactly.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(crate) struct CanonicalHistory {
     seen_calls: HashSet<String>,
 }
