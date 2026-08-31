@@ -1,6 +1,12 @@
+use std::sync::LazyLock;
+
 use crate::tools::web::search::result::SearchResult;
 use scraper::{Html, Selector};
 use url::Url;
+
+static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.result-link").expect("valid selector"));
+static SNIPPET_SEL: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("td.result-snippet").expect("valid selector"));
 
 pub fn decode_ddg_url(raw: &str) -> String {
     let Ok(u) = Url::parse(raw) else {
@@ -14,16 +20,14 @@ pub fn decode_ddg_url(raw: &str) -> String {
 
 pub fn parse_ddg_lite_html(html: &str) -> Vec<SearchResult> {
     let document = Html::parse_document(html);
-    let link_sel = Selector::parse("a.result-link").unwrap();
-    let snippet_sel = Selector::parse("td.result-snippet").unwrap();
 
     let mut results = Vec::new();
     let snippets: Vec<String> = document
-        .select(&snippet_sel)
+        .select(&SNIPPET_SEL)
         .map(|s| s.text().collect::<Vec<_>>().join(" ").trim().to_string())
         .collect();
 
-    for (i, link) in document.select(&link_sel).enumerate() {
+    for (i, link) in document.select(&LINK_SEL).enumerate() {
         let href = link.value().attr("href").unwrap_or_default();
         if href.is_empty() {
             continue;

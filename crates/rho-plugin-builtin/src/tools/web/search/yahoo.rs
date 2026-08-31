@@ -1,5 +1,13 @@
+use std::sync::LazyLock;
+
 use crate::tools::web::search::result::SearchResult;
 use scraper::{Html, Selector};
+
+static BLOCK_SEL: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("div.algo-sr, div.Sr, div.dd").expect("valid selector"));
+static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a[href]").expect("valid selector"));
+static TITLE_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("h3, a.title").expect("valid selector"));
+static SNIPPET_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".compText, p").expect("valid selector"));
 
 pub fn decode_yahoo_url(raw: &str) -> String {
     if let Some(pos) = raw.find("/RU=") {
@@ -24,21 +32,17 @@ fn urlencoding_decode(s: &str) -> Result<String, ()> {
 
 pub fn parse_yahoo_html(html: &str) -> Vec<SearchResult> {
     let document = Html::parse_document(html);
-    let block_sel = Selector::parse("div.algo-sr, div.Sr, div.dd").unwrap();
-    let link_sel = Selector::parse("a[href]").unwrap();
-    let title_sel = Selector::parse("h3, a.title").unwrap();
-    let snippet_sel = Selector::parse(".compText, p").unwrap();
 
     let mut results = Vec::new();
-    for block in document.select(&block_sel) {
+    for block in document.select(&BLOCK_SEL) {
         let url = block
-            .select(&link_sel)
+            .select(&LINK_SEL)
             .next()
             .and_then(|a| a.value().attr("href"))
             .map(decode_yahoo_url);
 
         let title = block
-            .select(&title_sel)
+            .select(&TITLE_SEL)
             .next()
             .map(|t| t.text().collect::<Vec<_>>().join(" "));
 
@@ -48,7 +52,7 @@ pub fn parse_yahoo_html(html: &str) -> Vec<SearchResult> {
 
         if u.starts_with("http") {
             let abstract_text = block
-                .select(&snippet_sel)
+                .select(&SNIPPET_SEL)
                 .next()
                 .map(|s| s.text().collect::<Vec<_>>().join(" "))
                 .unwrap_or_default();

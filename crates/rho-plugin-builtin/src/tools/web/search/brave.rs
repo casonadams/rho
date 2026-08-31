@@ -1,23 +1,30 @@
+use std::sync::LazyLock;
+
 use crate::tools::web::search::result::SearchResult;
 use scraper::{Html, Selector};
 
+static SNIPPET_SEL: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse(r#"div.snippet[data-type="web"], div.snippet"#).expect("valid selector"));
+static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a[href]").expect("valid selector"));
+static TITLE_SEL: LazyLock<Selector> =
+    LazyLock::new(|| Selector::parse("div.title, a.title, h2").expect("valid selector"));
+static CONTENT_SEL: LazyLock<Selector> = LazyLock::new(|| {
+    Selector::parse("div.content, p.snippet-description, div.snippet-description").expect("valid selector")
+});
+
 pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {
     let document = Html::parse_document(html);
-    let snippet_sel = Selector::parse(r#"div.snippet[data-type="web"], div.snippet"#).unwrap();
-    let link_sel = Selector::parse("a[href]").unwrap();
-    let title_sel = Selector::parse("div.title, a.title, h2").unwrap();
-    let content_sel = Selector::parse("div.content, p.snippet-description, div.snippet-description").unwrap();
 
     let mut results = Vec::new();
-    for block in document.select(&snippet_sel) {
+    for block in document.select(&SNIPPET_SEL) {
         let url = block
-            .select(&link_sel)
+            .select(&LINK_SEL)
             .next()
             .and_then(|a| a.value().attr("href"))
             .map(|s| s.to_string());
 
         let title = block
-            .select(&title_sel)
+            .select(&TITLE_SEL)
             .next()
             .map(|t| t.text().collect::<Vec<_>>().join(" "));
 
@@ -27,7 +34,7 @@ pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {
 
         if u.starts_with("http") {
             let abstract_text = block
-                .select(&content_sel)
+                .select(&CONTENT_SEL)
                 .next()
                 .map(|c| c.text().collect::<Vec<_>>().join(" "))
                 .unwrap_or_default();

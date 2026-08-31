@@ -1,4 +1,5 @@
 use super::*;
+use truncate::TruncatedBy;
 
 #[test]
 fn test_is_read_only_command() {
@@ -10,7 +11,6 @@ fn test_is_read_only_command() {
     assert!(is_read_only_command("cargo test"));
     assert!(is_read_only_command("rg 'fn main' src/"));
 
-    // Dangerous / mutating commands must return false
     assert!(!is_read_only_command("rm -rf target"));
     assert!(!is_read_only_command("echo 'foo' > file.txt"));
     assert!(!is_read_only_command("git commit -m 'test'"));
@@ -24,26 +24,74 @@ fn test_is_read_only_command() {
 }
 
 #[test]
-fn test_bash_output_truncation_preserves_limits() {
-    let output = format!("{}\n", "x".repeat(MAX_BASH_BYTES + 100));
-    let truncated = truncate_bash_output(&output, output.len(), output.lines().count());
-    assert!(truncated.contains("[Output truncated:"));
-    assert!(truncated.len() <= MAX_BASH_BYTES + 100);
+fn test_truncate_tail_within_limits() {
+    let text = "line 1\nline 2\nline 3";
+    let res = truncate_tail(text, 10, 100);
+    assert!(!res.truncated);
+    assert_eq!(res.content, text);
+    assert_eq!(res.output_lines, 3);
+}
+
+#[test]
+fn test_truncate_tail_by_lines() {
+    let lines: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
+    let text = lines.join("\n");
+    let res = truncate_tail(&text, 3, 1000);
+    assert!(res.truncated);
+    assert_eq!(res.truncated_by, Some(TruncatedBy::Lines));
+    assert_eq!(res.output_lines, 3);
+    assert_eq!(res.content, "line 8\nline 9\nline 10");
+}
+
+#[test]
+fn test_truncate_tail_by_bytes() {
+    let lines = vec!["aaaa", "bbbb", "cccc", "dddd"];
+    let text = lines.join("\n");
+    let res = truncate_tail(&text, 10, 9);
+    assert!(res.truncated);
+    assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
+    assert_eq!(res.content, "cccc\ndddd");
+}
+
+#[test]
+fn test_truncate_tail_single_oversized_line() {
+    let long_line = "abcdefghijklmnopqrstuvwxyz";
+    let res = truncate_tail(long_line, 10, 5);
+    assert!(res.truncated);
+    assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
+    assert!(res.last_line_partial);
+    assert_eq!(res.content, "vwxyz");
+}
+
+#[test]
+fn test_output_accumulator_creates_temp_file_when_truncated() {
+    let mut acc = OutputAccumulator::new();
+    let chunk = vec![b'x'; MAX_BASH_BYTES + 500];
+    acc.append(&chunk);
+    acc.finish();
+
+    let snap = acc.snapshot();
+    assert!(snap.truncation.truncated);
+    assert!(snap.full_output_path.is_some());
+    let path = snap.full_output_path.unwrap();
+    assert!(path.exists());
+    let _ = std::fs::remove_file(path);
 }
 
 #[tokio::test]
-async fn test_bash_retained_output_is_capped_while_streaming() {
+async fn test_bash_preserves_error_message_at_end_of_large_output() {
     let tool = BashTool::new(std::env::current_dir().unwrap());
     let res = tool
         .execute(BashArgs {
-            command: "yes | head -c 2000000".to_string(),
+            command: "seq 1 5000; echo 'CRITICAL_FAILURE_AT_END'".to_string(),
             timeout: Some(10),
         })
         .await
         .unwrap();
+
     assert!(!res.is_error);
-    assert!(res.content.contains("[Output truncated: "));
-    assert!(res.content.len() <= MAX_RETAINED_BASH_BYTES + 100);
+    assert!(res.content.contains("CRITICAL_FAILURE_AT_END"));
+    assert!(res.content.contains("[Showing lines "));
 }
 
 #[tokio::test]

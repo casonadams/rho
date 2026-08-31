@@ -5,6 +5,9 @@ use crate::ui::render::{
 };
 use crate::ui::theme::Theme;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WelcomeItem {
     pub version: String,
@@ -129,11 +132,28 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     content.push_str(&preview);
                 }
             } else if tool.name == "bash" || tool.is_error {
-                content.push_str("\n\n");
-                if !tool.output.is_empty() {
-                    content.push_str(&tool.output);
-                } else if !tool.output_summary.is_empty() {
-                    content.push_str(&tool.output_summary);
+                let raw_output = if !tool.output.is_empty() {
+                    &tool.output
+                } else {
+                    &tool.output_summary
+                };
+                let clean = raw_output.trim_end();
+                if !clean.is_empty() {
+                    content.push_str("\n\n");
+                    if input.tools_expanded {
+                        content.push_str(clean);
+                    } else {
+                        let truncated =
+                            super::layout::truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
+                        if truncated.skipped_count > 0 {
+                            let dim = theme.dimmed;
+                            content.push_str(&format!(
+                                "{dim}... ({} earlier lines, Ctrl+O to expand){dim:#}\n",
+                                truncated.skipped_count
+                            ));
+                        }
+                        content.push_str(&truncated.visual_lines.join("\n"));
+                    }
                 }
             }
 
@@ -149,46 +169,5 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
             format!("\n{block}")
         }
         TranscriptItem::Notice(text) => text.clone(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn render_transcript_user_message() {
-        let theme = Theme::default();
-        let item = TranscriptItem::UserMessage("hello world".into());
-        let rendered = render_transcript_item(TranscriptRenderInput {
-            item: &item,
-            theme: &theme,
-            width: 60,
-            tools_expanded: false,
-        });
-        assert!(rendered.contains("hello world"));
-    }
-
-    #[test]
-    fn render_transcript_tool_preserves_full_output() {
-        let theme = Theme::default();
-        let item = TranscriptItem::Tool(ToolItem {
-            name: "bash".into(),
-            arguments: serde_json::json!({"command": "cargo test"}),
-            is_error: false,
-            output: "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10".into(),
-            output_summary: "summary".into(),
-            duration_ms: Some(150),
-        });
-
-        let rendered = render_transcript_item(TranscriptRenderInput {
-            item: &item,
-            theme: &theme,
-            width: 80,
-            tools_expanded: false,
-        });
-        assert!(rendered.contains("line1"));
-        assert!(rendered.contains("line10"));
-        assert!(rendered.contains("Took 150ms"));
     }
 }

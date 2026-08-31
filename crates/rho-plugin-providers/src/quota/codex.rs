@@ -82,13 +82,7 @@ pub async fn fetch_chatgpt_quota(config_dir: &Path) -> Option<String> {
     let access_token = auth_data.access_token?;
     let account_id = auth_data.account_id?;
 
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(std::time::Duration::from_secs(4))
-        .build()
-        .ok()?;
-
-    let res = client
+    let res = super::QUOTA_HTTP_CLIENT
         .get("https://chatgpt.com/backend-api/wham/usage")
         .header("Authorization", format!("Bearer {access_token}"))
         .header("ChatGPT-Account-Id", account_id)

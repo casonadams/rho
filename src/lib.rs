@@ -1,7 +1,7 @@
 mod cli;
 
 #[cfg(all(test, feature = "ui"))]
-#[path = "tests/runner_tests.rs"]
+#[path = "tests/runner/mod.rs"]
 mod runner_tests;
 
 pub use rho_core::{
