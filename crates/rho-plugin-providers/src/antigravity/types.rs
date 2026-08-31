@@ -115,6 +115,8 @@ pub struct AntigravityRequestBody {
     pub tool_config: Option<Value>,
     #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -86,8 +86,8 @@ fn test_build_antigravity_request_formats_messages_and_tools() {
     let req = build_antigravity_request(&request, "my-project", "gemini-3.7-flash-high");
     assert_eq!(req.project, "my-project");
     assert_eq!(req.model, "gemini-3.7-flash-high");
-    assert_eq!(req.request_type, "AGENT");
-    assert_eq!(req.user_agent, "ANTIGRAVITY");
+    assert_eq!(req.request_type, "agent");
+    assert_eq!(req.user_agent, "antigravity");
     assert!(req.request.system_instruction.is_some());
     assert_eq!(req.request.contents.len(), 1);
     assert_eq!(req.request.contents[0].role, "user");

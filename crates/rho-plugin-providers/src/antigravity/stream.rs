@@ -290,6 +290,60 @@ impl ProviderCapability for AntigravityProvider {
     }
 }
 
+fn strip_meta_schema(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut out = serde_json::Map::new();
+            for (k, v) in map {
+                if !matches!(
+                    k.as_str(),
+                    "$schema"
+                        | "$id"
+                        | "$anchor"
+                        | "$dynamicAnchor"
+                        | "$vocabulary"
+                        | "$comment"
+                        | "$defs"
+                        | "definitions"
+                        | "title"
+                ) {
+                    out.insert(k.clone(), strip_meta_schema(v));
+                }
+            }
+            if !out.contains_key("type") {
+                out.insert("type".to_string(), serde_json::Value::String("object".to_string()));
+            }
+            serde_json::Value::Object(out)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(arr.iter().map(strip_meta_schema).collect()),
+        other => other.clone(),
+    }
+}
+
+fn get_thinking_config(model: &str) -> Option<GeminiThinkingConfig> {
+    if model.contains("3.7-flash") || model.contains("3.6-flash") {
+        Some(GeminiThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_level: Some("HIGH".to_string()),
+            thinking_budget: None,
+        })
+    } else if model.contains("3.5-flash") {
+        Some(GeminiThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_level: None,
+            thinking_budget: Some(4000),
+        })
+    } else if model.contains("3.1-pro") {
+        Some(GeminiThinkingConfig {
+            include_thoughts: Some(true),
+            thinking_level: None,
+            thinking_budget: Some(10001),
+        })
+    } else {
+        None
+    }
+}
+
 fn append_turn(contents: &mut Vec<GeminiContent>, role: &str, mut parts: Vec<GeminiPart>) {
     parts.retain(|p| {
         if let Some(text) = &p.text {
@@ -396,13 +450,18 @@ pub fn build_antigravity_request(
                     if let MessageContent::ToolResult {
                         call_id,
                         content,
-                        is_error: _,
+                        is_error,
                     } = content
                     {
                         let tool_name = call_id_to_name
                             .get(call_id)
                             .cloned()
-                            .unwrap_or_else(|| "tool".to_string());
+                            .unwrap_or_else(|| "read".to_string());
+                        let response_val = if *is_error {
+                            serde_json::json!({ "error": content })
+                        } else {
+                            serde_json::json!({ "output": content })
+                        };
                         parts.push(GeminiPart {
                             text: None,
                             thought: None,
@@ -410,7 +469,7 @@ pub fn build_antigravity_request(
                             function_call: None,
                             function_response: Some(GeminiFunctionResponse {
                                 name: tool_name,
-                                response: serde_json::json!({ "result": content }),
+                                response: response_val,
                             }),
                         });
                     }
@@ -456,15 +515,19 @@ pub fn build_antigravity_request(
         None
     };
 
+    let is_claude = request.model.starts_with("claude-") || runtime_model.starts_with("claude-");
     let tools = if !request.tools.is_empty() {
         let declarations = request
             .tools
             .iter()
-            .map(|t| GeminiFunctionDeclaration {
-                name: t.id.name().to_string(),
-                description: Some(t.description.clone()),
-                parameters_json_schema: Some(t.argument_schema.clone()),
-                parameters: None,
+            .map(|t| {
+                let schema = strip_meta_schema(&t.argument_schema);
+                GeminiFunctionDeclaration {
+                    name: t.id.name().to_string(),
+                    description: Some(t.description.clone()),
+                    parameters_json_schema: Some(schema),
+                    parameters: None,
+                }
             })
             .collect();
         Some(vec![GeminiTools {
@@ -474,14 +537,33 @@ pub fn build_antigravity_request(
         None
     };
 
+    let tool_config = if tools.is_some() || is_claude {
+        Some(serde_json::json!({
+            "functionCallingConfig": {
+                "mode": "VALIDATED"
+            }
+        }))
+    } else {
+        None
+    };
+
     let generation_config = Some(GeminiGenerationConfig {
         temperature: Some(0.2),
         max_output_tokens: request.max_output_tokens.or(Some(8192)),
-        thinking_config: Some(GeminiThinkingConfig {
-            include_thoughts: Some(true),
-            thinking_level: Some("HIGH".to_string()),
-            thinking_budget: None,
-        }),
+        thinking_config: get_thinking_config(&request.model),
+    });
+
+    let trajectory_id = uuid::Uuid::new_v4().to_string();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let session_id_int = fastrand::i64(..).abs();
+    let labels = serde_json::json!({
+        "last_step_index": "1",
+        "trajectory_id": trajectory_id,
+        "used_claude": if is_claude { "true" } else { "false" },
+        "used_claude_conservative": if is_claude { "true" } else { "false" },
     });
 
     let request_body = AntigravityRequestBody {
@@ -489,16 +571,17 @@ pub fn build_antigravity_request(
         system_instruction,
         generation_config,
         tools,
-        tool_config: None,
-        session_id: Some(format!("session_{}", uuid::Uuid::new_v4())),
+        tool_config,
+        session_id: Some(session_id_int.to_string()),
+        labels: Some(labels),
     };
 
     AntigravityGenerateRequest {
         project: project_id.to_string(),
         model: runtime_model.to_string(),
         request: request_body,
-        request_type: "AGENT".to_string(),
-        user_agent: "ANTIGRAVITY".to_string(),
-        request_id: format!("req_{}", uuid::Uuid::new_v4()),
+        request_type: "agent".to_string(),
+        user_agent: "antigravity".to_string(),
+        request_id: format!("agent/{}/{}/{}/1", uuid::Uuid::new_v4(), now_ms, trajectory_id),
     }
 }
