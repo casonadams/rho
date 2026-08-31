@@ -315,10 +315,10 @@ mod tests {
         let supervisor = SubagentSupervisor::new(runner, 4);
         let config = Config::default();
         let tools = create_subagent_tools(supervisor.clone(), &config, Path::new("."));
-        assert_eq!(tools.len(), 4);
+        assert_eq!(tools.len(), 3);
 
         let agent_tool = &tools[0].1;
-        let get_result_tool = &tools[2].1;
+        let get_result_tool = &tools[1].1;
         let host = DummyHost;
 
         let res = agent_tool

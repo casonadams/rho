@@ -1,27 +1,17 @@
-//! Core `TerminalRenderer` struct and its user-facing methods.
-
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
+use super::preview::{approval_mode, format_tool_output_preview, tool_title_style, webfetch_content_kind};
 use crate::ui::block::{BlockFormat, terminal_width};
-use crate::ui::interactive::{
-    Activity, InteractionOption, InteractionPrompt, InteractionResponse, InteractiveUi, OutputEvent,
-};
+use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
+use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::theme::Theme;
-use async_trait::async_trait;
 use indicatif::{ProgressBar, ProgressStyle};
-use rho_core::bash_ast::RiskTier;
-use rho_core::presentation::presenter::Presenter;
 use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::ToolStreamPort;
-use rho_core::presentation::summary::{
-    clean_command_paths, format_tool_args_summary, read_summary_parts, to_relative_path,
-};
-use rho_core::presentation::{ActivityToken, activity_token};
-use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
-use serde_json::Value;
-use std::fmt;
+use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
+use rho_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -29,9 +19,9 @@ use std::time::Duration;
 #[derive(Clone)]
 pub struct TerminalRenderer {
     pub theme: Theme,
-    markdown: Arc<Mutex<MarkdownRenderer>>,
-    ui: Option<InteractiveUi>,
-    assistant_turn_buffer: Arc<Mutex<String>>,
+    pub(crate) markdown: Arc<Mutex<MarkdownRenderer>>,
+    pub(crate) ui: Option<InteractiveUi>,
+    pub(crate) assistant_turn_buffer: Arc<Mutex<String>>,
 }
 
 impl Default for TerminalRenderer {
@@ -58,109 +48,6 @@ impl RenderActivity {
                 let _ = ui.set_activity(Activity::Idle);
             }
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ToolApprovalChoice {
-    ApplyOnce,
-    Deny,
-}
-
-impl fmt::Display for ToolApprovalChoice {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::ApplyOnce => "Apply once",
-            Self::Deny => "Deny",
-        })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum BashApprovalChoice {
-    AllowOnce,
-    AllowForSession(String),
-    Deny,
-}
-
-impl fmt::Display for BashApprovalChoice {
-    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::AllowOnce => formatter.write_str("Allow once"),
-            Self::AllowForSession(scope) => write!(formatter, "Allow {scope} for session"),
-            Self::Deny => formatter.write_str("Deny"),
-        }
-    }
-}
-
-pub(crate) fn tool_title_style(is_error: bool) -> anstyle::Style {
-    if is_error {
-        anstyle::Style::new()
-            .bold()
-            .fg_color(Some(anstyle::AnsiColor::Red.into()))
-    } else {
-        anstyle::Style::new().bold()
-    }
-}
-
-pub(crate) fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
-    if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
-        return match format.to_ascii_lowercase().as_str() {
-            "pdf" => "pdf",
-            "json" => "json",
-            "csv" => "csv",
-            "xml" => "xml",
-            _ => "text",
-        };
-    }
-    let url = arguments
-        .get("url")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if url.ends_with(".pdf") {
-        "pdf"
-    } else if url.ends_with(".json") {
-        "json"
-    } else if url.ends_with(".csv") {
-        "csv"
-    } else if url.ends_with(".xml") || url.ends_with(".rss") || url.ends_with(".atom") {
-        "xml"
-    } else {
-        "text"
-    }
-}
-
-pub(crate) fn format_tool_output_preview(output: &str, fallback: &str) -> String {
-    let lines: Vec<&str> = output.lines().collect();
-    if lines.is_empty() {
-        return fallback.to_string();
-    }
-    let mut preview = lines.iter().take(8).copied().collect::<Vec<_>>().join("\n");
-    if lines.len() > 8 {
-        preview.push_str(&format!("\n... ({} more lines)", lines.len() - 8));
-    }
-    preview
-}
-
-fn approval_mode(auto_approve: bool) -> &'static str {
-    if auto_approve {
-        "auto-approve"
-    } else {
-        "confirm changes"
-    }
-}
-
-fn interaction_option(label: &str) -> InteractionOption {
-    InteractionOption {
-        label: label.to_string(),
-        description: None,
-    }
-}
-
-fn denied(reason: String) -> ApprovalResult {
-    ApprovalResult::Denied {
-        reason: reason.trim().to_string(),
     }
 }
 
@@ -308,209 +195,17 @@ impl TerminalRenderer {
 
     pub fn finish_bash_run(&self) {}
 
-    pub async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
-        if let Some(ui) = &self.ui {
-            let response = ui
-                .request(InteractionPrompt {
-                    title: "Turn Limit Reached".to_string(),
-                    body: format!("Agent reached turn budget ({max_turns} calls)."),
-                    options: vec![
-                        interaction_option("Continue for another 50 turns"),
-                        interaction_option("Stop"),
-                    ],
-                    initial_selection: 0,
-                    allow_custom: false,
-                })
-                .await;
-            return matches!(response, Ok(InteractionResponse::Selected(0)));
-        }
-
-        let header = self.theme.highlight;
-        let dim = self.theme.dimmed;
-        println!(
-            "\n{header}Turn Limit Reached:{header:#} {dim}Agent reached turn budget ({max_turns} calls).{dim:#}\n"
-        );
-        let approved = inquire::Confirm::new("Continue execution for another 50 turns?")
-            .with_default(true)
-            .prompt();
-        println!();
-        approved.unwrap_or(false)
-    }
-
-    pub async fn prompt_tool_approval(&self, name: &str, args: &serde_json::Value) -> ApprovalResult {
-        if let Some(ui) = &self.ui {
-            let summary = format_tool_args_summary(name, args);
-            let mut body = format!("tool   {name}\nscope  {summary}");
-            if name == "edit"
-                && let Some(diff) = format_edit_diff(args, &self.theme)
-            {
-                body.push_str("\n\n");
-                body.push_str(&diff);
-            } else if name == "write"
-                && let Some(preview) = format_write_preview(args, &self.theme)
-            {
-                body.push_str("\n\n");
-                body.push_str(&preview);
-            }
-            let response = ui
-                .request(InteractionPrompt {
-                    title: format!("Approve {name}"),
-                    body,
-                    options: vec![
-                        InteractionOption {
-                            label: "Allow".to_string(),
-                            description: Some("Allow this single invocation".to_string()),
-                        },
-                        InteractionOption {
-                            label: "Deny with reason".to_string(),
-                            description: Some("Deny and provide feedback to the agent".to_string()),
-                        },
-                    ],
-                    initial_selection: 0,
-                    allow_custom: false,
-                })
-                .await;
-            return match response {
-                Ok(InteractionResponse::Selected(0)) => ApprovalResult::Approved,
-                Ok(InteractionResponse::Selected(1)) => self.prompt_denial_feedback().await,
-                Ok(InteractionResponse::Custom(reason)) => denied(reason),
-                Ok(InteractionResponse::Selected(_) | InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
-            };
-        }
-
-        let header = self.theme.highlight;
-        let dim = self.theme.dimmed;
-        println!(
-            "\n{header}Approve {name}:{header:#} {dim}{}{dim:#}\n",
-            format_tool_args_summary(name, args)
-        );
-        if name == "edit"
-            && let Some(diff) = format_edit_diff(args, &self.theme)
-        {
-            println!("{diff}");
-        } else if name == "write"
-            && let Some(preview) = format_write_preview(args, &self.theme)
-        {
-            println!("{preview}");
-        }
-        let choice =
-            inquire::Select::new("Action:", vec![ToolApprovalChoice::ApplyOnce, ToolApprovalChoice::Deny]).prompt();
-        println!();
-        match choice {
-            Ok(ToolApprovalChoice::ApplyOnce) => ApprovalResult::Approved,
-            Ok(ToolApprovalChoice::Deny) => self.prompt_denial_feedback().await,
-            Err(_) => denied(String::new()),
-        }
-    }
-
-    pub async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
-        let mut actions = vec![BashApprovalChoice::AllowOnce];
-        if let Some(patterns) = crate::tools::analyze_command_safety(&request.command).session_patterns {
-            actions.push(BashApprovalChoice::AllowForSession(patterns.join("; ")));
-        }
-        actions.push(BashApprovalChoice::Deny);
-
-        let starting_cursor = if request.tier == RiskTier::HighRisk {
-            actions.len() - 1
-        } else {
-            0
-        };
-
-        if let Some(ui) = &self.ui {
-            let mut options = vec![InteractionOption {
-                label: "Allow".to_string(),
-                description: Some("Allow this single invocation".to_string()),
-            }];
-            if let Some(patterns) = crate::tools::analyze_command_safety(&request.command).session_patterns {
-                options.push(InteractionOption {
-                    label: "Allow for session".to_string(),
-                    description: Some(format!("Allow {} for session", patterns.join("; "))),
-                });
-            }
-            options.push(InteractionOption {
-                label: "Deny with reason".to_string(),
-                description: Some("Deny and provide feedback to the agent".to_string()),
-            });
-
-            let mut body = format!("tool   bash\nscope  {}", clean_command_paths(&request.command));
-            if request.tier == RiskTier::HighRisk && !request.reasons.is_empty() {
-                body.push_str("\n\n");
-                body.push_str(&request.reasons.join("\n"));
-            }
-            let response = ui
-                .request(InteractionPrompt {
-                    title: "Bash command requires approval".to_string(),
-                    body,
-                    options: options.clone(),
-                    initial_selection: starting_cursor,
-                    allow_custom: false,
-                })
-                .await;
-            return match response {
-                Ok(InteractionResponse::Selected(index)) => match options.get(index).map(|opt| opt.label.as_str()) {
-                    Some("Allow") => ApprovalResult::Approved,
-                    Some("Allow for session") => ApprovalResult::ApprovedForSession,
-                    Some("Deny with reason") => self.prompt_denial_feedback().await,
-                    _ => denied(String::new()),
-                },
-                Ok(InteractionResponse::Custom(reason)) => denied(reason),
-                Ok(InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
-            };
-        }
-
-        println!();
-        print!("{}", format_bash_approval_card(&request, &self.theme, terminal_width()));
-        println!();
-        let choice = inquire::Select::new("Permission:", actions)
-            .with_starting_cursor(starting_cursor)
-            .prompt();
-        println!();
-        match choice {
-            Ok(BashApprovalChoice::AllowOnce) => ApprovalResult::Approved,
-            Ok(BashApprovalChoice::AllowForSession(_)) => ApprovalResult::ApprovedForSession,
-            Ok(BashApprovalChoice::Deny) => self.prompt_denial_feedback().await,
-            Err(_) => denied(String::new()),
-        }
-    }
-
-    async fn prompt_denial_feedback(&self) -> ApprovalResult {
-        if let Some(ui) = &self.ui {
-            let response = ui
-                .request(InteractionPrompt {
-                    title: "Deny operation".to_string(),
-                    body: "Optionally provide feedback for the agent.".to_string(),
-                    options: vec![interaction_option("Deny without feedback")],
-                    initial_selection: 0,
-                    allow_custom: true,
-                })
-                .await;
-            return match response {
-                Ok(InteractionResponse::Custom(reason)) => denied(reason),
-                Ok(InteractionResponse::Selected(_) | InteractionResponse::Cancelled) | Err(_) => denied(String::new()),
-            };
-        }
-
-        let reason = inquire::Text::new("Feedback for the agent (optional):")
-            .prompt()
-            .unwrap_or_default();
-        println!();
-        denied(reason)
-    }
-
     pub fn print_user_block(&self, input: &str) {
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::UserMessage(input.to_string()));
         } else {
-            let block = BlockFormat::new(self.theme.user_message_bg, terminal_width())
-                .with_vertical_padding()
-                .render_plain(input);
-            self.write_output(&format!("\n{block}"));
+            let user = self.theme.prompt;
+            self.write_output(&format!("{user}>{user:#} {input}\n\n"));
         }
     }
 
     pub fn finish_tool_line(&self, line: ToolLine) {
         if let Some(ui) = &self.ui {
-            let _ = ui.tool_end();
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(
                 crate::ui::interactive::ToolItem {
                     name: line.name.clone(),
@@ -521,6 +216,7 @@ impl TerminalRenderer {
                     duration_ms: line.duration_ms,
                 },
             ));
+            let _ = ui.tool_end();
             return;
         }
         let background = if line.is_error {
@@ -648,94 +344,9 @@ impl TerminalRenderer {
             self.write_output(&format!("{ok}{}{ok:#}\n", outcome.name));
         }
     }
-}
 
-struct InteractiveStreamSink(Option<InteractiveUi>);
-
-impl rho_core::presentation::stream::ToolStreamSink for InteractiveStreamSink {
-    fn tool_chunk(&self, chunk: String) {
-        if let Some(ui) = &self.0 {
-            let _ = ui.tool_chunk(chunk);
-        }
-    }
-}
-
-#[async_trait]
-impl Presenter for TerminalRenderer {
-    fn write_output(&self, text: &str) {
-        TerminalRenderer::write_output(self, text);
-    }
-
-    fn print_welcome(&self, display: &WelcomeDisplay) {
-        TerminalRenderer::print_welcome(self, display);
-    }
-
-    fn print_session_status(&self, display: &SessionStatus) {
-        TerminalRenderer::print_session_status(self, display);
-    }
-
-    fn print_notice(&self, text: &str) {
-        TerminalRenderer::print_notice(self, text);
-    }
-
-    fn print_user_block(&self, input: &str) {
-        TerminalRenderer::print_user_block(self, input);
-    }
-
-    fn print_token(&self, token: &str) {
-        TerminalRenderer::print_token(self, token);
-    }
-
-    fn print_thinking_token(&self, token: &str) {
-        TerminalRenderer::print_thinking_token(self, token);
-    }
-
-    fn finish_tool_line(&self, line: ToolLine) {
-        TerminalRenderer::finish_tool_line(self, line);
-    }
-
-    fn flush(&self) {
-        TerminalRenderer::flush(self);
-    }
-
-    fn has_interactive_ui(&self) -> bool {
-        TerminalRenderer::has_interactive_ui(self)
-    }
-
-    fn start_spinner(&self, message: &str) -> ActivityToken {
-        let activity = TerminalRenderer::start_spinner(self, message);
-        activity_token(move || activity.finish_and_clear())
-    }
-
-    fn start_tool_spinner(&self, name: &str, arguments: &Value) -> ActivityToken {
-        let activity = TerminalRenderer::start_tool_spinner(self, name, arguments);
-        activity_token(move || activity.finish_and_clear())
-    }
-
-    fn start_tool_run(&self, name: &str, arguments: &Value) {
-        TerminalRenderer::start_tool_run(self, name, arguments);
-    }
-
-    fn stream_port(&self) -> rho_core::presentation::stream::ToolStreamPort {
-        rho_core::presentation::stream::ToolStreamPort::new(self.ui.clone().map(|ui| {
-            std::sync::Arc::new(InteractiveStreamSink(Some(ui)))
-                as std::sync::Arc<dyn rho_core::presentation::stream::ToolStreamSink>
-        }))
-    }
-
-    fn question_port(&self) -> QuestionPort {
-        TerminalRenderer::question_port(self)
-    }
-
-    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {
-        TerminalRenderer::prompt_tool_approval(self, name, arguments).await
-    }
-
-    async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
-        TerminalRenderer::prompt_bash_approval(self, request).await
-    }
-
-    async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
-        TerminalRenderer::prompt_continue_budget(self, max_turns).await
+    pub fn print_bash_approval_request(&self, request: &rho_core::presentation::BashApproval) {
+        let card = format_bash_approval_card(request, &self.theme, terminal_width());
+        self.write_output(&format!("\n{card}\n"));
     }
 }

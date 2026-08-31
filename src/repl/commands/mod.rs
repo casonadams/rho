@@ -138,15 +138,11 @@ impl SlashCommandHandler {
                         new_provider,
                     }))
                 } else {
-                    let models = [
-                        "gpt-5.6-luna (chatgpt)",
-                        "gpt-5.4 (chatgpt)",
-                        "claude-sonnet-4-6 (anthropic)",
-                        "gpt-4o (openai)",
-                        "gemini-2.5-pro (gemini)",
-                        "deepseek-reasoner (deepseek)",
-                    ];
-                    if let Ok(choice) = inquire::Select::new("Select a model:", models.to_vec()).prompt() {
+                    let models: Vec<String> = crate::repl::interactive::CURATED_MODELS
+                        .iter()
+                        .map(|(m, p)| format!("{m} ({p})"))
+                        .collect();
+                    if let Ok(choice) = inquire::Select::new("Select a model:", models).prompt() {
                         let model_str = choice.split_whitespace().next().unwrap_or("");
                         let provider_str = choice.split('(').nth(1).and_then(|s| s.strip_suffix(')')).unwrap_or("");
                         ctx.config.model = model_str.to_string();

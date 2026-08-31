@@ -3,7 +3,7 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::renderer::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
+use super::preview::{format_tool_output_preview, tool_title_style, webfetch_content_kind};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractionResponse, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;

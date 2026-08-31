@@ -4,15 +4,15 @@ use reedline::{FileBackedHistory, History, HistoryItem, SearchDirection, SearchQ
 
 use super::commands::SLASH_COMMANDS;
 
-const MODELS: &[&str] = &[
-    "gpt-5.6-luna",
-    "gpt-5.4",
-    "claude-sonnet-4-6",
-    "gpt-4o",
-    "gemini-2.5-pro",
-    "deepseek-reasoner",
+pub const CURATED_MODELS: &[(&str, &str)] = &[
+    ("gpt-5.6-luna", "chatgpt"),
+    ("gpt-5.4", "chatgpt"),
+    ("claude-sonnet-4-6", "anthropic"),
+    ("gpt-4o", "openai"),
+    ("gemini-2.5-pro", "gemini"),
+    ("deepseek-reasoner", "deepseek"),
 ];
-const PROVIDERS: &[&str] = &[
+pub const PROVIDERS: &[&str] = &[
     "anthropic",
     "openai",
     "chatgpt",
@@ -57,7 +57,7 @@ impl CompletionSet {
         Self {
             commands,
             skills: skill_names,
-            models: MODELS.iter().map(|model| (*model).to_string()).collect(),
+            models: CURATED_MODELS.iter().map(|(model, _)| (*model).to_string()).collect(),
             providers: PROVIDERS.iter().map(|provider| (*provider).to_string()).collect(),
         }
     }
