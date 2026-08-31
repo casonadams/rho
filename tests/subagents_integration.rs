@@ -357,7 +357,7 @@ async fn test_subagent_model_resolution_and_override_propagation() {
         Some("explicit-override-model")
     );
 
-    // 2. Invocation with template model (explore defaults to haiku) and no override
+    // 2. Invocation with template without model (explore defaults to None) -> inherits subagents.default_model
     agent_tool
         .invoke(
             &DummyHost,
@@ -379,7 +379,28 @@ async fn test_subagent_model_resolution_and_override_propagation() {
         .unwrap();
 
     assert_eq!(last_override.lock().unwrap().as_deref(), None);
-    assert_eq!(last_template_model.lock().unwrap().as_deref(), Some("haiku"));
+    assert_eq!(last_template_model.lock().unwrap().as_deref(), None);
+
+    let explore_template = rho_plugin_builtin::subagents::AgentTemplate {
+        name: "explore".to_string(),
+        description: "explore".to_string(),
+        system_prompt: "prompt".to_string(),
+        tools: vec![],
+        model: None,
+    };
+    let resolved_explore = resolve_subagent_model(&config, &explore_template, None);
+    assert_eq!(resolved_explore, "subagent-fast-default");
+
+    // 3. Invocation with template that explicitly specifies a model -> template model wins over default_model
+    let template_with_model = rho_plugin_builtin::subagents::AgentTemplate {
+        name: "specialized-worker".to_string(),
+        description: "specialized".to_string(),
+        system_prompt: "prompt".to_string(),
+        tools: vec![],
+        model: Some("custom-specialized-model".to_string()),
+    };
+    let resolved_custom = resolve_subagent_model(&config, &template_with_model, None);
+    assert_eq!(resolved_custom, "custom-specialized-model");
 
     // 3. Invocation with ad-hoc agent type (no template model) -> uses subagents.default_model
     agent_tool

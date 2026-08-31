@@ -16,7 +16,7 @@ pub fn builtin_templates() -> Vec<AgentTemplate> {
                 "websearch".to_string(),
                 "webfetch".to_string(),
             ],
-            model: Some("haiku".to_string()),
+            model: None,
         },
         AgentTemplate {
             name: "plan".to_string(),
