@@ -21,6 +21,12 @@ pub struct GeminiPart {
     pub text: Option<String>,
     #[serde(rename = "thought", skip_serializing_if = "Option::is_none")]
     pub thought: Option<bool>,
+    #[serde(
+        rename = "thoughtSignature",
+        alias = "thought_signature",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thought_signature: Option<String>,
     #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<GeminiInlineData>,
     #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]

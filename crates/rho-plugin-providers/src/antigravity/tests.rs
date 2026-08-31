@@ -213,7 +213,13 @@ fn test_build_antigravity_request_multi_turn_alternation() {
     let roles: Vec<&str> = req.request.contents.iter().map(|c| c.role.as_str()).collect();
     assert_eq!(roles, vec!["user", "model", "user", "model", "user"]);
 
-    // Verify tool result uses matching function declaration name ("read")
+    // Verify observation fallback when no thought signature is present
     let tool_turn = &req.request.contents[2];
-    assert_eq!(tool_turn.parts[0].function_response.as_ref().unwrap().name, "read");
+    assert!(
+        tool_turn.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Observation from `read`")
+    );
 }

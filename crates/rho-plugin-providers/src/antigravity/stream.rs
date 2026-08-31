@@ -13,6 +13,10 @@ use rho_sdk::contract::{
     ProviderStreamEvent,
 };
 use std::path::PathBuf;
+use std::sync::LazyLock;
+
+static THOUGHT_SIGNATURES: LazyLock<std::sync::Mutex<std::collections::HashMap<String, String>>> =
+    LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 pub struct AntigravityProvider {
     config_dir: PathBuf,
@@ -219,6 +223,7 @@ impl ProviderCapability for AntigravityProvider {
             let mut buffer = String::new();
             let mut had_tool_calls = false;
             let mut terminal_reason = FinishReason::Stop;
+            let mut last_seen_sig: Option<String> = None;
 
             while let Some(chunk_res) = byte_stream.next().await {
                 let chunk = chunk_res.map_err(|e| CapabilityError::Unavailable { message: e.to_string() })?;
@@ -252,6 +257,11 @@ impl ProviderCapability for AntigravityProvider {
                             for cand in candidates {
                                 if let Some(content) = cand.content {
                                     for part in content.parts {
+                                        if let Some(sig) = &part.thought_signature {
+                                            if !sig.trim().is_empty() {
+                                                last_seen_sig = Some(sig.clone());
+                                            }
+                                        }
                                         if let Some(text) = part.text
                                             && !text.is_empty()
                                         {
@@ -260,6 +270,17 @@ impl ProviderCapability for AntigravityProvider {
                                         if let Some(call) = part.function_call {
                                             had_tool_calls = true;
                                             let call_id = format!("call_{}", uuid::Uuid::new_v4());
+                                            let sig = part
+                                                .thought_signature
+                                                .or_else(|| last_seen_sig.clone());
+                                            if let Some(s) = sig {
+                                                if is_valid_thought_signature(Some(&s)) {
+                                                    THOUGHT_SIGNATURES
+                                                        .lock()
+                                                        .unwrap()
+                                                        .insert(call_id.clone(), s);
+                                                }
+                                            }
                                             let tool_id = CapabilityId::new(rho_sdk::capability::CapabilityKind::Tool, &call.name)
                                                 .map_err(|e| CapabilityError::Failed { message: e.to_string() })?;
                                             yield ProviderStreamEvent::ToolCall {
@@ -326,6 +347,15 @@ fn ensure_root_object_schema(mut schema: serde_json::Value) -> serde_json::Value
             "properties": {}
         })
     }
+}
+
+fn is_valid_thought_signature(signature: Option<&str>) -> bool {
+    let Some(sig) = signature else { return false };
+    if sig.is_empty() || sig.len() % 4 != 0 {
+        return false;
+    }
+    sig.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
 }
 
 fn strip_meta_schema(value: &serde_json::Value) -> serde_json::Value {
@@ -446,6 +476,7 @@ pub fn build_antigravity_request(
                         parts.push(GeminiPart {
                             text: Some(text.clone()),
                             thought: None,
+                            thought_signature: None,
                             inline_data: None,
                             function_call: None,
                             function_response: None,
@@ -463,23 +494,48 @@ pub fn build_antigravity_request(
                                 parts.push(GeminiPart {
                                     text: Some(text.clone()),
                                     thought: None,
+                                    thought_signature: None,
                                     inline_data: None,
                                     function_call: None,
                                     function_response: None,
                                 });
                             }
                         }
-                        MessageContent::ToolCall { tool_id, arguments, .. } => {
-                            parts.push(GeminiPart {
-                                text: None,
-                                thought: None,
-                                inline_data: None,
-                                function_call: Some(GeminiFunctionCall {
-                                    name: tool_id.name().to_string(),
-                                    args: arguments.clone(),
-                                }),
-                                function_response: None,
-                            });
+                        MessageContent::ToolCall {
+                            call_id,
+                            tool_id,
+                            arguments,
+                            ..
+                        } => {
+                            let sig = THOUGHT_SIGNATURES.lock().unwrap().get(call_id).cloned();
+                            if let Some(signature) = sig {
+                                parts.push(GeminiPart {
+                                    text: None,
+                                    thought: None,
+                                    thought_signature: Some(signature),
+                                    inline_data: None,
+                                    function_call: Some(GeminiFunctionCall {
+                                        name: tool_id.name().to_string(),
+                                        args: arguments.clone(),
+                                    }),
+                                    function_response: None,
+                                });
+                            } else {
+                                let args_str = serde_json::to_string(arguments).unwrap_or_default();
+                                let label = if args_str == "{}" {
+                                    format!("`{}`", tool_id.name())
+                                } else {
+                                    format!("`{}` ({args_str})", tool_id.name())
+                                };
+                                parts.push(GeminiPart {
+                                    text: Some(format!("[Called tool {label}]")),
+                                    thought: None,
+                                    thought_signature: None,
+                                    inline_data: None,
+                                    function_call: None,
+                                    function_response: None,
+                                });
+                            }
                         }
                         MessageContent::ToolResult { .. } => {}
                     }
@@ -495,25 +551,38 @@ pub fn build_antigravity_request(
                         is_error,
                     } = content
                     {
+                        let has_sig = THOUGHT_SIGNATURES.lock().unwrap().contains_key(call_id);
                         let tool_name = call_id_to_name
                             .get(call_id)
                             .cloned()
                             .unwrap_or_else(|| "read".to_string());
-                        let response_val = if *is_error {
-                            serde_json::json!({ "error": content })
+                        if has_sig {
+                            let response_val = if *is_error {
+                                serde_json::json!({ "error": content })
+                            } else {
+                                serde_json::json!({ "output": content })
+                            };
+                            parts.push(GeminiPart {
+                                text: None,
+                                thought: None,
+                                thought_signature: None,
+                                inline_data: None,
+                                function_call: None,
+                                function_response: Some(GeminiFunctionResponse {
+                                    name: tool_name,
+                                    response: response_val,
+                                }),
+                            });
                         } else {
-                            serde_json::json!({ "output": content })
-                        };
-                        parts.push(GeminiPart {
-                            text: None,
-                            thought: None,
-                            inline_data: None,
-                            function_call: None,
-                            function_response: Some(GeminiFunctionResponse {
-                                name: tool_name,
-                                response: response_val,
-                            }),
-                        });
+                            parts.push(GeminiPart {
+                                text: Some(format!("[Observation from `{tool_name}`:\n{content}]")),
+                                thought: None,
+                                thought_signature: None,
+                                inline_data: None,
+                                function_call: None,
+                                function_response: None,
+                            });
+                        }
                     }
                 }
                 append_turn(&mut contents, "user", parts);
@@ -527,6 +596,7 @@ pub fn build_antigravity_request(
             parts: vec![GeminiPart {
                 text: Some("Hello".to_string()),
                 thought: None,
+                thought_signature: None,
                 inline_data: None,
                 function_call: None,
                 function_response: None,
@@ -540,6 +610,7 @@ pub fn build_antigravity_request(
                 parts: vec![GeminiPart {
                     text: Some("Hello".to_string()),
                     thought: None,
+                    thought_signature: None,
                     inline_data: None,
                     function_call: None,
                     function_response: None,
