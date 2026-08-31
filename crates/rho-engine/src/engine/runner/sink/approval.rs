@@ -1,3 +1,6 @@
+use super::super::helpers::{clear_spinner, needs_approval, redact_value};
+use super::super::history::DisplayEvent;
+use super::types::{CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig};
 use crate::engine::metrics::RunTracker;
 use async_trait::async_trait;
 use rho_core::approval::{ApprovalEventSink, ApprovalRequest, ToolEvent};
@@ -8,39 +11,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
-
-use super::helpers::{clear_spinner, needs_approval, redact_value};
-use super::history::DisplayEvent;
-
-#[derive(Clone)]
-pub struct CompletedTool {
-    pub internal_call_id: String,
-    pub name: String,
-    pub arguments: Value,
-    pub output: String,
-    pub status: String,
-}
-
-pub struct TurnArtifacts {
-    pub response: rig::agent::PromptResponse,
-    pub tool_calls_count: usize,
-    pub completed_tools: Vec<CompletedTool>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DisplayKind {
-    #[default]
-    None,
-    Thinking,
-    Text,
-    Tool,
-}
-
-pub struct PendingToolCall {
-    pub name: String,
-    pub arguments: Value,
-    pub started: Option<Instant>,
-}
 
 pub struct TerminalSinkState {
     pub auto_approve: bool,
@@ -57,12 +27,6 @@ pub struct TerminalApprovalSink {
     pub session_manager: SessionManager,
     pub run_tracker: RunTracker,
     pub state: Mutex<TerminalSinkState>,
-}
-
-pub struct TerminalSinkConfig {
-    pub model_label: String,
-    pub auto_approve: bool,
-    pub run_tracker: RunTracker,
 }
 
 impl TerminalApprovalSink {

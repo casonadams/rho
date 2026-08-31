@@ -1,7 +1,9 @@
 pub mod context;
 mod cwd;
-mod format;
+pub mod format;
+mod memory;
 mod secrets;
+pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod tree;
@@ -13,15 +15,15 @@ use secrets::SecretGuard;
 pub use cwd::{last_session_for_cwd, record_session_for_cwd};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use format::{append_durable_record, append_record, create_session_file, load_file};
+pub use summary::{SessionSummary, delete_session, list_session_summaries, list_sessions};
 pub use tree::{SessionTree, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
 use validation::CanonicalHistory;
 
 use crate::error::{AppError, Result};
-use chrono::{DateTime, Utc};
-use rig::memory::{ConversationMemory, MemoryError};
+use chrono::Utc;
 use rig::message::Message;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -30,9 +32,9 @@ use std::sync::{Arc, Mutex};
 pub struct SessionManager {
     pub session_id: String,
     pub file_path: PathBuf,
-    state: Arc<tokio::sync::Mutex<StoreState>>,
-    secrets: Arc<SecretGuard>,
-    memory_error: Arc<Mutex<Option<String>>>,
+    pub(crate) state: Arc<tokio::sync::Mutex<StoreState>>,
+    pub(crate) secrets: Arc<SecretGuard>,
+    pub(crate) memory_error: Arc<Mutex<Option<String>>>,
 }
 
 impl std::fmt::Debug for SessionManager {
@@ -43,16 +45,6 @@ impl std::fmt::Debug for SessionManager {
             .field("file_path", &self.file_path)
             .finish_non_exhaustive()
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SessionSummary {
-    pub session_id: String,
-    pub name: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub last_modified: DateTime<Utc>,
-    pub turn_count: usize,
-    pub preview: String,
 }
 
 impl SessionManager {
@@ -354,194 +346,19 @@ impl SessionManager {
     }
 
     pub fn list_sessions(sessions_dir: &Path) -> Result<Vec<String>> {
-        if !sessions_dir.exists() {
-            return Ok(Vec::new());
-        }
-        let mut ids = Vec::new();
-        for entry in std::fs::read_dir(sessions_dir)? {
-            let path = entry?.path();
-            if path.extension().and_then(|value| value.to_str()) == Some("jsonl")
-                && let Some(stem) = path.file_stem().and_then(|value| value.to_str())
-            {
-                ids.push(stem.to_string());
-            }
-        }
-        ids.sort();
-        ids.reverse();
-        Ok(ids)
+        summary::list_sessions(sessions_dir)
     }
 
     pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
-        if !sessions_dir.exists() {
-            return Ok(Vec::new());
-        }
-        let mut summaries = Vec::new();
-        for entry in std::fs::read_dir(sessions_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) == Some("jsonl")
-                && let Some(stem) = path.file_stem().and_then(|value| value.to_str())
-                && let Ok(state) = load_file(&path, stem)
-            {
-                let metadata = std::fs::metadata(&path)?;
-                let last_modified: DateTime<Utc> = metadata
-                    .modified()
-                    .map(DateTime::<Utc>::from)
-                    .unwrap_or_else(|_| Utc::now());
-                let turn_count = state.tree.len();
-                let preview = state
-                    .tree
-                    .root_nodes()
-                    .first()
-                    .and_then(|n| {
-                        n.messages.iter().find_map(|m| match m {
-                            Message::User { content } => content.first().map(|c| match c {
-                                rig::message::UserContent::Text(t) => t.text.clone(),
-                                _ => String::new(),
-                            }),
-                            _ => None,
-                        })
-                    })
-                    .unwrap_or_else(|| "Empty session".to_string());
-                let preview_truncated = if preview.chars().count() > 50 {
-                    format!("{}...", preview.chars().take(47).collect::<String>())
-                } else {
-                    preview
-                };
-                summaries.push(SessionSummary {
-                    session_id: stem.to_string(),
-                    name: state.tree.session_name,
-                    created_at: last_modified,
-                    last_modified,
-                    turn_count,
-                    preview: preview_truncated,
-                });
-            }
-        }
-        summaries.sort_by_key(|b| std::cmp::Reverse(b.last_modified));
-        Ok(summaries)
+        summary::list_session_summaries(sessions_dir)
     }
 
     pub fn delete_session(sessions_dir: &Path, session_id: &str) -> Result<()> {
-        let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
-        if file_path.exists() {
-            std::fs::remove_file(file_path)?;
-        }
-        Ok(())
+        summary::delete_session(sessions_dir, session_id)
     }
 
-    async fn append_messages(&self, conversation_id: &str, messages: Vec<Message>) -> Result<()> {
-        self.ensure_conversation(conversation_id)?;
-        if messages.is_empty() {
-            return Err(session_error("canonical message batches cannot be empty"));
-        }
-        self.reject_secrets(&messages)?;
-        let mut state = self.state.lock().await;
-        if state.checkpoint.is_some() {
-            return Err(session_error(
-                "pending run checkpoint must be continued before appending history",
-            ));
-        }
-        state.integrity.check_canonical_batch(&messages)?;
-        let now = Utc::now();
-        let node_id = uuid::Uuid::new_v4().to_string();
-        let parent_id = state.tree.active_leaf_id.clone();
-        let node = TreeNodeData {
-            id: node_id,
-            parent_id,
-            timestamp: now,
-            kind: TreeNodeKind::UserTurn,
-            messages: messages.clone(),
-            label: None,
-            metadata: None,
-        };
-        let record = SessionRecord::TreeNode {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            node: node.clone(),
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.tree.add_node(node);
-        state.messages = state.tree.active_messages();
-        Ok(())
-    }
-
-    async fn clear_messages(&self, conversation_id: &str) -> Result<()> {
-        self.ensure_conversation(conversation_id)?;
-        let mut state = self.state.lock().await;
-        let record = SessionRecord::CanonicalReset {
-            sequence: state.next_sequence,
-            session_id: self.session_id.clone(),
-            timestamp: Utc::now(),
-        };
-        append_durable_record(&self.file_path, &record).await?;
-        state.next_sequence += 1;
-        state.messages.clear();
-        state.checkpoint = None;
-        state.integrity.clear();
-        state.tree = SessionTree::new();
-        Ok(())
-    }
-
-    fn ensure_conversation(&self, conversation_id: &str) -> Result<()> {
-        if conversation_id != self.session_id {
-            return Err(session_error(format!(
-                "conversation identity mismatch: expected {}, got {conversation_id}",
-                self.session_id
-            )));
-        }
-        Ok(())
-    }
-
-    fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {
+    pub(crate) fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {
         self.secrets.reject_in(value)
-    }
-
-    fn remember_memory_error(&self, error: &AppError) {
-        if let Ok(mut current) = self.memory_error.lock() {
-            *current = Some(error.to_string());
-        }
-    }
-}
-
-impl ConversationMemory for SessionManager {
-    fn load<'a>(
-        &'a self,
-        conversation_id: &'a str,
-    ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<Vec<Message>, MemoryError>> {
-        Box::pin(async move {
-            if let Err(error) = self.ensure_conversation(conversation_id) {
-                self.remember_memory_error(&error);
-                return Err(MemoryError::backend(error));
-            }
-            Ok(self.state.lock().await.messages.clone())
-        })
-    }
-
-    fn append<'a>(
-        &'a self,
-        conversation_id: &'a str,
-        messages: Vec<Message>,
-    ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<(), MemoryError>> {
-        Box::pin(async move {
-            self.append_messages(conversation_id, messages).await.map_err(|error| {
-                self.remember_memory_error(&error);
-                MemoryError::backend(error)
-            })
-        })
-    }
-
-    fn clear<'a>(
-        &'a self,
-        conversation_id: &'a str,
-    ) -> rig::wasm_compat::WasmBoxedFuture<'a, std::result::Result<(), MemoryError>> {
-        Box::pin(async move {
-            self.clear_messages(conversation_id).await.map_err(|error| {
-                self.remember_memory_error(&error);
-                MemoryError::backend(error)
-            })
-        })
     }
 }
 
@@ -584,6 +401,6 @@ fn validate_session_id(session_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn session_error(message: impl Into<String>) -> AppError {
+pub(crate) fn session_error(message: impl Into<String>) -> AppError {
     AppError::Session(message.into())
 }

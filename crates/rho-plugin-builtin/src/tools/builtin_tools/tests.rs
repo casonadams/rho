@@ -1,6 +1,7 @@
 use super::*;
 use crate::tools::AskUserQuestionTool;
 use crate::tools::registry::ToolRegistry;
+use rho_sdk::contract::ExecutionMode;
 use rig::tool::{Tool, tool_definition};
 
 fn assert_native_definition<T: Tool>(tool: &T, capabilities: &BTreeMap<CapabilityId, Arc<dyn ToolCapability>>) {

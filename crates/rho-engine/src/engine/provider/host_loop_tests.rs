@@ -1,8 +1,9 @@
 use super::*;
+use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
-use rho_sdk::contract::{AuthenticationRequest, AuthenticationResponse, ProviderDescriptor, ProviderStreamEvent};
+use rho_sdk::contract::*;
 use std::collections::VecDeque;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 struct FixtureProvider {
     turns: Mutex<VecDeque<Vec<Result<ProviderStreamEvent, CapabilityError>>>>,

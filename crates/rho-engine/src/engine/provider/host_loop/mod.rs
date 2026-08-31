@@ -1,124 +1,20 @@
-use async_trait::async_trait;
-use futures::StreamExt;
+pub mod steering;
+pub mod types;
+
 pub use rho_core::dispatch::{
     NeutralToolCall, NeutralToolExecutor, NeutralToolResult, NeutralTurnError, NeutralTurnObserver, NoopTurnObserver,
 };
+pub use steering::{CancellationSignal, NoopSteeringQueue, SteeringQueueProvider};
+pub use types::{ContinuationCheckpoint, NeutralTurnOutput, NeutralTurnRequest, NeutralTurnTerminal, ProviderUsage};
+
+use futures::StreamExt;
 use rho_sdk::capability::{CapabilityError, CapabilityId};
 use rho_sdk::contract::{
     ExecutionMode, FinishReason, MessageContent, MessageRole, ModelMessage, ProviderCapability, ProviderRequest,
-    ProviderStreamEvent, ProviderToolDefinition, ScopedCredential,
+    ProviderStreamEvent,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::Notify;
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProviderUsage {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
-}
-
-impl ProviderUsage {
-    fn add(&mut self, input_tokens: u64, output_tokens: u64) {
-        self.input_tokens = self.input_tokens.saturating_add(input_tokens);
-        self.output_tokens = self.output_tokens.saturating_add(output_tokens);
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContinuationCheckpoint {
-    pub messages: Vec<ModelMessage>,
-    pub completed_model_turns: usize,
-    pub usage: ProviderUsage,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NeutralTurnRequest {
-    pub model: String,
-    pub messages: Vec<ModelMessage>,
-    pub credential: Option<ScopedCredential>,
-    pub max_output_tokens: Option<u64>,
-    pub tools: Vec<ProviderToolDefinition>,
-    pub max_turns: usize,
-    pub checkpoint: Option<ContinuationCheckpoint>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NeutralTurnOutput {
-    pub text: String,
-    pub messages: Vec<ModelMessage>,
-    pub usage: ProviderUsage,
-    pub finish_reason: FinishReason,
-    pub model_turns: usize,
-    pub tool_calls: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NeutralTurnTerminal {
-    Completed(NeutralTurnOutput),
-    Checkpoint(ContinuationCheckpoint),
-    Cancelled(ContinuationCheckpoint),
-}
-
-#[derive(Clone, Default)]
-pub struct CancellationSignal {
-    cancelled: Arc<AtomicBool>,
-    interrupted: Arc<AtomicBool>,
-    notify: Arc<Notify>,
-}
-
-impl CancellationSignal {
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
-        self.notify.notify_waiters();
-    }
-
-    pub fn interrupt_stream(&self) {
-        self.interrupted.store(true, Ordering::Release);
-        self.notify.notify_waiters();
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
-    }
-
-    pub fn is_interrupted(&self) -> bool {
-        self.interrupted.load(Ordering::Acquire)
-    }
-
-    pub fn reset_interrupted(&self) {
-        self.interrupted.store(false, Ordering::Release);
-    }
-
-    async fn cancelled(&self) {
-        while !self.is_cancelled() {
-            self.notify.notified().await;
-        }
-    }
-
-    async fn cancelled_or_interrupted(&self) {
-        while !self.is_cancelled() && !self.is_interrupted() {
-            self.notify.notified().await;
-        }
-    }
-}
-
-#[async_trait]
-pub trait SteeringQueueProvider: Send + Sync {
-    async fn poll_steering(&self) -> Vec<String>;
-}
-
-pub struct NoopSteeringQueue;
-
-#[async_trait]
-impl SteeringQueueProvider for NoopSteeringQueue {
-    async fn poll_steering(&self) -> Vec<String> {
-        Vec::new()
-    }
-}
 
 pub struct NeutralTurnRuntime<'a> {
     pub provider: &'a dyn ProviderCapability,
@@ -179,8 +75,6 @@ pub async fn run_neutral_turn(
             )));
         }
 
-        // ProviderRequest is the plugin wire-protocol message; the provider
-        // stream takes ownership, so each model turn needs an owned copy.
         let provider_request = ProviderRequest {
             model: model.clone(),
             messages: messages.clone(),
@@ -465,5 +359,5 @@ fn map_provider_error(error: CapabilityError) -> NeutralTurnError {
 }
 
 #[cfg(test)]
-#[path = "host_loop_tests.rs"]
+#[path = "../host_loop_tests.rs"]
 mod tests;

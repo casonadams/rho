@@ -1,5 +1,9 @@
+pub mod types;
+
+pub use types::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, TurnOutput, TurnRequest, UsageDetails};
+
 use crate::engine::AgentEngine;
-use crate::engine::metrics::{RunMetrics, StructuralUsage, TerminalStatus};
+use crate::engine::metrics::{RunMetrics, TerminalStatus};
 use crate::engine::runtime::build_runner;
 use crate::repeat::RepeatedCallHook;
 use futures::StreamExt;
@@ -12,56 +16,11 @@ use rig::agent::MultiTurnStreamItem;
 use rig::completion::FinishReason;
 use rig::memory::ConversationMemory;
 use rig::streaming::StreamedAssistantContent;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 use super::helpers::redact_text;
 use super::history::{budget_history, checkpoint_messages, continuation_history, display_events, map_streaming_error};
 use super::sink::{TerminalApprovalSink, TerminalSinkConfig, TurnArtifacts};
-
-use crate::engine::provider::host_loop::{CancellationSignal, SteeringQueueProvider};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RunStatus {
-    Completed,
-    ContentFiltered,
-}
-
-pub type UsageDetails = StructuralUsage;
-
-pub struct TurnRequest<'a> {
-    pub prompt: &'a str,
-    pub cancellation: Option<&'a CancellationSignal>,
-    pub steering: Option<&'a dyn SteeringQueueProvider>,
-}
-
-impl<'a> TurnRequest<'a> {
-    pub fn new(prompt: &'a str) -> Self {
-        Self {
-            prompt,
-            cancellation: None,
-            steering: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QueuedMessageBoundary {
-    ActiveRunCompleted,
-}
-
-pub const QUEUED_MESSAGE_BOUNDARY: QueuedMessageBoundary = QueuedMessageBoundary::ActiveRunCompleted;
-
-#[derive(Debug)]
-pub struct TurnOutput {
-    pub final_text: String,
-    pub tool_calls_count: usize,
-    pub tool_failures_count: usize,
-    pub requests: usize,
-    pub usage: Option<UsageDetails>,
-    pub status: RunStatus,
-    pub metrics: RunMetrics,
-}
 
 impl AgentEngine {
     pub async fn run_turn(
@@ -136,8 +95,6 @@ impl AgentEngine {
             let crate::engine::AgentBackend::Rig(agent) = &self.backend else {
                 return Err(AppError::Provider("internal provider runtime mismatch".to_string()));
             };
-            // Dispatch (ActiveToolSet) owns approval sequencing and tool
-            // lifecycle events; the legacy ApprovalHook would duplicate them.
             let runner = build_runner(agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
