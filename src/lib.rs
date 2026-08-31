@@ -1,6 +1,6 @@
 mod cli;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "ui"))]
 #[path = "tests/runner_tests.rs"]
 mod runner_tests;
 
@@ -11,9 +11,13 @@ pub use rho_core::{
 pub use rho_engine::{auth, engine};
 pub mod platform;
 pub mod plugin;
+
+#[cfg(feature = "ui")]
 pub mod repl;
 
 pub mod tools;
+
+#[cfg(feature = "ui")]
 pub mod ui;
 
 pub use cli::run_cli;

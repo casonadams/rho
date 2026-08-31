@@ -30,4 +30,6 @@ pub trait Presenter: Send + Sync {
     async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult;
     async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult;
     async fn prompt_continue_budget(&self, max_turns: usize) -> bool;
+    fn print_turn_started(&self, _prompt: &str) {}
+    fn print_turn_completed(&self, _status: &str) {}
 }

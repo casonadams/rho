@@ -11,9 +11,12 @@ fn main() {
     let prompts_skills = workspace.join("prompts").join("skills");
     let skills_dir = workspace.join("skills");
 
-    println!("cargo:rerun-if-changed=prompts/skills");
-    println!("cargo:rerun-if-changed=prompts/tools");
-    println!("cargo:rerun-if-changed=prompts/SYSTEM.md");
+    println!("cargo:rerun-if-changed={}", workspace.join("prompts/skills").display());
+    println!("cargo:rerun-if-changed={}", workspace.join("prompts/tools").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace.join("prompts/SYSTEM.md").display()
+    );
 
     let mut generated = String::new();
     generated.push_str("pub struct BuiltinSkill {\n");

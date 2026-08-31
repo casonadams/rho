@@ -1,5 +1,5 @@
 use super::discovery::discover_templates;
-use super::supervisor::SubagentSupervisor;
+use super::supervisor::{BackgroundTaskRequest, SubagentSupervisor, SubagentTaskRequest};
 use super::types::AgentInvocationArgs;
 use rho_core::config::Config;
 use rho_sdk::capability::{CapabilityError, CapabilityId, CapabilityKind};
@@ -10,6 +10,8 @@ use rho_sdk::contract::{
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+
+pub static PROMPT_AGENT: &str = include_str!("../../../../prompts/tools/agent.md");
 
 pub struct AgentTool {
     supervisor: SubagentSupervisor,
@@ -35,7 +37,7 @@ impl AgentTool {
                 },
                 "required": ["subagent_type", "prompt"]
             }),
-            prompt_guidance: "Use Agent to delegate research, planning, or isolated operations.".to_string(),
+            prompt_guidance: PROMPT_AGENT.to_string(),
             effects: vec![OperationEffect::ExecuteProcess],
             execution_mode: ExecutionMode::Sequential,
         };
@@ -57,7 +59,7 @@ impl ToolCapability for AgentTool {
 
     async fn invoke(
         &self,
-        _host: &dyn ToolHost,
+        host: &dyn ToolHost,
         request: ToolInvocationRequest,
     ) -> Result<ToolInvocationResponse, CapabilityError> {
         let args: AgentInvocationArgs =
@@ -80,11 +82,11 @@ impl ToolCapability for AgentTool {
         if args.run_in_background {
             let job_id = self
                 .supervisor
-                .spawn_background(super::supervisor::BackgroundSpawnRequest {
+                .spawn_background(BackgroundTaskRequest {
                     template,
                     prompt: args.prompt,
                     description: args.description,
-                    available_tools: Vec::new(),
+                    model_override: args.model,
                 })
                 .map_err(|e| CapabilityError::Failed {
                     message: format!("Failed to spawn background subagent: {e}"),
@@ -104,11 +106,14 @@ impl ToolCapability for AgentTool {
         } else {
             let res = self
                 .supervisor
-                .run_foreground(super::supervisor::ForegroundExecutionRequest {
-                    template: &template,
-                    prompt: &args.prompt,
-                    available_tools: &[],
-                })
+                .run_foreground(
+                    SubagentTaskRequest {
+                        template: &template,
+                        prompt: &args.prompt,
+                        model_override: args.model.as_deref(),
+                    },
+                    host,
+                )
                 .await
                 .map_err(|e| CapabilityError::Failed {
                     message: format!("Subagent execution failed: {e}"),
@@ -170,29 +175,31 @@ impl ToolCapability for GetSubagentResultTool {
                 message: format!("Invalid get_subagent_result arguments: {e}"),
             })?;
 
-        if let Some(result) = self.supervisor.get_job_result(&args.agent_id) {
-            let out_json = serde_json::json!({
-                "job_id": result.job_id,
-                "status": result.status,
-                "text": result.text,
-                "is_error": result.is_error
-            });
-            Ok(ToolInvocationResponse {
-                content: out_json.to_string(),
-                is_error: result.is_error,
-                structured_content: None,
-            })
-        } else if let Some(status) = self.supervisor.get_job_status(&args.agent_id) {
-            let out_json = serde_json::json!({
-                "job_id": args.agent_id,
-                "status": status,
-                "message": "Agent is still running."
-            });
-            Ok(ToolInvocationResponse {
-                content: out_json.to_string(),
-                is_error: false,
-                structured_content: None,
-            })
+        if let Some(snapshot) = self.supervisor.get_job(&args.agent_id) {
+            if let Some(result) = snapshot.result {
+                let out_json = serde_json::json!({
+                    "job_id": result.job_id,
+                    "status": result.status,
+                    "text": result.text,
+                    "is_error": result.is_error
+                });
+                Ok(ToolInvocationResponse {
+                    content: out_json.to_string(),
+                    is_error: result.is_error,
+                    structured_content: None,
+                })
+            } else {
+                let out_json = serde_json::json!({
+                    "job_id": args.agent_id,
+                    "status": snapshot.status,
+                    "message": "Agent is still running."
+                });
+                Ok(ToolInvocationResponse {
+                    content: out_json.to_string(),
+                    is_error: false,
+                    structured_content: None,
+                })
+            }
         } else {
             Err(CapabilityError::Failed {
                 message: format!("Job ID '{}' not found", args.agent_id),
@@ -287,7 +294,7 @@ pub fn create_subagent_tools(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::subagents::runner::{NoopProvider, SubagentRunner};
+    use crate::subagents::runner::{NoopExecutor, SubagentRunner};
 
     struct DummyHost;
     #[async_trait::async_trait]
@@ -298,18 +305,20 @@ mod tests {
         ) -> std::result::Result<rho_sdk::contract::InteractionResponse, CapabilityError> {
             unreachable!()
         }
+
+        fn stream_chunk(&self, _chunk: &str) {}
     }
 
     #[tokio::test]
     async fn test_subagent_tool_spawns_background_and_polls_result() {
-        let runner = Arc::new(SubagentRunner::new(Arc::new(NoopProvider), 10));
+        let runner = Arc::new(SubagentRunner::new(Arc::new(NoopExecutor), 10));
         let supervisor = SubagentSupervisor::new(runner, 4);
         let config = Config::default();
         let tools = create_subagent_tools(supervisor.clone(), &config, Path::new("."));
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 4);
 
         let agent_tool = &tools[0].1;
-        let get_result_tool = &tools[1].1;
+        let get_result_tool = &tools[2].1;
         let host = DummyHost;
 
         let res = agent_tool

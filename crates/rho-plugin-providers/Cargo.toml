@@ -21,6 +21,6 @@ tokio = { workspace = true, default-features = false, features = ["sync", "rt", 
 uuid.workspace = true
 rig = "0.42"
 rig-memory = "0.42"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
 
 [dev-dependencies]

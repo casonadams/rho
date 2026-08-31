@@ -22,6 +22,7 @@ pub struct AgentEngineBuilder {
     session_manager: Option<SessionManager>,
     session_approvals: Option<std::sync::Arc<std::sync::Mutex<std::collections::HashSet<String>>>>,
     base_dir: Option<PathBuf>,
+    custom_provider: Option<Arc<dyn rho_sdk::contract::ProviderCapability>>,
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
     neutral_executor: Option<std::sync::Arc<dyn NeutralToolExecutor>>,
     contexts: Vec<Arc<dyn ContextCapability>>,
@@ -33,6 +34,7 @@ impl AgentEngineBuilder {
         Self {
             rig_tools: None,
             neutral_executor: None,
+            custom_provider: None,
             config,
             auth_store,
             resume_id: None,
@@ -78,6 +80,11 @@ impl AgentEngineBuilder {
         self
     }
 
+    pub fn provider(mut self, provider: Arc<dyn rho_sdk::contract::ProviderCapability>) -> Self {
+        self.custom_provider = Some(provider);
+        self
+    }
+
     pub fn contexts(mut self, contexts: Vec<Arc<dyn ContextCapability>>) -> Self {
         self.contexts = contexts;
         self
@@ -115,39 +122,52 @@ impl AgentEngineBuilder {
             secrets.push(key);
         }
         session_manager.add_secrets(secrets)?;
-        let backend = match active_provider {
-            ActiveProvider::Builtin(provider) => {
-                let model = ProviderFactory::create_model_for(
-                    provider.id(),
-                    ModelRequest {
-                        model: &self.config.model,
-                        config_dir: &self.config.config_dir,
-                    },
-                    &self.auth_store,
-                )?;
-                AgentBackend::Rig(Box::new(super::runtime::build_coding_agent(
-                    model,
-                    &self.config,
-                    CodingRuntime {
-                        base_dir: &base_dir,
-                        memory: session_manager.clone(),
-                        built_in_tools: self.rig_tools.clone(),
-                    },
-                )?))
+        let backend = if let Some(provider) = self.custom_provider {
+            AgentBackend::External {
+                provider,
+                tools: self
+                    .neutral_executor
+                    .clone()
+                    .ok_or_else(|| rho_core::error::AppError::Plugin("tool platform was not injected".to_string()))?,
+                credential: None,
             }
-            external @ ActiveProvider::External { .. } => {
-                let credential = self
-                    .auth_store
-                    .scoped_credential(&external.credential_scope())
-                    .map(|(_, credential)| credential);
-                AgentBackend::External {
-                    provider: external.capability().ok_or_else(|| {
-                        rho_core::error::AppError::Provider("external provider capability is unavailable".to_string())
-                    })?,
-                    tools: self.neutral_executor.clone().ok_or_else(|| {
-                        rho_core::error::AppError::Plugin("tool platform was not injected".to_string())
-                    })?,
-                    credential,
+        } else {
+            match active_provider {
+                ActiveProvider::Builtin(provider) => {
+                    let model = ProviderFactory::create_model_for(
+                        provider.id(),
+                        ModelRequest {
+                            model: &self.config.model,
+                            config_dir: &self.config.config_dir,
+                        },
+                        &self.auth_store,
+                    )?;
+                    AgentBackend::Rig(Box::new(super::runtime::build_coding_agent(
+                        model,
+                        &self.config,
+                        CodingRuntime {
+                            base_dir: &base_dir,
+                            memory: session_manager.clone(),
+                            built_in_tools: self.rig_tools.clone(),
+                        },
+                    )?))
+                }
+                external @ ActiveProvider::External { .. } => {
+                    let credential = self
+                        .auth_store
+                        .scoped_credential(&external.credential_scope())
+                        .map(|(_, credential)| credential);
+                    AgentBackend::External {
+                        provider: external.capability().ok_or_else(|| {
+                            rho_core::error::AppError::Provider(
+                                "external provider capability is unavailable".to_string(),
+                            )
+                        })?,
+                        tools: self.neutral_executor.clone().ok_or_else(|| {
+                            rho_core::error::AppError::Plugin("tool platform was not injected".to_string())
+                        })?,
+                        credential,
+                    }
                 }
             }
         };

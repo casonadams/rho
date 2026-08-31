@@ -163,15 +163,17 @@ fn fixture() -> KilnPluginFixture {
         r#"#!/bin/sh
 read handshake
 request_id=$(printf '%s' "$handshake" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
-{handshake}read request
-request_id=$(printf '%s' "$request" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
-case "$request" in
-  *\"type\":\"discovery_request\"*) {discovery} ;;
-  *\"kind\":\"context\"*) {context_result} ;;
-  *\"kind\":\"command\"*) {command_result} ;;
-  *\"kind\":\"lifecycle\"*) {lifecycle_result} ;;
-  *\"kind\":\"tool\"*) {tool_progress}{tool_result} ;;
-esac
+{handshake}
+while read -r request; do
+  request_id=$(printf '%s' "$request" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
+  case "$request" in
+    *\"type\":\"discovery_request\"*) {discovery} ;;
+    *\"kind\":\"context\"*) {context_result} ;;
+    *\"kind\":\"command\"*) {command_result} ;;
+    *\"kind\":\"lifecycle\"*) {lifecycle_result} ;;
+    *\"kind\":\"tool\"*) {tool_progress}{tool_result} ;;
+  esac
+done
 "#
     );
     std::fs::write(&executable, script).unwrap();
@@ -182,9 +184,12 @@ esac
 #[tokio::test]
 async fn kiln_plugin_full_capabilities_integration_test() {
     let fixture = fixture();
-    let plugin = ExternalPlugin::load(&fixture.executable, ProcessLimits::default())
-        .await
-        .unwrap();
+    let limits = ProcessLimits {
+        startup_timeout: std::time::Duration::from_secs(15),
+        discovery_timeout: std::time::Duration::from_secs(15),
+        ..ProcessLimits::default()
+    };
+    let plugin = ExternalPlugin::load(&fixture.executable, limits).await.unwrap();
 
     let context_id: CapabilityId = "context:kiln".parse().unwrap();
     let context_cap = plugin.context(&context_id).unwrap();

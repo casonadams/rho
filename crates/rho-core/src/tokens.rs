@@ -77,14 +77,15 @@ pub fn find_token_cut_point(messages: &[ModelMessage], keep_recent_tokens: usize
     cut_idx
 }
 
-pub fn estimate_text_tokens(text: &str, model: &str) -> usize {
+use std::sync::LazyLock;
+
+static CL100K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::cl100k_base().ok());
+
+pub fn estimate_text_tokens(text: &str, _model: &str) -> usize {
     if text.is_empty() {
         return 0;
     }
-    if let Ok(bpe) = tiktoken_rs::get_bpe_from_model(model) {
-        return bpe.encode_with_special_tokens(text).len();
-    }
-    if let Ok(bpe) = tiktoken_rs::cl100k_base() {
+    if let Some(bpe) = CL100K_BPE.as_ref() {
         return bpe.encode_with_special_tokens(text).len();
     }
     estimate_char_tokens(text)

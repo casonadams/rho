@@ -1,59 +1,36 @@
 #![cfg(unix)]
 
 use async_trait::async_trait;
-use futures::stream::{self, BoxStream};
 use rho::config::{Config, SubagentsConfig};
 use rho::plugin::tool_dispatch::ActiveToolSet;
-use rho_sdk::capability::CapabilityError;
-use rho_sdk::contract::{
-    AuthenticationRequest, AuthenticationResponse, FinishReason, ProviderCapability, ProviderDescriptor,
-    ProviderRequest, ProviderStreamEvent,
+use rho_plugin_builtin::subagents::{
+    AgentExecutionResult, SubagentExecuteRequest, SubagentExecutor, SubagentRunner, SubagentSupervisor,
+    create_subagent_tools,
 };
-use std::collections::VecDeque;
+use rho_sdk::capability::CapabilityError;
+use rho_sdk::contract::ToolHost;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-struct FixtureProvider {
-    turns: Mutex<VecDeque<Vec<Result<ProviderStreamEvent, CapabilityError>>>>,
-    requests: Mutex<Vec<ProviderRequest>>,
-}
-
-impl FixtureProvider {
-    fn new(turns: impl IntoIterator<Item = Vec<ProviderStreamEvent>>) -> Self {
-        Self {
-            turns: Mutex::new(
-                turns
-                    .into_iter()
-                    .map(|turn| turn.into_iter().map(Ok).collect())
-                    .collect(),
-            ),
-            requests: Mutex::new(Vec::new()),
-        }
-    }
+struct FixtureExecutor {
+    response_text: String,
 }
 
 #[async_trait]
-impl ProviderCapability for FixtureProvider {
-    fn descriptor(&self) -> ProviderDescriptor {
-        ProviderDescriptor {
-            id: "provider:fixture".parse().unwrap(),
-            display_name: "Fixture".to_string(),
-            models: Vec::new(),
-            authentication: Vec::new(),
-        }
-    }
-
-    async fn authenticate(&self, _request: AuthenticationRequest) -> Result<AuthenticationResponse, CapabilityError> {
-        unreachable!()
-    }
-
-    async fn stream(
+impl SubagentExecutor for FixtureExecutor {
+    async fn execute(
         &self,
-        request: ProviderRequest,
-    ) -> Result<BoxStream<'static, Result<ProviderStreamEvent, CapabilityError>>, CapabilityError> {
-        self.requests.lock().unwrap().push(request);
-        let turn = self.turns.lock().unwrap().pop_front().unwrap_or_default();
-        Ok(Box::pin(stream::iter(turn)))
+        _request: SubagentExecuteRequest<'_>,
+        host: &dyn ToolHost,
+    ) -> rho_core::error::Result<AgentExecutionResult> {
+        host.stream_chunk(&self.response_text);
+        Ok(AgentExecutionResult {
+            job_id: String::new(),
+            status: "completed".to_string(),
+            text: self.response_text.clone(),
+            tool_calls_count: 0,
+            is_error: false,
+        })
     }
 }
 
@@ -83,6 +60,7 @@ async fn test_subagents_tools_registered_when_enabled() {
     assert!(names.contains(&"agent".to_string()));
     assert!(names.contains(&"get_subagent_result".to_string()));
     assert!(names.contains(&"steer_subagent".to_string()));
+    assert!(names.contains(&"todo".to_string()));
 
     let _ = std::fs::remove_dir_all(workspace);
 }
@@ -104,6 +82,7 @@ async fn test_subagents_tools_omitted_when_disabled() {
     assert!(!names.contains(&"agent".to_string()));
     assert!(!names.contains(&"get_subagent_result".to_string()));
     assert!(!names.contains(&"steer_subagent".to_string()));
+    assert!(names.contains(&"todo".to_string()));
 
     let _ = std::fs::remove_dir_all(workspace);
 }
@@ -111,14 +90,9 @@ async fn test_subagents_tools_omitted_when_disabled() {
 #[tokio::test]
 async fn test_foreground_subagent_execution_end_to_end() {
     let workspace = temp_workspace();
-    let provider = Arc::new(FixtureProvider::new([vec![
-        ProviderStreamEvent::TextDelta {
-            text: "Found auth middleware in src/auth.rs".to_string(),
-        },
-        ProviderStreamEvent::Finished {
-            reason: FinishReason::Stop,
-        },
-    ]]));
+    let executor = Arc::new(FixtureExecutor {
+        response_text: "Found auth middleware in src/auth.rs".to_string(),
+    });
 
     let config = Config {
         subagents: SubagentsConfig {
@@ -131,13 +105,10 @@ async fn test_foreground_subagent_execution_end_to_end() {
         ..Config::default()
     };
 
-    let runner = Arc::new(rho_plugin_builtin::subagents::SubagentRunner::new(
-        provider,
-        config.subagents.max_turns_per_agent,
-    ));
-    let supervisor = rho_plugin_builtin::subagents::SubagentSupervisor::new(runner, config.subagents.max_concurrency);
+    let runner = Arc::new(SubagentRunner::new(executor, config.subagents.max_turns_per_agent));
+    let supervisor = SubagentSupervisor::new(runner, config.subagents.max_concurrency);
 
-    let tools = rho_plugin_builtin::subagents::create_subagent_tools(supervisor, &config, &workspace);
+    let tools = create_subagent_tools(supervisor, &config, &workspace);
     let agent_tool = &tools[0].1;
 
     struct DummyHost;
@@ -149,6 +120,8 @@ async fn test_foreground_subagent_execution_end_to_end() {
         ) -> Result<rho_sdk::contract::InteractionResponse, CapabilityError> {
             unreachable!()
         }
+
+        fn stream_chunk(&self, _chunk: &str) {}
     }
 
     let response = agent_tool

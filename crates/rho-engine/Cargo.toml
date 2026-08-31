@@ -22,7 +22,7 @@ uuid.workspace = true
 chrono = { version = "0.4", features = ["serde"] }
 thiserror.workspace = true
 anyhow = "1.0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
 
 [dev-dependencies]
 rig = { version = "0.42", features = ["test-utils"] }

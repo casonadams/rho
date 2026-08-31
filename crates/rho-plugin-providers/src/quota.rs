@@ -160,6 +160,7 @@ pub async fn fetch_chatgpt_quota(config_dir: &Path) -> Option<String> {
     let account_id = auth_data.account_id?;
 
     let client = reqwest::Client::builder()
+        .no_proxy()
         .timeout(std::time::Duration::from_secs(4))
         .build()
         .ok()?;
@@ -209,6 +210,7 @@ pub async fn fetch_ollama_cloud_quota(config_dir: &Path, model_id: &str) -> Opti
     let key = auth_data.key?;
 
     let client = reqwest::Client::builder()
+        .no_proxy()
         .timeout(std::time::Duration::from_secs(4))
         .build()
         .ok()?;

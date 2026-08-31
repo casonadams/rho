@@ -4,6 +4,7 @@ pub mod builtin_tools;
 pub mod edit;
 pub mod read;
 pub mod registry;
+pub mod todo;
 pub mod types;
 pub mod web;
 pub mod write;
@@ -16,6 +17,7 @@ pub use read::{ReadArgs, ReadTool};
 pub use registry::ToolRegistry;
 pub use rho_core::args::{FetchArgs, SearchArgs};
 pub use rho_core::net::HttpRequest;
+pub use todo::{PROMPT_TODO, TaskStatus, TodoAction, TodoArgs, TodoStore, TodoTask, TodoTool};
 pub use types::{ToolResult, generated_schema, into_rig_result, normalize_schema};
 pub use web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,

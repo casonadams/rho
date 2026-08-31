@@ -1,8 +1,18 @@
 use reqwest::Client;
 use rho_core::error::{AppError, Result};
 pub use rho_core::net::{BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, validate_url};
+use std::sync::LazyLock;
 use std::time::Duration;
 use url::Url;
+
+static SHARED_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()
+        .expect("Failed to build HTTP client")
+});
 
 #[derive(Clone)]
 pub struct HttpClient {
@@ -12,13 +22,8 @@ pub struct HttpClient {
 
 impl HttpClient {
     pub fn new(allow_private_network: bool) -> Result<Self> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(15))
-            .redirect(reqwest::redirect::Policy::limited(5))
-            .build()
-            .map_err(|e| AppError::Tool(format!("Failed to build HTTP client: {e}")))?;
         Ok(Self {
-            client,
+            client: SHARED_CLIENT.clone(),
             allow_private_network,
         })
     }

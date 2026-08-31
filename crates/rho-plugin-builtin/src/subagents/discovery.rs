@@ -38,6 +38,7 @@ pub fn builtin_templates() -> Vec<AgentTemplate> {
                 "bash".to_string(),
                 "websearch".to_string(),
                 "webfetch".to_string(),
+                "todo".to_string(),
             ],
             model: None,
         },
@@ -55,11 +56,17 @@ pub fn discover_templates(config: &Config, workspace_dir: &Path) -> BTreeMap<Str
     // 2. Discover from user config dir: ~/.config/rho/agents/*.md
     scan_agent_dir(&config.config_dir.join("agents"), &mut templates);
 
-    // 3. Discover from project workspace dir: .rho/agents/*.md and prompts/agents/*.md
+    // 3. Discover from project workspace dir: .rho/agents/*.md, .pi/agents/*.md, prompts/agents/*.md
     scan_agent_dir(&workspace_dir.join(".rho/agents"), &mut templates);
+    scan_agent_dir(&workspace_dir.join(".pi/agents"), &mut templates);
     scan_agent_dir(&workspace_dir.join("prompts/agents"), &mut templates);
 
-    // 4. Merge config table overrides: [subagents.agents.<name>]
+    // 4. Discover from global ~/.pi/agent/agents
+    if let Ok(home) = std::env::var("HOME") {
+        scan_agent_dir(&Path::new(&home).join(".pi/agent/agents"), &mut templates);
+    }
+
+    // 5. Merge config table overrides: [subagents.agents.<name>]
     for (name, def) in &config.subagents.agents {
         let entry = templates.entry(name.to_lowercase()).or_insert_with(|| AgentTemplate {
             name: name.clone(),
@@ -99,21 +106,71 @@ fn scan_agent_dir(dir: &Path, templates: &mut BTreeMap<String, AgentTemplate>) {
                 continue;
             };
             if let Ok(content) = std::fs::read_to_string(&path) {
-                let (description, system_prompt) = parse_agent_markdown(&content);
-                let template = AgentTemplate {
-                    name: file_stem.to_string(),
-                    description,
-                    system_prompt,
-                    tools: vec!["read".to_string(), "bash".to_string()],
-                    model: None,
-                };
+                let template = parse_agent_markdown(file_stem, &content);
                 templates.insert(file_stem.to_lowercase(), template);
             }
         }
     }
 }
 
-fn parse_agent_markdown(content: &str) -> (String, String) {
+pub fn parse_agent_markdown(file_stem: &str, content: &str) -> AgentTemplate {
+    let trimmed = content.trim_start();
+    if let Some(after_first) = trimmed.strip_prefix("---")
+        && let Some(end_idx) = after_first.find("\n---")
+    {
+        let frontmatter = &after_first[..end_idx];
+        let body = after_first[end_idx + 4..].trim();
+
+        let mut name = file_stem.to_string();
+        let mut description = String::new();
+        let mut model = None;
+        let mut tools = Vec::new();
+
+        for line in frontmatter.lines() {
+            let line = line.trim();
+            if let Some((k, v)) = line.split_once(':') {
+                let key = k.trim().to_lowercase();
+                let val = v.trim().trim_matches('"').trim_matches('\'').to_string();
+                match key.as_str() {
+                    "name" => {
+                        if !val.is_empty() {
+                            name = val;
+                        }
+                    }
+                    "description" => description = val,
+                    "model" => {
+                        if !val.is_empty() {
+                            model = Some(val);
+                        }
+                    }
+                    "tools" => {
+                        let tool_parts: Vec<String> = val
+                            .trim_matches(|c| c == '[' || c == ']')
+                            .split(',')
+                            .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        tools.extend(tool_parts);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if tools.is_empty() {
+            tools = vec!["read".to_string(), "bash".to_string()];
+        }
+
+        return AgentTemplate {
+            name,
+            description,
+            system_prompt: body.to_string(),
+            tools,
+            model,
+        };
+    }
+
+    // Fallback: simple markdown parsing
     let mut lines = content.lines();
     let mut description = String::new();
     let mut system_prompt = String::new();
@@ -126,7 +183,13 @@ fn parse_agent_markdown(content: &str) -> (String, String) {
         system_prompt.push_str(line);
         system_prompt.push('\n');
     }
-    (description, system_prompt.trim().to_string())
+    AgentTemplate {
+        name: file_stem.to_string(),
+        description,
+        system_prompt: system_prompt.trim().to_string(),
+        tools: vec!["read".to_string(), "bash".to_string()],
+        model: None,
+    }
 }
 
 #[cfg(test)]
@@ -139,6 +202,25 @@ mod tests {
         assert!(templates.iter().any(|t| t.name == "explore"));
         assert!(templates.iter().any(|t| t.name == "plan"));
         assert!(templates.iter().any(|t| t.name == "general-purpose"));
+    }
+
+    #[test]
+    fn test_parse_frontmatter_markdown() {
+        let md = r#"---
+name: codebase-locator
+model: haiku
+description: Locates files and components
+tools: read, bash, websearch
+---
+
+You are a codebase locator agent.
+"#;
+        let template = parse_agent_markdown("codebase-locator", md);
+        assert_eq!(template.name, "codebase-locator");
+        assert_eq!(template.model.as_deref(), Some("haiku"));
+        assert_eq!(template.description, "Locates files and components");
+        assert_eq!(template.tools, vec!["read", "bash", "websearch"]);
+        assert_eq!(template.system_prompt, "You are a codebase locator agent.");
     }
 
     #[test]

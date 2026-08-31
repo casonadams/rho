@@ -96,7 +96,7 @@ request_id=$(printf '%s' "$handshake" | sed -E 's/.*"request_id":"([^"]+)".*/\1/
 request_id=$(printf '%s' "$request" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
 case "$request" in
   *\"type\":\"discovery_request\"*) {discovery} ;;
-  *\"kind\":\"tool\"*) {invocation} ;;
+  *\"type\":\"invocation_request\"*|*\"kind\":\"tool\"*|*\"type\":\"tool\"*) {invocation} ;;
 esac
 "#
     );

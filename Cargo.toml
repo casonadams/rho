@@ -43,6 +43,18 @@ authors.workspace = true
 description.workspace = true
 license.workspace = true
 
+[features]
+default = ["ui"]
+ui = [
+    "dep:reedline",
+    "dep:inquire",
+    "dep:indicatif",
+    "dep:crossterm",
+    "dep:anstyle",
+    "dep:pulldown-cmark",
+    "dep:syntect",
+]
+
 [lib]
 name = "rho"
 path = "src/lib.rs"
@@ -72,15 +84,13 @@ serde_json = "1.0"
 
 # CLI & REPL
 clap = { version = "4.5", features = ["derive", "env"] }
-reedline = "0.38"
-inquire = "0.7"
-indicatif = "0.17"
-crossterm = "0.28"
-anstyle = "1.0"
-pulldown-cmark = "0.13"
-syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
-
-
+reedline = { version = "0.38", optional = true }
+inquire = { version = "0.7", optional = true }
+indicatif = { version = "0.17", optional = true }
+crossterm = { version = "0.28", optional = true }
+anstyle = { version = "1.0", optional = true }
+pulldown-cmark = { version = "0.13", optional = true }
+syntect = { version = "5.2", default-features = false, features = ["default-fancy"], optional = true }
 
 # Utilities & Config
 toml = "0.8"

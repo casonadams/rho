@@ -42,6 +42,10 @@ impl ToolExecutionPolicy {
             "websearch" | "web_search" if valid::<SearchArgs>(arguments) => ExecutionClass::ReadOnly,
             "webfetch" | "web_fetch" if valid::<FetchArgs>(arguments) => ExecutionClass::ReadOnly,
             "ask_user" | "ask_user_question" => ExecutionClass::ReadOnly,
+            "agent" | "Agent" => ExecutionClass::ReadOnly,
+            "get_subagent_result" => ExecutionClass::ReadOnly,
+            "steer_subagent" => ExecutionClass::ReadOnly,
+            "todo" | "Todo" => ExecutionClass::ReadOnly,
             "write" => classify_write(arguments, working_dir),
             "edit" => classify_edit(arguments, working_dir),
             "bash" => classify_bash(arguments),
@@ -134,6 +138,12 @@ pub fn is_known(tool_name: &str) -> bool {
             | "web_fetch"
             | "ask_user"
             | "ask_user_question"
+            | "agent"
+            | "Agent"
+            | "get_subagent_result"
+            | "steer_subagent"
+            | "todo"
+            | "Todo"
     )
 }
 #[cfg(test)]
@@ -166,6 +176,24 @@ mod tests {
                 true,
             ),
             ("ask_user_question", json!({"question": "which option?"}), true),
+            (
+                "agent",
+                json!({"subagent_type": "explore", "prompt": "find code"}),
+                true,
+            ),
+            (
+                "Agent",
+                json!({"subagent_type": "explore", "prompt": "find code"}),
+                true,
+            ),
+            ("get_subagent_result", json!({"agent_id": "job_123"}), true),
+            (
+                "steer_subagent",
+                json!({"agent_id": "job_123", "message": "focus on x"}),
+                true,
+            ),
+            ("todo", json!({"action": "list"}), true),
+            ("todo", json!({"action": "create", "subject": "test"}), true),
         ] {
             assert_eq!(
                 ToolExecutionPolicy::classify(name, &arguments).allows_without_approval(),

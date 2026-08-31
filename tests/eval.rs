@@ -29,8 +29,8 @@ fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<rig::tool::DynamicTool
     )
 }
 use async_trait::async_trait;
+use rho::presentation::StructuredPresenter;
 use rho::tools::{ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context};
-use rho::ui::TerminalRenderer;
 use rig::agent::AgentBuilder;
 use rig::agent::hook::{AgentHook, InvalidToolCallAction, InvalidToolCallContext};
 use rig::completion::{CompletionRequest, FinishReason, Usage};
@@ -378,7 +378,7 @@ async fn agent_eval_core_finish_metadata_usage_and_budget_exhaustion() {
     let output = engine
         .run_turn(
             rho::engine::runner::TurnRequest::new("generate"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
@@ -408,7 +408,7 @@ async fn agent_eval_core_finish_metadata_usage_and_budget_exhaustion() {
     let error = engine
         .run_turn(
             rho::engine::runner::TurnRequest::new("loop"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap_err();
@@ -445,14 +445,14 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
     first
         .run_turn(
             TurnRequest::new("one"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
     first
         .run_turn(
             TurnRequest::new("two"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
@@ -480,7 +480,7 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
     resumed
         .run_turn(
             TurnRequest::new("three"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
@@ -503,7 +503,7 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
     switched
         .run_turn(
             TurnRequest::new("four"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
@@ -526,7 +526,7 @@ async fn agent_eval_session_follow_up_resume_clear_and_model_switch() {
     cleared
         .run_turn(
             TurnRequest::new("fresh prompt"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
@@ -600,7 +600,7 @@ async fn agent_eval_session_cancellation_boundaries_remain_resumable() {
             std::time::Duration::from_millis(40),
             engine.run_turn(
                 TurnRequest::new("run"),
-                std::sync::Arc::new(TerminalRenderer::default()),
+                std::sync::Arc::new(StructuredPresenter::stdout()),
             ),
         )
         .await;

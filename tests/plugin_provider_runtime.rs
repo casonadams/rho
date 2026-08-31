@@ -17,7 +17,7 @@ use rho::plugin::contract::{
 use rho::plugin::external::ExternalPlugin;
 use rho::plugin::process::ProcessLimits;
 use rho::plugin::protocol::{ProtocolMessage, StreamEvent, TerminalResult};
-use rho::ui::TerminalRenderer;
+use rho::presentation::StructuredPresenter;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -216,7 +216,7 @@ async fn configured_subprocess_provider_completes_a_host_owned_tool_turn() {
     let output = engine
         .run_turn(
             rho::engine::runner::TurnRequest::new("run fixture"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap();
@@ -264,7 +264,7 @@ async fn second_turn_replays_prior_canonical_history_exactly_once() {
         engine
             .run_turn(
                 rho::engine::runner::TurnRequest::new(prompt),
-                std::sync::Arc::new(TerminalRenderer::default()),
+                std::sync::Arc::new(StructuredPresenter::stdout()),
             )
             .await
             .unwrap();
@@ -301,7 +301,7 @@ async fn crashing_provider_stream_is_isolated_without_partial_commits() {
     let error = engine
         .run_turn(
             rho::engine::runner::TurnRequest::new("crash"),
-            std::sync::Arc::new(TerminalRenderer::default()),
+            std::sync::Arc::new(StructuredPresenter::stdout()),
         )
         .await
         .unwrap_err();

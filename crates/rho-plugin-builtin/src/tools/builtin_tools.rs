@@ -2,6 +2,8 @@ use crate::tools::ask_user::{AskUserArgs, AskUserTool, InteractiveQuestionPort, 
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::read::{ReadArgs, ReadTool};
+pub use crate::tools::todo::PROMPT_TODO;
+use crate::tools::todo::{TodoArgs, TodoStore, TodoTool};
 use crate::tools::types::{ToolResult, generated_schema};
 use crate::tools::web::fetch::FetchArgs;
 use crate::tools::web::search::SearchArgs;
@@ -152,6 +154,15 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         effects: INTERACTION_EFFECTS,
         execution_mode: ExecutionMode::Sequential,
     },
+    BuiltinToolDeclaration {
+        name: "todo",
+        capability: BuiltinToolKind::WorkspaceMutation,
+        description: "Manage a task list for tracking multi-step progress. Actions: create, update, list, get, delete, clear.",
+        prompt: PROMPT_TODO,
+        schema: generated_schema::<TodoArgs>,
+        effects: &[],
+        execution_mode: ExecutionMode::Sequential,
+    },
 ];
 
 impl PartialEq for BuiltinToolDeclaration {
@@ -222,6 +233,7 @@ impl BuiltinToolCatalog {
             BuiltinTool::WebFetch(fetch, "web_fetch"),
             BuiltinTool::AskUser(AskUserTool::new(), "ask_user"),
             BuiltinTool::AskUser(AskUserTool::new(), "ask_user_question"),
+            BuiltinTool::Todo(TodoTool::new(TodoStore::new())),
         ];
         let capabilities = tools
             .into_iter()
@@ -251,6 +263,7 @@ enum BuiltinTool {
     WebSearch(WebSearchTool, &'static str),
     WebFetch(WebFetchTool, &'static str),
     AskUser(AskUserTool, &'static str),
+    Todo(TodoTool),
 }
 
 impl BuiltinTool {
@@ -263,6 +276,7 @@ impl BuiltinTool {
             Self::WebSearch(_, name) => name,
             Self::WebFetch(_, name) => name,
             Self::AskUser(_, name) => name,
+            Self::Todo(_) => "todo",
         }
     }
 }
@@ -307,6 +321,7 @@ impl ToolCapability for BuiltinTool {
                 let port = HostQuestionPort(host);
                 tool.execute(&port, parse(request.arguments)?).await
             }
+            Self::Todo(tool) => tool.execute(parse(request.arguments)?).await,
         }
         .map_err(map_app_error)?;
         Ok(map_result(result))

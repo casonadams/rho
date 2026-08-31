@@ -2,7 +2,8 @@ use crate::tools::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLA
 use rho_core::policy::ExecutionClass;
 
 pub use crate::tools::builtin_tools::{
-    PROMPT_ASK_USER, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH, PROMPT_WEBSEARCH, PROMPT_WRITE,
+    PROMPT_ASK_USER, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_TODO, PROMPT_WEBFETCH, PROMPT_WEBSEARCH,
+    PROMPT_WRITE,
 };
 
 pub type ToolCapability = BuiltinToolKind;
@@ -62,6 +63,7 @@ mod tests {
             "web_fetch",
             "ask_user",
             "ask_user_question",
+            "todo",
         ] {
             let legacy = ToolRegistry::descriptor(name).unwrap();
             let descriptor = descriptors
