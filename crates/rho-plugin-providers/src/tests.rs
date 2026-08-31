@@ -33,6 +33,8 @@ fn parses_provider_identities_and_only_documented_alias() {
         ("OPENAI", ProviderId::OpenAi),
         ("chatgpt", ProviderId::ChatGpt),
         ("copilot", ProviderId::Copilot),
+        ("antigravity", ProviderId::Antigravity),
+        ("google-antigravity", ProviderId::Antigravity),
         ("deepseek", ProviderId::DeepSeek),
         ("gemini", ProviderId::Gemini),
         ("google", ProviderId::Gemini),
@@ -60,18 +62,25 @@ fn keeps_openai_chatgpt_and_copilot_distinct() {
         ProviderId::Copilot.credential_strategy(),
         CredentialStrategy::SubscriptionOAuth
     );
+    assert_eq!(
+        ProviderId::Antigravity.credential_strategy(),
+        CredentialStrategy::SubscriptionOAuth
+    );
     assert_ne!(ProviderId::OpenAi, ProviderId::ChatGpt);
     assert_ne!(ProviderId::ChatGpt, ProviderId::Copilot);
+    assert_ne!(ProviderId::ChatGpt, ProviderId::Antigravity);
 }
 
 #[test]
 fn constructs_every_provider_model_without_network_or_device_flow() {
     let auth = auth_store();
     let config_dir = std::env::temp_dir().join("rho-provider-construction");
-    for provider in ProviderId::ALL {
+    for provider in ProviderId::ALL.into_iter().filter(|p| *p != ProviderId::Antigravity) {
         let handle = ProviderFactory::create_model_for(provider, request("fixture-model", &config_dir), &auth).unwrap();
         assert_eq!(handle.label(), Some(provider.as_str()));
     }
+    let antigravity = crate::antigravity::AntigravityProvider::new(config_dir);
+    assert_eq!(antigravity.descriptor().id.as_str(), "provider:antigravity");
 }
 
 #[test]

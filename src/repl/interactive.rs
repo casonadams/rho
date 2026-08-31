@@ -5,6 +5,7 @@ use reedline::{FileBackedHistory, History, HistoryItem, SearchDirection, SearchQ
 use super::commands::SLASH_COMMANDS;
 
 pub const CURATED_MODELS: &[(&str, &str)] = &[
+    ("gemini-3.7-flash", "antigravity"),
     ("gpt-5.6-luna", "chatgpt"),
     ("gpt-5.4", "chatgpt"),
     ("claude-sonnet-4-6", "anthropic"),
@@ -13,6 +14,7 @@ pub const CURATED_MODELS: &[(&str, &str)] = &[
     ("deepseek-reasoner", "deepseek"),
 ];
 pub const PROVIDERS: &[&str] = &[
+    "antigravity",
     "anthropic",
     "openai",
     "chatgpt",

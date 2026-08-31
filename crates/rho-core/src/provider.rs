@@ -10,6 +10,7 @@ pub enum ProviderId {
     OpenAi,
     ChatGpt,
     Copilot,
+    Antigravity,
     DeepSeek,
     Gemini,
     Groq,
@@ -28,11 +29,12 @@ pub enum CredentialStrategy {
 }
 
 impl ProviderId {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::Anthropic,
         Self::OpenAi,
         Self::ChatGpt,
         Self::Copilot,
+        Self::Antigravity,
         Self::DeepSeek,
         Self::Gemini,
         Self::Groq,
@@ -62,6 +64,7 @@ impl ProviderId {
             Self::OpenAi => "openai",
             Self::ChatGpt => "chatgpt",
             Self::Copilot => "copilot",
+            Self::Antigravity => "antigravity",
             Self::DeepSeek => "deepseek",
             Self::Gemini => "gemini",
             Self::Groq => "groq",
@@ -75,7 +78,7 @@ impl ProviderId {
 
     pub fn credential_strategy(self) -> CredentialStrategy {
         match self {
-            Self::ChatGpt | Self::Copilot => CredentialStrategy::SubscriptionOAuth,
+            Self::ChatGpt | Self::Copilot | Self::Antigravity => CredentialStrategy::SubscriptionOAuth,
             Self::Ollama => CredentialStrategy::Local,
             _ => CredentialStrategy::ApiKey,
         }
@@ -100,7 +103,7 @@ impl ProviderId {
             Self::XAi => Some("XAI_API_KEY"),
             Self::Mistral => Some("MISTRAL_API_KEY"),
             Self::Cohere => Some("COHERE_API_KEY"),
-            Self::ChatGpt | Self::Copilot | Self::Ollama => None,
+            Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::Ollama => None,
         }
     }
 }
@@ -120,6 +123,7 @@ impl FromStr for ProviderId {
             "openai" => Ok(Self::OpenAi),
             "chatgpt" => Ok(Self::ChatGpt),
             "copilot" => Ok(Self::Copilot),
+            "antigravity" | "google-antigravity" => Ok(Self::Antigravity),
             "deepseek" => Ok(Self::DeepSeek),
             "gemini" | "google" => Ok(Self::Gemini),
             "groq" => Ok(Self::Groq),

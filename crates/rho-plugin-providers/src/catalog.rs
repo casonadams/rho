@@ -54,7 +54,7 @@ pub async fn list_models(provider: ProviderId, auth_store: &AuthStore, config_di
             let client = copilot_client(&token_dir, false)?;
             list::<_, std::convert::Infallible>(Ok(client)).await
         }
-        ProviderId::ChatGpt => Ok(curated(provider)),
+        ProviderId::ChatGpt | ProviderId::Antigravity => Ok(curated(provider)),
         ProviderId::XAi | ProviderId::Cohere => Ok(curated(provider)),
     }
 }
@@ -76,6 +76,15 @@ pub fn curated(provider: ProviderId) -> ModelCatalog {
         ProviderId::Anthropic => vec!["claude-sonnet-4-6", "claude-haiku-4-5"],
         ProviderId::OpenAi => vec!["gpt-5.4", "gpt-5.4-mini"],
         ProviderId::ChatGpt => vec!["gpt-5.4", "gpt-5.3-codex"],
+        ProviderId::Antigravity => vec![
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-pro",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            "gpt-oss-120b",
+        ],
         ProviderId::Copilot => vec!["gpt-4.1", "gpt-5.3-codex"],
         ProviderId::DeepSeek => vec!["deepseek-chat", "deepseek-reasoner"],
         ProviderId::Gemini => vec!["gemini-2.5-pro", "gemini-2.5-flash"],

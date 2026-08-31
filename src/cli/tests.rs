@@ -35,11 +35,23 @@ fn provider_help_identities_have_distinct_auth_modes() {
             .credential_strategy(),
         CredentialStrategy::SubscriptionOAuth
     );
+    assert_eq!(
+        select_provider(Some("antigravity"), "anthropic")
+            .unwrap()
+            .credential_strategy(),
+        CredentialStrategy::SubscriptionOAuth
+    );
+    assert_eq!(
+        select_provider(Some("google-antigravity"), "anthropic")
+            .unwrap()
+            .credential_strategy(),
+        CredentialStrategy::SubscriptionOAuth
+    );
 }
 
 #[tokio::test]
 async fn subscription_login_dispatches_chatgpt_and_copilot_without_credentials() {
-    for expected in [ProviderId::ChatGpt, ProviderId::Copilot] {
+    for expected in [ProviderId::ChatGpt, ProviderId::Copilot, ProviderId::Antigravity] {
         let selected = std::sync::Arc::new(std::sync::Mutex::new(None));
         let observed = selected.clone();
         login_subscription(

@@ -25,7 +25,9 @@ impl ApiKeyVerifier for RigCredentialVerifier {
             ProviderId::XAi => verify(rig::providers::xai::Client::new(key)).await,
             ProviderId::Mistral => verify(rig::providers::mistral::Client::new(key)).await,
             ProviderId::Cohere => verify(rig::providers::cohere::Client::new(key)).await,
-            ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Ollama => Ok(VerificationStatus::Deferred),
+            ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity | ProviderId::Ollama => {
+                Ok(VerificationStatus::Deferred)
+            }
         }
     }
 }

@@ -170,6 +170,10 @@ impl AgentEngine {
             && let Some(formatted) = crate::engine::quota::fetch_chatgpt_quota(&self.config.config_dir).await
         {
             self.quota.replace(Some(formatted));
+        } else if self.config.provider == "antigravity"
+            && let Some(formatted) = crate::engine::quota::fetch_antigravity_quota(&self.config.config_dir).await
+        {
+            self.quota.replace(Some(formatted));
         } else if self.config.provider == "ollama"
             && crate::engine::quota::is_ollama_cloud_model(&self.config.model)
             && let Some(formatted) =

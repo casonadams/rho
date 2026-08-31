@@ -197,6 +197,42 @@ pub fn is_ollama_cloud_model(model_id: &str) -> bool {
     model_id.ends_with(":cloud")
 }
 
+pub async fn fetch_antigravity_quota(config_dir: &Path) -> Option<String> {
+    let token_dir = config_dir.join("tokens/antigravity");
+    let tokens = crate::antigravity::load_saved_tokens(&token_dir).ok()??;
+    let usage = crate::antigravity::fetch_account_usage(&tokens.access_token)
+        .await
+        .ok()?;
+    let buckets = usage.get("buckets").or_else(|| usage.get("quotaBuckets"))?;
+    if let Some(arr) = buckets.as_array() {
+        let mut windows = Vec::new();
+        for item in arr.iter().take(2) {
+            let label = item
+                .get("label")
+                .or_else(|| item.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("pool");
+            let fraction = item
+                .get("remainingFraction")
+                .or_else(|| item.get("fraction"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1.0);
+            let used_percent = ((1.0 - fraction) * 100.0).clamp(0.0, 100.0);
+            windows.push(QuotaWindow {
+                label: label.to_string(),
+                used_percent,
+                resets_at: None,
+                used_value: used_percent,
+                limit_value: 100.0,
+                is_currency: false,
+                limited: false,
+            });
+        }
+        return format_quota_windows(&windows);
+    }
+    None
+}
+
 pub async fn fetch_ollama_cloud_quota(config_dir: &Path, model_id: &str) -> Option<String> {
     if !is_ollama_cloud_model(model_id) {
         return None;

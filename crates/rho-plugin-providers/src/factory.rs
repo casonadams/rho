@@ -41,6 +41,9 @@ impl ProviderFactory {
             ProviderId::ChatGpt => build_chatgpt_model(request.model, request.config_dir),
             ProviderId::Copilot => build_copilot_model(request.model, request.config_dir),
             ProviderId::Ollama => build_ollama_model(request.model),
+            ProviderId::Antigravity => Err(AppError::Provider(
+                "Antigravity uses native streaming capability runtime".to_string(),
+            )),
             _ => build_api_key_model(provider, request.model, api_key(provider, auth_store)?),
         }
     }
@@ -66,7 +69,7 @@ fn build_api_key_model(provider: ProviderId, model: &str, key: String) -> Result
         ProviderId::XAi => model_handle(provider, rig::providers::xai::Client::new(key), model),
         ProviderId::Mistral => model_handle(provider, rig::providers::mistral::Client::new(key), model),
         ProviderId::Cohere => model_handle(provider, rig::providers::cohere::Client::new(key), model),
-        ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Ollama => {
+        ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity | ProviderId::Ollama => {
             return Err(AppError::Provider(format!(
                 "{provider} does not use API-key model construction"
             )));

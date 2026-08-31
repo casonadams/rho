@@ -17,8 +17,12 @@ serde_json.workspace = true
 thiserror.workspace = true
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { workspace = true, default-features = false, features = ["sync", "rt", "time"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "rt", "time", "net", "io-util", "macros"] }
 uuid.workspace = true
+base64 = "0.22"
+sha2 = "0.10"
+async-stream = "0.3"
+fastrand = "2.0"
 rig = "0.42"
 rig-memory = "0.42"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }

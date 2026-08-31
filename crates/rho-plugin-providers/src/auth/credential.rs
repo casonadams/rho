@@ -213,7 +213,8 @@ impl AuthStore {
     }
 
     pub fn secret_values(&self) -> Vec<String> {
-        self.credentials
+        let mut secrets: Vec<String> = self
+            .credentials
             .values()
             .chain(self.scoped_credentials.values().map(|record| &record.credential))
             .flat_map(|credential| match credential {
@@ -229,7 +230,33 @@ impl AuthStore {
                 }
             })
             .filter(|value| !value.is_empty())
-            .collect()
+            .collect();
+
+        if let Some(config_dir) = self.path.parent() {
+            let antigravity_auth = config_dir.join("tokens").join("antigravity").join("auth.json");
+            if let Ok(content) = std::fs::read_to_string(antigravity_auth)
+                && let Ok(val) = serde_json::from_str::<serde_json::Value>(&content)
+            {
+                if let Some(acc) = val
+                    .get("access_token")
+                    .or_else(|| val.get("access"))
+                    .and_then(|v| v.as_str())
+                    && !acc.is_empty()
+                {
+                    secrets.push(acc.to_string());
+                }
+                if let Some(ref_tok) = val
+                    .get("refresh_token")
+                    .or_else(|| val.get("refresh"))
+                    .and_then(|v| v.as_str())
+                    && !ref_tok.is_empty()
+                {
+                    secrets.push(ref_tok.to_string());
+                }
+            }
+        }
+
+        secrets
     }
 
     pub(crate) fn get_key_with<F>(&self, provider: &str, get_env: F) -> Result<Option<String>>

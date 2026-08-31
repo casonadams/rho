@@ -132,6 +132,15 @@ async fn login_is_dispatched_without_collecting_credentials() {
             provider: Some(provider)
         }) if provider == "chatgpt"
     ));
+    let result_ag = SlashCommandHandler::handle("/login antigravity", &mut context)
+        .await
+        .unwrap();
+    assert!(matches!(
+        result_ag,
+        Some(CommandResult::Login {
+            provider: Some(provider)
+        }) if provider == "antigravity"
+    ));
 }
 
 #[tokio::test]

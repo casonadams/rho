@@ -94,10 +94,12 @@ impl BuiltinProvider {
         ProviderFacts {
             provider: self.id,
             catalog_source: match self.id {
-                ProviderId::ChatGpt | ProviderId::XAi | ProviderId::Cohere => CatalogSource::Curated,
+                ProviderId::ChatGpt | ProviderId::Antigravity | ProviderId::XAi | ProviderId::Cohere => {
+                    CatalogSource::Curated
+                }
                 _ => CatalogSource::Live,
             },
-            supports_quota: self.id == ProviderId::ChatGpt,
+            supports_quota: self.id == ProviderId::ChatGpt || self.id == ProviderId::Antigravity,
             supports_status: true,
         }
     }
@@ -118,7 +120,10 @@ impl ProviderCapability for BuiltinProvider {
                 display_name: model.to_string(),
                 context_limit: context_limit(model).map(|limit| limit as u64),
                 supports_tools: true,
-                supports_images: matches!(self.id, ProviderId::Anthropic | ProviderId::OpenAi | ProviderId::Gemini),
+                supports_images: matches!(
+                    self.id,
+                    ProviderId::Anthropic | ProviderId::OpenAi | ProviderId::Gemini | ProviderId::Antigravity
+                ),
             })
             .collect();
         ProviderDescriptor {
@@ -279,6 +284,7 @@ mod tests {
             (ProviderId::OpenAi, CredentialStrategy::ApiKey, false),
             (ProviderId::ChatGpt, CredentialStrategy::SubscriptionOAuth, true),
             (ProviderId::Copilot, CredentialStrategy::SubscriptionOAuth, false),
+            (ProviderId::Antigravity, CredentialStrategy::SubscriptionOAuth, true),
             (ProviderId::DeepSeek, CredentialStrategy::ApiKey, false),
             (ProviderId::Gemini, CredentialStrategy::ApiKey, false),
             (ProviderId::Groq, CredentialStrategy::ApiKey, false),

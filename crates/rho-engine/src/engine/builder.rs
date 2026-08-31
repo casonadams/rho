@@ -133,6 +133,18 @@ impl AgentEngineBuilder {
             }
         } else {
             match active_provider {
+                ActiveProvider::Builtin(provider) if provider.id() == rho_core::provider::ProviderId::Antigravity => {
+                    let antigravity_cap: Arc<dyn rho_sdk::contract::ProviderCapability> = Arc::new(
+                        rho_plugin_providers::antigravity::AntigravityProvider::new(self.config.config_dir.clone()),
+                    );
+                    AgentBackend::External {
+                        provider: antigravity_cap,
+                        tools: self.neutral_executor.clone().ok_or_else(|| {
+                            rho_core::error::AppError::Plugin("tool platform was not injected".to_string())
+                        })?,
+                        credential: None,
+                    }
+                }
                 ActiveProvider::Builtin(provider) => {
                     let model = ProviderFactory::create_model_for(
                         provider.id(),

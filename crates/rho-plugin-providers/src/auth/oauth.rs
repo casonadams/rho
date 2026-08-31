@@ -37,6 +37,19 @@ impl OAuthManager {
         let result = match provider {
             ProviderId::ChatGpt => chatgpt_client(&token_dir, true)?.authorize().await,
             ProviderId::Copilot => copilot_client(&token_dir, true)?.authorize().await,
+            ProviderId::Antigravity => {
+                let (verifier, challenge) = crate::antigravity::generate_pkce();
+                let state = crate::antigravity::generate_state();
+                let auth_url = crate::antigravity::build_auth_url(&challenge, &state);
+                println!("\nTo sign in to Google Antigravity, open this URL in your browser:\n\n{auth_url}\n");
+                let code = crate::antigravity::start_callback_listener(&state).await?;
+                let tokens = crate::antigravity::exchange_code_for_tokens(&code, &verifier).await?;
+                crate::antigravity::save_tokens(&token_dir, &tokens)?;
+                if let Some(email) = &tokens.email {
+                    println!("Signed in as {email}");
+                }
+                Ok(())
+            }
             _ => {
                 return Err(AppError::Auth(format!(
                     "{provider} does not support subscription login"
@@ -53,6 +66,16 @@ impl OAuthManager {
         let result = match provider {
             ProviderId::ChatGpt => chatgpt_client(&token_dir, false)?.authorize().await,
             ProviderId::Copilot => copilot_client(&token_dir, false)?.authorize().await,
+            ProviderId::Antigravity => {
+                let tokens = crate::antigravity::load_saved_tokens(&token_dir)?.ok_or_else(|| {
+                    AppError::Auth(
+                        "No saved Google Antigravity credentials found. Run 'rho login antigravity'.".to_string(),
+                    )
+                })?;
+                let refreshed = crate::antigravity::refresh_access_token(&tokens).await?;
+                crate::antigravity::save_tokens(&token_dir, &refreshed)?;
+                Ok(())
+            }
             _ => {
                 return Err(AppError::Auth(format!(
                     "{provider} does not support subscription login"
@@ -127,7 +150,7 @@ pub fn copilot_client(token_dir: &Path, interactive: bool) -> Result<rig::provid
 
 fn token_files(provider: ProviderId, token_dir: &Path) -> Vec<PathBuf> {
     match provider {
-        ProviderId::ChatGpt => vec![token_dir.join("auth.json")],
+        ProviderId::ChatGpt | ProviderId::Antigravity => vec![token_dir.join("auth.json")],
         ProviderId::Copilot => vec![token_dir.join("access-token"), token_dir.join("api-key.json")],
         _ => Vec::new(),
     }
