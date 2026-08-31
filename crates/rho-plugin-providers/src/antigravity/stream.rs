@@ -301,11 +301,11 @@ fn append_turn(contents: &mut Vec<GeminiContent>, role: &str, mut parts: Vec<Gem
     if parts.is_empty() {
         return;
     }
-    if let Some(last) = contents.last_mut() {
-        if last.role == role {
-            last.parts.extend(parts);
-            return;
-        }
+    if let Some(last) = contents.last_mut()
+        && last.role == role
+    {
+        last.parts.extend(parts);
+        return;
     }
     contents.push(GeminiContent {
         role: role.to_string(),
@@ -334,26 +334,26 @@ pub fn build_antigravity_request(
         match msg.role {
             MessageRole::System => {
                 for content in &msg.content {
-                    if let MessageContent::Text { text } = content {
-                        if !text.trim().is_empty() {
-                            system_parts.push(GeminiTextPart { text: text.clone() });
-                        }
+                    if let MessageContent::Text { text } = content
+                        && !text.trim().is_empty()
+                    {
+                        system_parts.push(GeminiTextPart { text: text.clone() });
                     }
                 }
             }
             MessageRole::User => {
                 let mut parts = Vec::new();
                 for content in &msg.content {
-                    if let MessageContent::Text { text } = content {
-                        if !text.trim().is_empty() {
-                            parts.push(GeminiPart {
-                                text: Some(text.clone()),
-                                thought: None,
-                                inline_data: None,
-                                function_call: None,
-                                function_response: None,
-                            });
-                        }
+                    if let MessageContent::Text { text } = content
+                        && !text.trim().is_empty()
+                    {
+                        parts.push(GeminiPart {
+                            text: Some(text.clone()),
+                            thought: None,
+                            inline_data: None,
+                            function_call: None,
+                            function_response: None,
+                        });
                     }
                 }
                 append_turn(&mut contents, "user", parts);

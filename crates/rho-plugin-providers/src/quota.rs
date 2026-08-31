@@ -205,10 +205,10 @@ pub fn parse_antigravity_usage(usage: &serde_json::Value, model_id: Option<&str>
         if let Some(target) = &normalized {
             for (id, info) in models {
                 let id_lower = id.to_ascii_lowercase();
-                if id_lower == *target || id_lower.starts_with(&format!("{target}-")) {
-                    if info.get("quotaInfo").is_some() {
-                        candidates.push((id, info));
-                    }
+                if (id_lower == *target || id_lower.starts_with(&format!("{target}-")))
+                    && info.get("quotaInfo").is_some()
+                {
+                    candidates.push((id, info));
                 }
             }
         }

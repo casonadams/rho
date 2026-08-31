@@ -1,13 +1,11 @@
 use super::*;
+use async_trait::async_trait;
 use futures::StreamExt;
 use rho_sdk::capability::{CAPABILITY_API_VERSION, CapabilityDeclaration, CapabilityManifest};
-use rho_sdk::contract::{
-    AuthenticationMethod, AuthenticationOperation, ContextDescriptor, ContextRequest, ContextResponse, ContextSnippet,
-    ExecutionMode, FinishReason, InteractionRequest, InteractionResponse, InvocationContext, LifecycleEvent,
-    ModelMetadata, PermissionDecision, ProviderStreamEvent,
-};
-use rho_sdk::protocol::{ProtocolMessage, TerminalResult};
+use rho_sdk::contract::*;
+use rho_sdk::protocol::*;
 use std::os::unix::fs::PermissionsExt;
+use std::path::PathBuf;
 
 struct Fixture {
     root: PathBuf,

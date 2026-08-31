@@ -85,7 +85,7 @@ fn active_history_navigation_uses_visual_boundaries_and_restores_the_draft() {
 
 #[test]
 fn live_batch_flushes_tool_end_with_transcript_without_intermediate_redraw() {
-    let mut batch = super::LiveBatch::new();
+    let mut batch = super::batch::LiveBatch::new();
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     controller
         .start_tool(crate::ui::interactive::ToolStartRequest {

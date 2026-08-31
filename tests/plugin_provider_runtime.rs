@@ -103,16 +103,16 @@ fn fixture_with(invocation: &str, continuation: &str) -> Fixture {
     let request_log = root.join("config").join("requests.log");
     let script = format!(
         r#"#!/bin/sh
-read handshake
-request_id=$(printf '%s' "$handshake" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
-{handshake}read request
-request_id=$(printf '%s' "$request" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
-printf '%s\n' "$request" >> '{request_log}'
-case "$request" in
-  *\"type\":\"discovery_request\"*) {discovery} ;;
-  *\"kind\":\"provider_stream\"*\"tool_result\"*) {continuation} ;;
-  *\"kind\":\"provider_stream\"*) {invocation} ;;
-esac
+while IFS= read -r request; do
+  request_id=$(printf '%s' "$request" | sed -E 's/.*"request_id":"([^"]+)".*/\1/')
+  printf '%s\n' "$request" >> '{request_log}'
+  case "$request" in
+    *\"type\":\"handshake_request\"*) {handshake} ;;
+    *\"type\":\"discovery_request\"*) {discovery} ;;
+    *\"kind\":\"provider_stream\"*\"tool_result\"*) {continuation} ;;
+    *\"kind\":\"provider_stream\"*) {invocation} ;;
+  esac
+done
 "#,
         request_log = request_log.display(),
         continuation = continuation,
