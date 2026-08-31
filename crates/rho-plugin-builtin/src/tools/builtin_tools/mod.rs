@@ -34,6 +34,10 @@ pub struct BuiltinToolCatalog {
 
 impl BuiltinToolCatalog {
     pub fn new(base_dir: &Path, config: &Config) -> Result<Self> {
+        Self::with_todo_store(base_dir, config, TodoStore::new())
+    }
+
+    pub fn with_todo_store(base_dir: &Path, config: &Config, todo_store: TodoStore) -> Result<Self> {
         let http = HttpClient::new(config.allow_private_network)?;
         let search = WebSearchTool::new(
             http.clone(),
@@ -69,7 +73,7 @@ impl BuiltinToolCatalog {
             BuiltinTool::WebFetch(fetch, "web_fetch"),
             BuiltinTool::AskUser(AskUserTool::new(), "ask_user"),
             BuiltinTool::AskUser(AskUserTool::new(), "ask_user_question"),
-            BuiltinTool::Todo(TodoTool::new(TodoStore::new())),
+            BuiltinTool::Todo(TodoTool::new(todo_store)),
         ];
         let capabilities = tools
             .into_iter()

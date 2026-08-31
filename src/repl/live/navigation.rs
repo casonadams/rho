@@ -3,6 +3,8 @@ use crate::repl::ReplSession;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::interactive::{Activity, InteractiveState, TerminalBackend, TerminalController};
 
+pub const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
 pub fn navigate_history_previous<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     history: &mut InteractiveHistory,
@@ -69,7 +71,7 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     let footer = state.footer_mut();
     footer.activity = Activity::Idle;
     footer.model = session.config.model.clone();
-    footer.thinking_level = None;
+    footer.thinking_level = session.config.thinking_level.clone();
 
     let cwd = std::env::current_dir().unwrap_or_default();
     footer.cwd = Some(cwd.display().to_string());
@@ -86,4 +88,102 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.total_cache_write_tokens = totals.total_cache_write;
     footer.tokens_per_second = engine.tokens_per_second();
     footer.context = Some(engine.context_remaining_display());
+}
+
+pub fn cycle_thinking_level(
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+) {
+    let current = session.config.thinking_level.as_deref().unwrap_or("off");
+    let current_idx = THINKING_LEVELS
+        .iter()
+        .position(|&l| l.eq_ignore_ascii_case(current))
+        .unwrap_or(0);
+    let next_idx = (current_idx + 1) % THINKING_LEVELS.len();
+    let next_level = THINKING_LEVELS[next_idx];
+
+    session.config.thinking_level = if next_level == "off" {
+        None
+    } else {
+        Some(next_level.to_string())
+    };
+
+    update_footer(controller.state_mut(), session, engine);
+    session
+        .renderer
+        .print_notice(&format!("  [Thinking level set to {next_level}]\n"));
+}
+
+pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {
+    pub session: &'a mut ReplSession,
+    pub engine: &'b mut AgentEngine,
+    pub controller: &'a mut TerminalController<B>,
+}
+
+pub fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
+    let models = crate::repl::interactive::CURATED_MODELS;
+    if models.is_empty() {
+        return;
+    }
+    let current_model = &ctx.session.config.model;
+    let current_idx = models.iter().position(|(m, _)| m == current_model).unwrap_or(0);
+
+    let next_idx = if direction >= 0 {
+        (current_idx + 1) % models.len()
+    } else if current_idx == 0 {
+        models.len() - 1
+    } else {
+        current_idx - 1
+    };
+
+    let (new_model, new_provider) = models[next_idx];
+    ctx.session.config.model = new_model.to_string();
+    ctx.session.config.provider = new_provider.to_string();
+
+    update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
+    ctx.session.renderer.print_notice(&format!(
+        "  [Switched model to {} ({})]\n",
+        ctx.session.config.model, ctx.session.config.provider
+    ));
+}
+
+pub fn copy_last_message(
+    session: &ReplSession,
+    controller: &TerminalController<crate::ui::interactive::CrosstermBackend>,
+) {
+    let last_text = controller.transcript().iter().rev().find_map(|item| match item {
+        crate::ui::interactive::TranscriptItem::AssistantText(text) => Some(text.clone()),
+        _ => None,
+    });
+
+    if let Some(text) = last_text {
+        if crate::platform::clipboard::set_text(&text).is_ok() {
+            session
+                .renderer
+                .print_notice("  [Copied assistant message to clipboard]\n");
+        } else {
+            session.renderer.print_notice("  [Failed to access clipboard]\n");
+        }
+    } else {
+        session.renderer.print_notice("  [No assistant message to copy]\n");
+    }
+}
+
+pub fn paste_clipboard(
+    session: &ReplSession,
+    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+) {
+    if let Ok(Some(text)) = crate::platform::clipboard::get_text() {
+        for ch in text.chars() {
+            controller.state_mut().editor_mut().insert(ch);
+        }
+    } else if let Ok(Some(img)) = crate::platform::clipboard::get_image() {
+        session.renderer.print_notice(&format!(
+            "  [Pasted clipboard image: {}x{} ({} bytes)]\n",
+            img.width,
+            img.height,
+            img.bytes.len()
+        ));
+    }
 }

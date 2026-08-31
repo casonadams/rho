@@ -2,10 +2,21 @@ use crate::error::Result;
 use crate::ui::interactive::{
     InputAction, InteractionResponder, InteractionResponse, ModalState, TerminalController, UiAction, UiEvent, map_key,
 };
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, KeyModifiers};
 
 pub struct PendingModal {
     pub(crate) responder: InteractionResponder,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModalKeyResult {
+    NotHandled,
+    Handled,
+    ModelSelected {
+        model: String,
+        provider: String,
+        save_as_default: bool,
+    },
 }
 
 pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
@@ -34,14 +45,138 @@ pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
     *modal = Some(PendingModal { responder });
 }
 
-pub fn handle_modal_key(
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+pub fn open_model_selector<B: crate::ui::interactive::TerminalBackend>(
+    session: &crate::repl::ReplSession,
+    controller: &mut TerminalController<B>,
+) {
+    let models = crate::repl::interactive::CURATED_MODELS;
+    let mut options = Vec::new();
+    let mut initial_selection = 0;
+
+    for (i, (model_id, provider)) in models.iter().enumerate() {
+        let is_active = *model_id == session.config.model;
+        if is_active {
+            initial_selection = i;
+        }
+        let active_tag = if is_active { " [ACTIVE]" } else { "" };
+        let ctx = rho_core::tokens::context_window_size(model_id);
+        let ctx_str = if ctx >= 1_000_000 {
+            format!("{}M ctx", ctx / 1_000_000)
+        } else {
+            format!("{}k ctx", ctx / 1000)
+        };
+        let is_reasoning = model_id.contains("reasoner")
+            || model_id.contains("sonnet")
+            || model_id.contains("luna")
+            || model_id.contains("pro");
+        let reasoning_str = if is_reasoning { " · reasoning" } else { "" };
+
+        options.push(crate::ui::interactive::ModalOption::new(
+            *model_id,
+            Some(format!("{provider} · {ctx_str}{reasoning_str}{active_tag}")),
+        ));
+    }
+
+    let mut modal = ModalState::new(
+        "Select Model",
+        "Only showing models from configured providers. Use /login to add providers.",
+        options,
+    );
+    modal.selected = initial_selection;
+    controller.state_mut().push_modal(modal);
+}
+
+pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
     key: crossterm::event::KeyEvent,
     pending: &mut Option<PendingModal>,
-) -> Result<bool> {
+) -> Result<ModalKeyResult> {
     let Some(active) = controller.state().active_modal() else {
-        return Ok(false);
+        return Ok(ModalKeyResult::NotHandled);
     };
+
+    let is_model_selector = active.title == "Select Model";
+
+    if is_model_selector {
+        if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
+                let selected_model = opt.label.clone();
+                let provider = crate::repl::interactive::CURATED_MODELS
+                    .iter()
+                    .find(|(m, _)| *m == selected_model)
+                    .map(|(_, p)| p.to_string())
+                    .unwrap_or_else(|| "anthropic".to_string());
+                controller.state_mut().pop_modal();
+                return Ok(ModalKeyResult::ModelSelected {
+                    model: selected_model,
+                    provider,
+                    save_as_default: true,
+                });
+            }
+            controller.state_mut().pop_modal();
+            return Ok(ModalKeyResult::Handled);
+        }
+
+        match key.code {
+            KeyCode::Up | KeyCode::BackTab => {
+                controller.state_mut().select_previous_modal_option();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                controller.state_mut().select_next_modal_option();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Enter => {
+                if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
+                    let selected_model = opt.label.clone();
+                    let provider = crate::repl::interactive::CURATED_MODELS
+                        .iter()
+                        .find(|(m, _)| *m == selected_model)
+                        .map(|(_, p)| p.to_string())
+                        .unwrap_or_else(|| "anthropic".to_string());
+                    controller.state_mut().pop_modal();
+                    return Ok(ModalKeyResult::ModelSelected {
+                        model: selected_model,
+                        provider,
+                        save_as_default: false,
+                    });
+                }
+                controller.state_mut().pop_modal();
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Esc => {
+                controller.state_mut().pop_modal();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Backspace => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    let mut query = modal.filter_query.clone();
+                    query.pop();
+                    modal.set_filter(&query);
+                }
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                controller.state_mut().pop_modal();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    let mut query = modal.filter_query.clone();
+                    query.push(c);
+                    modal.set_filter(&query);
+                }
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            _ => return Ok(ModalKeyResult::Handled),
+        }
+    }
 
     match &active.mode {
         crate::ui::interactive::ModalMode::Input { .. } => match key.code {
@@ -150,5 +285,5 @@ pub fn handle_modal_key(
         },
     }
     controller.redraw()?;
-    Ok(true)
+    Ok(ModalKeyResult::Handled)
 }

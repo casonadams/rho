@@ -148,7 +148,7 @@ fn output_erases_then_writes_then_redraws_with_one_flush() {
         .unwrap();
     let divider_index = operations
         .iter()
-        .position(|operation| operation == &Operation::Write("──────────".into()))
+        .position(|operation| matches!(operation, Operation::Write(text) if text.contains("──────────")))
         .unwrap();
     assert!(last_clear < output_index);
     assert!(output_index < divider_index);
@@ -233,7 +233,7 @@ fn resize_erases_using_old_layout_and_redraws_at_new_width() {
         .unwrap();
     let divider_index = operations
         .iter()
-        .position(|operation| operation == &Operation::Write("────".into()))
+        .position(|operation| matches!(operation, Operation::Write(text) if text.contains("────")))
         .unwrap();
     assert!(clear_index < divider_index);
 }
@@ -271,7 +271,11 @@ fn tick_redraws_the_live_region() {
 
     let operations = operations.borrow();
     assert!(operations.contains(&Operation::Clear));
-    assert!(operations.contains(&Operation::Write("────────".into())));
+    assert!(
+        operations
+            .iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("────────")))
+    );
     assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
 }
 
@@ -292,7 +296,9 @@ fn busy_working_line_renders_above_the_editor() {
             Operation::Write(text) if text.contains("Thinking...") || text.contains("Working...")
         )
     });
-    let divider_index = ops.iter().position(|op| op == &Operation::Write("\u{2500}".repeat(60)));
+    let divider_index = ops
+        .iter()
+        .position(|op| matches!(op, Operation::Write(text) if text.contains(&"\u{2500}".repeat(60))));
 
     assert!(working_index.is_some());
     assert!(working_index.unwrap() < divider_index.unwrap());

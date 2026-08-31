@@ -2,6 +2,7 @@ use super::types::{TaskStatus, TodoCreateParams, TodoTask, TodoUpdateParams};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 pub struct TodoStore {
     tasks: Arc<Mutex<Vec<TodoTask>>>,
     next_id: Arc<Mutex<usize>>,
@@ -19,6 +20,10 @@ impl TodoStore {
             tasks: Arc::new(Mutex::new(Vec::new())),
             next_id: Arc::new(Mutex::new(1)),
         }
+    }
+
+    pub fn tasks(&self) -> Vec<TodoTask> {
+        self.tasks.lock().unwrap().clone()
     }
 
     pub fn create(&self, params: TodoCreateParams) -> Result<String, String> {

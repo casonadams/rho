@@ -18,9 +18,27 @@ pub struct InteractiveState {
     tools_expanded: bool,
     queue: VecDeque<QueuedMessage>,
     modals: Vec<ModalFrame>,
+    todos: Vec<rho_plugin_builtin::TodoTask>,
+    subagents: Vec<crate::ui::render::SubagentDisplayItem>,
 }
 
 impl InteractiveState {
+    pub fn todos(&self) -> &[rho_plugin_builtin::TodoTask] {
+        &self.todos
+    }
+
+    pub fn set_todos(&mut self, todos: Vec<rho_plugin_builtin::TodoTask>) {
+        self.todos = todos;
+    }
+
+    pub fn subagents(&self) -> &[crate::ui::render::SubagentDisplayItem] {
+        &self.subagents
+    }
+
+    pub fn set_subagents(&mut self, subagents: Vec<crate::ui::render::SubagentDisplayItem>) {
+        self.subagents = subagents;
+    }
+
     pub fn editor(&self) -> &EditorState {
         &self.editor
     }

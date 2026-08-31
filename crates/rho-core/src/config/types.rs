@@ -26,6 +26,7 @@ pub(crate) enum ConfigKey {
     FollowUpMode,
     ReserveTokens,
     KeepRecentTokens,
+    ThinkingLevel,
 }
 
 impl FromStr for ConfigKey {
@@ -35,6 +36,7 @@ impl FromStr for ConfigKey {
         match value {
             "model" => Ok(Self::Model),
             "provider" => Ok(Self::Provider),
+            "thinking_level" => Ok(Self::ThinkingLevel),
             "auto_approve" => Ok(Self::AutoApprove),
             "max_output_tokens" => Ok(Self::MaxOutputTokens),
             "max_turns" => Ok(Self::MaxTurns),
@@ -81,6 +83,7 @@ impl ConfigKey {
             Self::FollowUpMode => "follow_up_mode",
             Self::ReserveTokens => "reserve_tokens",
             Self::KeepRecentTokens => "keep_recent_tokens",
+            Self::ThinkingLevel => "thinking_level",
         }
     }
 }
@@ -214,6 +217,7 @@ pub struct Config {
     pub region: String,
     pub steering_mode: crate::queue::QueueMode,
     pub follow_up_mode: crate::queue::QueueMode,
+    pub thinking_level: Option<String>,
     pub context_injection_max_tokens: usize,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub mcp: McpConfig,
@@ -247,6 +251,7 @@ impl Default for Config {
             region: "wt-wt".to_string(),
             steering_mode: crate::queue::QueueMode::OneAtATime,
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
+            thinking_level: None,
             context_injection_max_tokens: 4000,
             plugins: BTreeMap::new(),
             mcp: McpConfig::default(),
@@ -280,6 +285,7 @@ pub(super) struct FileConfig {
     pub region: Option<String>,
     pub steering_mode: Option<crate::queue::QueueMode>,
     pub follow_up_mode: Option<crate::queue::QueueMode>,
+    pub thinking_level: Option<String>,
     pub context_injection_max_tokens: Option<usize>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,

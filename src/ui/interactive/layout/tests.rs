@@ -3,6 +3,55 @@ use crate::ui::interactive::{Activity, EditorState, FooterState};
 use unicode_width::UnicodeWidthStr;
 
 #[test]
+fn widget_lines_affect_height_and_cursor_row() {
+    let default_editor = EditorState::default();
+    let default_footer = FooterState::default();
+    let widgets = vec![
+        "● Todos (1/2)".to_string(),
+        "├─ ✓ #1 Done".to_string(),
+        "└─ ○ #2 Pending".to_string(),
+    ];
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: None,
+        footer: &default_footer,
+        queued_messages: &[],
+        widget_lines: &widgets,
+        terminal_width: 80,
+        spinner_frame: 0,
+    });
+
+    assert_eq!(layout.widget_lines.len(), 3);
+    // 1 (editor) + 0 (queued) + 2 (footer) + 0 (working) + 1 (top_divider) + 1 (bottom_divider) + 3 (widgets) + 1 (spacer) = 9
+    assert_eq!(layout.height(), 9);
+    // cursor_row: 0 (queued) + 4 (widgets + spacer) + 0 (working) + 1 (top_divider) + 0 (cursor.row) = 5
+    assert_eq!(layout.cursor_row(), 5);
+}
+
+#[test]
+fn modal_hides_widget_lines() {
+    let default_editor = EditorState::default();
+    let default_footer = FooterState::default();
+    let modal = crate::ui::interactive::ModalState::new(
+        "Permission Required",
+        "tool bash",
+        vec![crate::ui::interactive::ModalOption::from("Allow")],
+    );
+    let widgets = vec!["● Todos (1/2)".to_string()];
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: Some(&modal),
+        footer: &default_footer,
+        queued_messages: &[],
+        widget_lines: &widgets,
+        terminal_width: 80,
+        spinner_frame: 0,
+    });
+
+    assert!(layout.widget_lines.is_empty());
+}
+
+#[test]
 fn empty_editor_has_one_line_and_fixed_chrome() {
     let default_editor = EditorState::default();
     let default_footer = FooterState::default();
@@ -11,11 +60,12 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 8,
         spinner_frame: 0,
     });
 
-    assert_eq!(layout.top_divider, "────────");
+    assert_eq!(layout.top_divider, "\u{1b}[2m────────\u{1b}[0m");
     assert_eq!(layout.editor_lines, [""]);
     assert_eq!(layout.footer_lines.len(), 2);
     assert_eq!(layout.cursor, CursorPosition { row: 0, column: 0 });
@@ -32,6 +82,7 @@ fn explicit_newlines_grow_the_editor() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 20,
         spinner_frame: 0,
     });
@@ -51,6 +102,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 4,
         spinner_frame: 0,
     });
@@ -71,6 +123,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 3,
         spinner_frame: 0,
     });
@@ -89,6 +142,7 @@ fn full_final_line_adds_a_cursor_line() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 2,
         spinner_frame: 0,
     });
@@ -112,6 +166,7 @@ fn footer_contains_available_status_and_queue_count() {
         modal: None,
         footer: &footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -145,6 +200,7 @@ fn queued_messages_render_above_the_working_line() {
         modal: None,
         footer: &footer,
         queued_messages: &queued,
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -171,6 +227,7 @@ fn busy_activity_renders_working_line_above_the_editor() {
         modal: None,
         footer: &footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -197,6 +254,7 @@ fn thinking_activity_also_renders_the_working_line() {
         modal: None,
         footer: &footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -220,6 +278,7 @@ fn idle_activity_renders_no_working_line() {
         modal: None,
         footer: &footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -248,6 +307,7 @@ fn busy_activity_under_modal_hides_working_line() {
         modal: Some(&modal),
         footer: &footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -265,6 +325,7 @@ fn editor_layout_tracks_lines_and_dividers() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -284,6 +345,7 @@ fn multiline_editor_height_matches_content() {
         modal: None,
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 80,
         spinner_frame: 0,
     });
@@ -307,13 +369,17 @@ fn narrow_layout_never_exceeds_terminal_width() {
         modal: None,
         footer: &footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 5,
         spinner_frame: 1,
     });
 
     assert!(layout.footer_lines[0].width() <= 5);
     assert!(layout.footer_lines[1].width() <= 5);
-    assert_eq!(layout.top_divider.width(), 5);
+    assert_eq!(
+        crate::ui::interactive::layout::text::visible_width(&layout.top_divider),
+        5
+    );
 }
 
 #[test]
@@ -333,6 +399,7 @@ fn modal_layout_renders_input_frame_style() {
         modal: Some(&modal),
         footer: &default_footer,
         queued_messages: &[],
+        widget_lines: &[],
         terminal_width: 40,
         spinner_frame: 0,
     });
@@ -382,25 +449,43 @@ fn format_active_tool_block_contains_command_and_elapsed() {
 }
 
 #[test]
-fn format_active_tool_block_renders_diff_preview_for_edit() {
-    let theme = crate::ui::theme::Theme::default();
-    let diff_preview = "```diff\n- old text\n+ new text\n```";
-    let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
-        tool_name: "edit",
-        args_summary: "src/main.rs (1 edits)",
-        preview: Some(diff_preview),
-        output: "",
-        started: std::time::Instant::now(),
-        theme: &theme,
-        width: 60,
-        expanded: false,
-    });
+fn thinking_borders_change_color_with_thinking_level() {
+    let default_editor = EditorState::default();
+    let levels = [
+        (None, "\u{1b}[2m"),
+        (Some("off"), "\u{1b}[2m"),
+        (Some("minimal"), "\u{1b}[90m"),
+        (Some("low"), "\u{1b}[34m"),
+        (Some("medium"), "\u{1b}[36m"),
+        (Some("high"), "\u{1b}[35m"),
+        (Some("xhigh"), "\u{1b}[95m"),
+        (Some("max"), "\u{1b}[1;95m"),
+    ];
 
-    assert!(formatted.contains("edit"));
-    assert!(formatted.contains("src/main.rs"));
-    assert!(formatted.contains("- old text"));
-    assert!(formatted.contains("+ new text"));
-    assert!(formatted.contains("Elapsed"));
+    for (level, expected_style) in levels {
+        let footer = FooterState {
+            thinking_level: level.map(ToString::to_string),
+            ..FooterState::default()
+        };
+        let layout = layout(LayoutInput {
+            editor: &default_editor,
+            modal: None,
+            footer: &footer,
+            queued_messages: &[],
+            widget_lines: &[],
+            terminal_width: 10,
+            spinner_frame: 0,
+        });
+
+        assert!(
+            layout.top_divider.starts_with(expected_style),
+            "level {:?} expected style {:?}, got {:?}",
+            level,
+            expected_style,
+            layout.top_divider
+        );
+        assert!(layout.bottom_divider.starts_with(expected_style));
+    }
 }
 
 #[test]

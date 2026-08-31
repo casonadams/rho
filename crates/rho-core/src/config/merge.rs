@@ -63,6 +63,9 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(f) = file.follow_up_mode {
         config.follow_up_mode = f;
     }
+    if let Some(t) = file.thinking_level {
+        config.thinking_level = Some(t);
+    }
     if let Some(tokens) = file.context_injection_max_tokens {
         config.context_injection_max_tokens = tokens;
     }

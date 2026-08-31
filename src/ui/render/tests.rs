@@ -45,7 +45,12 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
                     tools_expanded: false,
                 },
             )),
-            UiEvent::RunningTool(_) | UiEvent::ToolStart(_) | UiEvent::ToolChunk { .. } | UiEvent::ToolEnd => {}
+            UiEvent::RunningTool(_)
+            | UiEvent::ToolStart(_)
+            | UiEvent::ToolChunk { .. }
+            | UiEvent::ToolEnd
+            | UiEvent::Todos(_)
+            | UiEvent::Subagents(_) => {}
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
@@ -87,7 +92,9 @@ fn finished_bash_block_includes_elapsed_duration() {
             | UiEvent::RunningTool(_)
             | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
-            | UiEvent::ToolEnd => {}
+            | UiEvent::ToolEnd
+            | UiEvent::Todos(_)
+            | UiEvent::Subagents(_) => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }

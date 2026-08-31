@@ -58,7 +58,10 @@ pub(crate) async fn run_active_turn(
                     continue;
                 }
                 let Event::Key(key) = event else { continue };
-                if handle_modal_key(controller, key, &mut batch.modal)? {
+                if !matches!(
+                    handle_modal_key(controller, key, &mut batch.modal)?,
+                    super::modal::ModalKeyResult::NotHandled
+                ) {
                     continue;
                 }
                 match map_key(key) {

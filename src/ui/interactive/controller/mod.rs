@@ -309,11 +309,26 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     fn current_layout(&self) -> InteractiveLayout {
         let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
+        let mut widget_lines = Vec::new();
+        if !self.state.todos().is_empty() {
+            let opts = crate::ui::render::TodoOverlayOptions::new(&self.theme, self.width)
+                .with_limits(crate::ui::render::DEFAULT_MAX_TODO_LINES, self.state.tools_expanded());
+            let todo_lines = crate::ui::render::format_todo_overlay(self.state.todos(), &opts);
+            widget_lines.extend(todo_lines);
+        }
+        if !self.state.subagents().is_empty() {
+            let opts = crate::ui::render::SubagentOverlayOptions::new(&self.theme, self.spinner_frame, self.width)
+                .with_limits(crate::ui::render::DEFAULT_MAX_AGENT_LINES, self.state.tools_expanded());
+            let subagent_lines = crate::ui::render::format_subagent_overlay(self.state.subagents(), &opts);
+            widget_lines.extend(subagent_lines);
+        }
+
         layout(LayoutInput {
             editor: self.state.editor(),
             modal: self.state.active_modal(),
             footer: self.state.footer(),
             queued_messages: &queue_slice,
+            widget_lines: &widget_lines,
             terminal_width: self.width,
             spinner_frame: self.spinner_frame,
         })
@@ -322,6 +337,13 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
         for line in &rendered.queued_lines {
             self.backend.write_text(line)?;
+            self.backend.write_text("\r\n")?;
+        }
+        if !rendered.widget_lines.is_empty() {
+            for line in &rendered.widget_lines {
+                self.backend.write_text(line)?;
+                self.backend.write_text("\r\n")?;
+            }
             self.backend.write_text("\r\n")?;
         }
         if !rendered.working_line.is_empty() {

@@ -56,22 +56,27 @@ pub struct ModalState {
     pub title: String,
     pub body: String,
     pub options: Vec<ModalOption>,
+    pub all_options: Vec<ModalOption>,
     pub selected: usize,
     pub mode: ModalMode,
     pub input: EditorState,
     pub allow_custom: bool,
+    pub filter_query: String,
 }
 
 impl ModalState {
     pub fn new(title: impl Into<String>, body: impl Into<String>, options: Vec<ModalOption>) -> Self {
+        let all_options = options.clone();
         Self {
             title: title.into(),
             body: body.into(),
             options,
+            all_options,
             selected: 0,
             mode: ModalMode::Select,
             input: EditorState::default(),
             allow_custom: false,
+            filter_query: String::new(),
         }
     }
 
@@ -104,5 +109,29 @@ impl ModalState {
     pub fn exit_input_mode(&mut self) {
         self.mode = ModalMode::Select;
         self.input.set_text("");
+    }
+
+    pub fn set_filter(&mut self, query: &str) {
+        self.filter_query = query.to_string();
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            self.options = self.all_options.clone();
+        } else {
+            self.options = self
+                .all_options
+                .iter()
+                .filter(|opt| {
+                    let label_matches = opt.label.to_lowercase().contains(&q);
+                    let desc_matches = opt
+                        .description
+                        .as_deref()
+                        .map(|d| d.to_lowercase().contains(&q))
+                        .unwrap_or(false);
+                    label_matches || desc_matches
+                })
+                .cloned()
+                .collect();
+        }
+        self.selected = 0;
     }
 }

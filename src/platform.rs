@@ -2,12 +2,14 @@
 //! (built-in tools + configured plugins + MCP) and hands the prepared forms
 //! to the engine.
 
+pub mod clipboard;
+pub mod suspend;
+
 use async_trait::async_trait;
 use rho_core::config::Config;
 use rho_core::error::Result;
 use rho_core::presentation::{
-    ActivityToken, ApprovalResult, BashApproval, Presenter, SessionStatus, StructuredPresenter, ToolLine,
-    WelcomeDisplay, activity_token,
+    ActivityToken, ApprovalResult, BashApproval, Presenter, SessionStatus, ToolLine, WelcomeDisplay, activity_token,
 };
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::{AgentEngine, builder::AgentEngineBuilder};
@@ -58,8 +60,18 @@ impl AppSubagentExecutor {
     }
 }
 
+struct SubagentChunkStreamSink {
+    chunk_tx: tokio::sync::mpsc::UnboundedSender<String>,
+}
+
+impl rho_core::presentation::stream::ToolStreamSink for SubagentChunkStreamSink {
+    fn tool_chunk(&self, chunk: String) {
+        let _ = self.chunk_tx.send(chunk);
+    }
+}
+
 struct SubagentHostPresenter {
-    inner: StructuredPresenter,
+    stream_sink: Arc<SubagentChunkStreamSink>,
     chunk_tx: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
@@ -92,10 +104,20 @@ impl Presenter for SubagentHostPresenter {
     }
     fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
     fn stream_port(&self) -> rho_core::presentation::stream::ToolStreamPort {
-        self.inner.stream_port()
+        rho_core::presentation::stream::ToolStreamPort::new(Some(Arc::clone(&self.stream_sink) as _))
     }
     fn question_port(&self) -> rho_core::presentation::questions::QuestionPort {
-        self.inner.question_port()
+        struct HeadlessQuestionPort;
+        #[async_trait]
+        impl rho_core::presentation::questions::InteractiveQuestionPort for HeadlessQuestionPort {
+            async fn ask(
+                &self,
+                _question: rho_core::presentation::questions::UserQuestion,
+            ) -> rho_core::error::Result<rho_core::presentation::questions::UserAnswer> {
+                Ok(rho_core::presentation::questions::UserAnswer::Cancelled)
+            }
+        }
+        rho_core::presentation::questions::QuestionPort::new(HeadlessQuestionPort)
     }
     async fn prompt_tool_approval(&self, _name: &str, _arguments: &serde_json::Value) -> ApprovalResult {
         ApprovalResult::Approved
@@ -146,10 +168,10 @@ impl SubagentExecutor for AppSubagentExecutor {
             .await?;
 
         let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-        let presenter: Arc<dyn Presenter> = Arc::new(SubagentHostPresenter {
-            inner: StructuredPresenter::stdout(),
-            chunk_tx,
+        let stream_sink = Arc::new(SubagentChunkStreamSink {
+            chunk_tx: chunk_tx.clone(),
         });
+        let presenter: Arc<dyn Presenter> = Arc::new(SubagentHostPresenter { stream_sink, chunk_tx });
         let prompt_with_instructions = format!("{}\n\nTask:\n{}", request.template.system_prompt, request.prompt);
 
         let steering_queue = SubagentSteeringQueue {

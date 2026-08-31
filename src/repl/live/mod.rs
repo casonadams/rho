@@ -45,6 +45,13 @@ pub struct ActiveTurn<'a> {
     pub prompt: &'a str,
 }
 
+pub struct IdleContext<'a, 'b> {
+    pub io: LiveIo<'a>,
+    pub editor: EditorResources<'a>,
+    pub session: &'b mut ReplSession,
+    pub engine: &'b mut crate::engine::AgentEngine,
+}
+
 pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
     stdin_is_tty && stdout_is_tty
 }
@@ -92,15 +99,19 @@ impl ReplSession {
         loop {
             let message = match controller.state_mut().pop_queued() {
                 Some(message) => message,
-                None => match read_idle_input(
-                    LiveIo {
+                None => match read_idle_input(IdleContext {
+                    io: LiveIo {
                         controller: &mut controller,
                         events: &mut ui_events,
                         input: &mut input,
                     },
-                    &mut history,
-                    &completions,
-                )
+                    editor: EditorResources {
+                        history: &mut history,
+                        completions: &completions,
+                    },
+                    session: self,
+                    engine: &mut engine,
+                })
                 .await?
                 {
                     Some(message) => message,

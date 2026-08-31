@@ -117,3 +117,49 @@ fn live_batch_flushes_tool_end_with_transcript_without_intermediate_redraw() {
     batch.flush(&mut controller, false).unwrap();
     assert_eq!(controller.transcript().len(), 1);
 }
+
+#[test]
+fn model_selector_modal_filtering_and_selection() {
+    let config = rho_core::config::Config::default();
+    let auth_store = crate::auth::AuthStore::load(&config.auth_file).unwrap_or_default();
+    let session = crate::repl::ReplSession::new(config, auth_store, None);
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    // Open model selector
+    super::modal::open_model_selector(&session, &mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Select Model");
+
+    // Filter by "sonnet"
+    let key = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('s'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let res = super::modal::handle_modal_key(&mut controller, key, &mut None).unwrap();
+    assert_eq!(res, super::modal::ModalKeyResult::Handled);
+    assert_eq!(controller.state().active_modal().unwrap().filter_query, "s");
+
+    // Filter with "claude"
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        modal.set_filter("claude");
+    }
+    let modal = controller.state().active_modal().unwrap();
+    assert!(modal.options.iter().any(|o| o.label.contains("claude")));
+
+    // Select with Enter
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let res = super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    match res {
+        super::modal::ModalKeyResult::ModelSelected {
+            model,
+            provider,
+            save_as_default,
+        } => {
+            assert!(model.contains("claude"));
+            assert!(!provider.is_empty());
+            assert!(!save_as_default);
+        }
+        _ => panic!("expected ModelSelected result"),
+    }
+    assert!(controller.state().active_modal().is_none());
+}

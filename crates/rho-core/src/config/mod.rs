@@ -121,6 +121,7 @@ impl Config {
             ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
             ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
             ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
+            ConfigKey::ThinkingLevel => file_config.thinking_level = Some(value.to_string()),
         }
 
         write_file_config(&path, &file_config)

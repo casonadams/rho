@@ -63,8 +63,8 @@ pub struct SlashCommandContext<'a> {
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
-    "/help", "/model", "/skill", "/plugin", "/session", "/compact", "/tree", "/rewind", "/resume", "/fork", "/clone",
-    "/name", "/clear", "/login", "/logout", "/exit",
+    "/help", "/todos", "/model", "/skill", "/plugin", "/session", "/compact", "/tree", "/rewind", "/resume", "/fork",
+    "/clone", "/name", "/clear", "/login", "/logout", "/exit",
 ];
 
 pub struct SlashCommandHandler;
@@ -85,6 +85,12 @@ impl SlashCommandHandler {
         match cmd_name.as_str() {
             "help" => {
                 print_help(ctx.config, ctx.renderer, ctx.commands);
+                Ok(Some(CommandResult::Continue))
+            }
+            "todos" | "todo" => {
+                let notice =
+                    "  Use /help to see available commands or view active todos in the overlay above the editor.\n";
+                ctx.renderer.print_notice(notice);
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" => {

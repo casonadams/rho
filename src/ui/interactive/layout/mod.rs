@@ -22,6 +22,7 @@ pub struct CursorPosition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveLayout {
     pub queued_lines: Vec<String>,
+    pub widget_lines: Vec<String>,
     pub working_line: String,
     pub top_divider: String,
     pub editor_lines: Vec<String>,
@@ -34,6 +35,9 @@ pub struct InteractiveLayout {
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
         let mut h = self.editor_lines.len() + self.queued_lines.len() + self.footer_lines.len();
+        if !self.widget_lines.is_empty() {
+            h += self.widget_lines.len() + 1; // widget lines + trailing blank spacer line
+        }
         if !self.working_line.is_empty() {
             h += 2; // blank line above working line + working line itself
         }
@@ -48,6 +52,9 @@ impl InteractiveLayout {
 
     pub fn cursor_row(&self) -> usize {
         let mut row = self.queued_lines.len();
+        if !self.widget_lines.is_empty() {
+            row += self.widget_lines.len() + 1;
+        }
         if !self.working_line.is_empty() {
             row += 2;
         }
@@ -64,6 +71,7 @@ pub struct LayoutInput<'a> {
     pub modal: Option<&'a ModalState>,
     pub footer: &'a FooterState,
     pub queued_messages: &'a [super::QueuedMessage],
+    pub widget_lines: &'a [String],
     pub terminal_width: usize,
     pub spinner_frame: usize,
 }
@@ -71,10 +79,13 @@ pub struct LayoutInput<'a> {
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
     let queued_lines = queued_lines_text(input.queued_messages, width);
-    let working_line = if input.modal.is_some() {
-        String::new()
+    let (working_line, widget_lines) = if input.modal.is_some() {
+        (String::new(), Vec::new())
     } else {
-        working_line_text(&input.footer.activity, input.spinner_frame, width)
+        (
+            working_line_text(&input.footer.activity, input.spinner_frame, width),
+            input.widget_lines.to_vec(),
+        )
     };
 
     let (editor_lines, cursor, top_divider, bottom_divider) = if let Some(modal) = input.modal {
@@ -83,8 +94,9 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         (lines, cursor, String::new(), divider)
     } else {
         let (lines, cursor) = wrap_editor(input.editor, width);
-        let divider = truncate_to_width(&"─".repeat(width), width);
-        (lines, cursor, divider.clone(), divider)
+        let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
+        let styled_divider = format!("{style}{}{reset}", "─".repeat(width));
+        (lines, cursor, styled_divider.clone(), styled_divider)
     };
 
     let footer_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
@@ -92,6 +104,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
 
     InteractiveLayout {
         queued_lines,
+        widget_lines,
         working_line,
         top_divider,
         editor_lines,
@@ -99,6 +112,19 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         footer_lines,
         footer,
         cursor,
+    }
+}
+
+pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'static str) {
+    match thinking_level.unwrap_or("off") {
+        "off" => ("\x1b[2m", "\x1b[0m"),
+        "minimal" => ("\x1b[90m", "\x1b[0m"),
+        "low" => ("\x1b[34m", "\x1b[0m"),
+        "medium" => ("\x1b[36m", "\x1b[0m"),
+        "high" => ("\x1b[35m", "\x1b[0m"),
+        "xhigh" => ("\x1b[95m", "\x1b[0m"),
+        "max" => ("\x1b[1;95m", "\x1b[0m"),
+        _ => ("\x1b[2m", "\x1b[0m"),
     }
 }
 

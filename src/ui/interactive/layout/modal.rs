@@ -19,30 +19,44 @@ pub(crate) fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<Str
         lines.push(String::new());
     }
 
-    for (i, opt) in modal.options.iter().enumerate() {
-        let is_selected = i == modal.selected;
-        let prefix = if is_selected { "\x1b[36m▸\x1b[0m " } else { "  " };
-        let label_styled = if is_selected {
-            format!("\x1b[1m{}\x1b[0m", opt.label)
+    if modal.title == "Select Model" {
+        let filter_display = if modal.filter_query.is_empty() {
+            "\x1b[2m(type to filter)\x1b[0m"
         } else {
-            opt.label.clone()
+            &modal.filter_query
         };
+        lines.push(format!("  \x1b[36m>\x1b[0m {filter_display}"));
+        lines.push(String::new());
+    }
 
-        let opt_line = if let Some(desc) = &opt.description {
-            format!("{prefix}{label_styled}  \x1b[2m{desc}\x1b[0m")
-        } else {
-            format!("{prefix}{label_styled}")
-        };
-
-        if is_selected && modal.mode == ModalMode::Select {
-            cursor = CursorPosition {
-                row: lines.len(),
-                column: 2,
+    if modal.options.is_empty() {
+        lines.push("  \x1b[2mNo matching models found\x1b[0m".to_string());
+    } else {
+        for (i, opt) in modal.options.iter().enumerate() {
+            let is_selected = i == modal.selected;
+            let prefix = if is_selected { "\x1b[36m▸\x1b[0m " } else { "  " };
+            let label_styled = if is_selected {
+                format!("\x1b[1m{}\x1b[0m", opt.label)
+            } else {
+                opt.label.clone()
             };
-        }
 
-        for wrapped in wrap_to_width(&opt_line, inner_width) {
-            lines.push(format!("  {wrapped}"));
+            let opt_line = if let Some(desc) = &opt.description {
+                format!("{prefix}{label_styled}  \x1b[2m{desc}\x1b[0m")
+            } else {
+                format!("{prefix}{label_styled}")
+            };
+
+            if is_selected && modal.mode == ModalMode::Select {
+                cursor = CursorPosition {
+                    row: lines.len(),
+                    column: 2,
+                };
+            }
+
+            for wrapped in wrap_to_width(&opt_line, inner_width) {
+                lines.push(format!("  {wrapped}"));
+            }
         }
     }
 
@@ -67,21 +81,25 @@ pub(crate) fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<Str
 
     lines.push(String::new());
 
-    let hint = match &modal.mode {
-        ModalMode::Select => {
-            if modal.title.contains("Permission") || modal.title.contains("Approve") {
-                "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"
-            } else if modal.allow_custom {
-                "\x1b[2m↑/↓ select • Enter confirm • Esc cancel • or type custom\x1b[0m"
-            } else {
-                "\x1b[2m↑/↓ select • Enter confirm • Esc cancel\x1b[0m"
+    let hint = if modal.title == "Select Model" {
+        "\x1b[2mEnter to select • Ctrl+S to set as default • Esc to cancel\x1b[0m"
+    } else {
+        match &modal.mode {
+            ModalMode::Select => {
+                if modal.title.contains("Permission") || modal.title.contains("Approve") {
+                    "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"
+                } else if modal.allow_custom {
+                    "\x1b[2m↑/↓ select • Enter confirm • Esc cancel • or type custom\x1b[0m"
+                } else {
+                    "\x1b[2m↑/↓ select • Enter confirm • Esc cancel\x1b[0m"
+                }
             }
-        }
-        ModalMode::Input { .. } => {
-            if modal.options.is_empty() {
-                "\x1b[2mEnter submit • Esc cancel\x1b[0m"
-            } else {
-                "\x1b[2mEnter submit • Esc back\x1b[0m"
+            ModalMode::Input { .. } => {
+                if modal.options.is_empty() {
+                    "\x1b[2mEnter submit • Esc cancel\x1b[0m"
+                } else {
+                    "\x1b[2mEnter submit • Esc back\x1b[0m"
+                }
             }
         }
     };

@@ -95,6 +95,22 @@ impl InteractiveUi {
         }
     }
 
+    pub fn update_todos(&self, todos: Vec<rho_plugin_builtin::TodoTask>) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender.send(UiEvent::Todos(todos)).map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
+    pub fn update_subagents(&self, subagents: Vec<crate::ui::render::SubagentDisplayItem>) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::Subagents(subagents))
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
     pub fn tool_end(&self) -> Result<(), UiPortError> {
         match self.transport.as_ref() {
             Transport::Channel(sender) => sender.send(UiEvent::ToolEnd).map_err(|_| UiPortError::Closed),

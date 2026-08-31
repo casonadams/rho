@@ -2,6 +2,9 @@ mod controller;
 mod events;
 pub mod footer;
 mod input;
+pub mod key_parser;
+pub mod keybinding_loader;
+pub mod keymap;
 mod layout;
 pub mod session_picker;
 mod state;
@@ -17,7 +20,9 @@ pub use footer::{
     abbreviate_home, fit_right_aligned, format_footer_lines, format_stats_line, format_tokens, format_top_line,
     get_git_branch, sanitize_status_text,
 };
-pub use input::{InputAction, map_key};
+pub use input::{InputAction, map_key, map_key_with_bindings};
+pub use keybinding_loader::{default_keybindings, load_keybindings};
+pub use keymap::{KeyAction, KeyChord, KeybindingMap};
 pub use layout::{
     ActiveToolDisplayInput, CursorPosition, InteractiveLayout, LayoutInput, SPINNER_FRAMES, VisualTruncateResult,
     format_active_tool_block, layout, truncate_to_visual_lines, wrap_to_width,
