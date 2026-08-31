@@ -1,6 +1,7 @@
 pub use crate::repeat;
 pub use crate::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
 pub use rho_plugin_providers::quota;
+pub use tracking::{SessionUsageTotals, SpeedTracker};
 pub mod builder;
 pub mod context;
 pub mod metrics;
@@ -101,6 +102,23 @@ impl AgentEngine {
         }
         let limit = self.context_limit()?;
         Some(((usage.input_tokens as usize * 100) / limit).min(100))
+    }
+
+    pub fn context_percent_f64(&self) -> Option<f64> {
+        let usage = self.usage.latest()?;
+        if !usage.has_values() {
+            return None;
+        }
+        let limit = self.context_limit()?;
+        Some(((usage.input_tokens as f64 / limit as f64) * 100.0).min(100.0))
+    }
+
+    pub fn session_usage_totals(&self) -> SessionUsageTotals {
+        self.usage.totals()
+    }
+
+    pub fn tokens_per_second(&self) -> Option<f64> {
+        self.usage.tokens_per_second()
     }
 
     pub fn context_display(&self) -> String {

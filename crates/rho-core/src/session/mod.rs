@@ -153,6 +153,10 @@ impl SessionManager {
         Ok(self.state.lock().await.tree.session_name.clone())
     }
 
+    pub fn cached_session_name(&self) -> Option<String> {
+        self.state.try_lock().ok().and_then(|s| s.tree.session_name.clone())
+    }
+
     pub async fn append_branch_summary(&self, summary: &str, source_leaf_id: &str) -> Result<()> {
         self.reject_secrets(&summary)?;
         let mut state = self.state.lock().await;

@@ -110,13 +110,14 @@ pub struct InteractiveLayout {
     pub top_divider: String,
     pub editor_lines: Vec<String>,
     pub bottom_divider: String,
+    pub footer_lines: Vec<String>,
     pub footer: String,
     pub cursor: CursorPosition,
 }
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + self.queued_lines.len() + 1;
+        let mut h = self.editor_lines.len() + self.queued_lines.len() + self.footer_lines.len();
         if !self.working_line.is_empty() {
             h += 2;
         }
@@ -164,13 +165,17 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             )
         };
 
+    let footer_lines = super::footer::format_footer_lines(input.footer, width);
+    let footer = footer_lines.join("\n");
+
     InteractiveLayout {
         queued_lines,
         top_divider,
         editor_lines,
         bottom_divider,
         working_line,
-        footer: truncate_to_width(&footer_text(input.footer), width),
+        footer_lines,
+        footer,
         cursor,
     }
 }
@@ -364,23 +369,6 @@ fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<String>, Curso
     (lines, cursor)
 }
 
-fn footer_text(footer: &FooterState) -> String {
-    let mut segments = Vec::new();
-    if !footer.model.is_empty() {
-        segments.push(footer.model.clone());
-    }
-    if let Some(context) = footer.context.as_deref().filter(|value| !value.is_empty()) {
-        segments.push(context.to_string());
-    }
-    if let Some(quota) = footer.quota.as_deref().filter(|value| !value.is_empty()) {
-        segments.push(quota.to_string());
-    }
-    if segments.is_empty() {
-        segments.push(footer.activity.label().to_string());
-    }
-    segments.join(" | ")
-}
-
 fn wrap_editor(editor: &EditorState, width: usize) -> (Vec<String>, CursorPosition) {
     let mut lines = vec![String::new()];
     let mut row = 0;
@@ -465,9 +453,9 @@ mod tests {
 
         assert_eq!(layout.top_divider, "────────");
         assert_eq!(layout.editor_lines, [""]);
-        assert_eq!(layout.footer, "idle");
+        assert_eq!(layout.footer_lines.len(), 2);
         assert_eq!(layout.cursor, CursorPosition { row: 0, column: 0 });
-        assert_eq!(layout.height(), 4);
+        assert_eq!(layout.height(), 5);
     }
 
     #[test]
@@ -486,7 +474,7 @@ mod tests {
 
         assert_eq!(layout.editor_lines, ["one", "two", ""]);
         assert_eq!(layout.cursor, CursorPosition { row: 2, column: 0 });
-        assert_eq!(layout.height(), 6);
+        assert_eq!(layout.height(), 7);
     }
 
     #[test]
@@ -553,6 +541,7 @@ mod tests {
             model: "model".into(),
             context: Some("42% context".into()),
             quota: Some("80% quota".into()),
+            ..FooterState::default()
         };
         let layout = layout(LayoutInput {
             editor: &default_editor,
@@ -563,7 +552,8 @@ mod tests {
             spinner_frame: 0,
         });
 
-        assert_eq!(layout.footer, "model | 42% context | 80% quota");
+        assert!(layout.footer_lines[0].ends_with("80% quota"));
+        assert!(layout.footer_lines[1].ends_with("model"));
     }
 
     #[test]
@@ -574,6 +564,7 @@ mod tests {
             model: "model".into(),
             context: None,
             quota: None,
+            ..FooterState::default()
         };
         let queued = vec![
             crate::ui::interactive::QueuedMessage {
@@ -598,7 +589,7 @@ mod tests {
         assert!(layout.queued_lines[0].contains("Steering: first steer"));
         assert!(layout.queued_lines[1].contains("Follow-up: next follow"));
         assert!(layout.queued_lines[2].contains("Alt+↑"));
-        assert_eq!(layout.height(), 9);
+        assert_eq!(layout.height(), 10);
     }
 
     #[test]
@@ -609,6 +600,7 @@ mod tests {
             model: "model".into(),
             context: None,
             quota: None,
+            ..FooterState::default()
         };
         let layout = layout(LayoutInput {
             editor: &default_editor,
@@ -622,8 +614,8 @@ mod tests {
         assert!(layout.working_line.contains('\u{280b}'));
         assert!(layout.working_line.contains("Working..."));
         assert!(layout.working_line.contains("\u{1b}[2m"));
-        assert_eq!(layout.footer, "model");
-        assert_eq!(layout.height(), 6);
+        assert!(layout.footer_lines[1].ends_with("model"));
+        assert_eq!(layout.height(), 7);
     }
 
     #[test]
@@ -634,6 +626,7 @@ mod tests {
             model: "model".into(),
             context: None,
             quota: None,
+            ..FooterState::default()
         };
         let layout = layout(LayoutInput {
             editor: &default_editor,
@@ -656,6 +649,7 @@ mod tests {
             model: "model".into(),
             context: None,
             quota: None,
+            ..FooterState::default()
         };
         let layout = layout(LayoutInput {
             editor: &default_editor,
@@ -667,7 +661,7 @@ mod tests {
         });
 
         assert_eq!(layout.working_line, "");
-        assert_eq!(layout.height(), 4);
+        assert_eq!(layout.height(), 5);
     }
 
     #[test]
@@ -678,6 +672,7 @@ mod tests {
             model: "model".into(),
             context: None,
             quota: None,
+            ..FooterState::default()
         };
         let modal = crate::ui::interactive::ModalState::new(
             "Permission Required",
@@ -711,7 +706,7 @@ mod tests {
         });
 
         assert_eq!(layout.editor_lines.len(), 1);
-        assert_eq!(layout.height(), 4);
+        assert_eq!(layout.height(), 5);
         assert_eq!(layout.cursor_row(), 1);
     }
 
@@ -730,7 +725,7 @@ mod tests {
         });
 
         assert_eq!(layout.editor_lines.len(), 3);
-        assert_eq!(layout.height(), 6);
+        assert_eq!(layout.height(), 7);
     }
 
     #[test]
@@ -741,6 +736,7 @@ mod tests {
             model: "model".into(),
             context: None,
             quota: None,
+            ..FooterState::default()
         };
         let layout = layout(LayoutInput {
             editor: &default_editor,
@@ -751,7 +747,8 @@ mod tests {
             spinner_frame: 1,
         });
 
-        assert!(layout.footer.width() <= 5);
+        assert!(layout.footer_lines[0].width() <= 5);
+        assert!(layout.footer_lines[1].width() <= 5);
         assert_eq!(layout.top_divider.width(), 5);
     }
 

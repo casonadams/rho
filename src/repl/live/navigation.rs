@@ -66,8 +66,24 @@ pub fn restore_queued_messages(controller: &mut TerminalController<crate::ui::in
 }
 
 pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
-    state.footer_mut().activity = Activity::Idle;
-    state.footer_mut().model = session.config.model.clone();
-    state.footer_mut().context = Some(engine.context_remaining_display());
-    state.footer_mut().quota = engine.quota_display();
+    let footer = state.footer_mut();
+    footer.activity = Activity::Idle;
+    footer.model = session.config.model.clone();
+    footer.thinking_level = None;
+
+    let cwd = std::env::current_dir().unwrap_or_default();
+    footer.cwd = Some(cwd.display().to_string());
+    footer.git_branch = crate::ui::interactive::footer::get_git_branch(&cwd);
+    footer.session_name = engine.session_manager.cached_session_name();
+    footer.quota = engine.quota_display();
+    footer.context_percent = engine.context_percent_f64();
+    footer.context_window = engine.context_limit().unwrap_or(0);
+
+    let totals = engine.session_usage_totals();
+    footer.total_input_tokens = totals.total_input;
+    footer.total_output_tokens = totals.total_output;
+    footer.total_cache_read_tokens = totals.total_cache_read;
+    footer.total_cache_write_tokens = totals.total_cache_write;
+    footer.tokens_per_second = engine.tokens_per_second();
+    footer.context = Some(engine.context_remaining_display());
 }

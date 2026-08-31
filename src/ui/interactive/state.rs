@@ -47,13 +47,52 @@ impl RunningTool {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone)]
 pub struct FooterState {
     pub activity: Activity,
     pub model: String,
-    pub context: Option<String>,
+    pub thinking_level: Option<String>,
+    pub cwd: Option<String>,
+    pub git_branch: Option<String>,
+    pub session_name: Option<String>,
     pub quota: Option<String>,
+    pub context_percent: Option<f64>,
+    pub context_window: usize,
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
+    pub total_cache_read_tokens: u64,
+    pub total_cache_write_tokens: u64,
+    pub total_cost: Option<f64>,
+    pub tokens_per_second: Option<f64>,
+    pub extra_status: Option<String>,
+    pub hidden_status_count: usize,
+    pub context: Option<String>,
 }
+
+impl PartialEq for FooterState {
+    fn eq(&self, other: &Self) -> bool {
+        self.activity == other.activity
+            && self.model == other.model
+            && self.thinking_level == other.thinking_level
+            && self.cwd == other.cwd
+            && self.git_branch == other.git_branch
+            && self.session_name == other.session_name
+            && self.quota == other.quota
+            && self.context_percent.map(f64::to_bits) == other.context_percent.map(f64::to_bits)
+            && self.context_window == other.context_window
+            && self.total_input_tokens == other.total_input_tokens
+            && self.total_output_tokens == other.total_output_tokens
+            && self.total_cache_read_tokens == other.total_cache_read_tokens
+            && self.total_cache_write_tokens == other.total_cache_write_tokens
+            && self.total_cost.map(f64::to_bits) == other.total_cost.map(f64::to_bits)
+            && self.tokens_per_second.map(f64::to_bits) == other.tokens_per_second.map(f64::to_bits)
+            && self.extra_status == other.extra_status
+            && self.hidden_status_count == other.hidden_status_count
+            && self.context == other.context
+    }
+}
+
+impl Eq for FooterState {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalOption {

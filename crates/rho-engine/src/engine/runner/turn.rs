@@ -103,6 +103,7 @@ impl AgentEngine {
         let mut checkpoint = self.session_manager.load_checkpoint().await?;
 
         self.run_tracker.start();
+        self.usage.start_response();
         let model_label = format!("{}:{}", self.config.model, self.context_usage_display());
         let sink = TerminalApprovalSink::new(
             &presenter,

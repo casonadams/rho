@@ -55,6 +55,7 @@ impl AgentEngine {
         let preamble = context.build_system_prompt();
 
         self.run_tracker.start();
+        self.usage.start_response();
         let sink = TerminalApprovalSink::new(
             &presenter,
             TerminalSinkConfig {

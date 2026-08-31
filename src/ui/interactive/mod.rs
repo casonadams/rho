@@ -1,5 +1,6 @@
 mod controller;
 mod events;
+pub mod footer;
 mod input;
 mod layout;
 pub mod session_picker;
@@ -11,6 +12,10 @@ pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
     BatchDecision, FlushBarrier, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
     InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, ToolStartRequest, UiEvent, UiPortError,
+};
+pub use footer::{
+    abbreviate_home, fit_right_aligned, format_footer_lines, format_stats_line, format_tokens, format_top_line,
+    get_git_branch, sanitize_status_text,
 };
 pub use input::{InputAction, map_key};
 pub use layout::{

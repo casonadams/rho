@@ -423,8 +423,13 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.backend.write_text("\r\n")?;
         }
         let footer_style = self.footer_style;
-        self.backend
-            .write_text(&format!("{footer_style}{}{footer_style:#}", rendered.footer))?;
+        for (i, line) in rendered.footer_lines.iter().enumerate() {
+            if i > 0 {
+                self.backend.write_text("\r\n")?;
+            }
+            self.backend
+                .write_text(&format!("{footer_style}{line}{footer_style:#}"))?;
+        }
 
         self.backend.move_up(rendered.height() - 1 - rendered.cursor_row())?;
         self.backend.move_to_column(rendered.cursor.column)
@@ -890,7 +895,10 @@ mod tests {
         controller.tick().unwrap();
 
         let ops = operations.borrow();
-        assert!(ops.contains(&Operation::Write("\u{1b}[2mmodel\u{1b}[0m".into())));
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("model") && text.contains("\u{1b}[2m")))
+        );
         assert!(
             !ops.iter()
                 .any(|op| matches!(op, Operation::Write(text) if text.contains("working")))
@@ -912,7 +920,8 @@ mod tests {
         assert!(
             operations
                 .borrow()
-                .contains(&Operation::Write("\u{1b}[2midle\u{1b}[0m".into()))
+                .iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("\u{1b}[2m")))
         );
     }
 
