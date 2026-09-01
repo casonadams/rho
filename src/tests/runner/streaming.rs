@@ -1,8 +1,6 @@
 use super::helpers::{final_event, presenter, request, terminal_session, test_engine};
-use crate::approval::{ApprovalEventSink, ToolEvent};
 use crate::config::Config;
 use crate::engine::runner::{DisplayEvent, TerminalApprovalSink, TerminalSinkConfig, display_events};
-use crate::policy::ExecutionClass;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveUi, UiEvent};
 use rig::completion::Usage;
@@ -79,12 +77,7 @@ fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
     );
 
     assert!(sink.state.lock().unwrap().spinner.is_some());
-    sink.emit(ToolEvent::CallClassified {
-        internal_call_id: "call-1".to_string(),
-        tool_name: "read".to_string(),
-        arguments: serde_json::json!({"path": "src/lib.rs"}),
-        class: ExecutionClass::ReadOnly,
-    });
+    sink.tool_start("read", &serde_json::json!({"path": "src/lib.rs"}));
 
     let activities = std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
@@ -129,10 +122,7 @@ fn interactive_stream_preserves_spinner_until_finished() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(
-        activities,
-        [Activity::Thinking, Activity::Idle, Activity::Working, Activity::Idle]
-    );
+    assert_eq!(activities, [Activity::Thinking, Activity::Idle]);
 }
 
 #[test]
@@ -150,12 +140,7 @@ fn reasoning_flushes_before_tool_classification() {
     sink.emit_reasoning("pondering next step");
     assert_eq!(sink.state.lock().unwrap().reasoning.join(""), "pondering next step");
 
-    sink.emit(ToolEvent::CallClassified {
-        internal_call_id: "call-1".to_string(),
-        tool_name: "bash".to_string(),
-        arguments: serde_json::json!({ "command": "cargo test" }),
-        class: ExecutionClass::ReadOnly,
-    });
+    sink.tool_start("bash", &serde_json::json!({ "command": "cargo test" }));
 
     assert!(sink.state.lock().unwrap().reasoning.is_empty());
 }

@@ -3,24 +3,12 @@
 
 #[cfg(test)]
 mod tests {
-    use async_trait::async_trait;
     use rho::engine::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
-    use rho::tools::{BashTool, approval_context};
-    use rho_core::approval::{ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest};
+    use rho::tools::BashTool;
     use rig::agent::AgentBuilder;
     use rig::test_utils::{MockCompletionModel, MockTurn};
     use serde_json::{Value, json};
     use std::path::Path;
-    use std::sync::Arc;
-
-    struct Approve;
-
-    #[async_trait]
-    impl ApprovalEventSink for Approve {
-        async fn request_approval(&self, _request: ApprovalRequest) -> ApprovalDecision {
-            ApprovalDecision::Approved
-        }
-    }
 
     fn key(name: &str, arguments: Value) -> String {
         normalized_call_key(name, &arguments, Path::new("."))
@@ -41,12 +29,12 @@ mod tests {
             key("bash", json!({"command":"cargo test", "timeout":31}))
         );
         assert_eq!(
-            key("websearch", json!({"query":" Rig   Memory ", "limit":null})),
-            key("websearch", json!({"query":"rig memory", "limit":5}))
+            key("search", json!({"query":" Rig   Memory ", "limit":null})),
+            key("search", json!({"query":"rig memory", "limit":5}))
         );
         assert_ne!(
-            key("websearch", json!({"query":"rig memory", "limit":5})),
-            key("websearch", json!({"query":"rig memory hook", "limit":5}))
+            key("search", json!({"query":"rig memory", "limit":5})),
+            key("search", json!({"query":"rig memory hook", "limit":5}))
         );
     }
 
@@ -67,19 +55,11 @@ mod tests {
             MockTurn::tool_call("c", "bash", json!({"command":commands[2]})),
             MockTurn::text("changed approach"),
         ]);
-        let capability = ApprovalCapability::new(true, Arc::new(Approve));
         let agent = AgentBuilder::new(model.clone())
             .tool(BashTool::new(&dir))
             .add_hook(RepeatedCallHook::new(&dir))
             .build();
-        let response = agent
-            .runner("repeat")
-            .tool_context(approval_context(capability))
-            .tool_concurrency(1)
-            .max_turns(5)
-            .run()
-            .await
-            .unwrap();
+        let response = agent.runner("repeat").max_turns(5).run().await.unwrap();
 
         assert_eq!(response.output, "changed approach");
         assert_eq!(std::fs::read_to_string(&marker).unwrap(), "xx");
@@ -87,44 +67,24 @@ mod tests {
         assert!(third_request.contains("blocked after three consecutive attempts"));
     }
 
-    struct Deny;
-
-    #[async_trait]
-    impl ApprovalEventSink for Deny {
-        async fn request_approval(&self, _request: ApprovalRequest) -> ApprovalDecision {
-            ApprovalDecision::Denied {
-                reason: "offline test".to_string(),
-            }
-        }
-    }
-
     #[tokio::test]
-    async fn denied_calls_count_toward_the_same_consecutive_threshold() {
-        let dir = std::env::temp_dir().join(format!("repeat_denied_{}", uuid::Uuid::new_v4()));
+    async fn consecutive_calls_count_toward_the_same_consecutive_threshold() {
+        let dir = std::env::temp_dir().join(format!("repeat_consecutive_{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(".git/config");
-        let arguments = json!({"path":path,"content":"forbidden"});
+        let path = dir.join("out.txt");
+        let arguments = json!({"path":path,"content":"same"});
         let model = MockCompletionModel::new([
             MockTurn::tool_call("a", "write", arguments.clone()),
             MockTurn::tool_call("b", "write", arguments.clone()),
             MockTurn::tool_call("c", "write", arguments),
             MockTurn::text("done"),
         ]);
-        let capability = ApprovalCapability::new(false, Arc::new(Deny));
         let agent = AgentBuilder::new(model.clone())
             .tool(rho::tools::WriteTool::new(&dir))
-            .add_hook(RepeatedCallHook::new(&dir).with_sink(Arc::new(Approve)))
+            .add_hook(RepeatedCallHook::new(&dir))
             .build();
-        agent
-            .runner("repeat denied")
-            .tool_context(approval_context(capability))
-            .tool_concurrency(1)
-            .max_turns(5)
-            .run()
-            .await
-            .unwrap();
+        agent.runner("repeat").max_turns(5).run().await.unwrap();
 
-        assert!(!path.exists());
         let history = format!("{:?}", model.requests()[3].chat_history);
         assert!(history.contains("blocked after three consecutive attempts"));
     }

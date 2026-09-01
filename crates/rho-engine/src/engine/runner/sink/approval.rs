@@ -1,11 +1,7 @@
-use super::super::helpers::{clear_spinner, needs_approval, redact_value};
-use super::super::history::DisplayEvent;
+use super::super::helpers::{clear_spinner, redact_value};
 use super::types::{CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig};
 use crate::engine::metrics::RunTracker;
-use async_trait::async_trait;
-use rho_core::approval::{ApprovalEventSink, ApprovalRequest, ToolEvent};
-use rho_core::presentation::{ApprovalResult, BashApproval, ToolLine};
-use rho_core::presentation::{Presenter, summarize_tool_output};
+use rho_core::presentation::{Presenter, ToolLine, summarize_tool_output};
 use rho_core::session::SessionManager;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -27,6 +23,13 @@ pub struct TerminalApprovalSink {
     pub session_manager: SessionManager,
     pub run_tracker: RunTracker,
     pub state: Mutex<TerminalSinkState>,
+}
+
+pub struct ToolFinishDetails<'a> {
+    pub name: &'a str,
+    pub arguments: &'a Value,
+    pub output: &'a str,
+    pub is_error: bool,
 }
 
 impl TerminalApprovalSink {
@@ -139,151 +142,81 @@ impl TerminalApprovalSink {
     }
 
     pub fn emit_text(&self, text: &str) {
-        self.flush_reasoning();
         if !self.presenter.has_interactive_ui() {
             self.finish_spinner();
         }
+        self.flush_reasoning();
+        let mut prefix_blank = false;
         if let Ok(mut state) = self.state.lock() {
-            if self.presenter.has_interactive_ui() && state.last_display != DisplayKind::Text {
-                clear_spinner(&mut state);
-                state.spinner = Some(self.presenter.start_spinner("working..."));
-            }
             if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Thinking {
-                self.presenter.write_output("\n");
+                prefix_blank = true;
             }
             state.last_display = DisplayKind::Text;
         }
-        self.presenter
-            .print_token(&self.session_manager.redact_credentials(text));
+        if prefix_blank {
+            self.presenter.write_output("\n");
+        }
+        let redacted = self.session_manager.redact_credentials(text);
+        self.presenter.print_token(&redacted);
     }
 
     pub fn flush_display(&self) {
         self.flush_reasoning();
         self.presenter.flush();
-        if let Ok(state) = self.state.lock()
-            && state.last_display == DisplayKind::Tool
-        {
-            self.presenter.write_output("\n");
-        }
     }
 
-    pub fn display_event(&self, event: &DisplayEvent) {
-        match event {
-            DisplayEvent::Text(text) => self.emit_text(text),
-            DisplayEvent::Reasoning(text) => self.emit_reasoning(text),
-            DisplayEvent::ToolCall => {
-                self.flush_reasoning();
-            }
-        }
-    }
-}
-
-#[async_trait]
-impl ApprovalEventSink for TerminalApprovalSink {
-    async fn request_approval(&self, request: ApprovalRequest) -> rho_core::approval::ApprovalDecision {
-        self.finish_spinner();
+    pub fn tool_start(&self, name: &str, arguments: &Value) {
+        self.run_tracker.tool_called();
         self.flush_reasoning();
         self.presenter.flush();
-        let arguments = redact_value(&self.session_manager, &request.arguments);
-
-        let result = if request.tool_name == "bash" {
-            let command = arguments.get("command").and_then(Value::as_str).unwrap_or_default();
-            self.presenter
-                .prompt_bash_approval(BashApproval {
-                    command: command.to_string(),
-                    tier: request.tier,
-                    reasons: request.reasons.clone(),
-                })
-                .await
-        } else {
-            self.presenter
-                .prompt_tool_approval(&request.tool_name, &arguments)
-                .await
-        };
-        match result {
-            ApprovalResult::Approved => rho_core::approval::ApprovalDecision::Approved,
-            ApprovalResult::ApprovedForSession => rho_core::approval::ApprovalDecision::ApprovedForSession,
-            ApprovalResult::Denied { reason } => rho_core::approval::ApprovalDecision::Denied { reason },
+        let arguments = redact_value(&self.session_manager, arguments);
+        if let Ok(mut state) = self.state.lock() {
+            clear_spinner(&mut state);
+            state.pending.insert(
+                name.to_string(),
+                PendingToolCall {
+                    name: name.to_string(),
+                    arguments: arguments.clone(),
+                    started: Some(Instant::now()),
+                },
+            );
+            if name != "ask" && name != "ask_user" && name != "ask_user_question" {
+                state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
+                self.presenter.start_tool_run(name, &arguments);
+            }
         }
     }
 
-    fn emit(&self, event: ToolEvent) {
-        match event {
-            ToolEvent::CallClassified {
-                internal_call_id,
-                tool_name,
+    pub fn tool_finished(&self, details: ToolFinishDetails<'_>) {
+        let status = if details.is_error { "error" } else { "success" };
+        self.run_tracker.tool_finished(status);
+        if let Ok(mut state) = self.state.lock() {
+            clear_spinner(&mut state);
+            state.last_display = DisplayKind::Tool;
+            let duration_ms = state
+                .pending
+                .remove(details.name)
+                .and_then(|p| p.started)
+                .map(|s| s.elapsed().as_millis() as u64);
+            let arguments = redact_value(&self.session_manager, details.arguments);
+            let output_redacted = self.session_manager.redact_credentials(details.output);
+            let output_summary = summarize_tool_output(&output_redacted);
+            self.presenter.finish_tool_line(ToolLine {
+                name: details.name.to_string(),
+                arguments: arguments.clone(),
+                is_error: details.is_error,
+                output: output_redacted.clone(),
+                output_summary,
+                duration_ms,
+            });
+            state.completed.push(CompletedTool {
+                internal_call_id: uuid::Uuid::new_v4().to_string(),
+                name: details.name.to_string(),
                 arguments,
-                class,
-            } => {
-                self.run_tracker.tool_called();
-                self.flush_reasoning();
-                self.presenter.flush();
-                let arguments = redact_value(&self.session_manager, &arguments);
-                let mut state = self.state.lock().unwrap_or_else(|_| unreachable!());
-                clear_spinner(&mut state);
-                let runs_immediately =
-                    !needs_approval(&state, &class) && tool_name != "ask_user" && tool_name != "ask_user_question";
-                if runs_immediately {
-                    state.spinner = Some(self.presenter.start_tool_spinner(&tool_name, &arguments));
-                    self.presenter.start_tool_run(&tool_name, &arguments);
-                }
-                state.pending.insert(
-                    internal_call_id,
-                    PendingToolCall {
-                        name: tool_name,
-                        arguments,
-                        started: runs_immediately.then(Instant::now),
-                    },
-                );
-            }
-            ToolEvent::ApprovalGranted { internal_call_id, .. } => {
-                if let Ok(mut state) = self.state.lock()
-                    && let Some(call) = state.pending.get_mut(&internal_call_id)
-                    && call.name != "ask_user"
-                    && call.name != "ask_user_question"
-                {
-                    call.started = Some(Instant::now());
-                    let (name, arguments) = (call.name.clone(), call.arguments.clone());
-                    clear_spinner(&mut state);
-                    state.spinner = Some(self.presenter.start_tool_spinner(&name, &arguments));
-                    self.presenter.start_tool_run(&name, &arguments);
-                }
-            }
-            ToolEvent::ApprovalDenied { .. } => {}
-            ToolEvent::Finished {
-                internal_call_id,
-                tool_name,
-                arguments,
-                output,
-                status,
-            } => {
-                self.run_tracker.tool_finished(&status);
-                if let Ok(mut state) = self.state.lock() {
-                    let finished = state.pending.remove(&internal_call_id);
-                    let duration = finished.and_then(|call| call.started).map(|started| started.elapsed());
-                    clear_spinner(&mut state);
-                    state.last_display = DisplayKind::Tool;
-                    let arguments = redact_value(&self.session_manager, &arguments);
-                    let output = self.session_manager.redact_credentials(&output);
-                    let output_summary = summarize_tool_output(&output);
-                    self.presenter.finish_tool_line(ToolLine {
-                        name: tool_name.clone(),
-                        arguments: arguments.clone(),
-                        is_error: status != "success",
-                        output: output.clone(),
-                        output_summary: output_summary.clone(),
-                        duration_ms: duration.map(|d| d.as_millis() as u64),
-                    });
-                    state.completed.push(CompletedTool {
-                        internal_call_id,
-                        name: tool_name,
-                        arguments,
-                        output,
-                        status,
-                    });
-                    state.spinner = Some(self.presenter.start_spinner("thinking..."));
-                }
-            }
+                output: output_redacted,
+                status: status.to_string(),
+            });
+            state.spinner = Some(self.presenter.start_spinner("thinking..."));
         }
     }
 }

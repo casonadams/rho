@@ -28,8 +28,6 @@ pub struct PendingUiBatch {
     tool_chunks: Vec<String>,
     tool_end: bool,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
-    todos: Option<Vec<rho_plugin_builtin::TodoTask>>,
-    subagents: Option<Vec<crate::ui::render::SubagentDisplayItem>>,
     max_text_bytes: usize,
 }
 
@@ -42,8 +40,6 @@ pub struct PendingUiDrain {
     pub tool_chunks: Vec<String>,
     pub tool_end: bool,
     pub transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
-    pub todos: Option<Vec<rho_plugin_builtin::TodoTask>>,
-    pub subagents: Option<Vec<crate::ui::render::SubagentDisplayItem>>,
 }
 
 impl PendingUiBatch {
@@ -56,8 +52,6 @@ impl PendingUiBatch {
             tool_chunks: Vec::new(),
             tool_end: false,
             transcript_items: Vec::new(),
-            todos: None,
-            subagents: None,
             max_text_bytes: max_text_bytes.max(1),
         }
     }
@@ -99,14 +93,6 @@ impl PendingUiBatch {
                 self.running_tool = Some(update);
                 BatchDecision::Pending
             }
-            UiEvent::Todos(todos) => {
-                self.todos = Some(todos);
-                BatchDecision::Flush(FlushBarrier::Newline)
-            }
-            UiEvent::Subagents(subagents) => {
-                self.subagents = Some(subagents);
-                BatchDecision::Flush(FlushBarrier::Newline)
-            }
             event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
         }
     }
@@ -120,8 +106,6 @@ impl PendingUiBatch {
             tool_chunks: std::mem::take(&mut self.tool_chunks),
             tool_end: std::mem::replace(&mut self.tool_end, false),
             transcript_items: std::mem::take(&mut self.transcript_items),
-            todos: self.todos.take(),
-            subagents: self.subagents.take(),
         }
     }
 
@@ -133,7 +117,5 @@ impl PendingUiBatch {
             && self.tool_chunks.is_empty()
             && !self.tool_end
             && self.transcript_items.is_empty()
-            && self.todos.is_none()
-            && self.subagents.is_none()
     }
 }

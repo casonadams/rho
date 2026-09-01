@@ -30,11 +30,11 @@ async fn test_project_context_discovery() {
     assert!(prompt.contains("<name>plan</name>"));
     assert!(prompt.contains("Plan before code"));
     assert!(prompt.contains("Available tools"));
-    assert!(prompt.contains("Today's date:"));
+    assert!(prompt.contains("Today's date is"));
     assert!(prompt.contains("Platform:"));
     assert!(prompt.contains("Use read to examine files instead of cat or sed"));
     assert!(prompt.contains("Inspect the repository before asking"));
-    assert!(prompt.contains("one ask_user_question call"));
+    assert!(prompt.contains("one ask call"));
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }

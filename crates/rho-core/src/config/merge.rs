@@ -72,9 +72,6 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(mcp) = file.mcp {
         config.mcp = mcp;
     }
-    if let Some(subagents) = file.subagents {
-        config.subagents = subagents;
-    }
     config.plugins = file.plugins;
 }
 

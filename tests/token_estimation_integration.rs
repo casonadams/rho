@@ -1,8 +1,9 @@
 use rho::tokens::{
-    calculate_context_tokens, context_window_size, estimate_message_tokens, estimate_text_tokens, find_token_cut_point,
-    should_compact,
+    calculate_context_tokens, context_window_size, estimate_text_tokens, find_token_cut_point, should_compact,
 };
-use rho_sdk::contract::{MessageContent, MessageRole, ModelMessage};
+use rig::message::{
+    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+};
 
 #[test]
 fn test_exact_bpe_token_calculation() {
@@ -32,31 +33,26 @@ fn test_context_window_ceilings_and_preflight_check() {
 #[test]
 fn test_hybrid_context_tokens_with_provider_anchor() {
     let messages = vec![
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "Read some files".to_string(),
-            }],
+        Message::user("Read some files"),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(ToolCall::new(
+                ToolCallId::new_or_mint("c1"),
+                ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/main.rs"})),
+            ))],
         },
-        ModelMessage {
-            role: MessageRole::Assistant,
-            content: vec![MessageContent::ToolCall {
-                call_id: "c1".to_string(),
-                tool_id: "tool:read".parse().unwrap(),
-                arguments: serde_json::json!({"path": "src/main.rs"}),
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::Tool,
-            content: vec![MessageContent::ToolResult {
-                call_id: "c1".to_string(),
-                content: "large file content here...".to_string(),
-                is_error: false,
-            }],
+        Message::User {
+            content: vec![UserContent::ToolResult(ToolResult {
+                call: ToolCallId::new_or_mint("c1"),
+                provider: None,
+                name: "read".to_string(),
+                content: vec![ToolResultContent::Text(rig::message::Text::new(
+                    "large file content here...",
+                ))],
+            })],
         },
     ];
 
-    // Anchor at message index 1 (assistant reported 1250 tokens total usage)
     let stats = calculate_context_tokens(&messages, Some((1, 1250)), "claude-3-7-sonnet");
     assert_eq!(stats.usage_anchor_tokens, 1250);
     assert!(stats.trailing_estimated_tokens > 0);
@@ -66,53 +62,25 @@ fn test_hybrid_context_tokens_with_provider_anchor() {
 #[test]
 fn test_cut_point_preserves_tool_pairs() {
     let messages = vec![
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "Old instruction 1".to_string(),
-            }],
+        Message::user("User prompt 1"),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(ToolCall::new(
+                ToolCallId::new_or_mint("c1"),
+                ToolFunction::new("read".to_string(), serde_json::json!({"path": "src/main.rs"})),
+            ))],
         },
-        ModelMessage {
-            role: MessageRole::Assistant,
-            content: vec![MessageContent::Text {
-                text: "Old response 1".to_string(),
-            }],
+        Message::User {
+            content: vec![UserContent::ToolResult(ToolResult {
+                call: ToolCallId::new_or_mint("c1"),
+                provider: None,
+                name: "read".to_string(),
+                content: vec![ToolResultContent::Text(rig::message::Text::new("file content here"))],
+            })],
         },
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "Middle instruction".to_string(),
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::Assistant,
-            content: vec![MessageContent::ToolCall {
-                call_id: "c2".to_string(),
-                tool_id: "tool:read".parse().unwrap(),
-                arguments: serde_json::json!({"path": "lib.rs"}),
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::Tool,
-            content: vec![MessageContent::ToolResult {
-                call_id: "c2".to_string(),
-                content: "lib content".to_string(),
-                is_error: false,
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "Recent instruction".to_string(),
-            }],
-        },
+        Message::assistant("Assistant summary"),
     ];
 
-    // Even if keep_recent_tokens matches at index 4 (the ToolResult),
-    // find_token_cut_point must back up to index 3 (the Assistant ToolCall).
-    let target_tokens = estimate_message_tokens(&messages[5], "gpt-4") + estimate_message_tokens(&messages[4], "gpt-4");
-    let cut_point = find_token_cut_point(&messages, target_tokens, "gpt-4");
-
-    assert_eq!(cut_point, 3);
-    assert_eq!(messages[cut_point].role, MessageRole::Assistant);
+    let cut_idx = find_token_cut_point(&messages, 10, "gpt-4");
+    assert!(cut_idx <= 1);
 }

@@ -66,8 +66,6 @@ pub enum UiEvent {
     ToolEnd,
     Transcript(crate::ui::interactive::TranscriptItem),
     RunningTool(Option<String>),
-    Todos(Vec<rho_plugin_builtin::TodoTask>),
-    Subagents(Vec<crate::ui::render::SubagentDisplayItem>),
     Interaction {
         prompt: InteractionPrompt,
         responder: InteractionResponder,

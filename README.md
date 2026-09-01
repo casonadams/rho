@@ -144,7 +144,7 @@ The runtime is organized around explicit boundaries:
   extensions.
 - `AgentEngine` coordinates turns and exposes session-facing state.
 - `ToolRegistry` describes the typed tools and their capabilities;
-  `ToolExecutionPolicy` remains the approval authority.
+  interactive approval and plugin lifecycle hooks govern execution.
 - Usage, quota, and context state are tracked independently from turn execution.
 - Runner errors preserve distinct authentication, network, provider, session,
   policy, tool, cancellation, and budget categories.

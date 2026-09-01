@@ -1,10 +1,8 @@
 use super::helpers::{final_event, presenter, request, test_engine};
-use crate::approval::{ApprovalEventSink, ToolEvent};
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::engine::runner::{RunStatus, TerminalApprovalSink, TerminalSinkConfig, map_completion_error, redact_text};
 use crate::error::AppError;
-use crate::policy::ExecutionClass;
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
@@ -33,7 +31,7 @@ async fn normalized_usage_is_exposed_when_available() {
     assert!(output.metrics.usage_available);
     assert_eq!(output.metrics.usage.unwrap().cached_input_tokens, Some(3));
     assert_eq!(output.metrics.usage.unwrap().reasoning_tokens, Some(2));
-    assert_eq!(engine.context_usage_display(), "15/1M (0%)");
+    assert_eq!(engine.context_usage_display(), "15/200k (0%)");
 }
 
 #[tokio::test]
@@ -120,18 +118,13 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
         },
         session,
     );
-    sink.emit(ToolEvent::CallClassified {
-        internal_call_id: "call".to_string(),
-        tool_name: "read".to_string(),
-        arguments: serde_json::json!({"path":"credential-sentinel"}),
-        class: ExecutionClass::ReadOnly,
-    });
-    sink.emit(ToolEvent::Finished {
-        internal_call_id: "call".to_string(),
-        tool_name: "read".to_string(),
-        arguments: serde_json::json!({"path":"credential-sentinel"}),
-        output: "credential-sentinel".to_string(),
-        status: "error".to_string(),
+    let args = serde_json::json!({"path":"credential-sentinel"});
+    sink.tool_start("read", &args);
+    sink.tool_finished(rho_engine::engine::runner::ToolFinishDetails {
+        name: "read",
+        arguments: &args,
+        output: "credential-sentinel",
+        is_error: true,
     });
     let completed = sink.completed();
     assert_eq!(completed.len(), 1);
@@ -159,9 +152,7 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
             | UiEvent::RunningTool(_)
             | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
-            | UiEvent::ToolEnd
-            | UiEvent::Todos(_)
-            | UiEvent::Subagents(_) => {}
+            | UiEvent::ToolEnd => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }

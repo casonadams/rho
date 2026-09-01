@@ -113,9 +113,12 @@ fn insert_fact(facts: &mut Vec<String>, seen: &mut HashSet<String>, fact: String
 fn is_critical_text(text: &str) -> bool {
     let lower = text.to_ascii_lowercase();
     [
+        "goal",
         "objective",
         "constraint",
+        "preference",
         "decision",
+        "progress",
         "changed file",
         "verification",
         "test",
@@ -123,7 +126,7 @@ fn is_critical_text(text: &str) -> bool {
         "failed",
         "unresolved",
         "remaining",
-        "todo",
+        "next steps",
     ]
     .iter()
     .any(|marker| lower.contains(marker))

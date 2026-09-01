@@ -1,8 +1,7 @@
 //! Path-cleaning, tool-arg summarization, and bash-approval helpers.
 
+use super::types::{BashApproval, RiskTier};
 use crate::args::read::DEFAULT_READ_LIMIT;
-use rho_sdk::ui::BashApproval;
-use rho_sdk::ui::RiskTier;
 use std::path::Path;
 
 pub fn bash_approval_details(request: &BashApproval) -> Vec<String> {
@@ -108,15 +107,15 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
                 format!("`{clean}`")
             }
         }
-        "websearch" | "web_search" => {
+        "search" | "websearch" | "web_search" => {
             let q = args.get("query").and_then(|q| q.as_str()).unwrap_or("");
             format!("\"{q}\"")
         }
-        "webfetch" | "web_fetch" => {
+        "fetch" | "webfetch" | "web_fetch" => {
             let raw_url = args.get("url").and_then(|u| u.as_str()).unwrap_or("");
             to_relative_path(raw_url)
         }
-        "ask_user" | "ask_user_question" => {
+        "ask" | "ask_user" | "ask_user_question" => {
             if let Some(q) = args.get("question").and_then(|q| q.as_str()) {
                 if q.len() > 60 {
                     format!("\"{}...\"", &q[..60])
@@ -139,82 +138,6 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
                 }
             } else {
                 "".to_string()
-            }
-        }
-        "todo" | "Todo" => {
-            let action = args.get("action").and_then(|a| a.as_str()).unwrap_or("");
-            match action {
-                "create" => {
-                    let subject = args.get("subject").and_then(|s| s.as_str()).unwrap_or("");
-                    if subject.len() > 50 {
-                        format!("create \"{}...\"", &subject[..50])
-                    } else {
-                        format!("create \"{subject}\"")
-                    }
-                }
-                "update" => {
-                    let id = args.get("id").and_then(|i| i.as_u64());
-                    let status = args.get("status").and_then(|s| s.as_str());
-                    let active = args.get("activeForm").and_then(|a| a.as_str());
-                    let suffix = match (status, active) {
-                        (Some(s), _) => format!(" ({s})"),
-                        (None, Some(a)) => format!(" ({a})"),
-                        (None, None) => String::new(),
-                    };
-                    match id {
-                        Some(id) => format!("update #{id}{suffix}"),
-                        None => format!("update{suffix}"),
-                    }
-                }
-                "list" => {
-                    if let Some(status) = args.get("status").and_then(|s| s.as_str()) {
-                        format!("list ({status})")
-                    } else {
-                        "list".to_string()
-                    }
-                }
-                "get" => {
-                    let id = args.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
-                    format!("get #{id}")
-                }
-                "delete" => {
-                    let id = args.get("id").and_then(|i| i.as_u64()).unwrap_or(0);
-                    format!("delete #{id}")
-                }
-                "clear" => "clear".to_string(),
-                other => other.to_string(),
-            }
-        }
-        "agent" | "Agent" => {
-            let subagent_type = args.get("subagent_type").and_then(|s| s.as_str()).unwrap_or("agent");
-            let prompt = args
-                .get("description")
-                .and_then(|d| d.as_str())
-                .or_else(|| args.get("prompt").and_then(|p| p.as_str()))
-                .unwrap_or("");
-            let bg = args.get("run_in_background").and_then(|b| b.as_bool()).unwrap_or(true);
-            let bg_tag = if bg { " (bg)" } else { "" };
-            if prompt.len() > 50 {
-                format!("{subagent_type}{bg_tag} \"{}...\"", &prompt[..50])
-            } else if !prompt.is_empty() {
-                format!("{subagent_type}{bg_tag} \"{prompt}\"")
-            } else {
-                format!("{subagent_type}{bg_tag}")
-            }
-        }
-        "get_subagent_result" => {
-            let id = args.get("agent_id").and_then(|i| i.as_str()).unwrap_or("");
-            id.to_string()
-        }
-        "steer_subagent" => {
-            let id = args.get("agent_id").and_then(|i| i.as_str()).unwrap_or("");
-            let msg = args.get("message").and_then(|m| m.as_str()).unwrap_or("");
-            if msg.len() > 40 {
-                format!("{id} \"{}...\"", &msg[..40])
-            } else if !msg.is_empty() {
-                format!("{id} \"{msg}\"")
-            } else {
-                id.to_string()
             }
         }
         _ => "".to_string(),

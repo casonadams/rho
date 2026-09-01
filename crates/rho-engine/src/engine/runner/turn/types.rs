@@ -1,6 +1,7 @@
 use crate::engine::metrics::{RunMetrics, StructuralUsage};
-use crate::engine::provider::host_loop::{CancellationSignal, SteeringQueueProvider};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RunStatus {
@@ -9,6 +10,37 @@ pub enum RunStatus {
 }
 
 pub type UsageDetails = StructuralUsage;
+
+#[derive(Default)]
+pub struct CancellationSignal {
+    cancelled: AtomicBool,
+    interrupted: AtomicBool,
+}
+
+impl CancellationSignal {
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+    pub fn interrupt_stream(&self) {
+        self.interrupted.store(true, Ordering::Relaxed);
+    }
+    pub fn is_interrupted(&self) -> bool {
+        self.interrupted.load(Ordering::Relaxed)
+    }
+    pub fn reset_interrupted(&self) {
+        self.interrupted.store(false, Ordering::Relaxed);
+    }
+}
+
+#[async_trait]
+pub trait SteeringQueueProvider: Send + Sync {
+    async fn poll_steering(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
 
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,

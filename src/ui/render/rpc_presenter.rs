@@ -3,8 +3,8 @@ use rho_core::presentation::activity::ActivityToken;
 use rho_core::presentation::presenter::Presenter;
 use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::ToolStreamPort;
+use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
 use rho_core::rpc::protocol::RpcEvent;
-use rho_sdk::ui::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
 use serde_json::Value;
 use tokio::sync::mpsc;
 

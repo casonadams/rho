@@ -86,15 +86,15 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::question_port(self)
     }
 
-    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {
-        TerminalRenderer::prompt_tool_approval(self, name, arguments).await
+    async fn prompt_tool_approval(&self, _name: &str, _arguments: &Value) -> ApprovalResult {
+        ApprovalResult::Approved
     }
 
-    async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
-        TerminalRenderer::prompt_bash_approval(self, request).await
+    async fn prompt_bash_approval(&self, _request: BashApproval) -> ApprovalResult {
+        ApprovalResult::Approved
     }
 
-    async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
-        TerminalRenderer::prompt_continue_budget(self, max_turns).await
+    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
+        false
     }
 }

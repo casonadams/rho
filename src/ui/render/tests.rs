@@ -1,17 +1,12 @@
 //! Tests for the `ui::render` module.
 
-use super::formatters::{
-    format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
-};
+use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
 use super::preview::{tool_title_style, webfetch_content_kind};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InteractionResponse, InteractiveUi, OutputEvent, UiEvent};
+use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
-use rho_core::bash_ast::RiskTier;
-use rho_core::presentation::summary::{
-    approval_heading, bash_approval_details, clean_command_paths, read_summary_parts, to_relative_path,
-};
-use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine};
+use rho_core::presentation::summary::{clean_command_paths, read_summary_parts, to_relative_path};
+use rho_core::presentation::{SessionStatus, ToolLine};
 
 #[test]
 fn interactive_renderer_emits_formatted_output_and_activity_events() {
@@ -45,12 +40,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
                     tools_expanded: false,
                 },
             )),
-            UiEvent::RunningTool(_)
-            | UiEvent::ToolStart(_)
-            | UiEvent::ToolChunk { .. }
-            | UiEvent::ToolEnd
-            | UiEvent::Todos(_)
-            | UiEvent::Subagents(_) => {}
+            UiEvent::RunningTool(_) | UiEvent::ToolStart(_) | UiEvent::ToolChunk { .. } | UiEvent::ToolEnd => {}
             UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
@@ -92,9 +82,7 @@ fn finished_bash_block_includes_elapsed_duration() {
             | UiEvent::RunningTool(_)
             | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
-            | UiEvent::ToolEnd
-            | UiEvent::Todos(_)
-            | UiEvent::Subagents(_) => {}
+            | UiEvent::ToolEnd => {}
             UiEvent::Interaction { .. } => panic!("unexpected interaction"),
         }
     }
@@ -127,170 +115,6 @@ fn print_session_status_and_notice_emit_transcript_item() {
     assert!(items[0].contains("claude-sonnet"));
     assert!(items[0].contains("42% context"));
     assert!(items[1].contains("[Notice message]"));
-}
-
-#[tokio::test]
-async fn interactive_tool_approval_supports_approve_and_denial_feedback() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let approval_renderer = renderer.clone();
-    let approval = tokio::spawn(async move {
-        approval_renderer
-            .prompt_tool_approval("write", &serde_json::json!({"path": "out.txt", "content": "value"}))
-            .await
-    });
-    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
-        panic!("expected approval request");
-    };
-    assert_eq!(prompt.title, "Approve write");
-    assert_eq!(prompt.initial_selection, 0);
-    responder.respond(InteractionResponse::Selected(0)).unwrap();
-    assert_eq!(approval.await.unwrap(), ApprovalResult::Approved);
-
-    let denial_renderer = renderer.clone();
-    let denial = tokio::spawn(async move {
-        denial_renderer
-            .prompt_tool_approval("edit", &serde_json::json!({"path": "out.txt", "edits": []}))
-            .await
-    });
-    let Some(UiEvent::Interaction { responder, .. }) = events.recv().await else {
-        panic!("expected approval request");
-    };
-    responder.respond(InteractionResponse::Selected(1)).unwrap();
-    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
-        panic!("expected feedback request");
-    };
-    assert!(prompt.allow_custom);
-    responder
-        .respond(InteractionResponse::Custom("use another file".to_string()))
-        .unwrap();
-    assert_eq!(
-        denial.await.unwrap(),
-        ApprovalResult::Denied {
-            reason: "use another file".to_string()
-        }
-    );
-}
-
-#[tokio::test]
-async fn interactive_bash_approval_preserves_session_and_high_risk_defaults() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let session_renderer = renderer.clone();
-    let session_approval = tokio::spawn(async move {
-        session_renderer
-            .prompt_bash_approval(BashApproval {
-                command: "cargo test".to_string(),
-                tier: RiskTier::Mutating,
-                reasons: Vec::new(),
-            })
-            .await
-    });
-    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
-        panic!("expected bash approval request");
-    };
-    assert_eq!(prompt.options.len(), 3);
-    responder.respond(InteractionResponse::Selected(1)).unwrap();
-    assert_eq!(session_approval.await.unwrap(), ApprovalResult::ApprovedForSession);
-
-    let high_risk_renderer = renderer.clone();
-    let high_risk = tokio::spawn(async move {
-        let reasons = vec!["Discards changes".to_string()];
-        high_risk_renderer
-            .prompt_bash_approval(BashApproval {
-                command: "git reset --hard".to_string(),
-                tier: RiskTier::HighRisk,
-                reasons: reasons.clone(),
-            })
-            .await
-    });
-    let Some(UiEvent::Interaction { prompt, responder }) = events.recv().await else {
-        panic!("expected high-risk approval request");
-    };
-    assert_eq!(prompt.initial_selection, prompt.options.len() - 1);
-    responder.respond(InteractionResponse::Cancelled).unwrap();
-    assert_eq!(
-        high_risk.await.unwrap(),
-        ApprovalResult::Denied { reason: String::new() }
-    );
-}
-
-#[tokio::test]
-async fn interactive_budget_confirmation_fails_closed() {
-    let (ui, mut events) = InteractiveUi::channel();
-    let renderer = TerminalRenderer::with_ui(ui);
-    let continue_renderer = renderer.clone();
-    let continuation = tokio::spawn(async move { continue_renderer.prompt_continue_budget(50).await });
-    let Some(UiEvent::Interaction { responder, .. }) = events.recv().await else {
-        panic!("expected budget request");
-    };
-    responder.respond(InteractionResponse::Selected(0)).unwrap();
-    assert!(continuation.await.unwrap());
-
-    let stop_renderer = renderer.clone();
-    let stop = tokio::spawn(async move { stop_renderer.prompt_continue_budget(50).await });
-    let Some(UiEvent::Interaction { responder, .. }) = events.recv().await else {
-        panic!("expected budget request");
-    };
-    responder.respond(InteractionResponse::Cancelled).unwrap();
-    assert!(!stop.await.unwrap());
-}
-
-#[test]
-fn ordinary_bash_approval_shows_only_the_command() {
-    let reasons = vec!["Writes output through file redirection".to_string()];
-    let details = bash_approval_details(&BashApproval {
-        command: "echo test > output.txt".to_string(),
-        tier: RiskTier::Mutating,
-        reasons: reasons.clone(),
-    });
-
-    assert_eq!(details, ["$ echo test > output.txt"]);
-}
-
-#[test]
-fn high_risk_bash_approval_explains_the_risk() {
-    let reasons = vec!["Discards uncommitted changes".to_string()];
-    let details = bash_approval_details(&BashApproval {
-        command: "git reset --hard".to_string(),
-        tier: RiskTier::HighRisk,
-        reasons: reasons.clone(),
-    });
-
-    assert_eq!(details, ["$ git reset --hard", "", "Discards uncommitted changes"]);
-    assert_eq!(approval_heading(RiskTier::HighRisk), "High-risk bash command");
-    assert_eq!(approval_heading(RiskTier::Mutating), "Bash command requires approval");
-}
-
-#[test]
-fn bash_approval_cards_match_transcript_blocks() {
-    let theme = Theme::default();
-    let ordinary = format_bash_approval_card(
-        &BashApproval {
-            command: "cargo test".to_string(),
-            tier: RiskTier::Mutating,
-            reasons: Vec::new(),
-        },
-        &theme,
-        40,
-    );
-    assert!(ordinary.contains("Bash command requires approval"));
-    assert!(ordinary.contains("$ cargo test"));
-    assert!(ordinary.contains("\x1b[33m"));
-
-    let reasons = vec!["Discards uncommitted changes".to_string()];
-    let high_risk = format_bash_approval_card(
-        &BashApproval {
-            command: "git reset --hard".to_string(),
-            tier: RiskTier::HighRisk,
-            reasons: reasons.clone(),
-        },
-        &theme,
-        40,
-    );
-    assert!(high_risk.contains("High-risk bash command"));
-    assert!(high_risk.contains("! Discards uncommitted changes"));
-    assert!(high_risk.contains("\x1b[31m"));
 }
 
 #[test]

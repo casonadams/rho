@@ -1,9 +1,6 @@
-use rho_core::approval::{ApprovalEventSink, ToolEvent};
-use rho_core::policy::ToolExecutionPolicy;
 use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 pub const REPEATED_CALL_MESSAGE: &str = "This identical tool call was blocked after three consecutive attempts. No operation was executed. Try a semantically different approach.";
 
@@ -16,20 +13,13 @@ struct RepeatedCallState {
 #[derive(Clone)]
 pub struct RepeatedCallHook {
     working_dir: PathBuf,
-    sink: Option<Arc<dyn ApprovalEventSink>>,
 }
 
 impl RepeatedCallHook {
     pub fn new(working_dir: impl AsRef<Path>) -> Self {
         Self {
             working_dir: working_dir.as_ref().to_path_buf(),
-            sink: None,
         }
-    }
-
-    pub fn with_sink(mut self, sink: Arc<dyn ApprovalEventSink>) -> Self {
-        self.sink = Some(sink);
-        self
     }
 }
 
@@ -50,33 +40,15 @@ impl AgentHook for RepeatedCallHook {
         if consecutive < 3 {
             return ToolCallAction::run();
         }
-        if let Some(sink) = &self.sink {
-            sink.emit(ToolEvent::CallClassified {
-                internal_call_id: event.internal_call_id.to_string(),
-                tool_name: event.tool_name.to_string(),
-                arguments: arguments.clone(),
-                class: ToolExecutionPolicy::classify(event.tool_name, &arguments),
-            });
-            // The call is skipped before any dispatch boundary runs, so this
-            // hook also owes the terminal event for the classified call.
-            sink.emit(ToolEvent::Finished {
-                internal_call_id: event.internal_call_id.to_string(),
-                tool_name: event.tool_name.to_string(),
-                arguments,
-                output: REPEATED_CALL_MESSAGE.to_string(),
-                status: "skipped".to_string(),
-            });
-        }
         ToolCallAction::skip(REPEATED_CALL_MESSAGE)
     }
 }
 
 pub fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Path) -> String {
-    let mut normalized =
-        ToolExecutionPolicy::canonical_arguments(tool_name, arguments).unwrap_or_else(|| arguments.clone());
+    let mut normalized = arguments.clone();
     match tool_name {
         "bash" => normalize_bash(&mut normalized, working_dir),
-        "websearch" | "web_search" => normalize_web_search(&mut normalized),
+        "search" | "websearch" | "web_search" => normalize_web_search(&mut normalized),
         _ => {}
     }
     serde_json::to_string(&(tool_name, normalized)).unwrap_or_else(|_| format!("{tool_name}:<invalid>"))

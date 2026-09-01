@@ -23,7 +23,6 @@ impl ReplSession {
                 config: &mut self.config,
                 auth_store: &mut self.auth_store,
                 renderer: &self.renderer,
-                commands: Some(&self.commands),
                 session_id: Some(&engine.session_manager.session_id),
                 session_manager: Some(&engine.session_manager),
             };

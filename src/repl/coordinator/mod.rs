@@ -5,8 +5,10 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use crate::engine::AgentEngine;
-use crate::engine::provider::host_loop::{CancellationSignal, SteeringQueueProvider};
-use crate::engine::runner::{PendingMessageQueue, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, TurnRequest};
+use crate::engine::runner::{
+    CancellationSignal, PendingMessageQueue, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, SteeringQueueProvider,
+    TurnRequest,
+};
 use crate::error::AppError;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{QueueKind, QueuedMessage};

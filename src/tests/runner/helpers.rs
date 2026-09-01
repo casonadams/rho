@@ -43,17 +43,14 @@ pub fn test_engine_with_session(
 }
 
 pub fn builtin_tools_for(base_dir: &std::path::Path) -> Option<Vec<rig::tool::DynamicTool>> {
-    Some(
-        crate::plugin::tool_dispatch::ActiveToolSet::builtins(
-            &Config {
-                sessions_dir: base_dir.join("sessions"),
-                ..Config::default()
-            },
-            base_dir,
-        )
-        .expect("builtin platform tools")
-        .into_rig_tools(),
+    rho_engine::tools::build_builtin_tools(
+        base_dir,
+        &Config {
+            sessions_dir: base_dir.join("sessions"),
+            ..Config::default()
+        },
     )
+    .ok()
 }
 
 pub fn terminal_session() -> SessionManager {

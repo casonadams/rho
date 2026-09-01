@@ -5,9 +5,8 @@
 
 use crate::ui::block::BlockFormat;
 use crate::ui::theme::Theme;
-use rho_core::bash_ast::RiskTier;
 use rho_core::presentation::summary::{approval_heading, bash_approval_details};
-use rho_core::presentation::{BashApproval, SessionStatus};
+use rho_core::presentation::{BashApproval, RiskTier, SessionStatus};
 
 struct DiffFormatter<'a> {
     theme: &'a Theme,

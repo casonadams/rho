@@ -1,10 +1,8 @@
-pub mod active_tool;
 pub mod ansi;
 pub mod backend;
 #[cfg(test)]
 mod tests;
 
-pub use active_tool::{ActiveToolBlock, MAX_ACTIVE_TOOL_OUTPUT_BYTES};
 pub use ansi::{output_cursor, terminal_newlines};
 pub use backend::{CrosstermBackend, TerminalBackend};
 
@@ -22,8 +20,6 @@ pub struct TerminalController<B: TerminalBackend> {
     spinner_frame: usize,
     active: bool,
     footer_style: Style,
-    active_tool: Option<ActiveToolBlock>,
-    active_tool_height: usize,
     theme: crate::ui::theme::Theme,
     transcript: Vec<super::TranscriptItem>,
 }
@@ -54,8 +50,6 @@ impl<B: TerminalBackend> TerminalController<B> {
             spinner_frame: 0,
             active: true,
             footer_style: crate::ui::theme::Theme::default().dimmed,
-            active_tool: None,
-            active_tool_height: 0,
             theme: crate::ui::theme::Theme::default(),
             transcript: Vec::new(),
         };
@@ -67,59 +61,30 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn start_tool(&mut self, request: super::ToolStartRequest) -> io::Result<()> {
-        self.active_tool = Some(ActiveToolBlock {
-            name: request.name,
-            args_summary: request.args_summary,
-            preview: request.preview,
-            output: String::new(),
-            started: std::time::Instant::now(),
-            truncated: false,
-        });
+        let label = if request.args_summary.is_empty() {
+            request.name
+        } else {
+            format!("{} {}", request.name, request.args_summary)
+        };
+        self.state.footer_mut().running_tool = Some(label);
+        self.state.footer_mut().activity = crate::ui::interactive::Activity::Working;
         self.redraw()
     }
 
-    pub fn append_tool_chunk(&mut self, chunk: &str) -> io::Result<()> {
-        self.append_tool_chunks(std::iter::once(chunk))
+    pub fn append_tool_chunk(&mut self, _chunk: &str) -> io::Result<()> {
+        Ok(())
     }
 
-    /// Append several chunks and redraw once; a redraw per chunk would
-    /// re-wrap the whole live block per chunk.
-    pub fn append_tool_chunks<'chunk, I: IntoIterator<Item = &'chunk str>>(&mut self, chunks: I) -> io::Result<()> {
-        let mut changed = false;
-        if let Some(tool) = self.active_tool.as_mut() {
-            for chunk in chunks {
-                if tool.truncated {
-                    break;
-                }
-                let room = MAX_ACTIVE_TOOL_OUTPUT_BYTES.saturating_sub(tool.output.len());
-                let take = room.min(chunk.len());
-                let take = if take == chunk.len() || chunk.is_char_boundary(take) {
-                    take
-                } else {
-                    (0..take).rev().find(|&i| chunk.is_char_boundary(i)).unwrap_or(0)
-                };
-                if take > 0
-                    && let Some(prefix) = chunk.get(..take)
-                {
-                    tool.output.push_str(prefix);
-                    changed = true;
-                }
-                if tool.output.len() >= MAX_ACTIVE_TOOL_OUTPUT_BYTES {
-                    tool.truncated = true;
-                    tool.output
-                        .push_str("\n[output truncated while running; full result follows]");
-                }
-            }
-        }
-        if changed { self.redraw() } else { Ok(()) }
+    pub fn append_tool_chunks<'chunk, I: IntoIterator<Item = &'chunk str>>(&mut self, _chunks: I) -> io::Result<()> {
+        Ok(())
     }
 
     pub fn clear_active_tool(&mut self) {
-        self.active_tool = None;
+        self.state.footer_mut().running_tool = None;
     }
 
     pub fn end_tool(&mut self) -> io::Result<()> {
-        self.active_tool = None;
+        self.state.footer_mut().running_tool = None;
         self.redraw()
     }
 
@@ -141,7 +106,6 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn full_redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
-        self.erase_active_tool()?;
         self.backend.write_text("\x1b[2J\x1b[H\x1b[3J")?;
         self.output_line.clear();
         self.output_line_open = false;
@@ -170,7 +134,6 @@ impl<B: TerminalBackend> TerminalController<B> {
             }
         }
 
-        self.draw_active_tool()?;
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
@@ -197,8 +160,6 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
-        self.erase_active_tool()?;
-        self.draw_active_tool()?;
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
@@ -209,7 +170,6 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
-        self.erase_active_tool()?;
         self.restore_output_cursor()?;
         let output = terminal_newlines(output);
         self.backend.write_text(&output)?;
@@ -217,7 +177,6 @@ impl<B: TerminalBackend> TerminalController<B> {
         if self.output_line_open {
             self.backend.write_text("\r\n")?;
         }
-        self.draw_active_tool()?;
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
@@ -264,7 +223,6 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         }
         self.erase_live_region()?;
-        self.erase_active_tool()?;
         self.output_line.clear();
         self.output_line_open = false;
         self.backend.show_cursor()?;
@@ -309,19 +267,7 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     fn current_layout(&self) -> InteractiveLayout {
         let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
-        let mut widget_lines = Vec::new();
-        if !self.state.todos().is_empty() {
-            let opts = crate::ui::render::TodoOverlayOptions::new(&self.theme, self.width)
-                .with_limits(crate::ui::render::DEFAULT_MAX_TODO_LINES, self.state.tools_expanded());
-            let todo_lines = crate::ui::render::format_todo_overlay(self.state.todos(), &opts);
-            widget_lines.extend(todo_lines);
-        }
-        if !self.state.subagents().is_empty() {
-            let opts = crate::ui::render::SubagentOverlayOptions::new(&self.theme, self.spinner_frame, self.width)
-                .with_limits(crate::ui::render::DEFAULT_MAX_AGENT_LINES, self.state.tools_expanded());
-            let subagent_lines = crate::ui::render::format_subagent_overlay(self.state.subagents(), &opts);
-            widget_lines.extend(subagent_lines);
-        }
+        let widget_lines = Vec::new();
 
         layout(LayoutInput {
             editor: self.state.editor(),
@@ -395,56 +341,11 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
-    fn erase_active_tool(&mut self) -> io::Result<()> {
-        if self.active_tool_height == 0 {
-            return Ok(());
-        }
-        self.backend.move_up(self.active_tool_height)?;
-        self.backend.move_to_column(0)?;
-        for row in 0..self.active_tool_height {
-            self.backend.clear_line()?;
-            if row + 1 < self.active_tool_height {
-                self.backend.move_down(1)?;
-            }
-        }
-        self.backend.move_up(self.active_tool_height.saturating_sub(1))?;
-        self.backend.move_to_column(0)?;
-        self.active_tool_height = 0;
-        Ok(())
-    }
-
-    fn draw_active_tool(&mut self) -> io::Result<()> {
-        let Some(tool) = &self.active_tool else {
-            self.active_tool_height = 0;
-            return Ok(());
-        };
-        let formatted = super::layout::format_active_tool_block(super::ActiveToolDisplayInput {
-            tool_name: &tool.name,
-            args_summary: &tool.args_summary,
-            preview: tool.preview.as_deref(),
-            output: &tool.output,
-            started: tool.started,
-            theme: &self.theme,
-            width: self.width,
-            expanded: self.state.tools_expanded(),
-        });
-        let formatted = terminal_newlines(&format!("\n{formatted}"));
-        let mut count = 0;
-        for line in formatted.lines() {
-            self.backend.write_text(line)?;
-            self.backend.write_text("\r\n")?;
-            count += 1;
-        }
-        self.active_tool_height = count;
-        Ok(())
-    }
-
     fn restore(&mut self) {
         if !self.active {
             return;
         }
         let _ = self.erase_live_region();
-        let _ = self.erase_active_tool();
         let _ = self.backend.show_cursor();
         let _ = self.backend.set_raw_mode(false);
         let _ = self.backend.flush();

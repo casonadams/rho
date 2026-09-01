@@ -2,10 +2,10 @@
 //! presentation capability. Layout, styling, and terminal control stay on the
 //! presentation side; the engine only passes typed data.
 
+pub use super::types::{ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, WelcomeDisplay};
 use crate::presentation::questions::QuestionPort;
 use crate::presentation::stream::ToolStreamPort;
 use async_trait::async_trait;
-pub use rho_sdk::ui::{ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, WelcomeDisplay};
 use serde_json::Value;
 
 use super::activity::ActivityToken;
@@ -27,9 +27,15 @@ pub trait Presenter: Send + Sync {
     fn start_tool_run(&self, name: &str, arguments: &Value);
     fn stream_port(&self) -> ToolStreamPort;
     fn question_port(&self) -> QuestionPort;
-    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult;
-    async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult;
-    async fn prompt_continue_budget(&self, max_turns: usize) -> bool;
+    async fn prompt_tool_approval(&self, _name: &str, _arguments: &Value) -> ApprovalResult {
+        ApprovalResult::Approved
+    }
+    async fn prompt_bash_approval(&self, _request: BashApproval) -> ApprovalResult {
+        ApprovalResult::Approved
+    }
+    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
+        false
+    }
     fn print_turn_started(&self, _prompt: &str) {}
     fn print_turn_completed(&self, _status: &str) {}
 }

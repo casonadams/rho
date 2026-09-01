@@ -60,10 +60,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
     AgentEngine {
         config: app_config,
         session_manager,
-        session_approvals: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
-        backend: crate::engine::AgentBackend::Rig(Box::new(agent)),
-        contexts: Vec::new(),
-        lifecycles: Vec::new(),
+        agent: Box::new(agent),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(None),

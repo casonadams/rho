@@ -3,26 +3,35 @@ name = "rho-engine"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "rho turn orchestration, provider assembly, and credential custody"
+description = "rho turn orchestration, provider assembly, tools, and MCP runtime"
 license.workspace = true
 
 [dependencies]
 rho-core.workspace = true
-rho-host.workspace = true
-rho-plugin-providers.workspace = true
-rho-sdk.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 rig = { version = "0.42", features = ["test-utils"] }
 rig-memory = "0.42"
 serde.workspace = true
 serde_json.workspace = true
+schemars = "1.0"
 tokio = { workspace = true, default-features = false, features = ["sync", "rt", "macros", "time", "fs", "process", "io-util"] }
-uuid.workspace = true
-chrono = { version = "0.4", features = ["serde"] }
+uuid = { workspace = true, features = ["v4"] }
+chrono.workspace = true
 thiserror.workspace = true
 anyhow = "1.0"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "json", "stream"] }
+url = "2.5"
+percent-encoding = "2.3"
+rand = "0.8"
+scraper = "0.21"
+html2text = "0.14"
+feed-rs = "2.3"
+quick-xml = "0.37"
+csv = "1.3"
+pdf-extract = "0.7"
+moka = { version = "0.12", features = ["future"] }
+regex = "1.11"
 
 [dev-dependencies]
 rig = { version = "0.42", features = ["test-utils"] }

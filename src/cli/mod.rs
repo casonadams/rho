@@ -9,11 +9,11 @@ pub use auth::{login_provider, logout_provider};
 use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::config::cli::{Cli, Commands};
-use crate::engine::provider::ProviderId;
 #[cfg(feature = "ui")]
 use crate::repl::ReplSession;
 #[cfg(feature = "ui")]
 use crate::ui::TerminalRenderer;
+use rho_core::provider::ProviderId;
 use rho_core::session::SessionManager;
 use std::io::Read;
 use std::str::FromStr;
@@ -35,8 +35,8 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 logout_provider(provider.as_deref(), &config, &mut auth_store)?;
                 return Ok(());
             }
-            Commands::Auth { action } => {
-                auth::handle_auth_action(action.unwrap_or(crate::config::cli::AuthCommands::Set), &config)?;
+            Commands::Auth { action: _ } => {
+                println!("Use 'rho login <provider>' to configure API keys.");
                 return Ok(());
             }
             Commands::Config { key, value } => {
@@ -62,62 +62,45 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
             Commands::Models => {
                 let provider = ProviderId::from_str(&config.provider)?;
-                let catalog = crate::engine::provider::list_models(provider, &auth_store, &config.config_dir).await?;
-                println!("Models for {provider} ({})", catalog.source_label());
-                for model in catalog.models() {
-                    println!("  - {model}");
+                println!("Models for {provider}:");
+                match provider {
+                    ProviderId::Anthropic => {
+                        println!(
+                            "  - claude-3-7-sonnet-20250219\n  - claude-3-5-sonnet-20241022\n  - claude-3-5-haiku-20241022"
+                        );
+                    }
+                    ProviderId::OpenAi => {
+                        println!("  - gpt-4o\n  - gpt-4o-mini\n  - o1\n  - o3-mini");
+                    }
+                    ProviderId::Gemini => {
+                        println!("  - gemini-2.0-flash\n  - gemini-1.5-pro\n  - gemini-1.5-flash");
+                    }
+                    ProviderId::DeepSeek => {
+                        println!("  - deepseek-chat\n  - deepseek-reasoner");
+                    }
+                    _ => {
+                        println!("  - {}", config.model);
+                    }
                 }
                 return Ok(());
             }
             Commands::Plugin { action } => {
-                let cwd = std::env::current_dir().ok();
                 match action.unwrap_or(crate::config::cli::PluginCommands::List) {
-                    crate::config::cli::PluginCommands::List => {
-                        let inspection = crate::plugin::inspection::inspect(&config, cwd.as_deref()).await?;
-                        print!("{}", inspection.render());
-                    }
-                    crate::config::cli::PluginCommands::Inspect { capability } => {
-                        let inspection = crate::plugin::inspection::inspect(&config, cwd.as_deref()).await?;
-                        if let Some(capability) = capability {
-                            let capability = capability.parse::<crate::plugin::capability::CapabilityId>()?;
-                            print!("{}", inspection.render_capability(&capability));
+                    crate::config::cli::PluginCommands::List | crate::config::cli::PluginCommands::Inspect { .. } => {
+                        println!("Configured MCP Servers:");
+                        if config.mcp.servers.is_empty() {
+                            println!("  (none configured)");
                         } else {
-                            print!("{}", inspection.render());
+                            for (name, server) in &config.mcp.servers {
+                                println!("  - {name}: command='{}' enabled={}", server.command, server.enabled);
+                            }
                         }
                     }
-                    crate::config::cli::PluginCommands::Install { package, replaces } => {
-                        let replacements = parse_replacements(replaces)?;
-                        println!(
-                            "Configured plugins are trusted executables and are not OS-sandboxed; installing {package}"
-                        );
-                        let manager = crate::plugin::activation::PluginManager::new(
-                            crate::plugin::activation::PluginManagerPaths {
-                                config_dir: config.config_dir.clone(),
-                                cargo_bin: crate::plugin::activation::default_cargo_bin()?,
-                            },
-                            crate::plugin::activation::SystemCargo,
-                            crate::plugin::activation::ProtocolPluginValidator,
-                        );
-                        let installed = manager.install(&package, replacements).await?;
-                        println!(
-                            "Installed and configured {} at {}",
-                            installed.name,
-                            installed.executable.display()
-                        );
+                    crate::config::cli::PluginCommands::Install { package, .. } => {
+                        println!("To add an MCP server, add it to your config.toml under [mcp.servers.{package}]");
                     }
                     crate::config::cli::PluginCommands::Remove { name } => {
-                        let cargo_bin = crate::plugin::activation::default_cargo_bin()
-                            .unwrap_or_else(|_| config.config_dir.join("cargo-bin"));
-                        let manager = crate::plugin::activation::PluginManager::new(
-                            crate::plugin::activation::PluginManagerPaths {
-                                config_dir: config.config_dir.clone(),
-                                cargo_bin,
-                            },
-                            crate::plugin::activation::SystemCargo,
-                            crate::plugin::activation::ProtocolPluginValidator,
-                        );
-                        let removed = manager.remove(&name)?;
-                        println!("Removed plugin declaration for {}", removed.name);
+                        println!("To remove an MCP server, remove it from your config.toml under [mcp.servers.{name}]");
                     }
                 }
                 return Ok(());
@@ -215,15 +198,6 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             )))
         }
     }
-}
-
-pub(crate) fn parse_replacements(
-    replacements: Vec<String>,
-) -> std::result::Result<
-    std::collections::BTreeSet<crate::plugin::capability::CapabilityId>,
-    crate::plugin::capability::CapabilityValidationError,
-> {
-    replacements.into_iter().map(|value| value.parse()).collect()
 }
 
 fn atty_check() -> bool {

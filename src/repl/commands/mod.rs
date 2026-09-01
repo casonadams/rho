@@ -1,25 +1,25 @@
-pub mod args;
 pub mod help;
-
 #[cfg(test)]
 mod tests;
 
-pub use args::parse_command_args;
-pub use help::print_help;
-
-use crate::auth::AuthStore;
 use crate::config::Config;
-use crate::error::Result;
 use crate::ui::TerminalRenderer;
+use help::print_help;
+use rho_core::error::Result;
+use rho_engine::auth::AuthStore;
 use std::fmt::Write as _;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandResult {
     Continue,
+    ClearContext,
     ModelChanged {
         new_model: String,
         new_provider: Option<String>,
     },
-    ClearContext,
+    ExpandedPrompt {
+        text: String,
+    },
     Compact {
         instructions: Option<String>,
     },
@@ -31,14 +31,11 @@ pub enum CommandResult {
         turn_or_node_id: Option<String>,
     },
     CloneSession,
-    NameSession {
-        name: String,
-    },
     ResumeSession {
         session_id: String,
     },
-    ExpandedPrompt {
-        text: String,
+    NameSession {
+        name: String,
     },
     Rewind {
         turn: usize,
@@ -56,15 +53,13 @@ pub struct SlashCommandContext<'a> {
     pub config: &'a mut Config,
     pub auth_store: &'a mut AuthStore,
     pub renderer: &'a TerminalRenderer,
-    pub commands:
-        Option<&'a std::collections::BTreeMap<String, std::sync::Arc<dyn rho_sdk::contract::CommandCapability>>>,
     pub session_id: Option<&'a str>,
     pub session_manager: Option<&'a rho_core::session::SessionManager>,
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
-    "/help", "/todos", "/model", "/skill", "/plugin", "/session", "/compact", "/tree", "/rewind", "/resume", "/fork",
-    "/clone", "/name", "/clear", "/login", "/logout", "/exit",
+    "/help", "/model", "/skill", "/plugin", "/session", "/compact", "/tree", "/rewind", "/resume", "/fork", "/clone",
+    "/name", "/clear", "/login", "/logout", "/exit",
 ];
 
 pub struct SlashCommandHandler;
@@ -84,13 +79,7 @@ impl SlashCommandHandler {
         let cmd_name = parts[0].to_lowercase();
         match cmd_name.as_str() {
             "help" => {
-                print_help(ctx.config, ctx.renderer, ctx.commands);
-                Ok(Some(CommandResult::Continue))
-            }
-            "todos" | "todo" => {
-                let notice =
-                    "  Use /help to see available commands or view active todos in the overlay above the editor.\n";
-                ctx.renderer.print_notice(notice);
+                print_help(ctx.config, ctx.renderer);
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" => {
@@ -133,116 +122,65 @@ impl SlashCommandHandler {
                 };
                 Ok(Some(CommandResult::Compact { instructions }))
             }
-            "tree" => {
-                if let Some(sm) = ctx.session_manager {
-                    let tree = sm.load_tree().await?;
-                    if ctx.renderer.has_interactive_ui() && !tree.is_empty() {
-                        let entries = crate::ui::interactive::tree_view::build_tree_display(&tree);
-                        let choices: Vec<String> = entries
-                            .iter()
-                            .map(|e| {
-                                let active = if e.is_active { " [ACTIVE]" } else { "" };
-                                let label = e.label.as_ref().map(|l| format!(" [{l}]")).unwrap_or_default();
-                                format!(
-                                    "{}{} - {}{}{}",
-                                    "  ".repeat(e.depth),
-                                    &e.id[..8.min(e.id.len())],
-                                    e.preview,
-                                    label,
-                                    active
-                                )
-                            })
-                            .collect();
-                        if let Ok(choice) =
-                            inquire::Select::new("Select a tree node to switch branch / inspect:", choices).prompt()
-                        {
-                            let short_id = choice.split_whitespace().next().unwrap_or("");
-                            if let Some(entry) = entries.iter().find(|e| e.id.starts_with(short_id)) {
-                                return Ok(Some(CommandResult::SwitchBranch {
-                                    leaf_id: entry.id.clone(),
-                                }));
-                            }
-                        }
-                        Ok(Some(CommandResult::Continue))
+            "tree" => Ok(Some(CommandResult::Tree)),
+            "rewind" => {
+                if parts.len() > 1 {
+                    if let Ok(turn) = parts[1].parse::<usize>() {
+                        Ok(Some(CommandResult::Rewind { turn }))
                     } else {
-                        let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
                         ctx.renderer
-                            .print_notice(&format!("\nConversation Tree:\n{rendered}\n"));
+                            .print_notice("  Usage: /rewind <turn_number> (e.g. /rewind 2)\n");
                         Ok(Some(CommandResult::Continue))
                     }
                 } else {
-                    Ok(Some(CommandResult::Tree))
+                    ctx.renderer
+                        .print_notice("  Usage: /rewind <turn_number> (e.g. /rewind 2)\n");
+                    Ok(Some(CommandResult::Continue))
                 }
             }
+            "fork" => Ok(Some(CommandResult::ForkSession {
+                turn_or_node_id: parts.get(1).map(|s| s.to_string()),
+            })),
+            "clone" => Ok(Some(CommandResult::CloneSession)),
             "name" => {
                 if parts.len() > 1 {
                     let name = parts[1..].join(" ");
                     Ok(Some(CommandResult::NameSession { name }))
-                } else if ctx.renderer.has_interactive_ui() {
-                    if let Ok(name) = inquire::Text::new("Session Name:").prompt()
-                        && !name.trim().is_empty()
-                    {
-                        return Ok(Some(CommandResult::NameSession {
-                            name: name.trim().to_string(),
-                        }));
-                    }
-                    Ok(Some(CommandResult::Continue))
                 } else {
                     ctx.renderer.print_notice("  Usage: /name <session_name>\n");
                     Ok(Some(CommandResult::Continue))
                 }
             }
-            "fork" => {
-                let id = if parts.len() > 1 {
-                    Some(parts[1].to_string())
-                } else {
-                    None
-                };
-                Ok(Some(CommandResult::ForkSession { turn_or_node_id: id }))
-            }
             "resume" => {
                 if parts.len() > 1 {
-                    let id = parts[1].to_string();
-                    Ok(Some(CommandResult::ResumeSession { session_id: id }))
-                } else if ctx.renderer.has_interactive_ui() {
-                    if let Some(picked) =
-                        crate::ui::interactive::session_picker::prompt_session_picker(&ctx.config.sessions_dir)?
-                    {
-                        Ok(Some(CommandResult::ResumeSession { session_id: picked }))
-                    } else {
-                        Ok(Some(CommandResult::Continue))
-                    }
+                    Ok(Some(CommandResult::ResumeSession {
+                        session_id: parts[1].to_string(),
+                    }))
                 } else {
                     ctx.renderer.print_notice("  Usage: /resume <session_id>\n");
                     Ok(Some(CommandResult::Continue))
                 }
             }
-            "clone" => Ok(Some(CommandResult::CloneSession)),
-            "rewind" => {
-                if parts.len() > 1
-                    && let Ok(turn) = parts[1].parse::<usize>()
-                {
-                    Ok(Some(CommandResult::Rewind { turn }))
-                } else {
-                    ctx.renderer.print_notice("  Usage: /rewind <turn_number>\n");
-                    Ok(Some(CommandResult::Continue))
-                }
-            }
             "model" => {
                 if parts.len() > 1 {
-                    let new_model = parts[1].to_string();
-                    let new_provider = parts.get(2).map(|s| s.to_string());
-                    ctx.config.model = new_model.clone();
-                    if let Some(ref p) = new_provider {
-                        ctx.config.provider = p.clone();
-                    }
+                    let model_spec = parts[1];
+                    let (provider, model) = if let Some((p, m)) = model_spec.split_once(':') {
+                        (p.to_string(), m.to_string())
+                    } else if parts.len() > 2 {
+                        (parts[2].to_string(), model_spec.to_string())
+                    } else {
+                        (ctx.config.provider.clone(), model_spec.to_string())
+                    };
+
+                    ctx.config.provider = provider.clone();
+                    ctx.config.model = model.clone();
                     ctx.renderer.print_notice(&format!(
                         "  [Switched model to {} ({})]\n",
                         ctx.config.model, ctx.config.provider
                     ));
                     Ok(Some(CommandResult::ModelChanged {
-                        new_model,
-                        new_provider,
+                        new_model: model,
+                        new_provider: Some(provider),
                     }))
                 } else {
                     let models: Vec<String> = crate::repl::interactive::CURATED_MODELS
@@ -324,9 +262,15 @@ impl SlashCommandHandler {
                 Ok(Some(CommandResult::Continue))
             }
             "plugin" | "plugins" => {
-                let cwd = std::env::current_dir().ok();
-                let inspection = crate::plugin::inspection::inspect(ctx.config, cwd.as_deref()).await?;
-                ctx.renderer.print_notice(&inspection.render());
+                let mut out = String::from("\nConfigured MCP Servers:\n");
+                if ctx.config.mcp.servers.is_empty() {
+                    out.push_str("  (none configured)\n");
+                } else {
+                    for (name, server) in &ctx.config.mcp.servers {
+                        let _ = writeln!(out, "  - {name}: {} (enabled: {})", server.command, server.enabled);
+                    }
+                }
+                ctx.renderer.print_notice(&out);
                 Ok(Some(CommandResult::Continue))
             }
             "login" => Ok(Some(CommandResult::Login {
@@ -347,34 +291,6 @@ impl SlashCommandHandler {
                     let args = &parts[1..];
                     let expanded = template.expand(args);
                     return Ok(Some(CommandResult::ExpandedPrompt { text: expanded }));
-                }
-
-                if let Some(commands) = ctx.commands
-                    && let Some(cmd) = commands.get(custom)
-                {
-                    let args = parse_command_args(&trimmed[1 + custom.len()..]);
-                    let req = rho_sdk::contract::CommandInvocationRequest {
-                        arguments: args,
-                        context: rho_sdk::contract::InvocationContext {
-                            session_id: ctx.session_id.unwrap_or_default().to_string(),
-                            working_directory: std::env::current_dir()
-                                .map(|p| p.display().to_string())
-                                .unwrap_or_else(|_| ".".to_string()),
-                            has_interactive_ui: ctx.renderer.has_interactive_ui(),
-                            plugin_config: None,
-                        },
-                    };
-                    match cmd.invoke(req).await {
-                        Ok(response) => {
-                            if !response.output.is_empty() {
-                                ctx.renderer.print_notice(&format!("{}\n", response.output.trim_end()));
-                            }
-                        }
-                        Err(e) => {
-                            ctx.renderer.print_notice(&format!("  Command failed: {e}\n"));
-                        }
-                    }
-                    return Ok(Some(CommandResult::Continue));
                 }
 
                 ctx.renderer.print_notice(&format!(

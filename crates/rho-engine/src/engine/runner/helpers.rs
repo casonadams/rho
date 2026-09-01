@@ -1,4 +1,3 @@
-use rho_core::policy::ExecutionClass;
 use rho_core::session::SessionManager;
 use serde_json::Value;
 
@@ -8,10 +7,6 @@ pub fn clear_spinner(state: &mut TerminalSinkState) {
     if let Some(spinner) = state.spinner.take() {
         spinner.finish_and_clear();
     }
-}
-
-pub fn needs_approval(state: &TerminalSinkState, class: &ExecutionClass) -> bool {
-    !state.auto_approve && !class.allows_without_approval()
 }
 
 pub fn redact_value(session: &SessionManager, value: &Value) -> Value {

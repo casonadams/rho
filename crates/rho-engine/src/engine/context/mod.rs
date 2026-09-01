@@ -48,7 +48,7 @@ impl ProjectContext {
 
         let git_status = get_git_summary(base).await;
         let os_info = format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH);
-        let date_str = chrono::Local::now().format("%A, %B %d, %Y, %H:%M:%S %Z").to_string();
+        let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         Self {
             current_dir: base.to_path_buf(),
@@ -65,7 +65,7 @@ impl ProjectContext {
     /// cached by the caller for the lifetime of the working directory.
     pub async fn refresh_runtime_state(&mut self) {
         self.git_status = get_git_summary(&self.current_dir).await;
-        self.date_str = chrono::Local::now().format("%A, %B %d, %Y, %H:%M:%S %Z").to_string();
+        self.date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
     }
 
     fn load_candidate_instructions(dir: &Path, files: &mut Vec<(String, String)>) {
@@ -88,43 +88,58 @@ impl ProjectContext {
         prompt.push_str(self.base_system_prompt.trim());
         prompt.push_str("\n\n");
 
-        prompt.push_str(&format!("Today's date: {}\n", self.date_str));
-        prompt.push_str(&format!("Platform: {}\n", self.os_info));
-
-        if let Some(ref git) = self.git_status {
-            prompt.push_str(&format!("Git repository status: {git}\n"));
-        }
-        prompt.push('\n');
-
-        if !self.skills.is_empty() {
-            prompt.push_str("The following skills provide specialized instructions for specific tasks.\n");
-            prompt.push_str("Use the read tool to load a skill's file when the task matches its description.\n\n");
-            prompt.push_str("<available_skills>\n");
-            for skill in &self.skills {
-                prompt.push_str("  <skill>\n");
-                prompt.push_str(&format!("    <name>{}</name>\n", skill.name));
-                prompt.push_str(&format!("    <description>{}</description>\n", skill.description));
-                prompt.push_str(&format!("    <location>{}</location>\n", skill.location));
-                prompt.push_str("  </skill>\n");
-            }
-            prompt.push_str("</available_skills>\n\n");
-        }
-
         if !self.instruction_files.is_empty() {
             prompt.push_str("<project_context>\n\nProject-specific instructions and guidelines:\n\n");
             for (name, content) in &self.instruction_files {
                 prompt.push_str(&format!(
-                    "<project_instructions path=\"{name}\">\n{content}\n</project_instructions>\n\n"
+                    "<project_instructions path=\"{}\">\n{}\n</project_instructions>\n\n",
+                    escape_xml(name),
+                    content
                 ));
             }
             prompt.push_str("</project_context>\n\n");
         }
 
+        if !self.skills.is_empty() {
+            prompt.push_str("The following skills provide specialized instructions for specific tasks.\n");
+            prompt.push_str("Use the read tool to load a skill's file when the task matches its description.\n");
+            prompt.push_str("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n");
+            prompt.push_str("<available_skills>\n");
+            for skill in &self.skills {
+                prompt.push_str("  <skill>\n");
+                prompt.push_str(&format!("    <name>{}</name>\n", escape_xml(&skill.name)));
+                prompt.push_str(&format!(
+                    "    <description>{}</description>\n",
+                    escape_xml(&skill.description)
+                ));
+                prompt.push_str(&format!("    <location>{}</location>\n", escape_xml(&skill.location)));
+                prompt.push_str("  </skill>\n");
+            }
+            prompt.push_str("</available_skills>\n\n");
+        }
+
         let clean_cwd = self.current_dir.display().to_string().replace('\\', "/");
-        prompt.push_str(&format!("Current working directory: {clean_cwd}"));
+        prompt.push_str(&format!("Current working directory: {clean_cwd}\n\n"));
+        prompt.push_str(&format!(
+            "Today's date is {}. When searching for recent events, releases, or \"latest\" information, factor in this current date.\n",
+            self.date_str
+        ));
+        prompt.push_str(&format!("Platform: {}", self.os_info));
+
+        if let Some(ref git) = self.git_status {
+            prompt.push_str(&format!("\nGit repository status: {git}"));
+        }
 
         prompt
     }
+}
+
+pub fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 async fn get_git_summary(dir: &Path) -> Option<String> {

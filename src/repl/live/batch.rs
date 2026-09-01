@@ -68,14 +68,6 @@ impl LiveBatch {
             controller.state_mut().footer_mut().activity = activity;
             changed = true;
         }
-        if let Some(todos) = drained.todos {
-            controller.state_mut().set_todos(todos);
-            changed = true;
-        }
-        if let Some(subagents) = drained.subagents {
-            controller.state_mut().set_subagents(subagents);
-            changed = true;
-        }
         if !drained.text.is_empty() {
             controller.write_output(&drained.text)?;
         } else if changed || redraw {
@@ -119,14 +111,6 @@ pub fn handle_ui_event<B: crate::ui::interactive::TerminalBackend>(
         }
         UiEvent::ToolEnd => {
             controller.end_tool()?;
-        }
-        UiEvent::Todos(todos) => {
-            controller.state_mut().set_todos(todos);
-            controller.redraw()?;
-        }
-        UiEvent::Subagents(subagents) => {
-            controller.state_mut().set_subagents(subagents);
-            controller.redraw()?;
         }
         event @ UiEvent::Interaction { .. } => {
             install_interaction(controller, event, modal);

@@ -1,23 +1,11 @@
 #![cfg(unix)]
 
-use async_trait::async_trait;
-use rho::approval::{ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context};
-use rho::config::{Config, McpConfig, McpServerConfig};
-use rho::engine::provider::host_loop::{NeutralToolCall, NeutralToolExecutor};
-use rho::plugin::tool_dispatch::ActiveToolSet;
+use rho_core::config::{Config, McpConfig, McpServerConfig};
+use rho_engine::mcp::load_mcp_tools;
+use rig::tool::{ToolContext, ToolSet};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::sync::Arc;
-
-struct TestApprovalSink;
-
-#[async_trait]
-impl ApprovalEventSink for TestApprovalSink {
-    async fn request_approval(&self, _request: ApprovalRequest) -> ApprovalDecision {
-        ApprovalDecision::Approved
-    }
-}
 
 fn temp_workspace() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("mcp_integration_test_{}", uuid::Uuid::new_v4()));
@@ -68,28 +56,26 @@ done
         ..Config::default()
     };
 
-    let active = ActiveToolSet::load(&config, &workspace).await.unwrap();
-    let tool_names: Vec<String> = active.definitions().iter().map(|d| d.id.name().to_string()).collect();
+    let tools = load_mcp_tools(&config, &workspace).await;
+    let tool_names: Vec<String> = tools.iter().map(|d| d.name().to_string()).collect();
 
     assert!(
-        tool_names.contains(&"fs_read".to_string()),
-        "expected 'fs_read' in tool_names: {tool_names:?}"
+        tool_names.contains(&"filesystem_fs_read".to_string()),
+        "expected 'filesystem_fs_read' in tool_names: {tool_names:?}"
     );
 
-    let approval_cap = ApprovalCapability::new(true, Arc::new(TestApprovalSink));
-    let executor = Arc::new(active).neutral_executor(approval_context(approval_cap));
+    let tool_set = ToolSet::from_dynamic_tools(tools);
+    let mut ctx = ToolContext::new();
+    let result = tool_set
+        .execute("filesystem_fs_read", r#"{"path":"foo.txt"}"#, &mut ctx)
+        .await;
 
-    let result = executor
-        .execute(NeutralToolCall {
-            call_id: "call-1".to_string(),
-            tool_id: "tool:fs_read".parse().unwrap(),
-            arguments: serde_json::json!({"path": "dummy.txt"}),
-        })
-        .await
-        .unwrap();
+    assert!(result.is_success());
+    let output_text = result.output().as_text().unwrap_or_default();
+    assert!(
+        output_text.contains("content from mock fs MCP"),
+        "expected result content in: {output_text}"
+    );
 
-    assert_eq!(result.content, "content from mock fs MCP");
-    assert!(!result.is_error);
-
-    let _ = std::fs::remove_dir_all(workspace);
+    let _ = std::fs::remove_dir_all(&workspace);
 }

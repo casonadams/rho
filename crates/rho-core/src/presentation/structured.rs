@@ -1,12 +1,12 @@
 //! Structured presentation output sinks and headless presenter.
 
+use super::types::{SessionStatus, ToolLine, UiEnvelope, UiEvent, WelcomeDisplay};
 use crate::error::{AppError, Result};
 use crate::presentation::activity::{ActivityToken, activity_token};
 use crate::presentation::presenter::Presenter;
 use crate::presentation::questions::{InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion};
 use crate::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use async_trait::async_trait;
-use rho_sdk::ui::{ApprovalResult, BashApproval, SessionStatus, ToolLine, UiEnvelope, UiEvent, WelcomeDisplay};
 use serde_json::Value;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -206,30 +206,6 @@ impl Presenter for StructuredPresenter {
         QuestionPort::new(HeadlessQuestionPort)
     }
 
-    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {
-        self.sink.emit(UiEvent::ApprovalPrompt {
-            tool_name: name.to_string(),
-            arguments: arguments.clone(),
-        });
-        ApprovalResult::Denied {
-            reason: "interactive approval is unavailable in headless mode".to_string(),
-        }
-    }
-
-    async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
-        self.sink.emit(UiEvent::BashApprovalPrompt {
-            request: request.clone(),
-        });
-        ApprovalResult::Denied {
-            reason: "interactive approval is unavailable in headless mode".to_string(),
-        }
-    }
-
-    async fn prompt_continue_budget(&self, max_turns: usize) -> bool {
-        self.sink.emit(UiEvent::ContinueBudgetPrompt { max_turns });
-        false
-    }
-
     fn print_turn_started(&self, prompt: &str) {
         self.sink.emit(UiEvent::TurnStarted {
             prompt: prompt.to_string(),
@@ -272,19 +248,10 @@ mod tests {
             duration_ms: Some(10),
         });
 
-        let approval = presenter
-            .prompt_bash_approval(BashApproval {
-                command: "rm -rf /".to_string(),
-                tier: rho_sdk::ui::RiskTier::HighRisk,
-                reasons: vec!["dangerous".to_string()],
-            })
-            .await;
-        assert!(matches!(approval, ApprovalResult::Denied { .. }));
-
         presenter.print_turn_completed("completed");
 
         let events = recording.events();
-        assert_eq!(events.len(), 11);
+        assert_eq!(events.len(), 10);
         assert_eq!(
             events[0],
             UiEvent::TurnStarted {
@@ -331,9 +298,8 @@ mod tests {
             }
         );
         assert!(matches!(events[8], UiEvent::ToolFinished { .. }));
-        assert!(matches!(events[9], UiEvent::BashApprovalPrompt { .. }));
         assert_eq!(
-            events[10],
+            events[9],
             UiEvent::TurnCompleted {
                 status: "completed".to_string()
             }

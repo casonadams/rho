@@ -1,4 +1,3 @@
-mod approvals;
 mod helpers;
 mod security;
 mod session;

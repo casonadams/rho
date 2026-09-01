@@ -26,10 +26,7 @@ use reedline::{
     ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
     Signal, default_emacs_keybindings,
 };
-use rho_sdk::contract::CommandCapability;
-use std::collections::BTreeMap;
 use std::io::Write;
-use std::sync::Arc;
 use unicode_width::UnicodeWidthStr;
 
 fn submitted_input_rows(input: &str, terminal_width: usize) -> u16 {
@@ -61,7 +58,6 @@ pub struct ReplSession {
     pub auth_store: AuthStore,
     pub renderer: TerminalRenderer,
     pub resume_id: Option<String>,
-    pub commands: BTreeMap<String, Arc<dyn CommandCapability>>,
 }
 
 impl ReplSession {
@@ -71,7 +67,6 @@ impl ReplSession {
             auth_store,
             renderer: TerminalRenderer::default(),
             resume_id,
-            commands: BTreeMap::new(),
         }
     }
 
@@ -90,10 +85,6 @@ impl ReplSession {
             crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref())
                 .await?;
         engine.refresh_quota().await;
-
-        let assembly = crate::platform::active_tools(&self.config, &std::env::current_dir()?).await?;
-        self.commands = assembly.commands;
-        let ext_cmds: Vec<(&str, &str)> = self.commands.keys().map(|k| (k.as_str(), "")).collect();
 
         self.renderer.print_welcome(&WelcomeDisplay {
             model: self.config.model.clone(),
@@ -122,7 +113,7 @@ impl ReplSession {
         .into_iter()
         .map(|t| t.metadata.name)
         .collect::<Vec<_>>();
-        let completer = Box::new(RhoCompleter::new(&ext_cmds, skill_names, prompt_templates));
+        let completer = Box::new(RhoCompleter::new(&[], skill_names, prompt_templates));
         let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
         let history = Box::new(
@@ -167,7 +158,6 @@ impl ReplSession {
                             config: &mut self.config,
                             auth_store: &mut self.auth_store,
                             renderer: &self.renderer,
-                            commands: Some(&self.commands),
                             session_id: Some(&engine.session_manager.session_id),
                             session_manager: Some(&engine.session_manager),
                         };

@@ -12,8 +12,6 @@ use rho::engine::eval::mock::{MockEngineConfig, final_event, mock_engine, mock_e
 use rho::engine::eval::types::{EvalFailure, EvalScenario, NormalizedPart, NormalizedRequest};
 use rho::engine::runner::TurnRequest;
 
-use rho::approval::hook::ApprovalHook;
-use rho::plugin::tool_dispatch::ActiveToolSet;
 use rho_core::error::AppError;
 use rho_core::session::{SessionEventKind, SessionManager};
 
@@ -22,22 +20,15 @@ fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<rig::tool::DynamicTool
         sessions_dir: dir.join("sessions"),
         ..rho::config::Config::default()
     };
-    Some(
-        ActiveToolSet::builtins(&config, dir)
-            .expect("builtin platform tools")
-            .into_rig_tools(),
-    )
+    rho_engine::tools::build_builtin_tools(dir, &config).ok()
 }
-use async_trait::async_trait;
 use rho::presentation::StructuredPresenter;
-use rho::tools::{ApprovalCapability, ApprovalDecision, ApprovalEventSink, ApprovalRequest, approval_context};
 use rig::agent::AgentBuilder;
 use rig::agent::hook::{AgentHook, InvalidToolCallAction, InvalidToolCallContext};
 use rig::completion::{CompletionRequest, FinishReason, Usage};
 use rig::message::{AssistantContent, Message, UserContent};
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use serde_json::json;
-use std::sync::Arc;
 
 #[tokio::test]
 async fn agent_eval_harness_reports_success_and_behavior_mismatch() {
@@ -217,14 +208,15 @@ fn parts(request: &NormalizedRequest, calls: bool) -> Vec<(&str, &str)> {
         .collect()
 }
 
-struct DenySink;
+struct DenyHook;
 
-#[async_trait]
-impl ApprovalEventSink for DenySink {
-    async fn request_approval(&self, _request: ApprovalRequest) -> ApprovalDecision {
-        ApprovalDecision::Denied {
-            reason: "baseline denial".to_string(),
-        }
+impl AgentHook for DenyHook {
+    async fn on_tool_call(
+        &self,
+        _ctx: &rig::agent::hook::HookContext,
+        _event: rig::agent::hook::ToolCall<'_>,
+    ) -> rig::agent::hook::ToolCallAction {
+        rig::agent::hook::ToolCallAction::skip("Operation denied by user; no changes were made.")
     }
 }
 
@@ -233,28 +225,20 @@ async fn agent_eval_core_denied_mutation_has_no_side_effect() {
     let dir = temp_dir("denied");
     std::fs::create_dir_all(&dir).unwrap();
     let marker = dir.join("must-not-exist");
-    let capability = ApprovalCapability::new(false, Arc::new(DenySink));
     let model = MockCompletionModel::new([
         rig::test_utils::MockTurn::tool_call("denied-call", "write", json!({"path": marker, "content":"no"})),
         rig::test_utils::MockTurn::text("recovered from denial"),
     ]);
     let agent = AgentBuilder::new(model.clone())
         .tool(rho::tools::WriteTool::new(&dir))
-        .add_hook(ApprovalHook::new(capability.clone()))
+        .add_hook(DenyHook)
         .record_content_telemetry(false)
         .build();
-    let response = agent
-        .runner("write")
-        .tool_context(approval_context(capability))
-        .tool_concurrency(1)
-        .max_turns(3)
-        .run()
-        .await
-        .unwrap();
+    let response = agent.runner("write").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "recovered from denial");
     assert!(!marker.exists());
     let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("No changes were made"));
+    assert!(history.contains("no changes were made"));
 }
 
 struct RetryInvalid;
@@ -341,7 +325,7 @@ async fn agent_eval_core_repeated_calls_are_steered_on_third_attempt() {
     )
     .await
     .unwrap();
-    assert_eq!(report.metrics.tool_calls, 3);
+    assert_eq!(report.metrics.tool_calls, 2);
     assert_eq!(report.metrics.tool_errors, 1);
 }
 

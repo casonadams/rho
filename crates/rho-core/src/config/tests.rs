@@ -86,16 +86,6 @@ enabled = true
 [mcp.servers.linear]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-linear"]
-
-[subagents]
-enabled = true
-max_concurrency = 4
-max_turns_per_agent = 20
-
-[subagents.agents.explore]
-description = "Fast code exploration"
-tools = ["read", "bash"]
-model = "haiku"
 "#;
     let file: FileConfig = toml::from_str(toml_str).unwrap();
     assert_eq!(file.plugins.len(), 3);
@@ -123,14 +113,6 @@ model = "haiku"
         Some("true")
     );
     assert_eq!(mcp.servers["linear"].command, "npx");
-
-    let subagents = file.subagents.unwrap();
-    assert!(subagents.enabled);
-    assert_eq!(subagents.max_concurrency, 4);
-    assert_eq!(subagents.max_turns_per_agent, 20);
-    assert_eq!(subagents.agents["explore"].description, "Fast code exploration");
-    assert_eq!(subagents.agents["explore"].tools, vec!["read", "bash"]);
-    assert_eq!(subagents.agents["explore"].model.as_deref(), Some("haiku"));
 }
 
 #[test]

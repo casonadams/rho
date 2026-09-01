@@ -429,26 +429,6 @@ fn truncate_to_visual_lines_skips_earlier_lines_when_exceeding_limit() {
 }
 
 #[test]
-fn format_active_tool_block_contains_command_and_elapsed() {
-    let theme = crate::ui::theme::Theme::default();
-    let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
-        tool_name: "bash",
-        args_summary: "cargo test",
-        preview: None,
-        output: "compiling...\ntest result: ok",
-        started: std::time::Instant::now(),
-        theme: &theme,
-        width: 60,
-        expanded: false,
-    });
-
-    assert!(formatted.contains("bash"));
-    assert!(formatted.contains("cargo test"));
-    assert!(formatted.contains("test result: ok"));
-    assert!(formatted.contains("Elapsed"));
-}
-
-#[test]
 fn thinking_borders_change_color_with_thinking_level() {
     let default_editor = EditorState::default();
     let levels = [
@@ -486,23 +466,4 @@ fn thinking_borders_change_color_with_thinking_level() {
         );
         assert!(layout.bottom_divider.starts_with(expected_style));
     }
-}
-
-#[test]
-fn format_active_tool_block_includes_expand_hint_when_truncated() {
-    let theme = crate::ui::theme::Theme::default();
-    let output = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
-    let formatted = super::format_active_tool_block(super::ActiveToolDisplayInput {
-        tool_name: "bash",
-        args_summary: "cargo test",
-        preview: None,
-        output,
-        started: std::time::Instant::now(),
-        theme: &theme,
-        width: 60,
-        expanded: false,
-    });
-
-    assert!(formatted.contains("earlier lines"));
-    assert!(formatted.contains("Ctrl+O to expand"));
 }

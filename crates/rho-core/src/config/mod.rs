@@ -2,9 +2,7 @@ pub mod cli;
 mod merge;
 mod types;
 
-pub use types::{
-    AgentDefinition, Config, McpConfig, McpServerConfig, PluginConfig, SubagentsConfig, default_config_dir,
-};
+pub use types::{Config, McpConfig, McpServerConfig, PluginConfig, default_config_dir};
 
 use crate::error::{AppError, Result};
 
@@ -62,8 +60,9 @@ impl Config {
             ));
         }
         for (name, plugin) in &self.plugins {
-            name.parse::<rho_sdk::capability::PluginId>()
-                .map_err(|error| AppError::Config(error.to_string()))?;
+            if !is_valid_plugin_name(name) {
+                return Err(AppError::Config(format!("invalid plugin name '{name}'")));
+            }
             if plugin.path.as_os_str().is_empty() {
                 return Err(AppError::Config(format!("plugin '{name}' path must not be empty")));
             }
@@ -128,8 +127,9 @@ impl Config {
     }
 
     pub fn add_plugin(config_dir: &std::path::Path, name: &str, plugin: PluginConfig) -> Result<()> {
-        name.parse::<rho_sdk::capability::PluginId>()
-            .map_err(|error| AppError::Config(error.to_string()))?;
+        if name.trim().is_empty() {
+            return Err(AppError::Config("plugin name must not be empty".to_string()));
+        }
         if plugin.path.as_os_str().is_empty() {
             return Err(AppError::Config("plugin path must not be empty".to_string()));
         }
@@ -149,6 +149,13 @@ impl Config {
         write_file_config(&path, &file_config)?;
         Ok(plugin)
     }
+}
+
+fn is_valid_plugin_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-' || c == '_')
 }
 
 fn read_file_config(path: &std::path::Path) -> Result<FileConfig> {

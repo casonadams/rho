@@ -6,7 +6,7 @@ use std::collections::HashSet;
 pub enum DisplayEvent {
     Text(String),
     Reasoning(String),
-    ToolCall,
+    ToolCall { name: String, arguments: serde_json::Value },
 }
 
 pub fn display_events(item: StreamedAssistantContent, reasoning_parts: &mut HashSet<String>) -> Vec<DisplayEvent> {
@@ -26,7 +26,10 @@ pub fn display_events(item: StreamedAssistantContent, reasoning_parts: &mut Hash
                 rig::message::ReasoningContent::Encrypted(_) | rig::message::ReasoningContent::Redacted { .. } => None,
             })
             .collect(),
-        StreamedAssistantContent::ToolCall { .. } => vec![DisplayEvent::ToolCall],
+        StreamedAssistantContent::ToolCall { tool_call, .. } => vec![DisplayEvent::ToolCall {
+            name: tool_call.function.name,
+            arguments: tool_call.function.arguments,
+        }],
         StreamedAssistantContent::ToolCallDelta { .. }
         | StreamedAssistantContent::Reasoning { .. }
         | StreamedAssistantContent::Final(_)

@@ -8,14 +8,11 @@
 //! presentation module and are re-exported here so external callers continue
 //! to use `crate::ui::render::{TerminalRenderer, ApprovalResult, BashApproval, ToolLine}` etc.
 
-pub(crate) mod approval;
 pub(crate) mod formatters;
 pub(crate) mod presenter;
 pub(crate) mod preview;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
-pub mod subagent_overlay;
-pub mod todo_overlay;
 
 #[cfg(test)]
 mod tests;
@@ -29,12 +26,6 @@ pub use rho_core::presentation::{
     ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
 };
 pub use rpc_presenter::RpcPresenter;
-pub use subagent_overlay::{
-    DEFAULT_MAX_AGENT_LINES, SubagentDisplayItem, SubagentOverlayOptions, SubagentStatus, format_subagent_overlay,
-};
-pub use todo_overlay::{
-    DEFAULT_MAX_TODO_LINES, TodoOverlayOptions, format_todo_overlay, format_todo_row, overlay_status_glyph,
-};
 
 pub fn format_duration(duration: std::time::Duration) -> String {
     let secs = duration.as_secs();

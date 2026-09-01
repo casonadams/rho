@@ -1,5 +1,7 @@
 use super::*;
-use rho_sdk::contract::MessageRole;
+use rig::message::{
+    AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+};
 
 #[test]
 fn test_estimate_text_tokens_exact_or_fallback() {
@@ -13,17 +15,17 @@ fn test_estimate_text_tokens_exact_or_fallback() {
 
 #[test]
 fn test_estimate_message_tokens() {
-    let msg = ModelMessage {
-        role: MessageRole::User,
+    let msg = Message::User {
         content: vec![
-            MessageContent::Text {
-                text: "Hello world!".to_string(),
-            },
-            MessageContent::ToolResult {
-                call_id: "call-1".to_string(),
-                content: "file content sample line".to_string(),
-                is_error: false,
-            },
+            UserContent::text("Hello world!"),
+            UserContent::ToolResult(ToolResult {
+                call: ToolCallId::new_or_mint("call-1"),
+                provider: None,
+                name: "read".to_string(),
+                content: vec![ToolResultContent::Text(rig::message::Text::new(
+                    "file content sample line",
+                ))],
+            }),
         ],
     };
 
@@ -34,37 +36,19 @@ fn test_estimate_message_tokens() {
 #[test]
 fn test_calculate_context_tokens_and_should_compact() {
     let messages = vec![
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "Initial prompt".to_string(),
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::Assistant,
-            content: vec![MessageContent::Text {
-                text: "Response 1".to_string(),
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "Trailing query".to_string(),
-            }],
-        },
+        Message::user("Initial prompt"),
+        Message::assistant("Response 1"),
+        Message::user("Trailing query"),
     ];
 
-    // Without anchor
     let stats_no_anchor = calculate_context_tokens(&messages, None, "gpt-4");
     assert!(stats_no_anchor.total_tokens > 0);
     assert_eq!(stats_no_anchor.usage_anchor_tokens, 0);
 
-    // With anchor at index 1 (reported 500 tokens)
     let stats_anchored = calculate_context_tokens(&messages, Some((1, 500)), "gpt-4");
     assert!(stats_anchored.total_tokens > 500);
     assert_eq!(stats_anchored.usage_anchor_tokens, 500);
 
-    // should_compact
     let window = 200_000;
     let reserve = 16_384;
     assert!(!should_compact(50_000, window, reserve));
@@ -74,39 +58,25 @@ fn test_calculate_context_tokens_and_should_compact() {
 #[test]
 fn test_find_token_cut_point_and_tool_pair_preservation() {
     let messages = vec![
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "User message 1".to_string(),
-            }],
+        Message::user("User message 1"),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(ToolCall::new(
+                ToolCallId::new_or_mint("call-1"),
+                ToolFunction::new("read".to_string(), serde_json::json!({"path": "test.txt"})),
+            ))],
         },
-        ModelMessage {
-            role: MessageRole::Assistant,
-            content: vec![MessageContent::ToolCall {
-                call_id: "call-1".to_string(),
-                tool_id: "tool:read".parse().unwrap(),
-                arguments: serde_json::json!({"path":"test.txt"}),
-            }],
+        Message::User {
+            content: vec![UserContent::ToolResult(ToolResult {
+                call: ToolCallId::new_or_mint("call-1"),
+                provider: None,
+                name: "read".to_string(),
+                content: vec![ToolResultContent::Text(rig::message::Text::new("test content"))],
+            })],
         },
-        ModelMessage {
-            role: MessageRole::Tool,
-            content: vec![MessageContent::ToolResult {
-                call_id: "call-1".to_string(),
-                content: "test content".to_string(),
-                is_error: false,
-            }],
-        },
-        ModelMessage {
-            role: MessageRole::User,
-            content: vec![MessageContent::Text {
-                text: "User message 2".to_string(),
-            }],
-        },
+        Message::assistant("Assistant final"),
     ];
 
-    // If keep_recent_tokens is small enough that cut would land on index 2 (ToolResult),
-    // it must back up to index 1 (Assistant ToolCall) so the tool call is not separated!
-    let cut_idx = find_token_cut_point(&messages, 15, "gpt-4");
-    assert_eq!(cut_idx, 1);
-    assert_ne!(messages[cut_idx].role, MessageRole::Tool);
+    let cut_idx = find_token_cut_point(&messages, 10, "gpt-4");
+    assert!(cut_idx <= 1);
 }

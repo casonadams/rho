@@ -24,8 +24,8 @@ pub use input::{InputAction, map_key, map_key_with_bindings};
 pub use keybinding_loader::{default_keybindings, load_keybindings};
 pub use keymap::{KeyAction, KeyChord, KeybindingMap};
 pub use layout::{
-    ActiveToolDisplayInput, CursorPosition, InteractiveLayout, LayoutInput, SPINNER_FRAMES, VisualTruncateResult,
-    format_active_tool_block, layout, truncate_to_visual_lines, wrap_to_width,
+    CursorPosition, InteractiveLayout, LayoutInput, SPINNER_FRAMES, VisualTruncateResult, layout,
+    truncate_to_visual_lines, wrap_to_width,
 };
 pub use state::{
     Activity, EditorState, FooterState, InteractiveState, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,

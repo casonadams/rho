@@ -50,6 +50,7 @@ impl RunningTool {
 #[derive(Debug, Default, Clone)]
 pub struct FooterState {
     pub activity: Activity,
+    pub running_tool: Option<String>,
     pub model: String,
     pub thinking_level: Option<String>,
     pub cwd: Option<String>,
@@ -72,6 +73,7 @@ pub struct FooterState {
 impl PartialEq for FooterState {
     fn eq(&self, other: &Self) -> bool {
         self.activity == other.activity
+            && self.running_tool == other.running_tool
             && self.model == other.model
             && self.thinking_level == other.thinking_level
             && self.cwd == other.cwd

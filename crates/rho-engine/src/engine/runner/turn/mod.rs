@@ -1,13 +1,15 @@
 pub mod types;
 
-pub use types::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, TurnOutput, TurnRequest, UsageDetails};
+pub use types::{
+    CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, SteeringQueueProvider, TurnOutput,
+    TurnRequest, UsageDetails,
+};
 
 use crate::engine::AgentEngine;
 use crate::engine::metrics::{RunMetrics, TerminalStatus};
 use crate::engine::runtime::build_runner;
 use crate::repeat::RepeatedCallHook;
 use futures::StreamExt;
-use rho_core::approval::{ApprovalCapability, approval_context};
 use rho_core::error::{AppError, Result};
 use rho_core::presentation::presenter::Presenter;
 use rho_core::session::SessionEventKind;
@@ -16,6 +18,7 @@ use rig::agent::MultiTurnStreamItem;
 use rig::completion::FinishReason;
 use rig::memory::ConversationMemory;
 use rig::streaming::StreamedAssistantContent;
+use rig::tool::ToolContext;
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -29,21 +32,7 @@ impl AgentEngine {
         request: TurnRequest<'_>,
         presenter: std::sync::Arc<dyn Presenter>,
     ) -> Result<TurnOutput> {
-        self.notify_before_turn(request.prompt).await;
-        let result = match &self.backend {
-            crate::engine::AgentBackend::Rig(_) => self.run_rig_turn(request, presenter).await,
-            crate::engine::AgentBackend::External { .. } => self.run_external_turn(request, presenter).await,
-        };
-        self.notify_after_turn(result.is_ok(), Vec::new()).await;
-        result
-    }
-
-    async fn run_rig_turn(
-        &self,
-        request: TurnRequest<'_>,
-        presenter: std::sync::Arc<dyn Presenter>,
-    ) -> Result<TurnOutput> {
-        let augmented_prompt = self.augment_prompt_with_context(request.prompt, &presenter).await;
+        let augmented_prompt = request.prompt.to_string();
         let context = self.project_context().await?;
         self.session_manager
             .append_event(
@@ -59,7 +48,7 @@ impl AgentEngine {
         )
         .load(&self.session_manager.session_id)
         .await
-        .map_err(|_| AppError::Session("Model-visible session history could not be loaded".to_string()))?;
+        .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
         let mut checkpoint = self.session_manager.load_checkpoint().await?;
 
         self.run_tracker.start();
@@ -74,34 +63,21 @@ impl AgentEngine {
             },
             self.session_manager.clone(),
         );
-        let capability = ApprovalCapability::with_session_grants(
-            self.config.auto_approve,
-            sink.clone(),
-            self.session_approvals.clone(),
-        );
         let mut current_prompt = augmented_prompt;
         let mut total_tool_calls = 0;
         let mut current_budget = self.config.max_turns;
 
         loop {
-            let mut tool_context = approval_context(capability.clone());
+            let mut tool_context = ToolContext::new();
             tool_context.insert(presenter.question_port());
             tool_context.insert(presenter.stream_port());
-            tool_context.insert(rho_sdk::contract::InvocationContext {
-                session_id: self.session_manager.session_id.clone(),
-                working_directory: std::env::current_dir()?.display().to_string(),
-                has_interactive_ui: presenter.has_interactive_ui(),
-                plugin_config: None,
-            });
-            let crate::engine::AgentBackend::Rig(agent) = &self.backend else {
-                return Err(AppError::Provider("internal provider runtime mismatch".to_string()));
-            };
-            let runner = build_runner(agent, &current_prompt)
+            let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
                 .tool_context(tool_context)
-                .add_hook(RepeatedCallHook::new(std::env::current_dir()?).with_sink(sink.clone()));
+                .add_hook(RepeatedCallHook::new(std::env::current_dir()?))
+                .add_hook(TurnToolExecutionHook::new(sink.clone()));
             let runner = match checkpoint.as_ref() {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),
                 None => runner,
@@ -149,7 +125,7 @@ impl AgentEngine {
                             match event {
                                 super::history::DisplayEvent::Text(text) => sink.emit_text(&text),
                                 super::history::DisplayEvent::Reasoning(text) => sink.emit_reasoning(&text),
-                                super::history::DisplayEvent::ToolCall => {
+                                super::history::DisplayEvent::ToolCall { .. } => {
                                     sink.resume_model_spinner();
                                     total_tool_calls += 1;
                                 }
@@ -159,7 +135,8 @@ impl AgentEngine {
                     MultiTurnStreamItem::FinalResponse(response) => final_response = Some(response),
                     MultiTurnStreamItem::CompletionCall(call) => self.run_tracker.completion(call),
                     MultiTurnStreamItem::ModelTurnRetried { .. } => sink.resume_model_spinner(),
-                    MultiTurnStreamItem::StreamUserItem(_) | MultiTurnStreamItem::ToolExecutionCommitted { .. } => {}
+                    MultiTurnStreamItem::ToolExecutionCommitted { .. } => {}
+                    MultiTurnStreamItem::StreamUserItem(_) => {}
                 }
             }
 
@@ -319,5 +296,44 @@ impl AgentEngine {
             status,
             metrics,
         })
+    }
+}
+
+struct TurnToolExecutionHook {
+    sink: std::sync::Arc<TerminalApprovalSink>,
+}
+
+impl TurnToolExecutionHook {
+    fn new(sink: std::sync::Arc<TerminalApprovalSink>) -> Self {
+        Self { sink }
+    }
+}
+
+impl rig::agent::hook::AgentHook for TurnToolExecutionHook {
+    async fn on_tool_call(
+        &self,
+        _ctx: &rig::agent::hook::HookContext,
+        event: rig::agent::hook::ToolCall<'_>,
+    ) -> rig::agent::hook::ToolCallAction {
+        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
+        self.sink.tool_start(event.tool_name, &arguments);
+        rig::agent::hook::ToolCallAction::run()
+    }
+
+    async fn on_tool_result(
+        &self,
+        _ctx: &rig::agent::hook::HookContext,
+        event: rig::agent::hook::ToolResultEvent<'_>,
+    ) -> rig::agent::hook::ToolResultAction {
+        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
+        let output = event.presentation.render();
+        let is_error = !event.raw_result.is_success();
+        self.sink.tool_finished(super::sink::ToolFinishDetails {
+            name: event.tool_name,
+            arguments: &arguments,
+            output: &output,
+            is_error,
+        });
+        rig::agent::hook::ToolResultAction::keep()
     }
 }

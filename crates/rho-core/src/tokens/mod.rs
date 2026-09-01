@@ -1,4 +1,4 @@
-use rho_sdk::contract::{MessageContent, ModelMessage};
+use rig::message::{AssistantContent, Message, UserContent};
 use std::sync::LazyLock;
 
 #[cfg(test)]
@@ -34,8 +34,8 @@ pub struct ContextTokenStats {
 }
 
 pub fn calculate_context_tokens(
-    messages: &[ModelMessage],
-    last_usage_anchor: Option<(usize, usize)>, // (index_in_messages, reported_total_tokens)
+    messages: &[Message],
+    last_usage_anchor: Option<(usize, usize)>,
     model: &str,
 ) -> ContextTokenStats {
     if let Some((anchor_idx, anchor_tokens)) = last_usage_anchor
@@ -57,7 +57,15 @@ pub fn calculate_context_tokens(
     }
 }
 
-pub fn find_token_cut_point(messages: &[ModelMessage], keep_recent_tokens: usize, model: &str) -> usize {
+fn is_tool_result_message(message: &Message) -> bool {
+    if let Message::User { content } = message {
+        content.iter().any(|c| matches!(c, UserContent::ToolResult(_)))
+    } else {
+        false
+    }
+}
+
+pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, model: &str) -> usize {
     if messages.is_empty() {
         return 0;
     }
@@ -73,8 +81,7 @@ pub fn find_token_cut_point(messages: &[ModelMessage], keep_recent_tokens: usize
         }
     }
 
-    // Never start the kept slice with a Tool result without its Assistant caller
-    while cut_idx > 0 && messages[cut_idx].role == rho_sdk::contract::MessageRole::Tool {
+    while cut_idx > 0 && is_tool_result_message(&messages[cut_idx]) {
         cut_idx -= 1;
     }
 
@@ -98,26 +105,48 @@ pub fn estimate_char_tokens(text: &str) -> usize {
     chars.div_ceil(4)
 }
 
-pub fn estimate_message_tokens(message: &ModelMessage, model: &str) -> usize {
+pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
     let mut tokens = DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE;
-    for content in &message.content {
-        match content {
-            MessageContent::Text { text } => {
-                tokens = tokens.saturating_add(estimate_text_tokens(text, model));
+    match message {
+        Message::System { content } => {
+            tokens = tokens.saturating_add(estimate_text_tokens(content, model));
+        }
+        Message::User { content } => {
+            for item in content {
+                match item {
+                    UserContent::Text(text) => {
+                        tokens = tokens.saturating_add(estimate_text_tokens(&text.text, model));
+                    }
+                    UserContent::ToolResult(result) => {
+                        for c in &result.content {
+                            if let Some(t) = c.as_text() {
+                                tokens = tokens.saturating_add(estimate_text_tokens(t, model));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
-            MessageContent::ToolCall { tool_id, arguments, .. } => {
-                tokens = tokens.saturating_add(estimate_text_tokens(tool_id.name(), model));
-                let args_str = arguments.to_string();
-                tokens = tokens.saturating_add(estimate_text_tokens(&args_str, model));
-            }
-            MessageContent::ToolResult { content, .. } => {
-                tokens = tokens.saturating_add(estimate_text_tokens(content, model));
+        }
+        Message::Assistant { content, .. } => {
+            for item in content {
+                match item {
+                    AssistantContent::Text(text) => {
+                        tokens = tokens.saturating_add(estimate_text_tokens(&text.text, model));
+                    }
+                    AssistantContent::ToolCall(call) => {
+                        tokens = tokens.saturating_add(estimate_text_tokens(&call.function.name, model));
+                        let args_str = call.function.arguments.to_string();
+                        tokens = tokens.saturating_add(estimate_text_tokens(&args_str, model));
+                    }
+                    _ => {}
+                }
             }
         }
     }
     tokens
 }
 
-pub fn estimate_messages_tokens(messages: &[ModelMessage], model: &str) -> usize {
+pub fn estimate_messages_tokens(messages: &[Message], model: &str) -> usize {
     messages.iter().map(|msg| estimate_message_tokens(msg, model)).sum()
 }

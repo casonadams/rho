@@ -1,11 +1,9 @@
-pub mod active_tool;
 pub mod editor;
 pub mod modal;
 #[cfg(test)]
 mod tests;
 pub mod text;
 
-pub use active_tool::{ActiveToolDisplayInput, format_active_tool_block};
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 
 use super::{Activity, EditorState, FooterState, ModalState};
@@ -83,7 +81,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         (String::new(), Vec::new())
     } else {
         (
-            working_line_text(&input.footer.activity, input.spinner_frame, width),
+            working_line_text(input.footer, input.spinner_frame, width),
             input.widget_lines.to_vec(),
         )
     };
@@ -149,15 +147,17 @@ fn queued_lines_text(queued: &[super::QueuedMessage], width: usize) -> Vec<Strin
     lines
 }
 
-fn working_line_text(activity: &Activity, spinner_frame: usize, width: usize) -> String {
-    if matches!(activity, Activity::Idle) || width < 3 {
+fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usize) -> String {
+    let activity = &footer.activity;
+    let running_tool = footer.running_tool.as_deref();
+    if (matches!(activity, Activity::Idle) && running_tool.is_none()) || width < 3 {
         return String::new();
     }
     let spinner = FRAMES[spinner_frame % FRAMES.len()];
     let accent = "\x1b[36m";
     let reset = "\x1b[0m";
     let dim = "\x1b[2m";
-    let label = "Working...";
+    let label = running_tool.unwrap_or("Working...");
     let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
     if calc_visible_width(&full) <= width {
         full

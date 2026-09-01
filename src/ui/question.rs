@@ -125,8 +125,8 @@ fn prompt_terminal(question: UserQuestion) -> Result<UserAnswer, AppError> {
 #[cfg(test)]
 mod tests {
     use super::question_port;
-    use crate::tools::{UserAnswer, UserQuestion, UserQuestionOption};
     use crate::ui::interactive::{InteractionResponse, InteractiveUi, UiEvent};
+    use rho_core::presentation::{UserAnswer, UserQuestion, UserQuestionOption};
 
     #[tokio::test]
     async fn ui_port_transports_options_descriptions_and_custom_answers() {

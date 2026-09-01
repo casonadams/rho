@@ -234,7 +234,7 @@ impl TerminalRenderer {
                 "{title}read{title:#} {accent}{path}{accent:#}{}",
                 range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
             )
-        } else if line.name == "webfetch" && !line.is_error {
+        } else if (line.name == "fetch" || line.name == "webfetch") && !line.is_error {
             let url = line
                 .arguments
                 .get("url")
@@ -244,7 +244,8 @@ impl TerminalRenderer {
             let dim = self.theme.dimmed;
             let kind = webfetch_content_kind(&line.arguments);
             format!(
-                "{title}webfetch{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}"
+                "{title}{}{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}",
+                line.name
             )
         } else {
             format!("{title}{}{title:#} {accent}{summary}{accent:#}", line.name)

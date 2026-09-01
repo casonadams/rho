@@ -15,5 +15,5 @@ pub use bash::BashArgs;
 pub use edit::{EditArgs, EditReplacement};
 pub use fetch::FetchArgs;
 pub use read::ReadArgs;
-pub use search::SearchArgs;
+pub use search::{SearchArgs, SearchRecency};
 pub use write::WriteArgs;

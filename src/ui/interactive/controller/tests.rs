@@ -239,7 +239,7 @@ fn resize_erases_using_old_layout_and_redraws_at_new_width() {
 }
 
 #[test]
-fn resize_rerenders_active_tool_block_at_new_width() {
+fn resize_rerenders_at_new_width() {
     let (backend, operations, width) = FakeTerminal::new(60);
     let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
     controller
@@ -257,7 +257,7 @@ fn resize_rerenders_active_tool_block_at_new_width() {
     let ops = operations.borrow();
     assert!(
         ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash") && text.contains("cargo test")))
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
     );
 }
 
@@ -394,7 +394,7 @@ fn suspend_and_resume_restore_terminal_modes_around_legacy_prompts() {
 }
 
 #[test]
-fn active_tool_block_updates_inplace_and_cleans_up_on_end() {
+fn active_tool_status_updates_and_cleans_up_on_end() {
     let (backend, operations, _) = FakeTerminal::new(60);
     let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
     operations.borrow_mut().clear();
@@ -406,28 +406,24 @@ fn active_tool_block_updates_inplace_and_cleans_up_on_end() {
             preview: None,
         })
         .unwrap();
-    let ops = operations.borrow();
-    assert!(
-        ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash") && text.contains("cargo test")))
+    assert_eq!(
+        controller.state().footer().running_tool.as_deref(),
+        Some("bash cargo test")
     );
-    drop(ops);
-
-    operations.borrow_mut().clear();
-    controller.append_tool_chunk("line 1\nline 2\n").unwrap();
     let ops = operations.borrow();
     assert!(
         ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("line 1")))
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
     );
     drop(ops);
 
     operations.borrow_mut().clear();
     controller.end_tool().unwrap();
+    assert_eq!(controller.state().footer().running_tool, None);
     let ops = operations.borrow();
     assert!(
         !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("cargo test")))
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
     );
 }
 
@@ -476,61 +472,6 @@ fn construction_error_restores_cursor_and_raw_mode() {
     let operations = operations.borrow();
     assert!(operations.contains(&Operation::Show));
     assert!(operations.contains(&Operation::Raw(false)));
-}
-
-#[test]
-fn tool_chunk_batches_trigger_one_redraw_per_batch() {
-    let (backend, operations, _) = FakeTerminal::new(40);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-    operations.borrow_mut().clear();
-
-    controller.append_tool_chunks(["a", "b", "c"]).unwrap();
-    let no_tool_flushes = operations.borrow().iter().filter(|op| **op == Operation::Flush).count();
-    assert_eq!(no_tool_flushes, 0);
-
-    controller
-        .start_tool(crate::ui::interactive::ToolStartRequest {
-            name: "bash".to_string(),
-            args_summary: "cmd".to_string(),
-            preview: None,
-        })
-        .unwrap();
-    let baseline = operations.borrow().len();
-    controller.append_tool_chunks(["a", "b", "c"]).unwrap();
-    let flushes = operations.borrow()[baseline..]
-        .iter()
-        .filter(|op| **op == Operation::Flush)
-        .count();
-    assert_eq!(flushes, 1);
-}
-
-#[test]
-fn active_tool_output_is_capped_while_running() {
-    let (backend, _operations, _) = FakeTerminal::new(40);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-    controller
-        .start_tool(crate::ui::interactive::ToolStartRequest {
-            name: "bash".to_string(),
-            args_summary: "cmd".to_string(),
-            preview: None,
-        })
-        .unwrap();
-
-    let full = "x".repeat(super::MAX_ACTIVE_TOOL_OUTPUT_BYTES);
-    let oversized = format!("{full}Y");
-    controller.append_tool_chunks([oversized.as_str()]).unwrap();
-    controller.append_tool_chunks(["dropped"]).unwrap();
-    controller.append_tool_chunk("dropped too").unwrap();
-
-    let block = controller.active_tool.as_ref().unwrap();
-    assert!(
-        block.output.len()
-            <= super::MAX_ACTIVE_TOOL_OUTPUT_BYTES + "\n[output truncated while running; full result follows]".len(),
-        "retained {} bytes",
-        block.output.len()
-    );
-    assert!(block.output.contains("output truncated while running"));
-    assert!(!block.output.contains("dropped"));
 }
 
 #[test]

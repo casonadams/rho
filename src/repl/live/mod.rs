@@ -84,9 +84,6 @@ impl ReplSession {
                 .into_iter()
                 .map(|skill| skill.metadata.name)
                 .collect();
-        let assembly = crate::platform::active_tools(&self.config, &std::env::current_dir()?).await?;
-        self.commands = assembly.commands;
-        let ext_cmds: Vec<(&str, &str)> = self.commands.keys().map(|k| (k.as_str(), "")).collect();
         let prompt_templates = rho_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
@@ -94,7 +91,7 @@ impl ReplSession {
         .into_iter()
         .map(|t| t.metadata.name)
         .collect::<Vec<_>>();
-        let completions = CompletionSet::rho(&ext_cmds, skill_names, prompt_templates);
+        let completions = CompletionSet::rho(&[], skill_names, prompt_templates);
 
         loop {
             let message = match controller.state_mut().pop_queued() {

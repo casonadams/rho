@@ -105,7 +105,7 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     "{title}read{title:#} {accent}{path}{accent:#}{}",
                     range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
                 )
-            } else if tool.name == "webfetch" && !tool.is_error {
+            } else if (tool.name == "fetch" || tool.name == "webfetch") && !tool.is_error {
                 let url = tool
                     .arguments
                     .get("url")
@@ -115,7 +115,8 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 let dim = theme.dimmed;
                 let kind = webfetch_content_kind(&tool.arguments);
                 format!(
-                    "{title}webfetch{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}"
+                    "{title}{}{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}",
+                    tool.name
                 )
             } else {
                 format!("{title}{}{title:#} {accent}{summary}{accent:#}", tool.name)

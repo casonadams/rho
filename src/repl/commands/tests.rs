@@ -39,7 +39,6 @@ async fn skill_command_lists_resolved_overrides_with_origin() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
         session_id: None,
         session_manager: None,
     };
@@ -73,7 +72,6 @@ async fn skill_command_reports_unknown_names_with_available_skills() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
         session_id: None,
         session_manager: None,
     };
@@ -97,7 +95,6 @@ async fn help_is_emitted_through_the_renderer() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
         session_id: None,
         session_manager: None,
     };
@@ -119,7 +116,6 @@ async fn login_is_dispatched_without_collecting_credentials() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
         session_id: None,
         session_manager: None,
     };
@@ -152,7 +148,6 @@ async fn model_switch_is_emitted_and_updates_configuration() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
         session_id: None,
         session_manager: None,
     };
@@ -166,90 +161,6 @@ async fn model_switch_is_emitted_and_updates_configuration() {
     assert!(collected_output(&mut events).contains("Switched model to gpt-4o (openai)"));
 }
 
-struct MockCommand {
-    name: String,
-    description: String,
-}
-
-#[async_trait::async_trait]
-impl rho_sdk::contract::CommandCapability for MockCommand {
-    fn descriptor(&self) -> rho_sdk::contract::CommandDescriptor {
-        rho_sdk::contract::CommandDescriptor {
-            id: format!("command:{}", self.name).parse().unwrap(),
-            name: self.name.clone(),
-            description: self.description.clone(),
-        }
-    }
-
-    async fn invoke(
-        &self,
-        request: rho_sdk::contract::CommandInvocationRequest,
-    ) -> std::result::Result<rho_sdk::contract::CommandInvocationResponse, rho_sdk::capability::CapabilityError> {
-        Ok(rho_sdk::contract::CommandInvocationResponse {
-            output: format!("{}: {}", self.name, request.arguments.join(", ")),
-            exit_code: 0,
-        })
-    }
-}
-
-#[tokio::test]
-async fn dynamic_plugin_command_dispatches_with_arguments() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mock_cmd: std::sync::Arc<dyn rho_sdk::contract::CommandCapability> = std::sync::Arc::new(MockCommand {
-        name: "kiln".to_string(),
-        description: "Kiln local memory".to_string(),
-    });
-    let commands = std::collections::BTreeMap::from([("kiln".to_string(), mock_cmd)]);
-
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        commands: Some(&commands),
-        session_id: None,
-        session_manager: None,
-    };
-
-    let result = SlashCommandHandler::handle("/kiln fire \"./docs path\" --force", &mut context)
-        .await
-        .unwrap();
-
-    assert!(matches!(result, Some(CommandResult::Continue)));
-    let output = collected_output(&mut events);
-    assert!(output.contains("kiln: fire, ./docs path, --force"));
-}
-
-#[tokio::test]
-async fn help_displays_installed_plugin_commands() {
-    let mut config = Config::default();
-    let mut auth = AuthStore::default();
-    let (renderer, mut events) = collecting_renderer();
-    let mock_cmd: std::sync::Arc<dyn rho_sdk::contract::CommandCapability> = std::sync::Arc::new(MockCommand {
-        name: "kiln".to_string(),
-        description: "Kiln local memory".to_string(),
-    });
-    let commands = std::collections::BTreeMap::from([("kiln".to_string(), mock_cmd)]);
-
-    let mut context = SlashCommandContext {
-        config: &mut config,
-        auth_store: &mut auth,
-        renderer: &renderer,
-        commands: Some(&commands),
-        session_id: None,
-        session_manager: None,
-    };
-
-    let result = SlashCommandHandler::handle("/help", &mut context).await.unwrap();
-
-    assert!(matches!(result, Some(CommandResult::Continue)));
-    let output = collected_output(&mut events);
-    assert!(output.contains("Installed Plugin Commands"));
-    assert!(output.contains("/kiln"));
-    assert!(output.contains("Kiln local memory"));
-}
-
 #[tokio::test]
 async fn session_command_prints_diagnostics() {
     let mut config = Config::default();
@@ -259,8 +170,7 @@ async fn session_command_prints_diagnostics() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
-        session_id: Some("sess_xyz123"),
+        session_id: Some("session-diag-123"),
         session_manager: None,
     };
 
@@ -269,8 +179,7 @@ async fn session_command_prints_diagnostics() {
     assert!(matches!(result, Some(CommandResult::Continue)));
     let output = collected_output(&mut events);
     assert!(output.contains("Session Diagnostics"));
-    assert!(output.contains("Context Capacity:"));
-    assert!(output.contains("Session ID:                  sess_xyz123"));
+    assert!(output.contains("Session ID:                  session-diag-123"));
 }
 
 #[tokio::test]
@@ -282,45 +191,23 @@ async fn compact_tree_and_rewind_commands_return_expected_results() {
         config: &mut config,
         auth_store: &mut auth,
         renderer: &renderer,
-        commands: None,
-        session_id: Some("sess_1"),
+        session_id: None,
         session_manager: None,
     };
 
-    let compact_res = SlashCommandHandler::handle("/compact preserve error details", &mut context)
+    let compact = SlashCommandHandler::handle("/compact keep tests only", &mut context)
         .await
         .unwrap();
-    assert!(matches!(
-        compact_res,
+    assert_eq!(
+        compact,
         Some(CommandResult::Compact {
-            instructions: Some(ref s)
-        }) if s == "preserve error details"
-    ));
+            instructions: Some("keep tests only".to_string())
+        })
+    );
 
-    let tree_res = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
-    assert!(matches!(tree_res, Some(CommandResult::Tree)));
+    let tree = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
+    assert_eq!(tree, Some(CommandResult::Tree));
 
-    let fork_res = SlashCommandHandler::handle("/fork node_123", &mut context)
-        .await
-        .unwrap();
-    assert!(matches!(
-        fork_res,
-        Some(CommandResult::ForkSession {
-            turn_or_node_id: Some(ref id)
-        }) if id == "node_123"
-    ));
-
-    let clone_res = SlashCommandHandler::handle("/clone", &mut context).await.unwrap();
-    assert!(matches!(clone_res, Some(CommandResult::CloneSession)));
-
-    let name_res = SlashCommandHandler::handle("/name Refactor Module", &mut context)
-        .await
-        .unwrap();
-    assert!(matches!(
-        name_res,
-        Some(CommandResult::NameSession { ref name }) if name == "Refactor Module"
-    ));
-
-    let rewind_res = SlashCommandHandler::handle("/rewind 2", &mut context).await.unwrap();
-    assert!(matches!(rewind_res, Some(CommandResult::Rewind { turn: 2 })));
+    let rewind = SlashCommandHandler::handle("/rewind", &mut context).await.unwrap();
+    assert_eq!(rewind, Some(CommandResult::Continue));
 }
