@@ -1,7 +1,6 @@
 # rho
 
-`rho` is a fast, clean, and extensible local coding-agent CLI built on Rust and
-Rig 0.42.
+`rho` is a fast, clean, minimal coding-agent CLI built in Rust on Rig 0.42.
 
 ## Quick Start
 
@@ -13,8 +12,8 @@ rho
 rho -p "summarize this repository"
 
 # Select model & provider
-rho --provider anthropic --model claude-sonnet-4-6
-rho --provider chatgpt --model gpt-5.6-luna
+rho --provider anthropic --model claude-3-7-sonnet-20250219
+rho --provider openai --model gpt-4o
 
 # Resume existing session
 rho --resume <SESSION_ID>
@@ -24,8 +23,7 @@ rho --resume <SESSION_ID>
 
 ## Interactive Editor and Footer
 
-When both stdin and stdout are terminals, `rho` keeps a growing editor and a
-one-line footer at the bottom of the normal terminal screen:
+When both stdin and stdout are terminals, `rho` runs an interactive editor with a stable status footer at the bottom of the terminal screen:
 
 ```text
 agent output remains above in normal scrollback
@@ -33,58 +31,50 @@ agent output remains above in normal scrollback
 Write a message here; wrapped lines and explicit
 newlines grow the editor upward.
 ────────────────────────────────────────────────
-⠋ thinking | gpt-5.6-luna | 2.9% (376k) | 74% (5d9h) | 2 queued
+⠋ thinking | claude-3-7-sonnet | 2.9% (200k) | 2 queued
 ```
 
-The footer reports current activity, model, context capacity, subscription
-quota/cooldown when available, and the queued-message count. Its activity
-indicator animates while the model is thinking or a tool is working.
+The footer reports current activity, active model, token context capacity, and queued message counts. Its activity indicator animates in-place on the working line while the model is thinking or executing tools, preventing terminal jitter.
 
 | Control       | Behavior                                                                                                                    |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `Enter`       | Submit with steering intent.                                                                                                |
+| `Enter`       | Submit prompt.                                                                                                              |
 | `Shift+Enter` | Insert a newline without submitting.                                                                                        |
 | `Ctrl+J`      | Insert a newline, including in terminals that encode it as a raw line feed.                                                 |
-| `Alt+Enter`   | Submit with follow-up intent.                                                                                               |
-| `Escape`      | Clear an idle draft, cancel active work and restore queued messages to the editor, or cancel the current modal interaction. |
+| `Alt+Enter`   | Submit with follow-up queueing.                                                                                             |
+| `Escape`      | Clear an idle draft, or cancel active execution and restore queued messages.                                                |
 
-Messages submitted while the agent is active enter one FIFO queue and run in
-submission order after the active turn finishes. Steering and follow-up labels
-preserve the intended delivery mode, but currently have the same timing because
-Rig 0.42 does not expose a safe mid-run steering boundary. If a terminal does
-not distinguish modified Enter keys, that input falls back to its reported
-behavior, typically plain `Enter` submission.
+Messages submitted while the agent is running enter a FIFO queue and execute in order once the active turn settles.
 
-The live editor uses the normal screen rather than an alternate screen.
-Rho-owned streamed output is written above it and remains available in
-terminal-native scrollback. Output written directly to stdout by a plugin or
-subprocess bypasses Rho's terminal controller and may temporarily disrupt the
-live editor; arbitrary child-process output cannot be intercepted reliably.
+---
 
-If either stdin or stdout is not a TTY, `rho` falls back to the legacy line
-editor without the bottom live region or active-turn queueing. One-shot print
-mode is unchanged.
+## Core Built-in Tools
 
-- **Context Ceilings**: GPT-5 / Luna / Codex (376k), Claude (1M), Gemini (1M),
-  DeepSeek (128k).
-- **Subscription Quotas**: Queries rolling 5-hour and 7-day windows and cooldown
-  timers directly from ChatGPT & Anthropic OAuth endpoints.
+`rho` includes 6 native, robust built-in tools:
+
+- `read`: Read file contents with line numbering, offset, and limit safeguards.
+- `write`: Create or overwrite files (automatically creates parent directories).
+- `edit`: Make precise file edits with exact text replacement.
+- `bash`: Execute shell commands in the current working directory.
+- `search`: Search the web and return structured summaries and URLs.
+- `fetch`: Fetch and extract clean readable text or markdown from URLs.
 
 ---
 
 ## Providers & Authentication
 
-| Provider     | Auth Type          | Environment Variable / Login                     |
-| ------------ | ------------------ | ------------------------------------------------ |
-| `anthropic`  | API Key            | `ANTHROPIC_API_KEY` or `rho login anthropic`     |
-| `openai`     | API Key            | `OPENAI_API_KEY` or `rho login openai`           |
-| `deepseek`   | API Key            | `DEEPSEEK_API_KEY` or `rho login deepseek`       |
-| `gemini`     | API Key            | `GEMINI_API_KEY` or `rho login gemini`           |
-| `groq`       | API Key            | `GROQ_API_KEY` or `rho login groq`               |
-| `openrouter` | API Key            | `OPENROUTER_API_KEY` or `rho login openrouter`   |
-| `chatgpt`    | Subscription OAuth | `rho login chatgpt` (OAuth device flow)          |
-| `copilot`    | Subscription OAuth | `rho login copilot` (OAuth device flow)          |
-| `ollama`     | Local Service      | `OLLAMA_HOST` (default `http://localhost:11434`) |
+| Provider     | Auth Type     | Environment Variable / Login                   |
+| ------------ | ------------- | ---------------------------------------------- |
+| `anthropic`  | API Key       | `ANTHROPIC_API_KEY` or `rho login anthropic`   |
+| `openai`     | API Key       | `OPENAI_API_KEY` or `rho login openai`         |
+| `deepseek`   | API Key       | `DEEPSEEK_API_KEY` or `rho login deepseek`     |
+| `gemini`     | API Key       | `GEMINI_API_KEY` or `rho login gemini`         |
+| `groq`       | API Key       | `GROQ_API_KEY` or `rho login groq`             |
+| `openrouter` | API Key       | `OPENROUTER_API_KEY` or `rho login openrouter` |
+| `xai`        | API Key       | `XAI_API_KEY` or `rho login xai`               |
+| `mistral`    | API Key       | `MISTRAL_API_KEY` or `rho login mistral`       |
+| `cohere`     | API Key       | `COHERE_API_KEY` or `rho login cohere`         |
+| `ollama`     | Local Service | `OLLAMA_HOST` (default `http://localhost:11434`)|
 
 ---
 
@@ -98,64 +88,47 @@ Global settings, credentials, skills, and instructions live under
 ├── auth.json              # Stored API keys
 ├── config.toml            # Application settings
 ├── AGENTS.md              # Global default agent rules & instructions
-├── skills/                # Global skills directory (SKILL.md files)
-├── plugins/               # Global plugins and manifests
-└── tokens/                # Provider OAuth tokens (ChatGPT, Copilot)
+└── skills/                # Global skills directory (SKILL.md files)
 ```
 
 - **Instructions**: Discovers global `~/.config/rho/AGENTS.md` and workspace
   `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`.
 - **Skills**: Declarative `SKILL.md` workflows resolved from embedded built-ins,
   `~/.config/rho/skills/`, `.rho/skills/`, `./prompts/skills/`, and `./skills/`.
-  Project and user overrides replace same-name built-ins (`/skill` lists each
-  skill's origin); skill content is displayed or loaded as data and is never
-  executed.
 
 ---
 
-## Plugins & Extensions
+## Model Context Protocol (MCP) Extensions
 
-Install plugins published to crates.io with Cargo or manage them via `rho`:
+Extend `rho` with standard **MCP tool servers**:
 
-```sh
-# Install from crates.io
-cargo install rho-plugin-review
-# or:
-rho plugin install rho-plugin-review
+```toml
+# In ~/.config/rho/config.toml or .rho/config.toml
+[mcp]
+enabled = true
 
-# List discovered plugins
-rho plugin list
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
+enabled = true
+
+[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
+enabled = true
 ```
 
-`rho` automatically discovers plugin binaries in `~/.cargo/bin/`, `$PATH`,
-`~/.config/rho/plugins/`, and `.rho/plugins/` matching `rho-plugin-<name>` or
-`rho-<name>`.
+Tools exposed by MCP servers are automatically namespaced (`filesystem_read_file`, `github_create_issue`, etc.) and presented to the model as standard tools.
 
-For full plugin development, lifecycle hooks (`Extension` trait), and manifest
-options, see **[docs/plugins.md](docs/plugins.md)**.
+For more details, see **[docs/plugins.md](docs/plugins.md)**.
 
 ---
 
 ## Architecture
 
-The runtime is organized around explicit boundaries:
+The workspace is structured into three clean, focused crates:
 
-- `AgentEngineBuilder` constructs provider models, sessions, tools, and
-  extensions.
-- `AgentEngine` coordinates turns and exposes session-facing state.
-- `ToolRegistry` describes the typed tools and their capabilities;
-  interactive approval and plugin lifecycle hooks govern execution.
-- Usage, quota, and context state are tracked independently from turn execution.
-- Runner errors preserve distinct authentication, network, provider, session,
-  policy, tool, cancellation, and budget categories.
-
-These boundaries are also used by offline contract tests, so provider
-construction and tool policy can be tested without credentials or network
-access.
-
----
-
-- **[Plugins & Extensions](docs/plugins.md)**: Plugin architecture, lifecycle
-  hooks, and crates.io publishing guide.
-- **[Release Readiness](docs/release-readiness.md)**: Smoke testing,
-  verification invariants, and audit policies.
+- **`rho-core`**: Core domain logic, session DAG storage, configuration, token estimation, and presentation types.
+- **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP client.
+- **`rho`**: Binary CLI entrypoint, interactive TUI, slash commands, and editor.
