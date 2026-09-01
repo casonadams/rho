@@ -3,7 +3,6 @@
 //! presentation side; the engine only passes typed data.
 
 pub use super::types::{ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, WelcomeDisplay};
-use crate::presentation::questions::QuestionPort;
 use crate::presentation::stream::ToolStreamPort;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -26,7 +25,6 @@ pub trait Presenter: Send + Sync {
     fn start_tool_spinner(&self, name: &str, arguments: &Value) -> ActivityToken;
     fn start_tool_run(&self, name: &str, arguments: &Value);
     fn stream_port(&self) -> ToolStreamPort;
-    fn question_port(&self) -> QuestionPort;
     async fn prompt_tool_approval(&self, _name: &str, _arguments: &Value) -> ApprovalResult {
         ApprovalResult::Approved
     }

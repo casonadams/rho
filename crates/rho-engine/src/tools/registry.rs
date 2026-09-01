@@ -1,7 +1,7 @@
 use crate::tools::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
 
 pub use crate::tools::builtin_tools::{
-    PROMPT_ASK_USER, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH, PROMPT_WEBSEARCH, PROMPT_WRITE,
+    PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH, PROMPT_WEBSEARCH, PROMPT_WRITE,
 };
 
 pub type ToolCapability = BuiltinToolKind;
@@ -49,9 +49,6 @@ mod tests {
             "fetch",
             "webfetch",
             "web_fetch",
-            "ask",
-            "ask_user",
-            "ask_user_question",
         ] {
             let desc = ToolRegistry::descriptor(name).unwrap();
             assert!(!desc.description.is_empty());

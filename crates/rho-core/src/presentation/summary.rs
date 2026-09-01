@@ -115,31 +115,6 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let raw_url = args.get("url").and_then(|u| u.as_str()).unwrap_or("");
             to_relative_path(raw_url)
         }
-        "ask" | "ask_user" | "ask_user_question" => {
-            if let Some(q) = args.get("question").and_then(|q| q.as_str()) {
-                if q.len() > 60 {
-                    format!("\"{}...\"", &q[..60])
-                } else {
-                    format!("\"{q}\"")
-                }
-            } else if let Some(questions) = args.get("questions").and_then(|v| v.as_array()) {
-                if let Some(first) = questions
-                    .first()
-                    .and_then(|q| q.get("question"))
-                    .and_then(|v| v.as_str())
-                {
-                    format!(
-                        "\"{}...\" ({} questions)",
-                        &first[..first.len().min(40)],
-                        questions.len()
-                    )
-                } else {
-                    format!("{} questions", questions.len())
-                }
-            } else {
-                "".to_string()
-            }
-        }
         _ => "".to_string(),
     }
 }

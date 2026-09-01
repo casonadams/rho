@@ -1,4 +1,3 @@
-use crate::tools::ask_user::AskUserArgs;
 use crate::tools::bash::BashArgs;
 use crate::tools::edit::EditArgs;
 use crate::tools::read::ReadArgs;
@@ -40,19 +39,6 @@ Usage:
 - Use read/edit instead of sed, awk, or cat for reading and editing code.
 - Captures combined stdout and stderr with output truncation safeguards.";
 
-pub static PROMPT_ASK_USER: &str = "\
-Ask the user one or more structured questions during execution.
-
-When to use:
-- Gather user preferences, constraints, or requirements when instructions are ambiguous or underspecified.
-- Get confirmation on implementation trade-offs or architectural directions before making substantial changes.
-- Offer choices to the user about what direction to take when multiple valid approaches exist.
-
-Guidelines:
-- Each question should have a concise header (1-3 words).
-- Provide clear, mutually exclusive options (2-4 choices).
-- Group all blocking questions into a single ask_user_question call.";
-
 pub static PROMPT_WEBSEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
@@ -75,7 +61,6 @@ pub enum BuiltinToolKind {
     ReadOnly,
     WorkspaceMutation,
     Network,
-    Interactive,
     Shell,
 }
 
@@ -198,38 +183,5 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt_snippet: None,
         prompt_guidelines: &[],
         schema: generated_schema::<FetchArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "ask",
-        capability: BuiltinToolKind::Interactive,
-        description: "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.",
-        prompt: PROMPT_ASK_USER,
-        prompt_snippet: Some(
-            "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences",
-        ),
-        prompt_guidelines: &[
-            "Use ask whenever the user's request is underspecified, ambiguous, has multiple architectural trade-offs, or requires decisions that only the user can make. Do not make unconfirmed assumptions on critical design decisions.",
-            "When asking questions, provide structured options with clear trade-offs and recommendations",
-            "When unresolved user decisions block progress, ask them together in one ask call",
-        ],
-        schema: generated_schema::<AskUserArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "ask_user",
-        capability: BuiltinToolKind::Interactive,
-        description: "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.",
-        prompt: PROMPT_ASK_USER,
-        prompt_snippet: None,
-        prompt_guidelines: &[],
-        schema: generated_schema::<AskUserArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "ask_user_question",
-        capability: BuiltinToolKind::Interactive,
-        description: "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.",
-        prompt: PROMPT_ASK_USER,
-        prompt_snippet: None,
-        prompt_guidelines: &[],
-        schema: generated_schema::<AskUserArgs>,
     },
 ];

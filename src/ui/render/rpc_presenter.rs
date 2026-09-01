@@ -1,26 +1,11 @@
 use async_trait::async_trait;
 use rho_core::presentation::activity::ActivityToken;
 use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::ToolStreamPort;
 use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
 use rho_core::rpc::protocol::RpcEvent;
 use serde_json::Value;
 use tokio::sync::mpsc;
-
-struct RpcQuestionPort;
-
-#[async_trait]
-impl rho_core::presentation::questions::InteractiveQuestionPort for RpcQuestionPort {
-    async fn ask(
-        &self,
-        _question: rho_core::presentation::questions::UserQuestion,
-    ) -> rho_core::error::Result<rho_core::presentation::questions::UserAnswer> {
-        Err(rho_core::error::AppError::Session(
-            "interactive questions over RPC should use structured parameters".to_string(),
-        ))
-    }
-}
 
 #[derive(Clone)]
 pub struct RpcPresenter {
@@ -116,10 +101,6 @@ impl Presenter for RpcPresenter {
 
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::default()
-    }
-
-    fn question_port(&self) -> QuestionPort {
-        QuestionPort::new(RpcQuestionPort)
     }
 
     async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {

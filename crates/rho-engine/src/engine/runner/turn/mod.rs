@@ -69,7 +69,6 @@ impl AgentEngine {
 
         loop {
             let mut tool_context = ToolContext::new();
-            tool_context.insert(presenter.question_port());
             tool_context.insert(presenter.stream_port());
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())

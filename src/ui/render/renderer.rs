@@ -8,7 +8,6 @@ use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
-use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::ToolStreamPort;
 use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
 use rho_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
@@ -57,10 +56,6 @@ impl TerminalRenderer {
             ui: Some(ui),
             ..Self::default()
         }
-    }
-
-    pub fn question_port(&self) -> QuestionPort {
-        crate::ui::question::question_port(self.ui.clone())
     }
 
     pub fn stream_port(&self) -> ToolStreamPort {

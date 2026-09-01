@@ -3,11 +3,10 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_ASK_USER, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ,
-    PROMPT_WEBFETCH, PROMPT_WEBSEARCH, PROMPT_WRITE,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH,
+    PROMPT_WEBSEARCH, PROMPT_WRITE,
 };
 
-use crate::tools::ask_user::{AskUserArgs, AskUserTool};
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::read::{ReadArgs, ReadTool};
@@ -56,7 +55,6 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         [&config.config_dir, &config.sessions_dir],
     ));
     let bash = Arc::new(BashTool::new(base_dir));
-    let ask = Arc::new(AskUserTool::new());
 
     let mut tools = Vec::new();
 
@@ -169,30 +167,6 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                         Err(err) => return into_dynamic_result(Ok(err)),
                     };
                     into_dynamic_result(f.execute(args).await)
-                })
-            },
-        ));
-    }
-
-    for name in ["ask", "ask_user", "ask_user_question"] {
-        let a = Arc::clone(&ask);
-        tools.push(DynamicTool::new(
-            name,
-            "Ask the user one or more structured questions to clarify ambiguous requirements, confirm architectural choices, or gather user preferences.",
-            generated_schema::<AskUserArgs>(),
-            move |ctx, args| {
-                let a = Arc::clone(&a);
-                let port = ctx.get::<rho_core::presentation::QuestionPort>().cloned();
-                Box::pin(async move {
-                    let args: AskUserArgs = match parse_args(args) {
-                        Ok(a) => a,
-                        Err(err) => return into_dynamic_result(Ok(err)),
-                    };
-                    if let Some(port) = port {
-                        into_dynamic_result(a.execute(&port, args).await)
-                    } else {
-                        into_dynamic_result(Ok(ToolResult::error("Interactive question port is not configured")))
-                    }
                 })
             },
         ));

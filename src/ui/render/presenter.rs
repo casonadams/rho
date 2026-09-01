@@ -2,7 +2,6 @@ use super::renderer::TerminalRenderer;
 use crate::ui::interactive::InteractiveUi;
 use async_trait::async_trait;
 use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use rho_core::presentation::{ActivityToken, activity_token};
 use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
@@ -80,10 +79,6 @@ impl Presenter for TerminalRenderer {
                 .clone()
                 .map(|ui| std::sync::Arc::new(InteractiveStreamSink(Some(ui))) as std::sync::Arc<dyn ToolStreamSink>),
         )
-    }
-
-    fn question_port(&self) -> QuestionPort {
-        TerminalRenderer::question_port(self)
     }
 
     async fn prompt_tool_approval(&self, _name: &str, _arguments: &Value) -> ApprovalResult {

@@ -180,10 +180,8 @@ impl TerminalApprovalSink {
                     started: Some(Instant::now()),
                 },
             );
-            if name != "ask" && name != "ask_user" && name != "ask_user_question" {
-                state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
-                self.presenter.start_tool_run(name, &arguments);
-            }
+            state.spinner = Some(self.presenter.start_tool_spinner(name, &arguments));
+            self.presenter.start_tool_run(name, &arguments);
         }
     }
 

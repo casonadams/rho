@@ -2,7 +2,7 @@ use super::*;
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
-use crate::tools::{AskUserTool, BashTool, EditTool, ReadTool, WriteTool};
+use crate::tools::{BashTool, EditTool, ReadTool, WriteTool};
 use rig::tool::{ToolContext, ToolErrorKind, ToolSet};
 
 fn tool_set() -> ToolSet {
@@ -13,7 +13,6 @@ fn tool_set() -> ToolSet {
     tools.add_tool(WriteTool::new(&base));
     tools.add_tool(EditTool::new(&base));
     tools.add_tool(BashTool::new(&base));
-    tools.add_tool(AskUserTool::new());
     tools.add_tool(WebSearchTool::new(
         http.clone(),
         SearchRateLimiter::new(0),

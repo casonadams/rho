@@ -1,10 +1,8 @@
 //! Structured presentation output sinks and headless presenter.
 
 use super::types::{SessionStatus, ToolLine, UiEnvelope, UiEvent, WelcomeDisplay};
-use crate::error::{AppError, Result};
 use crate::presentation::activity::{ActivityToken, activity_token};
 use crate::presentation::presenter::Presenter;
-use crate::presentation::questions::{InteractiveQuestionPort, QuestionPort, UserAnswer, UserQuestion};
 use crate::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use async_trait::async_trait;
 use serde_json::Value;
@@ -103,17 +101,6 @@ impl ToolStreamSink for StructuredStreamSink {
     }
 }
 
-struct HeadlessQuestionPort;
-
-#[async_trait]
-impl InteractiveQuestionPort for HeadlessQuestionPort {
-    async fn ask(&self, _question: UserQuestion) -> Result<UserAnswer> {
-        Err(AppError::Session(
-            "interactive questions are unavailable in headless mode".to_string(),
-        ))
-    }
-}
-
 #[async_trait]
 impl Presenter for StructuredPresenter {
     fn write_output(&self, text: &str) {
@@ -200,10 +187,6 @@ impl Presenter for StructuredPresenter {
         ToolStreamPort::new(Some(Arc::new(StructuredStreamSink {
             sink: Arc::clone(&self.sink),
         })))
-    }
-
-    fn question_port(&self) -> QuestionPort {
-        QuestionPort::new(HeadlessQuestionPort)
     }
 
     fn print_turn_started(&self, prompt: &str) {

@@ -6,26 +6,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use rho_core::presentation::activity::ActivityToken;
 use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::questions::QuestionPort;
 use rho_core::presentation::stream::ToolStreamPort;
 use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
 
 #[derive(Default)]
 pub struct NoopPresenter;
-
-struct NoopQuestionPort;
-
-#[async_trait]
-impl rho_core::presentation::questions::InteractiveQuestionPort for NoopQuestionPort {
-    async fn ask(
-        &self,
-        _question: rho_core::presentation::questions::UserQuestion,
-    ) -> rho_core::error::Result<rho_core::presentation::questions::UserAnswer> {
-        Err(rho_core::error::AppError::Session(
-            "no interactive presenter is available in this harness".to_string(),
-        ))
-    }
-}
 
 #[async_trait]
 impl Presenter for NoopPresenter {
@@ -50,9 +35,6 @@ impl Presenter for NoopPresenter {
     fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::default()
-    }
-    fn question_port(&self) -> QuestionPort {
-        QuestionPort::new(NoopQuestionPort)
     }
     async fn prompt_tool_approval(&self, _name: &str, _arguments: &serde_json::Value) -> ApprovalResult {
         ApprovalResult::Approved
