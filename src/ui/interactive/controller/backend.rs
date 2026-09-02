@@ -15,6 +15,12 @@ pub trait TerminalBackend {
     fn move_to_column(&mut self, column: usize) -> io::Result<()>;
     fn clear_line(&mut self) -> io::Result<()>;
     fn write_text(&mut self, text: &str) -> io::Result<()>;
+    fn begin_sync_update(&mut self) -> io::Result<()> {
+        self.write_text("\x1b[?2026h")
+    }
+    fn end_sync_update(&mut self) -> io::Result<()> {
+        self.write_text("\x1b[?2026l")
+    }
     fn flush(&mut self) -> io::Result<()>;
 }
 

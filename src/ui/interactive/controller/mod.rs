@@ -138,6 +138,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
+        self.backend.end_sync_update()?;
         self.backend.flush()
     }
 
@@ -164,6 +165,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         let target_cursor_row = rendered.cursor_row();
         let target_cursor_col = rendered.cursor.column;
 
+        self.backend.begin_sync_update()?;
         self.backend.hide_cursor()?;
 
         if let Some(prev) = &self.rendered {
@@ -214,10 +216,12 @@ impl<B: TerminalBackend> TerminalController<B> {
 
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
+        self.backend.end_sync_update()?;
         self.backend.flush()
     }
 
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
+        self.backend.begin_sync_update()?;
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
         self.restore_output_cursor()?;
@@ -231,6 +235,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
+        self.backend.end_sync_update()?;
         self.backend.flush()
     }
 

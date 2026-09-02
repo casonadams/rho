@@ -136,7 +136,7 @@ pub fn format_session_status(session: &SessionStatus) -> String {
 
 pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {
     let d = theme.dimmed;
-    let mut out = String::new();
+    let mut out = String::from("\n");
     for line in thinking_text.trim().lines() {
         out.push_str(&format!("{d}{line}{d:#}\n"));
     }
