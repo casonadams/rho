@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/casonadams/rho/compare/v0.1.2...v0.1.3) (2026-09-02)
+
+
+### Features
+
+* **provider:** fetch real context windows for local ollama models ([c2f3bdd](https://github.com/casonadams/rho/commit/c2f3bdd34579f1dc1f008a34906d8a39b0ca3326))
+
 ## [0.1.2](https://github.com/casonadams/rho/compare/v0.1.1...v0.1.2) (2026-09-02)
 
 
