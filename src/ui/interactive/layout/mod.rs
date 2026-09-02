@@ -39,7 +39,7 @@ impl InteractiveLayout {
             h += self.widget_lines.len() + 1; // widget lines + trailing blank spacer line
         }
         if !self.top_divider.is_empty() {
-            h += 2; // dedicated status/spinner slot + top divider
+            h += 3; // extra empty line break + dedicated status/spinner slot + top divider
         }
         if !self.bottom_divider.is_empty() {
             h += 1;
@@ -53,7 +53,7 @@ impl InteractiveLayout {
             row += self.widget_lines.len() + 1;
         }
         if !self.top_divider.is_empty() {
-            row += 2; // dedicated status/spinner slot + top divider
+            row += 3; // extra empty line break + dedicated status/spinner slot + top divider
         }
         row + self.cursor.row
     }

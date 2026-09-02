@@ -401,6 +401,7 @@ fn collect_rendered_lines(rendered: &InteractiveLayout, footer_style: Style) -> 
         lines.push(String::new());
     }
     if !rendered.top_divider.is_empty() {
+        lines.push(String::new());
         lines.push(rendered.working_line.clone());
         lines.push(rendered.top_divider.clone());
     }
