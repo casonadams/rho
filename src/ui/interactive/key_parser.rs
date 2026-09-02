@@ -68,21 +68,14 @@ fn parse_key_code(raw: &str) -> Option<KeyCode> {
         "f10" => Some(KeyCode::F(10)),
         "f11" => Some(KeyCode::F(11)),
         "f12" => Some(KeyCode::F(12)),
-        _ => {
-            let mut chars = raw.chars();
-            if let (Some(c), None) = (chars.next(), chars.next()) {
-                Some(KeyCode::Char(c.to_ascii_lowercase()))
-            } else {
-                None
-            }
-        }
+        c if c.chars().count() == 1 => Some(KeyCode::Char(c.chars().next().unwrap())),
+        _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyModifiers};
 
     #[test]
     fn parses_simple_and_modified_keys() {
