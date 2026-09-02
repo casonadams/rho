@@ -9,7 +9,7 @@ use rho_engine::provider::store::ModelStore;
 use std::str::FromStr;
 
 /// Dynamically discovers models available to the current user from active configuration,
-/// live/cached provider discovery catalogs, and custom endpoints.
+/// local Ollama, live/cached provider discovery catalogs, and custom endpoints.
 pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem> {
     let mut models = Vec::new();
     let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
@@ -27,9 +27,28 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         description: format!("{active_ctx_str} · active"),
     });
 
-    // 2. Models from configured providers in auth_store & model_store
+    // 2. Local Ollama models (always available locally without API keys)
+    if let Some(cached_ollama) = model_store.get_models("ollama") {
+        for m in cached_ollama {
+            if !models
+                .iter()
+                .any(|existing| existing.id == m.id && existing.provider == m.provider)
+            {
+                models.push(ModelItem {
+                    id: m.id.clone(),
+                    provider: m.provider.clone(),
+                    description: m.description.clone(),
+                });
+            }
+        }
+    }
+
+    // 3. Models from configured providers in auth_store & model_store
     let configured_providers = auth_store.list_configured_providers();
     for prov in &configured_providers {
+        if prov == "ollama" {
+            continue; // Already handled above
+        }
         if let Some(cached) = model_store.get_models(prov) {
             for m in cached {
                 if !models
@@ -46,7 +65,7 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         }
     }
 
-    // 3. Custom configured providers from config.toml ([providers.<name>])
+    // 4. Custom configured providers from config.toml ([providers.<name>])
     for (name, spec) in &config.providers {
         if let Some(cached) = model_store.get_models(name) {
             for m in cached {
@@ -82,13 +101,25 @@ pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
 
     tokio::spawn(async move {
         let mut store = ModelStore::load(config_dir.join("models-store.json"));
+
+        // Always discover local Ollama models
+        if let Ok(discovered) = discover_provider_models(ProviderId::Ollama, &auth_store_clone).await {
+            let _ = store.set_models("ollama", discovered);
+        }
+
+        // Discover configured authenticated providers
         for prov_str in configured_providers {
+            if prov_str == "ollama" {
+                continue;
+            }
             if let Ok(id) = ProviderId::from_str(&prov_str)
                 && let Ok(discovered) = discover_provider_models(id, &auth_store_clone).await
             {
                 let _ = store.set_models(&prov_str, discovered);
             }
         }
+
+        // Discover custom endpoints
         for (name, spec) in custom_providers {
             let key = auth_store_clone.get_key_sync(&name).ok().flatten();
             if let Ok(discovered) =
