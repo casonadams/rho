@@ -41,7 +41,6 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
                 let editor = state.editor_mut();
                 let text = editor.text();
                 let cursor = editor.cursor();
-                // If the selected value already contains the full command (e.g. "/skill plan"), replace the whole prefix
                 if val.starts_with('/') {
                     let mut new_text = val.clone();
                     if !new_text.ends_with(' ') {
@@ -57,7 +56,8 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
             } else {
                 apply_completion_generic(controller, completions);
             }
-            controller.state_mut().autocomplete.close();
+            // Immediately re-evaluate completions for the updated text (e.g. "/skill " -> show skills list!)
+            update_autocomplete_state_generic(controller, completions);
             AutocompleteKeyResult::Handled
         }
         (KeyCode::Esc, KeyModifiers::NONE) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
