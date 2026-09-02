@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.5](https://github.com/casonadams/rho/compare/v0.1.4...v0.1.5) (2026-09-02)
+
+
+### Features
+
+* **examples:** enhance node notifier to emit real-time host notifications ([bbf77ca](https://github.com/casonadams/rho/commit/bbf77ca6eef2511ceedeff038b3cbade2308d2d7))
+* **examples:** update python guard example to prompt for every tool call ([9eee18c](https://github.com/casonadams/rho/commit/9eee18c64e1e25d786f2e25b35dc88446bbd8649))
+
+
+### Bug Fixes
+
+* **examples:** match any rm -rf deletion in python guard example ([ba6a3c3](https://github.com/casonadams/rho/commit/ba6a3c332c802aca748a7089084879435312cc40))
+
 ## [0.1.4](https://github.com/casonadams/rho/compare/v0.1.3...v0.1.4) (2026-09-02)
 
 
