@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """
-Python Security Guard Plugin for rho
+Interactive Python Guard Plugin for rho
 
-Demonstrates:
-- Subscribing to `hook/tool_call`
-- Requesting interactive confirmation via `host/ui/confirm`
-- Returning Rig `Flow` actions (`continue` or `skip`)
+Prompts for user approval before executing ANY tool call.
 """
 
 import sys
 import json
 
+def get_tool_summary(tool_name, args):
+    if not isinstance(args, dict):
+        return str(args)
+    for key in ["command", "path", "url", "query"]:
+        if key in args:
+            return f"{key}='{args[key]}'"
+    return json.dumps(args, separators=(",", ":"))
+
 def main():
+    prompt_counter = 1000
+
     for line in sys.stdin:
-        line = line.trim() if hasattr(line, "trim") else line.strip()
+        line = line.strip()
         if not line:
             continue
 
@@ -26,88 +33,66 @@ def main():
         req_id = req.get("id")
 
         if method == "initialize":
-            # Declare event subscriptions
-            response = {
+            emit({
                 "jsonrpc": "2.0",
                 "id": req_id,
                 "result": {
                     "protocolVersion": "2024-11-05",
                     "subscribes": ["tool_call", "invalid_tool_call"],
                     "serverInfo": {
-                        "name": "python-security-guard",
+                        "name": "python-interactive-guard",
                         "version": "1.0.0"
                     }
                 }
-            }
-            emit(response)
+            })
 
         elif method == "hook/tool_call":
             params = req.get("params", {})
             tool_name = params.get("tool_name", "")
             args = params.get("args", {})
+            summary = get_tool_summary(tool_name, args)
 
-            # 1. Unconditionally block destructive rm -rf deletions
-            if tool_name == "bash" and "rm -rf" in args.get("command", ""):
+            # Send interactive confirmation request to rho
+            prompt_counter += 1
+            prompt_id = prompt_counter
+
+            emit({
+                "jsonrpc": "2.0",
+                "id": prompt_id,
+                "method": "host/ui/confirm",
+                "params": {
+                    "title": f"Permission Gate: {tool_name}",
+                    "message": f"Execute [{tool_name}] with {summary}?",
+                    "default_yes": True
+                }
+            })
+
+            # Await host reply
+            confirmed = False
+            for reply_line in sys.stdin:
+                try:
+                    reply = json.loads(reply_line.strip())
+                    if reply.get("id") == prompt_id:
+                        confirmed = reply.get("result", {}).get("confirmed", False)
+                        break
+                except Exception:
+                    break
+
+            if confirmed:
+                emit({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"action": "continue"}
+                })
+            else:
                 emit({
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
                         "action": "skip",
-                        "reason": "Permission denied: destructive 'rm -rf' deletion is blocked by policy."
+                        "reason": f"Permission denied by user for '{tool_name}' execution. Do not retry this operation."
                     }
                 })
-                continue
-
-            # 2. Ask user for confirmation on sensitive commands (e.g. sudo, reboot)
-            if tool_name == "bash" and any(k in args.get("command", "") for k in ["sudo", "reboot", "shutdown"]):
-                cmd = args.get("command", "")
-                # Request interactive confirmation from rho's TUI
-                prompt_id = 999
-                confirm_req = {
-                    "jsonrpc": "2.0",
-                    "id": prompt_id,
-                    "method": "host/ui/confirm",
-                    "params": {
-                        "title": "Privileged Execution Request",
-                        "message": f"Allow executing privileged command: {cmd}?"
-                    }
-                }
-                emit(confirm_req)
-
-                # Await host reply
-                confirmed = False
-                for reply_line in sys.stdin:
-                    try:
-                        reply = json.loads(reply_line.strip())
-                        if reply.get("id") == prompt_id:
-                            confirmed = reply.get("result", {}).get("confirmed", False)
-                            break
-                    except Exception:
-                        break
-
-                if confirmed:
-                    emit({
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "result": {"action": "continue"}
-                    })
-                else:
-                    emit({
-                        "jsonrpc": "2.0",
-                        "id": req_id,
-                        "result": {
-                            "action": "skip",
-                            "reason": "Permission denied by user. Do not retry this operation."
-                        }
-                    })
-                continue
-
-            # 3. Allow all other tools
-            emit({
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {"action": "continue"}
-            })
 
         elif method == "hook/invalid_tool_call":
             params = req.get("params", {})

@@ -1,11 +1,13 @@
-# Python Security Guard Plugin for `rho`
+# Interactive Python Guard Plugin for `rho`
 
-An example security guard plugin written in Python demonstrating how any programming language can communicate with `rho` via standard JSON-RPC 2.0.
+A full interactive security guard plugin written in Python demonstrating how any programming language can intercept all tool calls and request user approval via `rho`'s Host UI services.
 
 ## Capabilities
 
-- Blocks destructive `rm -rf /` commands with an explanatory policy reason.
-- Asynchronously triggers native terminal confirmation modals via `host/ui/confirm` when privileged commands (`sudo`, `reboot`) are called.
+- Intercepts **every tool call** (`bash`, `read`, `write`, `edit`, `search`, `fetch`).
+- Displays a native interactive confirmation modal via `host/ui/confirm` showing the tool name and argument summary.
+- If approved, proceeds with execution (`{"action": "continue"}`).
+- If denied, returns a clear denial notice (`{"action": "skip", "reason": "..."}`) telling the LLM not to retry.
 - Automatically repairs hallucinated tool names (e.g. `sh` $\to$ `bash`).
 
 ## Configuration in `config.toml`
