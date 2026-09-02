@@ -15,7 +15,11 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
     let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
 
     // 1. Current active model always listed first with active status
-    let active_ctx = rho_harness_core::tokens::context_window_size(&config.model);
+    let active_ctx = model_store
+        .get_models(&config.provider)
+        .and_then(|models| models.iter().find(|m| m.id == config.model))
+        .and_then(|m| m.context_tokens)
+        .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&config.model));
     let active_ctx_str = if active_ctx >= 1_000_000 {
         format!("{}M ctx", active_ctx / 1_000_000)
     } else {

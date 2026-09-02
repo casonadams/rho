@@ -1,6 +1,8 @@
 pub mod discovery;
 pub mod store;
 
+pub use store::ModelStore;
+
 use crate::auth::AuthStore;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::{AppError, Result};

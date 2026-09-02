@@ -11,6 +11,8 @@ pub struct DiscoveredModel {
     pub name: String,
     pub provider: String,
     pub description: String,
+    #[serde(default)]
+    pub context_tokens: Option<usize>,
 }
 
 pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
@@ -103,6 +105,7 @@ async fn discover_openai_compatible(
         for item in body.data {
             let desc = format_context_desc(&item.id);
             models.push(DiscoveredModel {
+                context_tokens: None,
                 id: item.id.clone(),
                 name: item.id.clone(),
                 provider: provider_name.to_string(),
@@ -121,7 +124,7 @@ async fn discover_openai_compatible(
 async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(500))
+        .timeout(std::time::Duration::from_secs(2))
         .no_proxy()
         .build()
         .unwrap_or_default();
@@ -134,11 +137,16 @@ async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
         let mut models = Vec::new();
         for item in body.models {
             let id = item.name;
+            let context_tokens = ollama_context_length(&client, host.trim_end_matches('/'), &id).await;
+            let description = context_tokens
+                .map(format_context_tokens)
+                .unwrap_or_else(|| "local model".to_string());
             models.push(DiscoveredModel {
                 name: id.clone(),
                 id,
                 provider: "local".to_string(),
-                description: "local model".to_string(),
+                description,
+                context_tokens,
             });
         }
         if !models.is_empty() {
@@ -147,6 +155,30 @@ async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
     }
 
     Ok(Vec::new())
+}
+
+async fn ollama_context_length(client: &reqwest::Client, host: &str, model: &str) -> Option<usize> {
+    let endpoint = format!("{}/api/show", host);
+    let resp = client
+        .post(&endpoint)
+        .json(&serde_json::json!({ "model": model }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: OllamaShowResponse = resp.json().await.ok()?;
+    ollama_context_from_info(&body.model_info)
+}
+
+/// Ollama reports the architecture's context window in `model_info` under a
+/// key named `\u{3carch}\u{3e}.context_length` (e.g. `qwen3_5.context_length`).
+pub(crate) fn ollama_context_from_info(model_info: &serde_json::Map<String, serde_json::Value>) -> Option<usize> {
+    model_info
+        .iter()
+        .find(|(key, _)| key.ends_with(".context_length"))
+        .and_then(|(_, value)| value.as_u64().map(|n| n as usize))
 }
 
 async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
@@ -165,6 +197,7 @@ async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>
         for item in body.data {
             let desc = format_context_desc(&item.id);
             models.push(DiscoveredModel {
+                context_tokens: None,
                 id: item.id.clone(),
                 name: item.display_name.unwrap_or_else(|| item.id.clone()),
                 provider: "anthropic".to_string(),
@@ -195,6 +228,7 @@ async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
             let id = item.name.strip_prefix("models/").unwrap_or(&item.name);
             if id.starts_with("gemini") {
                 models.push(DiscoveredModel {
+                    context_tokens: None,
                     id: id.to_string(),
                     name: item.display_name.unwrap_or_else(|| id.to_string()),
                     provider: "gemini".to_string(),
@@ -211,7 +245,10 @@ async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
 }
 
 fn format_context_desc(model_id: &str) -> String {
-    let ctx = rho_harness_core::tokens::context_window_size(model_id);
+    format_context_tokens(rho_harness_core::tokens::context_window_size(model_id))
+}
+
+pub(crate) fn format_context_tokens(ctx: usize) -> String {
     if ctx >= 1_000_000 {
         format!("{}M ctx", ctx / 1_000_000)
     } else {
@@ -222,72 +259,84 @@ fn format_context_desc(model_id: &str) -> String {
 pub fn chatgpt_codex_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.4".into(),
             name: "GPT-5.4".into(),
             provider: "chatgpt".into(),
             description: "272k ctx · reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.4-pro".into(),
             name: "GPT-5.4 Pro".into(),
             provider: "chatgpt".into(),
             description: "272k ctx · deep reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.3-codex".into(),
             name: "GPT-5.3 Codex".into(),
             provider: "chatgpt".into(),
             description: "128k ctx · coding".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.3-codex-spark".into(),
             name: "GPT-5.3 Codex Spark".into(),
             provider: "chatgpt".into(),
             description: "128k ctx · ultra-fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.3-instant".into(),
             name: "GPT-5.3 Instant".into(),
             provider: "chatgpt".into(),
             description: "128k ctx · fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.6-luna".into(),
             name: "GPT-5.6 Luna".into(),
             provider: "chatgpt".into(),
             description: "372k ctx · fast reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.6-terra".into(),
             name: "GPT-5.6 Terra".into(),
             provider: "chatgpt".into(),
             description: "372k ctx · balanced reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-5.6-sol".into(),
             name: "GPT-5.6 Sol".into(),
             provider: "chatgpt".into(),
             description: "372k ctx · deep reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-4o".into(),
             name: "GPT-4o".into(),
             provider: "chatgpt".into(),
             description: "128k ctx".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-4o-mini".into(),
             name: "GPT-4o mini".into(),
             provider: "chatgpt".into(),
             description: "128k ctx · fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "o1".into(),
             name: "o1".into(),
             provider: "chatgpt".into(),
             description: "200k ctx · reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "o3-mini".into(),
             name: "o3-mini".into(),
             provider: "chatgpt".into(),
@@ -299,18 +348,21 @@ pub fn chatgpt_codex_models() -> Vec<DiscoveredModel> {
 pub fn copilot_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-4o".into(),
             name: "GPT-4o".into(),
             provider: "copilot".into(),
             description: "128k ctx".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "claude-3.5-sonnet".into(),
             name: "Claude 3.5 Sonnet".into(),
             provider: "copilot".into(),
             description: "200k ctx".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "o1".into(),
             name: "o1".into(),
             provider: "copilot".into(),
@@ -322,18 +374,21 @@ pub fn copilot_models() -> Vec<DiscoveredModel> {
 pub fn anthropic_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "claude-3-7-sonnet-20250219".into(),
             name: "Claude 3.7 Sonnet".into(),
             provider: "anthropic".into(),
             description: "200k ctx · reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "claude-3-5-sonnet-20241022".into(),
             name: "Claude 3.5 Sonnet".into(),
             provider: "anthropic".into(),
             description: "200k ctx · hybrid".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "claude-3-5-haiku-20241022".into(),
             name: "Claude 3.5 Haiku".into(),
             provider: "anthropic".into(),
@@ -345,24 +400,28 @@ pub fn anthropic_preset_models() -> Vec<DiscoveredModel> {
 pub fn openai_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-4o".into(),
             name: "GPT-4o".into(),
             provider: "openai".into(),
             description: "128k ctx · multimodal".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gpt-4o-mini".into(),
             name: "GPT-4o mini".into(),
             provider: "openai".into(),
             description: "128k ctx · fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "o1".into(),
             name: "o1".into(),
             provider: "openai".into(),
             description: "200k ctx · deep reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "o3-mini".into(),
             name: "o3-mini".into(),
             provider: "openai".into(),
@@ -374,12 +433,14 @@ pub fn openai_preset_models() -> Vec<DiscoveredModel> {
 pub fn gemini_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "gemini-2.0-flash".into(),
             name: "Gemini 2.0 Flash".into(),
             provider: "gemini".into(),
             description: "1M ctx · fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "gemini-1.5-pro".into(),
             name: "Gemini 1.5 Pro".into(),
             provider: "gemini".into(),
@@ -391,12 +452,14 @@ pub fn gemini_preset_models() -> Vec<DiscoveredModel> {
 pub fn deepseek_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "deepseek-chat".into(),
             name: "DeepSeek V3".into(),
             provider: "deepseek".into(),
             description: "64k ctx · general".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "deepseek-reasoner".into(),
             name: "DeepSeek R1".into(),
             provider: "deepseek".into(),
@@ -408,12 +471,14 @@ pub fn deepseek_preset_models() -> Vec<DiscoveredModel> {
 pub fn groq_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "llama-3.3-70b-versatile".into(),
             name: "Llama 3.3 70B".into(),
             provider: "groq".into(),
             description: "128k ctx · fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "qwen-2.5-coder-32b".into(),
             name: "Qwen 2.5 Coder 32B".into(),
             provider: "groq".into(),
@@ -425,12 +490,14 @@ pub fn groq_preset_models() -> Vec<DiscoveredModel> {
 pub fn openrouter_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "anthropic/claude-3.7-sonnet".into(),
             name: "Claude 3.7 Sonnet".into(),
             provider: "openrouter".into(),
             description: "200k ctx · reasoning".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "deepseek/deepseek-r1".into(),
             name: "DeepSeek R1".into(),
             provider: "openrouter".into(),
@@ -441,6 +508,7 @@ pub fn openrouter_preset_models() -> Vec<DiscoveredModel> {
 
 pub fn mistral_preset_models() -> Vec<DiscoveredModel> {
     vec![DiscoveredModel {
+        context_tokens: None,
         id: "mistral-large-latest".into(),
         name: "Mistral Large".into(),
         provider: "mistral".into(),
@@ -450,6 +518,7 @@ pub fn mistral_preset_models() -> Vec<DiscoveredModel> {
 
 pub fn xai_preset_models() -> Vec<DiscoveredModel> {
     vec![DiscoveredModel {
+        context_tokens: None,
         id: "grok-2-latest".into(),
         name: "Grok 2".into(),
         provider: "xai".into(),
@@ -459,6 +528,7 @@ pub fn xai_preset_models() -> Vec<DiscoveredModel> {
 
 pub fn cohere_preset_models() -> Vec<DiscoveredModel> {
     vec![DiscoveredModel {
+        context_tokens: None,
         id: "command-r-plus".into(),
         name: "Command R+".into(),
         provider: "cohere".into(),
@@ -469,12 +539,14 @@ pub fn cohere_preset_models() -> Vec<DiscoveredModel> {
 pub fn ollama_cloud_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
+            context_tokens: None,
             id: "glm-5.3-flash".into(),
             name: "GLM 5.3 Flash".into(),
             provider: "ollama-cloud".into(),
             description: "128k ctx · fast".into(),
         },
         DiscoveredModel {
+            context_tokens: None,
             id: "llama-3.3-70b".into(),
             name: "Llama 3.3 70B".into(),
             provider: "ollama-cloud".into(),
@@ -497,6 +569,7 @@ fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
         "cohere" => cohere_preset_models(),
         "ollama-cloud" => ollama_cloud_preset_models(),
         _ => vec![DiscoveredModel {
+            context_tokens: None,
             id: format!("{provider}-default"),
             name: format!("{provider} Model"),
             provider: provider.to_string(),
@@ -523,6 +596,12 @@ struct OllamaTagsResponse {
 #[derive(Deserialize)]
 struct OllamaTagItem {
     name: String,
+}
+
+#[derive(Deserialize)]
+struct OllamaShowResponse {
+    #[serde(default)]
+    model_info: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Deserialize)]

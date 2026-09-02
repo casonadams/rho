@@ -111,7 +111,19 @@ impl AgentEngineBuilder {
             }
         };
 
-        let context_limit = config.context_limit;
+        // Local Ollama models don't report their context window through the
+        // completion APIs, so fall back to the size recorded by model discovery.
+        let context_limit = match config.context_limit {
+            Some(limit) => Some(limit),
+            None if config.provider == "local" => {
+                let store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+                store
+                    .get_models("local")
+                    .and_then(|models| models.iter().find(|m| m.id == config.model))
+                    .and_then(|m| m.context_tokens)
+            }
+            None => None,
+        };
         let agent = super::runtime::build_coding_agent(
             model,
             &config,

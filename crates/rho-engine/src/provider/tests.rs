@@ -139,3 +139,15 @@ fn well_known_provider_still_routes_to_dedicated_arms() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn ollama_context_length_is_read_from_model_info() {
+    use crate::provider::discovery::ollama_context_from_info;
+
+    let info: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(r#"{"qwen3_5.context_length": 262144, "qwen3_5.embedding_length": 5120}"#).unwrap();
+    assert_eq!(ollama_context_from_info(&info), Some(262_144));
+
+    let empty: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    assert_eq!(ollama_context_from_info(&empty), None);
+}
