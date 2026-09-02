@@ -301,12 +301,24 @@ impl SlashCommandHandler {
                 Ok(Some(CommandResult::Continue))
             }
             "plugin" | "plugins" => {
-                let mut out = String::from("\nConfigured MCP Servers:\n");
-                if ctx.config.mcp.servers.is_empty() {
+                let mut out = String::from("\nConfigured MCP Servers & Plugins:\n");
+                if ctx.config.mcp.servers.is_empty() && ctx.config.plugins.is_empty() {
                     out.push_str("  (none configured)\n");
                 } else {
                     for (name, server) in &ctx.config.mcp.servers {
-                        let _ = writeln!(out, "  - {name}: {} (enabled: {})", server.command, server.enabled);
+                        let _ = writeln!(
+                            out,
+                            "  - [mcp] {name}: {} (enabled: {})",
+                            server.command, server.enabled
+                        );
+                    }
+                    for (name, plugin) in &ctx.config.plugins {
+                        let target = plugin
+                            .command
+                            .as_deref()
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| plugin.path.display().to_string());
+                        let _ = writeln!(out, "  - [plugin] {name}: {target} (enabled: {})", plugin.enabled);
                     }
                 }
                 ctx.renderer.print_notice(&out);

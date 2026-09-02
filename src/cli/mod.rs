@@ -110,11 +110,12 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                 );
                             }
                             for (name, plugin) in &config.plugins {
-                                println!(
-                                    "  - [plugin] {name}: command='{}' enabled={}",
-                                    plugin.command.as_deref().unwrap_or(""),
-                                    plugin.enabled
-                                );
+                                let target = plugin
+                                    .command
+                                    .as_deref()
+                                    .map(|c| c.to_string())
+                                    .unwrap_or_else(|| plugin.path.display().to_string());
+                                println!("  - [plugin] {name}: target='{target}' enabled={}", plugin.enabled);
                             }
                         }
                     }
