@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+pub mod help;
 #[cfg(test)]
 mod pi_alignment_tests;
 #[cfg(test)]
@@ -11,7 +12,7 @@ mod tests;
     author,
     version,
     about = "Minimal agentic coding CLI harness",
-    after_help = "Authentication:\n  API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere\n  Subscription OAuth: chatgpt, copilot (explicit login required)\n  Local: ollama\n\nContext defaults:\n  AI_CONTEXT_WINDOW_MESSAGES=24\n  AI_COMPACTION_MAX_BYTES=8192"
+    after_help = help::CLI_AFTER_HELP
 )]
 pub struct Cli {
     /// One-shot prompt to execute
@@ -35,7 +36,13 @@ pub struct Cli {
     pub max_turns: Option<usize>,
 
     /// Automatically approve operations that are normally approval-required, including outside-workspace writes and mutating or uncertain Bash calls
-    #[arg(short = 'y', short_alias = 'a', long = "auto-approve", alias = "approve", default_value_t = false)]
+    #[arg(
+        short = 'y',
+        short_alias = 'a',
+        long = "auto-approve",
+        alias = "approve",
+        default_value_t = false
+    )]
     pub auto_approve: bool,
 
     /// Thinking level: off, minimal, low, medium, high, xhigh, max

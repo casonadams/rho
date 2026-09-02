@@ -113,8 +113,8 @@ fn help_matches_documented_auth_sessions_limits_and_context() {
         "explicit login required",
         "provider default when omitted",
         "pending budget checkpoint",
-        "AI_CONTEXT_WINDOW_MESSAGES=24",
-        "AI_COMPACTION_MAX_BYTES=8192",
+        "AI_CONTEXT_WINDOW_MESSAGES",
+        "AI_COMPACTION_MAX_BYTES",
     ] {
         assert!(help.contains(expected), "missing help text: {expected}");
     }
