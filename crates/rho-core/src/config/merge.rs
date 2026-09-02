@@ -133,6 +133,9 @@ where
     if let Some(val) = get("AI_FOLLOW_UP_MODE") {
         config.follow_up_mode = val.parse().map_err(AppError::Config)?;
     }
+    if let Some(val) = get("AI_THINKING_LEVEL") {
+        config.thinking_level = if val == "off" { None } else { Some(val) };
+    }
     Ok(())
 }
 
