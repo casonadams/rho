@@ -163,11 +163,14 @@ impl TerminalRenderer {
             format!("{bold}{}{bold:#}\n\n", display.title)
         };
         let full_text = format!("{formatted_title}{}", display.content);
-        let rendered = crate::ui::block::BlockFormat::new(bg, terminal_width()).render_styled(&full_text);
+        let rendered = crate::ui::block::BlockFormat::new(bg, terminal_width())
+            .with_vertical_padding()
+            .render_styled(&full_text);
+        let block_output = format!("\n{rendered}\n");
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(rendered));
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(block_output));
         } else {
-            self.write_output(&rendered);
+            self.write_output(&block_output);
         }
     }
 
