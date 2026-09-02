@@ -38,11 +38,8 @@ impl InteractiveLayout {
         if !self.widget_lines.is_empty() {
             h += self.widget_lines.len() + 1; // widget lines + trailing blank spacer line
         }
-        if !self.working_line.is_empty() {
-            h += 2; // blank line above working line + working line itself
-        }
         if !self.top_divider.is_empty() {
-            h += 1;
+            h += 2; // dedicated status/spinner slot + top divider
         }
         if !self.bottom_divider.is_empty() {
             h += 1;
@@ -55,11 +52,8 @@ impl InteractiveLayout {
         if !self.widget_lines.is_empty() {
             row += self.widget_lines.len() + 1;
         }
-        if !self.working_line.is_empty() {
-            row += 2;
-        }
         if !self.top_divider.is_empty() {
-            row += 1;
+            row += 2; // dedicated status/spinner slot + top divider
         }
         row + self.cursor.row
     }
@@ -128,8 +122,8 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
         "low" => ("\x1b[34m", "\x1b[0m"),
         "medium" => ("\x1b[36m", "\x1b[0m"),
         "high" => ("\x1b[35m", "\x1b[0m"),
-        "xhigh" => ("\x1b[95m", "\x1b[0m"),
-        "max" => ("\x1b[1;95m", "\x1b[0m"),
+        "xhigh" => ("\x1b[31m", "\x1b[0m"),
+        "max" => ("\x1b[1;31m", "\x1b[0m"),
         _ => ("\x1b[2m", "\x1b[0m"),
     }
 }

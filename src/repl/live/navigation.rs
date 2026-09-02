@@ -117,9 +117,6 @@ pub fn cycle_thinking_level(
     };
 
     update_footer(controller.state_mut(), session, engine);
-    session
-        .renderer
-        .print_notice(&format!("  [Thinking level set to {next_level}]\n"));
 }
 
 pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {
