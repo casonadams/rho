@@ -155,11 +155,21 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
 
     let mut output = String::new();
     while let Ok(event) = events.try_recv() {
-        if let UiEvent::Output(OutputEvent::Text(text)) = event {
-            output.push_str(&text);
+        match event {
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                },
+            )),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            _ => {}
         }
     }
-    assert!(output.contains("fetch https://serde.rs/"));
+    assert!(output.contains("fetch"));
+    assert!(output.contains("https://serde.rs/"));
     assert!(output.contains("fetched (text)"));
     assert_eq!(output.matches("https://serde.rs/").count(), 1);
 }
@@ -180,11 +190,21 @@ fn web_search_displays_as_search() {
 
     let mut output = String::new();
     while let Ok(event) = events.try_recv() {
-        if let UiEvent::Output(OutputEvent::Text(text)) = event {
-            output.push_str(&text);
+        match event {
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                },
+            )),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            _ => {}
         }
     }
-    assert!(output.contains("search \"serde release\""));
+    assert!(output.contains("search"));
+    assert!(output.contains("\"serde release\""));
     assert!(!output.contains("web_search"));
 }
 

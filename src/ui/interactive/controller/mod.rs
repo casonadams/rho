@@ -178,8 +178,12 @@ impl<B: TerminalBackend> TerminalController<B> {
 
             for (i, line) in next_lines.iter().enumerate() {
                 if i > 0 {
-                    self.backend.move_down(1)?;
-                    self.backend.move_to_column(0)?;
+                    if i < prev_height {
+                        self.backend.move_down(1)?;
+                        self.backend.move_to_column(0)?;
+                    } else {
+                        self.backend.write_text("\r\n")?;
+                    }
                 }
                 self.backend.clear_line()?;
                 self.backend.write_text(line)?;
@@ -191,12 +195,12 @@ impl<B: TerminalBackend> TerminalController<B> {
                     self.backend.move_to_column(0)?;
                     self.backend.clear_line()?;
                 }
-                self.backend.move_up(prev_height - new_height)?;
-            }
-
-            let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
-            if rows_up > 0 {
-                self.backend.move_up(rows_up)?;
+                self.backend.move_up(prev_height - target_cursor_row)?;
+            } else {
+                let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
+                if rows_up > 0 {
+                    self.backend.move_up(rows_up)?;
+                }
             }
             self.backend.move_to_column(target_cursor_col)?;
         } else {
