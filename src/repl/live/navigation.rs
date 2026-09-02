@@ -125,7 +125,7 @@ pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
 }
 
-pub fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
+pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
     let models = crate::repl::interactive::discover_models(&ctx.session.config, &ctx.session.auth_store);
     if models.is_empty() {
         return;
@@ -144,6 +144,14 @@ pub fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, d
     let item = &models[next_idx];
     ctx.session.config.model = item.id.clone();
     ctx.session.config.provider = item.provider.clone();
+
+    if let Ok(rebuilt) = ctx
+        .engine
+        .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
+        .await
+    {
+        *ctx.engine = rebuilt;
+    }
 
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.session.renderer.print_notice(&format!(

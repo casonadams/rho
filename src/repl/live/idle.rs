@@ -72,6 +72,9 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                                 model, provider
                             ));
                         }
+                        if let Ok(rebuilt) = engine.rebuild(session.config.clone(), session.auth_store.clone()).await {
+                            *engine = rebuilt;
+                        }
                         update_footer(controller.state_mut(), session, engine);
                         batch.flush(controller, true)?;
                         continue;
@@ -121,12 +124,12 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                     }
                     InputAction::ModelCycleForward => {
                         let mut cycle_ctx = ModelCycleContext { session, engine, controller };
-                        cycle_model(&mut cycle_ctx, 1);
+                        cycle_model(&mut cycle_ctx, 1).await;
                         batch.flush(controller, true)?;
                     }
                     InputAction::ModelCycleBackward => {
                         let mut cycle_ctx = ModelCycleContext { session, engine, controller };
-                        cycle_model(&mut cycle_ctx, -1);
+                        cycle_model(&mut cycle_ctx, -1).await;
                         batch.flush(controller, true)?;
                     }
                     InputAction::ThinkingCycle => {
