@@ -1,7 +1,7 @@
 use crate::ui::block::BlockFormat;
 use crate::ui::render::{
-    format_duration_ms, format_edit_diff, format_thinking_block, format_tool_args_summary, format_write_preview,
-    read_summary_parts, tool_title_style, webfetch_content_kind,
+    fetch_content_kind, format_duration_ms, format_edit_diff, format_thinking_block, format_tool_args_summary,
+    format_write_preview, read_summary_parts, tool_title_style,
 };
 use crate::ui::theme::Theme;
 
@@ -82,12 +82,12 @@ pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
                     builtins.push(tool.as_str());
                 }
             }
-            "search" | "websearch" | "web_search" => {
+            "search" => {
                 if !builtins.contains(&"search") {
                     builtins.push("search");
                 }
             }
-            "fetch" | "webfetch" | "web_fetch" => {
+            "fetch" => {
                 if !builtins.contains(&"fetch") {
                     builtins.push("fetch");
                 }
@@ -195,8 +195,8 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("");
                 let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-                let kind = webfetch_content_kind(&tool.arguments);
-                format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
+                let kind = fetch_content_kind(&tool.arguments);
+                format!("{title}fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
             } else {
                 format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
             };

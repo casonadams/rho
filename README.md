@@ -72,18 +72,22 @@ order once the active turn settles.
 
 ## Providers & Authentication
 
-| Provider     | Auth Type     | Environment Variable / Login                     |
-| ------------ | ------------- | ------------------------------------------------ |
-| `anthropic`  | API Key       | `ANTHROPIC_API_KEY` or `rho login anthropic`     |
-| `openai`     | API Key       | `OPENAI_API_KEY` or `rho login openai`           |
-| `deepseek`   | API Key       | `DEEPSEEK_API_KEY` or `rho login deepseek`       |
-| `gemini`     | API Key       | `GEMINI_API_KEY` or `rho login gemini`           |
-| `groq`       | API Key       | `GROQ_API_KEY` or `rho login groq`               |
-| `openrouter` | API Key       | `OPENROUTER_API_KEY` or `rho login openrouter`   |
-| `xai`        | API Key       | `XAI_API_KEY` or `rho login xai`                 |
-| `mistral`    | API Key       | `MISTRAL_API_KEY` or `rho login mistral`         |
-| `cohere`     | API Key       | `COHERE_API_KEY` or `rho login cohere`           |
-| `ollama`     | Local Service | `OLLAMA_HOST` (default `http://localhost:11434`) |
+| Provider       | Auth Type          | Environment Variable / Login                     |
+| -------------- | ------------------ | ------------------------------------------------ |
+| `anthropic`    | API Key            | `ANTHROPIC_API_KEY` or `rho login anthropic`     |
+| `openai`       | API Key            | `OPENAI_API_KEY` or `rho login openai`           |
+| `deepseek`     | API Key            | `DEEPSEEK_API_KEY` or `rho login deepseek`       |
+| `gemini`       | API Key            | `GEMINI_API_KEY` or `rho login gemini`           |
+| `antigravity`  | API Key            | `GEMINI_API_KEY` or `rho login antigravity`      |
+| `groq`         | API Key            | `GROQ_API_KEY` or `rho login groq`               |
+| `openrouter`   | API Key            | `OPENROUTER_API_KEY` or `rho login openrouter`   |
+| `xai`          | API Key            | `XAI_API_KEY` or `rho login xai`                 |
+| `mistral`      | API Key            | `MISTRAL_API_KEY` or `rho login mistral`         |
+| `cohere`       | API Key            | `COHERE_API_KEY` or `rho login cohere`           |
+| `ollama-cloud` | API Key            | `OLLAMA_API_KEY` or `rho login ollama-cloud`     |
+| `chatgpt`      | Subscription OAuth | `rho login chatgpt` (OAuth PKCE)                 |
+| `copilot`      | Subscription OAuth | `rho login copilot` (GitHub device login)        |
+| `local`        | Local Service      | `OLLAMA_HOST` (default `http://localhost:11434`) |
 
 ### Custom OpenAI-compatible providers
 
@@ -109,12 +113,13 @@ readable artifact) work in the interactive REPL.
 
 ## Configuration & Skills (`~/.config/rho/`)
 
-Global settings, credentials, skills, and instructions live under
+Global settings, credentials, state cache, skills, and instructions live under
 `~/.config/rho` (override via `RHO_HOME`):
 
 ```text
 ~/.config/rho/
-├── auth.json              # Stored API keys
+├── auth.json              # Stored API keys and OAuth tokens
+├── state.json             # Cached last-used model & thinking level
 ├── config.toml            # Application settings
 ├── AGENTS.md              # Global default agent rules & instructions
 └── skills/                # Global skills directory (SKILL.md files)
@@ -122,8 +127,18 @@ Global settings, credentials, skills, and instructions live under
 
 - **Instructions**: Discovers global `~/.config/rho/AGENTS.md` and workspace
   `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`.
-- **Skills**: Declarative `SKILL.md` workflows resolved from embedded built-ins,
-  `~/.config/rho/skills/`, `.rho/skills/`, and `./skills/`.
+- **Skills**: Declarative `SKILL.md` workflows resolved with precedence:
+  1. Project `.rho/skills/` or `./skills/` (highest precedence, overrides user &
+     built-in)
+  2. User `~/.agents/skills/`, `~/.config/rho/skills/`, or `~/.skills/`
+  3. Embedded built-in skills (`create-plugin`, `plan`, `repo-agents-builder`,
+     `spec`)
+
+  Skills can be written as single flat markdown files (`skills/my-skill.md`) or
+  structured directories (`skills/my-skill/SKILL.md` with optional supporting
+  scripts/examples). Metadata (name, description, argument hints) is declared in
+  YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>` or
+  `@<name>`.
 
 ---
 
@@ -156,36 +171,26 @@ as standard tools.
 
 ## Plugins (Tool Hooks)
 
-Plugins are small binaries that hook every tool call and can **allow**, **deny**
-(with a reason sent to the model), or force an interactive approval prompt:
+Plugins are small executables that hook every tool call to **allow**, **deny**
+(with a reason sent to the model), or trigger an interactive approval prompt:
 
 ```toml
 # In ~/.config/rho/config.toml or .rho/config.toml
 [plugins.permission]
 enabled = true
-path = "/Users/username/.config/rho/plugins/rho-plugin-permission"
+command = "/Users/username/.config/rho/plugins/rho-plugin-permission"
 ```
 
 The first plugin is
 **[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission)**:
-allow/deny rules in `~/.config/rho/permission.toml` plus an interactive prompt
-for everything else. Install it with:
-
-```sh
-rho plugin install rho-plugin-permission            # from crates.io
-# or directly from a git repository:
-rho plugin install https://github.com/casonadams/rho-plugin-permission
-```
-
-`rho plugin install` runs `cargo install` (from crates.io or a git URL), then
-registers the plugin in `config.toml`; remove it again with `rho plugin remove
-rho-plugin-permission`.
+rule-based approval checks in `~/.config/rho/permission.toml` plus interactive
+TUI modal prompts for unclassified actions.
 
 **Writing your own tool-hook plugin?**
 [rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission) is
-the reference implementation: a small Rust binary that reads one JSON line from
-stdin and answers with an allow/deny/ask action. Its hook protocol, path
-resolution rules, and all options are documented in
+the reference implementation: a binary that reads one JSON event from stdin
+(`pre_tool_call`) and returns `allow`, `deny`, or `ask`. Its hook protocol,
+execution rules, and options are documented in
 **[docs/plugins.md](docs/plugins.md)**.
 
 For MCP tool servers instead, run the built-in `create-plugin` skill in a
@@ -197,8 +202,8 @@ session: `/skill:create-plugin <idea>`.
 
 The workspace is structured into three clean, focused crates:
 
-- **`rho-harness-core`**: Core domain logic, session DAG storage, configuration, token
-  estimation, and presentation types.
+- **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
+  token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
   tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP
   client.

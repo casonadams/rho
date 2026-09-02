@@ -8,7 +8,7 @@ pub fn tool_title_style(is_error: bool) -> anstyle::Style {
     }
 }
 
-pub fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
+pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
     if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
         return match format.to_ascii_lowercase().as_str() {
             "pdf" => "pdf",

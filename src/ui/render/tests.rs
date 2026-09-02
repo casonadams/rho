@@ -1,7 +1,7 @@
 //! Tests for the `ui::render` module.
 
 use super::formatters::{format_edit_diff, format_session_status, format_thinking_block, format_write_preview};
-use super::preview::{tool_title_style, webfetch_content_kind};
+use super::preview::{fetch_content_kind, tool_title_style};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
@@ -175,12 +175,12 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
 }
 
 #[test]
-fn web_search_displays_as_search() {
+fn search_tool_displays_cleanly() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
 
     renderer.finish_tool_line(ToolLine {
-        name: "web_search".to_string(),
+        name: "search".to_string(),
         arguments: serde_json::json!({"query": "serde release"}),
         is_error: false,
         output: "results".to_string(),
@@ -205,7 +205,6 @@ fn web_search_displays_as_search() {
     }
     assert!(output.contains("search"));
     assert!(output.contains("\"serde release\""));
-    assert!(!output.contains("web_search"));
 }
 
 #[test]
@@ -306,17 +305,17 @@ fn error_tool_titles_use_terminal_red_without_dimming() {
 }
 
 #[test]
-fn webfetch_content_kind_uses_format_or_url_extension() {
+fn fetch_content_kind_uses_format_or_url_extension() {
     assert_eq!(
-        webfetch_content_kind(&serde_json::json!({"url": "https://example.com/page"})),
+        fetch_content_kind(&serde_json::json!({"url": "https://example.com/page"})),
         "text"
     );
     assert_eq!(
-        webfetch_content_kind(&serde_json::json!({"url": "https://example.com/data.json"})),
+        fetch_content_kind(&serde_json::json!({"url": "https://example.com/data.json"})),
         "json"
     );
     assert_eq!(
-        webfetch_content_kind(&serde_json::json!({"url": "https://example.com/file", "format": "pdf"})),
+        fetch_content_kind(&serde_json::json!({"url": "https://example.com/file", "format": "pdf"})),
         "pdf"
     );
 }

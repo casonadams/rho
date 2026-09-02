@@ -60,9 +60,9 @@ pub fn get_builtin_skill_content(name: &str) -> Option<&'static str> {
 }
 
 /// Resolve every skill available to the session: embedded built-ins, then
-/// declarative overrides as `SKILL.md` files under `<config_dir>/skills` and
-/// project skill directories. Later origins replace earlier ones by name.
-/// Overrides carry readable content only and are never executed.
+/// declarative overrides as `SKILL.md` files under user directories (`~/.agents/skills`,
+/// `<config_dir>/skills`) and project skill directories. Later origins replace
+/// earlier ones by name. Overrides carry readable content only and are never executed.
 pub fn resolved_skills(config_dir: Option<&Path>, project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     let mut resolved: Vec<ResolvedSkill> = builtin_skills()
         .into_iter()
@@ -71,6 +71,12 @@ pub fn resolved_skills(config_dir: Option<&Path>, project_dir: Option<&Path>) ->
             origin: SkillOrigin::Builtin,
         })
         .collect();
+
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        let home_path = Path::new(&home);
+        scan_directory(&home_path.join(".agents/skills"), SkillOrigin::User, &mut resolved);
+        scan_directory(&home_path.join(".skills"), SkillOrigin::User, &mut resolved);
+    }
     if let Some(config_dir) = config_dir {
         scan_directory(&config_dir.join("skills"), SkillOrigin::User, &mut resolved);
     }

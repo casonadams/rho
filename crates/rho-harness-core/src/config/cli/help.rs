@@ -21,7 +21,7 @@ Environment Variables:
   RHO_HOME                         - Custom configuration directory (default: ~/.config/rho)
 
 Authentication:
-  API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere, ollama-cloud
-  Subscription OAuth: chatgpt, copilot, antigravity (explicit login required via 'rho login <provider>')
+  API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere, ollama-cloud, antigravity
+  Subscription OAuth: chatgpt, copilot (explicit login required via 'rho login <provider>')
   Local: local (no login required; customize with OLLAMA_HOST)
   Custom: Any OpenAI-compatible endpoint configured in config.toml under [providers.<name>]";

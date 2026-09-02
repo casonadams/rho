@@ -37,7 +37,7 @@ impl WebFetchTool {
     pub async fn execute(&self, args: FetchArgs) -> Result<ToolResult, AppError> {
         let url_str = args.url.trim();
         if url_str.is_empty() {
-            return Ok(ToolResult::error("Empty URL provided for webfetch"));
+            return Ok(ToolResult::error("Empty URL provided for fetch"));
         }
 
         let mode = args.mode.unwrap_or_else(|| "auto".to_string());

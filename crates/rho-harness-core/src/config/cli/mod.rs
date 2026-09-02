@@ -41,7 +41,8 @@ pub struct Cli {
         short_alias = 'a',
         long = "auto-approve",
         alias = "approve",
-        default_value_t = false
+        default_value_t = false,
+        hide = true
     )]
     pub auto_approve: bool,
 

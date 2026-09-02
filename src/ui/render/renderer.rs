@@ -1,7 +1,7 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::preview::{tool_title_style, webfetch_content_kind};
+use super::preview::{fetch_content_kind, tool_title_style};
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
@@ -231,7 +231,7 @@ impl TerminalRenderer {
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("");
             let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-            let kind = webfetch_content_kind(&line.arguments);
+            let kind = fetch_content_kind(&line.arguments);
             format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
         } else {
             format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")

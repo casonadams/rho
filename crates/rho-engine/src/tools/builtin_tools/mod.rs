@@ -3,8 +3,8 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEBFETCH,
-    PROMPT_WEBSEARCH, PROMPT_WRITE,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FETCH, PROMPT_READ,
+    PROMPT_SEARCH, PROMPT_WRITE,
 };
 
 use crate::tools::bash::{BashArgs, BashTool};
@@ -134,43 +134,39 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         },
     ));
 
-    for name in ["search", "websearch", "web_search"] {
-        let s = search.clone();
-        tools.push(DynamicTool::new(
-            name,
-            "Search the web and return structured search results with titles, summaries, and URLs.",
-            generated_schema::<SearchArgs>(),
-            move |_ctx, args| {
-                let s = s.clone();
-                Box::pin(async move {
-                    let args: SearchArgs = match parse_args(args) {
-                        Ok(a) => a,
-                        Err(err) => return into_dynamic_result(Ok(err)),
-                    };
-                    into_dynamic_result(s.execute(args).await)
-                })
-            },
-        ));
-    }
+    let s = search;
+    tools.push(DynamicTool::new(
+        "search",
+        "Search the web and return structured search results with titles, summaries, and URLs.",
+        generated_schema::<SearchArgs>(),
+        move |_ctx, args| {
+            let s = s.clone();
+            Box::pin(async move {
+                let args: SearchArgs = match parse_args(args) {
+                    Ok(a) => a,
+                    Err(err) => return into_dynamic_result(Ok(err)),
+                };
+                into_dynamic_result(s.execute(args).await)
+            })
+        },
+    ));
 
-    for name in ["fetch", "webfetch", "web_fetch"] {
-        let f = fetch.clone();
-        tools.push(DynamicTool::new(
-            name,
-            "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-            generated_schema::<FetchArgs>(),
-            move |_ctx, args| {
-                let f = f.clone();
-                Box::pin(async move {
-                    let args: FetchArgs = match parse_args(args) {
-                        Ok(a) => a,
-                        Err(err) => return into_dynamic_result(Ok(err)),
-                    };
-                    into_dynamic_result(f.execute(args).await)
-                })
-            },
-        ));
-    }
+    let f = fetch;
+    tools.push(DynamicTool::new(
+        "fetch",
+        "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
+        generated_schema::<FetchArgs>(),
+        move |_ctx, args| {
+            let f = f.clone();
+            Box::pin(async move {
+                let args: FetchArgs = match parse_args(args) {
+                    Ok(a) => a,
+                    Err(err) => return into_dynamic_result(Ok(err)),
+                };
+                into_dynamic_result(f.execute(args).await)
+            })
+        },
+    ));
 
     Ok(tools)
 }

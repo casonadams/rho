@@ -39,7 +39,7 @@ Usage:
 - Use read/edit instead of sed, awk, or cat for reading and editing code.
 - Captures combined stdout and stderr with output truncation safeguards.";
 
-pub static PROMPT_WEBSEARCH: &str = "\
+pub static PROMPT_SEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
 Usage:
@@ -48,7 +48,7 @@ Usage:
 - Use domains to limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com']).
 - Returns concise result summaries with title, URL, and snippet.";
 
-pub static PROMPT_WEBFETCH: &str = "\
+pub static PROMPT_FETCH: &str = "\
 Fetch HTML, JSON, Markdown, text, or PDF content from a URL and return clean text.
 
 Usage:
@@ -134,26 +134,8 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         name: "search",
         capability: BuiltinToolKind::Network,
         description: "Search the web and return structured search results with titles, summaries, and URLs.",
-        prompt: PROMPT_WEBSEARCH,
+        prompt: PROMPT_SEARCH,
         prompt_snippet: Some("Search the web and return structured summaries and URLs"),
-        prompt_guidelines: &[],
-        schema: generated_schema::<SearchArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "websearch",
-        capability: BuiltinToolKind::Network,
-        description: "Search the web and return structured search results with titles, summaries, and URLs.",
-        prompt: PROMPT_WEBSEARCH,
-        prompt_snippet: None,
-        prompt_guidelines: &[],
-        schema: generated_schema::<SearchArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "web_search",
-        capability: BuiltinToolKind::Network,
-        description: "Search the web and return structured search results with titles, summaries, and URLs.",
-        prompt: PROMPT_WEBSEARCH,
-        prompt_snippet: None,
         prompt_guidelines: &[],
         schema: generated_schema::<SearchArgs>,
     },
@@ -161,26 +143,8 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         name: "fetch",
         capability: BuiltinToolKind::Network,
         description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        prompt: PROMPT_WEBFETCH,
+        prompt: PROMPT_FETCH,
         prompt_snippet: Some("Fetch and extract clean text or markdown from URLs"),
-        prompt_guidelines: &[],
-        schema: generated_schema::<FetchArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "webfetch",
-        capability: BuiltinToolKind::Network,
-        description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        prompt: PROMPT_WEBFETCH,
-        prompt_snippet: None,
-        prompt_guidelines: &[],
-        schema: generated_schema::<FetchArgs>,
-    },
-    BuiltinToolDeclaration {
-        name: "web_fetch",
-        capability: BuiltinToolKind::Network,
-        description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        prompt: PROMPT_WEBFETCH,
-        prompt_snippet: None,
         prompt_guidelines: &[],
         schema: generated_schema::<FetchArgs>,
     },
