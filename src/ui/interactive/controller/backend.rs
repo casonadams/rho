@@ -3,7 +3,7 @@ use crossterm::{
     queue,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
-use std::io::{self, Stdout, Write};
+use std::io::{self, BufWriter, Stdout, Write};
 
 pub trait TerminalBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()>;
@@ -19,12 +19,16 @@ pub trait TerminalBackend {
 }
 
 pub struct CrosstermBackend {
-    stdout: Stdout,
+    stdout: BufWriter<Stdout>,
 }
 
 impl CrosstermBackend {
     pub fn stdout() -> Self {
-        Self { stdout: io::stdout() }
+        // io::stdout() is line-buffered: unbuffered, every \r\n in a queued
+        // frame flushes separately and the tty repaints mid-frame (flicker).
+        Self {
+            stdout: BufWriter::with_capacity(256 * 1024, io::stdout()),
+        }
     }
 }
 
@@ -70,7 +74,7 @@ impl TerminalBackend for CrosstermBackend {
     }
 }
 
-pub(crate) fn queue_vertical_move(stdout: &mut Stdout, mut rows: usize, upward: bool) -> io::Result<()> {
+pub(crate) fn queue_vertical_move(stdout: &mut impl Write, mut rows: usize, upward: bool) -> io::Result<()> {
     while rows > 0 {
         let step = rows.min(u16::MAX as usize) as u16;
         if upward {
