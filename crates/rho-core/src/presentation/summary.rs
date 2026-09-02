@@ -101,10 +101,18 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "bash" => {
             let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
             let clean = clean_command_paths(raw_cmd);
-            if clean.len() > 60 {
+            let cmd_str = if clean.len() > 60 {
                 format!("`{}...`", &clean[..60])
             } else {
                 format!("`{clean}`")
+            };
+            if let Some(timeout) = args
+                .get("timeout")
+                .and_then(|t| t.as_u64().or_else(|| t.as_f64().map(|f| f as u64)))
+            {
+                format!("{cmd_str} (timeout {timeout}s)")
+            } else {
+                cmd_str
             }
         }
         "search" | "websearch" | "web_search" => {

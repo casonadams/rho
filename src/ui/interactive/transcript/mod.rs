@@ -158,9 +158,11 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 }
             }
 
-            if let Some(duration_ms) = tool.duration_ms {
+            if tool.name == "bash"
+                && let Some(duration_ms) = tool.duration_ms
+            {
                 let dim = theme.dimmed;
-                content.push('\n');
+                content.push_str("\n\n");
                 content.push_str(&format!("{dim}Took {}{dim:#}", format_duration_ms(duration_ms)));
             }
 

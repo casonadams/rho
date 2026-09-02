@@ -256,17 +256,23 @@ impl TerminalRenderer {
                 content.push_str(&preview);
             }
         } else if line.name == "bash" || line.is_error {
-            content.push_str("\n\n");
-            if !line.output.is_empty() {
-                content.push_str(&line.output);
-            } else if !line.output_summary.is_empty() {
-                content.push_str(&line.output_summary);
+            let raw_output = if !line.output.is_empty() {
+                line.output.as_str()
+            } else {
+                line.output_summary.as_str()
+            };
+            let clean = raw_output.trim_end();
+            if !clean.is_empty() {
+                content.push_str("\n\n");
+                content.push_str(clean);
             }
         }
 
-        if let Some(duration) = line.duration_ms {
+        if line.name == "bash"
+            && let Some(duration) = line.duration_ms
+        {
             let dim = self.theme.dimmed;
-            content.push('\n');
+            content.push_str("\n\n");
             content.push_str(&format!("{dim}Took {}{dim:#}", super::format_duration_ms(duration)));
         }
 

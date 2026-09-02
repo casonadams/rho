@@ -6,8 +6,7 @@ mod tests;
 pub use ansi::{output_cursor, terminal_newlines};
 pub use backend::{CrosstermBackend, TerminalBackend};
 
-use super::{InteractiveLayout, InteractiveState, LayoutInput, layout};
-use anstyle::Style;
+use super::{Activity, InteractiveLayout, InteractiveState, LayoutInput, layout};
 use std::io;
 
 pub struct TerminalController<B: TerminalBackend> {
@@ -15,11 +14,12 @@ pub struct TerminalController<B: TerminalBackend> {
     state: InteractiveState,
     width: usize,
     rendered: Option<InteractiveLayout>,
+    previous_lines: Vec<String>,
+    current_cursor_row: usize,
     output_line: String,
     output_line_open: bool,
     spinner_frame: usize,
     active: bool,
-    footer_style: Style,
     theme: crate::ui::theme::Theme,
     transcript: Vec<super::TranscriptItem>,
 }
@@ -45,11 +45,12 @@ impl<B: TerminalBackend> TerminalController<B> {
             state,
             width,
             rendered: None,
+            previous_lines: Vec::new(),
+            current_cursor_row: 0,
             output_line: String::new(),
             output_line_open: false,
             spinner_frame: 0,
             active: true,
-            footer_style: crate::ui::theme::Theme::default().dimmed,
             theme: crate::ui::theme::Theme::default(),
             transcript: Vec::new(),
         };
@@ -138,7 +139,6 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.write_live_region(&rendered)?;
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
-        self.backend.end_sync_update()?;
         self.backend.flush()
     }
 
@@ -160,24 +160,24 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn redraw(&mut self) -> io::Result<()> {
         let rendered = self.current_layout();
-        let lines = collect_rendered_lines(&rendered, self.footer_style);
-        let new_height = lines.len();
+        let next_lines = &rendered.lines;
+        let new_height = next_lines.len();
         let target_cursor_row = rendered.cursor_row();
         let target_cursor_col = rendered.cursor.column;
+        let is_idle = matches!(self.state.footer().activity, Activity::Idle);
 
-        self.backend.begin_sync_update()?;
         self.backend.hide_cursor()?;
 
         if let Some(prev) = &self.rendered {
-            let prev_cursor_row = prev.cursor_row();
             let prev_height = prev.height();
+            let prev_cursor_row = prev.cursor_row();
 
             if prev_cursor_row > 0 {
                 self.backend.move_up(prev_cursor_row)?;
             }
             self.backend.move_to_column(0)?;
 
-            for (i, line) in lines.iter().enumerate() {
+            for (i, line) in next_lines.iter().enumerate() {
                 if i > 0 {
                     self.backend.move_down(1)?;
                     self.backend.move_to_column(0)?;
@@ -201,7 +201,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             }
             self.backend.move_to_column(target_cursor_col)?;
         } else {
-            for (i, line) in lines.iter().enumerate() {
+            for (i, line) in next_lines.iter().enumerate() {
                 if i > 0 {
                     self.backend.write_text("\r\n")?;
                 }
@@ -214,14 +214,18 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.backend.move_to_column(target_cursor_col)?;
         }
 
+        self.previous_lines = rendered.lines.clone();
+        self.current_cursor_row = target_cursor_row;
         self.rendered = Some(rendered);
-        self.backend.show_cursor()?;
-        self.backend.end_sync_update()?;
+
+        if is_idle {
+            self.backend.show_cursor()?;
+        }
+
         self.backend.flush()
     }
 
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
-        self.backend.begin_sync_update()?;
         self.backend.hide_cursor()?;
         self.erase_live_region()?;
         self.restore_output_cursor()?;
@@ -233,9 +237,14 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
+        self.previous_lines = rendered.lines.clone();
+        self.current_cursor_row = rendered.cursor_row();
         self.rendered = Some(rendered);
-        self.backend.show_cursor()?;
-        self.backend.end_sync_update()?;
+
+        if matches!(self.state.footer().activity, Activity::Idle) {
+            self.backend.show_cursor()?;
+        }
+
         self.backend.flush()
     }
 
@@ -337,9 +346,8 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
-        let lines = collect_rendered_lines(rendered, self.footer_style);
-        let total = lines.len();
-        for (i, line) in lines.iter().enumerate() {
+        let total = rendered.lines.len();
+        for (i, line) in rendered.lines.iter().enumerate() {
             self.backend.write_text(line)?;
             if i + 1 < total {
                 self.backend.write_text("\r\n")?;
@@ -392,32 +400,4 @@ impl<B: TerminalBackend> Drop for TerminalController<B> {
     fn drop(&mut self) {
         self.restore();
     }
-}
-
-fn collect_rendered_lines(rendered: &InteractiveLayout, footer_style: Style) -> Vec<String> {
-    let mut lines = Vec::with_capacity(rendered.height());
-    for line in &rendered.queued_lines {
-        lines.push(line.clone());
-    }
-    if !rendered.widget_lines.is_empty() {
-        for line in &rendered.widget_lines {
-            lines.push(line.clone());
-        }
-        lines.push(String::new());
-    }
-    if !rendered.top_divider.is_empty() {
-        lines.push(String::new());
-        lines.push(rendered.working_line.clone());
-        lines.push(rendered.top_divider.clone());
-    }
-    for line in &rendered.editor_lines {
-        lines.push(line.clone());
-    }
-    if !rendered.bottom_divider.is_empty() {
-        lines.push(rendered.bottom_divider.clone());
-    }
-    for line in &rendered.footer_lines {
-        lines.push(format!("{footer_style}{line}{footer_style:#}"));
-    }
-    lines
 }

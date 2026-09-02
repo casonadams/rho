@@ -91,6 +91,55 @@ fn finished_bash_block_includes_elapsed_duration() {
 }
 
 #[test]
+fn finished_read_block_omits_elapsed_duration() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.finish_tool_line(ToolLine {
+        name: "read".to_string(),
+        arguments: serde_json::json!({"path": "src/main.rs"}),
+        is_error: false,
+        output: "hello world".to_string(),
+        output_summary: "hello world".to_string(),
+        duration_ms: Some(50),
+    });
+
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                },
+            )),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            UiEvent::Activity(_)
+            | UiEvent::RunningTool(_)
+            | UiEvent::ToolStart(_)
+            | UiEvent::ToolChunk { .. }
+            | UiEvent::ToolEnd => {}
+            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+        }
+    }
+    assert!(output.contains("read"));
+    assert!(output.contains("src/main.rs"));
+    assert!(!output.contains("Took"));
+}
+
+#[test]
+fn bash_summary_formats_timeout_inline() {
+    use rho_core::presentation::summary::format_tool_args_summary;
+    let with_timeout = format_tool_args_summary("bash", &serde_json::json!({"command": "cargo build", "timeout": 30}));
+    assert_eq!(with_timeout, "`cargo build` (timeout 30s)");
+
+    let without_timeout = format_tool_args_summary("bash", &serde_json::json!({"command": "cargo build"}));
+    assert_eq!(without_timeout, "`cargo build`");
+}
+
+#[test]
 fn print_session_status_and_notice_emit_transcript_item() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);

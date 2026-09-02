@@ -11,7 +11,7 @@ use super::{Activity, AutocompleteState, EditorState, FooterState, ModalState};
 use autocomplete::render_autocomplete_dropdown;
 use editor::wrap_editor;
 use modal::render_modal_overlay;
-use text::{SPINNER_FRAMES as FRAMES, truncate_to_width, visible_width as calc_visible_width};
+use text::{SPINNER_FRAMES as FRAMES, truncate_to_width};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CursorPosition {
@@ -21,6 +21,8 @@ pub struct CursorPosition {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveLayout {
+    pub lines: Vec<String>,
+    pub cursor: CursorPosition,
     pub queued_lines: Vec<String>,
     pub widget_lines: Vec<String>,
     pub working_line: String,
@@ -29,22 +31,11 @@ pub struct InteractiveLayout {
     pub bottom_divider: String,
     pub footer_lines: Vec<String>,
     pub footer: String,
-    pub cursor: CursorPosition,
 }
 
 impl InteractiveLayout {
     pub fn height(&self) -> usize {
-        let mut h = self.editor_lines.len() + self.queued_lines.len() + self.footer_lines.len();
-        if !self.widget_lines.is_empty() {
-            h += self.widget_lines.len() + 1; // widget lines + trailing blank spacer line
-        }
-        if !self.top_divider.is_empty() {
-            h += 3; // extra empty line break + dedicated status/spinner slot + top divider
-        }
-        if !self.bottom_divider.is_empty() {
-            h += 1;
-        }
-        h
+        self.lines.len()
     }
 
     pub fn cursor_row(&self) -> usize {
@@ -53,7 +44,7 @@ impl InteractiveLayout {
             row += self.widget_lines.len() + 1;
         }
         if !self.top_divider.is_empty() {
-            row += 3; // extra empty line break + dedicated status/spinner slot + top divider
+            row += 3;
         }
         row + self.cursor.row
     }
@@ -73,7 +64,11 @@ pub struct LayoutInput<'a> {
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
+    let mut lines = Vec::new();
+
     let queued_lines = queued_lines_text(input.queued_messages, width);
+    lines.extend(queued_lines.clone());
+
     let (working_line, widget_lines) = if input.modal.is_some() {
         (String::new(), Vec::new())
     } else {
@@ -83,26 +78,48 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         )
     };
 
-    let (editor_lines, cursor, top_divider, bottom_divider) = if let Some(modal) = input.modal {
-        let (lines, cursor) = render_modal_overlay(modal, width);
-        (lines, cursor, String::new(), String::new())
+    if !widget_lines.is_empty() {
+        lines.extend(widget_lines.clone());
+        lines.push(String::new());
+    }
+
+    let (editor_lines, top_divider, bottom_divider, footer_lines, cursor) = if let Some(modal) = input.modal {
+        let (modal_lines, modal_cursor) = render_modal_overlay(modal, width);
+        lines.extend(modal_lines.clone());
+        (modal_lines, String::new(), String::new(), Vec::new(), modal_cursor)
     } else {
-        let (mut lines, cursor) = wrap_editor(input.editor, width);
+        lines.push(String::new());
+        lines.push(working_line.clone());
+
+        let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
+        let top_div = format!("{style}{}{reset}", "─".repeat(width));
+        lines.push(top_div.clone());
+
+        let (mut ed_lines, ed_cursor) = wrap_editor(input.editor, width);
         if let Some(ac) = input.autocomplete {
             let ac_lines = render_autocomplete_dropdown(ac, width);
             if !ac_lines.is_empty() {
-                lines.extend(ac_lines);
+                ed_lines.extend(ac_lines);
             }
         }
-        let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
-        let styled_divider = format!("{style}{}{reset}", "─".repeat(width));
-        (lines, cursor, styled_divider.clone(), styled_divider)
+        lines.extend(ed_lines.clone());
+
+        let bot_div = format!("{style}{}{reset}", "─".repeat(width));
+        lines.push(bot_div.clone());
+
+        let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
+        let footer_style = crate::ui::theme::Theme::default().dimmed;
+        for fl in &ft_lines {
+            lines.push(format!("{footer_style}{fl}{footer_style:#}"));
+        }
+        (ed_lines, top_div, bot_div, ft_lines, ed_cursor)
     };
 
-    let footer_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
     let footer = footer_lines.join("\n");
 
     InteractiveLayout {
+        lines,
+        cursor,
         queued_lines,
         widget_lines,
         working_line,
@@ -111,7 +128,6 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         bottom_divider,
         footer_lines,
         footer,
-        cursor,
     }
 }
 
@@ -161,12 +177,5 @@ fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usize) -
     let dim = "\x1b[2m";
     let label = running_tool.unwrap_or("Working...");
     let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
-    if calc_visible_width(&full) <= width {
-        full
-    } else {
-        let label_width = width.saturating_sub(2);
-        let shown = truncate_to_width(label, label_width);
-        let dots = width.saturating_sub(calc_visible_width(&shown) + 2).min(3);
-        format!("{accent}{spinner}{reset} {dim}{}{}{reset}", shown, ".".repeat(dots))
-    }
+    truncate_to_width(&full, width)
 }

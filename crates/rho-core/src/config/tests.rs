@@ -132,8 +132,10 @@ base_url = "http://127.0.0.1:8080/v1"
     assert_eq!(file.providers["local-llm"].base_url, "http://127.0.0.1:8080/v1");
     assert_eq!(file.providers["local-llm"].key_env, None);
 
-    let mut config = Config::default();
-    config.providers = file.providers;
+    let config = Config {
+        providers: file.providers,
+        ..Default::default()
+    };
     config.validate().unwrap();
 }
 
