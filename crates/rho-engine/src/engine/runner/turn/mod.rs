@@ -72,6 +72,7 @@ impl AgentEngine {
             let mut tool_context = ToolContext::new();
             tool_context.insert(presenter.stream_port());
             let plugin_hook = DaemonHook::new(&self.config.plugins, &std::env::current_dir()?, presenter.clone()).await;
+            plugin_hook.notify_turn_start(&current_prompt).await;
 
             let mut hook_stack = rig::agent::hook::HookStack::new();
             hook_stack.push(RepeatedCallHook::new(std::env::current_dir()?));

@@ -89,6 +89,14 @@ pub struct HostUiSetStatusParams {
     pub text: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolDescriptorPayload {
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub parameters: Value,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostSessionAppendParams {
     #[serde(default = "default_custom_kind")]

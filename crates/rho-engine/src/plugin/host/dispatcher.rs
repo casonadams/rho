@@ -2,7 +2,7 @@ use super::guards::HeadlessGuard;
 use super::prompt::{build_confirm_prompt, build_input_prompt, build_select_prompt};
 use super::types::{
     HostUiBlockParams, HostUiConfirmParams, HostUiConfirmResult, HostUiInputParams, HostUiInputResult,
-    HostUiNotifyParams, HostUiSelectParams, HostUiSelectResult, HostUiSetStatusParams,
+    HostUiNotifyParams, HostUiSelectParams, HostUiSelectResult, HostUiSetStatusParams, ToolDescriptorPayload,
 };
 use crate::plugin::protocol::{JsonRpcRequest, JsonRpcResponse};
 use rho_harness_core::presentation::presenter::Presenter;
@@ -27,6 +27,7 @@ impl HostDispatcher {
             "host/ui/notify" => self.handle_notify(req),
             "host/ui/block" => self.handle_block(req),
             "host/ui/set_status" => self.handle_set_status(req),
+            "host/tools/list" => self.handle_tools_list(req),
             "ui/prompt" => self.handle_legacy_prompt(req).await,
             _ => JsonRpcResponse::err(req.id, -32601, format!("Method not found: {}", req.method)),
         }
@@ -121,6 +122,18 @@ impl HostDispatcher {
         };
         self.presenter.set_extra_status(params.text);
         JsonRpcResponse::ok(req.id, json!({ "success": true }))
+    }
+
+    fn handle_tools_list(&self, req: JsonRpcRequest) -> JsonRpcResponse {
+        let tools: Vec<ToolDescriptorPayload> = crate::tools::ToolRegistry::descriptors()
+            .iter()
+            .map(|desc| ToolDescriptorPayload {
+                name: desc.name.to_string(),
+                description: desc.description.to_string(),
+                parameters: desc.schema(),
+            })
+            .collect();
+        JsonRpcResponse::ok(req.id, json!({ "tools": tools }))
     }
 
     async fn handle_legacy_prompt(&self, req: JsonRpcRequest) -> JsonRpcResponse {

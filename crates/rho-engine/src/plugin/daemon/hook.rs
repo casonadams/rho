@@ -52,6 +52,29 @@ impl DaemonHook {
     pub fn is_empty(&self) -> bool {
         self.daemons.is_empty()
     }
+
+    pub async fn notify_turn_start(&self, prompt: &str) {
+        let val = serde_json::json!(crate::plugin::protocol::PluginEvent::TurnStart {
+            prompt: prompt.to_string(),
+        });
+        for daemon in &self.daemons {
+            if daemon.subscribes_to("turn_start") {
+                let _ = daemon.call("hook/turn_start", val.clone()).await;
+            }
+        }
+    }
+
+    pub async fn notify_turn_end(&self, status: &str, tool_calls_count: usize) {
+        let val = serde_json::json!(crate::plugin::protocol::PluginEvent::TurnEnd {
+            status: status.to_string(),
+            tool_calls_count,
+        });
+        for daemon in &self.daemons {
+            if daemon.subscribes_to("turn_end") {
+                let _ = daemon.call("hook/turn_end", val.clone()).await;
+            }
+        }
+    }
 }
 
 impl AgentHook for DaemonHook {

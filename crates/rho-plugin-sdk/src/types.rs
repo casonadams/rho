@@ -34,6 +34,13 @@ pub enum StepEvent {
     ReasoningDelta {
         delta: String,
     },
+    TurnStart {
+        prompt: String,
+    },
+    TurnEnd {
+        status: String,
+        tool_calls_count: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
