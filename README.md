@@ -181,8 +181,15 @@ rho plugin install https://github.com/casonadams/rho-plugin-permission
 registers the plugin in `config.toml`; remove it again with `rho plugin remove
 rho-plugin-permission`.
 
-For the hook protocol, path resolution rules, and all options, see
+**Writing your own tool-hook plugin?**
+[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission) is
+the reference implementation: a small Rust binary that reads one JSON line from
+stdin and answers with an allow/deny/ask action. Its hook protocol, path
+resolution rules, and all options are documented in
 **[docs/plugins.md](docs/plugins.md)**.
+
+For MCP tool servers instead, run the built-in `create-plugin` skill in a
+session: `/skill:create-plugin <idea>`.
 
 ---
 
