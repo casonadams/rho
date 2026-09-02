@@ -5,8 +5,15 @@ use rho_core::provider::ProviderId;
 use std::str::FromStr;
 
 pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
-    let provider = select_provider(provider, &config.provider)?;
-    login_api_key(provider, auth_store).await
+    let name = resolve_provider_name(provider, &config.provider);
+    let key = prompt_password(&format!("Enter API key for {name}:"))?;
+    let key = key.trim();
+    if key.is_empty() {
+        return Err(AppError::Auth("API key cannot be empty".to_string()));
+    }
+    auth_store.set_key(&name, key)?;
+    println!("Stored API key for {name}");
+    Ok(())
 }
 
 #[cfg(feature = "ui")]
@@ -30,24 +37,35 @@ fn prompt_password(prompt: &str) -> Result<String> {
     Ok(buffer.trim_end_matches(&['\r', '\n'][..]).to_string())
 }
 
-pub async fn login_api_key(provider: ProviderId, auth_store: &mut AuthStore) -> Result<()> {
-    let key = prompt_password(&format!("Enter API key for {provider}:"))?;
-    let key = key.trim();
-    if key.is_empty() {
-        return Err(AppError::Auth("API key cannot be empty".to_string()));
-    }
-    auth_store.set_key(provider.as_str(), key)?;
-    println!("Stored API key for {provider}");
-    Ok(())
-}
-
 pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
-    let provider = select_provider(provider, &config.provider)?;
-    auth_store.remove_key(provider.as_str())?;
-    println!("Removed API key for {provider}");
+    let name = resolve_provider_name(provider, &config.provider);
+    auth_store.remove_key(&name)?;
+    println!("Removed API key for {name}");
     Ok(())
 }
 
-pub fn select_provider(requested: Option<&str>, configured: &str) -> Result<ProviderId> {
-    ProviderId::from_str(requested.unwrap_or(configured))
+/// Built-in provider names canonicalize (aliases collapse to their enum arm);
+/// any other name is kept so custom config providers can store keys.
+fn resolve_provider_name(requested: Option<&str>, configured: &str) -> String {
+    let requested = requested.unwrap_or(configured).trim().to_ascii_lowercase();
+    ProviderId::from_str(&requested)
+        .map(|id| id.as_str().to_string())
+        .unwrap_or(requested)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn built_in_names_canonicalize_and_custom_names_are_kept() {
+        assert_eq!(resolve_provider_name(Some("Google"), "anthropic"), "gemini");
+        assert_eq!(
+            resolve_provider_name(Some("google-antigravity"), "anthropic"),
+            "antigravity"
+        );
+        assert_eq!(resolve_provider_name(None, "GROQ"), "groq");
+        assert_eq!(resolve_provider_name(Some("acme"), "anthropic"), "acme");
+        assert_eq!(resolve_provider_name(Some("Acme Cloud"), "anthropic"), "acme cloud");
+    }
 }

@@ -84,7 +84,8 @@ impl ReplSession {
         let mut config = Config::load(self.cli.as_ref())?;
         config.model = self.config.model.clone();
         config.provider = self.config.provider.clone();
-        let rebuilt = engine.rebuild(config, self.auth_store.clone()).await?;
+        let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
+        self.config = config;
         self.renderer.print_notice(&format!(
             "  [Reloaded config, skills, and MCP tools ({} tools); session preserved]\n",
             rebuilt.tool_names.len()
