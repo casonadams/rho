@@ -107,6 +107,12 @@ impl ReplSession {
         let mut engine =
             crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref())
                 .await?;
+        if let Some(ref cli) = self.cli
+            && let Some(ref name) = cli.name
+        {
+            let _ = engine.session_manager.set_session_name(name).await;
+        }
+        self.config = engine.config.clone();
         engine.refresh_quota().await;
 
         self.renderer.print_welcome(&WelcomeDisplay {
@@ -328,6 +334,7 @@ impl ReplSession {
                                         &self.config,
                                         &mut self.auth_store,
                                     )?;
+                                    engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
                                     continue;
                                 }
                                 CommandResult::Continue => continue,

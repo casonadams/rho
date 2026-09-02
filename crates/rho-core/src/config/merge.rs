@@ -152,6 +152,9 @@ pub(super) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     if let Some(max_turns) = c.max_turns {
         config.max_turns = max_turns;
     }
+    if let Some(ref t) = c.thinking {
+        config.thinking_level = if t == "off" { None } else { Some(t.clone()) };
+    }
     if c.auto_approve {
         config.auto_approve = true;
     }

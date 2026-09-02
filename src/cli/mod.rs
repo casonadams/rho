@@ -126,6 +126,8 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let prompt_text = if let Some(p) = cli.prompt {
         Some(p)
+    } else if !cli.message.is_empty() {
+        Some(cli.message.join(" "))
     } else if !atty_check() {
         let mut buffer = String::new();
         std::io::stdin().read_to_string(&mut buffer).ok();
@@ -143,6 +145,31 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         cli.resume
     };
+
+    if let Some(export_path) = cli.export {
+        let resume_target_id = match resume_target {
+            Some(id) => id,
+            None => {
+                let cwd = std::env::current_dir()?;
+                SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?
+                    .ok_or_else(|| rho_core::error::AppError::Session("no session found to export".to_string()))?
+            }
+        };
+        let session_manager = SessionManager::new(&config.sessions_dir, Some(&resume_target_id))?;
+        let tree = session_manager.load_tree().await?;
+        let export_path = std::path::PathBuf::from(export_path);
+        let content = if export_path.extension().and_then(|ext| ext.to_str()) == Some("html") {
+            rho_core::session::export::render_html(&tree, &resume_target_id)
+        } else {
+            rho_core::session::export::render_markdown(&tree, &resume_target_id)
+        };
+        if let Some(parent) = export_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&export_path, content)?;
+        println!("Exported session {} to {}", resume_target_id, export_path.display());
+        return Ok(());
+    }
 
     if cli.mode == "rpc" {
         return rpc::run_rpc_daemon(config, auth_store).await.map_err(Into::into);
@@ -179,6 +206,9 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     if let Some(prompt) = prompt_text {
         let engine = crate::platform::agent_engine(config, auth_store, resume_target.as_deref()).await?;
+        if let Some(ref name) = cli.name {
+            let _ = engine.session_manager.set_session_name(name).await;
+        }
         #[cfg(feature = "ui")]
         let presenter: std::sync::Arc<dyn rho_core::presentation::Presenter> =
             std::sync::Arc::new(TerminalRenderer::default());
@@ -204,6 +234,9 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "ui")]
         {
             let mut session = ReplSession::new(config, auth_store, resume_target).with_cli(Some(cli_for_repl));
+            if let Some(ref name) = cli.name {
+                let _ = session.config.model; // name will be set when session runs
+            }
             session.run().await?;
             Ok(())
         }

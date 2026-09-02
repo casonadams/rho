@@ -62,6 +62,12 @@ impl ReplSession {
         let mut engine =
             crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), self.resume_id.as_deref())
                 .await?;
+        if let Some(ref cli) = self.cli
+            && let Some(ref name) = cli.name
+        {
+            let _ = engine.session_manager.set_session_name(name).await;
+        }
+        self.config = engine.config.clone();
         engine.refresh_quota().await;
 
         let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
@@ -89,6 +95,7 @@ impl ReplSession {
         .into_iter()
         .map(|t| t.metadata.name)
         .collect::<Vec<_>>();
+        crate::repl::interactive::spawn_background_model_refresh(&self.config, &self.auth_store);
         let models = crate::repl::interactive::discover_models(&self.config, &self.auth_store);
         let custom_providers = self.config.providers.keys().cloned().collect();
         let sources = crate::repl::interactive::CompletionSources::new()

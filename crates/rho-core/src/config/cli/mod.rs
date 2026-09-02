@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 
 #[cfg(test)]
+mod pi_alignment_tests;
+#[cfg(test)]
 mod tests;
 
 #[derive(Parser, Debug, Clone)]
@@ -33,8 +35,20 @@ pub struct Cli {
     pub max_turns: Option<usize>,
 
     /// Automatically approve operations that are normally approval-required, including outside-workspace writes and mutating or uncertain Bash calls
-    #[arg(short = 'y', long = "auto-approve", default_value_t = false)]
+    #[arg(short = 'y', short_alias = 'a', long = "auto-approve", alias = "approve", default_value_t = false)]
     pub auto_approve: bool,
+
+    /// Thinking level: off, minimal, low, medium, high, xhigh, max
+    #[arg(long = "thinking", env = "AI_THINKING_LEVEL")]
+    pub thinking: Option<String>,
+
+    /// Set session display name
+    #[arg(short = 'n', long = "name")]
+    pub name: Option<String>,
+
+    /// Export session to HTML or Markdown file and exit
+    #[arg(long = "export")]
+    pub export: Option<String>,
 
     /// Resume a version-2 session by ID, including any pending budget checkpoint
     #[arg(long = "resume")]
@@ -51,6 +65,10 @@ pub struct Cli {
     /// Execution mode: interactive, rpc, or json
     #[arg(long = "mode", default_value = "interactive")]
     pub mode: String,
+
+    /// Trailing prompt messages or files to run
+    #[arg(trailing_var_arg = true)]
+    pub message: Vec<String>,
 
     /// Subcommand to execute
     #[command(subcommand)]

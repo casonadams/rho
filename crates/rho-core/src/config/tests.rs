@@ -243,10 +243,14 @@ fn test_precedence_is_defaults_file_environment_then_cli() {
         max_output_tokens: None,
         max_turns: Some(40),
         auto_approve: false,
+        thinking: None,
+        name: None,
+        export: None,
         resume: None,
         r#continue: false,
         resume_picker: false,
         mode: "interactive".to_string(),
+        message: Vec::new(),
         command: None,
     };
     merge::apply_cli_overrides(&mut config, Some(&cli));
