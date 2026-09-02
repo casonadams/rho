@@ -46,14 +46,14 @@ def main():
             tool_name = params.get("tool_name", "")
             args = params.get("args", {})
 
-            # 1. Unconditionally block dangerous root deletions
-            if tool_name == "bash" and "rm -rf /" in args.get("command", ""):
+            # 1. Unconditionally block destructive rm -rf deletions
+            if tool_name == "bash" and "rm -rf" in args.get("command", ""):
                 emit({
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
                         "action": "skip",
-                        "reason": "Permission denied: destructive root deletion is blocked by policy."
+                        "reason": "Permission denied: destructive 'rm -rf' deletion is blocked by policy."
                     }
                 })
                 continue
