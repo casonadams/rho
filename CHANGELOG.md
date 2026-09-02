@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/casonadams/rho/compare/v0.1.1...v0.1.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* **crates:** add repository and readme metadata ([1211bf1](https://github.com/casonadams/rho/commit/1211bf1e8378d26195070195d79c6ec9755780bc))
+
 ## [0.1.1](https://github.com/casonadams/rho/compare/v0.1.0...v0.1.1) (2026-09-02)
 
 
