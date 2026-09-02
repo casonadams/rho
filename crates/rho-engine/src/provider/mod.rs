@@ -77,7 +77,7 @@ impl ProviderFactory {
                 .api_key("")
                 .base_url(&host)
                 .build()
-                .map_err(|e| AppError::Provider(format!("Failed to initialize local Ollama client: {e}")))?;
+                .map_err(|e| AppError::Provider(format!("Failed to initialize Ollama client: {e}")))?;
             return Ok(ModelHandle::named(provider.as_str(), client.completion_model(model)));
         }
 

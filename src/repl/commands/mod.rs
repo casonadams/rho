@@ -15,6 +15,7 @@ use std::fmt::Write as _;
 pub enum CommandResult {
     Continue,
     ClearContext,
+    OpenModelSelector,
     ModelChanged {
         new_model: String,
         new_provider: Option<String>,
@@ -209,6 +210,8 @@ impl SlashCommandHandler {
                         new_model: model,
                         new_provider: Some(provider),
                     }))
+                } else if ctx.renderer.has_interactive_ui() {
+                    Ok(Some(CommandResult::OpenModelSelector))
                 } else {
                     let discovered = crate::repl::interactive::discover_models(ctx.config, ctx.auth_store);
                     let models: Vec<String> = discovered

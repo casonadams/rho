@@ -132,7 +132,7 @@ impl FromStr for ProviderId {
             "deepseek" => Ok(Self::DeepSeek),
             "gemini" | "google" => Ok(Self::Gemini),
             "groq" => Ok(Self::Groq),
-            "local" | "ollama" => Ok(Self::Local),
+            "local" | "ollama" | "local-ollama" => Ok(Self::Local),
             "ollama-cloud" | "ollamacloud" => Ok(Self::OllamaCloud),
             "openrouter" => Ok(Self::OpenRouter),
             "xai" => Ok(Self::XAi),

@@ -199,6 +199,10 @@ impl ReplSession {
                         if let Some(cmd_res) = result {
                             match cmd_res {
                                 CommandResult::Exit => break,
+                                CommandResult::OpenModelSelector => {
+                                    // In legacy reedline mode, fallback to command prompt
+                                    continue;
+                                }
                                 CommandResult::ClearContext => {
                                     engine = crate::platform::agent_engine(
                                         self.config.clone(),

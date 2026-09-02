@@ -38,6 +38,10 @@ impl ReplSession {
         if let Some(result) = command_result {
             match result {
                 CommandResult::Exit => return Ok(true),
+                CommandResult::OpenModelSelector => {
+                    super::modal::open_model_selector(self, controller);
+                    controller.redraw()?;
+                }
                 CommandResult::ClearContext => {
                     *engine = crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), None).await?;
                 }
@@ -160,6 +164,7 @@ impl ReplSession {
                 }
                 CommandResult::Logout { provider } => {
                     crate::cli::logout_provider(provider.as_deref(), &self.config, &mut self.auth_store)?;
+                    *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
                 }
                 CommandResult::Continue => {}
             }
