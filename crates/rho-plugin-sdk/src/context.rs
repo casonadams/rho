@@ -101,6 +101,23 @@ impl HostContext {
         let _ = self.call_host("host/ui/notify", params).await;
     }
 
+    pub async fn block(&self, title: &str, content: &str, style: &str) {
+        let params = json!({
+            "title": title,
+            "content": content,
+            "style": style,
+        });
+        let _ = self.call_host("host/ui/block", params).await;
+    }
+
+    pub async fn set_status(&self, key: &str, text: Option<&str>) {
+        let params = json!({
+            "key": key,
+            "text": text,
+        });
+        let _ = self.call_host("host/ui/set_status", params).await;
+    }
+
     async fn call_host(&self, method: &str, params: Value) -> Value {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let req = json!({

@@ -73,6 +73,22 @@ fn default_info_level() -> String {
     "info".to_string()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostUiBlockParams {
+    #[serde(default)]
+    pub title: String,
+    pub content: String,
+    #[serde(default = "default_info_level")]
+    pub style: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostUiSetStatusParams {
+    pub key: String,
+    #[serde(default)]
+    pub text: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HostSessionAppendParams {
     #[serde(default = "default_custom_kind")]

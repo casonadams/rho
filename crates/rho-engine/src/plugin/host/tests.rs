@@ -13,6 +13,8 @@ struct MockTestPresenter {
     has_ui: bool,
     interactive_reply: Mutex<Option<InteractionResponse>>,
     notices: Mutex<Vec<String>>,
+    blocks: Mutex<Vec<(String, String, String)>>,
+    extra_status: Mutex<Option<String>>,
 }
 
 impl MockTestPresenter {
@@ -21,6 +23,8 @@ impl MockTestPresenter {
             has_ui,
             interactive_reply: Mutex::new(reply),
             notices: Mutex::new(Vec::new()),
+            blocks: Mutex::new(Vec::new()),
+            extra_status: Mutex::new(None),
         }
     }
 }
@@ -33,6 +37,16 @@ impl Presenter for MockTestPresenter {
     fn print_notice(&self, text: &str) {
         if let Ok(mut list) = self.notices.lock() {
             list.push(text.to_string());
+        }
+    }
+    fn print_block(&self, display: &rho_harness_core::presentation::BlockDisplay) {
+        if let Ok(mut list) = self.blocks.lock() {
+            list.push((display.title.clone(), display.content.clone(), display.style.clone()));
+        }
+    }
+    fn set_extra_status(&self, status: Option<String>) {
+        if let Ok(mut s) = self.extra_status.lock() {
+            *s = status;
         }
     }
     fn print_user_block(&self, _input: &str) {}
@@ -178,4 +192,38 @@ async fn host_ui_notify_and_unknown_method_error() {
     let res_unknown = dispatcher.dispatch(req_unknown).await;
     assert!(res_unknown.error.is_some());
     assert_eq!(res_unknown.error.unwrap().code, -32601);
+}
+
+#[tokio::test]
+async fn host_ui_block_and_set_status() {
+    let presenter = Arc::new(MockTestPresenter::new(true, None));
+    let dispatcher = HostDispatcher::new(presenter.clone());
+
+    let req_block = JsonRpcRequest::new(
+        7,
+        "host/ui/block",
+        json!(HostUiBlockParams {
+            title: "Summary".into(),
+            content: "All checks passed".into(),
+            style: "success".into(),
+        }),
+    );
+    let res_block = dispatcher.dispatch(req_block).await;
+    assert_eq!(res_block.result, Some(json!({"success": true})));
+    assert_eq!(
+        presenter.blocks.lock().unwrap().as_slice(),
+        &[("Summary".into(), "All checks passed".into(), "success".into())]
+    );
+
+    let req_status = JsonRpcRequest::new(
+        8,
+        "host/ui/set_status",
+        json!(HostUiSetStatusParams {
+            key: "quota".into(),
+            text: Some("5h: 80%".into()),
+        }),
+    );
+    let res_status = dispatcher.dispatch(req_status).await;
+    assert_eq!(res_status.result, Some(json!({"success": true})));
+    assert_eq!(presenter.extra_status.lock().unwrap().as_deref(), Some("5h: 80%"));
 }

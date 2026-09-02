@@ -50,6 +50,12 @@ fn plugin_events_serde_roundtrip() {
             args: json!({"command": "ls"}),
             available_tools: vec!["bash".to_string()],
         },
+        PluginEvent::TextDelta {
+            delta: "hello ".to_string(),
+        },
+        PluginEvent::ReasoningDelta {
+            delta: "thinking...".to_string(),
+        },
     ];
 
     for event in events {
@@ -80,6 +86,10 @@ fn plugin_flow_serde_roundtrip() {
                 active_tools: Some(vec!["bash".to_string()]),
                 tool_choice: None,
                 additional_params: Some(json!({"top_p": 0.9})),
+                extra_context: Some(vec![DocumentPayload {
+                    id: "doc1".to_string(),
+                    text: "content".to_string(),
+                }]),
                 history: None,
             },
         },
@@ -187,6 +197,7 @@ fn completion_call_and_observation_conversions() {
             active_tools: Some(vec!["bash".into()]),
             tool_choice: None,
             additional_params: Some(json!({"seed": 42})),
+            extra_context: None,
             history: None,
         },
     };

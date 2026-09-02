@@ -28,6 +28,27 @@ pub enum StepEvent {
         args: Value,
         available_tools: Vec<String>,
     },
+    TextDelta {
+        delta: String,
+    },
+    ReasoningDelta {
+        delta: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Document {
+    pub id: String,
+    pub text: String,
+}
+
+impl Document {
+    pub fn new(id: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            text: text.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -44,6 +65,8 @@ pub struct RequestPatch {
     pub tool_choice: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub additional_params: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_context: Option<Vec<Document>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history: Option<Vec<Value>>,
 }

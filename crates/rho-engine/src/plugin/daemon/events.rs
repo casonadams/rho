@@ -53,3 +53,15 @@ pub fn completion_response_event(event: CompletionResponse<'_>) -> Value {
     let response = serde_json::to_value(event.content).unwrap_or(Value::Null);
     json!(PluginEvent::CompletionResponse { prompt, response })
 }
+
+pub fn text_delta_event(delta: &str) -> Value {
+    json!(PluginEvent::TextDelta {
+        delta: delta.to_string(),
+    })
+}
+
+pub fn reasoning_delta_event(delta: &str) -> Value {
+    json!(PluginEvent::ReasoningDelta {
+        delta: delta.to_string(),
+    })
+}

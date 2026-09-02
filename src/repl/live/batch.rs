@@ -68,6 +68,10 @@ impl LiveBatch {
             controller.state_mut().footer_mut().activity = activity;
             changed = true;
         }
+        if let Some(extra) = drained.extra_status {
+            controller.state_mut().footer_mut().extra_status = extra;
+            changed = true;
+        }
         if !drained.text.is_empty() {
             controller.write_output(&drained.text)?;
         } else if changed || redraw {
@@ -100,6 +104,10 @@ pub fn handle_ui_event<B: crate::ui::interactive::TerminalBackend>(
             controller.redraw()?;
         }
         UiEvent::RunningTool(_) => {}
+        UiEvent::ExtraStatus(status) => {
+            controller.state_mut().footer_mut().extra_status = status;
+            controller.redraw()?;
+        }
         UiEvent::Transcript(item) => {
             controller.push_transcript_item(item)?;
         }

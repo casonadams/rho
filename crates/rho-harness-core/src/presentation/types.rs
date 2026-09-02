@@ -92,6 +92,19 @@ pub struct ToolLine {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockDisplay {
+    #[serde(default)]
+    pub title: String,
+    pub content: String,
+    #[serde(default = "default_style")]
+    pub style: String,
+}
+
+fn default_style() -> String {
+    "info".to_string()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolOutcome {
     pub name: String,
     pub is_error: bool,

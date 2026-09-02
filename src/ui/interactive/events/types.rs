@@ -46,6 +46,7 @@ pub enum UiEvent {
     ToolEnd,
     Transcript(crate::ui::interactive::TranscriptItem),
     RunningTool(Option<String>),
+    ExtraStatus(Option<String>),
     Interaction {
         prompt: InteractionPrompt,
         responder: InteractionResponder,

@@ -67,5 +67,14 @@ pub fn request_patch_payload_to_rig(payload: RequestPatchPayload) -> RequestPatc
     if let Some(params) = payload.additional_params {
         patch = patch.additional_params(params);
     }
+    if let Some(docs) = payload.extra_context {
+        for doc in docs {
+            patch = patch.context(rig::completion::Document {
+                id: doc.id,
+                text: doc.text,
+                additional_props: std::collections::HashMap::new(),
+            });
+        }
+    }
     patch
 }

@@ -141,6 +141,36 @@ impl TerminalRenderer {
         }
     }
 
+    pub fn set_extra_status(&self, status: Option<String>) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.set_extra_status(status);
+        }
+    }
+
+    pub fn print_block(&self, display: &rho_harness_core::presentation::BlockDisplay) {
+        let bg = match display.style.as_str() {
+            "error" => self.theme.tool_error_bg,
+            "warning" => anstyle::Style::new()
+                .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
+                .fg_color(Some(anstyle::AnsiColor::Black.into())),
+            "success" => self.theme.tool_success_bg,
+            _ => self.theme.user_message_bg,
+        };
+        let formatted_title = if display.title.is_empty() {
+            String::new()
+        } else {
+            let bold = anstyle::Style::new().bold();
+            format!("{bold}{}{bold:#}\n\n", display.title)
+        };
+        let full_text = format!("{formatted_title}{}", display.content);
+        let rendered = crate::ui::block::BlockFormat::new(bg, terminal_width()).render_styled(&full_text);
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(rendered));
+        } else {
+            self.write_output(&rendered);
+        }
+    }
+
     pub fn print_notice(&self, text: &str) {
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text.to_string()));

@@ -77,6 +77,15 @@ impl InteractiveUi {
         }
     }
 
+    pub fn set_extra_status(&self, status: Option<String>) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::ExtraStatus(status))
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
     pub fn tool_start(&self, request: ToolStartRequest) -> Result<(), UiPortError> {
         match self.transport.as_ref() {
             Transport::Channel(sender) => sender

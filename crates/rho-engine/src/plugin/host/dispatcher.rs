@@ -1,8 +1,8 @@
 use super::guards::HeadlessGuard;
 use super::prompt::{build_confirm_prompt, build_input_prompt, build_select_prompt};
 use super::types::{
-    HostUiConfirmParams, HostUiConfirmResult, HostUiInputParams, HostUiInputResult, HostUiNotifyParams,
-    HostUiSelectParams, HostUiSelectResult,
+    HostUiBlockParams, HostUiConfirmParams, HostUiConfirmResult, HostUiInputParams, HostUiInputResult,
+    HostUiNotifyParams, HostUiSelectParams, HostUiSelectResult, HostUiSetStatusParams,
 };
 use crate::plugin::protocol::{JsonRpcRequest, JsonRpcResponse};
 use rho_harness_core::presentation::presenter::Presenter;
@@ -25,6 +25,8 @@ impl HostDispatcher {
             "host/ui/select" => self.handle_select(req).await,
             "host/ui/input" => self.handle_input(req).await,
             "host/ui/notify" => self.handle_notify(req),
+            "host/ui/block" => self.handle_block(req),
+            "host/ui/set_status" => self.handle_set_status(req),
             "ui/prompt" => self.handle_legacy_prompt(req).await,
             _ => JsonRpcResponse::err(req.id, -32601, format!("Method not found: {}", req.method)),
         }
@@ -97,6 +99,27 @@ impl HostDispatcher {
             return JsonRpcResponse::err(req.id, -32602, "Invalid params for host/ui/notify");
         };
         self.presenter.print_notice(&params.message);
+        JsonRpcResponse::ok(req.id, json!({ "success": true }))
+    }
+
+    fn handle_block(&self, req: JsonRpcRequest) -> JsonRpcResponse {
+        let Ok(params) = serde_json::from_value::<HostUiBlockParams>(req.params) else {
+            return JsonRpcResponse::err(req.id, -32602, "Invalid params for host/ui/block");
+        };
+        self.presenter
+            .print_block(&rho_harness_core::presentation::BlockDisplay {
+                title: params.title,
+                content: params.content,
+                style: params.style,
+            });
+        JsonRpcResponse::ok(req.id, json!({ "success": true }))
+    }
+
+    fn handle_set_status(&self, req: JsonRpcRequest) -> JsonRpcResponse {
+        let Ok(params) = serde_json::from_value::<HostUiSetStatusParams>(req.params) else {
+            return JsonRpcResponse::err(req.id, -32602, "Invalid params for host/ui/set_status");
+        };
+        self.presenter.set_extra_status(params.text);
         JsonRpcResponse::ok(req.id, json!({ "success": true }))
     }
 

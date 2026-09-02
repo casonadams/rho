@@ -276,3 +276,95 @@ async fn test_native_in_process_rho_plugin() {
     assert!(engine.tool_names.contains(&"custom_eval".to_string()));
     assert!(engine.tool_names.contains(&"read".to_string()));
 }
+
+#[tokio::test]
+async fn test_rag_document_injection_via_plugin() {
+    let dir = tempdir().unwrap();
+    let script = r#"
+while IFS= read -r line; do
+  case "$line" in
+    *"hook/completion_call"*)
+      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"override_request","request":{"extra_context":[{"id":"arch.md","text":"Strict layering required"}]}}}'
+      ;;
+  esac
+done
+"#;
+    let script_path = create_executable_script(dir.path(), "rag_plugin.sh", script);
+    let presenter = Arc::new(MockPresenter::new(true, None));
+    let dispatcher = Arc::new(HostDispatcher::new(presenter));
+
+    let config = rho_harness_core::config::PluginConfig {
+        path: script_path,
+        enabled: true,
+        ..Default::default()
+    };
+
+    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
+        name: "rag-plugin",
+        config: &config,
+        working_dir: dir.path(),
+        dispatcher,
+    })
+    .await
+    .expect("spawn daemon")
+    .with_subscriptions(["completion_call"]);
+
+    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
+
+    let model = MockCompletionModel::new([MockTurn::text("understood guidelines")]);
+
+    let agent = AgentBuilder::new(model.clone()).add_hook(hook).build();
+
+    let response = agent.runner("explain arch").run().await.unwrap();
+    assert_eq!(response.output, "understood guidelines");
+
+    let requests = model.requests();
+    assert_eq!(requests.len(), 1);
+    let docs = &requests[0].documents;
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].id, "arch.md");
+    assert_eq!(docs[0].text, "Strict layering required");
+}
+
+#[tokio::test]
+async fn test_plugin_block_and_status_dispatch() {
+    let dir = tempdir().unwrap();
+    let script = r#"
+while IFS= read -r line; do
+  case "$line" in
+    *"hook/completion_response"*)
+      echo '{"jsonrpc":"2.0","id":10,"method":"host/ui/block","params":{"title":"Audit Report","content":"Clean","style":"success"}}'
+      echo '{"jsonrpc":"2.0","id":11,"method":"host/ui/set_status","params":{"key":"quota","text":"5h: 80%"}}'
+      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"continue"}}'
+      ;;
+  esac
+done
+"#;
+    let script_path = create_executable_script(dir.path(), "status_plugin.sh", script);
+    let presenter = Arc::new(MockPresenter::new(true, None));
+    let dispatcher = Arc::new(HostDispatcher::new(presenter));
+
+    let config = rho_harness_core::config::PluginConfig {
+        path: script_path,
+        enabled: true,
+        ..Default::default()
+    };
+
+    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
+        name: "status-plugin",
+        config: &config,
+        working_dir: dir.path(),
+        dispatcher,
+    })
+    .await
+    .expect("spawn daemon")
+    .with_subscriptions(["completion_response"]);
+
+    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
+    let model = MockCompletionModel::new([MockTurn::text("done")]);
+
+    let agent = AgentBuilder::new(model.clone()).add_hook(hook).build();
+
+    let response = agent.runner("test").run().await.unwrap();
+    assert_eq!(response.output, "done");
+}

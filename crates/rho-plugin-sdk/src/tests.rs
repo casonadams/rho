@@ -31,6 +31,11 @@ impl Plugin for TestGuardPlugin {
                 }
                 Flow::cont()
             }
+            StepEvent::ToolResult { .. } => {
+                ctx.block("Tool Result", "Success", "success").await;
+                ctx.set_status("quota", Some("5h: 90%")).await;
+                Flow::cont()
+            }
             _ => Flow::cont(),
         }
     }
@@ -106,4 +111,35 @@ async fn sdk_plugin_roundtrip_flow() {
     assert_eq!(confirm_res["id"], 4);
     assert_eq!(confirm_res["result"]["action"], "skip");
     assert_eq!(confirm_res["result"]["reason"], "Reboot denied by user");
+
+    // 5. Tool result -> sends host/ui/block and host/ui/set_status
+    client_write
+        .write_all(
+            b"{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"hook/tool_result\",\"params\":{\"event\":\"tool_result\",\"tool_name\":\"bash\",\"args\":{},\"output\":\"ok\",\"is_error\":false}}\n",
+        )
+        .await
+        .unwrap();
+
+    let block_req_line = client_lines.next_line().await.unwrap().unwrap();
+    let block_req: Value = serde_json::from_str(&block_req_line).unwrap();
+    assert_eq!(block_req["method"], "host/ui/block");
+    let block_id = block_req["id"].as_u64().unwrap();
+    client_write
+        .write_all(format!("{{\"jsonrpc\":\"2.0\",\"id\":{block_id},\"result\":{{\"success\":true}}}}\n").as_bytes())
+        .await
+        .unwrap();
+
+    let status_req_line = client_lines.next_line().await.unwrap().unwrap();
+    let status_req: Value = serde_json::from_str(&status_req_line).unwrap();
+    assert_eq!(status_req["method"], "host/ui/set_status");
+    let status_id = status_req["id"].as_u64().unwrap();
+    client_write
+        .write_all(format!("{{\"jsonrpc\":\"2.0\",\"id\":{status_id},\"result\":{{\"success\":true}}}}\n").as_bytes())
+        .await
+        .unwrap();
+
+    let tool_res_line = client_lines.next_line().await.unwrap().unwrap();
+    let tool_res: Value = serde_json::from_str(&tool_res_line).unwrap();
+    assert_eq!(tool_res["id"], 5);
+    assert_eq!(tool_res["result"]["action"], "continue");
 }

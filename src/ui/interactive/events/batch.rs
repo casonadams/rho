@@ -27,6 +27,7 @@ pub struct PendingUiBatch {
     tool_start: Option<ToolStartRequest>,
     tool_chunks: Vec<String>,
     tool_end: bool,
+    extra_status: Option<Option<String>>,
     transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
     max_text_bytes: usize,
 }
@@ -39,6 +40,7 @@ pub struct PendingUiDrain {
     pub tool_start: Option<ToolStartRequest>,
     pub tool_chunks: Vec<String>,
     pub tool_end: bool,
+    pub extra_status: Option<Option<String>>,
     pub transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
 }
 
@@ -51,6 +53,7 @@ impl PendingUiBatch {
             tool_start: None,
             tool_chunks: Vec::new(),
             tool_end: false,
+            extra_status: None,
             transcript_items: Vec::new(),
             max_text_bytes: max_text_bytes.max(1),
         }
@@ -93,6 +96,10 @@ impl PendingUiBatch {
                 self.running_tool = Some(update);
                 BatchDecision::Pending
             }
+            UiEvent::ExtraStatus(status) => {
+                self.extra_status = Some(status);
+                BatchDecision::Flush(FlushBarrier::Newline)
+            }
             event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
         }
     }
@@ -105,6 +112,7 @@ impl PendingUiBatch {
             tool_start: self.tool_start.take(),
             tool_chunks: std::mem::take(&mut self.tool_chunks),
             tool_end: std::mem::replace(&mut self.tool_end, false),
+            extra_status: self.extra_status.take(),
             transcript_items: std::mem::take(&mut self.transcript_items),
         }
     }
@@ -116,6 +124,7 @@ impl PendingUiBatch {
             && self.tool_start.is_none()
             && self.tool_chunks.is_empty()
             && !self.tool_end
+            && self.extra_status.is_none()
             && self.transcript_items.is_empty()
     }
 }

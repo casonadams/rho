@@ -150,6 +150,7 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
             }
             UiEvent::Activity(_)
             | UiEvent::RunningTool(_)
+            | UiEvent::ExtraStatus(_)
             | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
             | UiEvent::ToolEnd => {}
