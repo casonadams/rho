@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.6](https://github.com/casonadams/rho/compare/v0.1.5...v0.1.6) (2026-09-02)
+
+
+### Features
+
+* **examples:** update node notifier, rag injector, and rust guard to use tui blocks and status footer ([93642a6](https://github.com/casonadams/rho/commit/93642a67903e792ebe828cba3dc68e8647a8ea65))
+* **plugin:** support host/tools/list tool reflection, turn lifecycle hooks, and REPL slash command routing ([b9e58d7](https://github.com/casonadams/rho/commit/b9e58d79dbe52262a4967264abd65450389e0663))
+* **plugin:** support host/ui/block, host/ui/set_status, RAG document injection, and streaming deltas ([25d246c](https://github.com/casonadams/rho/commit/25d246c86b2ec2dc2ea66841255b9e658acf2edf))
+
+
+### Bug Fixes
+
+* **ui:** enable vertical padding and transcript line spacing for plugin block cards ([29fb67b](https://github.com/casonadams/rho/commit/29fb67b7c1742acfd1565e0178713637fd9741c8))
+
 ## [0.1.5](https://github.com/casonadams/rho/compare/v0.1.4...v0.1.5) (2026-09-02)
 
 
