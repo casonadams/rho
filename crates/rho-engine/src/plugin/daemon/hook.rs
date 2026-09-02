@@ -42,7 +42,6 @@ impl DaemonHook {
                 daemons.push(Arc::new(process));
             }
         }
-
         Self { daemons }
     }
 
@@ -62,13 +61,17 @@ impl AgentHook for DaemonHook {
             if !daemon.subscribes_to("tool_call") {
                 continue;
             }
-            if let Ok(res) = daemon.call("hook/tool_call", val.clone()).await
-                && let Some(result) = res.result
-                && let Ok(flow) = serde_json::from_value::<PluginFlow>(result)
-            {
-                let action = flow_to_tool_call_action(flow);
-                if action != ToolCallAction::run() {
-                    return action;
+            match daemon.call("hook/tool_call", val.clone()).await {
+                Ok(res) => {
+                    if let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok()) {
+                        let action = flow_to_tool_call_action(flow);
+                        if action != ToolCallAction::run() {
+                            return action;
+                        }
+                    }
+                }
+                Err(err) => {
+                    return ToolCallAction::skip(format!("Plugin '{}' failed: {err}", daemon.name));
                 }
             }
         }
@@ -96,8 +99,7 @@ impl AgentHook for DaemonHook {
                 continue;
             }
             if let Ok(res) = daemon.call("hook/invalid_tool_call", val.clone()).await
-                && let Some(result) = res.result
-                && let Ok(flow) = serde_json::from_value::<PluginFlow>(result)
+                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
             {
                 let action = flow_to_invalid_tool_call_action(flow);
                 if action != InvalidToolCallAction::Fail {
@@ -115,8 +117,7 @@ impl AgentHook for DaemonHook {
                 continue;
             }
             if let Ok(res) = daemon.call("hook/completion_call", val.clone()).await
-                && let Some(result) = res.result
-                && let Ok(flow) = serde_json::from_value::<PluginFlow>(result)
+                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
             {
                 let action = flow_to_completion_call_action(flow);
                 if action != CompletionCallAction::continue_run() {
@@ -134,8 +135,7 @@ impl AgentHook for DaemonHook {
                 continue;
             }
             if let Ok(res) = daemon.call("hook/completion_response", val.clone()).await
-                && let Some(result) = res.result
-                && let Ok(flow) = serde_json::from_value::<PluginFlow>(result)
+                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
             {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {

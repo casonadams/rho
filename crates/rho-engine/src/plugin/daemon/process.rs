@@ -1,3 +1,4 @@
+use super::pump::{spawn_stdin_writer, spawn_stdout_reader};
 use super::resolve::resolve_executable;
 use crate::plugin::host::HostDispatcher;
 use crate::plugin::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -9,7 +10,6 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
@@ -22,10 +22,10 @@ pub struct DaemonSpawnArgs<'a> {
     pub dispatcher: Arc<HostDispatcher>,
 }
 
-struct StdoutReaderContext {
-    pending: PendingResponses,
-    dispatcher: Arc<HostDispatcher>,
-    stdin_tx: mpsc::Sender<String>,
+pub struct StdoutReaderContext {
+    pub pending: PendingResponses,
+    pub dispatcher: Arc<HostDispatcher>,
+    pub stdin_tx: mpsc::Sender<String>,
 }
 
 pub struct DaemonProcess {
@@ -98,7 +98,7 @@ impl DaemonProcess {
             .await
             .map_err(|e| format!("Failed to send to plugin stdin: {e}"))?;
 
-        match tokio::time::timeout(Duration::from_secs(5), rx).await {
+        match tokio::time::timeout(Duration::from_secs(600), rx).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => Err("Plugin response channel closed".to_string()),
             Err(_) => {
@@ -108,49 +108,4 @@ impl DaemonProcess {
             }
         }
     }
-}
-
-fn spawn_stdin_writer(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::Receiver<String>) {
-    tokio::spawn(async move {
-        while let Some(line) = rx.recv().await {
-            if stdin.write_all(line.as_bytes()).await.is_err()
-                || stdin.write_all(b"\n").await.is_err()
-                || stdin.flush().await.is_err()
-            {
-                break;
-            }
-        }
-    });
-}
-
-fn spawn_stdout_reader(stdout: tokio::process::ChildStdout, ctx: StdoutReaderContext) {
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = reader.next_line().await {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            let Ok(val) = serde_json::from_str::<Value>(trimmed) else {
-                continue;
-            };
-
-            if val.get("method").is_some() {
-                let Ok(req) = serde_json::from_value::<JsonRpcRequest>(val) else {
-                    continue;
-                };
-                let resp = ctx.dispatcher.dispatch(req).await;
-                if let Ok(resp_json) = serde_json::to_string(&resp) {
-                    let _ = ctx.stdin_tx.send(resp_json).await;
-                }
-            } else if let Some(id) = val.get("id").and_then(Value::as_u64) {
-                let mut map = ctx.pending.lock().await;
-                if let Some(tx) = map.remove(&id) {
-                    let resp =
-                        serde_json::from_value::<JsonRpcResponse>(val).map_err(|e| format!("Malformed response: {e}"));
-                    let _ = tx.send(resp);
-                }
-            }
-        }
-    });
 }
