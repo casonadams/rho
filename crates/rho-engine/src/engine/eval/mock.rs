@@ -60,6 +60,13 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
     AgentEngine {
         config: app_config,
         session_manager,
+        tool_names: config
+            .built_in_tools
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect(),
         agent: Box::new(agent),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

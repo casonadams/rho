@@ -116,6 +116,68 @@ args = ["-y", "@modelcontextprotocol/server-linear"]
 }
 
 #[test]
+fn parses_providers_config() {
+    let toml_str = r#"
+[providers.acme]
+base_url = "https://api.acme.dev/v1"
+key_env = "ACME_API_KEY"
+
+[providers.local-llm]
+base_url = "http://127.0.0.1:8080/v1"
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(file.providers.len(), 2);
+    assert_eq!(file.providers["acme"].base_url, "https://api.acme.dev/v1");
+    assert_eq!(file.providers["acme"].key_env.as_deref(), Some("ACME_API_KEY"));
+    assert_eq!(file.providers["local-llm"].base_url, "http://127.0.0.1:8080/v1");
+    assert_eq!(file.providers["local-llm"].key_env, None);
+
+    let mut config = Config::default();
+    config.providers = file.providers;
+    config.validate().unwrap();
+}
+
+#[test]
+fn rejects_invalid_provider_configuration() {
+    let collision = ProviderConfig {
+        base_url: "https://api.acme.dev/v1".to_string(),
+        key_env: None,
+    };
+    let mut config = Config::default();
+    config.providers.insert("anthropic".to_string(), collision.clone());
+    assert!(config.validate().is_err());
+
+    config.providers.clear();
+    config.providers.insert("Bad Name".to_string(), collision.clone());
+    assert!(config.validate().is_err());
+
+    config.providers.clear();
+    config.providers.insert("acme".to_string(), collision.clone());
+    config.providers.insert(
+        "ftp".to_string(),
+        ProviderConfig {
+            base_url: "ftp://api.acme.dev".to_string(),
+            key_env: None,
+        },
+    );
+    assert!(config.validate().is_err());
+
+    config.providers.remove("ftp");
+    config.providers.insert(
+        "garbage".to_string(),
+        ProviderConfig {
+            base_url: "not a url".to_string(),
+            key_env: None,
+        },
+    );
+    assert!(config.validate().is_err());
+
+    config.providers.remove("garbage");
+    config.providers.insert("acme".to_string(), collision);
+    config.validate().unwrap();
+}
+
+#[test]
 fn test_default_config() {
     let cfg = Config::default();
     assert!(!cfg.model.is_empty());

@@ -76,6 +76,26 @@ Messages submitted while the agent is running enter a FIFO queue and execute in 
 | `cohere`     | API Key       | `COHERE_API_KEY` or `rho login cohere`         |
 | `ollama`     | Local Service | `OLLAMA_HOST` (default `http://localhost:11434`)|
 
+### Custom OpenAI-compatible providers
+
+Any OpenAI-compatible endpoint can be added at runtime via config — no rebuild.
+In `~/.config/rho/config.toml` (or project `.rho/config.toml`):
+
+```toml
+[providers.acme]
+base_url = "https://api.acme.dev/v1"   # your keys are sent here
+key_env = "ACME_API_KEY"               # optional; falls back to ACME_API_KEY env or `rho login acme`
+```
+
+Then select it with `/model acme:<model>`. Names of built-in providers are
+reserved. For security, `base_url` must use `http`/`https` and private or
+loopback addresses are rejected unless `allow_private_network = true` in
+config.toml.
+
+Slash commands `/reload` (re-read config, skills, and MCP tools without losing
+session history) and `/export [html|md] [path]` (write the active branch as a
+readable artifact) work in the interactive REPL.
+
 ---
 
 ## Configuration & Skills (`~/.config/rho/`)

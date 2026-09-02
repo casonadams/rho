@@ -73,6 +73,7 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
         config.mcp = mcp;
     }
     config.plugins = file.plugins;
+    config.providers = file.providers;
 }
 
 pub(super) fn apply_env_overrides(config: &mut Config) -> Result<()> {

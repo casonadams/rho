@@ -2,7 +2,7 @@ pub mod cli;
 mod merge;
 mod types;
 
-pub use types::{Config, McpConfig, McpServerConfig, PluginConfig, default_config_dir};
+pub use types::{Config, McpConfig, McpServerConfig, PluginConfig, ProviderConfig, default_config_dir};
 
 use crate::error::{AppError, Result};
 
@@ -68,6 +68,23 @@ impl Config {
             }
             if plugin.package.as_ref().is_some_and(|package| package.trim().is_empty()) {
                 return Err(AppError::Config(format!("plugin '{name}' package must not be empty")));
+            }
+        }
+        for (name, provider) in &self.providers {
+            if !is_valid_plugin_name(name) {
+                return Err(AppError::Config(format!("invalid provider name '{name}'")));
+            }
+            if crate::provider::ProviderId::from_str(name).is_ok() {
+                return Err(AppError::Config(format!(
+                    "provider name '{name}' conflicts with a built-in provider"
+                )));
+            }
+            let parsed = url::Url::parse(&provider.base_url)
+                .map_err(|e| AppError::Config(format!("provider '{name}' has invalid base_url: {e}")))?;
+            if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                return Err(AppError::Config(format!(
+                    "provider '{name}' base_url must use http or https"
+                )));
             }
         }
         Ok(())

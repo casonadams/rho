@@ -8,6 +8,9 @@ pub mod runner;
 pub mod runtime;
 pub mod tracking;
 
+#[cfg(test)]
+mod tests;
+
 pub mod eval;
 
 use crate::auth::AuthStore;
@@ -23,6 +26,7 @@ use metrics::format_tokens;
 pub struct AgentEngine {
     pub config: Config,
     pub session_manager: SessionManager,
+    pub tool_names: Vec<String>,
     pub(crate) agent: Box<Agent>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
@@ -40,9 +44,13 @@ impl AgentEngine {
     }
 
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
+        let base_dir = std::env::current_dir()?;
+        let mut tools = crate::tools::build_builtin_tools(&base_dir, &config)?;
+        tools.extend(crate::mcp::load_mcp_tools(&config, &base_dir).await);
         builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
-            .base_dir(std::env::current_dir()?)
+            .base_dir(base_dir)
+            .tools(tools)
             .build()
             .await
     }

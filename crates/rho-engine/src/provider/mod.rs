@@ -1,16 +1,70 @@
 use crate::auth::AuthStore;
+use rho_core::config::Config;
 use rho_core::error::{AppError, Result};
 use rho_core::provider::ProviderId;
 use rig::agent::ModelHandle;
 use rig::client::CompletionClient;
 use std::str::FromStr;
 
+#[cfg(test)]
+mod tests;
+
 pub struct ProviderFactory;
 
 impl ProviderFactory {
-    pub fn create_model(provider: &str, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
-        let provider_id = ProviderId::from_str(provider)?;
-        Self::create_model_for(provider_id, model, auth_store)
+    pub fn create_model(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
+        let name = config.provider.trim();
+        if let Ok(provider_id) = ProviderId::from_str(name) {
+            return Self::create_model_for(provider_id, model, auth_store);
+        }
+        Self::create_custom_model(config, model, auth_store)
+    }
+
+    fn create_custom_model(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
+        let name = config.provider.trim();
+        let spec = config.providers.get(&name.to_ascii_lowercase()).ok_or_else(|| {
+            AppError::Provider(format!(
+                "Unknown provider '{name}'. Configure it in config.toml as\n\
+                     [providers.{name}]\nbase_url = \"https://...\"\n\
+                     before selecting it."
+            ))
+        })?;
+
+        rho_core::net::validate_url(&spec.base_url, config.allow_private_network).map_err(|e| match e {
+            AppError::Tool(message) => AppError::Provider(format!("Provider '{name}': {message}")),
+            other => other,
+        })?;
+
+        let key = Self::custom_key(name, spec, auth_store)?.ok_or_else(|| {
+            AppError::Auth(format!(
+                "Missing API key for provider '{name}'. Set {} or run 'rho login {}'.",
+                spec.key_env.as_deref().unwrap_or("its API key env var"),
+                name
+            ))
+        })?;
+
+        let client = rig::providers::openai::Client::builder()
+            .api_key(key)
+            .base_url(&spec.base_url)
+            .build()
+            .map_err(|e| AppError::Provider(format!("Failed to initialize provider '{name}': {e}")))?;
+        Ok(ModelHandle::named(name, client.completion_model(model)))
+    }
+
+    fn custom_key(
+        name: &str,
+        spec: &rho_core::config::ProviderConfig,
+        auth_store: &AuthStore,
+    ) -> Result<Option<String>> {
+        if let Some(env_name) = spec.key_env.as_deref()
+            && let Ok(value) = std::env::var(env_name)
+        {
+            let value = value.trim().to_string();
+            if !value.is_empty() {
+                return Ok(Some(value));
+            }
+        }
+        auth_store.get_key(name)
     }
 
     pub fn create_model_for(provider: ProviderId, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {

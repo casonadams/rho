@@ -55,6 +55,9 @@ impl ReplSession {
                     crate::cli::login_provider(provider.as_deref(), &self.config, &mut self.auth_store).await?;
                     *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
                 }
+                CommandResult::Reload => {
+                    *engine = self.reload_engine(engine).await?;
+                }
                 CommandResult::Compact { .. } => {
                     let session_id = engine.session_manager.session_id.clone();
                     self.renderer.print_notice("  [Compacting conversation context...]\n");

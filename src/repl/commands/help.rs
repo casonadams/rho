@@ -19,6 +19,8 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
   /clear                      Start a new session; preserve history\n\
   /login [provider]           Add API-key or subscription auth\n\
   /logout [provider]          Remove stored provider auth\n\
+  /reload                     Re-read config, skills, and MCP tools; keep history\n\
+  /export [html|md] [path]    Export the active branch as a readable artifact\n\
   /exit                       Exit rho\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\

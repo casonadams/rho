@@ -58,6 +58,7 @@ pub struct ReplSession {
     pub auth_store: AuthStore,
     pub renderer: TerminalRenderer,
     pub resume_id: Option<String>,
+    pub cli: Option<crate::config::cli::Cli>,
 }
 
 impl ReplSession {
@@ -67,7 +68,28 @@ impl ReplSession {
             auth_store,
             renderer: TerminalRenderer::default(),
             resume_id,
+            cli: None,
         }
+    }
+
+    /// Retained so /reload can re-apply CLI overrides after re-reading config.
+    pub fn with_cli(mut self, cli: Option<crate::config::cli::Cli>) -> Self {
+        self.cli = cli;
+        self
+    }
+
+    /// Re-read config (keeping CLI overrides and the runtime model choice),
+    /// rebuild the engine, and preserve the session history.
+    pub(crate) async fn reload_engine(&mut self, engine: &AgentEngine) -> Result<AgentEngine> {
+        let mut config = Config::load(self.cli.as_ref())?;
+        config.model = self.config.model.clone();
+        config.provider = self.config.provider.clone();
+        let rebuilt = engine.rebuild(config, self.auth_store.clone()).await?;
+        self.renderer.print_notice(&format!(
+            "  [Reloaded config, skills, and MCP tools ({} tools); session preserved]\n",
+            rebuilt.tool_names.len()
+        ));
+        Ok(rebuilt)
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -189,6 +211,10 @@ impl ReplSession {
                                     crate::cli::login_provider(provider.as_deref(), &self.config, &mut self.auth_store)
                                         .await?;
                                     engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
+                                    continue;
+                                }
+                                CommandResult::Reload => {
+                                    engine = self.reload_engine(&engine).await?;
                                     continue;
                                 }
                                 CommandResult::Compact { .. } => {

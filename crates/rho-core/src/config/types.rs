@@ -148,6 +148,13 @@ pub struct McpServerConfig {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    pub base_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_env: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub model: String,
@@ -173,6 +180,7 @@ pub struct Config {
     pub thinking_level: Option<String>,
     pub context_injection_max_tokens: usize,
     pub plugins: BTreeMap<String, PluginConfig>,
+    pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
@@ -206,6 +214,7 @@ impl Default for Config {
             thinking_level: None,
             context_injection_max_tokens: 4000,
             plugins: BTreeMap::new(),
+            providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             sessions_dir: base_dir.join("sessions"),
             auth_file: base_dir.join("auth.json"),
@@ -240,6 +249,8 @@ pub(super) struct FileConfig {
     pub context_injection_max_tokens: Option<usize>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
+    #[serde(default)]
+    pub providers: BTreeMap<String, ProviderConfig>,
     #[serde(default)]
     pub mcp: Option<McpConfig>,
 }

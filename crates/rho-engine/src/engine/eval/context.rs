@@ -80,6 +80,7 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
     let engine = AgentEngine {
         config,
         session_manager: store,
+        tool_names: Vec::new(),
         agent: Box::new(agent),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

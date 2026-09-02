@@ -21,6 +21,8 @@ use std::str::FromStr;
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let cli = <Cli as clap::Parser>::parse();
     let config = Config::load(Some(&cli))?;
+    // Retained so /reload can re-apply CLI overrides after re-reading config.
+    let cli_for_repl = cli.clone();
     config.ensure_dirs()?;
 
     let mut auth_store = AuthStore::load(&config.auth_file)?;
@@ -49,9 +51,16 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     (None, Some(_)) => println!("Usage: rho config <key> <value>"),
                     (None, None) => {
                         println!("Config location: {}", config.config_dir.display());
-                        let provider = ProviderId::from_str(&config.provider)?;
-                        println!("Model: {}", config.model);
-                        println!("Provider: {provider} ({})", provider.auth_mode_label());
+                        match ProviderId::from_str(&config.provider) {
+                            Ok(provider) => {
+                                println!("Model: {}", config.model);
+                                println!("Provider: {provider} ({})", provider.auth_mode_label());
+                            }
+                            Err(_) => {
+                                println!("Model: {}", config.model);
+                                println!("Provider: {} (custom)", config.provider);
+                            }
+                        }
                         println!("Auto approve: {}", config.auto_approve);
                         println!("Max turns: {}", config.max_turns);
                         println!("Context window messages: {}", config.context_window_messages);
@@ -61,24 +70,31 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             Commands::Models => {
-                let provider = ProviderId::from_str(&config.provider)?;
-                println!("Models for {provider}:");
-                match provider {
-                    ProviderId::Anthropic => {
-                        println!(
-                            "  - claude-3-7-sonnet-20250219\n  - claude-3-5-sonnet-20241022\n  - claude-3-5-haiku-20241022"
-                        );
+                match ProviderId::from_str(&config.provider) {
+                    Ok(provider) => {
+                        println!("Models for {provider}:");
+                        match provider {
+                            ProviderId::Anthropic => {
+                                println!(
+                                    "  - claude-3-7-sonnet-20250219\n  - claude-3-5-sonnet-20241022\n  - claude-3-5-haiku-20241022"
+                                );
+                            }
+                            ProviderId::OpenAi => {
+                                println!("  - gpt-4o\n  - gpt-4o-mini\n  - o1\n  - o3-mini");
+                            }
+                            ProviderId::Gemini => {
+                                println!("  - gemini-2.0-flash\n  - gemini-1.5-pro\n  - gemini-1.5-flash");
+                            }
+                            ProviderId::DeepSeek => {
+                                println!("  - deepseek-chat\n  - deepseek-reasoner");
+                            }
+                            _ => {
+                                println!("  - {}", config.model);
+                            }
+                        }
                     }
-                    ProviderId::OpenAi => {
-                        println!("  - gpt-4o\n  - gpt-4o-mini\n  - o1\n  - o3-mini");
-                    }
-                    ProviderId::Gemini => {
-                        println!("  - gemini-2.0-flash\n  - gemini-1.5-pro\n  - gemini-1.5-flash");
-                    }
-                    ProviderId::DeepSeek => {
-                        println!("  - deepseek-chat\n  - deepseek-reasoner");
-                    }
-                    _ => {
+                    Err(_) => {
+                        println!("Models for {} (custom):", config.provider);
                         println!("  - {}", config.model);
                     }
                 }
@@ -187,7 +203,7 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         #[cfg(feature = "ui")]
         {
-            let mut session = ReplSession::new(config, auth_store, resume_target);
+            let mut session = ReplSession::new(config, auth_store, resume_target).with_cli(Some(cli_for_repl));
             session.run().await?;
             Ok(())
         }

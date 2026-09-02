@@ -60,11 +60,7 @@ impl AgentEngineBuilder {
             )?,
         };
 
-        let model = crate::provider::ProviderFactory::create_model(
-            &self.config.provider,
-            &self.config.model,
-            &self.auth_store,
-        )?;
+        let model = crate::provider::ProviderFactory::create_model(&self.config, &self.config.model, &self.auth_store)?;
 
         let agent = super::runtime::build_coding_agent(
             model,
@@ -79,6 +75,13 @@ impl AgentEngineBuilder {
         Ok(AgentEngine {
             config: self.config.clone(),
             session_manager,
+            tool_names: self
+                .rig_tools
+                .clone()
+                .unwrap_or_default()
+                .iter()
+                .map(|tool| tool.name().to_string())
+                .collect(),
             agent: Box::new(agent),
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),

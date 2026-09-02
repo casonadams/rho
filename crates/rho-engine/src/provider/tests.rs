@@ -1,0 +1,137 @@
+use super::*;
+use rho_core::config::ProviderConfig;
+use std::collections::BTreeMap;
+
+fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {
+    let mut config = Config::default();
+    config.provider = name.to_string();
+    config.providers.insert(name.to_string(), spec);
+    config.allow_private_network = allow_private;
+    config
+}
+
+fn spec(base_url: &str, key_env: Option<&str>) -> ProviderConfig {
+    ProviderConfig {
+        base_url: base_url.to_string(),
+        key_env: key_env.map(str::to_string),
+    }
+}
+
+#[test]
+fn custom_provider_builds_generic_client_from_config() {
+    unsafe {
+        std::env::set_var("ACME_API_KEY", "generic-env-secret");
+    }
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    let config = config_with_provider("acme", spec("https://api.acme.dev/v1", None), false);
+
+    let handle = ProviderFactory::create_model(&config, "acme-large", &auth_store).unwrap();
+    assert_eq!(handle.label(), Some("acme"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+    unsafe {
+        std::env::remove_var("ACME_API_KEY");
+    }
+}
+
+#[test]
+fn custom_provider_resolves_key_from_key_env() {
+    unsafe {
+        std::env::set_var("RHO_TEST_CUSTOM_PROVIDER_KEY", "env-secret");
+    }
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    let config = config_with_provider(
+        "acme",
+        spec("https://api.acme.dev/v1", Some("RHO_TEST_CUSTOM_PROVIDER_KEY")),
+        false,
+    );
+
+    let handle = ProviderFactory::create_model(&config, "acme", &auth_store).unwrap();
+    assert_eq!(handle.label(), Some("acme"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+    unsafe {
+        std::env::remove_var("RHO_TEST_CUSTOM_PROVIDER_KEY");
+    }
+}
+
+#[test]
+fn custom_provider_resolves_key_from_auth_store() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    auth_store.set_key("acme", "stored-secret").unwrap();
+    let config = config_with_provider("acme", spec("https://api.acme.dev/v1", None), false);
+
+    ProviderFactory::create_model(&config, "acme", &auth_store).unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn custom_provider_rejects_private_base_url_by_default() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    let config = config_with_provider("local", spec("http://127.0.0.1:8080/v1", None), false);
+
+    let error = ProviderFactory::create_model(&config, "local", &auth_store).unwrap_err();
+    assert!(error.to_string().contains("blocked"), "{error}");
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn custom_provider_allows_private_base_url_when_enabled() {
+    unsafe {
+        std::env::set_var("LOCAL_API_KEY", "local-key");
+    }
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    let config = config_with_provider("local", spec("http://127.0.0.1:8080/v1", None), true);
+
+    ProviderFactory::create_model(&config, "local", &auth_store).unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+    unsafe {
+        std::env::remove_var("LOCAL_API_KEY");
+    }
+}
+
+#[test]
+fn unknown_provider_without_config_errors_with_guidance() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    let config = Config::default();
+    let config = Config {
+        provider: "mystery".to_string(),
+        providers: BTreeMap::new(),
+        ..config
+    };
+
+    let error = ProviderFactory::create_model(&config, "mystery", &auth_store).unwrap_err();
+    assert!(error.to_string().contains("[providers.mystery]"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn well_known_provider_still_routes_to_dedicated_arms() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    auth_store.set_key("groq", "gsk-test").unwrap();
+    let mut config = Config::default();
+    config.provider = "groq".to_string();
+    // A [providers.groq] entry would be rejected by config validation, so an
+    // empty map proves the enum arm handled it.
+    ProviderFactory::create_model(&config, "llama-3.3-70b", &auth_store).unwrap();
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
