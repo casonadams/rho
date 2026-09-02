@@ -6059,10 +6059,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rho-core"
-version = "0.1.1"
 name = "rho-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6095,10 +6093,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "rho-engine"
-version = "0.1.1"
 name = "rho-harness-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
