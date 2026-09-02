@@ -222,6 +222,11 @@ impl TerminalRenderer {
         let title = tool_title_style(line.is_error);
         let accent = self.theme.highlight;
         let summary = format_tool_args_summary(&line.name, &line.arguments);
+        let display_name = match line.name.as_str() {
+            "web_search" | "websearch" => "search",
+            "web_fetch" | "webfetch" => "fetch",
+            other => other,
+        };
         let mut content = if line.name == "read" && !line.is_error {
             let (path, range) = read_summary_parts(&line.arguments);
             let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
@@ -229,21 +234,17 @@ impl TerminalRenderer {
                 "{title}read{title:#} {accent}{path}{accent:#}{}",
                 range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
             )
-        } else if (line.name == "fetch" || line.name == "webfetch") && !line.is_error {
+        } else if display_name == "fetch" && !line.is_error {
             let url = line
                 .arguments
                 .get("url")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("");
             let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-            let dim = self.theme.dimmed;
             let kind = webfetch_content_kind(&line.arguments);
-            format!(
-                "{title}{}{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}",
-                line.name
-            )
+            format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
         } else {
-            format!("{title}{}{title:#} {accent}{summary}{accent:#}", line.name)
+            format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
         };
         if !line.is_error && line.name == "edit" {
             if let Some(diff) = format_edit_diff(&line.arguments, &self.theme) {

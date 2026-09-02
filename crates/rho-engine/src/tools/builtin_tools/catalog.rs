@@ -43,7 +43,7 @@ pub static PROMPT_WEBSEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
 Usage:
-- Prefer websearch for finding public documentation, repositories, package releases, and technical references.
+- Prefer search for finding public documentation, repositories, package releases, and technical references.
 - Use recency ('day', 'week', 'month', 'year') to filter results by freshness.
 - Use domains to limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com']).
 - Returns concise result summaries with title, URL, and snippet.";

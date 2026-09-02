@@ -96,6 +96,11 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
             };
             let title = tool_title_style(tool.is_error);
             let accent = theme.highlight;
+            let display_name = match tool.name.as_str() {
+                "web_search" | "websearch" => "search",
+                "web_fetch" | "webfetch" => "fetch",
+                other => other,
+            };
             let summary = format_tool_args_summary(&tool.name, &tool.arguments);
 
             let mut content = if tool.name == "read" && !tool.is_error {
@@ -105,21 +110,17 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     "{title}read{title:#} {accent}{path}{accent:#}{}",
                     range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
                 )
-            } else if (tool.name == "fetch" || tool.name == "webfetch") && !tool.is_error {
+            } else if display_name == "fetch" && !tool.is_error {
                 let url = tool
                     .arguments
                     .get("url")
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or("");
                 let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-                let dim = theme.dimmed;
                 let kind = webfetch_content_kind(&tool.arguments);
-                format!(
-                    "{title}{}{title:#}\n{accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}\n{dim}{url}{dim:#}",
-                    tool.name
-                )
+                format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
             } else {
-                format!("{title}{}{title:#} {accent}{summary}{accent:#}", tool.name)
+                format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
             };
 
             if !tool.is_error && tool.name == "edit" {

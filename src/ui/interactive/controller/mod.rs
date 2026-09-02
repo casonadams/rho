@@ -6,7 +6,7 @@ mod tests;
 pub use ansi::{output_cursor, terminal_newlines};
 pub use backend::{CrosstermBackend, TerminalBackend};
 
-use super::{Activity, InteractiveLayout, InteractiveState, LayoutInput, layout};
+use super::{InteractiveLayout, InteractiveState, LayoutInput, layout};
 use std::io;
 
 pub struct TerminalController<B: TerminalBackend> {
@@ -164,7 +164,6 @@ impl<B: TerminalBackend> TerminalController<B> {
         let new_height = next_lines.len();
         let target_cursor_row = rendered.cursor_row();
         let target_cursor_col = rendered.cursor.column;
-        let is_idle = matches!(self.state.footer().activity, Activity::Idle);
 
         self.backend.hide_cursor()?;
 
@@ -217,11 +216,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.previous_lines = rendered.lines.clone();
         self.current_cursor_row = target_cursor_row;
         self.rendered = Some(rendered);
-
-        if is_idle {
-            self.backend.show_cursor()?;
-        }
-
+        self.backend.show_cursor()?;
         self.backend.flush()
     }
 
@@ -240,11 +235,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.previous_lines = rendered.lines.clone();
         self.current_cursor_row = rendered.cursor_row();
         self.rendered = Some(rendered);
-
-        if matches!(self.state.footer().activity, Activity::Idle) {
-            self.backend.show_cursor()?;
-        }
-
+        self.backend.show_cursor()?;
         self.backend.flush()
     }
 

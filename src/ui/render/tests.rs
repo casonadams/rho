@@ -140,6 +140,55 @@ fn bash_summary_formats_timeout_inline() {
 }
 
 #[test]
+fn fetch_renders_url_on_same_line_without_duplicate() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.finish_tool_line(ToolLine {
+        name: "fetch".to_string(),
+        arguments: serde_json::json!({"url": "https://serde.rs/"}),
+        is_error: false,
+        output: "serde docs".to_string(),
+        output_summary: "serde docs".to_string(),
+        duration_ms: None,
+    });
+
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        if let UiEvent::Output(OutputEvent::Text(text)) = event {
+            output.push_str(&text);
+        }
+    }
+    assert!(output.contains("fetch https://serde.rs/"));
+    assert!(output.contains("fetched (text)"));
+    assert_eq!(output.matches("https://serde.rs/").count(), 1);
+}
+
+#[test]
+fn web_search_displays_as_search() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.finish_tool_line(ToolLine {
+        name: "web_search".to_string(),
+        arguments: serde_json::json!({"query": "serde release"}),
+        is_error: false,
+        output: "results".to_string(),
+        output_summary: "results".to_string(),
+        duration_ms: None,
+    });
+
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        if let UiEvent::Output(OutputEvent::Text(text)) = event {
+            output.push_str(&text);
+        }
+    }
+    assert!(output.contains("search \"serde release\""));
+    assert!(!output.contains("web_search"));
+}
+
+#[test]
 fn print_session_status_and_notice_emit_transcript_item() {
     let (ui, mut events) = InteractiveUi::channel();
     let renderer = TerminalRenderer::with_ui(ui);
