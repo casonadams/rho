@@ -28,7 +28,7 @@ pub use layout::{
     truncate_to_visual_lines, wrap_to_width,
 };
 pub use state::{
-    Activity, EditorState, FooterState, InteractiveState, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
-    RunningTool, UiAction, UiEffect,
+    Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState, ModalMode, ModalOption,
+    ModalState, QueueKind, QueuedMessage, RunningTool, UiAction, UiEffect,
 };
 pub use transcript::{ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, render_transcript_item};

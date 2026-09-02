@@ -1,3 +1,4 @@
+pub mod autocomplete;
 pub mod batch;
 pub mod idle;
 pub mod message;

@@ -1,4 +1,5 @@
 use super::IdleContext;
+use super::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
 use super::modal::{ModalKeyResult, handle_modal_key, open_model_selector};
 use super::navigation::{
@@ -77,9 +78,14 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                     }
                     ModalKeyResult::NotHandled => {}
                 }
+                if matches!(handle_autocomplete_key(controller, completions, key), AutocompleteKeyResult::Handled) {
+                    batch.flush(controller, true)?;
+                    continue;
+                }
                 match map_key(key) {
                     InputAction::Edit(action) => {
                         let effect = controller.state_mut().apply(action);
+                        update_autocomplete_state(controller, completions);
                         batch.flush(controller, true)?;
                         if let UiEffect::Queued(message) = effect {
                             controller.state_mut().pop_queued();
@@ -102,6 +108,7 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         }
                     }
                     InputAction::Cancel => {
+                        controller.state_mut().autocomplete.close();
                         controller.state_mut().editor_mut().set_text("");
                         controller.redraw()?;
                     }

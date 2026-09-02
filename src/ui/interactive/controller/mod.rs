@@ -272,6 +272,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         layout(LayoutInput {
             editor: self.state.editor(),
             modal: self.state.active_modal(),
+            autocomplete: Some(&self.state.autocomplete),
             footer: self.state.footer(),
             queued_messages: &queue_slice,
             widget_lines: &widget_lines,

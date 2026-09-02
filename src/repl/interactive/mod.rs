@@ -1,4 +1,5 @@
 pub mod completion;
+pub mod fuzzy;
 pub mod history;
 
 pub use completion::{CURATED_MODELS, Completion, CompletionSet, PROVIDERS};

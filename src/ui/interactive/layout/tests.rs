@@ -14,6 +14,7 @@ fn widget_lines_affect_height_and_cursor_row() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &widgets,
@@ -41,6 +42,7 @@ fn modal_hides_widget_lines() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: Some(&modal),
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &widgets,
@@ -58,6 +60,7 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -80,6 +83,7 @@ fn explicit_newlines_grow_the_editor() {
     let layout = layout(LayoutInput {
         editor: &editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -100,6 +104,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
     let layout = layout(LayoutInput {
         editor: &editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -121,6 +126,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
     let layout = layout(LayoutInput {
         editor: &editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -140,6 +146,7 @@ fn full_final_line_adds_a_cursor_line() {
     let layout = layout(LayoutInput {
         editor: &editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -164,6 +171,7 @@ fn footer_contains_available_status_and_queue_count() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -198,6 +206,7 @@ fn queued_messages_render_above_the_working_line() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &footer,
         queued_messages: &queued,
         widget_lines: &[],
@@ -225,6 +234,7 @@ fn busy_activity_renders_working_line_above_the_editor() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -252,6 +262,7 @@ fn thinking_activity_also_renders_the_working_line() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -276,6 +287,7 @@ fn idle_activity_renders_no_working_line() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -305,6 +317,7 @@ fn busy_activity_under_modal_hides_working_line() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: Some(&modal),
+        autocomplete: None,
         footer: &footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -323,6 +336,7 @@ fn editor_layout_tracks_lines_and_dividers() {
     let layout = layout(LayoutInput {
         editor: &editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -343,6 +357,7 @@ fn multiline_editor_height_matches_content() {
     let layout = layout(LayoutInput {
         editor: &editor,
         modal: None,
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -367,6 +382,7 @@ fn narrow_layout_never_exceeds_terminal_width() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: None,
+        autocomplete: None,
         footer: &footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -397,6 +413,7 @@ fn modal_layout_renders_input_frame_style() {
     let layout = layout(LayoutInput {
         editor: &default_editor,
         modal: Some(&modal),
+        autocomplete: None,
         footer: &default_footer,
         queued_messages: &[],
         widget_lines: &[],
@@ -450,6 +467,7 @@ fn thinking_borders_change_color_with_thinking_level() {
         let layout = layout(LayoutInput {
             editor: &default_editor,
             modal: None,
+            autocomplete: None,
             footer: &footer,
             queued_messages: &[],
             widget_lines: &[],

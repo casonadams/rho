@@ -39,6 +39,13 @@ pub fn apply_completion(
     controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
     completions: &CompletionSet,
 ) -> bool {
+    apply_completion_generic(controller, completions)
+}
+
+pub fn apply_completion_generic<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    completions: &CompletionSet,
+) -> bool {
     let editor = controller.state().editor();
     let text = editor.text();
     let byte_index = editor.cursor();

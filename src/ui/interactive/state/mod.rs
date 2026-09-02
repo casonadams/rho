@@ -1,9 +1,11 @@
+pub mod autocomplete;
 pub mod editor;
 pub mod modal;
 #[cfg(test)]
 mod tests;
 pub mod types;
 
+pub use autocomplete::{AutocompleteItem, AutocompleteState};
 pub use editor::EditorState;
 pub use modal::{ModalMode, ModalOption, ModalState};
 pub use types::{Activity, FooterState, QueueKind, QueuedMessage, RunningTool, UiAction, UiEffect};
@@ -18,6 +20,7 @@ pub struct InteractiveState {
     tools_expanded: bool,
     queue: VecDeque<QueuedMessage>,
     modals: Vec<ModalFrame>,
+    pub autocomplete: AutocompleteState,
 }
 
 impl InteractiveState {

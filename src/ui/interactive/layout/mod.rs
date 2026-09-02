@@ -1,3 +1,4 @@
+pub mod autocomplete;
 pub mod editor;
 pub mod modal;
 #[cfg(test)]
@@ -6,7 +7,8 @@ pub mod text;
 
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 
-use super::{Activity, EditorState, FooterState, ModalState};
+use super::{Activity, AutocompleteState, EditorState, FooterState, ModalState};
+use autocomplete::render_autocomplete_dropdown;
 use editor::wrap_editor;
 use modal::render_modal_overlay;
 use text::{SPINNER_FRAMES as FRAMES, truncate_to_width, visible_width as calc_visible_width};
@@ -67,6 +69,7 @@ impl InteractiveLayout {
 pub struct LayoutInput<'a> {
     pub editor: &'a EditorState,
     pub modal: Option<&'a ModalState>,
+    pub autocomplete: Option<&'a AutocompleteState>,
     pub footer: &'a FooterState,
     pub queued_messages: &'a [super::QueuedMessage],
     pub widget_lines: &'a [String],
@@ -91,7 +94,13 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         let divider = truncate_to_width(&"─".repeat(width), width);
         (lines, cursor, String::new(), divider)
     } else {
-        let (lines, cursor) = wrap_editor(input.editor, width);
+        let (mut lines, cursor) = wrap_editor(input.editor, width);
+        if let Some(ac) = input.autocomplete {
+            let ac_lines = render_autocomplete_dropdown(ac, width);
+            if !ac_lines.is_empty() {
+                lines.extend(ac_lines);
+            }
+        }
         let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
         let styled_divider = format!("{style}{}{reset}", "─".repeat(width));
         (lines, cursor, styled_divider.clone(), styled_divider)
