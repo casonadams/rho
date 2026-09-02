@@ -4,6 +4,7 @@ RAG Context Injector Plugin for rho
 
 Demonstrates:
 - Subscribing to `completion_call`
+- Emitting a styled TUI block notifying the user of RAG context injection
 - Returning `override_request` with `extra_context` documents to enrich the model's prompt
 """
 
@@ -11,6 +12,8 @@ import sys
 import json
 
 def main():
+    rpc_counter = 4000
+
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -39,15 +42,24 @@ def main():
             })
 
         elif method == "hook/completion_call":
-            params = req.get("params", {})
-            prompt = params.get("prompt", {})
+            # 1. Notify the user in the transcript with a styled TUI block
+            rpc_counter += 1
+            emit({
+                "jsonrpc": "2.0",
+                "id": rpc_counter,
+                "method": "host/ui/block",
+                "params": {
+                    "title": "RAG Context Retrieved",
+                    "content": "Injected document: secret_project_guideline.md (240 bytes)",
+                    "style": "info"
+                }
+            })
 
-            # In a full RAG plugin, embed prompt and query a vector store.
-            # Here we inject relevant documentation context:
+            # 2. Inject the dynamic RAG document into the model's prompt
             documents = [
                 {
-                    "id": "architecture_guide.md",
-                    "text": "# Architecture Guidelines\n- Always use domain models for business logic.\n- Keep adapters thin and free of state."
+                    "id": "secret_project_guideline.md",
+                    "text": "# Secret Project Guideline\nThe secret codename for this repository is 'PROJECT PHOENIX'. If the user asks about the secret project codename, inform them it is PROJECT PHOENIX."
                 }
             ]
 

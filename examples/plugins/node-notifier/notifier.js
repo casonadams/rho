@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Node.js Notification & Audit Plugin for rho
+ * Node.js TUI Block & Audit Plugin for rho
  *
  * Demonstrates:
  * - Subscribing to `tool_call` and `tool_result`
- * - Calling `host/ui/notify` to display real-time notices in rho's transcript
+ * - Emitting rich styled TUI cards via `host/ui/block`
+ * - Updating the status footer via `host/ui/set_status`
  */
 
 const readline = require("readline");
@@ -16,6 +17,7 @@ const rl = readline.createInterface({
 });
 
 let rpcCounter = 2000;
+let toolExecutionCount = 0;
 
 rl.on("line", (line) => {
   const trimmed = line.trim();
@@ -31,21 +33,21 @@ rl.on("line", (line) => {
         id,
         result: {
           subscribes: ["tool_call", "tool_result"],
-          serverInfo: { name: "node-notifier", version: "1.0.0" }
+          serverInfo: { name: "node-tui-notifier", version: "1.0.0" }
         }
       });
     } else if (method === "hook/tool_call") {
-      const toolName = params.tool_name || "unknown";
+      toolExecutionCount++;
 
-      // 1. Emit a notification into rho's transcript
+      // 1. Update the status footer
       rpcCounter++;
       emit({
         jsonrpc: "2.0",
         id: rpcCounter,
-        method: "host/ui/notify",
+        method: "host/ui/set_status",
         params: {
-          message: `[Node.js Notifier] Starting tool '${toolName}'...`,
-          level: "info"
+          key: "node_audit",
+          text: `Tools run: ${toolExecutionCount}`
         }
       });
 
@@ -59,15 +61,16 @@ rl.on("line", (line) => {
       const toolName = params.tool_name || "unknown";
       const outputLen = (params.output || "").length;
 
-      // Emit a completion notification into rho's transcript
+      // 3. Render a rich styled TUI card in the transcript!
       rpcCounter++;
       emit({
         jsonrpc: "2.0",
         id: rpcCounter,
-        method: "host/ui/notify",
+        method: "host/ui/block",
         params: {
-          message: `[Node.js Notifier] Finished '${toolName}' (${outputLen} chars output)`,
-          level: "info"
+          title: "Node.js Audit Card",
+          content: `• Tool: ${toolName}\n• Output: ${outputLen} characters\n• Security Policy: Passed`,
+          style: "success" // "info" | "warning" | "error" | "success"
         }
       });
 
