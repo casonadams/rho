@@ -64,9 +64,15 @@ fn test_autocomplete_trigger_and_chaining() {
     assert!(controller.state().autocomplete.visible);
     assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/skill");
 
-    // 3. Tab accepts "/skill" and IMMEDIATELY opens the skills argument dropdown!
+    // 3. Tab cycles through candidate options
     let tab_key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
+    assert!(matches!(res, AutocompleteKeyResult::Handled));
+    assert!(controller.state().autocomplete.visible);
+
+    // 4. Enter or Right-Arrow accepts the selected option and chains
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, enter_key);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
     assert_eq!(controller.state().editor().text(), "/skill ");
     assert!(
@@ -77,9 +83,4 @@ fn test_autocomplete_trigger_and_chaining() {
         controller.state().autocomplete.selected_item().unwrap().value,
         "/skill plan"
     );
-
-    // 4. Tab again accepts the skill!
-    let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
-    assert!(matches!(res, AutocompleteKeyResult::Handled));
-    assert_eq!(controller.state().editor().text(), "/skill plan ");
 }

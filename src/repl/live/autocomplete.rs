@@ -27,15 +27,17 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     }
 
     match (key.code, key.modifiers) {
-        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
             state.autocomplete.select_prev();
             AutocompleteKeyResult::Handled
         }
-        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+        (KeyCode::Down, KeyModifiers::NONE)
+        | (KeyCode::Char('n'), KeyModifiers::CONTROL)
+        | (KeyCode::Tab, KeyModifiers::NONE) => {
             state.autocomplete.select_next();
             AutocompleteKeyResult::Handled
         }
-        (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Tab, KeyModifiers::NONE) => {
+        (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Right, KeyModifiers::NONE) => {
             let selected_val = state.autocomplete.selected_item().map(|item| item.value.clone());
             if let Some(val) = selected_val {
                 let editor = state.editor_mut();
