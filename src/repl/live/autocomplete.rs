@@ -28,14 +28,11 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
 
     match (key.code, key.modifiers) {
         // Navigation: Up/Down, Ctrl+P/Ctrl+N, and Shift+Tab
-        (KeyCode::Up, KeyModifiers::NONE)
-        | (KeyCode::Char('p'), KeyModifiers::CONTROL)
-        | (KeyCode::BackTab, _) => {
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
             state.autocomplete.select_prev();
             AutocompleteKeyResult::Handled
         }
-        (KeyCode::Down, KeyModifiers::NONE)
-        | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
             state.autocomplete.select_next();
             AutocompleteKeyResult::Handled
         }
@@ -98,10 +95,7 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     }
 }
 
-pub fn update_autocomplete_state(
-    controller: &mut TerminalController<CrosstermBackend>,
-    completions: &CompletionSet,
-) {
+pub fn update_autocomplete_state(controller: &mut TerminalController<CrosstermBackend>, completions: &CompletionSet) {
     update_autocomplete_state_generic(controller, completions);
 }
 

@@ -4,7 +4,6 @@ use chrono::Utc;
 use rig::message::{
     AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
-use std::collections::BTreeMap;
 
 fn tree_with_conversation() -> SessionTree {
     let mut tree = SessionTree::new();

@@ -58,18 +58,18 @@ pub fn open_model_selector<B: crate::ui::interactive::TerminalBackend>(
         if is_active {
             initial_selection = i;
         }
-        let active_tag = if is_active { " [ACTIVE]" } else { "" };
+        let active_mark = if is_active { "✓" } else { "" };
+        let default_mark = if is_active { "default" } else { "" };
         options.push(crate::ui::interactive::ModalOption::new(
             item.id.clone(),
-            Some(format!("{} · {}{active_tag}", item.provider, item.description)),
+            Some(format!(
+                "{}\t{}\t{}\t{}",
+                item.provider, active_mark, default_mark, item.description
+            )),
         ));
     }
 
-    let mut modal = ModalState::new(
-        "Select Model",
-        "Select from configured and well-known AI models. Use /login to add provider credentials.",
-        options,
-    );
+    let mut modal = ModalState::new("Select Model", "", options);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }
@@ -92,7 +92,7 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
                 let provider = opt
                     .description
                     .as_deref()
-                    .and_then(|d| d.split_whitespace().next())
+                    .and_then(|d| d.split('\t').next())
                     .unwrap_or("anthropic")
                     .to_string();
                 controller.state_mut().pop_modal();
@@ -123,7 +123,7 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
                     let provider = opt
                         .description
                         .as_deref()
-                        .and_then(|d| d.split_whitespace().next())
+                        .and_then(|d| d.split('\t').next())
                         .unwrap_or("anthropic")
                         .to_string();
                     controller.state_mut().pop_modal();

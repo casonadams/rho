@@ -91,8 +91,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
 
     let (editor_lines, cursor, top_divider, bottom_divider) = if let Some(modal) = input.modal {
         let (lines, cursor) = render_modal_overlay(modal, width);
-        let divider = truncate_to_width(&"─".repeat(width), width);
-        (lines, cursor, String::new(), divider)
+        (lines, cursor, String::new(), String::new())
     } else {
         let (mut lines, cursor) = wrap_editor(input.editor, width);
         if let Some(ac) = input.autocomplete {

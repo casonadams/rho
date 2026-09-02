@@ -100,10 +100,11 @@ pub fn map_completion_error(error: rig::completion::CompletionError) -> AppError
         return AppError::ContentFiltered;
     }
     let status = error.provider_response_status().map(|s| s.as_u16());
+    let err_msg = super::helpers::redact_text(&error.to_string());
     match status {
         Some(code @ (401 | 403)) => AppError::Auth(format!("Model provider authentication failed (HTTP {code})")),
         Some(408 | 429 | 500..=599) => AppError::Network("Model provider request could not be completed".to_string()),
-        Some(status) => AppError::Provider(format!("Model provider request failed with HTTP {status}")),
-        None => AppError::Network("Model provider request failed without an HTTP status".to_string()),
+        Some(status) => AppError::Provider(format!("Model provider request failed (HTTP {status}): {err_msg}")),
+        None => AppError::Network(format!("Model provider request failed: {err_msg}")),
     }
 }

@@ -59,9 +59,9 @@ fn custom_provider_private_endpoint_blocked_by_default() {
     std::fs::write(
         home.join("config.toml"),
         r#"
-provider = "local"
+provider = "custom-private"
 
-[providers.local]
+[providers.custom-private]
 base_url = "http://127.0.0.1:8080/v1"
 key_env = "RHO_E2E_LOCAL_KEY"
 "#,

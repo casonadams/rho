@@ -94,12 +94,6 @@ pub enum Commands {
         /// Provider name
         provider: Option<String>,
     },
-    /// Set or remove an Ollama Cloud API key (used to show usage for :cloud models)
-    Auth {
-        /// Subcommand: set or remove
-        #[command(subcommand)]
-        action: Option<AuthCommands>,
-    },
     /// Display or edit configuration
     Config {
         /// Config key to inspect or set
@@ -114,14 +108,6 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<PluginCommands>,
     },
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
-pub enum AuthCommands {
-    /// Store an Ollama Cloud API key for showing :cloud usage
-    Set,
-    /// Remove the stored Ollama Cloud API key
-    Remove,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

@@ -81,25 +81,6 @@ fn test_cli_parses_runtime_limits() {
 }
 
 #[test]
-fn test_cli_parses_auth_subcommands() {
-    let cli = Cli::try_parse_from(["rho", "auth", "set"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Auth {
-            action: Some(AuthCommands::Set)
-        })
-    );
-
-    let cli = Cli::try_parse_from(["rho", "auth", "remove"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Auth {
-            action: Some(AuthCommands::Remove)
-        })
-    );
-}
-
-#[test]
 fn help_matches_documented_auth_sessions_limits_and_context() {
     use clap::CommandFactory;
 

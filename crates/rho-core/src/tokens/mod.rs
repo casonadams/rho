@@ -11,11 +11,20 @@ pub const DEFAULT_KEEP_RECENT_TOKENS: usize = 20_000;
 
 pub fn context_window_size(model: &str) -> usize {
     let lower = model.to_lowercase();
-    if lower.contains("gemini") {
-        1_048_576
-    } else if lower.contains("gpt-5") || lower.contains("luna") || lower.contains("codex") {
-        376_000
-    } else if lower.contains("claude-3-7") || lower.contains("claude-3-5") || lower.contains("claude-3") {
+    if lower.contains("gemini-1.5-pro") || lower.contains("gemini-2.5-pro") {
+        2_000_000
+    } else if lower.contains("gemini") {
+        1_000_000
+    } else if lower.contains("gpt-5.6") || lower.contains("luna") || lower.contains("terra") || lower.contains("sol") {
+        372_000
+    } else if lower.contains("gpt-5.4") || lower.contains("gpt-5.5") {
+        272_000
+    } else if lower.contains("claude-3-7")
+        || lower.contains("claude-3-5")
+        || lower.contains("claude-3")
+        || lower.contains("o1")
+        || lower.contains("o3")
+    {
         200_000
     } else {
         128_000

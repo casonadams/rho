@@ -37,10 +37,6 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 logout_provider(provider.as_deref(), &config, &mut auth_store)?;
                 return Ok(());
             }
-            Commands::Auth { action: _ } => {
-                println!("Use 'rho login <provider>' to configure API keys.");
-                return Ok(());
-            }
             Commands::Config { key, value } => {
                 match (key, value) {
                     (Some(k), Some(v)) => {
@@ -234,9 +230,6 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "ui")]
         {
             let mut session = ReplSession::new(config, auth_store, resume_target).with_cli(Some(cli_for_repl));
-            if let Some(ref name) = cli.name {
-                let _ = session.config.model; // name will be set when session runs
-            }
             session.run().await?;
             Ok(())
         }

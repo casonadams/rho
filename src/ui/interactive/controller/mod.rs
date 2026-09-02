@@ -158,10 +158,60 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn redraw(&mut self) -> io::Result<()> {
-        self.backend.hide_cursor()?;
-        self.erase_live_region()?;
         let rendered = self.current_layout();
-        self.write_live_region(&rendered)?;
+        let lines = collect_rendered_lines(&rendered, self.footer_style);
+        let new_height = lines.len();
+        let target_cursor_row = rendered.cursor_row();
+        let target_cursor_col = rendered.cursor.column;
+
+        self.backend.hide_cursor()?;
+
+        if let Some(prev) = &self.rendered {
+            let prev_cursor_row = prev.cursor_row();
+            let prev_height = prev.height();
+
+            if prev_cursor_row > 0 {
+                self.backend.move_up(prev_cursor_row)?;
+            }
+            self.backend.move_to_column(0)?;
+
+            for (i, line) in lines.iter().enumerate() {
+                self.backend.clear_line()?;
+                self.backend.write_text(line)?;
+                if i + 1 < new_height || prev_height > new_height {
+                    self.backend.write_text("\r\n")?;
+                }
+            }
+
+            if prev_height > new_height {
+                for i in new_height..prev_height {
+                    self.backend.clear_line()?;
+                    if i + 1 < prev_height {
+                        self.backend.write_text("\r\n")?;
+                    }
+                }
+                self.backend.move_up(prev_height - new_height)?;
+            }
+
+            let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
+            if rows_up > 0 {
+                self.backend.move_up(rows_up)?;
+            }
+            self.backend.move_to_column(target_cursor_col)?;
+        } else {
+            for (i, line) in lines.iter().enumerate() {
+                self.backend.write_text(line)?;
+                if i + 1 < new_height {
+                    self.backend.write_text("\r\n")?;
+                }
+            }
+            let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
+            if rows_up > 0 {
+                self.backend.move_up(rows_up)?;
+            }
+            self.backend.move_to_column(target_cursor_col)?;
+        }
+
         self.rendered = Some(rendered);
         self.backend.show_cursor()?;
         self.backend.flush()
@@ -282,44 +332,18 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn write_live_region(&mut self, rendered: &InteractiveLayout) -> io::Result<()> {
-        for line in &rendered.queued_lines {
+        let lines = collect_rendered_lines(rendered, self.footer_style);
+        let total = lines.len();
+        for (i, line) in lines.iter().enumerate() {
             self.backend.write_text(line)?;
-            self.backend.write_text("\r\n")?;
-        }
-        if !rendered.widget_lines.is_empty() {
-            for line in &rendered.widget_lines {
-                self.backend.write_text(line)?;
+            if i + 1 < total {
                 self.backend.write_text("\r\n")?;
             }
-            self.backend.write_text("\r\n")?;
         }
-        if !rendered.working_line.is_empty() {
-            self.backend.write_text("\r\n")?;
-            self.backend.write_text(&rendered.working_line)?;
-            self.backend.write_text("\r\n")?;
+        let rows_up = (total.saturating_sub(1)).saturating_sub(rendered.cursor_row());
+        if rows_up > 0 {
+            self.backend.move_up(rows_up)?;
         }
-        if !rendered.top_divider.is_empty() {
-            self.backend.write_text(&rendered.top_divider)?;
-            self.backend.write_text("\r\n")?;
-        }
-        for line in &rendered.editor_lines {
-            self.backend.write_text(line)?;
-            self.backend.write_text("\r\n")?;
-        }
-        if !rendered.bottom_divider.is_empty() {
-            self.backend.write_text(&rendered.bottom_divider)?;
-            self.backend.write_text("\r\n")?;
-        }
-        let footer_style = self.footer_style;
-        for (i, line) in rendered.footer_lines.iter().enumerate() {
-            if i > 0 {
-                self.backend.write_text("\r\n")?;
-            }
-            self.backend
-                .write_text(&format!("{footer_style}{line}{footer_style:#}"))?;
-        }
-
-        self.backend.move_up(rendered.height() - 1 - rendered.cursor_row())?;
         self.backend.move_to_column(rendered.cursor.column)
     }
 
@@ -358,4 +382,34 @@ impl<B: TerminalBackend> Drop for TerminalController<B> {
     fn drop(&mut self) {
         self.restore();
     }
+}
+
+fn collect_rendered_lines(rendered: &InteractiveLayout, footer_style: Style) -> Vec<String> {
+    let mut lines = Vec::with_capacity(rendered.height());
+    for line in &rendered.queued_lines {
+        lines.push(line.clone());
+    }
+    if !rendered.widget_lines.is_empty() {
+        for line in &rendered.widget_lines {
+            lines.push(line.clone());
+        }
+        lines.push(String::new());
+    }
+    if !rendered.working_line.is_empty() {
+        lines.push(String::new());
+        lines.push(rendered.working_line.clone());
+    }
+    if !rendered.top_divider.is_empty() {
+        lines.push(rendered.top_divider.clone());
+    }
+    for line in &rendered.editor_lines {
+        lines.push(line.clone());
+    }
+    if !rendered.bottom_divider.is_empty() {
+        lines.push(rendered.bottom_divider.clone());
+    }
+    for line in &rendered.footer_lines {
+        lines.push(format!("{footer_style}{line}{footer_style:#}"));
+    }
+    lines
 }

@@ -18,9 +18,9 @@ fn test_exact_bpe_token_calculation() {
 
 #[test]
 fn test_context_window_ceilings_and_preflight_check() {
-    assert_eq!(context_window_size("gpt-5-luna"), 376_000);
+    assert_eq!(context_window_size("gpt-5-luna"), 372_000);
     assert_eq!(context_window_size("claude-3-7-sonnet-20250219"), 200_000);
-    assert_eq!(context_window_size("gemini-2.0-flash"), 1_048_576);
+    assert_eq!(context_window_size("gemini-2.0-flash"), 1_000_000);
     assert_eq!(context_window_size("deepseek-chat"), 128_000);
 
     let window = context_window_size("claude-3-7-sonnet-20250219");
