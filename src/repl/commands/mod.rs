@@ -94,6 +94,10 @@ impl SlashCommandHandler {
                 if parts.len() > 1 {
                     let level = parts[1].to_lowercase();
                     ctx.config.thinking_level = if level == "off" { None } else { Some(level.clone()) };
+                    let _ = rho_core::state::AppState::set_last_thinking_level(
+                        ctx.config.config_dir.as_path(),
+                        ctx.config.thinking_level.as_deref(),
+                    );
                     ctx.renderer
                         .print_notice(&format!("  [Thinking level set to {level}]\n"));
                 } else {
@@ -108,6 +112,10 @@ impl SlashCommandHandler {
                         } else {
                             Some(selected_level.to_string())
                         };
+                        let _ = rho_core::state::AppState::set_last_thinking_level(
+                            ctx.config.config_dir.as_path(),
+                            ctx.config.thinking_level.as_deref(),
+                        );
                         ctx.renderer
                             .print_notice(&format!("  [Thinking level set to {selected_level}]\n"));
                     }

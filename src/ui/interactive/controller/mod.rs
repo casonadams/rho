@@ -137,8 +137,13 @@ impl<B: TerminalBackend> TerminalController<B> {
 
         let rendered = self.current_layout();
         self.write_live_region(&rendered)?;
+        let cursor_visible = rendered.cursor_visible;
         self.rendered = Some(rendered);
-        self.backend.show_cursor()?;
+        if cursor_visible {
+            self.backend.show_cursor()?;
+        } else {
+            self.backend.hide_cursor()?;
+        }
         self.backend.flush()
     }
 
@@ -179,8 +184,8 @@ impl<B: TerminalBackend> TerminalController<B> {
             for (i, line) in next_lines.iter().enumerate() {
                 if i > 0 {
                     if i < prev_height {
-                        self.backend.move_down(1)?;
                         self.backend.move_to_column(0)?;
+                        self.backend.move_down(1)?;
                     } else {
                         self.backend.write_text("\r\n")?;
                     }
@@ -191,14 +196,19 @@ impl<B: TerminalBackend> TerminalController<B> {
 
             if prev_height > new_height {
                 for _ in new_height..prev_height {
-                    self.backend.move_down(1)?;
                     self.backend.move_to_column(0)?;
+                    self.backend.move_down(1)?;
                     self.backend.clear_line()?;
                 }
-                self.backend.move_up(prev_height - target_cursor_row)?;
+                let rows_up = (prev_height.saturating_sub(1)).saturating_sub(target_cursor_row);
+                if rows_up > 0 {
+                    self.backend.move_to_column(0)?;
+                    self.backend.move_up(rows_up)?;
+                }
             } else {
                 let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
                 if rows_up > 0 {
+                    self.backend.move_to_column(0)?;
                     self.backend.move_up(rows_up)?;
                 }
             }
@@ -212,6 +222,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             }
             let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
             if rows_up > 0 {
+                self.backend.move_to_column(0)?;
                 self.backend.move_up(rows_up)?;
             }
             self.backend.move_to_column(target_cursor_col)?;
@@ -219,8 +230,13 @@ impl<B: TerminalBackend> TerminalController<B> {
 
         self.previous_lines = rendered.lines.clone();
         self.current_cursor_row = target_cursor_row;
+        let cursor_visible = rendered.cursor_visible;
         self.rendered = Some(rendered);
-        self.backend.show_cursor()?;
+        if cursor_visible {
+            self.backend.show_cursor()?;
+        } else {
+            self.backend.hide_cursor()?;
+        }
         self.backend.flush()
     }
 
@@ -238,8 +254,13 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.write_live_region(&rendered)?;
         self.previous_lines = rendered.lines.clone();
         self.current_cursor_row = rendered.cursor_row();
+        let cursor_visible = rendered.cursor_visible;
         self.rendered = Some(rendered);
-        self.backend.show_cursor()?;
+        if cursor_visible {
+            self.backend.show_cursor()?;
+        } else {
+            self.backend.hide_cursor()?;
+        }
         self.backend.flush()
     }
 
@@ -350,6 +371,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         let rows_up = (total.saturating_sub(1)).saturating_sub(rendered.cursor_row());
         if rows_up > 0 {
+            self.backend.move_to_column(0)?;
             self.backend.move_up(rows_up)?;
         }
         self.backend.move_to_column(rendered.cursor.column)
@@ -363,10 +385,10 @@ impl<B: TerminalBackend> TerminalController<B> {
         let cursor_row = rendered.cursor_row();
         if height > 0 {
             let rows_down = (height.saturating_sub(1)).saturating_sub(cursor_row);
+            self.backend.move_to_column(0)?;
             if rows_down > 0 {
                 self.backend.move_down(rows_down)?;
             }
-            self.backend.move_to_column(0)?;
             for row in (0..height).rev() {
                 self.backend.clear_line()?;
                 if row > 0 {

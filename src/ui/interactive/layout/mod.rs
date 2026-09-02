@@ -23,6 +23,7 @@ pub struct CursorPosition {
 pub struct InteractiveLayout {
     pub lines: Vec<String>,
     pub cursor: CursorPosition,
+    pub cursor_visible: bool,
     pub queued_lines: Vec<String>,
     pub widget_lines: Vec<String>,
     pub working_line: String,
@@ -83,43 +84,52 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         lines.push(String::new());
     }
 
-    let (editor_lines, top_divider, bottom_divider, footer_lines, cursor) = if let Some(modal) = input.modal {
-        let (modal_lines, modal_cursor) = render_modal_overlay(modal, width);
-        lines.extend(modal_lines.clone());
-        (modal_lines, String::new(), String::new(), Vec::new(), modal_cursor)
-    } else {
-        lines.push(String::new());
-        lines.push(working_line.clone());
+    let (editor_lines, top_divider, bottom_divider, footer_lines, cursor, cursor_visible) =
+        if let Some(modal) = input.modal {
+            let (modal_lines, modal_cursor, modal_cursor_visible) = render_modal_overlay(modal, width);
+            lines.extend(modal_lines.clone());
+            (
+                modal_lines,
+                String::new(),
+                String::new(),
+                Vec::new(),
+                modal_cursor,
+                modal_cursor_visible,
+            )
+        } else {
+            lines.push(String::new());
+            lines.push(working_line.clone());
 
-        let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
-        let top_div = format!("{style}{}{reset}", "─".repeat(width));
-        lines.push(top_div.clone());
+            let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
+            let top_div = format!("{style}{}{reset}", "─".repeat(width));
+            lines.push(top_div.clone());
 
-        let (mut ed_lines, ed_cursor) = wrap_editor(input.editor, width);
-        if let Some(ac) = input.autocomplete {
-            let ac_lines = render_autocomplete_dropdown(ac, width);
-            if !ac_lines.is_empty() {
-                ed_lines.extend(ac_lines);
+            let (mut ed_lines, ed_cursor) = wrap_editor(input.editor, width);
+            if let Some(ac) = input.autocomplete {
+                let ac_lines = render_autocomplete_dropdown(ac, width);
+                if !ac_lines.is_empty() {
+                    ed_lines.extend(ac_lines);
+                }
             }
-        }
-        lines.extend(ed_lines.clone());
+            lines.extend(ed_lines.clone());
 
-        let bot_div = format!("{style}{}{reset}", "─".repeat(width));
-        lines.push(bot_div.clone());
+            let bot_div = format!("{style}{}{reset}", "─".repeat(width));
+            lines.push(bot_div.clone());
 
-        let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
-        let footer_style = crate::ui::theme::Theme::default().dimmed;
-        for fl in &ft_lines {
-            lines.push(format!("{footer_style}{fl}{footer_style:#}"));
-        }
-        (ed_lines, top_div, bot_div, ft_lines, ed_cursor)
-    };
+            let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
+            let footer_style = crate::ui::theme::Theme::default().dimmed;
+            for fl in &ft_lines {
+                lines.push(format!("{footer_style}{fl}{footer_style:#}"));
+            }
+            (ed_lines, top_div, bot_div, ft_lines, ed_cursor, true)
+        };
 
     let footer = footer_lines.join("\n");
 
     InteractiveLayout {
         lines,
         cursor,
+        cursor_visible,
         queued_lines,
         widget_lines,
         working_line,
@@ -154,6 +164,7 @@ fn queued_lines_text(queued: &[super::QueuedMessage], width: usize) -> Vec<Strin
     let mut lines = Vec::new();
     for item in queued {
         let kind_label = match item.kind {
+            super::QueueKind::Steering if item.text.starts_with('/') => "Command",
             super::QueueKind::Steering => "Steering",
             super::QueueKind::FollowUp => "Follow-up",
         };

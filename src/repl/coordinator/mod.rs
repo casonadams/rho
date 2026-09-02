@@ -149,7 +149,9 @@ where
                     next = input.recv(), if accepting_input => {
                         match next {
                             Some(CoordinatorInput::Prompt(prompt)) => {
-                                if prompt.kind == QueueKind::Steering {
+                                if prompt.text.starts_with('/') {
+                                    deferred_commands.push(prompt.text);
+                                } else if prompt.kind == QueueKind::Steering {
                                     let _ = runner.steer(&prompt).await;
                                     delivered.push(prompt);
                                 } else {
@@ -213,7 +215,13 @@ fn drain_pending_input(
     let mut cancelled = false;
     while let Ok(next) = input.try_recv() {
         match next {
-            CoordinatorInput::Prompt(prompt) => queued.push_back(prompt),
+            CoordinatorInput::Prompt(prompt) => {
+                if prompt.text.starts_with('/') {
+                    deferred_commands.push(prompt.text);
+                } else {
+                    queued.push_back(prompt);
+                }
+            }
             CoordinatorInput::Command(command) => deferred_commands.push(command),
             CoordinatorInput::Cancel => cancelled = true,
         }

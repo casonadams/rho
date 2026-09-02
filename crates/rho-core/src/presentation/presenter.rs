@@ -2,7 +2,10 @@
 //! presentation capability. Layout, styling, and terminal control stay on the
 //! presentation side; the engine only passes typed data.
 
-pub use super::types::{ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, WelcomeDisplay};
+pub use super::types::{
+    ApprovalResult, BashApproval, InteractionPrompt, InteractionResponse, RiskTier, SessionStatus, ToolLine,
+    WelcomeDisplay,
+};
 use crate::presentation::stream::ToolStreamPort;
 use async_trait::async_trait;
 use serde_json::Value;
@@ -30,6 +33,12 @@ pub trait Presenter: Send + Sync {
     }
     async fn prompt_bash_approval(&self, _request: BashApproval) -> ApprovalResult {
         ApprovalResult::Approved
+    }
+    /// Renders a generic modal on behalf of a caller (currently: plugins
+    /// serving `ui/prompt`). `None` means no interactive UI — callers treat
+    /// that as cancellation.
+    async fn request_interaction(&self, _prompt: InteractionPrompt) -> Option<InteractionResponse> {
+        None
     }
     async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
         false

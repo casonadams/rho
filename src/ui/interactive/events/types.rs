@@ -7,27 +7,7 @@ pub enum OutputEvent {
     Text(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InteractionOption {
-    pub label: String,
-    pub description: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InteractionPrompt {
-    pub title: String,
-    pub body: String,
-    pub options: Vec<InteractionOption>,
-    pub initial_selection: usize,
-    pub allow_custom: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InteractionResponse {
-    Selected(usize),
-    Custom(String),
-    Cancelled,
-}
+pub use rho_core::presentation::{InteractionOption, InteractionPrompt, InteractionResponse};
 
 #[derive(Debug, Error)]
 pub enum UiPortError {

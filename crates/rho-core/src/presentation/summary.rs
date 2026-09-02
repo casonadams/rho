@@ -127,6 +127,19 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
     }
 }
 
+/// Full-fidelity tool input for approval prompts: unlike the tool-line
+/// summary there is no truncation, since the user is approving exactly this
+/// input. Unknown tools return an empty string (callers fall back to JSON).
+pub fn format_tool_args_full(name: &str, args: &serde_json::Value) -> String {
+    match name {
+        "bash" => clean_command_paths(args.get("command").and_then(|c| c.as_str()).unwrap_or("")),
+        "read" | "write" | "edit" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or("")),
+        "search" | "websearch" | "web_search" => args.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string(),
+        "fetch" | "webfetch" | "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
+        _ => String::new(),
+    }
+}
+
 pub fn summarize_tool_output(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("").trim();
     if first_line.len() > 60 {

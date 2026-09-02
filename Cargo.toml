@@ -24,8 +24,8 @@ thiserror = "2.0"
 anyhow = "1.0"
 tiktoken-rs = "0.6"
 chrono = { version = "0.4", features = ["serde"] }
-rho-core = { path = "crates/rho-core" }
-rho-engine = { path = "crates/rho-engine" }
+rho-core = { version = "0.1.0", path = "crates/rho-core" }
+rho-engine = { version = "0.1.0", path = "crates/rho-engine" }
 
 [package]
 name = "rho"

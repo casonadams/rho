@@ -34,6 +34,10 @@ pub(crate) async fn run_active_turn(
         tokio::select! {
             biased;
             _ = frame.tick() => {
+                if controller.state().active_modal().is_some() {
+                    batch.flush(controller, false)?;
+                    continue;
+                }
                 spinner_tick += 1;
                 let spinner_advanced = if spinner_tick >= SPINNER_FRAME_INTERVALS {
                     spinner_tick = 0;

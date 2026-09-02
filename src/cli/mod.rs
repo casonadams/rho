@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod plugin_install;
 pub mod rpc;
 
 #[cfg(test)]
@@ -108,11 +109,11 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                     }
-                    crate::config::cli::PluginCommands::Install { package, .. } => {
-                        println!("To add an MCP server, add it to your config.toml under [mcp.servers.{package}]");
+                    crate::config::cli::PluginCommands::Install { package, replaces } => {
+                        plugin_install::install(&config, &package, &replaces).await?;
                     }
                     crate::config::cli::PluginCommands::Remove { name } => {
-                        println!("To remove an MCP server, remove it from your config.toml under [mcp.servers.{name}]");
+                        plugin_install::remove(&config, &name).await?;
                     }
                 }
                 return Ok(());

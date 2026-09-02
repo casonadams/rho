@@ -116,6 +116,11 @@ pub fn cycle_thinking_level(
         Some(next_level.to_string())
     };
 
+    let _ = rho_core::state::AppState::set_last_thinking_level(
+        &session.config.config_dir,
+        session.config.thinking_level.as_deref(),
+    );
+
     update_footer(controller.state_mut(), session, engine);
 }
 
@@ -144,6 +149,8 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     let item = &models[next_idx];
     ctx.session.config.model = item.id.clone();
     ctx.session.config.provider = item.provider.clone();
+
+    let _ = rho_core::state::AppState::set_last_model(&ctx.session.config.config_dir, &item.id, Some(&item.provider));
 
     if let Ok(rebuilt) = ctx
         .engine

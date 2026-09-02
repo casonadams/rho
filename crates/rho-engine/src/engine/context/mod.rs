@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod tests;
 
-pub static DEFAULT_SYSTEM_PROMPT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../prompts/SYSTEM.md"));
+pub use rho_core::prompts::DEFAULT_SYSTEM_PROMPT;
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {

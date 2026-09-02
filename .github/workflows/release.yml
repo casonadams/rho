@@ -53,6 +53,29 @@ jobs:
             git push
           fi
 
+  publish-crates:
+    name: "Publish to crates.io"
+    needs: release-please
+    if: ${{ needs.release-please.outputs.releases_created == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Publish
+        run: |
+          cargo publish -p rho-core --trusted-publishing always
+          cargo publish -p rho-engine --no-verify --trusted-publishing always
+          cargo publish -p rho --no-verify --trusted-publishing always
+
   build-release:
     name: "Build ${{ matrix.target }}"
     needs: release-please

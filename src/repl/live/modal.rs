@@ -69,7 +69,7 @@ pub fn open_model_selector<B: crate::ui::interactive::TerminalBackend>(
         ));
     }
 
-    let mut modal = ModalState::new("Select Model", "", options);
+    let mut modal = ModalState::new("Select Model", "", options).with_search(true);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }

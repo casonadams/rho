@@ -155,7 +155,10 @@ async fn rebuild_respawns_mcp_tools_and_reaps_previous_children() {
 
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let tools = load_mcp_tools(&config, &workspace).await;
-    assert_eq!(tools.len(), 1, "mock MCP server should expose one tool");
+    assert!(
+        tools.iter().any(|t| t.name() == "mock_ping"),
+        "mock MCP server should expose mock_ping"
+    );
 
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(workspace.clone())

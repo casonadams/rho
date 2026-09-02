@@ -8,6 +8,7 @@ pub use types::{
 use crate::engine::AgentEngine;
 use crate::engine::metrics::{RunMetrics, TerminalStatus};
 use crate::engine::runtime::build_runner;
+use crate::plugin_hook::PluginHook;
 use crate::repeat::RepeatedCallHook;
 use futures::StreamExt;
 use rho_core::error::{AppError, Result};
@@ -70,12 +71,14 @@ impl AgentEngine {
         loop {
             let mut tool_context = ToolContext::new();
             tool_context.insert(presenter.stream_port());
+            let plugin_hook = PluginHook::new(&self.config.plugins, std::env::current_dir()?, presenter.clone());
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
                 .tool_context(tool_context)
                 .add_hook(RepeatedCallHook::new(std::env::current_dir()?))
+                .add_hook(plugin_hook)
                 .add_hook(TurnToolExecutionHook::new(sink.clone()));
             let runner = match checkpoint.as_ref() {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),

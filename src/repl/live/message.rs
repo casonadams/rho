@@ -17,8 +17,6 @@ impl ReplSession {
         let input_reader = live.io.input;
         let input = live.message.text.trim();
         let command_result = if input.starts_with('/') {
-            let paused_input = input_reader.pause()?;
-            controller.suspend()?;
             let mut command_context = SlashCommandContext {
                 config: &mut self.config,
                 auth_store: &mut self.auth_store,
@@ -26,12 +24,7 @@ impl ReplSession {
                 session_id: Some(&engine.session_manager.session_id),
                 session_manager: Some(&engine.session_manager),
             };
-            let result = SlashCommandHandler::handle(input, &mut command_context).await;
-            let controller_result = controller.resume();
-            let input_result = paused_input.resume();
-            controller_result?;
-            input_result?;
-            result?
+            SlashCommandHandler::handle(input, &mut command_context).await?
         } else {
             None
         };
@@ -49,10 +42,15 @@ impl ReplSession {
                     new_model,
                     new_provider,
                 } => {
-                    self.config.model = new_model;
-                    if let Some(provider) = new_provider {
-                        self.config.provider = provider;
+                    self.config.model = new_model.clone();
+                    if let Some(provider) = new_provider.as_ref() {
+                        self.config.provider = provider.clone();
                     }
+                    let _ = rho_core::state::AppState::set_last_model(
+                        &self.config.config_dir,
+                        &new_model,
+                        new_provider.as_deref(),
+                    );
                     *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
                 }
                 CommandResult::Login { provider } => {
