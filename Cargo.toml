@@ -12,6 +12,7 @@ edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/casonadams/rho"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -34,6 +35,8 @@ edition.workspace = true
 authors.workspace = true
 description.workspace = true
 license.workspace = true
+repository.workspace = true
+readme = "README.md"
 
 [features]
 default = ["ui"]

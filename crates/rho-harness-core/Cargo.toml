@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 description = "rho host domain: deterministic workspace, session, config, and provider identity"
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 async-trait = "0.1"

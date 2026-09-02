@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 description = "rho turn orchestration, provider assembly, tools, and MCP runtime"
 license.workspace = true
+repository.workspace = true
 
 [dependencies]
 rho-harness-core.workspace = true
