@@ -60,8 +60,49 @@ impl AgentEngineBuilder {
             )?,
         };
 
-        let config = self.config;
-        let model = crate::provider::ProviderFactory::create_model(&config, &config.model, &self.auth_store)?;
+        let mut config = self.config;
+        let model = match crate::provider::ProviderFactory::create_model(&config, &config.model, &self.auth_store) {
+            Ok(m) => m,
+            Err(e) => {
+                // If the default model (Anthropic) has no credentials, automatically select
+                // the user's configured provider, or local Ollama if running.
+                let configured = self.auth_store.list_configured_providers();
+                let mut fallback = None;
+                for p in configured {
+                    let default_model = default_model_for_provider(&p);
+                    let mut trial_config = config.clone();
+                    trial_config.provider = p.clone();
+                    trial_config.model = default_model.to_string();
+                    if let Ok(m) = crate::provider::ProviderFactory::create_model(
+                        &trial_config,
+                        &trial_config.model,
+                        &self.auth_store,
+                    ) {
+                        config = trial_config;
+                        fallback = Some(m);
+                        break;
+                    }
+                }
+
+                if let Some(m) = fallback {
+                    m
+                } else if let Ok(local_model) = crate::provider::ProviderFactory::create_model(
+                    &Config {
+                        provider: "local".to_string(),
+                        model: "llama3.2".to_string(),
+                        ..config.clone()
+                    },
+                    "llama3.2",
+                    &self.auth_store,
+                ) {
+                    config.provider = "local".to_string();
+                    config.model = "llama3.2".to_string();
+                    local_model
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         let context_limit = config.context_limit;
         let agent = super::runtime::build_coding_agent(
@@ -91,5 +132,22 @@ impl AgentEngineBuilder {
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
         })
+    }
+}
+
+fn default_model_for_provider(provider: &str) -> &'static str {
+    match provider.to_ascii_lowercase().as_str() {
+        "chatgpt" => "gpt-5.4",
+        "openai" | "copilot" => "gpt-4o",
+        "gemini" => "gemini-2.0-flash",
+        "deepseek" => "deepseek-chat",
+        "groq" => "llama-3.3-70b-versatile",
+        "openrouter" => "anthropic/claude-3.7-sonnet",
+        "xai" => "grok-2-latest",
+        "mistral" => "mistral-large-latest",
+        "cohere" => "command-r-plus",
+        "ollama" | "local" => "llama3.2",
+        "ollama-cloud" => "glm-5.3-flash",
+        _ => "claude-3-7-sonnet-20250219",
     }
 }
