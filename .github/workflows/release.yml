@@ -72,8 +72,10 @@ jobs:
 
       - name: Publish
         run: |
-          cargo publish -p rho-core --trusted-publishing always
+          cargo publish -p rho-harness-core --trusted-publishing always
+          sleep 15
           cargo publish -p rho-engine --no-verify --trusted-publishing always
+          sleep 15
           cargo publish -p rho --no-verify --trusted-publishing always
 
   build-release:
