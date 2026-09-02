@@ -1,5 +1,4 @@
 pub mod auth;
-pub mod plugin_install;
 pub mod rpc;
 
 #[cfg(test)]
@@ -14,8 +13,8 @@ use crate::config::cli::{Cli, Commands};
 use crate::repl::ReplSession;
 #[cfg(feature = "ui")]
 use crate::ui::TerminalRenderer;
-use rho_core::provider::ProviderId;
-use rho_core::session::SessionManager;
+use rho_harness_core::provider::ProviderId;
+use rho_harness_core::session::SessionManager;
 use std::io::Read;
 use std::str::FromStr;
 
@@ -100,20 +99,32 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             Commands::Plugin { action } => {
                 match action.unwrap_or(crate::config::cli::PluginCommands::List) {
                     crate::config::cli::PluginCommands::List | crate::config::cli::PluginCommands::Inspect { .. } => {
-                        println!("Configured MCP Servers:");
-                        if config.mcp.servers.is_empty() {
+                        println!("Configured MCP Servers & Plugins:");
+                        if config.mcp.servers.is_empty() && config.plugins.is_empty() {
                             println!("  (none configured)");
                         } else {
                             for (name, server) in &config.mcp.servers {
-                                println!("  - {name}: command='{}' enabled={}", server.command, server.enabled);
+                                println!(
+                                    "  - [mcp] {name}: command='{}' enabled={}",
+                                    server.command, server.enabled
+                                );
+                            }
+                            for (name, plugin) in &config.plugins {
+                                println!(
+                                    "  - [plugin] {name}: command='{}' enabled={}",
+                                    plugin.command.as_deref().unwrap_or(""),
+                                    plugin.enabled
+                                );
                             }
                         }
                     }
-                    crate::config::cli::PluginCommands::Install { package, replaces } => {
-                        plugin_install::install(&config, &package, &replaces).await?;
+                    crate::config::cli::PluginCommands::Install { package, .. } => {
+                        println!(
+                            "To configure an MCP server or plugin, add it to config.toml under [mcp.servers.{package}] or [plugins.{package}]"
+                        );
                     }
-                    crate::config::cli::PluginCommands::Remove { name } => {
-                        plugin_install::remove(&config, &name).await?;
+                    crate::config::cli::PluginCommands::Remove { name: _ } => {
+                        println!("To remove an MCP server or plugin, remove it from config.toml");
                     }
                 }
                 return Ok(());
@@ -148,17 +159,18 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             Some(id) => id,
             None => {
                 let cwd = std::env::current_dir()?;
-                SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?
-                    .ok_or_else(|| rho_core::error::AppError::Session("no session found to export".to_string()))?
+                SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?.ok_or_else(|| {
+                    rho_harness_core::error::AppError::Session("no session found to export".to_string())
+                })?
             }
         };
         let session_manager = SessionManager::new(&config.sessions_dir, Some(&resume_target_id))?;
         let tree = session_manager.load_tree().await?;
         let export_path = std::path::PathBuf::from(export_path);
         let content = if export_path.extension().and_then(|ext| ext.to_str()) == Some("html") {
-            rho_core::session::export::render_html(&tree, &resume_target_id)
+            rho_harness_core::session::export::render_html(&tree, &resume_target_id)
         } else {
-            rho_core::session::export::render_markdown(&tree, &resume_target_id)
+            rho_harness_core::session::export::render_markdown(&tree, &resume_target_id)
         };
         if let Some(parent) = export_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -173,12 +185,14 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     if cli.mode == "json" {
-        let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<rho_core::rpc::protocol::RpcEvent>();
+        let (event_tx, mut event_rx) =
+            tokio::sync::mpsc::unbounded_channel::<rho_harness_core::rpc::protocol::RpcEvent>();
         let (presenter, _) = crate::ui::render::RpcPresenter::new(event_tx);
-        let presenter_arc: std::sync::Arc<dyn rho_core::presentation::Presenter> = std::sync::Arc::new(presenter);
+        let presenter_arc: std::sync::Arc<dyn rho_harness_core::presentation::Presenter> =
+            std::sync::Arc::new(presenter);
 
         let writer_task = tokio::spawn(async move {
-            let mut writer = rho_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
+            let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
             while let Some(event) = event_rx.recv().await {
                 let _ = writer.write_message(&event).await;
             }
@@ -207,11 +221,11 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let _ = engine.session_manager.set_session_name(name).await;
         }
         #[cfg(feature = "ui")]
-        let presenter: std::sync::Arc<dyn rho_core::presentation::Presenter> =
+        let presenter: std::sync::Arc<dyn rho_harness_core::presentation::Presenter> =
             std::sync::Arc::new(TerminalRenderer::default());
         #[cfg(not(feature = "ui"))]
-        let presenter: std::sync::Arc<dyn rho_core::presentation::Presenter> =
-            std::sync::Arc::new(rho_core::presentation::StructuredPresenter::stdout());
+        let presenter: std::sync::Arc<dyn rho_harness_core::presentation::Presenter> =
+            std::sync::Arc::new(rho_harness_core::presentation::StructuredPresenter::stdout());
 
         let res = engine
             .run_turn(crate::engine::runner::TurnRequest::new(&prompt), presenter.clone())

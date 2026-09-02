@@ -3,7 +3,7 @@ use crate::engine::AgentEngine;
 use crate::engine::runner::TurnRequest;
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
-use rho_core::presentation::presenter::Presenter;
+use rho_harness_core::presentation::presenter::Presenter;
 use rig::completion::Usage;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use std::sync::Arc;

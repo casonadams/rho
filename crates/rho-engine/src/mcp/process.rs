@@ -1,5 +1,5 @@
-use rho_core::config::McpServerConfig;
-use rho_core::error::{AppError, Result};
+use rho_harness_core::config::McpServerConfig;
+use rho_harness_core::error::{AppError, Result};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;

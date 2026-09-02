@@ -1,7 +1,7 @@
 use super::*;
 use async_trait::async_trait;
-use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::{InteractionPrompt, InteractionResponse};
+use rho_harness_core::presentation::presenter::Presenter;
+use rho_harness_core::presentation::{InteractionPrompt, InteractionResponse};
 use rig::agent::AgentBuilder;
 use rig::test_utils::{MockCompletionModel, MockTurn};
 use serde_json::json;
@@ -23,26 +23,26 @@ struct ScriptedPresenter {
 #[async_trait]
 impl Presenter for ScriptedPresenter {
     fn write_output(&self, _text: &str) {}
-    fn print_welcome(&self, _display: &rho_core::presentation::WelcomeDisplay) {}
-    fn print_session_status(&self, _display: &rho_core::presentation::SessionStatus) {}
+    fn print_welcome(&self, _display: &rho_harness_core::presentation::WelcomeDisplay) {}
+    fn print_session_status(&self, _display: &rho_harness_core::presentation::SessionStatus) {}
     fn print_notice(&self, _text: &str) {}
     fn print_user_block(&self, _input: &str) {}
     fn print_token(&self, _token: &str) {}
     fn print_thinking_token(&self, _token: &str) {}
-    fn finish_tool_line(&self, _line: rho_core::presentation::ToolLine) {}
+    fn finish_tool_line(&self, _line: rho_harness_core::presentation::ToolLine) {}
     fn flush(&self) {}
     fn has_interactive_ui(&self) -> bool {
         true
     }
-    fn start_spinner(&self, _message: &str) -> rho_core::presentation::ActivityToken {
-        rho_core::presentation::ActivityToken::default()
+    fn start_spinner(&self, _message: &str) -> rho_harness_core::presentation::ActivityToken {
+        rho_harness_core::presentation::ActivityToken::default()
     }
-    fn start_tool_spinner(&self, _name: &str, _arguments: &Value) -> rho_core::presentation::ActivityToken {
-        rho_core::presentation::ActivityToken::default()
+    fn start_tool_spinner(&self, _name: &str, _arguments: &Value) -> rho_harness_core::presentation::ActivityToken {
+        rho_harness_core::presentation::ActivityToken::default()
     }
     fn start_tool_run(&self, _name: &str, _arguments: &Value) {}
-    fn stream_port(&self) -> rho_core::presentation::ToolStreamPort {
-        rho_core::presentation::ToolStreamPort::default()
+    fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
+        rho_harness_core::presentation::ToolStreamPort::default()
     }
     async fn request_interaction(&self, _prompt: InteractionPrompt) -> Option<InteractionResponse> {
         Some(self.response.clone())

@@ -1,6 +1,6 @@
-use rho_core::config::PluginConfig;
-use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::{ApprovalResult, InteractionPrompt};
+use rho_harness_core::config::PluginConfig;
+use rho_harness_core::presentation::presenter::Presenter;
+use rho_harness_core::presentation::{ApprovalResult, InteractionPrompt};
 use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

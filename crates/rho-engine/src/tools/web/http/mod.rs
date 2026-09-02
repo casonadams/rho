@@ -1,7 +1,9 @@
 use futures::StreamExt;
 use reqwest::Client;
-use rho_core::error::{AppError, Result};
-pub use rho_core::net::{BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, validate_url};
+use rho_harness_core::error::{AppError, Result};
+pub use rho_harness_core::net::{
+    BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, validate_url,
+};
 use std::sync::LazyLock;
 use std::time::Duration;
 use url::Url;
@@ -73,7 +75,7 @@ impl HttpClient {
     }
 
     pub fn validate_url(&self, raw_url: &str) -> Result<Url> {
-        rho_core::net::validate_url(raw_url, self.allow_private_network)
+        rho_harness_core::net::validate_url(raw_url, self.allow_private_network)
     }
 
     pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<(String, String)> {

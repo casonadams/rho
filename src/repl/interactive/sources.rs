@@ -1,4 +1,4 @@
-use rho_core::skills::ResolvedSkill;
+use rho_harness_core::skills::ResolvedSkill;
 
 use super::ModelItem;
 

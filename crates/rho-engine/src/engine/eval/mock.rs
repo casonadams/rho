@@ -8,8 +8,8 @@
 use crate::engine::AgentEngine;
 use crate::engine::metrics::RunTracker;
 use crate::engine::runtime::{CodingRuntime, build_coding_agent};
-use rho_core::config::Config;
-use rho_core::session::SessionManager;
+use rho_harness_core::config::Config;
+use rho_harness_core::session::SessionManager;
 use rig::agent::ModelHandle;
 use rig::completion::Usage;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};

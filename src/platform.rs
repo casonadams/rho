@@ -3,12 +3,12 @@
 pub mod clipboard;
 pub mod suspend;
 
-use rho_core::config::Config;
-use rho_core::error::Result;
 use rho_engine::auth::AuthStore;
 use rho_engine::engine::{AgentEngine, builder::AgentEngineBuilder};
 use rho_engine::mcp::load_mcp_tools;
 use rho_engine::tools::build_builtin_tools;
+use rho_harness_core::config::Config;
+use rho_harness_core::error::Result;
 use std::path::Path;
 
 pub struct ToolAssembly {

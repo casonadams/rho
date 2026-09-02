@@ -1,7 +1,7 @@
 use super::client::McpClient;
 use super::process::McpProcess;
 use super::transport::McpTransport;
-use rho_core::config::Config;
+use rho_harness_core::config::Config;
 use rig::tool::{DynamicTool, ToolOutput};
 use std::path::Path;
 use std::sync::Arc;

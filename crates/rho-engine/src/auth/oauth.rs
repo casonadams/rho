@@ -2,9 +2,9 @@
 
 use super::loopback::LoopbackServer;
 use super::pkce::{PkceChallenge, generate_state};
-use rho_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, StoredCredential};
-use rho_core::error::{AppError, Result};
-use rho_core::provider::ProviderId;
+use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, StoredCredential};
+use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::provider::ProviderId;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::Duration;

@@ -1,7 +1,7 @@
 use crate::repl::interactive::CompletionSet;
 use crate::ui::interactive::{InteractiveState, TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rho_core::skills::{ResolvedSkill, SkillMetadata, SkillOrigin};
+use rho_harness_core::skills::{ResolvedSkill, SkillMetadata, SkillOrigin};
 use std::io;
 
 use super::*;

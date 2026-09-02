@@ -100,7 +100,7 @@ impl ReplSession {
 
         let mut history = InteractiveHistory::with_file(1000, self.config.config_dir.join("history.txt"))
             .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
-        let prompt_templates = rho_core::prompts::discover_prompt_templates(
+        let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
         )

@@ -1,11 +1,11 @@
 //! Dynamic model discovery and capability descriptors for autocomplete and model switcher.
 
 use super::completion::ModelItem;
-use rho_core::config::Config;
-use rho_core::provider::ProviderId;
 use rho_engine::auth::AuthStore;
 use rho_engine::provider::discovery::discover_provider_models;
 use rho_engine::provider::store::ModelStore;
+use rho_harness_core::config::Config;
+use rho_harness_core::provider::ProviderId;
 use std::str::FromStr;
 
 /// Dynamically discovers models available to the current user from active configuration,
@@ -15,7 +15,7 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
     let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
 
     // 1. Current active model always listed first with active status
-    let active_ctx = rho_core::tokens::context_window_size(&config.model);
+    let active_ctx = rho_harness_core::tokens::context_window_size(&config.model);
     let active_ctx_str = if active_ctx >= 1_000_000 {
         format!("{}M ctx", active_ctx / 1_000_000)
     } else {

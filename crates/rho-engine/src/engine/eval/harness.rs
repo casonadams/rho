@@ -26,10 +26,10 @@ impl EvalHarness {
             model.clone(),
             super::mock::MockEngineConfig {
                 base_dir,
-                app_config: rho_core::config::Config {
+                app_config: rho_harness_core::config::Config {
                     auto_approve: true,
                     max_turns: scenario.max_turns,
-                    ..rho_core::config::Config::default()
+                    ..rho_harness_core::config::Config::default()
                 },
                 session_manager: None,
                 built_in_tools: scenario.built_in_tools.clone(),

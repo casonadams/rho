@@ -12,8 +12,8 @@ use rho::engine::eval::mock::{MockEngineConfig, final_event, mock_engine, mock_e
 use rho::engine::eval::types::{EvalFailure, EvalScenario, NormalizedPart, NormalizedRequest};
 use rho::engine::runner::TurnRequest;
 
-use rho_core::error::AppError;
-use rho_core::session::{SessionEventKind, SessionManager};
+use rho_harness_core::error::AppError;
+use rho_harness_core::session::{SessionEventKind, SessionManager};
 
 fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<rig::tool::DynamicTool>> {
     let config = rho::config::Config {

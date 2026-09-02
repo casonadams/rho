@@ -4,9 +4,9 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::{AppError, Result};
 use async_trait::async_trait;
-use rho_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption};
-use rho_core::provider::ProviderId;
 use rho_engine::auth::perform_oauth_login;
+use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption};
+use rho_harness_core::provider::ProviderId;
 use std::process::Command;
 use std::str::FromStr;
 

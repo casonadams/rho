@@ -76,7 +76,6 @@ pub fn resolved_skills(config_dir: Option<&Path>, project_dir: Option<&Path>) ->
     }
     if let Some(project_dir) = project_dir {
         scan_directory(&project_dir.join(".rho/skills"), SkillOrigin::Project, &mut resolved);
-        scan_directory(&project_dir.join("prompts/skills"), SkillOrigin::Project, &mut resolved);
         scan_directory(&project_dir.join("skills"), SkillOrigin::Project, &mut resolved);
     }
     resolved.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));

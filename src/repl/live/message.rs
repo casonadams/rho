@@ -46,7 +46,7 @@ impl ReplSession {
                     if let Some(provider) = new_provider.as_ref() {
                         self.config.provider = provider.clone();
                     }
-                    let _ = rho_core::state::AppState::set_last_model(
+                    let _ = rho_harness_core::state::AppState::set_last_model(
                         &self.config.config_dir,
                         &new_model,
                         new_provider.as_deref(),
@@ -85,7 +85,7 @@ impl ReplSession {
                     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
                     let has_assistant = abandoned
                         .iter()
-                        .any(|n| n.kind == rho_core::session::TreeNodeKind::AssistantTurn);
+                        .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
                     if has_assistant
                         && self.renderer.has_interactive_ui()
                         && let Ok(true) =

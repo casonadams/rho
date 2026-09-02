@@ -1,7 +1,7 @@
 use super::*;
 use crate::auth::AuthStore;
 use crate::mcp::load_mcp_tools;
-use rho_core::config::{Config, McpConfig, McpServerConfig};
+use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use rig::memory::ConversationMemory;
 use std::collections::BTreeMap;
 use std::path::PathBuf;

@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::ui::TerminalRenderer;
-use rho_core::provider::ProviderId;
+use rho_harness_core::provider::ProviderId;
 use std::fmt::Write as _;
 use std::str::FromStr;
 

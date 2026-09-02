@@ -6042,8 +6042,8 @@ dependencies = [
  "reedline",
  "regex",
  "reqwest 0.13.4",
- "rho-core",
  "rho-engine",
+ "rho-harness-core",
  "rig",
  "rig-memory",
  "schemars 1.2.2",
@@ -6055,29 +6055,6 @@ dependencies = [
  "tokio",
  "toml",
  "unicode-width 0.2.2",
- "uuid",
-]
-
-[[package]]
-name = "rho-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "dotenvy",
- "futures",
- "rig",
- "rig-memory",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tiktoken-rs",
- "tokio",
- "toml",
- "url",
  "uuid",
 ]
 
@@ -6100,7 +6077,7 @@ dependencies = [
  "rand 0.8.8",
  "regex",
  "reqwest 0.13.4",
- "rho-core",
+ "rho-harness-core",
  "rig",
  "rig-memory",
  "schemars 1.2.2",
@@ -6111,6 +6088,29 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "rho-harness-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "futures",
+ "rig",
+ "rig-memory",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tiktoken-rs",
+ "tokio",
+ "toml",
  "url",
  "uuid",
 ]

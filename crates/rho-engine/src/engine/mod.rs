@@ -14,9 +14,9 @@ mod tests;
 pub mod eval;
 
 use crate::auth::AuthStore;
-use rho_core::config::Config;
-use rho_core::error::{AppError, Result};
-use rho_core::session::SessionManager;
+use rho_harness_core::config::Config;
+use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::session::SessionManager;
 use rig::agent::Agent;
 use std::sync::Arc;
 use tracking::{ContextTracker, QuotaTracker, UsageTracker};

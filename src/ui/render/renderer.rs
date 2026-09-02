@@ -8,9 +8,9 @@ use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
-use rho_core::presentation::stream::ToolStreamPort;
-use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
-use rho_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
+use rho_harness_core::presentation::stream::ToolStreamPort;
+use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
+use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -342,7 +342,7 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_bash_approval_request(&self, request: &rho_core::presentation::BashApproval) {
+    pub fn print_bash_approval_request(&self, request: &rho_harness_core::presentation::BashApproval) {
         let card = format_bash_approval_card(request, &self.theme, terminal_width());
         self.write_output(&format!("\n{card}\n"));
     }

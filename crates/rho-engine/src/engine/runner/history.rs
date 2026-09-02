@@ -1,4 +1,4 @@
-use rho_core::error::AppError;
+use rho_harness_core::error::AppError;
 use rig::streaming::StreamedAssistantContent;
 use std::collections::HashSet;
 

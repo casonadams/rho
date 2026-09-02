@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use super::fuzzy::fuzzy_match;
-use rho_core::provider::ProviderId;
+use rho_harness_core::provider::ProviderId;
 
 pub const THINKING_LEVELS: &[(&str, &str)] = &[
     ("off", "No reasoning"),
@@ -132,7 +132,7 @@ impl CompletionSet {
         let cwd = std::env::current_dir().ok();
         let files = cwd
             .as_deref()
-            .map(|d| rho_core::workspace::list_relative_files(d, 2000))
+            .map(|d| rho_harness_core::workspace::list_relative_files(d, 2000))
             .unwrap_or_default();
 
         Self {

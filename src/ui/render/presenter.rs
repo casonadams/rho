@@ -1,11 +1,11 @@
 use super::renderer::TerminalRenderer;
 use crate::ui::interactive::InteractiveUi;
 use async_trait::async_trait;
-use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
-use rho_core::presentation::summary::format_tool_args_full;
-use rho_core::presentation::{ActivityToken, activity_token};
-use rho_core::presentation::{
+use rho_harness_core::presentation::presenter::Presenter;
+use rho_harness_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
+use rho_harness_core::presentation::summary::format_tool_args_full;
+use rho_harness_core::presentation::{ActivityToken, activity_token};
+use rho_harness_core::presentation::{
     ApprovalResult, BashApproval, InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay,
 };
 use serde_json::Value;

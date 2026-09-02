@@ -1,5 +1,5 @@
 use super::McpTransport;
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -143,7 +143,7 @@ impl McpClient {
 mod tests {
     use super::*;
     use crate::mcp::process::McpProcess;
-    use rho_core::config::McpServerConfig;
+    use rho_harness_core::config::McpServerConfig;
     use std::collections::BTreeMap;
 
     #[test]

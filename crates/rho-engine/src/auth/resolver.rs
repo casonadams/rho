@@ -1,6 +1,6 @@
 //! Dynamic key expansion: environment variables, shell commands (!command), and escapes.
 
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use std::process::Command;
 
 pub fn resolve_secret_value(raw: &str) -> Result<String> {

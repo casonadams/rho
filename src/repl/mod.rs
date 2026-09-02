@@ -162,7 +162,7 @@ impl ReplSession {
 
         let skills =
             crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
-        let prompt_templates = rho_core::prompts::discover_prompt_templates(
+        let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
         )
@@ -289,7 +289,7 @@ impl ReplSession {
                                     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
                                     let has_assistant = abandoned
                                         .iter()
-                                        .any(|n| n.kind == rho_core::session::TreeNodeKind::AssistantTurn);
+                                        .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
                                     if has_assistant
                                         && self.renderer.has_interactive_ui()
                                         && let Ok(true) = inquire::Confirm::new(

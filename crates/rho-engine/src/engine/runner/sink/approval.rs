@@ -1,8 +1,8 @@
 use super::super::helpers::{clear_spinner, redact_value};
 use super::types::{CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig};
 use crate::engine::metrics::RunTracker;
-use rho_core::presentation::{Presenter, ToolLine, summarize_tool_output};
-use rho_core::session::SessionManager;
+use rho_harness_core::presentation::{Presenter, ToolLine, summarize_tool_output};
+use rho_harness_core::session::SessionManager;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -10,7 +10,7 @@ use std::time::Instant;
 
 pub struct TerminalSinkState {
     pub auto_approve: bool,
-    pub spinner: Option<rho_core::presentation::ActivityToken>,
+    pub spinner: Option<rho_harness_core::presentation::ActivityToken>,
     pub pending: HashMap<String, PendingToolCall>,
     pub reasoning: Vec<String>,
     pub completed: Vec<CompletedTool>,

@@ -123,7 +123,7 @@ Global settings, credentials, skills, and instructions live under
 - **Instructions**: Discovers global `~/.config/rho/AGENTS.md` and workspace
   `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`.
 - **Skills**: Declarative `SKILL.md` workflows resolved from embedded built-ins,
-  `~/.config/rho/skills/`, `.rho/skills/`, `./prompts/skills/`, and `./skills/`.
+  `~/.config/rho/skills/`, `.rho/skills/`, and `./skills/`.
 
 ---
 
@@ -190,7 +190,7 @@ For the hook protocol, path resolution rules, and all options, see
 
 The workspace is structured into three clean, focused crates:
 
-- **`rho-core`**: Core domain logic, session DAG storage, configuration, token
+- **`rho-harness-core`**: Core domain logic, session DAG storage, configuration, token
   estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
   tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP

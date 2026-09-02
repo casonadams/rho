@@ -1,5 +1,5 @@
 use super::*;
-use rho_core::config::ProviderConfig;
+use rho_harness_core::config::ProviderConfig;
 use std::collections::BTreeMap;
 
 fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {

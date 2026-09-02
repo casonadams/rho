@@ -51,18 +51,18 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                     } => {
                         session.config.model = model.clone();
                         session.config.provider = provider.clone();
-                        let _ = rho_core::state::AppState::set_last_model(
+                        let _ = rho_harness_core::state::AppState::set_last_model(
                             &session.config.config_dir,
                             &model,
                             Some(&provider),
                         );
                         if save_as_default {
-                            let _ = rho_core::config::Config::set_file_value(
+                            let _ = rho_harness_core::config::Config::set_file_value(
                                 &session.config.config_dir,
                                 "model",
                                 &model,
                             );
-                            let _ = rho_core::config::Config::set_file_value(
+                            let _ = rho_harness_core::config::Config::set_file_value(
                                 &session.config.config_dir,
                                 "provider",
                                 &provider,

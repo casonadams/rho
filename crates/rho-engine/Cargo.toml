@@ -7,7 +7,7 @@ description = "rho turn orchestration, provider assembly, tools, and MCP runtime
 license.workspace = true
 
 [dependencies]
-rho-core.workspace = true
+rho-harness-core.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 rig = { version = "0.42", features = ["test-utils"] }

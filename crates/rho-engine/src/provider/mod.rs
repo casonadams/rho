@@ -2,9 +2,9 @@ pub mod discovery;
 pub mod store;
 
 use crate::auth::AuthStore;
-use rho_core::config::Config;
-use rho_core::error::{AppError, Result};
-use rho_core::provider::ProviderId;
+use rho_harness_core::config::Config;
+use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::provider::ProviderId;
 use rig::agent::ModelHandle;
 use rig::client::CompletionClient;
 use std::str::FromStr;
@@ -33,7 +33,7 @@ impl ProviderFactory {
             ))
         })?;
 
-        rho_core::net::validate_url(&spec.base_url, config.allow_private_network).map_err(|e| match e {
+        rho_harness_core::net::validate_url(&spec.base_url, config.allow_private_network).map_err(|e| match e {
             AppError::Tool(message) => AppError::Provider(format!("Provider '{name}': {message}")),
             other => other,
         })?;
@@ -56,7 +56,7 @@ impl ProviderFactory {
 
     fn custom_key(
         name: &str,
-        spec: &rho_core::config::ProviderConfig,
+        spec: &rho_harness_core::config::ProviderConfig,
         auth_store: &AuthStore,
     ) -> Result<Option<String>> {
         if let Some(env_name) = spec.key_env.as_deref()
@@ -103,7 +103,7 @@ impl ProviderFactory {
             }
             ProviderId::ChatGpt => {
                 let account_id = match auth_store.get_credential("chatgpt") {
-                    Some(rho_core::auth::StoredCredential::OAuth {
+                    Some(rho_harness_core::auth::StoredCredential::OAuth {
                         account_id: Some(id), ..
                     }) => Some(id.clone()),
                     _ => crate::auth::oauth::extract_chatgpt_account_id(&key),

@@ -15,9 +15,9 @@ use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_core::args::{FetchArgs, SearchArgs};
-use rho_core::config::Config;
-use rho_core::error::Result;
+use rho_harness_core::args::{FetchArgs, SearchArgs};
+use rho_harness_core::config::Config;
+use rho_harness_core::error::Result;
 use rig::tool::DynamicTool;
 use std::path::Path;
 use std::sync::Arc;
@@ -116,7 +116,7 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         generated_schema::<BashArgs>(),
         move |ctx, args| {
             let b = Arc::clone(&b);
-            let stream = ctx.get::<rho_core::presentation::ToolStreamPort>().cloned();
+            let stream = ctx.get::<rho_harness_core::presentation::ToolStreamPort>().cloned();
             Box::pin(async move {
                 let args: BashArgs = match parse_args(args) {
                     Ok(a) => a,

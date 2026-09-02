@@ -2,9 +2,9 @@ use super::AgentEngine;
 use super::runtime::CodingRuntime;
 use super::tracking::{ContextTracker, QuotaTracker, UsageTracker};
 use crate::auth::AuthStore;
-use rho_core::config::Config;
-use rho_core::error::Result;
-use rho_core::session::SessionManager;
+use rho_harness_core::config::Config;
+use rho_harness_core::error::Result;
+use rho_harness_core::session::SessionManager;
 use std::path::PathBuf;
 use std::sync::Arc;
 
