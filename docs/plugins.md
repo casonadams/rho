@@ -1,7 +1,7 @@
 # Model Context Protocol (MCP) & Plugins
 
 `rho` extends its capabilities through two systems:
-1. **Model Context Protocol (MCP) Servers**: Out-of-process JSON-RPC tool providers that expose external APIs, databases, browser automation, and scripts.
+1. **Model Context Protocol (MCP) Servers**: Out-of-process JSON-RPC tool providers that expose external APIs, databases, browser automation, and custom tools.
 2. **Rig-Native Plugin Subsystem**: Event hooks, dynamic tools, custom providers, and host UI integration for security guardrails, request steering, and tool transformation.
 
 ---
@@ -65,7 +65,7 @@ args = []
 
 External plugins run as persistent processes communicating via standard JSON-RPC 2.0 over standard I/O (stdin/stdout).
 
-### A. Lifecycle & Hook Events (Host $\rightarrow$ Plugin)
+### A. Lifecycle & Hook Events (`Host -> Plugin`)
 
 The engine dispatches Rig lifecycle events to active plugins:
 
@@ -77,7 +77,7 @@ The engine dispatches Rig lifecycle events to active plugins:
 | `hook/completion_call` | `{"event": "completion_call", "turn": 1, "prompt": {...}, "history": [...]}` | Inspect or patch turn request parameters. |
 | `hook/completion_response` | `{"event": "completion_response", "prompt": {...}, "response": [...]}` | Audit raw completion output and tokens. |
 
-### B. Steering Actions (Plugin $\rightarrow$ Host Response)
+### B. Steering Actions (`Plugin -> Host Response`)
 
 In response to any hook request, the plugin returns a standard Rig `Flow` action:
 
@@ -92,7 +92,7 @@ In response to any hook request, the plugin returns a standard Rig `Flow` action
 
 ---
 
-## 4. Host Services API (Plugin $\rightarrow$ Host Requests)
+## 4. Host Services API (`Plugin -> Host Requests`)
 
 While evaluating an event, a plugin can request host services (such as UI modals) via bidirectional JSON-RPC:
 
@@ -127,7 +127,8 @@ Presents a selectable list of options with preview descriptions:
     "options": [
       { "label": "Development", "description": "Local dev cluster" },
       { "label": "Production", "description": "Live production database" }
-    ]
+    ],
+    "allow_custom": true
   }
 }
 ```
@@ -154,36 +155,56 @@ Emits a notice into the terminal transcript:
 
 ---
 
-## 5. In-Process Native Rust Plugins (`RhoPlugin`)
+## 5. Building Plugins with `rho-plugin-sdk` (Rust)
 
-For maximum performance, native Rust plugins implement the `RhoPlugin` trait:
+For Rust developers, the official [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk) eliminates all protocol boilerplate:
+
+```toml
+[dependencies]
+rho-plugin-sdk = "0.1.3"
+async-trait = "0.1"
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread"] }
+```
 
 ```rust
-use rho_engine::plugin::RhoPlugin;
-use rig::agent::hook::HookStack;
-use rig::tool::DynamicTool;
+use async_trait::async_trait;
+use rho_plugin_sdk::{Flow, HostContext, Plugin, StepEvent, serve};
 
-pub struct MyPlugin;
+struct MyGuard;
 
-impl RhoPlugin for MyPlugin {
+#[async_trait]
+impl Plugin for MyGuard {
     fn name(&self) -> &str {
-        "my_plugin"
+        "my-guard"
     }
 
-    fn tools(&self) -> Vec<DynamicTool> {
-        vec![/* dynamic model-callable tools */]
+    async fn on_event(&self, event: StepEvent, ctx: &HostContext) -> Flow {
+        match event {
+            StepEvent::ToolCall { tool_name, args } => {
+                if tool_name == "bash" && args.get("command").unwrap().contains("sudo") {
+                    let ok = ctx.confirm("Security Gate", "Allow sudo?").await;
+                    if !ok {
+                        return Flow::skip("Permission denied by user. Do not retry.");
+                    }
+                }
+                Flow::cont()
+            }
+            _ => Flow::cont(),
+        }
     }
+}
 
-    fn register_hooks(&self, stack: &mut HookStack) {
-        stack.push(MySafetyHook);
-    }
+#[tokio::main]
+async fn main() {
+    serve(MyGuard).await;
 }
 ```
 
-Register with `AgentEngineBuilder`:
-```rust
-let engine = AgentEngineBuilder::new(config, auth_store)
-    .plugin(Arc::new(MyPlugin))
-    .build()
-    .await?;
-```
+---
+
+## 6. Examples in Other Languages
+
+Check [`examples/plugins/`](../examples/plugins/):
+- **Python**: [`examples/plugins/python-guard/guard.py`](../examples/plugins/python-guard/guard.py)
+- **Node.js**: [`examples/plugins/node-notifier/notifier.js`](../examples/plugins/node-notifier/notifier.js)
+- **Rust**: [`examples/plugins/rust-guard/`](../examples/plugins/rust-guard/)

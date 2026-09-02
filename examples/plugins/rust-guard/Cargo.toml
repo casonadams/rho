@@ -1,0 +1,10 @@
+[package]
+name = "rust-guard-plugin"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = "0.1"
+tokio = { version = "1.43", features = ["macros", "rt-multi-thread"] }
+serde_json = "1.0"
+rho-plugin-sdk = "0.1.3"
