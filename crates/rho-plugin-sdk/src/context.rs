@@ -1,0 +1,125 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::{Mutex, mpsc, oneshot};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectOption {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl SelectOption {
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            description: None,
+        }
+    }
+
+    pub fn with_description(label: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            description: Some(description.into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SelectResult {
+    Selected(usize),
+    Custom(String),
+    Cancelled,
+}
+
+#[derive(Clone)]
+pub struct HostContext {
+    pub(crate) out_tx: mpsc::Sender<String>,
+    pub(crate) pending_rpc: Arc<Mutex<HashMap<u64, oneshot::Sender<Value>>>>,
+    pub(crate) next_id: Arc<AtomicU64>,
+}
+
+impl HostContext {
+    pub fn noop() -> Self {
+        let (out_tx, _) = mpsc::channel(1);
+        Self {
+            out_tx,
+            pending_rpc: Arc::new(Mutex::new(HashMap::new())),
+            next_id: Arc::new(AtomicU64::new(1)),
+        }
+    }
+
+    pub async fn confirm(&self, title: &str, message: &str) -> bool {
+        let params = json!({
+            "title": title,
+            "message": message,
+        });
+        let res = self.call_host("host/ui/confirm", params).await;
+        res.get("confirmed").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    pub async fn select(
+        &self,
+        title: &str,
+        message: &str,
+        options: &[SelectOption],
+        allow_custom: bool,
+    ) -> SelectResult {
+        let params = json!({
+            "title": title,
+            "message": message,
+            "options": options,
+            "allow_custom": allow_custom,
+        });
+        let res = self.call_host("host/ui/select", params).await;
+        if let Some(idx) = res.get("selected").and_then(Value::as_u64) {
+            SelectResult::Selected(idx as usize)
+        } else if let Some(custom) = res.get("custom").and_then(Value::as_str) {
+            SelectResult::Custom(custom.to_string())
+        } else {
+            SelectResult::Cancelled
+        }
+    }
+
+    pub async fn input(&self, title: &str, message: &str) -> Option<String> {
+        let params = json!({
+            "title": title,
+            "message": message,
+        });
+        let res = self.call_host("host/ui/input", params).await;
+        res.get("value").and_then(Value::as_str).map(str::to_string)
+    }
+
+    pub async fn notify(&self, message: &str, level: &str) {
+        let params = json!({
+            "message": message,
+            "level": level,
+        });
+        let _ = self.call_host("host/ui/notify", params).await;
+    }
+
+    async fn call_host(&self, method: &str, params: Value) -> Value {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let req = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": params,
+        });
+
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut map = self.pending_rpc.lock().await;
+            map.insert(id, tx);
+        }
+
+        if self.out_tx.send(req.to_string()).await.is_err() {
+            return Value::Null;
+        }
+
+        rx.await.unwrap_or(Value::Null)
+    }
+}

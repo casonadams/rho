@@ -1,0 +1,14 @@
+[package]
+name = "rho-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Lightweight SDK for building rho plugins and lifecycle hooks in Rust"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+tokio = { version = "1.43", features = ["io-util", "io-std", "sync", "rt", "macros"] }

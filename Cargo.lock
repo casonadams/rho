@@ -6116,6 +6116,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rho-plugin-sdk"
+version = "0.1.3"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "rig"
 version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

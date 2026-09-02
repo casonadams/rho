@@ -4,6 +4,7 @@ members = [
     ".",
     "crates/rho-harness-core",
     "crates/rho-engine",
+    "crates/rho-plugin-sdk",
 ]
 
 [workspace.package]
@@ -27,6 +28,7 @@ tiktoken-rs = "0.6"
 chrono = { version = "0.4", features = ["serde"] }
 rho-harness-core = { version = "0.1.0", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.1.0", path = "crates/rho-engine" }
+rho-plugin-sdk = { version = "0.1.3", path = "crates/rho-plugin-sdk" }
 
 [package]
 name = "rho"
