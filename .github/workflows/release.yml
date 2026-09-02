@@ -149,14 +149,14 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Download release assets
-        run: gh release download "$TAG" --dir dist --clobber
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist --clobber
 
       - name: Generate and upload SHA256SUMS
         run: |
           rm -f dist/SHA256SUMS
           cd dist
           sha256sum -- * > SHA256SUMS
-          gh release upload "$TAG" SHA256SUMS --clobber
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" SHA256SUMS --clobber
 
   sync-lock:
     name: "Sync Cargo.lock on main after release"
