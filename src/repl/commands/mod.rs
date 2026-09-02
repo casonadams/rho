@@ -1,5 +1,7 @@
 pub mod help;
 #[cfg(test)]
+mod skill_colon_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::config::Config;
@@ -83,9 +85,33 @@ impl SlashCommandHandler {
                 print_help(ctx.config, ctx.renderer);
                 Ok(Some(CommandResult::Continue))
             }
-            "clear" | "reset" => {
+            "clear" | "reset" | "new" => {
                 ctx.renderer.print_notice("  [Conversation context reset]\n");
                 Ok(Some(CommandResult::ClearContext))
+            }
+            "thinking" => {
+                if parts.len() > 1 {
+                    let level = parts[1].to_lowercase();
+                    ctx.config.thinking_level = if level == "off" { None } else { Some(level.clone()) };
+                    ctx.renderer
+                        .print_notice(&format!("  [Thinking level set to {level}]\n"));
+                } else {
+                    let levels: Vec<String> = crate::repl::interactive::completion::THINKING_LEVELS
+                        .iter()
+                        .map(|(lvl, desc)| format!("{lvl} - {desc}"))
+                        .collect();
+                    if let Ok(choice) = inquire::Select::new("Select thinking level:", levels).prompt() {
+                        let selected_level = choice.split_whitespace().next().unwrap_or("off");
+                        ctx.config.thinking_level = if selected_level == "off" {
+                            None
+                        } else {
+                            Some(selected_level.to_string())
+                        };
+                        ctx.renderer
+                            .print_notice(&format!("  [Thinking level set to {selected_level}]\n"));
+                    }
+                }
+                Ok(Some(CommandResult::Continue))
             }
             "session" => {
                 let mut out = String::new();
@@ -289,6 +315,31 @@ impl SlashCommandHandler {
             }
             custom => {
                 let cwd = std::env::current_dir().ok();
+                if let Some(skill_name) = custom.strip_prefix("skill:") {
+                    let skills = crate::skills::resolved_skills(Some(&ctx.config.config_dir), cwd.as_deref());
+                    if let Some(matched) = skills.iter().find(|s| s.metadata.name == skill_name)
+                        && let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name)
+                    {
+                        ctx.renderer.print_notice(&format!(
+                            "\n[skill: {} ({})]\n{content}\n",
+                            matched.metadata.name, matched.origin
+                        ));
+                        let user_args = parts[1..].join(" ");
+                        let effective_prompt = if user_args.is_empty() {
+                            format!(
+                                "<skill name=\"{}\" location=\"{}\">\n{}\n</skill>",
+                                matched.metadata.name, matched.metadata.location, content
+                            )
+                        } else {
+                            format!(
+                                "<skill name=\"{}\" location=\"{}\">\n{}\n</skill>\n\nSkill input: {}",
+                                matched.metadata.name, matched.metadata.location, content, user_args
+                            )
+                        };
+                        return Ok(Some(CommandResult::ExpandedPrompt { text: effective_prompt }));
+                    }
+                }
+
                 let templates =
                     rho_core::prompts::discover_prompt_templates(Some(&ctx.config.config_dir), cwd.as_deref());
                 if let Some(template) = templates.iter().find(|t| t.metadata.name == custom) {

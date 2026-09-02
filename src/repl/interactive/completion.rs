@@ -3,24 +3,37 @@ use std::ops::Range;
 use super::fuzzy::fuzzy_match;
 use rho_core::provider::ProviderId;
 
+pub const THINKING_LEVELS: &[(&str, &str)] = &[
+    ("off", "No reasoning"),
+    ("minimal", "Very brief reasoning (~1k tokens)"),
+    ("low", "Light reasoning (~2k tokens)"),
+    ("medium", "Moderate reasoning (~8k tokens)"),
+    ("high", "Deep reasoning (~16k tokens)"),
+    ("xhigh", "Extra-high reasoning (~32k tokens)"),
+    ("max", "Maximum reasoning"),
+];
+
 pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("help", "Show reference of available commands and shortcuts"),
-    ("model", "Inspect or switch AI model and provider"),
+    ("model", "Select model (opens selector UI) <provider/model>"),
+    ("thinking", "Set thinking level <level>"),
     ("skill", "List, inspect, or invoke declarative skills"),
     ("plugin", "Inspect configured MCP servers and plugins"),
     ("session", "Display token capacity and session diagnostics"),
-    ("compact", "Summarize earlier context to free context space"),
-    ("tree", "View conversation turn and branch tree"),
-    ("fork", "Fork session from turn or node into a new session"),
-    ("clone", "Duplicate active branch into a new session"),
-    ("name", "Assign a human-readable name to the session"),
+    ("compact", "Manually compact the session context"),
+    ("tree", "Navigate session tree (switch branches)"),
+    ("fork", "Create a new fork from a previous user message"),
+    ("clone", "Duplicate the current session at the current position"),
+    ("name", "Set session display name"),
     ("rewind", "Rewind context to a specific prior turn"),
-    ("clear", "Start a new session; preserve history"),
-    ("login", "Add API-key or subscription authentication"),
-    ("logout", "Remove stored provider authentication"),
-    ("reload", "Re-read config, skills, and MCP tools; keep history"),
-    ("export", "Export active branch as HTML or Markdown artifact"),
+    ("new", "Start a new session"),
+    ("clear", "Start a new session (alias for /new)"),
+    ("login", "Configure provider authentication <provider>"),
+    ("logout", "Remove stored provider authentication <provider>"),
+    ("reload", "Reload config, skills, prompt templates, and MCP tools"),
+    ("export", "Export session (HTML default, or specify path: .html/.md)"),
     ("exit", "Exit rho"),
+    ("quit", "Exit rho"),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,6 +91,13 @@ impl CompletionSet {
             commands.push(CommandItem {
                 name: format!("/{name}"),
                 description: "Custom prompt template".to_string(),
+            });
+        }
+        // Register each skill directly as a top-level `/skill:<name>` command (Pi-style)
+        for s in &sources.skills {
+            commands.push(CommandItem {
+                name: format!("/skill:{}", s.metadata.name),
+                description: format!("{} [{}]", s.metadata.description, s.origin),
             });
         }
         commands.sort_by(|a, b| a.name.cmp(&b.name));
@@ -181,6 +201,27 @@ impl CompletionSet {
                 .map(|(_, m)| Completion {
                     value: format!("/model {}", m.id),
                     description: Some(format!("{} · {}", m.provider, m.description)),
+                    replacement: 0..cursor,
+                })
+                .collect()
+        } else if let Some(argument) = prefix.strip_prefix("/thinking ") {
+            let mut scored: Vec<(i32, &(&str, &str))> = THINKING_LEVELS
+                .iter()
+                .filter_map(|lvl| {
+                    if argument.is_empty() {
+                        Some((0, lvl))
+                    } else {
+                        fuzzy_match(argument, lvl.0).map(|score| (score, lvl))
+                    }
+                })
+                .collect();
+            scored.sort_by_key(|(score, lvl)| (*score, lvl.0.to_string()));
+
+            scored
+                .into_iter()
+                .map(|(_, lvl)| Completion {
+                    value: format!("/thinking {}", lvl.0),
+                    description: Some(lvl.1.to_string()),
                     replacement: 0..cursor,
                 })
                 .collect()
