@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.4](https://github.com/casonadams/rho/compare/v0.1.3...v0.1.4) (2026-09-02)
+
+
+### Features
+
+* **plugin:** implement decoupled rig-native protocol, host bus, and daemon hook ([b7ebfe8](https://github.com/casonadams/rho/commit/b7ebfe8dfb846e57c05f5578fe758c2c353cec83))
+* **plugin:** introduce native RhoPlugin trait, hook stack integration, and ecosystem documentation ([9c1876a](https://github.com/casonadams/rho/commit/9c1876a9a49ae88c40d2431252a636083ce1e783))
+* **plugin:** introduce official rho-plugin-sdk crate ([2293092](https://github.com/casonadams/rho/commit/2293092401ca2851a5d668bc8696e50fc2881338))
+* **plugin:** support dynamic plugin tools in engine builder and add display transformer pipeline ([6510902](https://github.com/casonadams/rho/commit/65109024f5eb9fce9f1da312e679ad1f9f890cbe))
+* **plugin:** update REPL /plugin command, CLI inspection, and create-plugin skill for rig-native plugins ([97808f5](https://github.com/casonadams/rho/commit/97808f50f2baa5ed48b6f6c923b2569d3d182d4c))
+
+
+### Bug Fixes
+
+* **plugin:** make daemon stdout reader concurrent, extend timeout, and enforce fail-closed hooks ([0e6c783](https://github.com/casonadams/rho/commit/0e6c7834afa0e5284eed76f17516b6cc6c2793ab))
+
 ## [0.1.3](https://github.com/casonadams/rho/compare/v0.1.2...v0.1.3) (2026-09-02)
 
 
