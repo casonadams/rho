@@ -42,7 +42,7 @@ impl TerminalBackend for MockTerminal {
 }
 
 #[test]
-fn test_autocomplete_trigger_and_chaining_and_tab_cycle() {
+fn test_autocomplete_pi_exact_contract() {
     let skill1 = ResolvedSkill {
         metadata: SkillMetadata {
             name: "plan".to_string(),
@@ -63,28 +63,33 @@ fn test_autocomplete_trigger_and_chaining_and_tab_cycle() {
     let completions = CompletionSet::from_sources(sources);
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
 
-    // 1. Type "/skil" -> opens autocomplete
+    // 1. Type "/skil" -> menu opens with "/skill"
     controller.state_mut().editor_mut().set_text("/skil");
     update_autocomplete_state_generic(&mut controller, &completions);
     assert!(controller.state().autocomplete.visible);
     assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/skill");
 
-    // 2. Tab completes partial text to "/skill " and immediately opens available skills
+    // 2. Tab accepts "/skill " and closes autocomplete (Pi contract)
     let tab_key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
     assert_eq!(controller.state().editor().text(), "/skill ");
+    assert!(!controller.state().autocomplete.visible);
+
+    // 3. Arrow Down / Up navigates menu when open
+    controller.state_mut().editor_mut().set_text("/skill ");
+    update_autocomplete_state_generic(&mut controller, &completions);
     assert!(controller.state().autocomplete.visible);
     assert_eq!(controller.state().autocomplete.selected, 0);
 
-    // 3. Tab again CYCLES to the next skill item!
-    let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
+    let down_key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, down_key);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
     assert_eq!(controller.state().autocomplete.selected, 1);
 
-    // 4. Enter accepts the currently selected skill (spec)
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let res = handle_autocomplete_key_generic(&mut controller, &completions, enter_key);
+    // 4. Tab applies currently selected skill (spec) and closes
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
     assert_eq!(controller.state().editor().text(), "/skill spec ");
+    assert!(!controller.state().autocomplete.visible);
 }
