@@ -14,7 +14,8 @@ pub enum ProviderId {
     DeepSeek,
     Gemini,
     Groq,
-    Ollama,
+    Local,
+    OllamaCloud,
     OpenRouter,
     XAi,
     Mistral,
@@ -29,7 +30,7 @@ pub enum CredentialStrategy {
 }
 
 impl ProviderId {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Anthropic,
         Self::OpenAi,
         Self::ChatGpt,
@@ -38,20 +39,22 @@ impl ProviderId {
         Self::DeepSeek,
         Self::Gemini,
         Self::Groq,
-        Self::Ollama,
+        Self::Local,
+        Self::OllamaCloud,
         Self::OpenRouter,
         Self::XAi,
         Self::Mistral,
         Self::Cohere,
     ];
 
-    pub const API_KEY_PROVIDERS: [Self; 10] = [
+    pub const API_KEY_PROVIDERS: [Self; 11] = [
         Self::Anthropic,
         Self::OpenAi,
         Self::DeepSeek,
         Self::Gemini,
         Self::Groq,
-        Self::Ollama,
+        Self::Local,
+        Self::OllamaCloud,
         Self::OpenRouter,
         Self::XAi,
         Self::Mistral,
@@ -68,7 +71,8 @@ impl ProviderId {
             Self::DeepSeek => "deepseek",
             Self::Gemini => "gemini",
             Self::Groq => "groq",
-            Self::Ollama => "ollama",
+            Self::Local => "local",
+            Self::OllamaCloud => "ollama-cloud",
             Self::OpenRouter => "openrouter",
             Self::XAi => "xai",
             Self::Mistral => "mistral",
@@ -79,7 +83,7 @@ impl ProviderId {
     pub fn credential_strategy(self) -> CredentialStrategy {
         match self {
             Self::ChatGpt | Self::Copilot | Self::Antigravity => CredentialStrategy::SubscriptionOAuth,
-            Self::Ollama => CredentialStrategy::Local,
+            Self::Local => CredentialStrategy::Local,
             _ => CredentialStrategy::ApiKey,
         }
     }
@@ -103,7 +107,8 @@ impl ProviderId {
             Self::XAi => Some("XAI_API_KEY"),
             Self::Mistral => Some("MISTRAL_API_KEY"),
             Self::Cohere => Some("COHERE_API_KEY"),
-            Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::Ollama => None,
+            Self::OllamaCloud => Some("OLLAMA_API_KEY"),
+            Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::Local => None,
         }
     }
 }
@@ -127,7 +132,8 @@ impl FromStr for ProviderId {
             "deepseek" => Ok(Self::DeepSeek),
             "gemini" | "google" => Ok(Self::Gemini),
             "groq" => Ok(Self::Groq),
-            "ollama" => Ok(Self::Ollama),
+            "local" | "ollama" => Ok(Self::Local),
+            "ollama-cloud" | "ollamacloud" => Ok(Self::OllamaCloud),
             "openrouter" => Ok(Self::OpenRouter),
             "xai" => Ok(Self::XAi),
             "mistral" => Ok(Self::Mistral),

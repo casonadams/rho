@@ -110,8 +110,8 @@ pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store:
                 );
                 return Ok(());
             }
-            ProviderId::Ollama => {
-                println!("Ollama runs locally and does not require credentials.");
+            ProviderId::Local => {
+                println!("Local models run offline and do not require credentials.");
                 return Ok(());
             }
             _ => {}
@@ -143,7 +143,8 @@ fn prompt_select_provider(config: &Config) -> Result<String> {
         ("groq", "Groq (Llama fast inference - API key)"),
         ("mistral", "Mistral AI (API key)"),
         ("cohere", "Cohere (Command R+ - API key)"),
-        ("ollama", "Ollama (Local models - no login required)"),
+        ("ollama-cloud", "Ollama Cloud (Hosted models - API key)"),
+        ("local", "Local / Ollama (Offline models - no login required)"),
     ];
 
     for custom_name in config.providers.keys() {

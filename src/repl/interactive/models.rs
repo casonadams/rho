@@ -27,9 +27,12 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         description: format!("{active_ctx_str} · active"),
     });
 
-    // 2. Local Ollama models (always available locally without API keys)
-    if let Some(cached_ollama) = model_store.get_models("ollama") {
-        for m in cached_ollama {
+    // 2. Local models (always available locally without API keys)
+    if let Some(cached_local) = model_store
+        .get_models("local")
+        .or_else(|| model_store.get_models("ollama"))
+    {
+        for m in cached_local {
             if !models
                 .iter()
                 .any(|existing| existing.id == m.id && existing.provider == m.provider)
@@ -46,7 +49,7 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
     // 3. Models from configured providers in auth_store & model_store
     let configured_providers = auth_store.list_configured_providers();
     for prov in &configured_providers {
-        if prov == "ollama" {
+        if prov == "local" || prov == "ollama" {
             continue; // Already handled above
         }
         if let Some(cached) = model_store.get_models(prov) {
@@ -102,14 +105,14 @@ pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
     tokio::spawn(async move {
         let mut store = ModelStore::load(config_dir.join("models-store.json"));
 
-        // Always discover local Ollama models
-        if let Ok(discovered) = discover_provider_models(ProviderId::Ollama, &auth_store_clone).await {
-            let _ = store.set_models("ollama", discovered);
+        // Always discover local models
+        if let Ok(discovered) = discover_provider_models(ProviderId::Local, &auth_store_clone).await {
+            let _ = store.set_models("local", discovered);
         }
 
         // Discover configured authenticated providers
         for prov_str in configured_providers {
-            if prov_str == "ollama" {
+            if prov_str == "local" || prov_str == "ollama" {
                 continue;
             }
             if let Ok(id) = ProviderId::from_str(&prov_str)

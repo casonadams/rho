@@ -9,6 +9,7 @@ Environment Variables:
   OPENROUTER_API_KEY               - OpenRouter API key
   MISTRAL_API_KEY                  - Mistral API key
   COHERE_API_KEY                   - Cohere API key
+  OLLAMA_API_KEY                   - Ollama Cloud API key
   OLLAMA_HOST                      - Ollama service host (default: http://localhost:11434)
   AI_MODEL                         - Default model ID
   AI_PROVIDER                      - Default provider
@@ -20,7 +21,7 @@ Environment Variables:
   RHO_HOME                         - Custom configuration directory (default: ~/.config/rho)
 
 Authentication:
-  API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere
+  API key: anthropic, openai, deepseek, gemini, groq, openrouter, xai, mistral, cohere, ollama-cloud
   Subscription OAuth: chatgpt, copilot, antigravity (explicit login required via 'rho login <provider>')
-  Local: ollama (no login required; customize with OLLAMA_HOST)
+  Local: local (no login required; customize with OLLAMA_HOST)
   Custom: Any OpenAI-compatible endpoint configured in config.toml under [providers.<name>]";

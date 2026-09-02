@@ -1,3 +1,6 @@
+pub mod discovery;
+pub mod store;
+
 use crate::auth::AuthStore;
 use rho_core::config::Config;
 use rho_core::error::{AppError, Result};
@@ -64,21 +67,21 @@ impl ProviderFactory {
                 return Ok(Some(value));
             }
         }
-        auth_store.get_key(name)
+        auth_store.get_key_sync(name)
     }
 
     pub fn create_model_for(provider: ProviderId, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
-        if provider == ProviderId::Ollama {
+        if provider == ProviderId::Local {
             let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
             let client = rig::providers::ollama::Client::builder()
                 .api_key("")
                 .base_url(&host)
                 .build()
-                .map_err(|e| AppError::Provider(format!("Failed to initialize Ollama client: {e}")))?;
+                .map_err(|e| AppError::Provider(format!("Failed to initialize local Ollama client: {e}")))?;
             return Ok(ModelHandle::named(provider.as_str(), client.completion_model(model)));
         }
 
-        let key = auth_store.get_key(provider.as_str())?.ok_or_else(|| {
+        let key = auth_store.get_key_sync(provider.as_str())?.ok_or_else(|| {
             AppError::Auth(format!(
                 "Missing API key for provider '{}'. Run 'rho login {}' or set {}.",
                 provider.as_str(),
@@ -93,9 +96,55 @@ impl ProviderFactory {
                     .map_err(|e| AppError::Provider(format!("Failed to initialize Anthropic client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
-            ProviderId::OpenAi | ProviderId::ChatGpt | ProviderId::Copilot => {
+            ProviderId::OpenAi => {
                 let client = rig::providers::openai::Client::new(key)
                     .map_err(|e| AppError::Provider(format!("Failed to initialize OpenAI client: {e}")))?;
+                ModelHandle::named(provider.as_str(), client.completion_model(model))
+            }
+            ProviderId::ChatGpt => {
+                let account_id = match auth_store.get_credential("chatgpt") {
+                    Some(rho_core::auth::StoredCredential::OAuth {
+                        account_id: Some(id), ..
+                    }) => Some(id.clone()),
+                    _ => crate::auth::oauth::extract_chatgpt_account_id(&key),
+                };
+
+                let mut default_headers = reqwest::header::HeaderMap::new();
+                default_headers.insert(
+                    "OpenAI-Beta",
+                    reqwest::header::HeaderValue::from_static("responses=experimental"),
+                );
+                default_headers.insert("originator", reqwest::header::HeaderValue::from_static("codex"));
+                default_headers.insert("User-Agent", reqwest::header::HeaderValue::from_static("Codex/0.22.4"));
+                if let Some(ref acc_id) = account_id
+                    && let Ok(val) = reqwest::header::HeaderValue::from_str(acc_id)
+                {
+                    default_headers.insert("chatgpt-account-id", val.clone());
+                    default_headers.insert("ChatGPT-Account-Id", val);
+                }
+
+                let http_client = reqwest::Client::builder()
+                    .no_proxy()
+                    .default_headers(default_headers)
+                    .build()
+                    .map_err(|e| AppError::Other(e.into()))?;
+
+                let client = rig::providers::chatgpt::Client::builder()
+                    .http_client(http_client)
+                    .api_key(rig::providers::chatgpt::ChatGPTAuth::AccessToken {
+                        access_token: key,
+                        account_id,
+                    })
+                    .originator("codex")
+                    .build()
+                    .map_err(|e| AppError::Provider(format!("Failed to initialize ChatGPT Codex client: {e}")))?;
+                ModelHandle::named(provider.as_str(), client.completion_model(model))
+            }
+            ProviderId::Copilot => {
+                let client = rig::providers::copilot::Client::builder()
+                    .github_access_token(key)
+                    .build()
+                    .map_err(|e| AppError::Provider(format!("Failed to initialize Copilot client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
             ProviderId::Gemini | ProviderId::Antigravity => {
@@ -133,7 +182,15 @@ impl ProviderFactory {
                     .map_err(|e| AppError::Provider(format!("Failed to initialize Cohere client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
-            ProviderId::Ollama => unreachable!(),
+            ProviderId::OllamaCloud => {
+                let client = rig::providers::openai::Client::builder()
+                    .api_key(key)
+                    .base_url("https://ollama.com/v1")
+                    .build()
+                    .map_err(|e| AppError::Provider(format!("Failed to initialize Ollama Cloud client: {e}")))?;
+                ModelHandle::named(provider.as_str(), client.completion_model(model))
+            }
+            ProviderId::Local => unreachable!(),
         };
 
         Ok(handle)
