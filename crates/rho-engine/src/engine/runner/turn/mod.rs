@@ -8,7 +8,7 @@ pub use types::{
 use crate::engine::AgentEngine;
 use crate::engine::metrics::{RunMetrics, TerminalStatus};
 use crate::engine::runtime::build_runner;
-use crate::plugin_hook::PluginHook;
+use crate::plugin::daemon::DaemonHook;
 use crate::repeat::RepeatedCallHook;
 use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
@@ -71,7 +71,7 @@ impl AgentEngine {
         loop {
             let mut tool_context = ToolContext::new();
             tool_context.insert(presenter.stream_port());
-            let plugin_hook = PluginHook::new(&self.config.plugins, std::env::current_dir()?, presenter.clone());
+            let plugin_hook = DaemonHook::new(&self.config.plugins, &std::env::current_dir()?, presenter.clone()).await;
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
