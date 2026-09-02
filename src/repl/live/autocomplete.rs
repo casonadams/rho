@@ -27,24 +27,60 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     }
 
     match (key.code, key.modifiers) {
-        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
+        (KeyCode::Up, KeyModifiers::NONE)
+        | (KeyCode::Char('p'), KeyModifiers::CONTROL)
+        | (KeyCode::BackTab, _) => {
             state.autocomplete.select_prev();
             AutocompleteKeyResult::Handled
         }
-        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+        (KeyCode::Down, KeyModifiers::NONE)
+        | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
             state.autocomplete.select_next();
             AutocompleteKeyResult::Handled
         }
-        (KeyCode::Enter, KeyModifiers::NONE)
-        | (KeyCode::Tab, KeyModifiers::NONE)
-        | (KeyCode::Right, KeyModifiers::NONE) => {
+        (KeyCode::Tab, KeyModifiers::NONE) => {
+            let editor = state.editor();
+            let text = editor.text().trim_end();
+            let cursor = editor.cursor();
+            let selected_val = state.autocomplete.selected_item().map(|item| item.value.clone());
+
+            let is_exact_prefix_match = if let Some(ref val) = selected_val {
+                text == val || text.starts_with(val)
+            } else {
+                false
+            };
+
+            // If user typed a partial prefix (like "/ski" or "/skill pla") that isn't exact yet, Tab completes it!
+            // If the text is ALREADY a completed prefix (like "/skill" or "/model"), Tab CYCLES through the menu items!
+            if !is_exact_prefix_match && let Some(val) = selected_val {
+                let editor = state.editor_mut();
+                let text = editor.text();
+                if val.starts_with('/') {
+                    let mut new_text = val;
+                    if !new_text.ends_with(' ') {
+                        new_text.push(' ');
+                    }
+                    new_text.push_str(&text[cursor..]);
+                    editor.set_text(&new_text);
+                } else {
+                    let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
+                    let new_text = format!("{} {}", val, &text[end..]);
+                    editor.set_text(&new_text);
+                }
+                update_autocomplete_state_generic(controller, completions);
+            } else {
+                state.autocomplete.select_next();
+            }
+            AutocompleteKeyResult::Handled
+        }
+        (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Right, KeyModifiers::NONE) => {
             let selected_val = state.autocomplete.selected_item().map(|item| item.value.clone());
             if let Some(val) = selected_val {
                 let editor = state.editor_mut();
                 let text = editor.text();
                 let cursor = editor.cursor();
                 if val.starts_with('/') {
-                    let mut new_text = val.clone();
+                    let mut new_text = val;
                     if !new_text.ends_with(' ') {
                         new_text.push(' ');
                     }
@@ -58,7 +94,6 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
             } else {
                 apply_completion_generic(controller, completions);
             }
-            // Immediately re-evaluate completions for the updated text (e.g. "/skill " -> show skills list!)
             update_autocomplete_state_generic(controller, completions);
             AutocompleteKeyResult::Handled
         }
@@ -70,7 +105,10 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     }
 }
 
-pub fn update_autocomplete_state(controller: &mut TerminalController<CrosstermBackend>, completions: &CompletionSet) {
+pub fn update_autocomplete_state(
+    controller: &mut TerminalController<CrosstermBackend>,
+    completions: &CompletionSet,
+) {
     update_autocomplete_state_generic(controller, completions);
 }
 

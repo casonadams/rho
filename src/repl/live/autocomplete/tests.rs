@@ -42,8 +42,8 @@ impl TerminalBackend for MockTerminal {
 }
 
 #[test]
-fn test_autocomplete_trigger_and_chaining() {
-    let skill = ResolvedSkill {
+fn test_autocomplete_trigger_and_chaining_and_tab_cycle() {
+    let skill1 = ResolvedSkill {
         metadata: SkillMetadata {
             name: "plan".to_string(),
             description: "Planning workflow".to_string(),
@@ -51,35 +51,40 @@ fn test_autocomplete_trigger_and_chaining() {
         },
         origin: SkillOrigin::Builtin,
     };
-    let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill]);
+    let skill2 = ResolvedSkill {
+        metadata: SkillMetadata {
+            name: "spec".to_string(),
+            description: "Specification workflow".to_string(),
+            location: "/path".to_string(),
+        },
+        origin: SkillOrigin::Builtin,
+    };
+    let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill1, skill2]);
     let completions = CompletionSet::from_sources(sources);
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
 
-    // 1. Initially closed
-    assert!(!controller.state().autocomplete.visible);
-
-    // 2. Type "/skil" -> opens autocomplete
+    // 1. Type "/skil" -> opens autocomplete
     controller.state_mut().editor_mut().set_text("/skil");
     update_autocomplete_state_generic(&mut controller, &completions);
     assert!(controller.state().autocomplete.visible);
     assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/skill");
 
-    // 3. Tab accepts and completes "/skill " and chains into the skills argument dropdown!
+    // 2. Tab completes partial text to "/skill " and immediately opens available skills
     let tab_key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
     let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
     assert_eq!(controller.state().editor().text(), "/skill ");
-    assert!(
-        controller.state().autocomplete.visible,
-        "Dropdown should stay open showing available skills"
-    );
-    assert_eq!(
-        controller.state().autocomplete.selected_item().unwrap().value,
-        "/skill plan"
-    );
+    assert!(controller.state().autocomplete.visible);
+    assert_eq!(controller.state().autocomplete.selected, 0);
 
-    // 4. Tab again accepts the highlighted skill "/skill plan "
+    // 3. Tab again CYCLES to the next skill item!
     let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
-    assert_eq!(controller.state().editor().text(), "/skill plan ");
+    assert_eq!(controller.state().autocomplete.selected, 1);
+
+    // 4. Enter accepts the currently selected skill (spec)
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, enter_key);
+    assert!(matches!(res, AutocompleteKeyResult::Handled));
+    assert_eq!(controller.state().editor().text(), "/skill spec ");
 }
