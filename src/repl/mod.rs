@@ -84,6 +84,7 @@ impl ReplSession {
         let mut config = Config::load(self.cli.as_ref())?;
         config.model = self.config.model.clone();
         config.provider = self.config.provider.clone();
+        crate::repl::interactive::spawn_background_model_refresh(&config, &self.auth_store);
         let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
         self.config = config;
         self.renderer.print_notice(&format!(

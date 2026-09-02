@@ -1,30 +1,20 @@
+//! Dynamic model discovery and capability descriptors for autocomplete and model switcher.
+
 use super::completion::ModelItem;
 use rho_core::config::Config;
+use rho_core::provider::ProviderId;
 use rho_engine::auth::AuthStore;
+use rho_engine::provider::discovery::discover_provider_models;
+use rho_engine::provider::store::ModelStore;
+use std::str::FromStr;
 
-/// Well-known model presets with real context windows and capabilities.
-pub const STANDARD_PRESETS: &[(&str, &str, &str)] = &[
-    ("claude-3-7-sonnet-20250219", "anthropic", "200k ctx · reasoning"),
-    ("claude-3-5-sonnet-20241022", "anthropic", "200k ctx · hybrid"),
-    ("claude-3-5-haiku-20241022", "anthropic", "200k ctx · fast"),
-    ("gpt-4o", "openai", "128k ctx · multimodal"),
-    ("gpt-4o-mini", "openai", "128k ctx · fast"),
-    ("o1", "openai", "200k ctx · deep reasoning"),
-    ("o3-mini", "openai", "200k ctx · reasoning"),
-    ("gemini-2.5-pro", "gemini", "2M ctx · reasoning"),
-    ("gemini-2.0-flash", "gemini", "1M ctx · fast"),
-    ("deepseek-chat", "deepseek", "64k ctx · fast"),
-    ("deepseek-reasoner", "deepseek", "64k ctx · reasoning"),
-    ("llama-3.3-70b-versatile", "groq", "128k ctx · fast"),
-    ("mistral-large-latest", "mistral", "128k ctx · general"),
-    ("command-r-plus", "cohere", "128k ctx · search/rag"),
-];
-
-/// Dynamically discovers models available to the current user.
+/// Dynamically discovers models available to the current user from active configuration,
+/// live/cached provider discovery catalogs, and custom endpoints.
 pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem> {
     let mut models = Vec::new();
+    let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
 
-    // 1. Current active model always first if not already covered
+    // 1. Current active model always listed first with active status
     let active_ctx = rho_core::tokens::context_window_size(&config.model);
     let active_ctx_str = if active_ctx >= 1_000_000 {
         format!("{}M ctx", active_ctx / 1_000_000)
@@ -37,9 +27,41 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         description: format!("{active_ctx_str} · active"),
     });
 
-    // 2. Custom configured providers from config.toml ([providers.<name>])
+    // 2. Models from configured providers in auth_store & model_store
+    let configured_providers = auth_store.list_configured_providers();
+    for prov in &configured_providers {
+        if let Some(cached) = model_store.get_models(prov) {
+            for m in cached {
+                if !models
+                    .iter()
+                    .any(|existing| existing.id == m.id && existing.provider == m.provider)
+                {
+                    models.push(ModelItem {
+                        id: m.id.clone(),
+                        provider: m.provider.clone(),
+                        description: m.description.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // 3. Custom configured providers from config.toml ([providers.<name>])
     for (name, spec) in &config.providers {
-        if name != &config.provider {
+        if let Some(cached) = model_store.get_models(name) {
+            for m in cached {
+                if !models
+                    .iter()
+                    .any(|existing| existing.id == m.id && existing.provider == m.provider)
+                {
+                    models.push(ModelItem {
+                        id: m.id.clone(),
+                        provider: m.provider.clone(),
+                        description: m.description.clone(),
+                    });
+                }
+            }
+        } else if name != &config.provider {
             models.push(ModelItem {
                 id: format!("{name}-default"),
                 provider: name.clone(),
@@ -48,33 +70,33 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         }
     }
 
-    // 3. Models from authenticated/configured providers
+    models
+}
+
+/// Spawns a background task to refresh models from live provider endpoints.
+pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
+    let config_dir = config.config_dir.clone();
+    let auth_store_clone = auth_store.clone();
     let configured_providers = auth_store.list_configured_providers();
-    for &(model_id, provider, desc) in STANDARD_PRESETS {
-        let is_configured =
-            configured_providers.iter().any(|p| p == provider) || provider == "ollama" || provider == config.provider;
+    let custom_providers = config.providers.clone();
 
-        if is_configured && !models.iter().any(|m| m.id == model_id) {
-            models.push(ModelItem {
-                id: model_id.to_string(),
-                provider: provider.to_string(),
-                description: desc.to_string(),
-            });
-        }
-    }
-
-    // 4. If few models are configured, offer standard presets so users can discover options
-    if models.len() <= 3 {
-        for &(model_id, provider, desc) in STANDARD_PRESETS {
-            if !models.iter().any(|m| m.id == model_id) {
-                models.push(ModelItem {
-                    id: model_id.to_string(),
-                    provider: provider.to_string(),
-                    description: format!("{desc} [requires login]"),
-                });
+    tokio::spawn(async move {
+        let mut store = ModelStore::load(config_dir.join("models-store.json"));
+        for prov_str in configured_providers {
+            if let Ok(id) = ProviderId::from_str(&prov_str)
+                && let Ok(discovered) = discover_provider_models(id, &auth_store_clone).await
+            {
+                let _ = store.set_models(&prov_str, discovered);
             }
         }
-    }
-
-    models
+        for (name, spec) in custom_providers {
+            let key = auth_store_clone.get_key_sync(&name).ok().flatten();
+            if let Ok(discovered) =
+                rho_engine::provider::discovery::discover_custom_provider_models(&name, &spec.base_url, key.as_deref())
+                    .await
+            {
+                let _ = store.set_models(&name, discovered);
+            }
+        }
+    });
 }
