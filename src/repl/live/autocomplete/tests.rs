@@ -42,7 +42,7 @@ impl TerminalBackend for MockTerminal {
 
 #[test]
 fn test_autocomplete_trigger_and_selection() {
-    let completions = CompletionSet::rho(&[], Vec::new(), Vec::new());
+    let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::default());
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
 
     // 1. Initially closed

@@ -41,10 +41,19 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
                 let editor = state.editor_mut();
                 let text = editor.text();
                 let cursor = editor.cursor();
-                // Replace up to the end of the first word with the selected command + space
-                let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
-                let new_text = format!("{} {}", val, &text[end..]);
-                editor.set_text(&new_text);
+                // If the selected value already contains the full command (e.g. "/skill plan"), replace the whole prefix
+                if val.starts_with('/') {
+                    let mut new_text = val.clone();
+                    if !new_text.ends_with(' ') {
+                        new_text.push(' ');
+                    }
+                    new_text.push_str(&text[cursor..]);
+                    editor.set_text(&new_text);
+                } else {
+                    let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
+                    let new_text = format!("{} {}", val, &text[end..]);
+                    editor.set_text(&new_text);
+                }
             } else {
                 apply_completion_generic(controller, completions);
             }
@@ -71,7 +80,8 @@ pub fn update_autocomplete_state_generic<B: TerminalBackend>(
     let text = editor.text();
     let cursor = editor.cursor();
 
-    if text.starts_with('/') && !text[..cursor].contains(' ') {
+    // Trigger autocomplete whenever typing slash commands, arguments, or file mentions
+    if (text.starts_with('/') || text.contains('@')) && cursor <= text.len() {
         let matches = completions.complete(text, cursor);
         if !matches.is_empty() {
             controller.state_mut().autocomplete.open(matches);

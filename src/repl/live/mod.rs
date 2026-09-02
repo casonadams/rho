@@ -80,11 +80,8 @@ impl ReplSession {
 
         let mut history = InteractiveHistory::with_file(1000, self.config.config_dir.join("history.txt"))
             .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
-        let skill_names =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref())
-                .into_iter()
-                .map(|skill| skill.metadata.name)
-                .collect();
+        let skills =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
         let prompt_templates = rho_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
@@ -92,7 +89,14 @@ impl ReplSession {
         .into_iter()
         .map(|t| t.metadata.name)
         .collect::<Vec<_>>();
-        let completions = CompletionSet::rho(&[], skill_names, prompt_templates);
+        let models = crate::repl::interactive::discover_models(&self.config, &self.auth_store);
+        let custom_providers = self.config.providers.keys().cloned().collect();
+        let sources = crate::repl::interactive::CompletionSources::new()
+            .with_skills(skills)
+            .with_templates(prompt_templates)
+            .with_models(models)
+            .with_custom_providers(custom_providers);
+        let completions = CompletionSet::from_sources(sources);
 
         loop {
             let message = match controller.state_mut().pop_queued() {

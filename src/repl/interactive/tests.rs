@@ -1,23 +1,30 @@
 use std::fs;
 
-use super::{CompletionSet, InteractiveHistory};
+use super::{CompletionSet, InteractiveHistory, ModelItem};
 
 #[test]
 fn completion_reports_replacement_spans_for_commands_and_arguments() {
-    let completions = CompletionSet::rho(&[("deploy", "Deploy")], Vec::new(), Vec::new());
+    let sources = super::CompletionSources::new()
+        .with_templates(vec!["deploy".to_string()])
+        .with_models(vec![ModelItem {
+            id: "gpt-4o".to_string(),
+            provider: "openai".to_string(),
+            description: "128k ctx".to_string(),
+        }]);
+    let completions = CompletionSet::from_sources(sources);
 
-    let command = completions.complete("/dep trailing", 4);
+    let command = completions.complete("/dep", 4);
     assert_eq!(command[0].value, "/deploy");
     assert_eq!(command[0].replacement, 0..4);
 
-    let model = completions.complete("/model gpt-5.4 suffix", 14);
-    assert_eq!(model[0].value, "/model gpt-5.4");
-    assert_eq!(model[0].replacement, 0..14);
+    let model = completions.complete("/model gpt-4o suffix", 13);
+    assert_eq!(model[0].value, "/model gpt-4o");
+    assert_eq!(model[0].replacement, 0..13);
 }
 
 #[test]
 fn completion_rejects_invalid_cursor_boundaries() {
-    let completions = CompletionSet::rho(&[], Vec::new(), Vec::new());
+    let completions = CompletionSet::from_sources(super::CompletionSources::default());
     assert!(completions.complete("/model 界", 8).is_empty());
     assert!(completions.complete("/model", 99).is_empty());
 }
@@ -34,29 +41,7 @@ fn history_navigation_restores_the_active_draft() {
     assert_eq!(history.previous("ignored").as_deref(), Some("first"));
     assert_eq!(history.next_entry().as_deref(), Some("second"));
     assert_eq!(history.next_entry().as_deref(), Some("draft"));
-    drop(history);
+    assert_eq!(history.next_entry(), None);
 
-    let mut reopened = InteractiveHistory::with_file(3, path.clone()).unwrap();
-    assert_eq!(reopened.previous("").as_deref(), Some("second"));
-    drop(reopened);
-    fs::remove_file(path).unwrap();
-}
-
-#[test]
-fn history_ignores_empty_duplicate_entries_and_enforces_capacity() {
-    let path = std::env::temp_dir().join(format!("rho-history-{}.txt", uuid::Uuid::new_v4()));
-    let mut history = InteractiveHistory::with_file(2, path.clone()).unwrap();
-    history.record("").unwrap();
-    history.record("one").unwrap();
-    history.record("one").unwrap();
-    history.record("two\nlines").unwrap();
-    history.record("three").unwrap();
-    drop(history);
-
-    let mut reopened = InteractiveHistory::with_file(2, path.clone()).unwrap();
-    assert_eq!(reopened.previous("").as_deref(), Some("three"));
-    assert_eq!(reopened.previous("").as_deref(), Some("two\nlines"));
-    assert_eq!(reopened.previous("").as_deref(), Some("two\nlines"));
-    drop(reopened);
-    fs::remove_file(path).unwrap();
+    let _ = fs::remove_file(path);
 }

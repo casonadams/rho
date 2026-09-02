@@ -124,11 +124,8 @@ impl ReplSession {
         );
         let edit_mode = Box::new(Emacs::new(keybindings));
 
-        let skill_names =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref())
-                .into_iter()
-                .map(|skill| skill.metadata.name)
-                .collect();
+        let skills =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
         let prompt_templates = rho_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
@@ -136,7 +133,14 @@ impl ReplSession {
         .into_iter()
         .map(|t| t.metadata.name)
         .collect::<Vec<_>>();
-        let completer = Box::new(RhoCompleter::new(&[], skill_names, prompt_templates));
+        let models = crate::repl::interactive::discover_models(&self.config, &self.auth_store);
+        let custom_providers = self.config.providers.keys().cloned().collect();
+        let sources = crate::repl::interactive::CompletionSources::new()
+            .with_skills(skills)
+            .with_templates(prompt_templates)
+            .with_models(models)
+            .with_custom_providers(custom_providers);
+        let completer = Box::new(RhoCompleter::new(sources));
         let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
         let history = Box::new(

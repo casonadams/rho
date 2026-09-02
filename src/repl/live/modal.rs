@@ -49,37 +49,25 @@ pub fn open_model_selector<B: crate::ui::interactive::TerminalBackend>(
     session: &crate::repl::ReplSession,
     controller: &mut TerminalController<B>,
 ) {
-    let models = crate::repl::interactive::CURATED_MODELS;
+    let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
-    for (i, (model_id, provider)) in models.iter().enumerate() {
-        let is_active = *model_id == session.config.model;
+    for (i, item) in discovered.iter().enumerate() {
+        let is_active = item.id == session.config.model;
         if is_active {
             initial_selection = i;
         }
         let active_tag = if is_active { " [ACTIVE]" } else { "" };
-        let ctx = rho_core::tokens::context_window_size(model_id);
-        let ctx_str = if ctx >= 1_000_000 {
-            format!("{}M ctx", ctx / 1_000_000)
-        } else {
-            format!("{}k ctx", ctx / 1000)
-        };
-        let is_reasoning = model_id.contains("reasoner")
-            || model_id.contains("sonnet")
-            || model_id.contains("luna")
-            || model_id.contains("pro");
-        let reasoning_str = if is_reasoning { " · reasoning" } else { "" };
-
         options.push(crate::ui::interactive::ModalOption::new(
-            *model_id,
-            Some(format!("{provider} · {ctx_str}{reasoning_str}{active_tag}")),
+            item.id.clone(),
+            Some(format!("{} · {}{active_tag}", item.provider, item.description)),
         ));
     }
 
     let mut modal = ModalState::new(
         "Select Model",
-        "Only showing models from configured providers. Use /login to add providers.",
+        "Select from configured and well-known AI models. Use /login to add provider credentials.",
         options,
     );
     modal.selected = initial_selection;
@@ -101,11 +89,12 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
         if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
             if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
                 let selected_model = opt.label.clone();
-                let provider = crate::repl::interactive::CURATED_MODELS
-                    .iter()
-                    .find(|(m, _)| *m == selected_model)
-                    .map(|(_, p)| p.to_string())
-                    .unwrap_or_else(|| "anthropic".to_string());
+                let provider = opt
+                    .description
+                    .as_deref()
+                    .and_then(|d| d.split_whitespace().next())
+                    .unwrap_or("anthropic")
+                    .to_string();
                 controller.state_mut().pop_modal();
                 return Ok(ModalKeyResult::ModelSelected {
                     model: selected_model,
@@ -131,11 +120,12 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
             KeyCode::Enter => {
                 if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
                     let selected_model = opt.label.clone();
-                    let provider = crate::repl::interactive::CURATED_MODELS
-                        .iter()
-                        .find(|(m, _)| *m == selected_model)
-                        .map(|(_, p)| p.to_string())
-                        .unwrap_or_else(|| "anthropic".to_string());
+                    let provider = opt
+                        .description
+                        .as_deref()
+                        .and_then(|d| d.split_whitespace().next())
+                        .unwrap_or("anthropic")
+                        .to_string();
                     controller.state_mut().pop_modal();
                     return Ok(ModalKeyResult::ModelSelected {
                         model: selected_model,

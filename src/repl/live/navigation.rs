@@ -129,12 +129,12 @@ pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {
 }
 
 pub fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
-    let models = crate::repl::interactive::CURATED_MODELS;
+    let models = crate::repl::interactive::discover_models(&ctx.session.config, &ctx.session.auth_store);
     if models.is_empty() {
         return;
     }
     let current_model = &ctx.session.config.model;
-    let current_idx = models.iter().position(|(m, _)| m == current_model).unwrap_or(0);
+    let current_idx = models.iter().position(|m| &m.id == current_model).unwrap_or(0);
 
     let next_idx = if direction >= 0 {
         (current_idx + 1) % models.len()
@@ -144,9 +144,9 @@ pub fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, d
         current_idx - 1
     };
 
-    let (new_model, new_provider) = models[next_idx];
-    ctx.session.config.model = new_model.to_string();
-    ctx.session.config.provider = new_provider.to_string();
+    let item = &models[next_idx];
+    ctx.session.config.model = item.id.clone();
+    ctx.session.config.provider = item.provider.clone();
 
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.session.renderer.print_notice(&format!(

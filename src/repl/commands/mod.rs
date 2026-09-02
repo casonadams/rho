@@ -184,13 +184,14 @@ impl SlashCommandHandler {
                         new_provider: Some(provider),
                     }))
                 } else {
-                    let models: Vec<String> = crate::repl::interactive::CURATED_MODELS
+                    let discovered = crate::repl::interactive::discover_models(ctx.config, ctx.auth_store);
+                    let models: Vec<String> = discovered
                         .iter()
-                        .map(|(m, p)| format!("{m} ({p})"))
+                        .map(|m| format!("{} ({}) - {}", m.id, m.provider, m.description))
                         .collect();
                     if let Ok(choice) = inquire::Select::new("Select a model:", models).prompt() {
                         let model_str = choice.split_whitespace().next().unwrap_or("");
-                        let provider_str = choice.split('(').nth(1).and_then(|s| s.strip_suffix(')')).unwrap_or("");
+                        let provider_str = choice.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or("");
                         ctx.config.model = model_str.to_string();
                         ctx.config.provider = provider_str.to_string();
                         ctx.renderer.print_notice(&format!(

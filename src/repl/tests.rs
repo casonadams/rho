@@ -4,7 +4,8 @@ use reedline::Completer;
 
 #[test]
 fn slash_commands_complete_from_a_prefix() {
-    let mut completer = RhoCompleter::new(&[], Vec::new(), vec!["review".to_string()]);
+    let sources = crate::repl::interactive::CompletionSources::new().with_templates(vec!["review".to_string()]);
+    let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/mo", 3);
     assert_eq!(suggestions.len(), 1);
     assert_eq!(suggestions[0].value, "/model");
@@ -16,11 +17,9 @@ fn slash_commands_complete_from_a_prefix() {
 
 #[test]
 fn skill_names_complete_from_prefix() {
-    let skill_names = crate::skills::resolved_skills(None, None)
-        .into_iter()
-        .map(|skill| skill.metadata.name)
-        .collect();
-    let mut completer = RhoCompleter::new(&[], skill_names, Vec::new());
+    let skills = crate::skills::resolved_skills(None, None);
+    let sources = crate::repl::interactive::CompletionSources::new().with_skills(skills);
+    let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/skill pl", 9);
     assert!(suggestions.iter().any(|s| s.value == "/skill plan"));
 }

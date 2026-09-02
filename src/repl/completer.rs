@@ -1,4 +1,4 @@
-use super::interactive::CompletionSet;
+use super::interactive::{CompletionSet, CompletionSources};
 use reedline::{Completer, Span, Suggestion};
 
 #[derive(Clone)]
@@ -7,9 +7,9 @@ pub struct RhoCompleter {
 }
 
 impl RhoCompleter {
-    pub fn new(extension_commands: &[(&str, &str)], skill_names: Vec<String>, prompt_templates: Vec<String>) -> Self {
+    pub fn new(sources: CompletionSources) -> Self {
         Self {
-            completions: CompletionSet::rho(extension_commands, skill_names, prompt_templates),
+            completions: CompletionSet::from_sources(sources),
         }
     }
 }
