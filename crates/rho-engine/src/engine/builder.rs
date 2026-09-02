@@ -61,43 +61,50 @@ impl AgentEngineBuilder {
         };
 
         let mut config = self.config;
+        let is_unmodified_default = config.provider == "anthropic" && config.model == "claude-3-7-sonnet-20250219";
+
         let model = match crate::provider::ProviderFactory::create_model(&config, &config.model, &self.auth_store) {
             Ok(m) => m,
             Err(e) => {
-                // If the default model (Anthropic) has no credentials, automatically select
-                // the user's configured provider, or local Ollama if running.
-                let configured = self.auth_store.list_configured_providers();
-                let mut fallback = None;
-                for p in configured {
-                    let default_model = default_model_for_provider(&p);
-                    let mut trial_config = config.clone();
-                    trial_config.provider = p.clone();
-                    trial_config.model = default_model.to_string();
-                    if let Ok(m) = crate::provider::ProviderFactory::create_model(
-                        &trial_config,
-                        &trial_config.model,
+                // ONLY auto-fallback if we are on the untouched default startup config
+                // and Anthropic credentials don't exist.
+                // If the user selected ANY explicit model or provider, return the error directly!
+                if is_unmodified_default {
+                    let configured = self.auth_store.list_configured_providers();
+                    let mut fallback = None;
+                    for p in configured {
+                        let default_model = default_model_for_provider(&p);
+                        let mut trial_config = config.clone();
+                        trial_config.provider = p.clone();
+                        trial_config.model = default_model.to_string();
+                        if let Ok(m) = crate::provider::ProviderFactory::create_model(
+                            &trial_config,
+                            &trial_config.model,
+                            &self.auth_store,
+                        ) {
+                            config = trial_config;
+                            fallback = Some(m);
+                            break;
+                        }
+                    }
+
+                    if let Some(m) = fallback {
+                        m
+                    } else if let Ok(local_model) = crate::provider::ProviderFactory::create_model(
+                        &Config {
+                            provider: "local".to_string(),
+                            model: "llama3.2".to_string(),
+                            ..config.clone()
+                        },
+                        "llama3.2",
                         &self.auth_store,
                     ) {
-                        config = trial_config;
-                        fallback = Some(m);
-                        break;
+                        config.provider = "local".to_string();
+                        config.model = "llama3.2".to_string();
+                        local_model
+                    } else {
+                        return Err(e);
                     }
-                }
-
-                if let Some(m) = fallback {
-                    m
-                } else if let Ok(local_model) = crate::provider::ProviderFactory::create_model(
-                    &Config {
-                        provider: "local".to_string(),
-                        model: "llama3.2".to_string(),
-                        ..config.clone()
-                    },
-                    "llama3.2",
-                    &self.auth_store,
-                ) {
-                    config.provider = "local".to_string();
-                    config.model = "llama3.2".to_string();
-                    local_model
                 } else {
                     return Err(e);
                 }
