@@ -171,7 +171,8 @@ as standard tools.
 
 ## Plugins & Lifecycle Hooks
 
-Plugins hook into Rig's agent lifecycle (`tool_call`, `tool_result`, `invalid_tool_call`, `completion_call`) to observe, steer, or augment execution:
+Plugins hook into Rig's agent lifecycle (`tool_call`, `tool_result`,
+`invalid_tool_call`, `completion_call`) to observe, steer, or augment execution:
 
 ```toml
 # In ~/.config/rho/config.toml or .rho/config.toml
@@ -180,11 +181,17 @@ enabled = true
 command = "rho-plugin-permission"
 ```
 
-- **[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission)**: Rule-based allow/deny checks in `~/.config/rho/permission.toml` plus interactive terminal approval modals.
-- **Polyglot Daemons**: Write plugins in Rust, Python, Node.js, or Go via standard JSON-RPC 2.0 over standard I/O.
-- **Official Rust SDK**: Build plugins in Rust with [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk).
+- **[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission)**:
+  Rule-based allow/deny checks in `~/.config/rho/permission.toml` plus
+  interactive terminal approval modals.
+- **Polyglot Daemons**: Write plugins in Rust, Python, Node.js, or Go via
+  standard JSON-RPC 2.0 over standard I/O.
+- **Official Rust SDK**: Build plugins in Rust with
+  [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk).
 
-Full hook protocol, Host UI services, and language examples are documented in **[docs/plugins.md](docs/plugins.md)** and **[examples/plugins/](examples/plugins/)**.
+Full hook protocol, Host UI services, and language examples are documented in
+**[docs/plugins.md](docs/plugins.md)** and
+**[examples/plugins/](examples/plugins/)**.
 
 ---
 
@@ -195,7 +202,9 @@ The workspace is structured into four clean, focused crates:
 - **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP client.
-- **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and lifecycle hooks.
-- **`rho`**: CLI binaries, interactive TUI editor, and terminal rendering engine.
-- **`rho`**: Binary CLI entrypoint, interactive TUI, slash commands, and editor.
+  tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP
+  client.
+- **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
+  lifecycle hooks.
+- **`rho`**: Binary CLI entrypoint, interactive TUI editor, slash commands, and
+  terminal rendering engine.

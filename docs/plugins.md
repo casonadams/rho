@@ -1,14 +1,20 @@
 # Model Context Protocol (MCP) & Plugins
 
 `rho` extends its capabilities through two systems:
-1. **Model Context Protocol (MCP) Servers**: Out-of-process JSON-RPC tool providers that expose external APIs, databases, browser automation, and custom tools.
-2. **Rig-Native Plugin Subsystem**: Event hooks, dynamic tools, custom providers, and host UI integration for security guardrails, request steering, and tool transformation.
+
+1. **Model Context Protocol (MCP) Servers**: Out-of-process JSON-RPC tool
+   providers that expose external APIs, databases, browser automation, and
+   custom tools.
+2. **Rig-Native Plugin Subsystem**: Event hooks, dynamic tools, custom
+   providers, and host UI integration for security guardrails, request steering,
+   and tool transformation.
 
 ---
 
 ## 1. Configuring MCP Servers
 
-MCP servers can be configured globally in `~/.config/rho/config.toml` or per-project in `.rho/config.toml`:
+MCP servers can be configured globally in `~/.config/rho/config.toml` or
+per-project in `.rho/config.toml`:
 
 ```toml
 [mcp]
@@ -32,14 +38,18 @@ enabled = true
 ```
 
 ### Tool Namespacing
-Every tool exposed by an MCP server is automatically namespaced using the server's configuration key:
-`[mcp.servers.<server_name>]` + tool `foo` $\rightarrow$ model-facing tool `<server_name>_foo`
+
+Every tool exposed by an MCP server is automatically namespaced using the
+server's configuration key: `[mcp.servers.<server_name>]` + tool `foo`
+$\rightarrow$ model-facing tool `<server_name>_foo`
 
 ---
 
 ## 2. Plugins (Rig-Native Hook Subsystem)
 
-Plugins in `rho` are long-running daemon processes or native Rust plugins that hook into [Rig's agent lifecycle](https://rig.rs/docs/concepts/hooks) to observe, steer, or augment execution.
+Plugins in `rho` are long-running daemon processes or native Rust plugins that
+hook into [Rig's agent lifecycle](https://rig.rs/docs/concepts/hooks) to
+observe, steer, or augment execution.
 
 ### Configuring Plugins
 
@@ -55,49 +65,63 @@ args = []
 ```
 
 #### Path Resolution Rules:
-- Relative `path` values resolve against the **working directory** where `rho` runs.
+
+- Relative `path` values resolve against the **working directory** where `rho`
+  runs.
 - `~` is not expanded in `path` — use absolute paths or `command`.
-- A `path` may point to a cargo project: `rho` automatically resolves `<path>/target/release/<name>` or `<path>/target/debug/<name>`.
+- A `path` may point to a cargo project: `rho` automatically resolves
+  `<path>/target/release/<name>` or `<path>/target/debug/<name>`.
 
 ---
 
 ## 3. Daemon Protocol (JSON-RPC 2.0 over Stdio)
 
-External plugins run as persistent processes communicating via standard JSON-RPC 2.0 over standard I/O (stdin/stdout).
+External plugins run as persistent processes communicating via standard JSON-RPC
+2.0 over standard I/O (stdin/stdout).
 
 ### A. Lifecycle & Hook Events (`Host -> Plugin`)
 
 The engine dispatches Rig lifecycle events to active plugins:
 
-| Method | Event Payload | Description |
-| :--- | :--- | :--- |
-| `hook/tool_call` | `{"event": "tool_call", "tool_name": "...", "args": {...}}` | Intercept tool call before execution. |
-| `hook/tool_result` | `{"event": "tool_result", "tool_name": "...", "args": {...}, "output": "...", "is_error": false}` | Inspect output after tool execution. |
-| `hook/invalid_tool_call` | `{"event": "invalid_tool_call", "tool_name": "...", "args": {...}, "available_tools": [...]}` | Intercept unknown / hallucinated tool calls for self-healing. |
-| `hook/completion_call` | `{"event": "completion_call", "turn": 1, "prompt": {...}, "history": [...]}` | Inspect or patch turn request parameters. |
-| `hook/completion_response` | `{"event": "completion_response", "prompt": {...}, "response": [...]}` | Audit raw completion output and tokens. |
+| Method                     | Event Payload                                                                                     | Description                                                   |
+| :------------------------- | :------------------------------------------------------------------------------------------------ | :------------------------------------------------------------ |
+| `hook/tool_call`           | `{"event": "tool_call", "tool_name": "...", "args": {...}}`                                       | Intercept tool call before execution.                         |
+| `hook/tool_result`         | `{"event": "tool_result", "tool_name": "...", "args": {...}, "output": "...", "is_error": false}` | Inspect output after tool execution.                          |
+| `hook/invalid_tool_call`   | `{"event": "invalid_tool_call", "tool_name": "...", "args": {...}, "available_tools": [...]}`     | Intercept unknown / hallucinated tool calls for self-healing. |
+| `hook/completion_call`     | `{"event": "completion_call", "turn": 1, "prompt": {...}, "history": [...]}`                      | Inspect or patch turn request parameters.                     |
+| `hook/completion_response` | `{"event": "completion_response", "prompt": {...}, "response": [...]}`                            | Audit raw completion output and tokens.                       |
 
 ### B. Steering Actions (`Plugin -> Host Response`)
 
-In response to any hook request, the plugin returns a standard Rig `Flow` action:
+In response to any hook request, the plugin returns a standard Rig `Flow`
+action:
 
-* `{"action": "continue"}` — Proceed normally.
-* `{"action": "skip", "reason": "..."}` — Skip tool execution and return `reason` as the tool result.
-* `{"action": "rewrite_args", "args": {...}}` — Run the tool with replacement JSON arguments.
-* `{"action": "rewrite_result", "result": "..."}` — Replace the output string returned to the model.
-* `{"action": "override_request", "request": {"temperature": 0.0, "active_tools": ["bash"]}}` — Patch turn parameters.
-* `{"action": "repair", "tool_name": "bash"}` — Repair an invalid/aliased tool name on the fly.
-* `{"action": "retry", "feedback": "..."}` — Send error feedback back to the LLM to self-correct.
-* `{"action": "terminate", "reason": "..."}` — Stop the agent turn immediately.
+- `{"action": "continue"}` — Proceed normally.
+- `{"action": "skip", "reason": "..."}` — Skip tool execution and return
+  `reason` as the tool result.
+- `{"action": "rewrite_args", "args": {...}}` — Run the tool with replacement
+  JSON arguments.
+- `{"action": "rewrite_result", "result": "..."}` — Replace the output string
+  returned to the model.
+- `{"action": "override_request", "request": {"temperature": 0.0, "active_tools": ["bash"]}}`
+  — Patch turn parameters.
+- `{"action": "repair", "tool_name": "bash"}` — Repair an invalid/aliased tool
+  name on the fly.
+- `{"action": "retry", "feedback": "..."}` — Send error feedback back to the LLM
+  to self-correct.
+- `{"action": "terminate", "reason": "..."}` — Stop the agent turn immediately.
 
 ---
 
 ## 4. Host Services API (`Plugin -> Host Requests`)
 
-While evaluating an event, a plugin can request host services (such as UI modals) via bidirectional JSON-RPC:
+While evaluating an event, a plugin can request host services (such as UI
+modals) via bidirectional JSON-RPC:
 
 ### 1. `host/ui/confirm`
+
 Presents a Yes/No modal in `rho`'s terminal UI:
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -110,13 +134,17 @@ Presents a Yes/No modal in `rho`'s terminal UI:
   }
 }
 ```
+
 Host response:
+
 ```json
 { "jsonrpc": "2.0", "id": 100, "result": { "confirmed": true } }
 ```
 
 ### 2. `host/ui/select`
+
 Presents a selectable list of options with preview descriptions:
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -132,13 +160,17 @@ Presents a selectable list of options with preview descriptions:
   }
 }
 ```
+
 Host response:
+
 ```json
 { "jsonrpc": "2.0", "id": 101, "result": { "selected": 0, "cancelled": false } }
 ```
 
 ### 3. `host/ui/notify`
+
 Emits a notice into the terminal transcript:
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -151,13 +183,17 @@ Emits a notice into the terminal transcript:
 }
 ```
 
-*Note: In headless/non-interactive mode (`has_ui == false`), confirmation and input requests fail closed (`confirmed: false`, `cancelled: true`) automatically.*
+_Note: In headless/non-interactive mode (`has_ui == false`), confirmation and
+input requests fail closed (`confirmed: false`, `cancelled: true`)
+automatically._
 
 ---
 
 ## 5. Building Plugins with `rho-plugin-sdk` (Rust)
 
-For Rust developers, the official [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk) eliminates all protocol boilerplate:
+For Rust developers, the official
+[`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk) eliminates all
+protocol boilerplate:
 
 ```toml
 [dependencies]
@@ -205,6 +241,9 @@ async fn main() {
 ## 6. Examples in Other Languages
 
 Check [`examples/plugins/`](../examples/plugins/):
-- **Python**: [`examples/plugins/python-guard/guard.py`](../examples/plugins/python-guard/guard.py)
-- **Node.js**: [`examples/plugins/node-notifier/notifier.js`](../examples/plugins/node-notifier/notifier.js)
+
+- **Python**:
+  [`examples/plugins/python-guard/guard.py`](../examples/plugins/python-guard/guard.py)
+- **Node.js**:
+  [`examples/plugins/node-notifier/notifier.js`](../examples/plugins/node-notifier/notifier.js)
 - **Rust**: [`examples/plugins/rust-guard/`](../examples/plugins/rust-guard/)
