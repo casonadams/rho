@@ -6023,7 +6023,7 @@ checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 
 [[package]]
 name = "rho"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -6059,6 +6059,8 @@ dependencies = [
 ]
 
 [[package]]
+name = "rho-core"
+version = "0.1.1"
 name = "rho-engine"
 version = "0.1.0"
 dependencies = [
@@ -6093,6 +6095,8 @@ dependencies = [
 ]
 
 [[package]]
+name = "rho-engine"
+version = "0.1.1"
 name = "rho-harness-core"
 version = "0.1.0"
 dependencies = [
