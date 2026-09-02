@@ -215,3 +215,64 @@ done
     let display_output = pipeline.transform("Model invoked `mcp__bash__run` with success.");
     assert_eq!(display_output, "Model invoked `bash` with success.");
 }
+
+struct NativeTestPlugin;
+
+impl rho_engine::plugin::RhoPlugin for NativeTestPlugin {
+    fn name(&self) -> &str {
+        "native_test_plugin"
+    }
+
+    fn tools(&self) -> Vec<rig::tool::DynamicTool> {
+        vec![rig::tool::DynamicTool::new(
+            "custom_eval",
+            "Custom evaluation tool",
+            json!({
+                "type": "object",
+                "properties": { "expression": { "type": "string" } },
+                "required": ["expression"]
+            }),
+            |_ctx, _args| Box::pin(async { Ok(rig::tool::ToolOutput::text("result: 42")) }),
+        )]
+    }
+
+    fn register_hooks(&self, stack: &mut rig::agent::hook::HookStack) {
+        struct NativeGuardHook;
+        impl rig::agent::hook::AgentHook for NativeGuardHook {
+            async fn on_tool_call(
+                &self,
+                _ctx: &rig::agent::hook::HookContext,
+                event: rig::agent::hook::ToolCall<'_>,
+            ) -> rig::agent::hook::ToolCallAction {
+                if event.tool_name == "dangerous_op" {
+                    return rig::agent::hook::ToolCallAction::skip("Blocked by native guard hook");
+                }
+                rig::agent::hook::ToolCallAction::run()
+            }
+        }
+        stack.push(NativeGuardHook);
+    }
+}
+
+#[tokio::test]
+async fn test_native_in_process_rho_plugin() {
+    let dir = tempdir().unwrap();
+    let config = Config {
+        config_dir: dir.path().to_path_buf(),
+        sessions_dir: dir.path().join("sessions"),
+        auth_file: dir.path().join("auth.json"),
+        ..Config::default()
+    };
+    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+
+    let plugin = Arc::new(NativeTestPlugin);
+    let engine = AgentEngineBuilder::new(config, auth_store)
+        .base_dir(dir.path().to_path_buf())
+        .plugin(plugin)
+        .build()
+        .await
+        .unwrap();
+
+    assert!(engine.tool_names.contains(&"custom_eval".to_string()));
+    assert!(engine.tool_names.contains(&"read".to_string()));
+}

@@ -81,6 +81,7 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
         config,
         session_manager: store,
         tool_names: Vec::new(),
+        plugins: Vec::new(),
         agent: Box::new(agent),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

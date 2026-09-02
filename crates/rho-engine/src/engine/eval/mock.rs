@@ -67,6 +67,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
             .iter()
             .map(|tool| tool.name().to_string())
             .collect(),
+        plugins: Vec::new(),
         agent: Box::new(agent),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

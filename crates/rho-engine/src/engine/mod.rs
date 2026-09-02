@@ -27,6 +27,7 @@ pub struct AgentEngine {
     pub config: Config,
     pub session_manager: SessionManager,
     pub tool_names: Vec<String>,
+    pub(crate) plugins: Vec<Arc<dyn crate::plugin::RhoPlugin>>,
     pub(crate) agent: Box<Agent>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,

@@ -72,14 +72,21 @@ impl AgentEngine {
             let mut tool_context = ToolContext::new();
             tool_context.insert(presenter.stream_port());
             let plugin_hook = DaemonHook::new(&self.config.plugins, &std::env::current_dir()?, presenter.clone()).await;
+
+            let mut hook_stack = rig::agent::hook::HookStack::new();
+            hook_stack.push(RepeatedCallHook::new(std::env::current_dir()?));
+            hook_stack.push(plugin_hook);
+            for p in &self.plugins {
+                p.register_hooks(&mut hook_stack);
+            }
+            hook_stack.push(TurnToolExecutionHook::new(sink.clone()));
+
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
                 .tool_context(tool_context)
-                .add_hook(RepeatedCallHook::new(std::env::current_dir()?))
-                .add_hook(plugin_hook)
-                .add_hook(TurnToolExecutionHook::new(sink.clone()));
+                .add_hook(hook_stack);
             let runner = match checkpoint.as_ref() {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),
                 None => runner,

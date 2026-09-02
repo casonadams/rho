@@ -16,6 +16,7 @@ pub struct AgentEngineBuilder {
     base_dir: Option<PathBuf>,
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
     extra_tools: Vec<rig::tool::DynamicTool>,
+    plugins: Vec<Arc<dyn crate::plugin::RhoPlugin>>,
 }
 
 impl AgentEngineBuilder {
@@ -23,6 +24,7 @@ impl AgentEngineBuilder {
         Self {
             rig_tools: None,
             extra_tools: Vec::new(),
+            plugins: Vec::new(),
             config,
             auth_store,
             resume_id: None,
@@ -48,6 +50,19 @@ impl AgentEngineBuilder {
 
     pub fn add_tools(mut self, tools: impl IntoIterator<Item = rig::tool::DynamicTool>) -> Self {
         self.extra_tools.extend(tools);
+        self
+    }
+
+    pub fn plugin(mut self, plugin: Arc<dyn crate::plugin::RhoPlugin>) -> Self {
+        self.extra_tools.extend(plugin.tools());
+        self.plugins.push(plugin);
+        self
+    }
+
+    pub fn plugins(mut self, plugins: impl IntoIterator<Item = Arc<dyn crate::plugin::RhoPlugin>>) -> Self {
+        for p in plugins {
+            self = self.plugin(p);
+        }
         self
     }
 
@@ -153,6 +168,7 @@ impl AgentEngineBuilder {
             config: config.clone(),
             session_manager,
             tool_names,
+            plugins: self.plugins,
             agent: Box::new(agent),
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
