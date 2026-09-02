@@ -15,12 +15,14 @@ pub struct AgentEngineBuilder {
     session_manager: Option<SessionManager>,
     base_dir: Option<PathBuf>,
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
+    extra_tools: Vec<rig::tool::DynamicTool>,
 }
 
 impl AgentEngineBuilder {
     pub fn new(config: Config, auth_store: AuthStore) -> Self {
         Self {
             rig_tools: None,
+            extra_tools: Vec::new(),
             config,
             auth_store,
             resume_id: None,
@@ -36,6 +38,16 @@ impl AgentEngineBuilder {
 
     pub fn tools(mut self, rig_tools: Vec<rig::tool::DynamicTool>) -> Self {
         self.rig_tools = Some(rig_tools);
+        self
+    }
+
+    pub fn add_tool(mut self, tool: rig::tool::DynamicTool) -> Self {
+        self.extra_tools.push(tool);
+        self
+    }
+
+    pub fn add_tools(mut self, tools: impl IntoIterator<Item = rig::tool::DynamicTool>) -> Self {
+        self.extra_tools.extend(tools);
         self
     }
 
@@ -66,9 +78,6 @@ impl AgentEngineBuilder {
         let model = match crate::provider::ProviderFactory::create_model(&config, &config.model, &self.auth_store) {
             Ok(m) => m,
             Err(e) => {
-                // ONLY auto-fallback if we are on the untouched default startup config
-                // and Anthropic credentials don't exist.
-                // If the user selected ANY explicit model or provider, return the error directly!
                 if is_unmodified_default {
                     let configured = self.auth_store.list_configured_providers();
                     let mut fallback = None;
@@ -111,8 +120,6 @@ impl AgentEngineBuilder {
             }
         };
 
-        // Local Ollama models don't report their context window through the
-        // completion APIs, so fall back to the size recorded by model discovery.
         let context_limit = match config.context_limit {
             Some(limit) => Some(limit),
             None if config.provider == "local" => {
@@ -124,26 +131,28 @@ impl AgentEngineBuilder {
             }
             None => None,
         };
+
+        let mut tools = match self.rig_tools {
+            Some(t) => t,
+            None => crate::tools::builtin_tools::build_builtin_tools(&base_dir, &config)?,
+        };
+        tools.extend(self.extra_tools);
+        let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
+
         let agent = super::runtime::build_coding_agent(
             model,
             &config,
             CodingRuntime {
                 base_dir: &base_dir,
                 memory: session_manager.clone(),
-                built_in_tools: self.rig_tools.clone(),
+                built_in_tools: Some(tools),
             },
         )?;
 
         Ok(AgentEngine {
             config: config.clone(),
             session_manager,
-            tool_names: self
-                .rig_tools
-                .clone()
-                .unwrap_or_default()
-                .iter()
-                .map(|tool| tool.name().to_string())
-                .collect(),
+            tool_names,
             agent: Box::new(agent),
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),

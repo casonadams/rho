@@ -208,3 +208,35 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn builder_attaches_dynamic_plugin_tools() {
+    with_dummy_provider_key();
+    let (config, dir) = test_config("plugin_tools");
+    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    let base_dir = std::env::temp_dir();
+
+    let custom_tool = rig::tool::DynamicTool::new(
+        "generate_image",
+        "Generate image tool",
+        serde_json::json!({
+            "type": "object",
+            "properties": { "prompt": { "type": "string" } },
+            "required": ["prompt"]
+        }),
+        |_ctx, _args| Box::pin(async { Ok(rig::tool::ToolOutput::text("image.png")) }),
+    );
+
+    let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .base_dir(base_dir)
+        .add_tool(custom_tool)
+        .build()
+        .await
+        .unwrap();
+
+    assert!(engine.tool_names.contains(&"generate_image".to_string()));
+    assert!(engine.tool_names.contains(&"read".to_string()));
+    assert!(engine.tool_names.contains(&"bash".to_string()));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
