@@ -48,7 +48,7 @@ pub enum KeyAction {
 }
 
 impl KeyAction {
-    pub fn id(&self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::AppInterrupt => "app.interrupt",
             Self::AppClear => "app.clear",
@@ -96,7 +96,11 @@ impl KeyAction {
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
-        match id {
+        Self::from_name(id)
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
             "app.interrupt" => Some(Self::AppInterrupt),
             "app.clear" => Some(Self::AppClear),
             "app.exit" => Some(Self::AppExit),
@@ -159,6 +163,18 @@ impl KeyChord {
         if event.kind == KeyEventKind::Release {
             return false;
         }
+
+        // Special handling for Shift+Tab: in crossterm, Shift+Tab can arrive either as
+        // (KeyCode::BackTab, KeyModifiers::NONE / SHIFT) OR (KeyCode::Tab, KeyModifiers::SHIFT)
+        let is_self_shift_tab = (self.code == KeyCode::Tab && self.modifiers.contains(KeyModifiers::SHIFT))
+            || self.code == KeyCode::BackTab;
+        let is_event_shift_tab = (event.code == KeyCode::Tab && event.modifiers.contains(KeyModifiers::SHIFT))
+            || event.code == KeyCode::BackTab;
+
+        if is_self_shift_tab && is_event_shift_tab {
+            return true;
+        }
+
         let norm_event_code = match event.code {
             KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
             other => other,
@@ -196,11 +212,11 @@ impl KeybindingMap {
     }
 
     pub fn get_action(&self, event: &KeyEvent) -> Option<KeyAction> {
-        let norm_code = match event.code {
-            KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
-            other => other,
-        };
-        let chord = KeyChord::new(norm_code, event.modifiers);
-        self.bindings.get(&chord).copied()
+        for (chord, action) in &self.bindings {
+            if chord.matches(event) {
+                return Some(*action);
+            }
+        }
+        None
     }
 }

@@ -7,6 +7,8 @@ pub mod keybinding_loader;
 pub mod keymap;
 mod layout;
 pub mod session_picker;
+#[cfg(test)]
+mod shift_tab_tests;
 mod state;
 mod transcript;
 pub mod tree_view;
