@@ -7,8 +7,8 @@ mod tests;
 use crate::config::Config;
 use crate::ui::TerminalRenderer;
 use help::print_help;
-use rho_core::error::Result;
 use rho_engine::auth::AuthStore;
+use rho_harness_core::error::Result;
 use std::fmt::Write as _;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,7 +58,7 @@ pub struct SlashCommandContext<'a> {
     pub auth_store: &'a mut AuthStore,
     pub renderer: &'a TerminalRenderer,
     pub session_id: Option<&'a str>,
-    pub session_manager: Option<&'a rho_core::session::SessionManager>,
+    pub session_manager: Option<&'a rho_harness_core::session::SessionManager>,
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
@@ -94,6 +94,10 @@ impl SlashCommandHandler {
                 if parts.len() > 1 {
                     let level = parts[1].to_lowercase();
                     ctx.config.thinking_level = if level == "off" { None } else { Some(level.clone()) };
+                    let _ = rho_harness_core::state::AppState::set_last_thinking_level(
+                        ctx.config.config_dir.as_path(),
+                        ctx.config.thinking_level.as_deref(),
+                    );
                     ctx.renderer
                         .print_notice(&format!("  [Thinking level set to {level}]\n"));
                 } else {
@@ -108,6 +112,10 @@ impl SlashCommandHandler {
                         } else {
                             Some(selected_level.to_string())
                         };
+                        let _ = rho_harness_core::state::AppState::set_last_thinking_level(
+                            ctx.config.config_dir.as_path(),
+                            ctx.config.thinking_level.as_deref(),
+                        );
                         ctx.renderer
                             .print_notice(&format!("  [Thinking level set to {selected_level}]\n"));
                     }
@@ -119,7 +127,7 @@ impl SlashCommandHandler {
                 let _ = writeln!(out, "\nSession Diagnostics");
                 let _ = writeln!(out, "  Model:                       {}", ctx.config.model);
                 let _ = writeln!(out, "  Provider:                    {}", ctx.config.provider);
-                let window = rho_core::tokens::context_window_size(&ctx.config.model);
+                let window = rho_harness_core::tokens::context_window_size(&ctx.config.model);
                 let _ = writeln!(out, "  Context Capacity:            {} tokens", window);
                 let _ = writeln!(
                     out,
@@ -344,7 +352,7 @@ impl SlashCommandHandler {
                 }
 
                 let templates =
-                    rho_core::prompts::discover_prompt_templates(Some(&ctx.config.config_dir), cwd.as_deref());
+                    rho_harness_core::prompts::discover_prompt_templates(Some(&ctx.config.config_dir), cwd.as_deref());
                 if let Some(template) = templates.iter().find(|t| t.metadata.name == custom) {
                     let args = &parts[1..];
                     let expanded = template.expand(args);
@@ -391,8 +399,8 @@ impl SlashCommandHandler {
 
         let tree = session_manager.load_tree().await?;
         let content = match extension {
-            "html" => rho_core::session::export::render_html(&tree, session_id),
-            _ => rho_core::session::export::render_markdown(&tree, session_id),
+            "html" => rho_harness_core::session::export::render_html(&tree, session_id),
+            _ => rho_harness_core::session::export::render_markdown(&tree, session_id),
         };
         let path = path_override
             .map(std::path::PathBuf::from)

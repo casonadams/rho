@@ -5,8 +5,8 @@ use super::preview::{tool_title_style, webfetch_content_kind};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, UiEvent};
 use crate::ui::theme::Theme;
-use rho_core::presentation::summary::{clean_command_paths, read_summary_parts, to_relative_path};
-use rho_core::presentation::{SessionStatus, ToolLine};
+use rho_harness_core::presentation::summary::{clean_command_paths, read_summary_parts, to_relative_path};
+use rho_harness_core::presentation::{SessionStatus, ToolLine};
 
 #[test]
 fn interactive_renderer_emits_formatted_output_and_activity_events() {
@@ -131,7 +131,7 @@ fn finished_read_block_omits_elapsed_duration() {
 
 #[test]
 fn bash_summary_formats_timeout_inline() {
-    use rho_core::presentation::summary::format_tool_args_summary;
+    use rho_harness_core::presentation::summary::format_tool_args_summary;
     let with_timeout = format_tool_args_summary("bash", &serde_json::json!({"command": "cargo build", "timeout": 30}));
     assert_eq!(with_timeout, "`cargo build` (timeout 30s)");
 

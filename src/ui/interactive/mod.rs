@@ -33,4 +33,6 @@ pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState, ModalMode, ModalOption,
     ModalState, QueueKind, QueuedMessage, RunningTool, UiAction, UiEffect,
 };
-pub use transcript::{ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, render_transcript_item};
+pub use transcript::{
+    ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_welcome_content, render_transcript_item,
+};

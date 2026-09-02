@@ -1,9 +1,9 @@
 use async_trait::async_trait;
-use rho_core::presentation::activity::ActivityToken;
-use rho_core::presentation::presenter::Presenter;
-use rho_core::presentation::stream::ToolStreamPort;
-use rho_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
-use rho_core::rpc::protocol::RpcEvent;
+use rho_harness_core::presentation::activity::ActivityToken;
+use rho_harness_core::presentation::presenter::Presenter;
+use rho_harness_core::presentation::stream::ToolStreamPort;
+use rho_harness_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
+use rho_harness_core::rpc::protocol::RpcEvent;
 use serde_json::Value;
 use tokio::sync::mpsc;
 

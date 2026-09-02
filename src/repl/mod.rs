@@ -87,9 +87,24 @@ impl ReplSession {
         crate::repl::interactive::spawn_background_model_refresh(&config, &self.auth_store);
         let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
         self.config = config;
+
+        let skills: Vec<String> =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref())
+                .into_iter()
+                .map(|s| s.metadata.name)
+                .collect();
+        let tools = rebuilt.tool_names.clone();
+        let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
+        for mcp in self.config.mcp.servers.keys() {
+            if !plugins.contains(mcp) {
+                plugins.push(mcp.clone());
+            }
+        }
+
         self.renderer.print_notice(&format!(
-            "  [Reloaded config, skills, and MCP tools ({} tools); session preserved]\n",
-            rebuilt.tool_names.len()
+            "  [Reloaded config, skills, and tools ({} skills, {} tools); session preserved]\n",
+            skills.len(),
+            tools.len()
         ));
         Ok(rebuilt)
     }
@@ -116,11 +131,25 @@ impl ReplSession {
         self.config = engine.config.clone();
         engine.refresh_quota().await;
 
+        let skills =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
+        let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
+        let tools = engine.tool_names.clone();
+        let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
+        for mcp in self.config.mcp.servers.keys() {
+            if !plugins.contains(mcp) {
+                plugins.push(mcp.clone());
+            }
+        }
+
         self.renderer.print_welcome(&WelcomeDisplay {
             model: self.config.model.clone(),
             provider: self.config.provider.clone(),
             auto_approve: self.config.auto_approve,
             resumed: self.resume_id.is_some(),
+            tools,
+            skills: skill_names,
+            plugins,
         });
 
         let mut keybindings = default_emacs_keybindings();
@@ -133,7 +162,7 @@ impl ReplSession {
 
         let skills =
             crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
-        let prompt_templates = rho_core::prompts::discover_prompt_templates(
+        let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
         )
@@ -260,7 +289,7 @@ impl ReplSession {
                                     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
                                     let has_assistant = abandoned
                                         .iter()
-                                        .any(|n| n.kind == rho_core::session::TreeNodeKind::AssistantTurn);
+                                        .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
                                     if has_assistant
                                         && self.renderer.has_interactive_ui()
                                         && let Ok(true) = inquire::Confirm::new(

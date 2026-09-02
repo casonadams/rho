@@ -213,3 +213,32 @@ async fn cancellation_restores_queue_and_retains_commands_for_idle_execution() {
     );
     assert_eq!(*timeline.lock().unwrap(), ["started:active", "cancelled"]);
 }
+
+#[tokio::test]
+async fn slash_commands_queued_as_prompts_are_deferred_as_commands() {
+    let (runner, permits, mut started, timeline) = fake_runner();
+    let (input_sender, mut input) = mpsc::unbounded_channel();
+    let runner_ref = Arc::new(runner);
+    let runner_clone = Arc::clone(&runner_ref);
+    let task = tokio::spawn(async move {
+        run_active_queue(prompt("active", QueueKind::Steering), &mut input, &*runner_clone).await
+    });
+
+    started.recv().await.unwrap();
+    input_sender
+        .send(CoordinatorInput::Prompt(prompt("/reload", QueueKind::Steering)))
+        .unwrap();
+    permits.send(Ok(())).unwrap();
+
+    let ActiveQueueResult::Completed {
+        delivered,
+        deferred_commands,
+    } = task.await.unwrap()
+    else {
+        panic!("queue should complete");
+    };
+
+    assert_eq!(delivered, [prompt("active", QueueKind::Steering)]);
+    assert_eq!(deferred_commands, ["/reload"]);
+    assert_eq!(*timeline.lock().unwrap(), ["started:active", "finished:active"]);
+}

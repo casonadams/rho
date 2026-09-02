@@ -1,6 +1,6 @@
-use rho_core::config::Config;
 use rho_engine::auth::AuthStore;
 use rho_engine::provider::ProviderFactory;
+use rho_harness_core::config::Config;
 
 // Tests in this binary mutate process env (RHO_HOME); serialize them.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

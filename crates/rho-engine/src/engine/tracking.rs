@@ -156,7 +156,7 @@ impl ContextTracker {
         if let Some(limit) = self.configured_limit {
             return Some(limit);
         }
-        Some(rho_core::tokens::context_window_size(model))
+        Some(rho_harness_core::tokens::context_window_size(model))
     }
 }
 

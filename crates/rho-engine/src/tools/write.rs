@@ -1,7 +1,7 @@
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
-pub use rho_core::args::WriteArgs;
-use rho_core::error::AppError;
-use rho_core::workspace::Workspace;
+pub use rho_harness_core::args::WriteArgs;
+use rho_harness_core::error::AppError;
+use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 

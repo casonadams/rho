@@ -1,5 +1,5 @@
 use super::McpTransport;
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -37,6 +37,10 @@ pub struct McpToolResult {
 
 impl McpToolResult {
     pub fn as_text(&self) -> String {
+        self.as_text_truncated(usize::MAX)
+    }
+
+    pub fn as_text_truncated(&self, max_bytes: usize) -> String {
         let mut out = String::new();
         for item in &self.content {
             if let Some(text) = &item.text {
@@ -44,9 +48,21 @@ impl McpToolResult {
                     out.push('\n');
                 }
                 out.push_str(text);
+            } else if item.kind == "image" {
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                let mime = item.mime_type.as_deref().unwrap_or("image/png");
+                let data_len = item.data.as_ref().map(|d| d.len()).unwrap_or(0);
+                out.push_str(&format!("[Image: {mime}, {data_len} bytes base64]"));
             }
         }
-        out
+        if out.len() > max_bytes && max_bytes > 0 {
+            let truncated = &out[..max_bytes.min(out.len())];
+            format!("{truncated}\n[MCP tool output truncated at {max_bytes} bytes]")
+        } else {
+            out
+        }
     }
 }
 
@@ -127,7 +143,7 @@ impl McpClient {
 mod tests {
     use super::*;
     use crate::mcp::process::McpProcess;
-    use rho_core::config::McpServerConfig;
+    use rho_harness_core::config::McpServerConfig;
     use std::collections::BTreeMap;
 
     #[test]

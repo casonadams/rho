@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn test_state_file_loads_last_model_and_thinking_level() {
+    let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    crate::state::AppState::set_last_model(&dir, "gemini-2.0-flash", Some("gemini")).unwrap();
+    crate::state::AppState::set_last_thinking_level(&dir, Some("high")).unwrap();
+
+    let mut config = Config::default();
+    config.config_dir = dir.clone();
+
+    let state = crate::state::AppState::load(&config.config_dir);
+    if let Some(m) = state.last_model {
+        config.model = m;
+    }
+    if let Some(p) = state.last_provider {
+        config.provider = p;
+    }
+    if let Some(t) = state.last_thinking_level {
+        config.thinking_level = Some(t);
+    }
+
+    assert_eq!(config.model, "gemini-2.0-flash");
+    assert_eq!(config.provider, "gemini");
+    assert_eq!(config.thinking_level.as_deref(), Some("high"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn test_set_file_value_persists_and_validates() {
     let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -44,6 +73,8 @@ fn rejects_invalid_plugin_configuration() {
         "Invalid Name".to_string(),
         PluginConfig {
             path: "plugin".into(),
+            command: None,
+            args: Vec::new(),
             package: None,
             version: None,
             git: None,

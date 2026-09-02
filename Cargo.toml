@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     ".",
-    "crates/rho-core",
+    "crates/rho-harness-core",
     "crates/rho-engine",
 ]
 
@@ -24,8 +24,8 @@ thiserror = "2.0"
 anyhow = "1.0"
 tiktoken-rs = "0.6"
 chrono = { version = "0.4", features = ["serde"] }
-rho-core = { path = "crates/rho-core" }
-rho-engine = { path = "crates/rho-engine" }
+rho-harness-core = { version = "0.1.0", path = "crates/rho-harness-core" }
+rho-engine = { version = "0.1.0", path = "crates/rho-engine" }
 
 [package]
 name = "rho"
@@ -57,7 +57,7 @@ name = "rho"
 path = "src/main.rs"
 
 [dependencies]
-rho-core.workspace = true
+rho-harness-core.workspace = true
 rho-engine.workspace = true
 
 # Async Runtime & Core

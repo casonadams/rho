@@ -1,4 +1,4 @@
-use rho_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
+use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use std::fmt::Write as _;
 
 #[derive(Debug, Clone, PartialEq)]

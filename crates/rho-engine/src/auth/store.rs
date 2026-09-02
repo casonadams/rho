@@ -2,9 +2,9 @@
 
 use super::oauth::refresh_oauth_token;
 use super::resolver::resolve_secret_value;
-use rho_core::auth::StoredCredential;
-use rho_core::error::{AppError, Result};
-use rho_core::provider::ProviderId;
+use rho_harness_core::auth::StoredCredential;
+use rho_harness_core::error::{AppError, Result};
+use rho_harness_core::provider::ProviderId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;

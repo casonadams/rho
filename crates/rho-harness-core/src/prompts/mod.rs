@@ -5,6 +5,8 @@ use std::path::Path;
 
 pub use template::{PromptTemplate, PromptTemplateMetadata};
 
+pub static DEFAULT_SYSTEM_PROMPT: &str = include_str!("SYSTEM.md");
+
 pub fn discover_prompt_templates(config_dir: Option<&Path>, cwd: Option<&Path>) -> Vec<PromptTemplate> {
     let mut resolved: BTreeMap<String, PromptTemplate> = BTreeMap::new();
 

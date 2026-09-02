@@ -11,6 +11,6 @@ pub use stream::{ToolStreamPort, ToolStreamSink};
 pub use structured::{RecordingSink, StdoutNdjsonSink, StructuredOutputSink, StructuredPresenter};
 pub use summary::summarize_tool_output;
 pub use types::{
-    ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, ToolOutcome, UI_EVENT_VERSION, UiEnvelope,
-    UiEvent, WelcomeDisplay,
+    ApprovalResult, BashApproval, InteractionOption, InteractionPrompt, InteractionResponse, RiskTier, SessionStatus,
+    ToolLine, ToolOutcome, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
 };

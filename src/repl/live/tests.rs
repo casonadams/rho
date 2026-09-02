@@ -120,7 +120,7 @@ fn live_batch_flushes_tool_end_with_transcript_without_intermediate_redraw() {
 
 #[test]
 fn model_selector_modal_filtering_and_selection() {
-    let config = rho_core::config::Config::default();
+    let config = rho_harness_core::config::Config::default();
     let auth_store = crate::auth::AuthStore::load(&config.auth_file).unwrap_or_default();
     let session = crate::repl::ReplSession::new(config, auth_store, None);
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();

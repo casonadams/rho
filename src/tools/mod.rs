@@ -1,6 +1,6 @@
-//! Tools facade re-exporting from `rho-core` and `rho-engine`.
+//! Tools facade re-exporting from `rho-harness-core` and `rho-engine`.
 
-pub use rho_core::workspace::Workspace;
+pub use rho_harness_core::workspace::Workspace;
 pub use rho_engine::repeat::RepeatedCallHook;
 pub use rho_engine::tools::{
     BashArgs, BashTool, BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, EditArgs, EditTool, FetchArgs,

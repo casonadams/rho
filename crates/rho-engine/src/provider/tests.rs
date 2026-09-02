@@ -1,5 +1,5 @@
 use super::*;
-use rho_core::config::ProviderConfig;
+use rho_harness_core::config::ProviderConfig;
 use std::collections::BTreeMap;
 
 fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {
@@ -77,9 +77,9 @@ fn custom_provider_rejects_private_base_url_by_default() {
     let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = config_with_provider("local", spec("http://127.0.0.1:8080/v1", None), false);
+    let config = config_with_provider("custom_llm", spec("http://127.0.0.1:8080/v1", None), false);
 
-    let error = ProviderFactory::create_model(&config, "local", &auth_store).unwrap_err();
+    let error = ProviderFactory::create_model(&config, "custom_llm", &auth_store).unwrap_err();
     assert!(error.to_string().contains("blocked"), "{error}");
 
     std::fs::remove_dir_all(dir).unwrap();
@@ -93,9 +93,13 @@ fn custom_provider_allows_private_base_url_when_enabled() {
     let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
-    let config = config_with_provider("local", spec("http://127.0.0.1:8080/v1", None), true);
+    let config = config_with_provider(
+        "custom_llm",
+        spec("http://127.0.0.1:8080/v1", Some("LOCAL_API_KEY")),
+        true,
+    );
 
-    ProviderFactory::create_model(&config, "local", &auth_store).unwrap();
+    ProviderFactory::create_model(&config, "custom_llm", &auth_store).unwrap();
 
     std::fs::remove_dir_all(dir).unwrap();
     unsafe {

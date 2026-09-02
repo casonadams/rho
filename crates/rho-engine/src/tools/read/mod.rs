@@ -1,8 +1,8 @@
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
-pub use rho_core::args::ReadArgs;
-use rho_core::args::read::DEFAULT_READ_LIMIT;
-use rho_core::error::AppError;
-use rho_core::workspace::Workspace;
+pub use rho_harness_core::args::ReadArgs;
+use rho_harness_core::args::read::DEFAULT_READ_LIMIT;
+use rho_harness_core::error::AppError;
+use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 
@@ -31,7 +31,7 @@ impl ReadTool {
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.unwrap_or(DEFAULT_READ_LIMIT);
 
-        if let Some(builtin) = rho_core::skills::get_builtin_skill_content(clean_path) {
+        if let Some(builtin) = rho_harness_core::skills::get_builtin_skill_content(clean_path) {
             return Ok(format_content(builtin, clean_path, (offset, limit)));
         }
 

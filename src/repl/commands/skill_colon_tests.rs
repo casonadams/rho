@@ -3,8 +3,8 @@ mod tests {
     use crate::repl::commands::{CommandResult, SlashCommandContext, SlashCommandHandler};
     use crate::ui::TerminalRenderer;
     use crate::ui::interactive::{InteractiveUi, UiEvent};
-    use rho_core::config::Config;
     use rho_engine::auth::AuthStore;
+    use rho_harness_core::config::Config;
     use tokio::sync::mpsc;
 
     fn collecting_renderer() -> (TerminalRenderer, mpsc::UnboundedReceiver<UiEvent>) {

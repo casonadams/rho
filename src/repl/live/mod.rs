@@ -76,19 +76,31 @@ impl ReplSession {
         update_footer(&mut state, self, &engine);
         let mut controller = TerminalController::stdout(state)?;
         let mut input = TerminalInputReader::spawn()?;
+        let skills =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
+        let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
+        let tools = engine.tool_names.clone();
+        let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
+        for mcp in self.config.mcp.servers.keys() {
+            if !plugins.contains(mcp) {
+                plugins.push(mcp.clone());
+            }
+        }
+
         self.renderer.print_welcome(&WelcomeDisplay {
             model: self.config.model.clone(),
             provider: self.config.provider.clone(),
             auto_approve: self.config.auto_approve,
             resumed: self.resume_id.is_some(),
+            tools,
+            skills: skill_names,
+            plugins,
         });
         drain_ui_events(&mut controller, &mut ui_events, &mut None)?;
 
         let mut history = InteractiveHistory::with_file(1000, self.config.config_dir.join("history.txt"))
             .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
-        let skills =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
-        let prompt_templates = rho_core::prompts::discover_prompt_templates(
+        let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),
         )

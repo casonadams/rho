@@ -15,6 +15,17 @@ impl Config {
         let _ = dotenvy::dotenv();
         let mut config = Config::default();
 
+        let state = crate::state::AppState::load(&config.config_dir);
+        if let Some(m) = state.last_model {
+            config.model = m;
+        }
+        if let Some(p) = state.last_provider {
+            config.provider = p;
+        }
+        if let Some(t) = state.last_thinking_level {
+            config.thinking_level = Some(t);
+        }
+
         let config_file = config.config_dir.join("config.toml");
         if config_file.exists() {
             let content = std::fs::read_to_string(&config_file)
@@ -63,8 +74,10 @@ impl Config {
             if !is_valid_plugin_name(name) {
                 return Err(AppError::Config(format!("invalid plugin name '{name}'")));
             }
-            if plugin.path.as_os_str().is_empty() {
-                return Err(AppError::Config(format!("plugin '{name}' path must not be empty")));
+            if plugin.path.as_os_str().is_empty() && plugin.command.is_none() {
+                return Err(AppError::Config(format!(
+                    "plugin '{name}' must specify a path or command"
+                )));
             }
             if plugin.package.as_ref().is_some_and(|package| package.trim().is_empty()) {
                 return Err(AppError::Config(format!("plugin '{name}' package must not be empty")));
@@ -147,8 +160,8 @@ impl Config {
         if name.trim().is_empty() {
             return Err(AppError::Config("plugin name must not be empty".to_string()));
         }
-        if plugin.path.as_os_str().is_empty() {
-            return Err(AppError::Config("plugin path must not be empty".to_string()));
+        if plugin.path.as_os_str().is_empty() && plugin.command.is_none() {
+            return Err(AppError::Config("plugin path or command must not be empty".to_string()));
         }
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config(&path)?;

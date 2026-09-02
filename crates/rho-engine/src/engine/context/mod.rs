@@ -1,10 +1,10 @@
-use rho_core::skills::SkillMetadata;
+use rho_harness_core::skills::SkillMetadata;
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
 mod tests;
 
-pub static DEFAULT_SYSTEM_PROMPT: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../prompts/SYSTEM.md"));
+pub use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
@@ -27,7 +27,7 @@ impl ProjectContext {
         }
         Self::load_candidate_instructions(base, &mut instruction_files);
 
-        let skills: Vec<SkillMetadata> = rho_core::skills::resolved_skills(config_dir, Some(base))
+        let skills: Vec<SkillMetadata> = rho_harness_core::skills::resolved_skills(config_dir, Some(base))
             .into_iter()
             .map(|skill| skill.metadata)
             .collect();

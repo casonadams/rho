@@ -7,17 +7,13 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("builtin_skills.rs");
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    let workspace = Path::new(&manifest_dir).ancestors().nth(2).unwrap();
-    let prompts_skills = workspace.join("prompts").join("skills");
-    let skills_dir = workspace.join("skills");
+    let builtin_skills = Path::new(&manifest_dir).join("builtin_skills");
 
-    println!("cargo:rerun-if-changed={}", workspace.join("prompts/skills").display());
-    println!("cargo:rerun-if-changed={}", workspace.join("prompts/tools").display());
+    println!("cargo:rerun-if-changed={}", builtin_skills.display());
     println!(
         "cargo:rerun-if-changed={}",
-        workspace.join("prompts/SYSTEM.md").display()
+        Path::new(&manifest_dir).join("src/prompts/SYSTEM.md").display()
     );
-    println!("cargo:rerun-if-changed={}", workspace.join("skills").display());
 
     let mut generated = String::new();
     generated.push_str("pub struct BuiltinSkill {\n");
@@ -30,22 +26,20 @@ fn main() {
 
     let mut scanned_names = HashSet::new();
 
-    for dir in [prompts_skills, skills_dir] {
-        if dir.exists()
-            && dir.is_dir()
-            && let Ok(entries) = fs::read_dir(&dir)
-        {
-            let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
-            paths.sort();
-            for path in paths {
-                if path.is_dir() {
-                    let skill_file = path.join("SKILL.md");
-                    if skill_file.exists() {
-                        emit_skill(&skill_file, &mut generated, &mut scanned_names);
-                    }
-                } else if path.extension().is_some_and(|e| e == "md") {
-                    emit_skill(&path, &mut generated, &mut scanned_names);
+    if builtin_skills.exists()
+        && builtin_skills.is_dir()
+        && let Ok(entries) = fs::read_dir(&builtin_skills)
+    {
+        let mut paths: Vec<_> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for path in paths {
+            if path.is_dir() {
+                let skill_file = path.join("SKILL.md");
+                if skill_file.exists() {
+                    emit_skill(&skill_file, &mut generated, &mut scanned_names);
                 }
+            } else if path.extension().is_some_and(|e| e == "md") {
+                emit_skill(&path, &mut generated, &mut scanned_names);
             }
         }
     }

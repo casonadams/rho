@@ -1,4 +1,4 @@
-use rho_core::session::SessionManager;
+use rho_harness_core::session::SessionManager;
 use serde_json::Value;
 
 use super::sink::TerminalSinkState;

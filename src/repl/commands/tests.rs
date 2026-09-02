@@ -240,7 +240,7 @@ async fn export_command_writes_markdown_default_path() {
         ..Config::default()
     };
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let session_manager = rho_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_manager = rho_harness_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
     let session_id = session_manager.session_id.clone();
     use rig::memory::ConversationMemory;
     session_manager
@@ -285,7 +285,7 @@ async fn export_command_writes_html_to_override_path() {
         ..Config::default()
     };
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let session_manager = rho_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_manager = rho_harness_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
     let session_id = session_manager.session_id.clone();
 
     let mut auth = AuthStore::default();
@@ -319,7 +319,7 @@ async fn export_command_rejects_unknown_format_with_usage() {
         ..Config::default()
     };
     std::fs::create_dir_all(&config.sessions_dir).unwrap();
-    let session_manager = rho_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_manager = rho_harness_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
     let session_id = session_manager.session_id.clone();
 
     let mut auth = AuthStore::default();

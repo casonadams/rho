@@ -1,6 +1,6 @@
 //! Ephemeral loopback HTTP callback listener for OAuth 2.0 PKCE redirection.
 
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;

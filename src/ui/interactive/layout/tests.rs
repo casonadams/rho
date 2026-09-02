@@ -426,7 +426,40 @@ fn modal_layout_renders_input_frame_style() {
     assert!(layout.editor_lines.iter().any(|l| l.contains("Permission Required")));
     assert!(layout.editor_lines.iter().any(|l| l.contains("tool   bash")));
     assert!(layout.editor_lines.iter().any(|l| l.contains("Allow")));
-    assert_eq!(layout.cursor.column, 2);
+    assert!(!layout.cursor_visible);
+}
+
+#[test]
+fn searchable_modal_renders_with_unified_header_and_indicator() {
+    let default_editor = EditorState::default();
+    let default_footer = FooterState::default();
+    let modal = crate::ui::interactive::ModalState::new(
+        "Select Model",
+        "",
+        vec![
+            crate::ui::interactive::ModalOption::new("model-a", Some("openai\t✓\tdefault\t128k ctx")),
+            crate::ui::interactive::ModalOption::new("model-b", Some("anthropic\t\t\t200k ctx")),
+        ],
+    )
+    .with_search(true);
+
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: Some(&modal),
+        autocomplete: None,
+        footer: &default_footer,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 50,
+        spinner_frame: 0,
+    });
+
+    assert!(layout.editor_lines.iter().any(|l| l.contains("Select Model")));
+    assert!(layout.editor_lines.iter().any(|l| l.contains(">")));
+    assert!(layout.editor_lines.iter().any(|l| l.contains("▸")));
+    assert!(layout.editor_lines.iter().any(|l| l.contains("model-a")));
+    assert!(layout.editor_lines.iter().any(|l| l.contains("[openai]")));
+    assert!(layout.cursor_visible);
 }
 
 #[test]

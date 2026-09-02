@@ -1,8 +1,8 @@
 //! Live dynamic model discovery from authenticated provider endpoints.
 
 use crate::auth::AuthStore;
-use rho_core::error::Result;
-use rho_core::provider::ProviderId;
+use rho_harness_core::error::Result;
+use rho_harness_core::provider::ProviderId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -211,7 +211,7 @@ async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
 }
 
 fn format_context_desc(model_id: &str) -> String {
-    let ctx = rho_core::tokens::context_window_size(model_id);
+    let ctx = rho_harness_core::tokens::context_window_size(model_id);
     if ctx >= 1_000_000 {
         format!("{}M ctx", ctx / 1_000_000)
     } else {

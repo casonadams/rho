@@ -19,12 +19,50 @@ pub enum ApprovalResult {
     Denied { reason: String },
 }
 
+/// One selectable row in a generic modal rendered on behalf of a caller
+/// (plugin or engine).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteractionOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// A generic modal request; deserializable straight from plugin `ui/prompt`
+/// params, so senders only need these fields.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteractionPrompt {
+    pub title: String,
+    pub body: String,
+    pub options: Vec<InteractionOption>,
+    #[serde(default)]
+    pub initial_selection: usize,
+    #[serde(default)]
+    pub allow_custom: bool,
+}
+
+/// Serializes as `{"selected":n}` / `{"custom":"..."}` / `"cancelled"` — the
+/// reply contract that plugin `ui/prompt` requests rely on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InteractionResponse {
+    Selected(usize),
+    Custom(String),
+    Cancelled,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WelcomeDisplay {
     pub model: String,
     pub provider: String,
     pub auto_approve: bool,
     pub resumed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -12,8 +12,8 @@ use crate::tools::web::http::{BRAVE_CHROME_UA, HttpClient, HttpRequest, LYNX_UA}
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 use rand::seq::SliceRandom;
 use result::SearchResult;
-pub use rho_core::args::{SearchArgs, SearchRecency};
-use rho_core::error::AppError;
+pub use rho_harness_core::args::{SearchArgs, SearchRecency};
+use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::collections::HashSet;
 use url::Url;

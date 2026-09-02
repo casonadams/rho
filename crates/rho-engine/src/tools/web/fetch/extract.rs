@@ -1,4 +1,4 @@
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use std::sync::LazyLock;
 use url::Url;
 

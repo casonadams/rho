@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
-use rho_core::config::{Config, McpConfig, McpServerConfig};
 use rho_engine::mcp::load_mcp_tools;
+use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use rig::tool::{ToolContext, ToolSet};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;

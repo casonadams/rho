@@ -1,6 +1,6 @@
 #[test]
 fn rpc_request_and_response_roundtrip() {
-    use rho_core::rpc::protocol::{RpcCommand, RpcRequest, RpcResponse};
+    use rho_harness_core::rpc::protocol::{RpcCommand, RpcRequest, RpcResponse};
 
     let prompt_req = RpcRequest {
         id: Some("1".to_string()),

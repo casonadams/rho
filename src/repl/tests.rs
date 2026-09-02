@@ -37,7 +37,7 @@ async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
     use crate::auth::AuthStore;
     use crate::config::cli::Cli;
     use clap::Parser;
-    use rho_core::config::Config;
+    use rho_harness_core::config::Config;
 
     // Re-run via RHO_HOME env; serialize against other env-sensitive tests.
     // tokio Mutex: the guard is held across awaits by design.

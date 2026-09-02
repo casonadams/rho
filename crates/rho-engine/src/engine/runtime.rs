@@ -1,8 +1,8 @@
-use rho_core::config::Config;
-use rho_core::error::Result;
+use rho_harness_core::config::Config;
+use rho_harness_core::error::Result;
 
-use rho_core::session::SessionManager;
-use rho_core::session::context::context_memory;
+use rho_harness_core::session::SessionManager;
+use rho_harness_core::session::context::context_memory;
 use rig::agent::{Agent, AgentBuilder, AgentRunner, ModelHandle};
 use std::path::Path;
 

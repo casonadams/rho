@@ -62,6 +62,7 @@ pub struct ModalState {
     pub input: EditorState,
     pub allow_custom: bool,
     pub filter_query: String,
+    pub is_searchable: bool,
 }
 
 impl ModalState {
@@ -77,11 +78,17 @@ impl ModalState {
             input: EditorState::default(),
             allow_custom: false,
             filter_query: String::new(),
+            is_searchable: false,
         }
     }
 
     pub fn with_custom(mut self, allow_custom: bool) -> Self {
         self.allow_custom = allow_custom;
+        self
+    }
+
+    pub fn with_search(mut self, searchable: bool) -> Self {
+        self.is_searchable = searchable;
         self
     }
 

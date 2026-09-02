@@ -1,16 +1,16 @@
 use super::formatters::{
     format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
 };
-use super::preview::{approval_mode, tool_title_style, webfetch_content_kind};
+use super::preview::{tool_title_style, webfetch_content_kind};
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
-use rho_core::presentation::stream::ToolStreamPort;
-use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
-use rho_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
+use rho_harness_core::presentation::stream::ToolStreamPort;
+use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
+use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -111,32 +111,22 @@ impl TerminalRenderer {
             .ok()
             .map(|path| to_relative_path(&path.display().to_string()))
             .unwrap_or_else(|| ".".to_string());
+        let item = crate::ui::interactive::WelcomeItem {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            model: display.model.to_string(),
+            provider: display.provider.to_string(),
+            auto_approve: display.auto_approve,
+            resumed: display.resumed,
+            location,
+            tools: display.tools.clone(),
+            skills: display.skills.clone(),
+            plugins: display.plugins.clone(),
+        };
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(
-                crate::ui::interactive::WelcomeItem {
-                    version: env!("CARGO_PKG_VERSION").to_string(),
-                    model: display.model.to_string(),
-                    provider: display.provider.to_string(),
-                    auto_approve: display.auto_approve,
-                    resumed: display.resumed,
-                    location,
-                },
-            ));
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(item));
         } else {
-            let highlight = self.theme.highlight;
-            let dim = self.theme.dimmed;
-            let session = if display.resumed {
-                "resumed session"
-            } else {
-                "new session"
-            };
-            self.write_output(&format!(
-                "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{} {dim}via {} | {session}{dim:#}\n{dim}{location} | {}{dim:#}\n{dim}/help commands | Tab complete | Ctrl+C cancel | Ctrl+D exit{dim:#}\n\n",
-                env!("CARGO_PKG_VERSION"),
-                display.model,
-                display.provider,
-                approval_mode(display.auto_approve)
-            ));
+            let text = crate::ui::interactive::format_welcome_content(&item, &self.theme);
+            self.write_output(&text);
         }
     }
 
@@ -352,7 +342,7 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_bash_approval_request(&self, request: &rho_core::presentation::BashApproval) {
+    pub fn print_bash_approval_request(&self, request: &rho_harness_core::presentation::BashApproval) {
         let card = format_bash_approval_card(request, &self.theme, terminal_width());
         self.write_output(&format!("\n{card}\n"));
     }

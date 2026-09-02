@@ -1,6 +1,6 @@
 use super::process::McpChildHandle;
 use super::types::{JsonRpcError, JsonRpcIncoming, JsonRpcNotification, JsonRpcRequest};
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -126,7 +126,7 @@ impl McpTransport {
 mod tests {
     use super::*;
     use crate::mcp::process::McpProcess;
-    use rho_core::config::McpServerConfig;
+    use rho_harness_core::config::McpServerConfig;
 
     #[tokio::test]
     async fn test_mcp_transport_request_response() {

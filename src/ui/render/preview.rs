@@ -35,11 +35,3 @@ pub fn webfetch_content_kind(arguments: &serde_json::Value) -> &'static str {
         "text"
     }
 }
-
-pub fn approval_mode(auto_approve: bool) -> &'static str {
-    if auto_approve {
-        "auto-approve"
-    } else {
-        "confirm changes"
-    }
-}

@@ -96,6 +96,10 @@ pub struct PluginConfig {
     #[serde(default)]
     pub path: PathBuf,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -117,6 +121,8 @@ impl Default for PluginConfig {
     fn default() -> Self {
         Self {
             path: PathBuf::new(),
+            command: None,
+            args: Vec::new(),
             package: None,
             version: None,
             git: None,

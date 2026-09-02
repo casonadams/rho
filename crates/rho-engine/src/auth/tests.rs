@@ -1,5 +1,5 @@
 use super::*;
-use rho_core::auth::StoredCredential;
+use rho_harness_core::auth::StoredCredential;
 use tempfile::NamedTempFile;
 
 #[test]

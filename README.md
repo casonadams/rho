@@ -23,28 +23,37 @@ rho --resume <SESSION_ID>
 
 ## Interactive Editor and Footer
 
-When both stdin and stdout are terminals, `rho` runs an interactive editor with a stable status footer at the bottom of the terminal screen:
+When both stdin and stdout are terminals, `rho` runs an interactive editor with
+a two-line status footer pinned to the bottom of the terminal screen:
 
 ```text
 agent output remains above in normal scrollback
-────────────────────────────────────────────────
+─────────────────────────────────────────────────────────
 Write a message here; wrapped lines and explicit
 newlines grow the editor upward.
-────────────────────────────────────────────────
-⠋ thinking | claude-3-7-sonnet | 2.9% (200k) | 2 queued
+─────────────────────────────────────────────────────────
+~/src/github.com/casonadams/rho (main)
+↑6.9k ↓514 5.4%/128k @14.3t/s      qwen3.8:27b-mlx • high
 ```
 
-The footer reports current activity, active model, token context capacity, and queued message counts. Its activity indicator animates in-place on the working line while the model is thinking or executing tools, preventing terminal jitter.
+The **top line** shows the working directory, git branch, and session name. The
+**stats line** shows tokens sent (`↑`) and received (`↓`), cache reads/writes
+(`R`/`W`), spend (`$`), context usage (`%/window`), and generation speed
+(`@t/s`) as they become available, with the active model and thinking level
+right-aligned. The activity spinner animates in-place on the working line while
+the model is thinking or executing tools, keeping the footer stable and
+preventing terminal jitter.
 
-| Control       | Behavior                                                                                                                    |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `Enter`       | Submit prompt.                                                                                                              |
-| `Shift+Enter` | Insert a newline without submitting.                                                                                        |
-| `Ctrl+J`      | Insert a newline, including in terminals that encode it as a raw line feed.                                                 |
-| `Alt+Enter`   | Submit with follow-up queueing.                                                                                             |
-| `Escape`      | Clear an idle draft, or cancel active execution and restore queued messages.                                                |
+| Control       | Behavior                                                                     |
+| ------------- | ---------------------------------------------------------------------------- |
+| `Enter`       | Submit prompt.                                                               |
+| `Shift+Enter` | Insert a newline without submitting.                                         |
+| `Ctrl+J`      | Insert a newline, including in terminals that encode it as a raw line feed.  |
+| `Alt+Enter`   | Submit with follow-up queueing.                                              |
+| `Escape`      | Clear an idle draft, or cancel active execution and restore queued messages. |
 
-Messages submitted while the agent is running enter a FIFO queue and execute in order once the active turn settles.
+Messages submitted while the agent is running enter a FIFO queue and execute in
+order once the active turn settles.
 
 ---
 
@@ -63,18 +72,18 @@ Messages submitted while the agent is running enter a FIFO queue and execute in 
 
 ## Providers & Authentication
 
-| Provider     | Auth Type     | Environment Variable / Login                   |
-| ------------ | ------------- | ---------------------------------------------- |
-| `anthropic`  | API Key       | `ANTHROPIC_API_KEY` or `rho login anthropic`   |
-| `openai`     | API Key       | `OPENAI_API_KEY` or `rho login openai`         |
-| `deepseek`   | API Key       | `DEEPSEEK_API_KEY` or `rho login deepseek`     |
-| `gemini`     | API Key       | `GEMINI_API_KEY` or `rho login gemini`         |
-| `groq`       | API Key       | `GROQ_API_KEY` or `rho login groq`             |
-| `openrouter` | API Key       | `OPENROUTER_API_KEY` or `rho login openrouter` |
-| `xai`        | API Key       | `XAI_API_KEY` or `rho login xai`               |
-| `mistral`    | API Key       | `MISTRAL_API_KEY` or `rho login mistral`       |
-| `cohere`     | API Key       | `COHERE_API_KEY` or `rho login cohere`         |
-| `ollama`     | Local Service | `OLLAMA_HOST` (default `http://localhost:11434`)|
+| Provider     | Auth Type     | Environment Variable / Login                     |
+| ------------ | ------------- | ------------------------------------------------ |
+| `anthropic`  | API Key       | `ANTHROPIC_API_KEY` or `rho login anthropic`     |
+| `openai`     | API Key       | `OPENAI_API_KEY` or `rho login openai`           |
+| `deepseek`   | API Key       | `DEEPSEEK_API_KEY` or `rho login deepseek`       |
+| `gemini`     | API Key       | `GEMINI_API_KEY` or `rho login gemini`           |
+| `groq`       | API Key       | `GROQ_API_KEY` or `rho login groq`               |
+| `openrouter` | API Key       | `OPENROUTER_API_KEY` or `rho login openrouter`   |
+| `xai`        | API Key       | `XAI_API_KEY` or `rho login xai`                 |
+| `mistral`    | API Key       | `MISTRAL_API_KEY` or `rho login mistral`         |
+| `cohere`     | API Key       | `COHERE_API_KEY` or `rho login cohere`           |
+| `ollama`     | Local Service | `OLLAMA_HOST` (default `http://localhost:11434`) |
 
 ### Custom OpenAI-compatible providers
 
@@ -114,7 +123,7 @@ Global settings, credentials, skills, and instructions live under
 - **Instructions**: Discovers global `~/.config/rho/AGENTS.md` and workspace
   `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`.
 - **Skills**: Declarative `SKILL.md` workflows resolved from embedded built-ins,
-  `~/.config/rho/skills/`, `.rho/skills/`, `./prompts/skills/`, and `./skills/`.
+  `~/.config/rho/skills/`, `.rho/skills/`, and `./skills/`.
 
 ---
 
@@ -139,9 +148,48 @@ env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
 enabled = true
 ```
 
-Tools exposed by MCP servers are automatically namespaced (`filesystem_read_file`, `github_create_issue`, etc.) and presented to the model as standard tools.
+Tools exposed by MCP servers are automatically namespaced
+(`filesystem_read_file`, `github_create_issue`, etc.) and presented to the model
+as standard tools.
 
-For more details, see **[docs/plugins.md](docs/plugins.md)**.
+---
+
+## Plugins (Tool Hooks)
+
+Plugins are small binaries that hook every tool call and can **allow**, **deny**
+(with a reason sent to the model), or force an interactive approval prompt:
+
+```toml
+# In ~/.config/rho/config.toml or .rho/config.toml
+[plugins.permission]
+enabled = true
+path = "/Users/username/.config/rho/plugins/rho-plugin-permission"
+```
+
+The first plugin is
+**[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission)**:
+allow/deny rules in `~/.config/rho/permission.toml` plus an interactive prompt
+for everything else. Install it with:
+
+```sh
+rho plugin install rho-plugin-permission            # from crates.io
+# or directly from a git repository:
+rho plugin install https://github.com/casonadams/rho-plugin-permission
+```
+
+`rho plugin install` runs `cargo install` (from crates.io or a git URL), then
+registers the plugin in `config.toml`; remove it again with `rho plugin remove
+rho-plugin-permission`.
+
+**Writing your own tool-hook plugin?**
+[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission) is
+the reference implementation: a small Rust binary that reads one JSON line from
+stdin and answers with an allow/deny/ask action. Its hook protocol, path
+resolution rules, and all options are documented in
+**[docs/plugins.md](docs/plugins.md)**.
+
+For MCP tool servers instead, run the built-in `create-plugin` skill in a
+session: `/skill:create-plugin <idea>`.
 
 ---
 
@@ -149,6 +197,9 @@ For more details, see **[docs/plugins.md](docs/plugins.md)**.
 
 The workspace is structured into three clean, focused crates:
 
-- **`rho-core`**: Core domain logic, session DAG storage, configuration, token estimation, and presentation types.
-- **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP client.
+- **`rho-harness-core`**: Core domain logic, session DAG storage, configuration, token
+  estimation, and presentation types.
+- **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
+  tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP
+  client.
 - **`rho`**: Binary CLI entrypoint, interactive TUI, slash commands, and editor.

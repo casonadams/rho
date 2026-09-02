@@ -1,7 +1,7 @@
 //! Persistent cached model catalog in ~/.rho/models-store.json.
 
 use super::discovery::DiscoveredModel;
-use rho_core::error::{AppError, Result};
+use rho_harness_core::error::{AppError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;

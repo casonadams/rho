@@ -1,5 +1,5 @@
-use rho_core::error::Result;
-use rho_core::session::SessionManager;
+use rho_harness_core::error::Result;
+use rho_harness_core::session::SessionManager;
 use std::path::Path;
 
 pub fn prompt_session_picker(sessions_dir: &Path) -> Result<Option<String>> {

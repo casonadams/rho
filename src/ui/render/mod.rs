@@ -4,7 +4,7 @@
 //! - [`renderer`]: the core `TerminalRenderer` struct and its user-facing methods.
 //! - [`formatters`]: edit-diff, write-preview, and thinking-block formatting.
 //!
-//! Render payload data and text summarization live in `rho-core`'s
+//! Render payload data and text summarization live in `rho-harness-core`'s
 //! presentation module and are re-exported here so external callers continue
 //! to use `crate::ui::render::{TerminalRenderer, ApprovalResult, BashApproval, ToolLine}` etc.
 
@@ -20,9 +20,9 @@ mod tests;
 pub(crate) use formatters::{format_edit_diff, format_thinking_block, format_write_preview};
 pub(crate) use preview::{tool_title_style, webfetch_content_kind};
 pub use renderer::{RenderActivity, TerminalRenderer};
-pub use rho_core::presentation::summary::summarize_tool_output;
-pub(crate) use rho_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
-pub use rho_core::presentation::{
+pub use rho_harness_core::presentation::summary::summarize_tool_output;
+pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
+pub use rho_harness_core::presentation::{
     ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
 };
 pub use rpc_presenter::RpcPresenter;

@@ -2,8 +2,8 @@ use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::error::Result;
 use crate::ui::render::RpcPresenter;
-use rho_core::rpc::protocol::{RpcCommand, RpcEvent, RpcRequest, RpcResponse};
-use rho_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
+use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcRequest, RpcResponse};
+use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
 use std::sync::Arc;
 use tokio::io::BufReader;
 use tokio::sync::mpsc;
@@ -17,7 +17,7 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
 
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
     let (presenter, _approval_tx) = RpcPresenter::new(event_tx.clone());
-    let presenter: Arc<dyn rho_core::presentation::Presenter> = Arc::new(presenter);
+    let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(presenter);
 
     let mut engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None).await?;
 
