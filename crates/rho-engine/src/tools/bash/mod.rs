@@ -55,6 +55,7 @@ impl BashTool {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true);
+        crate::process::isolate_group(&mut cmd);
 
         let mut child = match cmd.spawn() {
             Ok(child) => child,
@@ -124,7 +125,7 @@ impl BashTool {
                 )));
             }
             Err(_) => {
-                let _ = child.kill().await;
+                crate::process::kill_tree(&mut child).await;
                 return Ok(ToolResult::error(format!(
                     "Command '{}' timed out after {} seconds",
                     args.command, timeout_sec

@@ -4,6 +4,7 @@ use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InputAction, map_key};
 use crossterm::event::Event;
+use rho_engine::process::{isolate_group, kill_tree};
 use rho_harness_core::presentation::ToolLine;
 use std::process::Stdio;
 use std::time::Instant;
@@ -46,6 +47,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     command.kill_on_drop(true);
+    isolate_group(&mut command);
 
     let mut child = match command.spawn() {
         Ok(child) => child,
@@ -125,7 +127,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                 if let Some(Ok(Event::Key(key))) = event {
                     match map_key(key) {
                         InputAction::Cancel => {
-                            let _ = child.kill().await;
+                            kill_tree(&mut child).await;
                             break;
                         }
                         InputAction::ToggleExpandTools => {

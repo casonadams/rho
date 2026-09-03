@@ -22,7 +22,7 @@ impl McpChildHandle {
 
 impl Drop for McpChildHandle {
     fn drop(&mut self) {
-        let _ = self.child.start_kill();
+        crate::process::kill_tree_sync(&mut self.child);
     }
 }
 
@@ -37,6 +37,7 @@ impl McpProcess {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true);
+        crate::process::isolate_group(&mut cmd);
 
         let resolved_env = resolve_env(&config.env);
         for (key, val) in resolved_env {
