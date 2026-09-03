@@ -158,11 +158,11 @@ pub fn open_settings_selector<B: crate::ui::interactive::TerminalBackend>(contro
     let options = vec![
         crate::ui::interactive::ModalOption::new(
             "Thinking Blocks",
-            Some(format!("{thinking_status}\t(press Enter to toggle)")),
+            Some(format!("{thinking_status}  (press Enter to toggle)")),
         ),
         crate::ui::interactive::ModalOption::new(
             "Tool Output",
-            Some(format!("{tools_status}\t(press Enter to toggle)")),
+            Some(format!("{tools_status}  (press Enter to toggle)")),
         ),
     ];
 
@@ -204,7 +204,7 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
                     if let Some(modal) = controller.state_mut().active_modal_mut()
                         && let Some(opt) = modal.options.get_mut(0)
                     {
-                        opt.description = Some(format!("{status}\t(press Enter to toggle)"));
+                        opt.description = Some(format!("{status}  (press Enter to toggle)"));
                     }
                 } else if selected == 1 {
                     let expanded = controller.state_mut().toggle_tools_expanded();
@@ -212,7 +212,7 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
                     if let Some(modal) = controller.state_mut().active_modal_mut()
                         && let Some(opt) = modal.options.get_mut(1)
                     {
-                        opt.description = Some(format!("{status}\t(press Enter to toggle)"));
+                        opt.description = Some(format!("{status}  (press Enter to toggle)"));
                     }
                 }
                 controller.redraw()?;

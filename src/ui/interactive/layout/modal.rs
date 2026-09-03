@@ -47,9 +47,10 @@ pub(crate) fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<Str
         };
         let end = (start + max_visible).min(total);
 
+        let is_model_selector = modal.title == "Select Model";
         for i in start..end {
             let is_selected = i == modal.selected;
-            let opt_line = format_option_line(&modal.options[i], is_selected);
+            let opt_line = format_option_line(&modal.options[i], is_selected, is_model_selector);
             for wrapped in wrap_to_width(&opt_line, inner_width) {
                 lines.push(format!("  {wrapped}"));
             }
@@ -59,7 +60,8 @@ pub(crate) fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<Str
             lines.push(format!("    \x1b[2m({}/{})\x1b[0m", modal.selected + 1, total));
         }
 
-        if let Some(selected_opt) = modal.options.get(modal.selected)
+        if is_model_selector
+            && let Some(selected_opt) = modal.options.get(modal.selected)
             && let Some(extra) = selected_opt.description.as_deref().and_then(|d| d.split('\t').nth(3))
             && !extra.is_empty()
         {
@@ -90,7 +92,11 @@ pub(crate) fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<Str
     (lines, cursor, cursor_visible)
 }
 
-fn format_option_line(opt: &crate::ui::interactive::ModalOption, is_selected: bool) -> String {
+fn format_option_line(
+    opt: &crate::ui::interactive::ModalOption,
+    is_selected: bool,
+    is_model_selector: bool,
+) -> String {
     let prefix = if is_selected { "\x1b[36m▸\x1b[0m " } else { "  " };
     let label = if is_selected {
         format!("\x1b[1m{}\x1b[0m", opt.label)
@@ -100,29 +106,42 @@ fn format_option_line(opt: &crate::ui::interactive::ModalOption, is_selected: bo
     let Some(desc) = &opt.description else {
         return format!("{prefix}{label}");
     };
-    if !desc.contains('\t') {
-        return format!("{prefix}{label}  \x1b[2m{desc}\x1b[0m");
+    if is_model_selector && desc.contains('\t') {
+        let mut p = desc.split('\t');
+        let (prov, active, def) = (p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""));
+        let prov = if prov.is_empty() {
+            String::new()
+        } else {
+            format!(" \x1b[2m[{prov}]\x1b[0m")
+        };
+        let def = if def.is_empty() {
+            ""
+        } else {
+            " \x1b[2m· default\x1b[0m"
+        };
+        let check = if active.is_empty() { "" } else { " \x1b[32m✓\x1b[0m" };
+        return format!("{prefix}{label}{prov}{def}{check}");
     }
-    let mut p = desc.split('\t');
-    let (prov, active, def) = (p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""));
-    let prov = if prov.is_empty() {
-        String::new()
-    } else {
-        format!(" \x1b[2m[{prov}]\x1b[0m")
-    };
-    let def = if def.is_empty() {
-        ""
-    } else {
-        " \x1b[2m· default\x1b[0m"
-    };
-    let check = if active.is_empty() { "" } else { " \x1b[32m✓\x1b[0m" };
-    format!("{prefix}{label}{prov}{def}{check}")
+    let cleaned_desc = desc.replace('\t', " • ");
+    format!("{prefix}{label}  \x1b[2m{cleaned_desc}\x1b[0m")
 }
 
 fn modal_hint(modal: &ModalState) -> &'static str {
     match &modal.mode {
-        ModalMode::Select if modal.is_searchable => {
+        ModalMode::Select if modal.title == "Select Model" => {
             "\x1b[2mEnter to select • Ctrl+S to set as default • Esc to cancel\x1b[0m"
+        }
+        ModalMode::Select if modal.title == "Conversation Tree" => {
+            "\x1b[2m↑/↓ select • Enter navigate • Shift+L label • Esc cancel\x1b[0m"
+        }
+        ModalMode::Select if modal.title == "Settings" => {
+            "\x1b[2m↑/↓ select • Enter toggle • Esc close\x1b[0m"
+        }
+        ModalMode::Select if modal.title == "Resume Session" => {
+            "\x1b[2m↑/↓ select • Enter resume • Esc cancel\x1b[0m"
+        }
+        ModalMode::Select if modal.is_searchable => {
+            "\x1b[2mEnter to select • Esc to cancel\x1b[0m"
         }
         ModalMode::Select if modal.title.contains("Permission") || modal.title.contains("Approve") => {
             "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"
