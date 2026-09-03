@@ -14,7 +14,8 @@ Read file contents with offset and limit safeguards.
 Usage:
 - Use read to examine files instead of cat or sed.
 - Use offset and limit when reading large files.
-- Truncates lines when output exceeds maximum byte bounds.";
+- Truncates lines when output exceeds maximum byte bounds.
+- Supported images (png, jpeg, gif, webp, bmp) are attached to the result instead of being returned as text.";
 
 pub static PROMPT_WRITE: &str = "\
 Create or overwrite files. Automatically creates parent directories.

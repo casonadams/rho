@@ -6,6 +6,7 @@ mod tests;
 
 pub use sniff::{SNIFF_WINDOW_BYTES, SniffedMime, detect_supported_image_mime};
 
+use crate::tools::types::{ToolImage, ToolResult};
 use resize::{ResizedImage, resize_to_limits};
 use std::borrow::Cow;
 
@@ -58,6 +59,29 @@ pub fn process_image(bytes: &[u8], mime: &'static str) -> Result<ProcessedImage,
         mime: resized.mime,
         hints,
     })
+}
+
+/// pi's read-tool image branch: assemble the model-facing text note and attach
+/// the processed image. Processing failures surface pi's omission message as a
+/// successful text-only result (no image block).
+pub fn tool_result(bytes: &[u8], mime: &'static str) -> ToolResult {
+    match process_image(bytes, mime) {
+        Ok(processed) => {
+            let mut text = format!("Read image file [{}]", processed.mime);
+            for hint in &processed.hints {
+                text.push('\n');
+                text.push_str(hint);
+            }
+            ToolResult::success_with_image(
+                text,
+                ToolImage {
+                    data: processed.data,
+                    mime: processed.mime.to_string(),
+                },
+            )
+        }
+        Err(error) => ToolResult::success(format!("Read image file [{mime}]\n{}", error.message())),
+    }
 }
 
 /// pi's `formatDimensionNote` — helps the model map coordinates back to the

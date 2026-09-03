@@ -55,7 +55,12 @@ impl ReadTool {
             Err(e) => return Ok(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
         };
 
-        // Binary check
+        // Supported images attach inline blocks; sniff before the binary check
+        // because PNG's IHDR length field alone already contains null bytes.
+        if let Some(sniffed) = images::detect_supported_image_mime(&raw_bytes) {
+            return Ok(images::tool_result(&raw_bytes, sniffed.mime()));
+        }
+
         if is_binary(&raw_bytes) {
             return Ok(ToolResult::success(format!(
                 "[Binary file: {} bytes, path: {}]",
@@ -133,7 +138,7 @@ impl Tool for ReadTool {
     type Error = ToolExecutionError;
 
     fn description(&self) -> String {
-        "Read file contents with line numbering, offset, and limit safeguards.".to_string()
+        "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result.".to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {

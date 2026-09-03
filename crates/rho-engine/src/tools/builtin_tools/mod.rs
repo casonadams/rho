@@ -65,7 +65,7 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
     let r = Arc::clone(&read);
     tools.push(DynamicTool::new(
         "read",
-        "Read file contents with line numbering, offset, and limit safeguards.",
+        "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result.",
         generated_schema::<ReadArgs>(),
         move |_ctx, args| {
             let r = Arc::clone(&r);

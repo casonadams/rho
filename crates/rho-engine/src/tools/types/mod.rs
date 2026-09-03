@@ -1,10 +1,25 @@
 use rho_harness_core::error::AppError;
+use rig::completion::message::{ImageMediaType, MimeType, ToolResultContent};
 use rig::tool::ToolExecutionError;
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+
+mod schema;
 
 #[cfg(test)]
 mod tests;
+
+pub use schema::{generated_schema, normalize_schema};
+
+/// An inline image attached to a successful tool result. The turn hook keeps it
+/// for providers whose rig adapter serializes tool-result images and replaces
+/// it with an omission note for everyone else.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolImage {
+    /// Base64-encoded image data.
+    pub data: String,
+    /// MIME type such as "image/png".
+    pub mime: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
@@ -12,6 +27,8 @@ pub struct ToolResult {
     pub is_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ToolImage>,
 }
 
 impl ToolResult {
@@ -20,6 +37,18 @@ impl ToolResult {
             content: content.into(),
             is_error: false,
             metadata: None,
+            image: None,
+        }
+    }
+
+    /// Successful result whose model-visible output is `content` followed by an
+    /// inline image block.
+    pub fn success_with_image(content: impl Into<String>, image: ToolImage) -> Self {
+        Self {
+            content: content.into(),
+            is_error: false,
+            metadata: None,
+            image: Some(image),
         }
     }
 
@@ -28,117 +57,9 @@ impl ToolResult {
             content: content.into(),
             is_error: true,
             metadata: None,
+            image: None,
         }
     }
-}
-
-pub fn normalize_schema(value: &mut serde_json::Value) {
-    let mut defs = std::collections::HashMap::new();
-    collect_definitions(value, &mut defs);
-    inline_refs(value, &defs);
-    clean_schema(value);
-    if let serde_json::Value::Object(map) = value {
-        map.remove("$defs");
-        map.remove("definitions");
-        map.remove("$schema");
-    }
-}
-
-fn collect_definitions(value: &serde_json::Value, defs: &mut std::collections::HashMap<String, serde_json::Value>) {
-    if let serde_json::Value::Object(map) = value {
-        for key in ["$defs", "definitions"] {
-            if let Some(serde_json::Value::Object(submap)) = map.get(key) {
-                for (name, def) in submap {
-                    defs.insert(format!("#/{key}/{name}"), def.clone());
-                    defs.insert(format!("#/$defs/{name}"), def.clone());
-                    defs.insert(format!("#/definitions/{name}"), def.clone());
-                    defs.insert(name.clone(), def.clone());
-                }
-            }
-        }
-        for subval in map.values() {
-            collect_definitions(subval, defs);
-        }
-    } else if let serde_json::Value::Array(arr) = value {
-        for item in arr {
-            collect_definitions(item, defs);
-        }
-    }
-}
-
-fn inline_refs(value: &mut serde_json::Value, defs: &std::collections::HashMap<String, serde_json::Value>) {
-    if let serde_json::Value::Object(map) = value {
-        if let Some(serde_json::Value::String(ref_target)) = map.get("$ref")
-            && let Some(target_def) = defs.get(ref_target)
-        {
-            let mut inlined = target_def.clone();
-            inline_refs(&mut inlined, defs);
-            *value = inlined;
-            return;
-        }
-        for subval in map.values_mut() {
-            inline_refs(subval, defs);
-        }
-    } else if let serde_json::Value::Array(arr) = value {
-        for item in arr {
-            inline_refs(item, defs);
-        }
-    }
-}
-
-fn clean_schema(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Bool(true) => {
-            *value = serde_json::Value::Object(serde_json::Map::new());
-        }
-        serde_json::Value::Object(map) => {
-            if map.get("default") == Some(&serde_json::Value::Null) {
-                map.remove("default");
-            }
-            if let Some(serde_json::Value::Array(arr)) = map.get("type") {
-                let non_null: Vec<_> = arr
-                    .iter()
-                    .filter(|item| item.as_str() != Some("null"))
-                    .cloned()
-                    .collect();
-                if non_null.len() == 1 {
-                    map.insert("type".to_string(), non_null[0].clone());
-                }
-            }
-            if let Some(serde_json::Value::Array(arr)) = map.get("anyOf") {
-                let non_null: Vec<_> = arr
-                    .iter()
-                    .filter(|item| {
-                        !(item.is_object()
-                            && item.as_object().unwrap().get("type")
-                                == Some(&serde_json::Value::String("null".to_string())))
-                    })
-                    .cloned()
-                    .collect();
-                if non_null.len() == 1 {
-                    let mut single = non_null[0].clone();
-                    clean_schema(&mut single);
-                    *value = single;
-                    return;
-                }
-            }
-            for subval in map.values_mut() {
-                clean_schema(subval);
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            for item in arr {
-                clean_schema(item);
-            }
-        }
-        _ => {}
-    }
-}
-
-pub fn generated_schema<T: JsonSchema>() -> serde_json::Value {
-    let mut schema = serde_json::to_value(schemars::schema_for!(T)).expect("generated JSON Schema must serialize");
-    normalize_schema(&mut schema);
-    schema
 }
 
 pub fn into_rig_result(result: Result<ToolResult, AppError>) -> Result<String, ToolExecutionError> {
@@ -150,5 +71,23 @@ pub fn into_rig_result(result: Result<ToolResult, AppError>) -> Result<String, T
 }
 
 pub fn into_dynamic_result(result: Result<ToolResult, AppError>) -> Result<rig::tool::ToolOutput, ToolExecutionError> {
-    into_rig_result(result).map(rig::tool::ToolOutput::text)
+    match result {
+        Ok(result) if result.is_error => Err(ToolExecutionError::other(result.content)),
+        Ok(result) => Ok(tool_output(result)),
+        Err(error) => Err(ToolExecutionError::from_error(error)),
+    }
+}
+
+/// Text results stay a single text block; image-bearing results become
+/// `[text, image]` so vision-capable providers receive the inline image.
+fn tool_output(result: ToolResult) -> rig::tool::ToolOutput {
+    let Some(image) = result.image else {
+        return rig::tool::ToolOutput::text(result.content);
+    };
+    let media_type = ImageMediaType::from_mime_type(&image.mime);
+    rig::tool::ToolOutput::content(vec![
+        ToolResultContent::text(result.content),
+        ToolResultContent::image_base64(image.data, media_type, None),
+    ])
+    .expect("a text block plus an image block is never empty")
 }
