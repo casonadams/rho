@@ -78,6 +78,6 @@ async fn test_read_builtin_embedded_skill() {
         .unwrap();
 
     assert!(!res.is_error);
-    assert!(res.content.contains("Creating an MCP Tool Plugin for `rho`"));
-    assert!(res.content.contains("Model Context Protocol"));
+    assert!(res.content.contains("Creating an MCP Tool Server"));
+    assert!(res.content.contains("Scaffold and package"));
 }

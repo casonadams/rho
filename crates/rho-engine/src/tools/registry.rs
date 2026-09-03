@@ -1,7 +1,7 @@
 use crate::tools::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
 
 pub use crate::tools::builtin_tools::{
-    PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
 pub type ToolCapability = BuiltinToolKind;

@@ -1,5 +1,6 @@
 use crate::tools::bash::BashArgs;
 use crate::tools::edit::EditArgs;
+use crate::tools::fd::FdArgs;
 use crate::tools::read::ReadArgs;
 use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
@@ -30,12 +31,21 @@ Usage:
 - Keep edits[].oldText as small as possible while still being unique in the file.
 - Do not include large unchanged regions just to connect distant changes.";
 
+pub static PROMPT_FD: &str = "\
+Find files and directories by workspace-relative path pattern.
+
+Usage:
+- pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against workspace-relative paths.
+- Files and directories both match; results are sorted lexicographically and capped at limit (default 200, max 1000) with a 20,000-entry collection ceiling.
+- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
+- Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. pattern '.' with depth 2.";
+
 pub static PROMPT_BASH: &str = "\
 Execute bash commands in the current working directory.
 
 Usage:
 - Commands run directly in the working directory; do not prefix commands with cd.
-- Use bash for file discovery, git actions, cargo builds, tests, and linters.
+- Use fd for file discovery; use bash for git actions, cargo builds, tests, and linters.
 - Use read/edit instead of sed, awk, or cat for reading and editing code.
 - Captures combined stdout and stderr with output truncation safeguards.";
 
@@ -125,10 +135,22 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_BASH,
         prompt_snippet: Some("Execute bash commands in the current working directory"),
         prompt_guidelines: &[
-            "Use bash for file operations like ls, rg, find",
+            "Use fd for file discovery; bash for git actions, cargo builds, and tests",
             "Commands run directly in the working directory; do not prefix commands with cd",
         ],
         schema: generated_schema::<BashArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "fd",
+        capability: BuiltinToolKind::ReadOnly,
+        description: "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.",
+        prompt: PROMPT_FD,
+        prompt_snippet: Some("Find files and directories by path pattern (gitignore-aware, bounded)"),
+        prompt_guidelines: &[
+            "Use fd for file discovery instead of find, glob, or ls round-trips",
+            "Use depth (1-10) with pattern '.' for a bounded workspace overview",
+        ],
+        schema: generated_schema::<FdArgs>,
     },
     BuiltinToolDeclaration {
         name: "web_search",

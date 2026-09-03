@@ -3,19 +3,20 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEB_FETCH,
-    PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ,
+    PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
+use crate::tools::fd::FdTool;
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::types::{ToolResult, generated_schema, into_dynamic_result};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
+use rho_harness_core::args::{FdArgs, WebFetchArgs, WebSearchArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rig::tool::DynamicTool;
@@ -55,6 +56,7 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         [&config.config_dir, &config.sessions_dir],
     ));
     let bash = Arc::new(BashTool::new(base_dir));
+    let fd = Arc::new(FdTool::new(base_dir));
 
     let mut tools = Vec::new();
 
@@ -130,6 +132,23 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 } else {
                     into_dynamic_result(b.execute(args).await)
                 }
+            })
+        },
+    ));
+
+    let fd_tool = fd;
+    tools.push(DynamicTool::new(
+        "fd",
+        "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.",
+        generated_schema::<FdArgs>(),
+        move |_ctx, args| {
+            let fd_tool = Arc::clone(&fd_tool);
+            Box::pin(async move {
+                let args: FdArgs = match parse_args(args) {
+                    Ok(a) => a,
+                    Err(err) => return into_dynamic_result(Ok(err)),
+                };
+                into_dynamic_result(fd_tool.execute(args).await)
             })
         },
     ));

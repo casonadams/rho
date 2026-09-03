@@ -1,6 +1,7 @@
 pub mod bash;
 pub mod builtin_tools;
 pub mod edit;
+pub mod fd;
 pub mod read;
 pub mod registry;
 pub mod types;
@@ -10,6 +11,7 @@ pub mod write;
 pub use bash::{BashArgs, BashTool};
 pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_builtin_tools};
 pub use edit::{EditArgs, EditTool};
+pub use fd::{FdArgs, FdTool};
 pub use read::{ReadArgs, ReadTool};
 pub use registry::ToolRegistry;
 pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};

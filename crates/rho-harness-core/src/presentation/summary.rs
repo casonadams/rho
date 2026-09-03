@@ -175,7 +175,7 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let rel = to_relative_path(path);
             format!("/{pattern}/ in {rel}")
         }
-        "find" => {
+        "fd" => {
             let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
             let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let rel = to_relative_path(path);
