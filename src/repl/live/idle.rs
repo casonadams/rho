@@ -103,6 +103,19 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         controller.redraw()?;
                         continue;
                     }
+                    ModalKeyResult::NodeLabelUpdated { node_id, label } => {
+                        let label_opt = if label.is_empty() { None } else { Some(label.clone()) };
+                        match engine.session_manager.set_node_label(&node_id, label_opt).await {
+                            Ok(_) => {
+                                session.renderer.print_notice(&format!("  [Labeled checkpoint {node_id}: \"{label}\"]\n"));
+                            }
+                            Err(err) => {
+                                session.renderer.print_notice(&format!("  [Failed to label checkpoint: {err}]\n"));
+                            }
+                        }
+                        controller.redraw()?;
+                        continue;
+                    }
                     ModalKeyResult::SessionSelected { session_id } => {
                         *engine = crate::platform::agent_engine(
                             session.config.clone(),

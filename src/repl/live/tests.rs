@@ -194,6 +194,56 @@ fn tree_selector_modal_selection() {
 }
 
 #[test]
+fn tree_selector_modal_shift_l_labels_checkpoint() {
+    let mut tree = rho_harness_core::session::tree::SessionTree::new();
+    tree.add_node(rho_harness_core::session::tree::TreeNodeData {
+        id: "node-42".into(),
+        parent_id: None,
+        timestamp: chrono::Utc::now(),
+        kind: rho_harness_core::session::tree::TreeNodeKind::UserTurn,
+        messages: vec![rig::message::Message::user("Hello")],
+        label: None,
+        metadata: None,
+    });
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::modal::open_tree_selector(&tree, &mut controller);
+
+    let shift_l = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('L'),
+        crossterm::event::KeyModifiers::SHIFT,
+    );
+    let res = super::modal::handle_modal_key(&mut controller, shift_l, &mut None).unwrap();
+    assert_eq!(res, super::modal::ModalKeyResult::Handled);
+    assert!(matches!(
+        controller.state().active_modal().unwrap().mode,
+        crate::ui::interactive::ModalMode::Input { .. }
+    ));
+
+    let char_a = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('a'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let _ = super::modal::handle_modal_key(&mut controller, char_a, &mut None).unwrap();
+    let char_b = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('b'),
+        crossterm::event::KeyModifiers::NONE,
+    );
+    let _ = super::modal::handle_modal_key(&mut controller, char_b, &mut None).unwrap();
+
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let res = super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert_eq!(
+        res,
+        super::modal::ModalKeyResult::NodeLabelUpdated {
+            node_id: "node-42".into(),
+            label: "ab".into(),
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
 fn session_selector_modal_selection() {
     let temp_dir = std::env::temp_dir().join(format!("test_sessions_{}", uuid::Uuid::new_v4()));
     let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();

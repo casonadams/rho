@@ -20,6 +20,10 @@ pub enum ModalKeyResult {
     TreeNodeSelected {
         node_id: String,
     },
+    NodeLabelUpdated {
+        node_id: String,
+        label: String,
+    },
     SessionSelected {
         session_id: String,
     },
@@ -278,6 +282,64 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
     }
 
     if is_tree_selector {
+        if matches!(active.mode, crate::ui::interactive::ModalMode::Input { .. }) {
+            match key.code {
+                KeyCode::Esc => {
+                    if let Some(modal) = controller.state_mut().active_modal_mut() {
+                        modal.mode = crate::ui::interactive::ModalMode::Select;
+                    }
+                    controller.redraw()?;
+                    return Ok(ModalKeyResult::Handled);
+                }
+                KeyCode::Enter => {
+                    let input_text = if let Some(modal) = controller.state().active_modal() {
+                        modal.input.text().trim().to_string()
+                    } else {
+                        String::new()
+                    };
+                    if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
+                        let desc = opt.description.clone().unwrap_or_default();
+                        let node_id = desc.split_whitespace().last().unwrap_or(&desc).to_string();
+                        controller.state_mut().pop_modal();
+                        return Ok(ModalKeyResult::NodeLabelUpdated {
+                            node_id,
+                            label: input_text,
+                        });
+                    }
+                    controller.state_mut().pop_modal();
+                    return Ok(ModalKeyResult::Handled);
+                }
+                _ => {
+                    if let InputAction::Edit(action) = map_key(key)
+                        && let Some(modal) = controller.state_mut().active_modal_mut()
+                    {
+                        match action {
+                            UiAction::Insert(c) => modal.input.insert(c),
+                            UiAction::Backspace => modal.input.backspace(),
+                            UiAction::Delete => modal.input.delete(),
+                            UiAction::MoveLeft => modal.input.move_left(),
+                            UiAction::MoveRight => modal.input.move_right(),
+                            UiAction::MoveToStart => modal.input.move_to_start(),
+                            UiAction::MoveToEnd => modal.input.move_to_end(),
+                            _ => {}
+                        }
+                    }
+                    controller.redraw()?;
+                    return Ok(ModalKeyResult::Handled);
+                }
+            }
+        }
+
+        if (key.code == KeyCode::Char('l') || key.code == KeyCode::Char('L'))
+            && key.modifiers.contains(KeyModifiers::SHIFT)
+        {
+            if let Some(modal) = controller.state_mut().active_modal_mut() {
+                modal.enter_input_mode("label");
+            }
+            controller.redraw()?;
+            return Ok(ModalKeyResult::Handled);
+        }
+
         match key.code {
             KeyCode::Up | KeyCode::BackTab => {
                 controller.state_mut().select_previous_modal_option();
