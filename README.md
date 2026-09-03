@@ -59,13 +59,14 @@ order once the active turn settles.
 
 ## Core Built-in Tools
 
-`rho` includes 7 native, robust built-in tools:
+`rho` includes 8 native, robust built-in tools:
 
 - `read`: Read file contents with line numbering, offset, and limit safeguards.
 - `write`: Create or overwrite files (automatically creates parent directories).
 - `edit`: Make precise file edits with exact text replacement.
 - `bash`: Execute shell commands in the current working directory.
 - `fd`: Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.
+- `rg`: Search file contents by pattern with line-oriented results; gitignore-aware, skips binary and oversized files, and bounds output.
 - `web_search`: Search the web and return structured summaries and URLs.
 - `web_fetch`: Fetch and extract clean readable text or markdown from URLs.
 

@@ -36,6 +36,8 @@ pdf-extract = "0.7"
 moka = { version = "0.12", features = ["future"] }
 regex = "1.11"
 ignore = "0.4"
+grep-regex = "0.1"
+grep-searcher = "0.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

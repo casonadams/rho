@@ -3,7 +3,7 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG,
     PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
@@ -11,12 +11,13 @@ use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::fd::FdTool;
 use crate::tools::read::{ReadArgs, ReadTool};
+use crate::tools::rg::RgTool;
 use crate::tools::types::{ToolResult, generated_schema, into_dynamic_result};
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_harness_core::args::{FdArgs, WebFetchArgs, WebSearchArgs};
+use rho_harness_core::args::{FdArgs, RgArgs, WebFetchArgs, WebSearchArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rig::tool::DynamicTool;
@@ -57,6 +58,7 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
     ));
     let bash = Arc::new(BashTool::new(base_dir));
     let fd = Arc::new(FdTool::new(base_dir));
+    let rg = Arc::new(RgTool::new(base_dir));
 
     let mut tools = Vec::new();
 
@@ -149,6 +151,23 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                     Err(err) => return into_dynamic_result(Ok(err)),
                 };
                 into_dynamic_result(fd_tool.execute(args).await)
+            })
+        },
+    ));
+
+    let rg_tool = rg;
+    tools.push(DynamicTool::new(
+        "rg",
+        "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded.",
+        generated_schema::<RgArgs>(),
+        move |_ctx, args| {
+            let rg_tool = Arc::clone(&rg_tool);
+            Box::pin(async move {
+                let args: RgArgs = match parse_args(args) {
+                    Ok(a) => a,
+                    Err(err) => return into_dynamic_result(Ok(err)),
+                };
+                into_dynamic_result(rg_tool.execute(args).await)
             })
         },
     ));

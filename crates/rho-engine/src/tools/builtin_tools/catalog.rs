@@ -2,6 +2,7 @@ use crate::tools::bash::BashArgs;
 use crate::tools::edit::EditArgs;
 use crate::tools::fd::FdArgs;
 use crate::tools::read::ReadArgs;
+use crate::tools::rg::RgArgs;
 use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
@@ -40,12 +41,22 @@ Usage:
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
 - Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. pattern '.' with depth 2.";
 
+pub static PROMPT_RG: &str = "\
+Search file contents with line-oriented results.
+
+Usage:
+- pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against file contents.
+- Returns path:line: text lines sorted by path then line number; match lines are truncated at 500 characters.
+- Results are capped at limit (default 200, max 1000) with a 5,000-match collection ceiling.
+- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
+- Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
+
 pub static PROMPT_BASH: &str = "\
 Execute bash commands in the current working directory.
 
 Usage:
 - Commands run directly in the working directory; do not prefix commands with cd.
-- Use fd for file discovery; use bash for git actions, cargo builds, tests, and linters.
+- Use fd for file discovery, rg for content search; use bash for git actions, cargo builds, tests, and linters.
 - Use read/edit instead of sed, awk, or cat for reading and editing code.
 - Captures combined stdout and stderr with output truncation safeguards.";
 
@@ -135,7 +146,7 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt: PROMPT_BASH,
         prompt_snippet: Some("Execute bash commands in the current working directory"),
         prompt_guidelines: &[
-            "Use fd for file discovery; bash for git actions, cargo builds, and tests",
+            "Use fd/rg for discovery and content search; bash for git actions, cargo builds, and tests",
             "Commands run directly in the working directory; do not prefix commands with cd",
         ],
         schema: generated_schema::<BashArgs>,
@@ -151,6 +162,18 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
             "Use depth (1-10) with pattern '.' for a bounded workspace overview",
         ],
         schema: generated_schema::<FdArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "rg",
+        capability: BuiltinToolKind::ReadOnly,
+        description: "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded.",
+        prompt: PROMPT_RG,
+        prompt_snippet: Some("Search file contents by pattern (gitignore-aware, bounded)"),
+        prompt_guidelines: &[
+            "Use rg for content search instead of grep or bash pipelines",
+            "Narrow with path or type when a pattern matches too much",
+        ],
+        schema: generated_schema::<RgArgs>,
     },
     BuiltinToolDeclaration {
         name: "web_search",

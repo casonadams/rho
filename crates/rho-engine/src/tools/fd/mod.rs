@@ -1,6 +1,7 @@
+use crate::tools::traversal::{build_type_matcher, search_root, walker_builder};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
-use ignore::types::{Types, TypesBuilder};
-use ignore::{WalkBuilder, WalkState};
+use ignore::WalkState;
+use ignore::types::Types;
 use regex::Regex;
 pub use rho_harness_core::args::FdArgs;
 use rho_harness_core::error::AppError;
@@ -72,31 +73,6 @@ fn compile_pattern(pattern: &str) -> Result<Regex, String> {
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
 }
 
-fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, String> {
-    let Some(file_type) = file_type else {
-        return Ok(None);
-    };
-    let mut builder = TypesBuilder::new();
-    builder.add_defaults().select(file_type);
-    builder
-        .build()
-        .map(Some)
-        .map_err(|_| format!("unknown type {file_type:?}; use a default type name such as 'rust', 'js', or 'py'"))
-}
-
-fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf, String> {
-    let Some(raw) = path.map(str::trim).filter(|raw| !raw.is_empty()) else {
-        return Ok(workspace.root().to_path_buf());
-    };
-    if !workspace.is_within(raw) {
-        return Err(format!("path {raw:?} is outside the workspace"));
-    }
-    match workspace.resolve(raw) {
-        Some(root) if root.exists() => Ok(root),
-        _ => Err(format!("path not found: {raw}")),
-    }
-}
-
 struct FdQuery {
     workspace_root: PathBuf,
     search_root: PathBuf,
@@ -116,23 +92,7 @@ impl FdQuery {
             include_hidden,
             depth,
         } = self;
-        let mut builder = WalkBuilder::new(&search_root);
-        builder.hidden(!include_hidden).follow_links(false);
-        if include_hidden {
-            builder
-                .ignore(false)
-                .git_ignore(false)
-                .git_global(false)
-                .git_exclude(false)
-                .parents(false);
-        } else {
-            builder
-                .ignore(true)
-                .git_ignore(true)
-                .git_global(true)
-                .git_exclude(true)
-                .parents(true);
-        }
+        let mut builder = walker_builder(&search_root, include_hidden);
         builder.max_depth(depth);
         if let Some(types) = &types {
             builder.types(types.clone());

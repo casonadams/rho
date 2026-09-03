@@ -6,13 +6,15 @@ Available tools:
 - edit: Make precise file edits with exact text replacement (every edits[].oldText must match uniquely)
 - bash: Execute bash commands in the current working directory
 - fd: Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)
+- rg: Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)
 - web_search: Search the web and return structured summaries and URLs
 - web_fetch: Fetch and extract clean text or markdown from URLs
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 
 Guidelines:
-- Use fd for file discovery instead of find, glob, or ls round-trips
+- Use fd for file discovery and rg for content search instead of find, grep, glob, or ls round-trips
+- Orient first: read README and manifests, run a shallow fd (depth 2) for layout, then targeted fd/rg searches, then read specific files
 - Commands run directly in the working directory; do not prefix commands with cd
 - Use read to examine files instead of cat or sed
 - Use edit for precise changes (edits[].oldText must match exactly)
