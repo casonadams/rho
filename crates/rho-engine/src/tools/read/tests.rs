@@ -1,4 +1,27 @@
 use super::*;
+use crate::tools::truncate::DEFAULT_MAX_BYTES;
+
+async fn read_text(
+    dir: std::path::PathBuf,
+    name: &str,
+    content: &str,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> ToolResult {
+    tokio::fs::create_dir_all(&dir).await.unwrap();
+    let file_path = dir.join(name);
+    tokio::fs::write(&file_path, content).await.unwrap();
+    let result = ReadTool::new(&dir)
+        .execute(ReadArgs {
+            path: file_path.to_string_lossy().into_owned(),
+            offset,
+            limit,
+        })
+        .await
+        .unwrap();
+    let _ = tokio::fs::remove_dir_all(dir).await;
+    result
+}
 
 #[tokio::test]
 async fn test_read_tool_happy_path() {
@@ -25,28 +48,117 @@ async fn test_read_tool_happy_path() {
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
-#[tokio::test]
-async fn test_read_truncates_at_byte_limit() {
-    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let file_path = temp_dir.join("large.txt");
-    tokio::fs::write(&file_path, "x".repeat(MAX_READ_BYTES * 2))
-        .await
-        .unwrap();
+fn numbered_lines(count: usize) -> String {
+    (1..=count).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n")
+}
 
-    let result = ReadTool::new(&temp_dir)
-        .execute(ReadArgs {
-            path: file_path.to_string_lossy().into_owned(),
-            offset: None,
-            limit: None,
-        })
-        .await
-        .unwrap();
+#[tokio::test]
+async fn test_read_first_line_exceeds_byte_limit_points_at_bash() {
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "huge.txt", &"x".repeat(DEFAULT_MAX_BYTES * 2), None, None).await;
 
     assert!(!result.is_error);
-    assert!(result.content.contains("Truncated at 50 KB limit"));
-    assert!(result.content.len() <= MAX_READ_BYTES + 200);
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+    assert!(result.content.contains("[Line 1 is 100.0KB, exceeds 50.0KB limit."));
+    assert!(result.content.contains("Use bash: sed -n '1p'"));
+    assert!(result.content.contains("| head -c 51200]"));
+}
+
+#[tokio::test]
+async fn test_read_byte_truncation_shows_range_and_next_offset() {
+    // 1000 fixed-width lines: 51200 bytes fits 506 whole lines (51105 bytes).
+    let content = vec!["x".repeat(100); 1000].join("\n");
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "wide.txt", &content, None, None).await;
+
+    assert!(!result.is_error);
+    assert!(
+        result
+            .content
+            .contains("[Showing lines 1-506 of 1000 (50.0KB limit). Use offset=507 to continue.]")
+    );
+    assert!(result.content.contains("     1\t"));
+}
+
+#[tokio::test]
+async fn test_read_line_truncation_shows_continuation() {
+    let content = numbered_lines(2500);
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "long.txt", &content, None, None).await;
+
+    assert!(!result.is_error);
+    assert!(
+        result
+            .content
+            .contains("[Showing lines 1-2000 of 2500. Use offset=2001 to continue.]")
+    );
+    assert!(result.content.contains("2000\tline 2000"));
+    assert!(!result.content.contains("2001\tline 2001"));
+}
+
+#[tokio::test]
+async fn test_read_user_limit_reports_remaining_lines() {
+    let content = numbered_lines(25);
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "medium.txt", &content, None, Some(10)).await;
+
+    assert!(!result.is_error);
+    assert!(
+        result
+            .content
+            .contains("[15 more lines in file. Use offset=11 to continue.]")
+    );
+    assert!(result.content.contains("10\tline 10"));
+    assert!(!result.content.contains("11\tline 11"));
+}
+
+#[tokio::test]
+async fn test_read_user_limit_at_end_has_no_notice() {
+    let content = numbered_lines(25);
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "exact.txt", &content, None, Some(25)).await;
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("25\tline 25"));
+    assert!(!result.content.contains("more lines in file"));
+}
+
+#[tokio::test]
+async fn test_read_offset_continues_numbering() {
+    let content = numbered_lines(2500);
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "long.txt", &content, Some(2001), None).await;
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("2001\tline 2001"));
+    assert!(result.content.contains("2500\tline 2500"));
+    assert!(!result.content.contains("[Showing lines"));
+}
+
+#[tokio::test]
+async fn test_read_offset_beyond_end_of_file_errors() {
+    let content = numbered_lines(5);
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "short.txt", &content, Some(100), None).await;
+
+    assert!(result.is_error);
+    assert!(
+        result
+            .content
+            .contains("Offset 100 is beyond end of file (5 lines total)")
+    );
+}
+
+#[tokio::test]
+async fn test_read_empty_file_errors() {
+    let temp_dir = std::env::temp_dir().join(format!("read_test_{}", uuid::Uuid::new_v4()));
+    let result = read_text(temp_dir, "empty.txt", "", None, None).await;
+
+    assert!(result.is_error);
+    assert!(
+        result
+            .content
+            .contains("Offset 1 is beyond end of file (0 lines total)")
+    );
 }
 
 #[tokio::test]

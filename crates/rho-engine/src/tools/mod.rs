@@ -6,6 +6,7 @@ pub mod read;
 pub mod registry;
 pub mod rg;
 mod traversal;
+pub mod truncate;
 pub mod types;
 pub mod web;
 pub mod write;

@@ -1,4 +1,6 @@
-use super::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TailTruncation, format_size, truncate_tail};
+use crate::tools::truncate::{
+    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, Truncation, format_size, truncate_tail,
+};
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -7,7 +9,7 @@ use std::path::PathBuf;
 pub struct OutputSnapshot {
     pub content: String,
     pub formatted_text: String,
-    pub truncation: TailTruncation,
+    pub truncation: Truncation,
     pub full_output_path: Option<PathBuf>,
 }
 
@@ -152,7 +154,7 @@ impl OutputAccumulator {
         }
     }
 
-    fn format_snapshot_text(&self, truncation: &TailTruncation) -> String {
+    fn format_snapshot_text(&self, truncation: &Truncation) -> String {
         let mut text = truncation.content.clone();
         if truncation.truncated {
             let path_str = self
@@ -172,7 +174,7 @@ impl OutputAccumulator {
                 text.push_str(&format!(
                     "\n\n[Showing last {size} of line {end_line} (line is {line_size}). Full output: {path_str}]"
                 ));
-            } else if truncation.truncated_by == Some(super::truncate::TruncatedBy::Lines) {
+            } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
                 text.push_str(&format!(
                     "\n\n[Showing lines {start_line}-{end_line} of {}. Full output: {path_str}]",
                     truncation.total_lines

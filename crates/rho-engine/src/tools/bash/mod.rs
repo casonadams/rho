@@ -1,5 +1,4 @@
 pub mod accumulator;
-pub mod truncate;
 
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
@@ -11,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
-pub use truncate::{DEFAULT_MAX_BYTES as MAX_BASH_BYTES, DEFAULT_MAX_LINES as MAX_BASH_LINES, truncate_tail};
 
 #[cfg(test)]
 mod tests;

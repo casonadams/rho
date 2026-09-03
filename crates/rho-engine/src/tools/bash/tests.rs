@@ -1,5 +1,5 @@
 use super::*;
-use truncate::TruncatedBy;
+use crate::tools::truncate::DEFAULT_MAX_BYTES as MAX_BASH_BYTES;
 
 #[test]
 fn test_is_read_only_command() {
@@ -21,46 +21,6 @@ fn test_is_read_only_command() {
     assert!(!is_read_only_command("git config user.name model"));
     assert!(is_read_only_command("git branch --show-current"));
     assert!(is_read_only_command("git config --get user.name"));
-}
-
-#[test]
-fn test_truncate_tail_within_limits() {
-    let text = "line 1\nline 2\nline 3";
-    let res = truncate_tail(text, 10, 100);
-    assert!(!res.truncated);
-    assert_eq!(res.content, text);
-    assert_eq!(res.output_lines, 3);
-}
-
-#[test]
-fn test_truncate_tail_by_lines() {
-    let lines: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
-    let text = lines.join("\n");
-    let res = truncate_tail(&text, 3, 1000);
-    assert!(res.truncated);
-    assert_eq!(res.truncated_by, Some(TruncatedBy::Lines));
-    assert_eq!(res.output_lines, 3);
-    assert_eq!(res.content, "line 8\nline 9\nline 10");
-}
-
-#[test]
-fn test_truncate_tail_by_bytes() {
-    let lines = vec!["aaaa", "bbbb", "cccc", "dddd"];
-    let text = lines.join("\n");
-    let res = truncate_tail(&text, 10, 9);
-    assert!(res.truncated);
-    assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
-    assert_eq!(res.content, "cccc\ndddd");
-}
-
-#[test]
-fn test_truncate_tail_single_oversized_line() {
-    let long_line = "abcdefghijklmnopqrstuvwxyz";
-    let res = truncate_tail(long_line, 10, 5);
-    assert!(res.truncated);
-    assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
-    assert!(res.last_line_partial);
-    assert_eq!(res.content, "vwxyz");
 }
 
 #[test]
