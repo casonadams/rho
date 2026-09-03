@@ -2,7 +2,6 @@ use super::helpers::{final_event, presenter, request, test_engine};
 use crate::config::Config;
 use crate::engine::runner::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary};
 use crate::error::AppError;
-use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use rig::completion::Usage;
 use rig::message::{AssistantContent, Message, UserContent};

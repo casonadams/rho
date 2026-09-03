@@ -150,7 +150,15 @@ impl ProviderFactory {
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
             ProviderId::Gemini | ProviderId::Antigravity => {
-                let client = rig::providers::gemini::Client::new(key)
+                let http_client = reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .map_err(|e| AppError::Other(e.into()))?;
+
+                let client = rig::providers::gemini::Client::builder()
+                    .http_client(http_client)
+                    .api_key(&key)
+                    .build()
                     .map_err(|e| AppError::Provider(format!("Failed to initialize Gemini client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
