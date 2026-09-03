@@ -1,3 +1,4 @@
+mod tool_hook;
 pub mod types;
 
 pub use types::{
@@ -26,6 +27,7 @@ use std::time::Instant;
 use super::helpers::redact_text;
 use super::history::{budget_history, checkpoint_messages, continuation_history, display_events, map_streaming_error};
 use super::sink::{TerminalApprovalSink, TerminalSinkConfig, TurnArtifacts};
+use tool_hook::TurnToolExecutionHook;
 
 impl AgentEngine {
     pub async fn run_turn(
@@ -80,7 +82,7 @@ impl AgentEngine {
             for p in &self.plugins {
                 p.register_hooks(&mut hook_stack);
             }
-            hook_stack.push(TurnToolExecutionHook::new(sink.clone()));
+            hook_stack.push(TurnToolExecutionHook::new(sink.clone(), &self.config.provider));
 
             let runner = build_runner(&self.agent, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
@@ -306,44 +308,5 @@ impl AgentEngine {
             status,
             metrics,
         })
-    }
-}
-
-struct TurnToolExecutionHook {
-    sink: std::sync::Arc<TerminalApprovalSink>,
-}
-
-impl TurnToolExecutionHook {
-    fn new(sink: std::sync::Arc<TerminalApprovalSink>) -> Self {
-        Self { sink }
-    }
-}
-
-impl rig::agent::hook::AgentHook for TurnToolExecutionHook {
-    async fn on_tool_call(
-        &self,
-        _ctx: &rig::agent::hook::HookContext,
-        event: rig::agent::hook::ToolCall<'_>,
-    ) -> rig::agent::hook::ToolCallAction {
-        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
-        self.sink.tool_start(event.tool_name, &arguments);
-        rig::agent::hook::ToolCallAction::run()
-    }
-
-    async fn on_tool_result(
-        &self,
-        _ctx: &rig::agent::hook::HookContext,
-        event: rig::agent::hook::ToolResultEvent<'_>,
-    ) -> rig::agent::hook::ToolResultAction {
-        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
-        let output = event.presentation.render();
-        let is_error = !event.raw_result.is_success();
-        self.sink.tool_finished(super::sink::ToolFinishDetails {
-            name: event.tool_name,
-            arguments: &arguments,
-            output: &output,
-            is_error,
-        });
-        rig::agent::hook::ToolResultAction::keep()
     }
 }

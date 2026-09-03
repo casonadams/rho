@@ -1,6 +1,8 @@
+pub mod capabilities;
 pub mod discovery;
 pub mod store;
 
+pub use capabilities::supports_tool_result_images;
 pub use store::ModelStore;
 
 use crate::auth::AuthStore;
