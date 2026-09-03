@@ -96,10 +96,18 @@ pub(crate) async fn run_active_turn(
                         }
                     }
                     InputAction::ToggleExpandTools => {
-                        controller.toggle_tools_expanded()?;
+                        let expanded = controller.toggle_tools_expanded()?;
+                        renderer.print_status(&format!(
+                            "Tool output: {}",
+                            if expanded { "expanded" } else { "collapsed" }
+                        ));
                     }
                     InputAction::ThinkingToggle => {
-                        controller.toggle_thinking()?;
+                        let hide = controller.toggle_thinking()?;
+                        renderer.print_status(&format!(
+                            "Thinking blocks: {}",
+                            if hide { "hidden" } else { "visible" }
+                        ));
                     }
                     InputAction::ClipboardPasteImage => {
                         paste_clipboard(renderer, controller);

@@ -107,7 +107,7 @@ impl SlashCommandHandler {
                 Ok(Some(CommandResult::Continue))
             }
             "clear" | "reset" | "new" => {
-                ctx.renderer.print_notice("  [Conversation context reset]\n");
+                ctx.renderer.print_status("Context cleared");
                 Ok(Some(CommandResult::ClearContext))
             }
             "thinking" => {
@@ -118,8 +118,7 @@ impl SlashCommandHandler {
                         ctx.config.config_dir.as_path(),
                         ctx.config.thinking_level.as_deref(),
                     );
-                    ctx.renderer
-                        .print_notice(&format!("  [Thinking level set to {level}]\n"));
+                    ctx.renderer.print_status(&format!("Thinking level: {level}"));
                 } else {
                     let levels: Vec<String> = crate::repl::interactive::completion::THINKING_LEVELS
                         .iter()
@@ -136,8 +135,7 @@ impl SlashCommandHandler {
                             ctx.config.config_dir.as_path(),
                             ctx.config.thinking_level.as_deref(),
                         );
-                        ctx.renderer
-                            .print_notice(&format!("  [Thinking level set to {selected_level}]\n"));
+                        ctx.renderer.print_status(&format!("Thinking level: {selected_level}"));
                     }
                 }
                 Ok(Some(CommandResult::Continue))
@@ -246,10 +244,8 @@ impl SlashCommandHandler {
 
                     ctx.config.provider = provider.clone();
                     ctx.config.model = model.clone();
-                    ctx.renderer.print_notice(&format!(
-                        "  [Switched model to {} ({})]\n",
-                        ctx.config.model, ctx.config.provider
-                    ));
+                    ctx.renderer
+                        .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
                     Ok(Some(CommandResult::ModelChanged {
                         new_model: model,
                         new_provider: Some(provider),
@@ -267,10 +263,8 @@ impl SlashCommandHandler {
                         let provider_str = choice.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or("");
                         ctx.config.model = model_str.to_string();
                         ctx.config.provider = provider_str.to_string();
-                        ctx.renderer.print_notice(&format!(
-                            "  [Switched model to {} ({})]\n",
-                            ctx.config.model, ctx.config.provider
-                        ));
+                        ctx.renderer
+                            .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
                         return Ok(Some(CommandResult::ModelChanged {
                             new_model: model_str.to_string(),
                             new_provider: Some(provider_str.to_string()),

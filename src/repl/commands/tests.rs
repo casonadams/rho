@@ -158,7 +158,7 @@ async fn model_switch_is_emitted_and_updates_configuration() {
     assert!(matches!(result, Some(CommandResult::ModelChanged { .. })));
     assert_eq!(config.model, "gpt-4o");
     assert_eq!(config.provider, "openai");
-    assert!(collected_output(&mut events).contains("Switched model to gpt-4o (openai)"));
+    assert!(collected_output(&mut events).contains("Model: gpt-4o (openai)"));
 }
 
 #[tokio::test]

@@ -123,12 +123,12 @@ impl ReplSession {
                         .fork_session(&self.config.sessions_dir, turn_or_node_id.as_deref())
                         .await?;
                     self.renderer
-                        .print_notice(&format!("  [Forked session into {}]\n", forked.session_id));
+                        .print_status(&format!("Forked session: {}", forked.session_id));
                 }
                 CommandResult::CloneSession => {
                     let cloned = engine.session_manager.clone_session(&self.config.sessions_dir).await?;
                     self.renderer
-                        .print_notice(&format!("  [Cloned session into {}]\n", cloned.session_id));
+                        .print_status(&format!("Cloned session: {}", cloned.session_id));
                 }
                 CommandResult::OpenSessionSelector => {
                     super::modal::open_session_selector(&self.config.sessions_dir, controller);
@@ -138,12 +138,11 @@ impl ReplSession {
                     *engine =
                         crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), Some(&session_id))
                             .await?;
-                    self.renderer
-                        .print_notice(&format!("  [Resumed session {session_id}]\n"));
+                    self.renderer.print_status(&format!("Resumed session {session_id}"));
                 }
                 CommandResult::NameSession { name } => {
                     engine.session_manager.set_session_name(&name).await?;
-                    self.renderer.print_notice(&format!("  [Named session: \"{name}\"]\n"));
+                    self.renderer.print_status(&format!("Session name: \"{name}\""));
                 }
                 CommandResult::ExpandedPrompt { text } => {
                     self.renderer.print_notice("  [Expanded template]\n");

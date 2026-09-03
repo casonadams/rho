@@ -165,8 +165,8 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     }
 
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
-    ctx.session.renderer.print_notice(&format!(
-        "  [Switched model to {} ({})]\n",
+    ctx.session.renderer.print_status(&format!(
+        "Model: {} ({})",
         ctx.session.config.model, ctx.session.config.provider
     ));
 }
@@ -182,14 +182,12 @@ pub fn copy_last_message(
 
     if let Some(text) = last_text {
         if crate::platform::clipboard::set_text(&text).is_ok() {
-            session
-                .renderer
-                .print_notice("  [Copied assistant message to clipboard]\n");
+            session.renderer.print_status("Copied message to clipboard");
         } else {
-            session.renderer.print_notice("  [Failed to access clipboard]\n");
+            session.renderer.print_status("Failed to access clipboard");
         }
     } else {
-        session.renderer.print_notice("  [No assistant message to copy]\n");
+        session.renderer.print_status("No assistant message to copy");
     }
 }
 

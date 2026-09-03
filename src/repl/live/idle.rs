@@ -74,15 +74,11 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                                 "provider",
                                 &provider,
                             );
-                            session.renderer.print_notice(&format!(
-                                "  [Saved {} ({}) as default in config.toml]\n",
-                                model, provider
-                            ));
+                            session
+                                .renderer
+                                .print_status(&format!("Default model: {model} ({provider})"));
                         } else {
-                            session.renderer.print_notice(&format!(
-                                "  [Switched model to {} ({})]\n",
-                                model, provider
-                            ));
+                            session.renderer.print_status(&format!("Model: {model} ({provider})"));
                         }
                         if let Ok(rebuilt) = engine.rebuild(session.config.clone(), session.auth_store.clone()).await {
                             *engine = rebuilt;
@@ -94,10 +90,10 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                     ModalKeyResult::TreeNodeSelected { node_id } => {
                         match engine.session_manager.switch_branch(Some(node_id.clone())).await {
                             Ok(_) => {
-                                session.renderer.print_notice(&format!("  [Navigated to checkpoint {node_id}]\n"));
+                                session.renderer.print_status(&format!("Navigated to checkpoint {node_id}"));
                             }
                             Err(err) => {
-                                session.renderer.print_notice(&format!("  [Failed to navigate: {err}]\n"));
+                                session.renderer.print_status(&format!("Failed to navigate: {err}"));
                             }
                         }
                         controller.redraw()?;
@@ -107,10 +103,12 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         let label_opt = if label.is_empty() { None } else { Some(label.clone()) };
                         match engine.session_manager.set_node_label(&node_id, label_opt).await {
                             Ok(_) => {
-                                session.renderer.print_notice(&format!("  [Labeled checkpoint {node_id}: \"{label}\"]\n"));
+                                session
+                                    .renderer
+                                    .print_status(&format!("Checkpoint labeled: \"{label}\" ({node_id})"));
                             }
                             Err(err) => {
-                                session.renderer.print_notice(&format!("  [Failed to label checkpoint: {err}]\n"));
+                                session.renderer.print_status(&format!("Failed to label checkpoint: {err}"));
                             }
                         }
                         controller.redraw()?;
@@ -123,7 +121,7 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                             Some(&session_id),
                         )
                         .await?;
-                        session.renderer.print_notice(&format!("  [Resumed session {session_id}]\n"));
+                        session.renderer.print_status(&format!("Resumed session {session_id}"));
                         update_footer(controller.state_mut(), session, engine);
                         controller.redraw()?;
                         continue;
@@ -183,7 +181,11 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         controller.redraw()?;
                     }
                     InputAction::ToggleExpandTools => {
-                        controller.toggle_tools_expanded()?;
+                        let expanded = controller.toggle_tools_expanded()?;
+                        session.renderer.print_status(&format!(
+                            "Tool output: {}",
+                            if expanded { "expanded" } else { "collapsed" }
+                        ));
                     }
                     InputAction::ModelSelect => {
                         open_model_selector(session, controller);
@@ -204,7 +206,11 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         batch.flush(controller, true)?;
                     }
                     InputAction::ThinkingToggle => {
-                        controller.toggle_thinking()?;
+                        let hide = controller.toggle_thinking()?;
+                        session.renderer.print_status(&format!(
+                            "Thinking blocks: {}",
+                            if hide { "hidden" } else { "visible" }
+                        ));
                     }
                     InputAction::MessageCopy => {
                         copy_last_message(session, controller);

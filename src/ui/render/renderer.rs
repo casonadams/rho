@@ -189,6 +189,12 @@ impl TerminalRenderer {
         }
     }
 
+    pub fn print_status(&self, message: &str) {
+        let dim = self.theme.dimmed;
+        let text = format!("{dim}{message}{dim:#}\n");
+        self.print_notice(&text);
+    }
+
     pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {
         let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
         let cost_str = cost
