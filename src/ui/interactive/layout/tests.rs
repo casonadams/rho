@@ -518,3 +518,23 @@ fn thinking_borders_change_color_with_thinking_level() {
         assert!(layout.bottom_divider.starts_with(expected_style));
     }
 }
+
+#[test]
+fn bash_mode_border_turns_amber() {
+    let mut editor = EditorState::default();
+    editor.set_text("!cargo check");
+    let footer = FooterState::default();
+    let layout = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 10,
+        spinner_frame: 0,
+    });
+
+    assert!(layout.top_divider.starts_with("\u{1b}[33m"));
+    assert!(layout.bottom_divider.starts_with("\u{1b}[33m"));
+}

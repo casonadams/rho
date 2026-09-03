@@ -100,7 +100,12 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             lines.push(String::new());
             lines.push(working_line.clone());
 
-            let (style, reset) = thinking_divider_style(input.footer.thinking_level.as_deref());
+            let is_bash_mode = input.editor.text().trim_start().starts_with('!');
+            let (style, reset) = if is_bash_mode {
+                ("\x1b[33m", "\x1b[0m")
+            } else {
+                thinking_divider_style(input.footer.thinking_level.as_deref())
+            };
             let top_div = format!("{style}{}{reset}", "─".repeat(width));
             lines.push(top_div.clone());
 

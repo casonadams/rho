@@ -5,6 +5,10 @@ use crate::ui::render::{
 };
 use crate::ui::theme::Theme;
 
+pub const OSC133_ZONE_START: &str = "\x1b]133;A\x07";
+pub const OSC133_ZONE_END: &str = "\x1b]133;B\x07";
+pub const OSC133_ZONE_FINAL: &str = "\x1b]133;C\x07";
+
 #[cfg(test)]
 mod tests;
 
@@ -181,7 +185,12 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
             let mut md = crate::ui::markdown::MarkdownRenderer::default();
             let rendered = md.render_token(text, theme);
             let flushed = md.flush(theme);
-            format!("{rendered}{flushed}")
+            let full = format!("{rendered}{flushed}");
+            if full.is_empty() {
+                full
+            } else {
+                format!("{OSC133_ZONE_START}{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
+            }
         }
         TranscriptItem::Thinking(text) => {
             let trimmed = text.trim();
