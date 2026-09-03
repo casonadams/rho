@@ -1,0 +1,4 @@
+[profile.default]
+# Mark tests as slow after 60s, terminate hung tests after 120s instead of
+# blocking the run forever (e.g. a test that freezes on a blocking prompt).
+slow-timeout = { period = "60s", terminate-after = 2 }
