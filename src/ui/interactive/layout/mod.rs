@@ -108,7 +108,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             } else {
                 thinking_divider_style(input.footer.thinking_level.as_deref())
             };
-            let top_div = format!("{style}{}{reset}", "─".repeat(width));
+            let top_div = top_divider(width, style, reset);
             lines.push(top_div.clone());
 
             let (mut ed_lines, ed_cursor) = wrap_editor(input.editor, width);
@@ -158,6 +158,16 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
         "xhigh" => ("\x1b[31m", "\x1b[0m"),
         "max" => ("\x1b[1;31m", "\x1b[0m"),
         _ => ("\x1b[2m", "\x1b[0m"),
+    }
+}
+
+fn top_divider(width: usize, style: &str, reset: &str) -> String {
+    let label = "rho";
+    if width >= 7 {
+        let lead = width - label.len() - 3;
+        format!("{style}{}{label}{}{reset}", "─".repeat(lead), "─".repeat(3))
+    } else {
+        format!("{style}{}{reset}", "─".repeat(width))
     }
 }
 
