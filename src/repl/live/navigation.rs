@@ -95,6 +95,7 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.total_cache_write_tokens = totals.total_cache_write;
     footer.tokens_per_second = engine.tokens_per_second();
     footer.context = Some(engine.context_remaining_display());
+    footer.show_label = session.config.show_label;
     footer.show_version = session.config.show_version;
 }
 
