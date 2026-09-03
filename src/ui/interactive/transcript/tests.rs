@@ -95,6 +95,41 @@ fn render_transcript_tool_expanded_shows_full_output() {
 }
 
 #[test]
+fn render_transcript_standard_read_collapsed_and_expanded() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "read".into(),
+        arguments: serde_json::json!({"path": "src/main.rs"}),
+        is_error: false,
+        output: "fn main() { println!(\"hello\"); }".into(),
+        output_summary: "summary".into(),
+        duration_ms: None,
+    });
+
+    let collapsed = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+    });
+    assert!(collapsed.contains("read"));
+    assert!(collapsed.contains("src/main.rs"));
+    assert!(collapsed.contains("(ctrl+o to expand)"));
+    assert!(!collapsed.contains("println"));
+
+    let expanded = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: true,
+    });
+    assert!(expanded.contains("read"));
+    assert!(expanded.contains("src/main.rs"));
+    assert!(!expanded.contains("(ctrl+o to expand)"));
+    assert!(expanded.contains("println"));
+}
+
+#[test]
 fn render_transcript_skill_read_collapsed() {
     let theme = Theme::default();
     let item = TranscriptItem::Tool(ToolItem {

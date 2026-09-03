@@ -62,12 +62,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn start_tool(&mut self, request: super::ToolStartRequest) -> io::Result<()> {
-        let label = if request.args_summary.is_empty() {
-            request.name
-        } else {
-            format!("{} {}", request.name, request.args_summary)
-        };
-        self.state.footer_mut().running_tool = Some(label);
+        self.state.footer_mut().running_tool = Some(request.name);
         self.state.footer_mut().activity = crate::ui::interactive::Activity::Working;
         self.redraw()
     }

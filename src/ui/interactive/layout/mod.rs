@@ -186,7 +186,6 @@ fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usize) -
     let accent = "\x1b[36m";
     let reset = "\x1b[0m";
     let dim = "\x1b[2m";
-    let label = running_tool.unwrap_or("Working...");
-    let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
+    let full = format!("{accent}{spinner}{reset} {dim}Working...{reset}");
     truncate_to_width(&full, width)
 }

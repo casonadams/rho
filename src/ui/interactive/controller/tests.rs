@@ -257,7 +257,7 @@ fn resize_rerenders_at_new_width() {
     let ops = operations.borrow();
     assert!(
         ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("Working...")))
     );
 }
 
@@ -406,13 +406,14 @@ fn active_tool_status_updates_and_cleans_up_on_end() {
             preview: None,
         })
         .unwrap();
-    assert_eq!(
-        controller.state().footer().running_tool.as_deref(),
-        Some("bash cargo test")
-    );
+    assert_eq!(controller.state().footer().running_tool.as_deref(), Some("bash"));
     let ops = operations.borrow();
     assert!(
         ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("Working...")))
+    );
+    assert!(
+        !ops.iter()
             .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
     );
     drop(ops);
