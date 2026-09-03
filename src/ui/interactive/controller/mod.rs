@@ -153,6 +153,15 @@ impl<B: TerminalBackend> TerminalController<B> {
         &self.transcript
     }
 
+    pub fn clear_transcript(&mut self) {
+        self.transcript.clear();
+    }
+
+    pub fn set_transcript(&mut self, items: Vec<super::TranscriptItem>) -> io::Result<()> {
+        self.transcript = items;
+        self.full_redraw()
+    }
+
     pub fn state_mut(&mut self) -> &mut InteractiveState {
         &mut self.state
     }

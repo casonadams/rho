@@ -92,11 +92,7 @@ pub(crate) fn render_modal_overlay(modal: &ModalState, width: usize) -> (Vec<Str
     (lines, cursor, cursor_visible)
 }
 
-fn format_option_line(
-    opt: &crate::ui::interactive::ModalOption,
-    is_selected: bool,
-    is_model_selector: bool,
-) -> String {
+fn format_option_line(opt: &crate::ui::interactive::ModalOption, is_selected: bool, is_model_selector: bool) -> String {
     let prefix = if is_selected { "\x1b[36m▸\x1b[0m " } else { "  " };
     let label = if is_selected {
         format!("\x1b[1m{}\x1b[0m", opt.label)
@@ -134,15 +130,9 @@ fn modal_hint(modal: &ModalState) -> &'static str {
         ModalMode::Select if modal.title == "Conversation Tree" => {
             "\x1b[2m↑/↓ select • Enter navigate • Shift+L label • Esc cancel\x1b[0m"
         }
-        ModalMode::Select if modal.title == "Settings" => {
-            "\x1b[2m↑/↓ select • Enter toggle • Esc close\x1b[0m"
-        }
-        ModalMode::Select if modal.title == "Resume Session" => {
-            "\x1b[2m↑/↓ select • Enter resume • Esc cancel\x1b[0m"
-        }
-        ModalMode::Select if modal.is_searchable => {
-            "\x1b[2mEnter to select • Esc to cancel\x1b[0m"
-        }
+        ModalMode::Select if modal.title == "Settings" => "\x1b[2m↑/↓ select • Enter toggle • Esc close\x1b[0m",
+        ModalMode::Select if modal.title == "Resume Session" => "\x1b[2m↑/↓ select • Enter resume • Esc cancel\x1b[0m",
+        ModalMode::Select if modal.is_searchable => "\x1b[2mEnter to select • Esc to cancel\x1b[0m",
         ModalMode::Select if modal.title.contains("Permission") || modal.title.contains("Approve") => {
             "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"
         }

@@ -90,6 +90,9 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                     ModalKeyResult::TreeNodeSelected { node_id } => {
                         match engine.session_manager.switch_branch(Some(node_id.clone())).await {
                             Ok(_) => {
+                                if let Ok(tree) = engine.session_manager.load_tree().await {
+                                    let _ = super::navigation::hydrate_session_transcript(controller, &tree, history);
+                                }
                                 session.renderer.print_status(&format!("Navigated to checkpoint {node_id}"));
                             }
                             Err(err) => {
@@ -121,6 +124,9 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                             Some(&session_id),
                         )
                         .await?;
+                        if let Ok(tree) = engine.session_manager.load_tree().await {
+                            let _ = super::navigation::hydrate_session_transcript(controller, &tree, history);
+                        }
                         session.renderer.print_status(&format!("Resumed session {session_id}"));
                         update_footer(controller.state_mut(), session, engine);
                         controller.redraw()?;

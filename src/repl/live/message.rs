@@ -114,8 +114,11 @@ impl ReplSession {
                     }
                     let _ = engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
                     *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
+                    if let Ok(tree) = engine.session_manager.load_tree().await {
+                        let _ = super::navigation::hydrate_session_transcript(controller, &tree, live.editor.history);
+                    }
                     self.renderer
-                        .print_notice(&format!("  [Switched active branch to {leaf_id}]\n"));
+                        .print_status(&format!("Switched active branch to {leaf_id}"));
                 }
                 CommandResult::ForkSession { turn_or_node_id } => {
                     let forked = engine
@@ -138,6 +141,9 @@ impl ReplSession {
                     *engine =
                         crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), Some(&session_id))
                             .await?;
+                    if let Ok(tree) = engine.session_manager.load_tree().await {
+                        let _ = super::navigation::hydrate_session_transcript(controller, &tree, live.editor.history);
+                    }
                     self.renderer.print_status(&format!("Resumed session {session_id}"));
                 }
                 CommandResult::NameSession { name } => {

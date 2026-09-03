@@ -117,6 +117,12 @@ impl ReplSession {
             .with_custom_providers(custom_providers);
         let completions = CompletionSet::from_sources(sources);
 
+        if self.resume_id.is_some()
+            && let Ok(tree) = engine.session_manager.load_tree().await
+        {
+            let _ = navigation::hydrate_session_transcript(&mut controller, &tree, &mut history);
+        }
+
         loop {
             let message = match controller.state_mut().pop_queued() {
                 Some(message) => message,
