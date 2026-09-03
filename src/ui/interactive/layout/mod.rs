@@ -162,8 +162,8 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
 }
 
 fn top_divider(width: usize, style: &str, reset: &str) -> String {
-    let label = "rho";
-    if width >= 7 {
+    let label = concat!("rho v", env!("CARGO_PKG_VERSION"));
+    if width >= label.len() + 4 {
         let lead = width - label.len() - 3;
         format!("{style}{}{label}{}{reset}", "─".repeat(lead), "─".repeat(3))
     } else {
