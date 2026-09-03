@@ -43,7 +43,7 @@ pub(crate) fn render_autocomplete_dropdown(state: &AutocompleteState, width: usi
         let line = if val_width + 3 < inner_width && !desc_str.is_empty() {
             let available_desc_width = inner_width.saturating_sub(val_width + 2);
             let truncated_desc = truncate_width(desc_str, available_desc_width);
-            let desc_styled = format!("\x1b[2;90m{}\x1b[0m", truncated_desc);
+            let desc_styled = format!("\x1b[2m{}\x1b[0m", truncated_desc);
             let padding =
                 " ".repeat(inner_width.saturating_sub(val_width + 2 + UnicodeWidthStr::width(truncated_desc.as_str())));
             format!(" {prefix}{val_styled}  {desc_styled}{padding}")
@@ -104,5 +104,22 @@ mod tests {
         assert!(lines[0].contains("/model"));
         assert!(lines[0].contains("Switch model"));
         assert!(lines[1].contains("/skill"));
+    }
+
+    #[test]
+    fn descriptions_share_the_footer_dim_style() {
+        // Descriptions must match the footer's plain faint (`Theme::dimmed`,
+        // SGR 2) — stacking faint on gray (`2;90`) is unreadably dark.
+        let footer_dim = crate::ui::theme::Theme::default().dimmed.render().to_string();
+        let mut state = AutocompleteState::default();
+        state.open(vec![Completion {
+            value: "/model".to_string(),
+            description: Some("Switch model".to_string()),
+            replacement: Range { start: 0, end: 1 },
+        }]);
+
+        let lines = render_autocomplete_dropdown(&state, 60);
+        assert!(lines[0].contains(&footer_dim), "{}", lines[0]);
+        assert!(!lines[0].contains("\x1b[2;90m"), "{}", lines[0]);
     }
 }
