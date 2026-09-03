@@ -35,6 +35,10 @@ impl ReplSession {
                     super::modal::open_model_selector(self, controller);
                     controller.redraw()?;
                 }
+                CommandResult::OpenSettingsSelector => {
+                    super::modal::open_settings_selector(controller);
+                    controller.redraw()?;
+                }
                 CommandResult::ClearContext => {
                     *engine = crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), None).await?;
                 }

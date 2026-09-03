@@ -212,6 +212,43 @@ fn session_selector_modal_selection() {
 }
 
 #[test]
+fn settings_selector_modal_toggles() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    assert!(!controller.state().hide_thinking());
+    assert!(!controller.state().tools_expanded());
+
+    super::modal::open_settings_selector(&mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Settings");
+
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let res = super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert_eq!(res, super::modal::ModalKeyResult::Handled);
+    assert!(controller.state().hide_thinking());
+    assert!(
+        controller.state().active_modal().unwrap().options[0]
+            .description
+            .as_ref()
+            .unwrap()
+            .contains("Hidden")
+    );
+
+    let down_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Down, crossterm::event::KeyModifiers::NONE);
+    let _ = super::modal::handle_modal_key(&mut controller, down_key, &mut None).unwrap();
+    let res = super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert_eq!(res, super::modal::ModalKeyResult::Handled);
+    assert!(controller.state().tools_expanded());
+    assert!(
+        controller.state().active_modal().unwrap().options[1]
+            .description
+            .as_ref()
+            .unwrap()
+            .contains("Expanded")
+    );
+}
+
+#[test]
 fn test_paste_event_collapses_in_interactive_state() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let lines = (1..=15).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");

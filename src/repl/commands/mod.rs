@@ -39,6 +39,7 @@ pub enum CommandResult {
         session_id: String,
     },
     OpenSessionSelector,
+    OpenSettingsSelector,
     NameSession {
         name: String,
     },
@@ -64,8 +65,25 @@ pub struct SlashCommandContext<'a> {
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
-    "/help", "/model", "/skill", "/plugin", "/session", "/compact", "/tree", "/rewind", "/resume", "/fork", "/clone",
-    "/name", "/clear", "/login", "/logout", "/reload", "/export", "/exit",
+    "/help",
+    "/settings",
+    "/model",
+    "/skill",
+    "/plugin",
+    "/session",
+    "/compact",
+    "/tree",
+    "/rewind",
+    "/resume",
+    "/fork",
+    "/clone",
+    "/name",
+    "/clear",
+    "/login",
+    "/logout",
+    "/reload",
+    "/export",
+    "/exit",
 ];
 
 pub struct SlashCommandHandler;
@@ -151,6 +169,14 @@ impl SlashCommandHandler {
                 let _ = writeln!(out);
                 ctx.renderer.print_notice(&out);
                 Ok(Some(CommandResult::Continue))
+            }
+            "settings" => {
+                if ctx.renderer.has_interactive_ui() {
+                    Ok(Some(CommandResult::OpenSettingsSelector))
+                } else {
+                    ctx.renderer.print_notice("  Settings: thinking blocks, tool outputs\n");
+                    Ok(Some(CommandResult::Continue))
+                }
             }
             "compact" => {
                 let instructions = if parts.len() > 1 {

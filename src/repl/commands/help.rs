@@ -7,6 +7,7 @@ use std::str::FromStr;
 pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
     let mut output = "\nCommands\n\
   /help                       Show this reference\n\
+  /settings                   Interactive runtime interface settings\n\
   /model [model] [provider]   Inspect or switch the model\n\
   /skill [name]               List or inspect skills\n\
   /session                    Display token capacity and session diagnostics\n\

@@ -228,7 +228,7 @@ impl ReplSession {
                         if let Some(cmd_res) = result {
                             match cmd_res {
                                 CommandResult::Exit => break,
-                                CommandResult::OpenModelSelector => {
+                                CommandResult::OpenModelSelector | CommandResult::OpenSettingsSelector => {
                                     // In legacy reedline mode, fallback to command prompt
                                     continue;
                                 }
