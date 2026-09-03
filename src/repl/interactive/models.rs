@@ -50,8 +50,16 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         }
     }
 
-    // 3. Models from configured providers in auth_store & model_store
-    let configured_providers = auth_store.list_configured_providers();
+    // 3. Models from configured providers in auth_store & model_store. The
+    // store keys are merged in too so a session started before a fresh login
+    // still sees the newly authenticated provider's catalog.
+    let mut configured_providers: Vec<String> = auth_store.list_configured_providers();
+    let store_providers: Vec<String> = model_store
+        .providers()
+        .filter(|prov| !configured_providers.contains(prov))
+        .cloned()
+        .collect();
+    configured_providers.extend(store_providers);
     for prov in &configured_providers {
         if prov == "local" || prov == "ollama" {
             continue; // Already handled above

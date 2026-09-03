@@ -331,3 +331,35 @@ fn active_tool_lifecycle_and_chunk_accumulation() {
     state.set_active_tool(None);
     assert!(state.active_tool().is_none());
 }
+
+#[test]
+fn modal_filter_fuzzy_matches_subsequences_ranked() {
+    let mut modal = ModalState::new(
+        "Select Model",
+        "",
+        vec![
+            ModalOption::new("gemini-2.5-flash", Some("[antigravity]")),
+            ModalOption::new("gemini-3.8-flash", Some("[antigravity]")),
+            ModalOption::new("gemini-3.1-pro", Some("[antigravity]")),
+            ModalOption::new("claude-sonnet-4-6", Some("[antigravity]")),
+        ],
+    )
+    .with_search(true);
+
+    // Substring queries still work.
+    modal.set_filter("gemin");
+    assert_eq!(modal.options.len(), 3);
+
+    // Subsequence queries match ("gem3" → gemini-3.x) and rank those first;
+    // gemini-2.5 does not contain a '3' after 'm' so it drops out.
+    modal.set_filter("gem3");
+    let ids: Vec<&str> = modal.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(ids, vec!["gemini-3.8-flash", "gemini-3.1-pro"]);
+
+    // Label matches outrank description matches at equal scores.
+    modal.set_filter("claude");
+    assert_eq!(modal.options[0].label, "claude-sonnet-4-6");
+
+    modal.set_filter("");
+    assert_eq!(modal.options.len(), 4);
+}

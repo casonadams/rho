@@ -216,7 +216,7 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
                         batch.flush(controller, true)?;
                     }
                     InputAction::ThinkingCycle => {
-                        cycle_thinking_level(session, engine, controller);
+                        cycle_thinking_level(session, engine, controller).await;
                         batch.flush(controller, true)?;
                     }
                     InputAction::ThinkingToggle => {

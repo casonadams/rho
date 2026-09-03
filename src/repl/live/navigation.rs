@@ -98,7 +98,7 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.show_label = session.config.show_label;
 }
 
-pub fn cycle_thinking_level<B: crate::ui::interactive::TerminalBackend>(
+pub async fn cycle_thinking_level<B: crate::ui::interactive::TerminalBackend>(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
     controller: &mut TerminalController<B>,
@@ -122,7 +122,17 @@ pub fn cycle_thinking_level<B: crate::ui::interactive::TerminalBackend>(
         session.config.thinking_level.as_deref(),
     );
 
+    // Providers route on the thinking level (Antigravity runtime variants), so
+    // rebuild the engine like a model switch does.
+    if let Ok(rebuilt) = engine.rebuild(session.config.clone(), session.auth_store.clone()).await {
+        *engine = rebuilt;
+    }
+
     update_footer(controller.state_mut(), session, engine);
+    session.renderer.print_status(&format!(
+        "Thinking: {}",
+        session.config.thinking_level.as_deref().unwrap_or("off")
+    ));
 }
 
 pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {

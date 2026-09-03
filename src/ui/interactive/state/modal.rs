@@ -1,4 +1,15 @@
 use super::editor::EditorState;
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
+
+/// Fuzzy score for `query` against `text`: `None` when the query characters
+/// do not appear in order. Higher is better; `None`/`-1` for empty queries is
+/// handled by callers.
+fn fuzzy_rank(text: &str, query: &str) -> Option<i64> {
+    SkimMatcherV2::default()
+        .fuzzy_indices(text, query)
+        .map(|(score, _)| score)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModalOption {
@@ -132,24 +143,25 @@ impl ModalState {
 
     pub fn set_filter(&mut self, query: &str) {
         self.filter_query = query.to_string();
-        let q = query.trim().to_lowercase();
+        let q = query.trim().to_string();
         if q.is_empty() {
             self.options = self.all_options.clone();
         } else {
-            self.options = self
+            let mut ranked: Vec<(i64, usize, ModalOption)> = self
                 .all_options
                 .iter()
-                .filter(|opt| {
-                    let label_matches = opt.label.to_lowercase().contains(&q);
-                    let desc_matches = opt
-                        .description
-                        .as_deref()
-                        .map(|d| d.to_lowercase().contains(&q))
-                        .unwrap_or(false);
-                    label_matches || desc_matches
+                .enumerate()
+                .filter_map(|(idx, opt)| {
+                    // Label matches outrank description matches at equal score;
+                    // ties keep the original (e.g. newest-first) source order.
+                    let score = fuzzy_rank(&opt.label, &q)
+                        .map(|s| s + 4)
+                        .or_else(|| opt.description.as_deref().and_then(|d| fuzzy_rank(d, &q)))?;
+                    Some((score, idx, opt.clone()))
                 })
-                .cloned()
                 .collect();
+            ranked.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            self.options = ranked.into_iter().map(|(_, _, opt)| opt).collect();
         }
         self.selected = 0;
     }

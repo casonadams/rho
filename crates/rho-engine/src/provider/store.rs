@@ -45,6 +45,11 @@ impl ModelStore {
         self.models.get(provider)
     }
 
+    /// Providers that have a cached catalog on disk.
+    pub fn providers(&self) -> impl Iterator<Item = &String> {
+        self.models.keys()
+    }
+
     pub fn set_models(&mut self, provider: &str, models: Vec<DiscoveredModel>) -> Result<()> {
         self.models.insert(provider.to_string(), models);
         self.updated_at_ms = chrono::Utc::now().timestamp_millis();
