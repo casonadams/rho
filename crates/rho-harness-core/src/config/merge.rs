@@ -60,9 +60,6 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(v) = file.show_label {
         config.show_label = v;
     }
-    if let Some(v) = file.show_version {
-        config.show_version = v;
-    }
     if let Some(s) = file.steering_mode {
         config.steering_mode = s;
     }

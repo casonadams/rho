@@ -540,7 +540,7 @@ fn bash_mode_border_turns_amber() {
 }
 
 #[test]
-fn top_divider_shows_name_when_label_enabled() {
+fn top_divider_shows_name_and_version_when_label_enabled() {
     let editor = EditorState::default();
     let footer = FooterState {
         show_label: true,
@@ -559,34 +559,9 @@ fn top_divider_shows_name_when_label_enabled() {
 
     let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
     assert_eq!(stripped, 25, "divider must stay exactly one terminal row wide");
-    assert!(layout.top_divider.contains("─rho───"));
-    assert!(!layout.top_divider.contains(env!("CARGO_PKG_VERSION")));
-    assert!(layout.bottom_divider.contains("─") && !layout.bottom_divider.contains("rho"));
-}
-
-#[test]
-fn top_divider_shows_version_when_label_and_version_enabled() {
-    let editor = EditorState::default();
-    let footer = FooterState {
-        show_label: true,
-        show_version: true,
-        ..FooterState::default()
-    };
-    let layout = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 25,
-        spinner_frame: 0,
-    });
-
-    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
-    assert_eq!(stripped, 25);
     let label = concat!("rho ", env!("CARGO_PKG_VERSION"));
     assert!(layout.top_divider.contains(label));
+    assert!(layout.bottom_divider.contains("─") && !layout.bottom_divider.contains("rho"));
 }
 
 #[test]

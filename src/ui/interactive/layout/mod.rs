@@ -108,10 +108,10 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             } else {
                 thinking_divider_style(input.footer.thinking_level.as_deref())
             };
-            let label = match (input.footer.show_label, input.footer.show_version) {
-                (true, true) => concat!("rho ", env!("CARGO_PKG_VERSION")),
-                (true, false) => "rho",
-                (false, _) => "",
+            let label = if input.footer.show_label {
+                concat!("rho ", env!("CARGO_PKG_VERSION"))
+            } else {
+                ""
             };
             let top_div = top_divider(width, label, (style, reset));
             lines.push(top_div.clone());
