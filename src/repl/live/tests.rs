@@ -163,3 +163,13 @@ fn model_selector_modal_filtering_and_selection() {
     }
     assert!(controller.state().active_modal().is_none());
 }
+
+#[test]
+fn test_paste_event_collapses_in_interactive_state() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let lines = (1..=15).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");
+    controller
+        .state_mut()
+        .apply(crate::ui::interactive::UiAction::Paste(lines));
+    assert_eq!(controller.state().editor().text(), "[paste #1 +15 lines]");
+}

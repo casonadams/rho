@@ -7,7 +7,7 @@ use super::navigation::{
     navigate_history_previous, paste_clipboard, update_footer,
 };
 use crate::error::Result;
-use crate::ui::interactive::{InputAction, QueuedMessage, UiEffect, map_key};
+use crate::ui::interactive::{InputAction, QueuedMessage, UiAction, UiEffect, map_key};
 use crossterm::event::Event;
 
 pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<QueuedMessage>> {
@@ -39,6 +39,12 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                 };
                 if matches!(event, Event::Resize(_, _)) {
                     controller.refresh_size()?;
+                    continue;
+                }
+                if let Event::Paste(text) = event {
+                    controller.state_mut().apply(UiAction::Paste(text));
+                    update_autocomplete_state(controller, completions);
+                    batch.flush(controller, true)?;
                     continue;
                 }
                 let Event::Key(key) = event else { continue };

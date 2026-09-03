@@ -1,6 +1,7 @@
 use crossterm::{
     cursor::{Hide, MoveDown, MoveToColumn, MoveUp, Show},
-    queue,
+    event::{DisableBracketedPaste, EnableBracketedPaste},
+    execute, queue,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
 use std::io::{self, BufWriter, Stdout, Write};
@@ -34,7 +35,14 @@ impl CrosstermBackend {
 
 impl TerminalBackend for CrosstermBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()> {
-        if enabled { enable_raw_mode() } else { disable_raw_mode() }
+        if enabled {
+            enable_raw_mode()?;
+            execute!(self.stdout, EnableBracketedPaste)?;
+        } else {
+            let _ = execute!(self.stdout, DisableBracketedPaste);
+            disable_raw_mode()?;
+        }
+        Ok(())
     }
 
     fn size(&self) -> io::Result<(u16, u16)> {

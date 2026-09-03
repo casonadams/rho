@@ -5,7 +5,7 @@ use super::{ActiveTurn, EditorResources, LiveIo};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InputAction, map_key};
+use crate::ui::interactive::{Activity, InputAction, UiAction, map_key};
 use crossterm::event::Event;
 
 pub(crate) async fn run_active_turn(
@@ -59,6 +59,11 @@ pub(crate) async fn run_active_turn(
                 };
                 if matches!(event, Event::Resize(_, _)) {
                     controller.refresh_size()?;
+                    continue;
+                }
+                if let Event::Paste(text) = event {
+                    controller.state_mut().apply(UiAction::Paste(text));
+                    batch.flush(controller, true)?;
                     continue;
                 }
                 let Event::Key(key) = event else { continue };
