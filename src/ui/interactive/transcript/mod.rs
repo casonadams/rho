@@ -147,10 +147,34 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
     match input.item {
         TranscriptItem::Welcome(welcome) => format_welcome_content(welcome, theme),
         TranscriptItem::UserMessage(text) => {
-            let block = BlockFormat::new(theme.user_message_bg, width)
-                .with_vertical_padding()
-                .render_plain(text);
-            format!("\n{block}")
+            if let Some((skill_name, skill_content, user_msg)) = parse_skill_block(text) {
+                let skill_tag = anstyle::Style::new()
+                    .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
+                    .effects(anstyle::Effects::BOLD);
+                let skill_block_text = if input.tools_expanded {
+                    format!("{skill_tag}[skill]{skill_tag:#} **{skill_name}**\n\n{skill_content}")
+                } else {
+                    let dim = theme.dimmed;
+                    format!("{skill_tag}[skill]{skill_tag:#} {skill_name} {dim}(ctrl+o to expand){dim:#}")
+                };
+                let skill_formatted = BlockFormat::new(theme.tool_success_bg, width)
+                    .with_vertical_padding()
+                    .render_styled(&skill_block_text);
+                let user_trimmed = user_msg.trim();
+                if user_trimmed.is_empty() {
+                    format!("\n{skill_formatted}")
+                } else {
+                    let user_formatted = BlockFormat::new(theme.user_message_bg, width)
+                        .with_vertical_padding()
+                        .render_plain(user_trimmed);
+                    format!("\n{skill_formatted}\n{user_formatted}")
+                }
+            } else {
+                let block = BlockFormat::new(theme.user_message_bg, width)
+                    .with_vertical_padding()
+                    .render_plain(text);
+                format!("\n{block}")
+            }
         }
         TranscriptItem::AssistantText(text) => {
             let mut md = crate::ui::markdown::MarkdownRenderer::default();
@@ -183,11 +207,34 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
 
             let mut content = if tool.name == "read" && !tool.is_error {
                 let (path, range) = read_summary_parts(&tool.arguments);
-                let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-                format!(
-                    "{title}read{title:#} {accent}{path}{accent:#}{}",
-                    range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
-                )
+                let range_suffix = range.map_or_else(String::new, |range| {
+                    let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+                    format!("{range_style}{range}{range_style:#}")
+                });
+                let expand_hint = if !input.tools_expanded {
+                    let dim = theme.dimmed;
+                    format!(" {dim}(ctrl+o to expand){dim:#}")
+                } else {
+                    String::new()
+                };
+
+                match rho_harness_core::presentation::summary::classify_read_path(&tool.arguments) {
+                    Some(rho_harness_core::presentation::summary::ReadClassification::Skill { name }) => {
+                        let skill_tag = anstyle::Style::new()
+                            .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
+                            .effects(anstyle::Effects::BOLD);
+                        format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}{expand_hint}")
+                    }
+                    Some(rho_harness_core::presentation::summary::ReadClassification::Resource { path }) => {
+                        format!("{title}read resource{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
+                    }
+                    Some(rho_harness_core::presentation::summary::ReadClassification::Docs { path }) => {
+                        format!("{title}read docs{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
+                    }
+                    None => {
+                        format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
+                    }
+                }
             } else if display_name == "fetch" && !tool.is_error {
                 let url = tool
                     .arguments
@@ -201,7 +248,18 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
             };
 
-            if !tool.is_error && tool.name == "edit" {
+            if !tool.is_error && tool.name == "read" && input.tools_expanded {
+                let raw_output = if !tool.output.is_empty() {
+                    &tool.output
+                } else {
+                    &tool.output_summary
+                };
+                let clean = raw_output.trim_end();
+                if !clean.is_empty() {
+                    content.push_str("\n\n");
+                    content.push_str(clean);
+                }
+            } else if !tool.is_error && tool.name == "edit" {
                 if let Some(diff) = format_edit_diff(&tool.arguments, theme) {
                     content.push('\n');
                     content.push_str(&diff);
@@ -252,4 +310,27 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
         }
         TranscriptItem::Notice(text) => text.clone(),
     }
+}
+
+fn parse_skill_block(text: &str) -> Option<(String, String, String)> {
+    let start_tag = "<skill";
+    let start_idx = text.find(start_tag)?;
+    let name_prefix = "name=\"";
+    let name_start = text[start_idx..].find(name_prefix)? + start_idx + name_prefix.len();
+    let name_end = name_start + text[name_start..].find('"')?;
+    let skill_name = &text[name_start..name_end];
+
+    let content_start = start_idx + text[start_idx..].find('>')? + 1;
+    let end_tag = "</skill>";
+    let end_idx = text[content_start..].find(end_tag)? + content_start;
+    let skill_content = &text[content_start..end_idx];
+
+    let user_msg = &text[end_idx + end_tag.len()..];
+    let user_msg = user_msg.trim_start_matches("\n\n").trim_start_matches("Skill input: ");
+
+    Some((
+        skill_name.to_string(),
+        skill_content.trim().to_string(),
+        user_msg.to_string(),
+    ))
 }

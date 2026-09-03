@@ -241,6 +241,31 @@ fn print_session_status_and_notice_emit_transcript_item() {
 }
 
 #[test]
+fn test_classify_read_path() {
+    use rho_harness_core::presentation::summary::{ReadClassification, classify_read_path};
+
+    assert_eq!(
+        classify_read_path(&serde_json::json!({"path": "/path/to/skills/plan/SKILL.md"})),
+        Some(ReadClassification::Skill {
+            name: "plan".to_string()
+        })
+    );
+    assert_eq!(
+        classify_read_path(&serde_json::json!({"path": "AGENTS.md"})),
+        Some(ReadClassification::Resource {
+            path: "AGENTS.md".to_string()
+        })
+    );
+    assert_eq!(
+        classify_read_path(&serde_json::json!({"path": "README.md"})),
+        Some(ReadClassification::Docs {
+            path: "README.md".to_string()
+        })
+    );
+    assert_eq!(classify_read_path(&serde_json::json!({"path": "src/main.rs"})), None);
+}
+
+#[test]
 fn read_summaries_show_explicit_line_ranges() {
     assert_eq!(
         read_summary_parts(&serde_json::json!({"path": "src/lib.rs", "offset": 10, "limit": 20})),

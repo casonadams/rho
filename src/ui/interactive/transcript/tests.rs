@@ -93,3 +93,80 @@ fn render_transcript_tool_expanded_shows_full_output() {
     assert!(!rendered.contains("earlier lines, Ctrl+O to expand"));
     assert!(rendered.contains("Took 150ms"));
 }
+
+#[test]
+fn render_transcript_skill_read_collapsed() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "read".into(),
+        arguments: serde_json::json!({"path": "/Users/cadams/.pi/agent/skills/plan/SKILL.md"}),
+        is_error: false,
+        output: "# Plan Skill\n\nFull instructions here...".into(),
+        output_summary: "summary".into(),
+        duration_ms: None,
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+    });
+    assert!(rendered.contains("[skill]"));
+    assert!(rendered.contains("plan"));
+    assert!(rendered.contains("(ctrl+o to expand)"));
+    assert!(!rendered.contains("Full instructions here"));
+}
+
+#[test]
+fn render_transcript_skill_read_expanded() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "read".into(),
+        arguments: serde_json::json!({"path": "/Users/cadams/.pi/agent/skills/plan/SKILL.md"}),
+        is_error: false,
+        output: "# Plan Skill\n\nFull instructions here...".into(),
+        output_summary: "summary".into(),
+        duration_ms: None,
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: true,
+    });
+    assert!(rendered.contains("[skill]"));
+    assert!(rendered.contains("plan"));
+    assert!(rendered.contains("Full instructions here..."));
+}
+
+#[test]
+fn render_transcript_skill_invocation_user_message() {
+    let theme = Theme::default();
+    let text = "<skill name=\"plan\" location=\"/path/to/SKILL.md\">\nPlan skill body\n</skill>\n\nSkill input: create feature";
+    let item = TranscriptItem::UserMessage(text.into());
+
+    let collapsed = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+    });
+    assert!(collapsed.contains("[skill]"));
+    assert!(collapsed.contains("plan"));
+    assert!(collapsed.contains("(ctrl+o to expand)"));
+    assert!(collapsed.contains("create feature"));
+    assert!(!collapsed.contains("Plan skill body"));
+
+    let expanded = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: true,
+    });
+    assert!(expanded.contains("[skill]"));
+    assert!(expanded.contains("plan"));
+    assert!(expanded.contains("Plan skill body"));
+    assert!(expanded.contains("create feature"));
+}

@@ -252,11 +252,27 @@ impl TerminalRenderer {
         };
         let mut content = if line.name == "read" && !line.is_error {
             let (path, range) = read_summary_parts(&line.arguments);
-            let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-            format!(
-                "{title}read{title:#} {accent}{path}{accent:#}{}",
-                range.map_or_else(String::new, |range| format!("{range_style}{range}{range_style:#}"))
-            )
+            let range_suffix = range.map_or_else(String::new, |range| {
+                let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+                format!("{range_style}{range}{range_style:#}")
+            });
+            match rho_harness_core::presentation::summary::classify_read_path(&line.arguments) {
+                Some(rho_harness_core::presentation::summary::ReadClassification::Skill { name }) => {
+                    let skill_tag = anstyle::Style::new()
+                        .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
+                        .effects(anstyle::Effects::BOLD);
+                    format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}")
+                }
+                Some(rho_harness_core::presentation::summary::ReadClassification::Resource { path }) => {
+                    format!("{title}read resource{title:#} {accent}{path}{accent:#}{range_suffix}")
+                }
+                Some(rho_harness_core::presentation::summary::ReadClassification::Docs { path }) => {
+                    format!("{title}read docs{title:#} {accent}{path}{accent:#}{range_suffix}")
+                }
+                None => {
+                    format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}")
+                }
+            }
         } else if display_name == "fetch" && !line.is_error {
             let url = line
                 .arguments

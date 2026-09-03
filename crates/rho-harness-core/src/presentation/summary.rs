@@ -53,6 +53,48 @@ pub fn clean_command_paths(cmd: &str) -> String {
     cleaned
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadClassification {
+    Skill { name: String },
+    Resource { path: String },
+    Docs { path: String },
+}
+
+pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification> {
+    let raw = args.get("path").and_then(|path| path.as_str())?;
+    let clean = raw.trim().trim_matches('"').trim_matches('\'');
+    let path = Path::new(clean);
+    let file_name = path.file_name()?.to_str()?;
+
+    if file_name.eq_ignore_ascii_case("SKILL.md") {
+        let skill_name = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|f| f.to_str())
+            .unwrap_or(file_name)
+            .to_string();
+        return Some(ReadClassification::Skill { name: skill_name });
+    }
+
+    if file_name == "AGENTS.md"
+        || file_name == "AGENTS.override.md"
+        || file_name == "CLAUDE.md"
+        || file_name == "CLAUDE.MD"
+    {
+        return Some(ReadClassification::Resource {
+            path: to_relative_path(clean),
+        });
+    }
+
+    if file_name.eq_ignore_ascii_case("README.md") || clean.contains("docs/") || clean.contains("examples/") {
+        return Some(ReadClassification::Docs {
+            path: to_relative_path(clean),
+        });
+    }
+
+    None
+}
+
 pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) {
     let raw = args.get("path").and_then(|path| path.as_str()).unwrap_or("");
     let path = to_relative_path(raw);
@@ -75,8 +117,12 @@ pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) 
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => {
-            let (path, range) = read_summary_parts(args);
-            format!("{path}{}", range.unwrap_or_default())
+            if let Some(ReadClassification::Skill { name }) = classify_read_path(args) {
+                format!("[skill] {name}")
+            } else {
+                let (path, range) = read_summary_parts(args);
+                format!("{path}{}", range.unwrap_or_default())
+            }
         }
         "write" => {
             let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
