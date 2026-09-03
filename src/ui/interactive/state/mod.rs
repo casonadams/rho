@@ -1,6 +1,7 @@
 pub mod autocomplete;
 pub mod editor;
 pub mod modal;
+pub mod paste;
 #[cfg(test)]
 mod tests;
 pub mod types;
@@ -126,6 +127,7 @@ impl InteractiveState {
             UiAction::DeleteToLineEnd => self.editor.delete_to_line_end(),
             UiAction::Yank => self.editor.yank(),
             UiAction::Undo => self.editor.undo(),
+            UiAction::Paste(text) => self.editor.handle_paste(&text),
             UiAction::Submit(kind) => {
                 if let Some(message) = self.editor.take_submission(kind) {
                     self.queue.push_back(message.clone());

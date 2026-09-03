@@ -1,5 +1,18 @@
-use super::types::{QueueKind, QueuedMessage};
+use super::{
+    paste::{
+        PasteStore, check_paste_threshold, find_marker_covering, find_marker_ending_at, find_marker_starting_at,
+        sanitize_paste,
+    },
+    types::{QueueKind, QueuedMessage},
+};
 use unicode_width::UnicodeWidthChar;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EditorSnapshot {
+    text: String,
+    cursor: usize,
+    pastes: PasteStore,
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EditorState {
@@ -7,7 +20,8 @@ pub struct EditorState {
     cursor: usize,
     preferred_column: Option<usize>,
     kill_ring: Vec<String>,
-    undo_stack: Vec<(String, usize)>,
+    undo_stack: Vec<EditorSnapshot>,
+    pastes: PasteStore,
 }
 
 impl EditorState {
@@ -23,9 +37,40 @@ impl EditorState {
         self.text.is_empty()
     }
 
+    pub fn pastes(&self) -> &PasteStore {
+        &self.pastes
+    }
+
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
         self.cursor = self.text.len();
+        self.pastes.sync_with_text(&self.text);
+        self.preferred_column = None;
+    }
+
+    pub fn handle_paste(&mut self, pasted_text: &str) {
+        let clean = sanitize_paste(pasted_text);
+        if clean.is_empty() {
+            return;
+        }
+        self.record_undo();
+
+        if (clean.starts_with('/') || clean.starts_with('~') || clean.starts_with('.'))
+            && let Some((_, ch)) = self.text[..self.cursor].char_indices().next_back()
+            && (ch.is_alphanumeric() || ch == '_')
+        {
+            self.text.insert(self.cursor, ' ');
+            self.cursor += 1;
+        }
+
+        if check_paste_threshold(&clean) {
+            let (_, marker) = self.pastes.insert(clean);
+            self.text.insert_str(self.cursor, &marker);
+            self.cursor += marker.len();
+        } else {
+            self.text.insert_str(self.cursor, &clean);
+            self.cursor += clean.len();
+        }
         self.preferred_column = None;
     }
 
@@ -41,6 +86,16 @@ impl EditorState {
     }
 
     pub fn backspace(&mut self) {
+        if let Some(marker) =
+            find_marker_ending_at(&self.text, self.cursor).or_else(|| find_marker_covering(&self.text, self.cursor))
+        {
+            self.record_undo();
+            self.text.drain(marker.start..marker.end);
+            self.cursor = marker.start;
+            self.pastes.remove_and_renumber(marker.id, &mut self.text);
+            self.preferred_column = None;
+            return;
+        }
         let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() else {
             return;
         };
@@ -51,6 +106,15 @@ impl EditorState {
     }
 
     pub fn delete(&mut self) {
+        if let Some(marker) =
+            find_marker_starting_at(&self.text, self.cursor).or_else(|| find_marker_covering(&self.text, self.cursor))
+        {
+            self.record_undo();
+            self.text.drain(marker.start..marker.end);
+            self.pastes.remove_and_renumber(marker.id, &mut self.text);
+            self.preferred_column = None;
+            return;
+        }
         let Some(character) = self.text[self.cursor..].chars().next() else {
             return;
         };
@@ -60,14 +124,22 @@ impl EditorState {
     }
 
     pub fn move_left(&mut self) {
-        if let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() {
+        if let Some(marker) = find_marker_ending_at(&self.text, self.cursor) {
+            self.cursor = marker.start;
+        } else if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
+            self.cursor = marker.start;
+        } else if let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() {
             self.cursor = index;
         }
         self.preferred_column = None;
     }
 
     pub fn move_right(&mut self) {
-        if let Some(character) = self.text[self.cursor..].chars().next() {
+        if let Some(marker) = find_marker_starting_at(&self.text, self.cursor) {
+            self.cursor = marker.end;
+        } else if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
+            self.cursor = marker.end;
+        } else if let Some(character) = self.text[self.cursor..].chars().next() {
             self.cursor += character.len_utf8();
         }
         self.preferred_column = None;
@@ -101,6 +173,9 @@ impl EditorState {
             chars.next();
         }
         self.cursor = new_cursor;
+        if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
+            self.cursor = marker.start;
+        }
         self.preferred_column = None;
     }
 
@@ -133,6 +208,9 @@ impl EditorState {
             chars.next();
         }
         self.cursor += offset;
+        if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
+            self.cursor = marker.end;
+        }
         self.preferred_column = None;
     }
 
@@ -150,6 +228,7 @@ impl EditorState {
             self.kill_ring.push(killed);
         }
         self.cursor = new_cursor;
+        self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
     }
 
@@ -166,6 +245,7 @@ impl EditorState {
         if !killed.is_empty() {
             self.kill_ring.push(killed);
         }
+        self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
     }
 
@@ -180,6 +260,7 @@ impl EditorState {
             self.kill_ring.push(killed);
         }
         self.cursor = line_start;
+        self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
     }
 
@@ -201,6 +282,7 @@ impl EditorState {
         if !killed.is_empty() {
             self.kill_ring.push(killed);
         }
+        self.pastes.sync_with_text(&self.text);
         self.preferred_column = None;
     }
 
@@ -214,9 +296,10 @@ impl EditorState {
     }
 
     pub fn undo(&mut self) {
-        if let Some((prev_text, prev_cursor)) = self.undo_stack.pop() {
-            self.text = prev_text;
-            self.cursor = prev_cursor.min(self.text.len());
+        if let Some(prev) = self.undo_stack.pop() {
+            self.text = prev.text;
+            self.cursor = prev.cursor.min(self.text.len());
+            self.pastes = prev.pastes;
             self.preferred_column = None;
         }
     }
@@ -225,13 +308,17 @@ impl EditorState {
         if self
             .undo_stack
             .last()
-            .map(|(t, c)| t != &self.text || *c != self.cursor)
+            .map(|s| s.text != self.text || s.cursor != self.cursor || s.pastes != self.pastes)
             .unwrap_or(true)
         {
             if self.undo_stack.len() >= 50 {
                 self.undo_stack.remove(0);
             }
-            self.undo_stack.push((self.text.clone(), self.cursor));
+            self.undo_stack.push(EditorSnapshot {
+                text: self.text.clone(),
+                cursor: self.cursor,
+                pastes: self.pastes.clone(),
+            });
         }
     }
 
@@ -269,6 +356,11 @@ impl EditorState {
             .min_by_key(|(_, _, column)| column.abs_diff(preferred_column));
         if let Some((cursor, _, _)) = target {
             self.cursor = cursor;
+            if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
+                let to_start = self.cursor - marker.start;
+                let to_end = marker.end - self.cursor;
+                self.cursor = if to_start <= to_end { marker.start } else { marker.end };
+            }
             self.preferred_column = Some(preferred_column);
             true
         } else {
@@ -277,12 +369,14 @@ impl EditorState {
     }
 
     pub fn take_submission(&mut self, kind: QueueKind) -> Option<QueuedMessage> {
-        let text = self.text.trim().to_string();
+        let expanded = self.pastes.expand(&self.text);
+        let text = expanded.trim().to_string();
         if text.is_empty() {
             return None;
         }
         self.text.clear();
         self.cursor = 0;
+        self.pastes.clear();
         self.preferred_column = None;
         Some(QueuedMessage { text, kind })
     }

@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod tests {
     use rho::engine::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
+    use rho::tools::BashTool;
     use rig::agent::AgentBuilder;
     use rig::test_utils::{MockCompletionModel, MockTurn};
     use serde_json::{Value, json};

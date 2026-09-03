@@ -114,6 +114,7 @@ pub enum UiAction {
     DeleteToLineEnd,
     Yank,
     Undo,
+    Paste(String),
     Submit(QueueKind),
     Exit,
 }
