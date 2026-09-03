@@ -194,6 +194,24 @@ fn tree_selector_modal_selection() {
 }
 
 #[test]
+fn session_selector_modal_selection() {
+    let temp_dir = std::env::temp_dir().join(format!("test_sessions_{}", uuid::Uuid::new_v4()));
+    let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    let session_id = manager.session_id.clone();
+
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::modal::open_session_selector(&temp_dir, &mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
+
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let res = super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert_eq!(res, super::modal::ModalKeyResult::SessionSelected { session_id });
+    assert!(controller.state().active_modal().is_none());
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
 fn test_paste_event_collapses_in_interactive_state() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let lines = (1..=15).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");

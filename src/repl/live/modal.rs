@@ -20,6 +20,9 @@ pub enum ModalKeyResult {
     TreeNodeSelected {
         node_id: String,
     },
+    SessionSelected {
+        session_id: String,
+    },
 }
 
 pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
@@ -105,6 +108,42 @@ pub fn open_tree_selector<B: crate::ui::interactive::TerminalBackend>(
     controller.state_mut().push_modal(modal);
 }
 
+fn format_relative_time(time: chrono::DateTime<chrono::Utc>) -> String {
+    let now = chrono::Utc::now();
+    let diff = now.signed_duration_since(time);
+    let secs = diff.num_seconds();
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else if secs < 2592000 {
+        format!("{}d ago", secs / 86400)
+    } else {
+        time.format("%Y-%m-%d").to_string()
+    }
+}
+
+pub fn open_session_selector<B: crate::ui::interactive::TerminalBackend>(
+    sessions_dir: &std::path::Path,
+    controller: &mut TerminalController<B>,
+) {
+    let summaries = rho_harness_core::session::list_session_summaries(sessions_dir).unwrap_or_default();
+    let mut options = Vec::new();
+
+    for item in summaries {
+        let display_title = item.name.unwrap_or_else(|| item.session_id.clone());
+        let relative_time = format_relative_time(item.last_modified);
+        let desc = format!("{}\t{} turns\t{}", item.session_id, item.turn_count, item.preview);
+        let label = format!("{display_title} ({relative_time})");
+        options.push(crate::ui::interactive::ModalOption::new(label, Some(desc)));
+    }
+
+    let modal = ModalState::new("Resume Session", "", options).with_search(true);
+    controller.state_mut().push_modal(modal);
+}
+
 pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: crossterm::event::KeyEvent,
@@ -116,6 +155,61 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
 
     let is_model_selector = active.title == "Select Model";
     let is_tree_selector = active.title == "Conversation Tree";
+    let is_session_selector = active.title == "Resume Session";
+
+    if is_session_selector {
+        match key.code {
+            KeyCode::Up | KeyCode::BackTab => {
+                controller.state_mut().select_previous_modal_option();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                controller.state_mut().select_next_modal_option();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Enter => {
+                if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
+                    let desc = opt.description.clone().unwrap_or_default();
+                    let session_id = desc.split('\t').next().unwrap_or(&desc).trim().to_string();
+                    controller.state_mut().pop_modal();
+                    return Ok(ModalKeyResult::SessionSelected { session_id });
+                }
+                controller.state_mut().pop_modal();
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Esc => {
+                controller.state_mut().pop_modal();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Backspace => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    let mut query = modal.filter_query.clone();
+                    query.pop();
+                    modal.set_filter(&query);
+                }
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                controller.state_mut().pop_modal();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    let mut query = modal.filter_query.clone();
+                    query.push(c);
+                    modal.set_filter(&query);
+                }
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            _ => return Ok(ModalKeyResult::Handled),
+        }
+    }
 
     if is_tree_selector {
         match key.code {

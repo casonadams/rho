@@ -330,6 +330,17 @@ impl ReplSession {
                                         .print_notice(&format!("  [Cloned session into {}]\n", cloned.session_id));
                                     continue;
                                 }
+                                CommandResult::OpenSessionSelector => {
+                                    let summaries =
+                                        rho_harness_core::session::list_session_summaries(&self.config.sessions_dir)?;
+                                    for s in summaries {
+                                        self.renderer.print_notice(&format!(
+                                            "  - {} ({}): {}\n",
+                                            s.session_id, s.turn_count, s.preview
+                                        ));
+                                    }
+                                    continue;
+                                }
                                 CommandResult::ResumeSession { session_id } => {
                                     engine = crate::platform::agent_engine(
                                         self.config.clone(),

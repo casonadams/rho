@@ -126,6 +126,10 @@ impl ReplSession {
                     self.renderer
                         .print_notice(&format!("  [Cloned session into {}]\n", cloned.session_id));
                 }
+                CommandResult::OpenSessionSelector => {
+                    super::modal::open_session_selector(&self.config.sessions_dir, controller);
+                    controller.redraw()?;
+                }
                 CommandResult::ResumeSession { session_id } => {
                     *engine =
                         crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), Some(&session_id))

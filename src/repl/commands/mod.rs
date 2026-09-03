@@ -38,6 +38,7 @@ pub enum CommandResult {
     ResumeSession {
         session_id: String,
     },
+    OpenSessionSelector,
     NameSession {
         name: String,
     },
@@ -199,6 +200,8 @@ impl SlashCommandHandler {
                     Ok(Some(CommandResult::ResumeSession {
                         session_id: parts[1].to_string(),
                     }))
+                } else if ctx.renderer.has_interactive_ui() {
+                    Ok(Some(CommandResult::OpenSessionSelector))
                 } else {
                     ctx.renderer.print_notice("  Usage: /resume <session_id>\n");
                     Ok(Some(CommandResult::Continue))

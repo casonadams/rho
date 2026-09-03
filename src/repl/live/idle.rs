@@ -103,6 +103,18 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         controller.redraw()?;
                         continue;
                     }
+                    ModalKeyResult::SessionSelected { session_id } => {
+                        *engine = crate::platform::agent_engine(
+                            session.config.clone(),
+                            session.auth_store.clone(),
+                            Some(&session_id),
+                        )
+                        .await?;
+                        session.renderer.print_notice(&format!("  [Resumed session {session_id}]\n"));
+                        update_footer(controller.state_mut(), session, engine);
+                        controller.redraw()?;
+                        continue;
+                    }
                     ModalKeyResult::NotHandled => {}
                 }
                 if matches!(handle_autocomplete_key(controller, completions, key), AutocompleteKeyResult::Handled) {
