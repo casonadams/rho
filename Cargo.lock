@@ -6034,6 +6034,7 @@ dependencies = [
  "crossterm 0.28.1",
  "dirs",
  "futures",
+ "image",
  "indicatif",
  "inquire",
  "libc",

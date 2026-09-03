@@ -193,20 +193,21 @@ pub fn copy_last_message(
     }
 }
 
-pub fn paste_clipboard(
-    session: &ReplSession,
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+pub fn paste_clipboard<B: TerminalBackend>(
+    renderer: &crate::ui::TerminalRenderer,
+    controller: &mut TerminalController<B>,
 ) {
-    if let Ok(Some(text)) = crate::platform::clipboard::get_text() {
-        for ch in text.chars() {
-            controller.state_mut().editor_mut().insert(ch);
+    if let Ok(Some(img)) = crate::platform::clipboard::get_image() {
+        match crate::platform::clipboard::save_image_to_temp_png(&img) {
+            Ok(path) => {
+                let path_str = path.to_string_lossy();
+                controller.state_mut().editor_mut().handle_paste(&path_str);
+            }
+            Err(error) => {
+                renderer.print_notice(&format!("  [Failed to save clipboard image: {error}]\n"));
+            }
         }
-    } else if let Ok(Some(img)) = crate::platform::clipboard::get_image() {
-        session.renderer.print_notice(&format!(
-            "  [Pasted clipboard image: {}x{} ({} bytes)]\n",
-            img.width,
-            img.height,
-            img.bytes.len()
-        ));
+    } else if let Ok(Some(text)) = crate::platform::clipboard::get_text() {
+        controller.state_mut().editor_mut().handle_paste(&text);
     }
 }

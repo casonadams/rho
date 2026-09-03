@@ -156,7 +156,7 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         batch.flush(controller, true)?;
                     }
                     InputAction::ClipboardPasteImage => {
-                        paste_clipboard(session, controller);
+                        paste_clipboard(&session.renderer, controller);
                         batch.flush(controller, true)?;
                     }
                     InputAction::Suspend => {

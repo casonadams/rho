@@ -173,3 +173,10 @@ fn test_paste_event_collapses_in_interactive_state() {
         .apply(crate::ui::interactive::UiAction::Paste(lines));
     assert_eq!(controller.state().editor().text(), "[paste #1 +15 lines]");
 }
+
+#[test]
+fn test_paste_clipboard_callable() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let renderer = crate::ui::TerminalRenderer::default();
+    super::navigation::paste_clipboard(&renderer, &mut controller);
+}

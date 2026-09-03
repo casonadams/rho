@@ -1,6 +1,8 @@
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
 use super::modal::handle_modal_key;
-use super::navigation::{apply_completion, navigate_history_next, navigate_history_previous, restore_queued_messages};
+use super::navigation::{
+    apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard, restore_queued_messages,
+};
 use super::{ActiveTurn, EditorResources, LiveIo};
 use crate::engine::AgentEngine;
 use crate::error::Result;
@@ -95,6 +97,10 @@ pub(crate) async fn run_active_turn(
                     }
                     InputAction::ToggleExpandTools => {
                         controller.toggle_tools_expanded()?;
+                    }
+                    InputAction::ClipboardPasteImage => {
+                        paste_clipboard(renderer, controller);
+                        batch.flush(controller, true)?;
                     }
                     InputAction::DequeueQueued => {
                         let queued = controller.state_mut().dequeue_all();
