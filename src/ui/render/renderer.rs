@@ -261,6 +261,8 @@ impl TerminalRenderer {
 
     pub fn finish_tool_line(&self, line: ToolLine) {
         if let Some(ui) = &self.ui {
+            // Single event, no tool_end: push_transcript_item clears the running widget in the
+            // same frame it prints the block; a separate tool_end would collapse the region first.
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(
                 crate::ui::interactive::ToolItem {
                     name: line.name.clone(),
@@ -271,7 +273,6 @@ impl TerminalRenderer {
                     duration_ms: line.duration_ms,
                 },
             ));
-            let _ = ui.tool_end();
             return;
         }
         let background = if line.is_error {

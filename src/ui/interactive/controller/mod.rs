@@ -100,12 +100,19 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn end_tool(&mut self) -> io::Result<()> {
+        let had_active = self.state.active_tool().is_some() || self.state.footer().running_tool.is_some();
         self.state.footer_mut().running_tool = None;
         self.state.set_active_tool(None);
-        self.redraw()
+        if had_active {
+            self.redraw()?;
+        }
+        Ok(())
     }
 
     pub fn push_transcript_item(&mut self, item: super::TranscriptItem) -> io::Result<()> {
+        if matches!(item, super::TranscriptItem::Tool(_)) {
+            self.clear_active_tool();
+        }
         let is_streamed_assistant = matches!(item, super::TranscriptItem::AssistantText(_));
         let rendered = super::render_transcript_item(super::TranscriptRenderInput {
             item: &item,

@@ -299,14 +299,16 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 } else {
                     &tool.output_summary
                 };
-                let clean = raw_output.trim_end();
+                // Tabs count as zero width here but expand to tab stops on screen,
+                // desyncing block background fill and wrap math.
+                let clean = raw_output.trim_end().replace('\t', "   ");
                 if !clean.is_empty() {
                     content.push_str("\n\n");
                     if input.tools_expanded {
-                        content.push_str(clean);
+                        content.push_str(&clean);
                     } else {
                         let truncated =
-                            super::layout::truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
+                            super::layout::truncate_to_visual_lines(&clean, 5, width.saturating_sub(4).max(1));
                         if truncated.skipped_count > 0 {
                             let dim = theme.dimmed;
                             content.push_str(&format!(

@@ -74,6 +74,35 @@ fn render_transcript_tool_collapsed_shows_preview() {
 }
 
 #[test]
+fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "bash".into(),
+        arguments: serde_json::json!({"command": "cat /etc/hosts"}),
+        is_error: false,
+        output: "##\n127.0.0.1\tlocalhost\n255.255.255.255\tbroadcasthost\n::1\tlocalhost".into(),
+        output_summary: "completed".into(),
+        duration_ms: Some(8),
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+
+    assert!(!rendered.contains('\t'), "tabs must not reach the terminal");
+    for line in rendered.lines() {
+        let visible = crate::ui::block::visible_width(line);
+        assert!(visible <= 80, "line renders {visible} cols, wider than block");
+    }
+    assert!(rendered.contains("127.0.0.1"));
+    assert!(rendered.contains("localhost"));
+}
+
+#[test]
 fn render_transcript_tool_expanded_shows_full_output() {
     let theme = Theme::default();
     let item = TranscriptItem::Tool(ToolItem {

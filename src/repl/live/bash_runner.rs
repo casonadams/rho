@@ -25,6 +25,9 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     let args_val = serde_json::json!({ "command": cmd });
     renderer.start_tool_run("bash", &args_val);
 
+    let mut batch = LiveBatch::new();
+    let controller = &mut *io.controller;
+
     #[cfg(unix)]
     let mut command = {
         let mut c = Command::new("sh");
@@ -56,6 +59,8 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                 output_summary: "spawn error".to_string(),
                 duration_ms: Some(started.elapsed().as_millis() as u64),
             });
+            batch.drain_events(controller, io.events)?;
+            batch.flush(controller, false)?;
             return Ok(UserBashResult {
                 output: error_msg,
                 is_cancelled: false,
@@ -91,12 +96,10 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     });
 
     let mut output = String::new();
-    let mut batch = LiveBatch::new();
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut spinner_tick = 0_usize;
 
-    let controller = &mut *io.controller;
     let input_reader = &mut *io.input;
 
     loop {
@@ -134,12 +137,12 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                 }
             }
             res = child.wait() => {
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
                 while let Ok(chunk) = chunk_rx.try_recv() {
                     output.push_str(&chunk);
                     renderer.tool_chunk(&chunk);
                 }
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
                 batch.flush(controller, false)?;
 
                 let duration_ms = started.elapsed().as_millis() as u64;
@@ -154,6 +157,8 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                     output_summary: if is_error { format!("exit {exit_code}") } else { "completed".to_string() },
                     duration_ms: Some(duration_ms),
                 });
+                batch.drain_events(controller, io.events)?;
+                batch.flush(controller, false)?;
 
                 return Ok(UserBashResult {
                     output,
@@ -166,6 +171,10 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
 
     let _ = stdout_task.await;
     let _ = stderr_task.await;
+    while let Ok(chunk) = chunk_rx.try_recv() {
+        output.push_str(&chunk);
+        renderer.tool_chunk(&chunk);
+    }
     batch.flush(controller, false)?;
     let duration_ms = started.elapsed().as_millis() as u64;
 
@@ -177,6 +186,8 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
         output_summary: "(cancelled)".to_string(),
         duration_ms: Some(duration_ms),
     });
+    batch.drain_events(controller, io.events)?;
+    batch.flush(controller, false)?;
 
     Ok(UserBashResult {
         output,

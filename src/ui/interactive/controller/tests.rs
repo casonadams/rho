@@ -565,3 +565,47 @@ fn active_tool_chunks_accumulate_in_state() {
     controller.end_tool().unwrap();
     assert!(controller.state().active_tool().is_none());
 }
+
+#[test]
+fn tool_transcript_push_clears_widget_and_commits_block_atomically() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+    controller
+        .start_tool(crate::ui::interactive::ToolStartRequest {
+            name: "bash".into(),
+            args_summary: "cargo test".into(),
+            preview: None,
+        })
+        .unwrap();
+    controller.append_tool_chunk("partial running output\n").unwrap();
+    operations.borrow_mut().clear();
+
+    controller
+        .push_transcript_item(crate::ui::interactive::TranscriptItem::Tool(
+            crate::ui::interactive::ToolItem {
+                name: "bash".into(),
+                arguments: serde_json::json!({"command": "cargo test"}),
+                is_error: false,
+                output: "all tests passed".into(),
+                output_summary: "completed".into(),
+                duration_ms: Some(50),
+            },
+        ))
+        .unwrap();
+
+    assert!(controller.state().active_tool().is_none());
+    assert_eq!(controller.transcript().len(), 1);
+    let writes: Vec<String> = operations
+        .borrow()
+        .iter()
+        .filter_map(|op| match op {
+            Operation::Write(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    let committed = writes.join("");
+    assert!(committed.contains("all tests passed"));
+    assert!(committed.contains("Took"));
+    assert!(!committed.contains("partial running output"));
+}

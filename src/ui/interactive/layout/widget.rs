@@ -34,13 +34,15 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         content.push_str(preview);
     }
 
-    let raw_output = input.tool.output.trim_end();
+    // Tabs count as zero width here but expand to tab stops on screen,
+    // desyncing block background fill and wrap math.
+    let raw_output = input.tool.output.trim_end().replace('\t', "   ");
     if !raw_output.is_empty() {
         content.push_str("\n\n");
         if input.tools_expanded {
-            content.push_str(raw_output);
+            content.push_str(&raw_output);
         } else {
-            let truncated = truncate_to_visual_lines(raw_output, 5, width.saturating_sub(4).max(1));
+            let truncated = truncate_to_visual_lines(&raw_output, 5, width.saturating_sub(4).max(1));
             if truncated.skipped_count > 0 {
                 content.push_str(&format!(
                     "{dim}... ({} earlier lines, Ctrl+O to expand){dim:#}\n",
