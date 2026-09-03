@@ -556,9 +556,9 @@ fn top_divider_embeds_rho_label_at_full_width() {
 
     let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
     assert_eq!(stripped, 25, "divider must stay exactly one terminal row wide");
-    let label = concat!("rho v", env!("CARGO_PKG_VERSION"));
+    let label = concat!("rho-", env!("CARGO_PKG_VERSION"));
     assert!(layout.top_divider.contains(label));
-    assert!(layout.top_divider.contains("─rho v"));
+    assert!(layout.top_divider.contains("─rho-"));
     assert!(layout.bottom_divider.contains("─") && !layout.bottom_divider.contains("rho"));
 }
 
