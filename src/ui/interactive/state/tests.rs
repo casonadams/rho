@@ -295,3 +295,13 @@ fn path_paste_prepends_space_after_word_char() {
     state.apply(UiAction::Paste("/var/log/syslog".to_string()));
     assert_eq!(state.editor().text(), "look /var/log/syslog");
 }
+
+#[test]
+fn thinking_toggle_state() {
+    let mut state = InteractiveState::default();
+    assert!(!state.hide_thinking());
+    assert!(state.toggle_thinking());
+    assert!(state.hide_thinking());
+    assert!(!state.toggle_thinking());
+    assert!(!state.hide_thinking());
+}

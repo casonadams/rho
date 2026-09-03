@@ -91,6 +91,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             theme: &self.theme,
             width: self.width,
             tools_expanded: self.state.tools_expanded(),
+            hide_thinking: self.state.hide_thinking(),
         });
         self.transcript.push(item);
         if !rendered.is_empty() && !is_streamed_assistant {
@@ -107,6 +108,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.output_line_open = false;
 
         let tools_expanded = self.state.tools_expanded();
+        let hide_thinking = self.state.hide_thinking();
         let rendered_items: Vec<String> = self
             .transcript
             .iter()
@@ -116,6 +118,7 @@ impl<B: TerminalBackend> TerminalController<B> {
                     theme: &self.theme,
                     width: self.width,
                     tools_expanded,
+                    hide_thinking,
                 })
             })
             .filter(|rendered| !rendered.is_empty())
@@ -282,6 +285,16 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.full_redraw()?;
         }
         Ok(tools_expanded)
+    }
+
+    pub fn toggle_thinking(&mut self) -> io::Result<bool> {
+        let hide_thinking = self.state_mut().toggle_thinking();
+        if self.transcript.is_empty() {
+            self.redraw()?;
+        } else {
+            self.full_redraw()?;
+        }
+        Ok(hide_thinking)
     }
 
     pub fn advance_spinner(&mut self) {

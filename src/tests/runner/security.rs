@@ -145,6 +145,7 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
                         theme: &renderer.theme,
                         width: 80,
                         tools_expanded: false,
+                        hide_thinking: false,
                     },
                 ));
             }

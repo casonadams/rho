@@ -149,7 +149,7 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         batch.flush(controller, true)?;
                     }
                     InputAction::ThinkingToggle => {
-                        controller.toggle_tools_expanded()?;
+                        controller.toggle_thinking()?;
                     }
                     InputAction::MessageCopy => {
                         copy_last_message(session, controller);

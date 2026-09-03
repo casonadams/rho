@@ -19,6 +19,7 @@ pub struct InteractiveState {
     editor: EditorState,
     footer: FooterState,
     tools_expanded: bool,
+    hide_thinking: bool,
     queue: VecDeque<QueuedMessage>,
     modals: Vec<ModalFrame>,
     pub autocomplete: AutocompleteState,
@@ -40,6 +41,19 @@ impl InteractiveState {
     pub fn toggle_tools_expanded(&mut self) -> bool {
         self.tools_expanded = !self.tools_expanded;
         self.tools_expanded
+    }
+
+    pub fn hide_thinking(&self) -> bool {
+        self.hide_thinking
+    }
+
+    pub fn set_hide_thinking(&mut self, hide: bool) {
+        self.hide_thinking = hide;
+    }
+
+    pub fn toggle_thinking(&mut self) -> bool {
+        self.hide_thinking = !self.hide_thinking;
+        self.hide_thinking
     }
 
     pub fn editor_mut(&mut self) -> &mut EditorState {

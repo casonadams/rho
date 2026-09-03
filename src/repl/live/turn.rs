@@ -98,6 +98,9 @@ pub(crate) async fn run_active_turn(
                     InputAction::ToggleExpandTools => {
                         controller.toggle_tools_expanded()?;
                     }
+                    InputAction::ThinkingToggle => {
+                        controller.toggle_thinking()?;
+                    }
                     InputAction::ClipboardPasteImage => {
                         paste_clipboard(renderer, controller);
                         batch.flush(controller, true)?;

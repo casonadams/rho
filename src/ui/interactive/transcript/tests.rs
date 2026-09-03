@@ -20,6 +20,7 @@ fn render_transcript_welcome() {
         theme: &theme,
         width: 80,
         tools_expanded: false,
+        hide_thinking: false,
     });
     assert!(rendered.contains("rho"));
     assert!(rendered.contains("Type /help for commands"));
@@ -42,6 +43,7 @@ fn render_transcript_user_message() {
         theme: &theme,
         width: 60,
         tools_expanded: false,
+        hide_thinking: false,
     });
     assert!(rendered.contains("hello world"));
 }
@@ -63,6 +65,7 @@ fn render_transcript_tool_collapsed_shows_preview() {
         theme: &theme,
         width: 80,
         tools_expanded: false,
+        hide_thinking: false,
     });
     assert!(!rendered.contains("line_one"));
     assert!(rendered.contains("line_ten"));
@@ -87,6 +90,7 @@ fn render_transcript_tool_expanded_shows_full_output() {
         theme: &theme,
         width: 80,
         tools_expanded: true,
+        hide_thinking: false,
     });
     assert!(rendered.contains("line_one"));
     assert!(rendered.contains("line_ten"));
@@ -111,6 +115,7 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
         theme: &theme,
         width: 80,
         tools_expanded: false,
+        hide_thinking: false,
     });
     assert!(collapsed.contains("read"));
     assert!(collapsed.contains("src/main.rs"));
@@ -122,6 +127,7 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
         theme: &theme,
         width: 80,
         tools_expanded: true,
+        hide_thinking: false,
     });
     assert!(expanded.contains("read"));
     assert!(expanded.contains("src/main.rs"));
@@ -146,6 +152,7 @@ fn render_transcript_skill_read_collapsed() {
         theme: &theme,
         width: 80,
         tools_expanded: false,
+        hide_thinking: false,
     });
     assert!(rendered.contains("[skill]"));
     assert!(rendered.contains("plan"));
@@ -170,6 +177,7 @@ fn render_transcript_skill_read_expanded() {
         theme: &theme,
         width: 80,
         tools_expanded: true,
+        hide_thinking: false,
     });
     assert!(rendered.contains("[skill]"));
     assert!(rendered.contains("plan"));
@@ -187,6 +195,7 @@ fn render_transcript_skill_invocation_user_message() {
         theme: &theme,
         width: 80,
         tools_expanded: false,
+        hide_thinking: false,
     });
     assert!(collapsed.contains("[skill]"));
     assert!(collapsed.contains("plan"));
@@ -199,9 +208,35 @@ fn render_transcript_skill_invocation_user_message() {
         theme: &theme,
         width: 80,
         tools_expanded: true,
+        hide_thinking: false,
     });
     assert!(expanded.contains("[skill]"));
     assert!(expanded.contains("plan"));
     assert!(expanded.contains("Plan skill body"));
     assert!(expanded.contains("create feature"));
+}
+
+#[test]
+fn render_transcript_thinking_collapsed_and_expanded() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Thinking("Let me analyze the code step by step...".into());
+
+    let expanded = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    assert!(expanded.contains("analyze the code"));
+
+    let collapsed = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: true,
+    });
+    assert!(collapsed.contains("Thinking..."));
+    assert!(!collapsed.contains("analyze the code"));
 }

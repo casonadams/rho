@@ -47,6 +47,7 @@ pub struct TranscriptRenderInput<'a> {
     pub theme: &'a Theme,
     pub width: usize,
     pub tools_expanded: bool,
+    pub hide_thinking: bool,
 }
 
 pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
@@ -186,6 +187,9 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
             let trimmed = text.trim();
             if trimmed.is_empty() {
                 String::new()
+            } else if input.hide_thinking {
+                let dim = theme.dimmed;
+                format!("{dim}Thinking...{dim:#}\n")
             } else {
                 format_thinking_block(trimmed, theme)
             }
