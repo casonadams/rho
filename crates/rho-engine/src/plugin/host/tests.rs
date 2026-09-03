@@ -147,11 +147,13 @@ async fn host_ui_select_handles_selection_and_custom() {
             options: vec![
                 HostSelectOption {
                     label: "A".into(),
-                    description: None
+                    description: None,
+                    input: None,
                 },
                 HostSelectOption {
                     label: "B".into(),
-                    description: None
+                    description: None,
+                    input: None,
                 },
             ],
             initial_selection: 0,
