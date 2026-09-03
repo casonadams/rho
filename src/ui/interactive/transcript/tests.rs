@@ -256,3 +256,37 @@ fn render_transcript_assistant_text_emits_osc133_zones() {
     assert!(rendered.ends_with(&format!("{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")));
     assert!(rendered.contains("Hello from assistant"));
 }
+
+#[test]
+fn render_transcript_search_tool_expanded_shows_output() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "search".into(),
+        arguments: serde_json::json!({"query": "rust async"}),
+        is_error: false,
+        output: "Found 10 results from crates.io\n1. tokio\n2. futures".into(),
+        output_summary: "summary".into(),
+        duration_ms: None,
+    });
+
+    let collapsed = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    assert!(collapsed.contains("search"));
+    assert!(collapsed.contains("rust async"));
+    assert!(!collapsed.contains("Found 10 results"));
+
+    let expanded = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: true,
+        hide_thinking: false,
+    });
+    assert!(expanded.contains("search"));
+    assert!(expanded.contains("Found 10 results from crates.io"));
+}

@@ -282,7 +282,10 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     content.push('\n');
                     content.push_str(&preview);
                 }
-            } else if tool.name == "bash" || tool.is_error {
+            } else if tool.name == "bash"
+                || tool.is_error
+                || (input.tools_expanded && tool.name != "edit" && tool.name != "write")
+            {
                 let raw_output = if !tool.output.is_empty() {
                     &tool.output
                 } else {
