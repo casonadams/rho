@@ -250,10 +250,6 @@ impl TerminalRenderer {
         self.start_spinner(&msg)
     }
 
-    pub fn start_bash_run(&self, _command: &str) {}
-
-    pub fn finish_bash_run(&self) {}
-
     pub fn print_user_block(&self, input: &str) {
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::UserMessage(input.to_string()));

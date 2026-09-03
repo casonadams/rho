@@ -35,8 +35,8 @@ pub fn navigate_history_next<B: TerminalBackend>(
     true
 }
 
-pub fn apply_completion(
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+pub fn apply_completion<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
     completions: &CompletionSet,
 ) -> bool {
     apply_completion_generic(controller, completions)
@@ -64,7 +64,7 @@ pub fn apply_completion_generic<B: crate::ui::interactive::TerminalBackend>(
     true
 }
 
-pub fn restore_queued_messages(controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>) {
+pub fn restore_queued_messages<B: crate::ui::interactive::TerminalBackend>(controller: &mut TerminalController<B>) {
     let mut restored = Vec::new();
     while let Some(message) = controller.state_mut().pop_queued() {
         restored.push(message.text);
@@ -97,10 +97,10 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.context = Some(engine.context_remaining_display());
 }
 
-pub fn cycle_thinking_level(
+pub fn cycle_thinking_level<B: crate::ui::interactive::TerminalBackend>(
     session: &mut ReplSession,
     engine: &mut AgentEngine,
-    controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>,
+    controller: &mut TerminalController<B>,
 ) {
     let current = session.config.thinking_level.as_deref().unwrap_or("off");
     let current_idx = THINKING_LEVELS
@@ -171,9 +171,9 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     ));
 }
 
-pub fn copy_last_message(
+pub fn copy_last_message<B: crate::ui::interactive::TerminalBackend>(
     session: &ReplSession,
-    controller: &TerminalController<crate::ui::interactive::CrosstermBackend>,
+    controller: &TerminalController<B>,
 ) {
     let last_text = controller.transcript().iter().rev().find_map(|item| match item {
         crate::ui::interactive::TranscriptItem::AssistantText(text) => Some(text.clone()),

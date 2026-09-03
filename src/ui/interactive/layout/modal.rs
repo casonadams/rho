@@ -131,7 +131,9 @@ fn modal_hint(modal: &ModalState) -> &'static str {
             "\x1b[2m↑/↓ select • Enter navigate • Shift+L label • Esc cancel\x1b[0m"
         }
         ModalMode::Select if modal.title == "Settings" => "\x1b[2m↑/↓ select • Enter toggle • Esc close\x1b[0m",
-        ModalMode::Select if modal.title == "Resume Session" => "\x1b[2m↑/↓ select • Enter resume • Esc cancel\x1b[0m",
+        ModalMode::Select if modal.title == "Resume Session" => {
+            "\x1b[2m↑/↓ select • Enter resume • Ctrl+D delete • Esc cancel\x1b[0m"
+        }
         ModalMode::Select if modal.is_searchable => "\x1b[2mEnter to select • Esc to cancel\x1b[0m",
         ModalMode::Select if modal.title.contains("Permission") || modal.title.contains("Approve") => {
             "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"

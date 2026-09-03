@@ -27,6 +27,9 @@ pub enum ModalKeyResult {
     SessionSelected {
         session_id: String,
     },
+    SessionDeleted {
+        session_id: String,
+    },
 }
 
 pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
@@ -266,6 +269,23 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 controller.state_mut().pop_modal();
                 controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
+                    let desc = opt.description.clone().unwrap_or_default();
+                    let session_id = desc.split('\t').next().unwrap_or(&desc).trim().to_string();
+                    if let Some(modal) = controller.state_mut().active_modal_mut() {
+                        modal.all_options.retain(|o| {
+                            let opt_desc = o.description.as_deref().unwrap_or("");
+                            opt_desc.split('\t').next().unwrap_or(opt_desc).trim() != session_id
+                        });
+                        let q = modal.filter_query.clone();
+                        modal.set_filter(&q);
+                    }
+                    controller.redraw()?;
+                    return Ok(ModalKeyResult::SessionDeleted { session_id });
+                }
                 return Ok(ModalKeyResult::Handled);
             }
             KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {

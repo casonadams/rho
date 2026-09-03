@@ -1,21 +1,18 @@
 use super::batch::drain_ui_events;
 use super::turn::run_active_turn;
-use super::{ActiveTurn, LiveIo, LiveMessage};
+use super::{ActiveTurn, LiveMessage};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::{CommandResult, SlashCommandContext, SlashCommandHandler};
 
 impl ReplSession {
-    pub(super) async fn process_live_message(
+    pub(super) async fn process_live_message<B: crate::ui::interactive::TerminalBackend>(
         &mut self,
         engine: &mut AgentEngine,
-        live: LiveMessage<'_>,
+        mut live: LiveMessage<'_, B>,
     ) -> Result<bool> {
-        let controller = live.io.controller;
-        let ui_events = live.io.events;
-        let input_reader = live.io.input;
-        let input = live.message.text.trim();
+        let input = live.message.text.trim().to_string();
         let command_result = if input.starts_with('/') {
             let mut command_context = SlashCommandContext {
                 config: &mut self.config,
@@ -24,7 +21,7 @@ impl ReplSession {
                 session_id: Some(&engine.session_manager.session_id),
                 session_manager: Some(&engine.session_manager),
             };
-            SlashCommandHandler::handle(input, &mut command_context).await?
+            SlashCommandHandler::handle(&input, &mut command_context).await?
         } else {
             None
         };
@@ -32,12 +29,12 @@ impl ReplSession {
             match result {
                 CommandResult::Exit => return Ok(true),
                 CommandResult::OpenModelSelector => {
-                    super::modal::open_model_selector(self, controller);
-                    controller.redraw()?;
+                    super::modal::open_model_selector(self, live.io.controller);
+                    live.io.controller.redraw()?;
                 }
                 CommandResult::OpenSettingsSelector => {
-                    super::modal::open_settings_selector(controller);
-                    controller.redraw()?;
+                    super::modal::open_settings_selector(live.io.controller);
+                    live.io.controller.redraw()?;
                 }
                 CommandResult::ClearContext => {
                     *engine = crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), None).await?;
@@ -77,8 +74,8 @@ impl ReplSession {
                 }
                 CommandResult::OpenTreeSelector => {
                     let tree = engine.session_manager.load_tree().await?;
-                    super::modal::open_tree_selector(&tree, controller);
-                    controller.redraw()?;
+                    super::modal::open_tree_selector(&tree, live.io.controller);
+                    live.io.controller.redraw()?;
                 }
                 CommandResult::Tree => {
                     let tree = engine.session_manager.load_tree().await?;
@@ -115,7 +112,11 @@ impl ReplSession {
                     let _ = engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
                     *engine = engine.rebuild(self.config.clone(), self.auth_store.clone()).await?;
                     if let Ok(tree) = engine.session_manager.load_tree().await {
-                        let _ = super::navigation::hydrate_session_transcript(controller, &tree, live.editor.history);
+                        let _ = super::navigation::hydrate_session_transcript(
+                            live.io.controller,
+                            &tree,
+                            live.editor.history,
+                        );
                     }
                     self.renderer
                         .print_status(&format!("Switched active branch to {leaf_id}"));
@@ -134,15 +135,19 @@ impl ReplSession {
                         .print_status(&format!("Cloned session: {}", cloned.session_id));
                 }
                 CommandResult::OpenSessionSelector => {
-                    super::modal::open_session_selector(&self.config.sessions_dir, controller);
-                    controller.redraw()?;
+                    super::modal::open_session_selector(&self.config.sessions_dir, live.io.controller);
+                    live.io.controller.redraw()?;
                 }
                 CommandResult::ResumeSession { session_id } => {
                     *engine =
                         crate::platform::agent_engine(self.config.clone(), self.auth_store.clone(), Some(&session_id))
                             .await?;
                     if let Ok(tree) = engine.session_manager.load_tree().await {
-                        let _ = super::navigation::hydrate_session_transcript(controller, &tree, live.editor.history);
+                        let _ = super::navigation::hydrate_session_transcript(
+                            live.io.controller,
+                            &tree,
+                            live.editor.history,
+                        );
                     }
                     self.renderer.print_status(&format!("Resumed session {session_id}"));
                 }
@@ -152,18 +157,14 @@ impl ReplSession {
                 }
                 CommandResult::ExpandedPrompt { text } => {
                     self.renderer.print_notice("  [Expanded template]\n");
-                    drain_ui_events(controller, ui_events, &mut None)?;
+                    drain_ui_events(live.io.controller, live.io.events, &mut None)?;
                     let effective = text;
                     self.renderer.print_user_block(&effective);
                     run_active_turn(
                         engine,
                         &self.renderer,
                         ActiveTurn {
-                            io: LiveIo {
-                                controller,
-                                events: ui_events,
-                                input: input_reader,
-                            },
+                            io: live.io,
                             editor: live.editor,
                             prompt: &effective,
                         },
@@ -184,40 +185,15 @@ impl ReplSession {
                 }
                 CommandResult::Continue => {}
             }
-            drain_ui_events(controller, ui_events, &mut None)?;
+            drain_ui_events(live.io.controller, live.io.events, &mut None)?;
             return Ok(false);
         }
 
         if let Some(cmd) = input.strip_prefix("!!") {
             let cmd = cmd.trim();
             if !cmd.is_empty() {
-                self.renderer
-                    .print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
-                #[cfg(unix)]
-                let out = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
-                #[cfg(windows)]
-                let out = tokio::process::Command::new("cmd.exe")
-                    .arg("/c")
-                    .arg(cmd)
-                    .output()
-                    .await;
-                match out {
-                    Ok(res) => {
-                        let stdout = String::from_utf8_lossy(&res.stdout);
-                        let stderr = String::from_utf8_lossy(&res.stderr);
-                        if !stdout.is_empty() {
-                            self.renderer.write_output(&stdout);
-                        }
-                        if !stderr.is_empty() {
-                            self.renderer.write_output(&stderr);
-                        }
-                    }
-                    Err(e) => {
-                        self.renderer
-                            .print_notice(&format!("  Command execution failed: {e}\n"));
-                    }
-                }
-                drain_ui_events(controller, ui_events, &mut None)?;
+                let _ = super::bash_runner::run_user_bash(cmd, &self.renderer, &mut live.io).await;
+                drain_ui_events(live.io.controller, live.io.events, &mut None)?;
                 return Ok(false);
             }
         }
@@ -225,53 +201,34 @@ impl ReplSession {
         let effective = if let Some(cmd) = input.strip_prefix('!') {
             let cmd = cmd.trim();
             if !cmd.is_empty() {
-                self.renderer
-                    .print_notice(&format!("  [Executing local shell: `{cmd}`]\n"));
-                #[cfg(unix)]
-                let out = tokio::process::Command::new("sh").arg("-c").arg(cmd).output().await;
-                #[cfg(windows)]
-                let out = tokio::process::Command::new("cmd.exe")
-                    .arg("/c")
-                    .arg(cmd)
-                    .output()
-                    .await;
-                match out {
-                    Ok(res) => {
-                        let stdout = String::from_utf8_lossy(&res.stdout);
-                        let stderr = String::from_utf8_lossy(&res.stderr);
-                        if !stdout.is_empty() {
-                            self.renderer.write_output(&stdout);
-                        }
-                        if !stderr.is_empty() {
-                            self.renderer.write_output(&stderr);
-                        }
-                        format!(
-                            "Executed local shell command: `{cmd}`\n\nOutput:\n```\n{}{}\n```",
-                            stdout, stderr
-                        )
-                    }
-                    Err(e) => {
-                        self.renderer
-                            .print_notice(&format!("  Command execution failed: {e}\n"));
-                        format!("Failed to execute local shell command `{cmd}`: {e}")
-                    }
+                let res = super::bash_runner::run_user_bash(cmd, &self.renderer, &mut live.io).await?;
+                if res.is_cancelled {
+                    drain_ui_events(live.io.controller, live.io.events, &mut None)?;
+                    return Ok(false);
+                }
+                if res.is_error {
+                    format!(
+                        "Executed local shell command: `{cmd}` (failed)\n\nOutput:\n```\n{}\n```",
+                        res.output
+                    )
+                } else {
+                    format!(
+                        "Executed local shell command: `{cmd}`\n\nOutput:\n```\n{}\n```",
+                        res.output
+                    )
                 }
             } else {
-                input.to_string()
+                input
             }
         } else {
-            input.to_string()
+            input
         };
         self.renderer.print_user_block(&effective);
         run_active_turn(
             engine,
             &self.renderer,
             ActiveTurn {
-                io: LiveIo {
-                    controller,
-                    events: ui_events,
-                    input: input_reader,
-                },
+                io: live.io,
                 editor: live.editor,
                 prompt: &effective,
             },

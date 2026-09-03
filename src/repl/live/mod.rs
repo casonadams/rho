@@ -1,4 +1,5 @@
 pub mod autocomplete;
+pub mod bash_runner;
 pub mod batch;
 pub mod idle;
 pub mod message;
@@ -7,8 +8,6 @@ pub mod navigation;
 #[cfg(test)]
 mod tests;
 pub mod turn;
-
-pub use batch::LiveController;
 
 use batch::drain_ui_events;
 use idle::read_idle_input;
@@ -23,8 +22,8 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveState, QueuedMessage, TerminalController, UiEvent};
 use crate::ui::render::WelcomeDisplay;
 
-pub struct LiveIo<'a> {
-    pub controller: &'a mut LiveController,
+pub struct LiveIo<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
+    pub controller: &'a mut TerminalController<B>,
     pub events: &'a mut mpsc::UnboundedReceiver<UiEvent>,
     pub input: &'a mut TerminalInputReader,
 }
@@ -34,20 +33,20 @@ pub struct EditorResources<'a> {
     pub completions: &'a CompletionSet,
 }
 
-pub struct LiveMessage<'a> {
-    pub io: LiveIo<'a>,
+pub struct LiveMessage<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
+    pub io: LiveIo<'a, B>,
     pub editor: EditorResources<'a>,
     pub message: QueuedMessage,
 }
 
-pub struct ActiveTurn<'a> {
-    pub io: LiveIo<'a>,
+pub struct ActiveTurn<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
+    pub io: LiveIo<'a, B>,
     pub editor: EditorResources<'a>,
     pub prompt: &'a str,
 }
 
-pub struct IdleContext<'a, 'b> {
-    pub io: LiveIo<'a>,
+pub struct IdleContext<'a, 'b, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
+    pub io: LiveIo<'a, B>,
     pub editor: EditorResources<'a>,
     pub session: &'b mut ReplSession,
     pub engine: &'b mut crate::engine::AgentEngine,

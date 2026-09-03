@@ -413,8 +413,8 @@ fn active_tool_status_updates_and_cleans_up_on_end() {
             .any(|op| matches!(op, Operation::Write(text) if text.contains("Working...")))
     );
     assert!(
-        !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash") && text.contains("cargo test")))
     );
     drop(ops);
 
@@ -424,7 +424,7 @@ fn active_tool_status_updates_and_cleans_up_on_end() {
     let ops = operations.borrow();
     assert!(
         !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash cargo test")))
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("bash") && text.contains("cargo test")))
     );
 }
 
@@ -533,4 +533,35 @@ fn consecutive_tools_are_separated_by_blank_line() {
             .any(|op| matches!(op, Operation::Write(text) if text.is_empty())),
         "active tool should have a leading empty line to separate from preceding transcript"
     );
+}
+
+#[test]
+fn active_tool_chunks_accumulate_in_state() {
+    let (backend, _, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+    controller
+        .start_tool(crate::ui::interactive::ToolStartRequest {
+            name: "bash".into(),
+            args_summary: "cargo build".into(),
+            preview: None,
+        })
+        .unwrap();
+
+    assert!(controller.state().active_tool().is_some());
+    assert_eq!(controller.state().active_tool().unwrap().name, "bash");
+    assert_eq!(controller.state().active_tool().unwrap().args_summary, "cargo build");
+    assert_eq!(controller.state().active_tool().unwrap().output, "");
+
+    controller.append_tool_chunk("   Compiling rho v0.1.0\n").unwrap();
+    controller
+        .append_tool_chunks(["    Finished dev [unoptimized + debuginfo] target(s)\n"])
+        .unwrap();
+
+    let output = &controller.state().active_tool().unwrap().output;
+    assert!(output.contains("Compiling rho"));
+    assert!(output.contains("Finished dev"));
+
+    controller.end_tool().unwrap();
+    assert!(controller.state().active_tool().is_none());
 }

@@ -4,8 +4,6 @@ use crate::ui::interactive::{BatchDecision, OutputEvent, PendingUiBatch, Termina
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-pub type LiveController = TerminalController<crate::ui::interactive::CrosstermBackend>;
-
 pub const OUTPUT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 pub const MAX_PENDING_OUTPUT_BYTES: usize = 16 * 1024;
 pub const SPINNER_FRAME_INTERVALS: usize = 5;

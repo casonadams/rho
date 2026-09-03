@@ -10,10 +10,10 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InputAction, UiAction, map_key};
 use crossterm::event::Event;
 
-pub(crate) async fn run_active_turn(
+pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     engine: &AgentEngine,
     renderer: &TerminalRenderer,
-    turn: ActiveTurn<'_>,
+    turn: ActiveTurn<'_, B>,
 ) -> Result<()> {
     let ActiveTurn {
         io: LiveIo {

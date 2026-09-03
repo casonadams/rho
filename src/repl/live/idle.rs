@@ -10,7 +10,9 @@ use crate::error::Result;
 use crate::ui::interactive::{InputAction, QueuedMessage, UiAction, UiEffect, map_key};
 use crossterm::event::Event;
 
-pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<QueuedMessage>> {
+pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
+    ctx: IdleContext<'_, '_, B>,
+) -> Result<Option<QueuedMessage>> {
     let controller = ctx.io.controller;
     let ui_events = ctx.io.events;
     let input = ctx.io.input;
@@ -129,6 +131,12 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         }
                         session.renderer.print_status(&format!("Resumed session {session_id}"));
                         update_footer(controller.state_mut(), session, engine);
+                        controller.redraw()?;
+                        continue;
+                    }
+                    ModalKeyResult::SessionDeleted { session_id } => {
+                        let _ = rho_harness_core::session::delete_session(&session.config.sessions_dir, &session_id);
+                        session.renderer.print_status(&format!("Deleted session {session_id}"));
                         controller.redraw()?;
                         continue;
                     }

@@ -38,6 +38,11 @@ impl TerminalInputReader {
         }))
     }
 
+    #[cfg(test)]
+    pub(crate) fn spawn_dummy() -> Self {
+        Self::spawn_with(Box::new(|_| Ok(None))).expect("spawn dummy reader")
+    }
+
     fn spawn_with(read_next: ReadNext) -> io::Result<Self> {
         let (event_sender, events) = mpsc::unbounded_channel();
         let (control, controls) = std_mpsc::channel();

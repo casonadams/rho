@@ -62,25 +62,46 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn start_tool(&mut self, request: super::ToolStartRequest) -> io::Result<()> {
-        self.state.footer_mut().running_tool = Some(request.name);
+        self.state.footer_mut().running_tool = Some(request.name.clone());
         self.state.footer_mut().activity = crate::ui::interactive::Activity::Working;
+        self.state.set_active_tool(Some(super::RunningTool::new(
+            request.name,
+            request.args_summary,
+            request.preview,
+        )));
         self.redraw()
     }
 
-    pub fn append_tool_chunk(&mut self, _chunk: &str) -> io::Result<()> {
+    pub fn append_tool_chunk(&mut self, chunk: &str) -> io::Result<()> {
+        if let Some(tool) = self.state.active_tool_mut() {
+            tool.append_chunk(chunk);
+            self.redraw()?;
+        }
         Ok(())
     }
 
-    pub fn append_tool_chunks<'chunk, I: IntoIterator<Item = &'chunk str>>(&mut self, _chunks: I) -> io::Result<()> {
+    pub fn append_tool_chunks<'chunk, I: IntoIterator<Item = &'chunk str>>(&mut self, chunks: I) -> io::Result<()> {
+        if let Some(tool) = self.state.active_tool_mut() {
+            let mut any = false;
+            for chunk in chunks {
+                tool.append_chunk(chunk);
+                any = true;
+            }
+            if any {
+                self.redraw()?;
+            }
+        }
         Ok(())
     }
 
     pub fn clear_active_tool(&mut self) {
         self.state.footer_mut().running_tool = None;
+        self.state.set_active_tool(None);
     }
 
     pub fn end_tool(&mut self) -> io::Result<()> {
         self.state.footer_mut().running_tool = None;
+        self.state.set_active_tool(None);
         self.redraw()
     }
 
@@ -364,7 +385,16 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     fn current_layout(&self) -> InteractiveLayout {
         let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
-        let widget_lines = Vec::new();
+        let widget_lines = if let Some(tool) = self.state.active_tool() {
+            super::layout::render_running_tool_widget(super::layout::RunningToolWidgetInput {
+                tool,
+                theme: &self.theme,
+                width: self.width,
+                tools_expanded: self.state.tools_expanded(),
+            })
+        } else {
+            Vec::new()
+        };
 
         layout(LayoutInput {
             editor: self.state.editor(),

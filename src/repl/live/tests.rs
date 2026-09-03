@@ -262,6 +262,30 @@ fn session_selector_modal_selection() {
 }
 
 #[test]
+fn session_selector_modal_ctrl_d_deletes_session() {
+    let temp_dir = std::env::temp_dir().join(format!("test_sessions_del_{}", uuid::Uuid::new_v4()));
+    let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    let session_id = manager.session_id.clone();
+
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::modal::open_session_selector(&temp_dir, &mut controller);
+
+    let ctrl_d = crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('d'),
+        crossterm::event::KeyModifiers::CONTROL,
+    );
+    let res = super::modal::handle_modal_key(&mut controller, ctrl_d, &mut None).unwrap();
+    assert_eq!(
+        res,
+        super::modal::ModalKeyResult::SessionDeleted {
+            session_id: session_id.clone()
+        }
+    );
+    assert!(controller.state().active_modal().unwrap().options.is_empty());
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
 fn settings_selector_modal_toggles() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     assert!(!controller.state().hide_thinking());
@@ -351,4 +375,26 @@ fn test_hydrate_session_transcript_populates_items_and_history() {
     assert_eq!(history.previous(""), Some("What is the meaning of life?".to_string()));
 
     let _ = std::fs::remove_file(history_path);
+}
+
+#[tokio::test]
+async fn test_user_bash_runner_streams_and_completes() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (_events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+
+    let renderer = crate::ui::TerminalRenderer::default();
+    let mut live_io = super::LiveIo {
+        controller: &mut controller,
+        events: &mut events_rx,
+        input: &mut input_reader,
+    };
+
+    let res = super::bash_runner::run_user_bash("echo 'hello from user bash'", &renderer, &mut live_io)
+        .await
+        .unwrap();
+
+    assert!(!res.is_cancelled);
+    assert!(!res.is_error);
+    assert!(res.output.contains("hello from user bash"));
 }

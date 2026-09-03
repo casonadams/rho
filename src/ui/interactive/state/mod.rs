@@ -18,6 +18,7 @@ use types::ModalFrame;
 pub struct InteractiveState {
     editor: EditorState,
     footer: FooterState,
+    active_tool: Option<RunningTool>,
     tools_expanded: bool,
     hide_thinking: bool,
     queue: VecDeque<QueuedMessage>,
@@ -54,6 +55,18 @@ impl InteractiveState {
     pub fn toggle_thinking(&mut self) -> bool {
         self.hide_thinking = !self.hide_thinking;
         self.hide_thinking
+    }
+
+    pub fn active_tool(&self) -> Option<&RunningTool> {
+        self.active_tool.as_ref()
+    }
+
+    pub fn active_tool_mut(&mut self) -> Option<&mut RunningTool> {
+        self.active_tool.as_mut()
+    }
+
+    pub fn set_active_tool(&mut self, tool: Option<RunningTool>) {
+        self.active_tool = tool;
     }
 
     pub fn editor_mut(&mut self) -> &mut EditorState {

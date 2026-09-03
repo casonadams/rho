@@ -538,3 +538,69 @@ fn bash_mode_border_turns_amber() {
     assert!(layout.top_divider.starts_with("\u{1b}[33m"));
     assert!(layout.bottom_divider.starts_with("\u{1b}[33m"));
 }
+
+#[test]
+fn running_tool_widget_renders_header_tail_and_elapsed() {
+    let theme = crate::ui::theme::Theme::default();
+    let mut tool = crate::ui::interactive::state::RunningTool::new("bash", "cargo test", None);
+    tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
+
+    // Collapsed view (tools_expanded = false)
+    let lines = super::render_running_tool_widget(super::RunningToolWidgetInput {
+        tool: &tool,
+        theme: &theme,
+        width: 60,
+        tools_expanded: false,
+    });
+    let full = lines.join("\n");
+    assert!(full.contains("bash"), "should contain tool name");
+    assert!(full.contains("cargo test"), "should contain command");
+    assert!(
+        full.contains("... (2 earlier lines, Ctrl+O to expand)"),
+        "should show skipped lines count"
+    );
+    assert!(full.contains("line 7"), "should show latest tailed lines");
+    assert!(
+        !full.contains("line 1\n"),
+        "earlier line 1 should be truncated from tail preview"
+    );
+    assert!(full.contains("Elapsed"), "should contain elapsed duration");
+
+    // Expanded view (tools_expanded = true)
+    let lines_expanded = super::render_running_tool_widget(super::RunningToolWidgetInput {
+        tool: &tool,
+        theme: &theme,
+        width: 60,
+        tools_expanded: true,
+    });
+    let full_expanded = lines_expanded.join("\n");
+    assert!(
+        full_expanded.contains("line 1"),
+        "expanded view should show earlier lines"
+    );
+    assert!(full_expanded.contains("line 7"));
+    assert!(
+        !full_expanded.contains("earlier lines, Ctrl+O"),
+        "expanded view should not have skip hint"
+    );
+}
+
+#[test]
+fn running_tool_widget_with_preview_renders_diff_card() {
+    let theme = crate::ui::theme::Theme::default();
+    let preview = Some("+ line added\n- line removed".to_string());
+    let tool = crate::ui::interactive::state::RunningTool::new("edit", "src/main.rs", preview);
+
+    let lines = super::render_running_tool_widget(super::RunningToolWidgetInput {
+        tool: &tool,
+        theme: &theme,
+        width: 60,
+        tools_expanded: false,
+    });
+    let full = lines.join("\n");
+    assert!(full.contains("edit"));
+    assert!(full.contains("src/main.rs"));
+    assert!(full.contains("+ line added"));
+    assert!(full.contains("- line removed"));
+    assert!(full.contains("Elapsed"));
+}

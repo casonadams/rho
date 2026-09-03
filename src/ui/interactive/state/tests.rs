@@ -305,3 +305,29 @@ fn thinking_toggle_state() {
     assert!(!state.toggle_thinking());
     assert!(!state.hide_thinking());
 }
+
+#[test]
+fn active_tool_lifecycle_and_chunk_accumulation() {
+    let mut state = InteractiveState::default();
+    assert!(state.active_tool().is_none());
+
+    let mut tool = super::RunningTool::new("bash", "cargo test", None);
+    tool.append_chunk("compiling...\n");
+    tool.append_chunk("running 5 tests\n");
+    assert_eq!(tool.name, "bash");
+    assert_eq!(tool.args_summary, "cargo test");
+    assert_eq!(tool.output, "compiling...\nrunning 5 tests\n");
+
+    state.set_active_tool(Some(tool));
+    assert!(state.active_tool().is_some());
+    assert_eq!(state.active_tool().unwrap().output, "compiling...\nrunning 5 tests\n");
+
+    state.active_tool_mut().unwrap().append_chunk("test result: ok\n");
+    assert_eq!(
+        state.active_tool().unwrap().output,
+        "compiling...\nrunning 5 tests\ntest result: ok\n"
+    );
+
+    state.set_active_tool(None);
+    assert!(state.active_tool().is_none());
+}

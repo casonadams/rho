@@ -4,8 +4,10 @@ pub mod modal;
 #[cfg(test)]
 mod tests;
 pub mod text;
+pub mod widget;
 
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
+pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
 
 use super::{Activity, AutocompleteState, EditorState, FooterState, ModalState};
 use autocomplete::render_autocomplete_dropdown;

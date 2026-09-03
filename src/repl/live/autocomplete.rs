@@ -1,6 +1,6 @@
 use super::navigation::apply_completion_generic;
 use crate::repl::interactive::CompletionSet;
-use crate::ui::interactive::{CrosstermBackend, TerminalBackend, TerminalController};
+use crate::ui::interactive::{TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub enum AutocompleteKeyResult {
@@ -8,8 +8,8 @@ pub enum AutocompleteKeyResult {
     NotHandled,
 }
 
-pub fn handle_autocomplete_key(
-    controller: &mut TerminalController<CrosstermBackend>,
+pub fn handle_autocomplete_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
     completions: &CompletionSet,
     key: KeyEvent,
 ) -> AutocompleteKeyResult {
@@ -95,7 +95,10 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     }
 }
 
-pub fn update_autocomplete_state(controller: &mut TerminalController<CrosstermBackend>, completions: &CompletionSet) {
+pub fn update_autocomplete_state<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    completions: &CompletionSet,
+) {
     update_autocomplete_state_generic(controller, completions);
 }
 
