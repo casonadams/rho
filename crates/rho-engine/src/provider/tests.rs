@@ -151,3 +151,41 @@ fn ollama_context_length_is_read_from_model_info() {
     let empty: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
     assert_eq!(ollama_context_from_info(&empty), None);
 }
+
+#[test]
+fn antigravity_collapse_sorts_newest_first() {
+    let live_ids: Vec<String> = vec![
+        "gemini-2.5-flash".into(),
+        "gemini-3.8-flash-high".into(),
+        "gemini-3.7-flash-low".into(),
+        "gemini-3.8-flash-medium".into(),
+        "claude-sonnet-4-6".into(),
+        "gemini-2.5-pro".into(),
+        "gemini-3.1-pro-low".into(),
+    ];
+    let models = crate::provider::discovery::sort_models_newest_first(
+        live_ids
+            .iter()
+            .map(|id| crate::provider::discovery::DiscoveredModel {
+                context_tokens: None,
+                id: id.clone(),
+                name: id.clone(),
+                provider: "antigravity".into(),
+                description: String::new(),
+            })
+            .collect(),
+    );
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "claude-sonnet-4-6",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-medium",
+            "gemini-3.7-flash-low",
+            "gemini-3.1-pro-low",
+            "gemini-2.5-flash", // (2,5) tie keeps input order
+            "gemini-2.5-pro",
+        ]
+    );
+}

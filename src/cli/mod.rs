@@ -81,6 +81,11 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             ProviderId::Gemini => {
                                 println!("  - gemini-2.0-flash\n  - gemini-1.5-pro\n  - gemini-1.5-flash");
                             }
+                            ProviderId::Antigravity => {
+                                for model in rho_engine::provider::discovery::antigravity_preset_models() {
+                                    println!("  - {} ({})", model.id, model.description);
+                                }
+                            }
                             ProviderId::DeepSeek => {
                                 println!("  - deepseek-chat\n  - deepseek-reasoner");
                             }

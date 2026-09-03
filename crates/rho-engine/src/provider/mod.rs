@@ -14,13 +14,28 @@ use std::str::FromStr;
 #[cfg(test)]
 mod tests;
 
+/// The facts needed to construct one provider model handle.
+pub struct ModelRequest<'a> {
+    pub provider: ProviderId,
+    pub model: &'a str,
+    /// rho's `thinking_level`; Antigravity uses it to pick the runtime variant.
+    pub thinking_level: Option<&'a str>,
+}
+
 pub struct ProviderFactory;
 
 impl ProviderFactory {
     pub fn create_model(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
         let name = config.provider.trim();
         if let Ok(provider_id) = ProviderId::from_str(name) {
-            return Self::create_model_for(provider_id, model, auth_store);
+            return Self::create_model_for(
+                ModelRequest {
+                    provider: provider_id,
+                    model,
+                    thinking_level: config.thinking_level.as_deref(),
+                },
+                auth_store,
+            );
         }
         Self::create_custom_model(config, model, auth_store)
     }
@@ -72,7 +87,9 @@ impl ProviderFactory {
         auth_store.get_key_sync(name)
     }
 
-    pub fn create_model_for(provider: ProviderId, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
+    pub fn create_model_for(request: ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
+        let provider = request.provider;
+        let model = request.model;
         if provider == ProviderId::Local {
             let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
             let client = rig::providers::ollama::Client::builder()
@@ -149,7 +166,7 @@ impl ProviderFactory {
                     .map_err(|e| AppError::Provider(format!("Failed to initialize Copilot client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
-            ProviderId::Gemini | ProviderId::Antigravity => {
+            ProviderId::Gemini => {
                 let http_client = reqwest::Client::builder()
                     .no_proxy()
                     .build()
@@ -161,6 +178,17 @@ impl ProviderFactory {
                     .build()
                     .map_err(|e| AppError::Provider(format!("Failed to initialize Gemini client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
+            }
+            ProviderId::Antigravity => {
+                let project_id = match auth_store.get_credential("antigravity") {
+                    Some(rho_harness_core::auth::StoredCredential::OAuth {
+                        account_id: Some(id), ..
+                    }) => id.clone(),
+                    _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+                };
+                let client = crate::antigravity::AntigravityClient::new(key, project_id, model)
+                    .with_effort(request.thinking_level);
+                crate::antigravity::into_handle(client)
             }
             ProviderId::DeepSeek => {
                 let client = rig::providers::deepseek::Client::new(key)

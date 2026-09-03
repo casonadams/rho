@@ -55,11 +55,24 @@ pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthSto
                 Ok(anthropic_preset_models())
             }
         }
-        ProviderId::Gemini | ProviderId::Antigravity => {
+        ProviderId::Gemini => {
             if let Some(key) = auth_store.get_key_sync("gemini")? {
                 discover_gemini_models(&key).await
             } else {
                 Ok(gemini_preset_models())
+            }
+        }
+        ProviderId::Antigravity => {
+            if let Some(key) = auth_store.get_key_sync("antigravity")? {
+                let project_id = match auth_store.get_credential("antigravity") {
+                    Some(rho_harness_core::auth::StoredCredential::OAuth {
+                        account_id: Some(id), ..
+                    }) => id.clone(),
+                    _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+                };
+                discover_antigravity_models(&key, &project_id).await
+            } else {
+                Ok(antigravity_preset_models())
             }
         }
         ProviderId::Mistral => Ok(mistral_preset_models()),
@@ -242,6 +255,156 @@ async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
     }
 
     Ok(gemini_preset_models())
+}
+
+async fn discover_antigravity_models(token: &str, project_id: &str) -> Result<Vec<DiscoveredModel>> {
+    if let Some(ids) = crate::antigravity::discover_models(token, project_id).await {
+        return Ok(collapse_antigravity_catalog(ids));
+    }
+    Ok(antigravity_preset_models())
+}
+
+/// Fold tiered runtime ids into one selectable family entry per model
+/// (`gemini-3.7-flash-{low,medium,high}` → `gemini-3.7-flash`); the thinking
+/// level then picks the variant at request time.
+fn collapse_antigravity_catalog(runtime_ids: Vec<String>) -> Vec<DiscoveredModel> {
+    use std::collections::BTreeMap;
+
+    let mut families: BTreeMap<String, Vec<Option<crate::antigravity::Effort>>> = BTreeMap::new();
+    for id in &runtime_ids {
+        let (base, level) = crate::antigravity::collapse_runtime_id(id);
+        families.entry(base).or_default().push(level);
+    }
+
+    let models: Vec<DiscoveredModel> = families
+        .into_iter()
+        .map(|(base, levels)| {
+            let thinking = if levels.iter().any(|l| l.is_some()) {
+                " · adaptive thinking"
+            } else {
+                ""
+            };
+            DiscoveredModel {
+                context_tokens: None,
+                name: antigravity_display_name(&base),
+                description: format!("{}{}", format_context_desc(&base), thinking),
+                id: base,
+                provider: "antigravity".to_string(),
+            }
+        })
+        .collect();
+
+    sort_models_newest_first(models)
+}
+
+/// Version-aware recency key: the first version number in the id, descending.
+/// Handles dotted (`3.8`) and split-digit (`claude-4-6`) spellings.
+fn model_recency_key(id: &str) -> (u32, u32) {
+    let tokens: Vec<&str> = id.split('-').collect();
+    for (index, token) in tokens.iter().enumerate() {
+        if let Some((major, minor)) = token.split_once('.')
+            && let (Ok(a), Ok(b)) = (major.parse::<u32>(), minor.parse::<u32>())
+        {
+            return (a, b);
+        }
+        if let Ok(a) = token.parse::<u32>()
+            && let Some(Ok(b)) = tokens.get(index + 1).map(|t| t.parse::<u32>())
+        {
+            return (a, b);
+        }
+        if let Ok(a) = token.parse::<u32>() {
+            return (a, 0);
+        }
+    }
+    (0, 0)
+}
+
+/// Newest (highest version number) first; ties keep input order.
+pub fn sort_models_newest_first(mut models: Vec<DiscoveredModel>) -> Vec<DiscoveredModel> {
+    models.sort_by_key(|model| std::cmp::Reverse(model_recency_key(&model.id)));
+    models
+}
+
+fn antigravity_display_name(id: &str) -> String {
+    const TITLES: [(&str, &str); 11] = [
+        ("gemini", "Gemini"),
+        ("claude", "Claude"),
+        ("gpt", "GPT"),
+        ("oss", "OSS"),
+        ("opus", "Opus"),
+        ("sonnet", "Sonnet"),
+        ("pro", "Pro"),
+        ("flash", "Flash"),
+        ("lite", "Lite"),
+        ("thinking", "Thinking"),
+        ("agent", "Agent"),
+    ];
+    let tokens: Vec<&str> = id.split('-').collect();
+    let mut words: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let token = tokens[index];
+        if let (Ok(a), Some(Ok(b))) = (token.parse::<u8>(), tokens.get(index + 1).map(|t| t.parse::<u8>())) {
+            words.push(format!("{a}.{b}"));
+            index += 2;
+            continue;
+        }
+        let title = TITLES
+            .iter()
+            .find(|(key, _)| *key == token)
+            .map(|(_, title)| (*title).to_string())
+            .unwrap_or_else(|| token.to_string());
+        words.push(title);
+        index += 1;
+    }
+    words.join(" ")
+}
+
+pub fn antigravity_preset_models() -> Vec<DiscoveredModel> {
+    sort_models_newest_first(vec![
+        DiscoveredModel {
+            context_tokens: None,
+            id: "gemini-3.8-flash".into(),
+            name: "Gemini 3.8 Flash".into(),
+            provider: "antigravity".into(),
+            description: "1M ctx · fast".into(),
+        },
+        DiscoveredModel {
+            context_tokens: None,
+            id: "gemini-3.7-flash".into(),
+            name: "Gemini 3.7 Flash".into(),
+            provider: "antigravity".into(),
+            description: "1M ctx · fast".into(),
+        },
+        DiscoveredModel {
+            context_tokens: None,
+            id: "gemini-3.1-pro".into(),
+            name: "Gemini 3.1 Pro".into(),
+            provider: "antigravity".into(),
+            description: "1M ctx · reasoning".into(),
+        },
+        DiscoveredModel {
+            context_tokens: None,
+            id: "claude-sonnet-4-6".into(),
+            name: "Claude Sonnet 4.6".into(),
+            provider: "antigravity".into(),
+            description: "200k ctx · reasoning".into(),
+        },
+        DiscoveredModel {
+            context_tokens: None,
+            id: "claude-opus-4-6".into(),
+            name: "Claude Opus 4.6".into(),
+            provider: "antigravity".into(),
+            description: "250k ctx · deep reasoning".into(),
+        },
+        DiscoveredModel {
+            context_tokens: None,
+            id: "gpt-oss-120b".into(),
+            name: "GPT-OSS 120B".into(),
+            provider: "antigravity".into(),
+            description: "128k ctx · open".into(),
+        },
+    ])
 }
 
 fn format_context_desc(model_id: &str) -> String {
@@ -561,6 +724,7 @@ fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
         "openai" => openai_preset_models(),
         "anthropic" => anthropic_preset_models(),
         "gemini" => gemini_preset_models(),
+        "antigravity" => antigravity_preset_models(),
         "deepseek" => deepseek_preset_models(),
         "groq" => groq_preset_models(),
         "openrouter" => openrouter_preset_models(),

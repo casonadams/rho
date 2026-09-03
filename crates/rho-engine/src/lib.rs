@@ -1,3 +1,4 @@
+pub mod antigravity;
 pub mod auth;
 pub mod engine;
 pub mod mcp;

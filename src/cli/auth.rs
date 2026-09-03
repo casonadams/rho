@@ -110,6 +110,16 @@ pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store:
                 );
                 return Ok(());
             }
+            ProviderId::Antigravity => {
+                let callbacks = TerminalOAuthCallbacks;
+                let cred = perform_oauth_login(id, &callbacks).await?;
+                auth_store.set_credential(id.as_str(), cred)?;
+                println!(
+                    "Logged in to Google Antigravity. Credentials saved to {}",
+                    config.auth_file.display()
+                );
+                return Ok(());
+            }
             ProviderId::Local => {
                 println!("Local models run offline and do not require credentials.");
                 return Ok(());
@@ -136,7 +146,10 @@ fn prompt_select_provider(config: &Config) -> Result<String> {
         ("openai", "OpenAI (GPT-4o/o1/o3 - API key)"),
         ("copilot", "GitHub Copilot (Subscription device login)"),
         ("gemini", "Google Gemini (Gemini 2.0 Flash/Pro - API key)"),
-        ("antigravity", "Google Antigravity (Gemini Vertex/Cloud - API key)"),
+        (
+            "antigravity",
+            "Google Antigravity (Gemini/Claude via Google - subscription OAuth)",
+        ),
         ("deepseek", "DeepSeek (DeepSeek V3/R1 - API key)"),
         ("openrouter", "OpenRouter (Universal gateway - API key)"),
         ("xai", "xAI Grok (API key)"),

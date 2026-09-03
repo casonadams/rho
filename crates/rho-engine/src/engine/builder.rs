@@ -4,8 +4,10 @@ use super::tracking::{ContextTracker, QuotaTracker, UsageTracker};
 use crate::auth::AuthStore;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
+use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionManager;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 
 pub struct AgentEngineBuilder {
@@ -88,13 +90,20 @@ impl AgentEngineBuilder {
         };
 
         let mut config = self.config;
+        let mut auth_store = self.auth_store;
         let is_unmodified_default = config.provider == "anthropic" && config.model == "claude-3-7-sonnet-20250219";
 
-        let model = match crate::provider::ProviderFactory::create_model(&config, &config.model, &self.auth_store) {
+        // Auto-refresh expired OAuth tokens before building the model client
+        // (get_key refreshes + persists when the stored token is stale).
+        if let Ok(provider_id) = ProviderId::from_str(config.provider.trim()) {
+            let _ = auth_store.get_key(provider_id.as_str()).await?;
+        }
+
+        let model = match crate::provider::ProviderFactory::create_model(&config, &config.model, &auth_store) {
             Ok(m) => m,
             Err(e) => {
                 if is_unmodified_default {
-                    let configured = self.auth_store.list_configured_providers();
+                    let configured = auth_store.list_configured_providers();
                     let mut fallback = None;
                     for p in configured {
                         let default_model = default_model_for_provider(&p);
@@ -104,7 +113,7 @@ impl AgentEngineBuilder {
                         if let Ok(m) = crate::provider::ProviderFactory::create_model(
                             &trial_config,
                             &trial_config.model,
-                            &self.auth_store,
+                            &auth_store,
                         ) {
                             config = trial_config;
                             fallback = Some(m);
@@ -121,7 +130,7 @@ impl AgentEngineBuilder {
                             ..config.clone()
                         },
                         "llama3.2",
-                        &self.auth_store,
+                        &auth_store,
                     ) {
                         config.provider = "local".to_string();
                         config.model = "llama3.2".to_string();
