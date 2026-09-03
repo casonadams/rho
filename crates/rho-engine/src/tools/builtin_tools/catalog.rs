@@ -46,7 +46,7 @@ Search file contents with line-oriented results.
 
 Usage:
 - pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against file contents.
-- Returns path:line: text lines sorted by path then line number; match lines are truncated at 500 characters.
+- Returns path:line:text lines sorted by path then line number; match lines are truncated at 500 characters.
 - Results are capped at limit (default 200, max 1000) with a 5,000-match collection ceiling.
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";

@@ -178,7 +178,7 @@ fn truncate_line(line: &str) -> String {
 fn render(matches: &[LineMatch]) -> String {
     matches
         .iter()
-        .map(|m| format!("{}:{}: {}", m.path, m.line, m.text))
+        .map(|m| format!("{}:{}:{}", m.path, m.line, m.text))
         .collect::<Vec<_>>()
         .join("\n")
 }

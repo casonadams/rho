@@ -3,6 +3,7 @@ use anyhow::Result;
 use std::io::Write;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
 pub struct ClipboardImage {
     pub width: usize,
@@ -10,7 +11,14 @@ pub struct ClipboardImage {
     pub bytes: Vec<u8>,
 }
 
+/// AppKit's NSPasteboard (arboard's macOS backend) segfaults when accessed
+/// from multiple threads at once. Production only reaches the clipboard from
+/// the UI thread; serialize access so parallel tests and future callers get
+/// that same single-flight behavior.
+static CLIPBOARD_LOCK: Mutex<()> = Mutex::new(());
+
 pub fn get_text() -> Result<Option<String>> {
+    let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && let Ok(text) = clipboard.get_text()
         && !text.is_empty()
@@ -54,6 +62,7 @@ pub fn get_text() -> Result<Option<String>> {
 }
 
 pub fn set_text(text: &str) -> Result<()> {
+    let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && clipboard.set_text(text).is_ok()
     {
@@ -97,6 +106,7 @@ pub fn set_text(text: &str) -> Result<()> {
 }
 
 pub fn get_image() -> Result<Option<ClipboardImage>> {
+    let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && let Ok(img) = clipboard.get_image()
     {
