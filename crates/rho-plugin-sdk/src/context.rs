@@ -72,7 +72,10 @@ pub enum SelectResult {
     Selected(usize),
     /// Text submitted through an option's inline input; carries both so the
     /// plugin knows which action the text belongs to.
-    SelectedWithInput { index: usize, text: String },
+    SelectedWithInput {
+        index: usize,
+        text: String,
+    },
     Custom(String),
     Cancelled,
 }
