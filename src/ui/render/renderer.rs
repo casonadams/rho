@@ -78,7 +78,7 @@ impl TerminalRenderer {
         let preview = if name == "edit" {
             format_edit_diff(args, &self.theme)
         } else if name == "write" {
-            format_write_preview(args, &self.theme)
+            format_write_preview(args, &self.theme, false)
         } else {
             None
         };
@@ -328,7 +328,7 @@ impl TerminalRenderer {
                 content.push_str(&diff);
             }
         } else if !line.is_error && line.name == "write" {
-            if let Some(preview) = format_write_preview(&line.arguments, &self.theme) {
+            if let Some(preview) = format_write_preview(&line.arguments, &self.theme, true) {
                 content.push('\n');
                 content.push_str(&preview);
             }

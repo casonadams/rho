@@ -8,6 +8,7 @@
 //! presentation module and are re-exported here so external callers continue
 //! to use `crate::ui::render::{TerminalRenderer, ApprovalResult, BashApproval, ToolLine}` etc.
 
+pub(crate) mod diff;
 pub(crate) mod formatters;
 pub(crate) mod presenter;
 pub(crate) mod preview;

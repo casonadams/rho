@@ -169,6 +169,22 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let raw_url = args.get("url").and_then(|u| u.as_str()).unwrap_or("");
             to_relative_path(raw_url)
         }
+        "grep" => {
+            let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+            let rel = to_relative_path(path);
+            format!("/{pattern}/ in {rel}")
+        }
+        "find" => {
+            let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+            let rel = to_relative_path(path);
+            format!("{pattern} in {rel}")
+        }
+        "ls" => {
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+            to_relative_path(path)
+        }
         _ => "".to_string(),
     }
 }

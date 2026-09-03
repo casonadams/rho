@@ -139,6 +139,39 @@ fn finished_read_block_omits_elapsed_duration() {
 }
 
 #[test]
+fn finished_read_block_includes_line_range_styling() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.finish_tool_line(ToolLine {
+        name: "read".to_string(),
+        arguments: serde_json::json!({"path": "src/lib.rs", "offset": 10, "limit": 20}),
+        is_error: false,
+        output: "".to_string(),
+        output_summary: "".to_string(),
+        duration_ms: None,
+    });
+
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        if let UiEvent::Transcript(item) = event {
+            output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme: &renderer.theme,
+                    width: 80,
+                    tools_expanded: false,
+                    hide_thinking: false,
+                },
+            ));
+        }
+    }
+    assert!(output.contains("read"));
+    assert!(output.contains("src/lib.rs"));
+    assert!(output.contains(":10-29"));
+}
+
+#[test]
 fn bash_summary_formats_timeout_inline() {
     use rho_harness_core::presentation::summary::format_tool_args_summary;
     let with_timeout = format_tool_args_summary("bash", &serde_json::json!({"command": "cargo build", "timeout": 30}));
@@ -345,17 +378,54 @@ fn test_format_edit_diff_renders_removals_and_additions() {
 }
 
 #[test]
+fn test_format_edit_diff_intra_line_word_highlighting() {
+    let theme = Theme::default();
+    let args = serde_json::json!({
+        "path": "src/main.rs",
+        "edits": [
+            {
+                "oldText": "    let old_val = 10;",
+                "newText": "    let new_val = 10;"
+            }
+        ]
+    });
+    let diff = format_edit_diff(&args, &theme).unwrap();
+    assert!(diff.contains("```diff"));
+    // Verify unchanged leading indentation is preserved without inverse escape
+    assert!(diff.contains("-     let "));
+    assert!(diff.contains("+     let "));
+    // Verify modified tokens are wrapped in inverse video \x1b[7m ... \x1b[27m
+    assert!(diff.contains("\x1b[7mold_val\x1b[27m"));
+    assert!(diff.contains("\x1b[7mnew_val\x1b[27m"));
+    // Verify trailing unchanged token is preserved
+    assert!(diff.contains(" = 10;"));
+}
+
+#[test]
 fn test_format_write_preview_renders_additions() {
     let theme = Theme::default();
     let args = serde_json::json!({
         "path": "test.py",
         "content": "def main():\n    print('hello')"
     });
-    let preview = format_write_preview(&args, &theme).unwrap();
+    let preview = format_write_preview(&args, &theme, false).unwrap();
     assert!(preview.contains("```diff"));
     assert!(preview.contains("+ def main():"));
     assert!(preview.contains("+     print('hello')"));
     assert!(preview.contains("```"));
+
+    let long_content = (1..=12).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let long_args = serde_json::json!({
+        "path": "test.txt",
+        "content": long_content
+    });
+    let collapsed = format_write_preview(&long_args, &theme, false).unwrap();
+    assert!(collapsed.contains("... (4 more lines, 12 total, Ctrl+O to expand)"));
+    assert!(!collapsed.contains("+ line 12"));
+
+    let expanded = format_write_preview(&long_args, &theme, true).unwrap();
+    assert!(!expanded.contains("Ctrl+O to expand"));
+    assert!(expanded.contains("+ line 12"));
 }
 
 #[test]

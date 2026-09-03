@@ -16,7 +16,7 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
     let ss = &*SYNTAX_SET;
     let ts = &*THEME_SET;
     let syntax = lang
-        .and_then(|l| ss.find_syntax_by_token(l))
+        .and_then(|l| ss.find_syntax_by_token(l).or_else(|| ss.find_syntax_by_extension(l)))
         .unwrap_or_else(|| ss.find_syntax_plain_text());
     let syn_theme = &ts.themes["base16-ocean.dark"];
     let mut highlighter = HighlightLines::new(syntax, syn_theme);

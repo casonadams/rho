@@ -270,7 +270,15 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                 let clean = raw_output.trim_end();
                 if !clean.is_empty() {
                     content.push_str("\n\n");
-                    content.push_str(clean);
+                    let lang = detect_language_from_args(&tool.arguments);
+                    let highlighted_lines: Vec<String> = clean
+                        .lines()
+                        .map(|line| {
+                            let no_tabs = line.replace('\t', "   ");
+                            crate::ui::markdown::highlight_code_line(&no_tabs, lang, theme)
+                        })
+                        .collect();
+                    content.push_str(&highlighted_lines.join("\n"));
                 }
             } else if !tool.is_error && tool.name == "edit" {
                 if let Some(diff) = format_edit_diff(&tool.arguments, theme) {
@@ -278,7 +286,7 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     content.push_str(&diff);
                 }
             } else if !tool.is_error && tool.name == "write" {
-                if let Some(preview) = format_write_preview(&tool.arguments, theme) {
+                if let Some(preview) = format_write_preview(&tool.arguments, theme, input.tools_expanded) {
                     content.push('\n');
                     content.push_str(&preview);
                 }
@@ -326,6 +334,11 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
         }
         TranscriptItem::Notice(text) => text.clone(),
     }
+}
+
+fn detect_language_from_args(args: &serde_json::Value) -> Option<&str> {
+    let path = args.get("path").or_else(|| args.get("file_path"))?.as_str()?;
+    std::path::Path::new(path).extension()?.to_str()
 }
 
 fn parse_skill_block(text: &str) -> Option<(String, String, String)> {

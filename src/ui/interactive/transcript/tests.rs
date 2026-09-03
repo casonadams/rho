@@ -133,6 +133,8 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
     assert!(expanded.contains("src/main.rs"));
     assert!(!expanded.contains("(ctrl+o to expand)"));
     assert!(expanded.contains("println"));
+    // Verify syntax highlighting is applied (contains ANSI color escapes)
+    assert!(expanded.contains("\x1b["));
 }
 
 #[test]
