@@ -17,6 +17,9 @@ pub enum ModalKeyResult {
         provider: String,
         save_as_default: bool,
     },
+    TreeNodeSelected {
+        node_id: String,
+    },
 }
 
 pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
@@ -74,6 +77,34 @@ pub fn open_model_selector<B: crate::ui::interactive::TerminalBackend>(
     controller.state_mut().push_modal(modal);
 }
 
+pub fn open_tree_selector<B: crate::ui::interactive::TerminalBackend>(
+    tree: &rho_harness_core::session::tree::SessionTree,
+    controller: &mut TerminalController<B>,
+) {
+    let entries = crate::ui::interactive::tree_view::build_tree_display(tree);
+    let mut options = Vec::new();
+    let mut initial_selection = 0;
+
+    for (i, entry) in entries.iter().enumerate() {
+        if entry.is_active {
+            initial_selection = i;
+        }
+        let marker = if entry.is_active { "●" } else { "○" };
+        let indent = "  ".repeat(entry.depth);
+        let label = format!("{indent}{marker} {}", entry.preview);
+        let desc = if let Some(lbl) = &entry.label {
+            format!("[{lbl}] {}", entry.id)
+        } else {
+            entry.id.clone()
+        };
+        options.push(crate::ui::interactive::ModalOption::new(label, Some(desc)));
+    }
+
+    let mut modal = ModalState::new("Conversation Tree", "Select a checkpoint to navigate to:", options);
+    modal.selected = initial_selection;
+    controller.state_mut().push_modal(modal);
+}
+
 pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: crossterm::event::KeyEvent,
@@ -84,6 +115,38 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
     };
 
     let is_model_selector = active.title == "Select Model";
+    let is_tree_selector = active.title == "Conversation Tree";
+
+    if is_tree_selector {
+        match key.code {
+            KeyCode::Up | KeyCode::BackTab => {
+                controller.state_mut().select_previous_modal_option();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Down | KeyCode::Tab => {
+                controller.state_mut().select_next_modal_option();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Enter => {
+                if let Some(opt) = controller.state().active_modal().and_then(|m| m.selected_option()) {
+                    let desc = opt.description.clone().unwrap_or_default();
+                    let node_id = desc.split_whitespace().last().unwrap_or(&desc).to_string();
+                    controller.state_mut().pop_modal();
+                    return Ok(ModalKeyResult::TreeNodeSelected { node_id });
+                }
+                controller.state_mut().pop_modal();
+                return Ok(ModalKeyResult::Handled);
+            }
+            KeyCode::Esc => {
+                controller.state_mut().pop_modal();
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            _ => return Ok(ModalKeyResult::Handled),
+        }
+    }
 
     if is_model_selector {
         if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {

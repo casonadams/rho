@@ -274,7 +274,7 @@ impl ReplSession {
                                     self.renderer.print_notice("  [Context compaction completed]\n");
                                     continue;
                                 }
-                                CommandResult::Tree => {
+                                CommandResult::Tree | CommandResult::OpenTreeSelector => {
                                     let tree = engine.session_manager.load_tree().await?;
                                     let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
                                     self.renderer.print_notice(&format!(

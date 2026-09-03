@@ -165,6 +165,35 @@ fn model_selector_modal_filtering_and_selection() {
 }
 
 #[test]
+fn tree_selector_modal_selection() {
+    let mut tree = rho_harness_core::session::tree::SessionTree::new();
+    tree.add_node(rho_harness_core::session::tree::TreeNodeData {
+        id: "node-1".into(),
+        parent_id: None,
+        timestamp: chrono::Utc::now(),
+        kind: rho_harness_core::session::tree::TreeNodeKind::UserTurn,
+        messages: vec![rig::message::Message::user("Hello")],
+        label: Some("checkpoint-1".into()),
+        metadata: None,
+    });
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    super::modal::open_tree_selector(&tree, &mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Conversation Tree");
+
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let res = super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert_eq!(
+        res,
+        super::modal::ModalKeyResult::TreeNodeSelected {
+            node_id: "node-1".into()
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
 fn test_paste_event_collapses_in_interactive_state() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let lines = (1..=15).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");

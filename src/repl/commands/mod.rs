@@ -27,6 +27,7 @@ pub enum CommandResult {
         instructions: Option<String>,
     },
     Tree,
+    OpenTreeSelector,
     SwitchBranch {
         leaf_id: String,
     },
@@ -158,7 +159,13 @@ impl SlashCommandHandler {
                 };
                 Ok(Some(CommandResult::Compact { instructions }))
             }
-            "tree" => Ok(Some(CommandResult::Tree)),
+            "tree" => {
+                if ctx.renderer.has_interactive_ui() {
+                    Ok(Some(CommandResult::OpenTreeSelector))
+                } else {
+                    Ok(Some(CommandResult::Tree))
+                }
+            }
             "rewind" => {
                 if parts.len() > 1 {
                     if let Ok(turn) = parts[1].parse::<usize>() {

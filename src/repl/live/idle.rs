@@ -91,6 +91,18 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         batch.flush(controller, true)?;
                         continue;
                     }
+                    ModalKeyResult::TreeNodeSelected { node_id } => {
+                        match engine.session_manager.switch_branch(Some(node_id.clone())).await {
+                            Ok(_) => {
+                                session.renderer.print_notice(&format!("  [Navigated to checkpoint {node_id}]\n"));
+                            }
+                            Err(err) => {
+                                session.renderer.print_notice(&format!("  [Failed to navigate: {err}]\n"));
+                            }
+                        }
+                        controller.redraw()?;
+                        continue;
+                    }
                     ModalKeyResult::NotHandled => {}
                 }
                 if matches!(handle_autocomplete_key(controller, completions, key), AutocompleteKeyResult::Handled) {
@@ -132,11 +144,7 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                             if let Some(prev) = last_escape_time.take() {
                                 if now.duration_since(prev) < std::time::Duration::from_millis(500) {
                                     if let Ok(tree) = engine.session_manager.load_tree().await {
-                                        let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
-                                        session.renderer.print_notice(&format!(
-                                            "\nConversation Tree (Session: {}):\n{rendered}\n",
-                                            engine.session_manager.session_id
-                                        ));
+                                        super::modal::open_tree_selector(&tree, controller);
                                     }
                                 } else {
                                     last_escape_time = Some(now);

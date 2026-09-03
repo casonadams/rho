@@ -71,6 +71,11 @@ impl ReplSession {
                     let _ = memory.load(&session_id).await;
                     self.renderer.print_notice("  [Context compaction completed]\n");
                 }
+                CommandResult::OpenTreeSelector => {
+                    let tree = engine.session_manager.load_tree().await?;
+                    super::modal::open_tree_selector(&tree, controller);
+                    controller.redraw()?;
+                }
                 CommandResult::Tree => {
                     let tree = engine.session_manager.load_tree().await?;
                     let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);

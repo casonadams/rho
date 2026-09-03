@@ -206,7 +206,7 @@ async fn compact_tree_and_rewind_commands_return_expected_results() {
     );
 
     let tree = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
-    assert_eq!(tree, Some(CommandResult::Tree));
+    assert_eq!(tree, Some(CommandResult::OpenTreeSelector));
 
     let rewind = SlashCommandHandler::handle("/rewind", &mut context).await.unwrap();
     assert_eq!(rewind, Some(CommandResult::Continue));
