@@ -86,7 +86,7 @@ async fn test_read_builtin_embedded_skill() {
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use image::{ExtendedColorType, ImageFormat, Rgba, RgbaImage};
+use image::{ImageFormat, Rgba, RgbaImage};
 use std::io::Cursor;
 
 async fn write_and_read(dir: std::path::PathBuf, name: &str, bytes: &[u8]) -> ToolResult {

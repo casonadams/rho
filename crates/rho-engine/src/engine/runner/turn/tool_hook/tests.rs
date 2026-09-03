@@ -7,7 +7,7 @@ fn text_output(text: &str) -> ToolOutput {
     ToolOutput::text(text)
 }
 
-fn image_block(media_type: Option<rig::completion::message::ImageMediaType>) -> ToolResultContent {
+fn image_block(media_type: Option<ImageMediaType>) -> ToolResultContent {
     ToolResultContent::Image(Image {
         data: DocumentSourceKind::Base64("aGVsbG8=".to_string()),
         media_type,
