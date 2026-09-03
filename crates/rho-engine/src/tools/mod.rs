@@ -12,7 +12,7 @@ pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, b
 pub use edit::{EditArgs, EditTool};
 pub use read::{ReadArgs, ReadTool};
 pub use registry::ToolRegistry;
-pub use rho_harness_core::args::{FetchArgs, SearchArgs};
+pub use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 pub use rho_harness_core::net::HttpRequest;
 pub use types::{ToolResult, generated_schema, into_dynamic_result, into_rig_result, normalize_schema};
 pub use web::{

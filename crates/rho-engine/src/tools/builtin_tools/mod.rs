@@ -3,8 +3,8 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FETCH, PROMPT_READ,
-    PROMPT_SEARCH, PROMPT_WRITE,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_READ, PROMPT_WEB_FETCH,
+    PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
 use crate::tools::bash::{BashArgs, BashTool};
@@ -15,7 +15,7 @@ use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_harness_core::args::{FetchArgs, SearchArgs};
+use rho_harness_core::args::{WebFetchArgs, WebSearchArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rig::tool::DynamicTool;
@@ -136,13 +136,13 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
 
     let s = search;
     tools.push(DynamicTool::new(
-        "search",
+        "web_search",
         "Search the web and return structured search results with titles, summaries, and URLs.",
-        generated_schema::<SearchArgs>(),
+        generated_schema::<WebSearchArgs>(),
         move |_ctx, args| {
             let s = s.clone();
             Box::pin(async move {
-                let args: SearchArgs = match parse_args(args) {
+                let args: WebSearchArgs = match parse_args(args) {
                     Ok(a) => a,
                     Err(err) => return into_dynamic_result(Ok(err)),
                 };
@@ -153,13 +153,13 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
 
     let f = fetch;
     tools.push(DynamicTool::new(
-        "fetch",
+        "web_fetch",
         "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        generated_schema::<FetchArgs>(),
+        generated_schema::<WebFetchArgs>(),
         move |_ctx, args| {
             let f = f.clone();
             Box::pin(async move {
-                let args: FetchArgs = match parse_args(args) {
+                let args: WebFetchArgs = match parse_args(args) {
                     Ok(a) => a,
                     Err(err) => return into_dynamic_result(Ok(err)),
                 };

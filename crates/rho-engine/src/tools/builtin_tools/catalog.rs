@@ -2,8 +2,8 @@ use crate::tools::bash::BashArgs;
 use crate::tools::edit::EditArgs;
 use crate::tools::read::ReadArgs;
 use crate::tools::types::generated_schema;
-use crate::tools::web::fetch::FetchArgs;
-use crate::tools::web::search::SearchArgs;
+use crate::tools::web::fetch::WebFetchArgs;
+use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
 
 pub static PROMPT_READ: &str = "\
@@ -39,16 +39,16 @@ Usage:
 - Use read/edit instead of sed, awk, or cat for reading and editing code.
 - Captures combined stdout and stderr with output truncation safeguards.";
 
-pub static PROMPT_SEARCH: &str = "\
+pub static PROMPT_WEB_SEARCH: &str = "\
 Search the web and return structured summaries and URLs.
 
 Usage:
-- Prefer search for finding public documentation, repositories, package releases, and technical references.
+- Prefer web_search for finding public documentation, repositories, package releases, and technical references.
 - Use recency ('day', 'week', 'month', 'year') to filter results by freshness.
 - Use domains to limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com']).
 - Returns concise result summaries with title, URL, and snippet.";
 
-pub static PROMPT_FETCH: &str = "\
+pub static PROMPT_WEB_FETCH: &str = "\
 Fetch HTML, JSON, Markdown, text, or PDF content from a URL and return clean text.
 
 Usage:
@@ -131,21 +131,21 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         schema: generated_schema::<BashArgs>,
     },
     BuiltinToolDeclaration {
-        name: "search",
+        name: "web_search",
         capability: BuiltinToolKind::Network,
         description: "Search the web and return structured search results with titles, summaries, and URLs.",
-        prompt: PROMPT_SEARCH,
+        prompt: PROMPT_WEB_SEARCH,
         prompt_snippet: Some("Search the web and return structured summaries and URLs"),
         prompt_guidelines: &[],
-        schema: generated_schema::<SearchArgs>,
+        schema: generated_schema::<WebSearchArgs>,
     },
     BuiltinToolDeclaration {
-        name: "fetch",
+        name: "web_fetch",
         capability: BuiltinToolKind::Network,
         description: "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        prompt: PROMPT_FETCH,
+        prompt: PROMPT_WEB_FETCH,
         prompt_snippet: Some("Fetch and extract clean text or markdown from URLs"),
         prompt_guidelines: &[],
-        schema: generated_schema::<FetchArgs>,
+        schema: generated_schema::<WebFetchArgs>,
     },
 ];

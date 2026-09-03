@@ -12,7 +12,7 @@ use crate::tools::web::http::{BRAVE_CHROME_UA, HttpClient, HttpRequest, LYNX_UA}
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 use rand::seq::SliceRandom;
 use result::SearchResult;
-pub use rho_harness_core::args::{SearchArgs, SearchRecency};
+pub use rho_harness_core::args::{WebSearchArgs, WebSearchRecency};
 use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::collections::HashSet;
@@ -29,7 +29,7 @@ pub enum EngineKind {
 pub struct SearchQueryParams<'a> {
     pub query: &'a str,
     pub limit: usize,
-    pub recency: Option<SearchRecency>,
+    pub recency: Option<WebSearchRecency>,
     pub domains: Option<&'a [String]>,
 }
 
@@ -63,7 +63,7 @@ impl WebSearchTool {
         }
     }
 
-    pub async fn execute(&self, args: SearchArgs) -> Result<ToolResult, AppError> {
+    pub async fn execute(&self, args: WebSearchArgs) -> Result<ToolResult, AppError> {
         let query = args.query.trim();
         if query.is_empty() {
             return Ok(ToolResult::error("Empty search query provided"));
@@ -170,12 +170,16 @@ impl WebSearchTool {
         Vec::new()
     }
 
-    async fn search_brave(&self, query: &str, recency: Option<SearchRecency>) -> Result<Vec<SearchResult>, AppError> {
+    async fn search_brave(
+        &self,
+        query: &str,
+        recency: Option<WebSearchRecency>,
+    ) -> Result<Vec<SearchResult>, AppError> {
         let tf_param = match recency {
-            Some(SearchRecency::Day) => "&tf=pd",
-            Some(SearchRecency::Week) => "&tf=pw",
-            Some(SearchRecency::Month) => "&tf=pm",
-            Some(SearchRecency::Year) => "&tf=py",
+            Some(WebSearchRecency::Day) => "&tf=pd",
+            Some(WebSearchRecency::Week) => "&tf=pw",
+            Some(WebSearchRecency::Month) => "&tf=pm",
+            Some(WebSearchRecency::Year) => "&tf=py",
             None => "",
         };
         let url = format!(
@@ -197,13 +201,13 @@ impl WebSearchTool {
     async fn search_ddg_lite(
         &self,
         query: &str,
-        recency: Option<SearchRecency>,
+        recency: Option<WebSearchRecency>,
     ) -> Result<Vec<SearchResult>, AppError> {
         let df_param = match recency {
-            Some(SearchRecency::Day) => "&df=d",
-            Some(SearchRecency::Week) => "&df=w",
-            Some(SearchRecency::Month) => "&df=m",
-            Some(SearchRecency::Year) => "&df=y",
+            Some(WebSearchRecency::Day) => "&df=d",
+            Some(WebSearchRecency::Week) => "&df=w",
+            Some(WebSearchRecency::Month) => "&df=m",
+            Some(WebSearchRecency::Year) => "&df=y",
             None => "",
         };
         let url = format!(
@@ -223,12 +227,16 @@ impl WebSearchTool {
         Ok(ddg_lite::parse_ddg_lite_html(&html))
     }
 
-    async fn search_yahoo(&self, query: &str, recency: Option<SearchRecency>) -> Result<Vec<SearchResult>, AppError> {
+    async fn search_yahoo(
+        &self,
+        query: &str,
+        recency: Option<WebSearchRecency>,
+    ) -> Result<Vec<SearchResult>, AppError> {
         let age_param = match recency {
-            Some(SearchRecency::Day) => "&age=1d",
-            Some(SearchRecency::Week) => "&age=1w",
-            Some(SearchRecency::Month) => "&age=1m",
-            Some(SearchRecency::Year) => "&age=1y",
+            Some(WebSearchRecency::Day) => "&age=1d",
+            Some(WebSearchRecency::Week) => "&age=1w",
+            Some(WebSearchRecency::Month) => "&age=1m",
+            Some(WebSearchRecency::Year) => "&age=1y",
             None => "",
         };
         let url = format!(
@@ -427,8 +435,8 @@ fn format_search_results(params: FormatResultsParams<'_>) -> String {
 }
 
 impl Tool for WebSearchTool {
-    const NAME: &'static str = "search";
-    type Args = SearchArgs;
+    const NAME: &'static str = "web_search";
+    type Args = WebSearchArgs;
     type Output = String;
     type Error = ToolExecutionError;
 
@@ -437,7 +445,7 @@ impl Tool for WebSearchTool {
     }
 
     fn parameters(&self) -> serde_json::Value {
-        generated_schema::<SearchArgs>()
+        generated_schema::<WebSearchArgs>()
     }
 
     async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {

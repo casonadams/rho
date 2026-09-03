@@ -19,8 +19,8 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
     let dim = input.theme.dimmed;
 
     let display_name = match input.tool.name.as_str() {
-        "web_search" | "websearch" => "search",
-        "web_fetch" | "webfetch" => "fetch",
+        "search" | "websearch" => "web_search",
+        "fetch" | "webfetch" => "web_fetch",
         other => other,
     };
 

@@ -284,8 +284,8 @@ impl TerminalRenderer {
         let accent = self.theme.highlight;
         let summary = format_tool_args_summary(&line.name, &line.arguments);
         let display_name = match line.name.as_str() {
-            "web_search" | "websearch" => "search",
-            "web_fetch" | "webfetch" => "fetch",
+            "search" | "websearch" => "web_search",
+            "fetch" | "webfetch" => "web_fetch",
             other => other,
         };
         let mut content = if line.name == "read" && !line.is_error {
@@ -311,7 +311,7 @@ impl TerminalRenderer {
                     format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}")
                 }
             }
-        } else if display_name == "fetch" && !line.is_error {
+        } else if display_name == "web_fetch" && !line.is_error {
             let url = line
                 .arguments
                 .get("url")

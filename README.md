@@ -65,8 +65,8 @@ order once the active turn settles.
 - `write`: Create or overwrite files (automatically creates parent directories).
 - `edit`: Make precise file edits with exact text replacement.
 - `bash`: Execute shell commands in the current working directory.
-- `search`: Search the web and return structured summaries and URLs.
-- `fetch`: Fetch and extract clean readable text or markdown from URLs.
+- `web_search`: Search the web and return structured summaries and URLs.
+- `web_fetch`: Fetch and extract clean readable text or markdown from URLs.
 
 ---
 
@@ -207,7 +207,7 @@ The workspace is structured into four clean, focused crates:
 - **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `search`, `fetch`), and standard MCP
+  tools (`read`, `write`, `edit`, `bash`, `web_search`, `web_fetch`), and standard MCP
   client.
 - **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
   lifecycle hooks.

@@ -87,14 +87,14 @@ pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
                     builtins.push(tool.as_str());
                 }
             }
-            "search" => {
-                if !builtins.contains(&"search") {
-                    builtins.push("search");
+            "search" | "web_search" => {
+                if !builtins.contains(&"web_search") {
+                    builtins.push("web_search");
                 }
             }
-            "fetch" => {
-                if !builtins.contains(&"fetch") {
-                    builtins.push("fetch");
+            "fetch" | "web_fetch" => {
+                if !builtins.contains(&"web_fetch") {
+                    builtins.push("web_fetch");
                 }
             }
             other => {
@@ -212,8 +212,8 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
             let title = tool_title_style(tool.is_error);
             let accent = theme.highlight;
             let display_name = match tool.name.as_str() {
-                "web_search" | "websearch" => "search",
-                "web_fetch" | "webfetch" => "fetch",
+                "search" | "websearch" => "web_search",
+                "fetch" | "webfetch" => "web_fetch",
                 other => other,
             };
             let summary = format_tool_args_summary(&tool.name, &tool.arguments);
@@ -248,7 +248,7 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                         format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
                     }
                 }
-            } else if display_name == "fetch" && !tool.is_error {
+            } else if display_name == "web_fetch" && !tool.is_error {
                 let url = tool
                     .arguments
                     .get("url")
@@ -256,7 +256,7 @@ pub fn render_transcript_item(input: TranscriptRenderInput<'_>) -> String {
                     .unwrap_or("");
                 let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
                 let kind = fetch_content_kind(&tool.arguments);
-                format!("{title}fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
+                format!("{title}web_fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
             } else {
                 format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
             };

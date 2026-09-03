@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct FetchArgs {
+pub struct WebFetchArgs {
     /// URL to fetch
     pub url: String,
     /// Line number to start reading from (1-indexed, default 1)

@@ -29,12 +29,12 @@ mod tests {
             key("bash", json!({"command":"cargo test", "timeout":31}))
         );
         assert_eq!(
-            key("search", json!({"query":" Rig   Memory ", "limit":null})),
-            key("search", json!({"query":"rig memory", "limit":5}))
+            key("web_search", json!({"query":" Rig   Memory ", "limit":null})),
+            key("web_search", json!({"query":"rig memory", "limit":5}))
         );
         assert_ne!(
-            key("search", json!({"query":"rig memory", "limit":5})),
-            key("search", json!({"query":"rig memory hook", "limit":5}))
+            key("web_search", json!({"query":"rig memory", "limit":5})),
+            key("web_search", json!({"query":"rig memory hook", "limit":5}))
         );
     }
 

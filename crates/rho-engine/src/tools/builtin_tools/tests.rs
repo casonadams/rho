@@ -11,6 +11,6 @@ fn builtin_tools_build_successfully() {
     assert!(names.contains(&"write"));
     assert!(names.contains(&"edit"));
     assert!(names.contains(&"bash"));
-    assert!(names.contains(&"search"));
-    assert!(names.contains(&"fetch"));
+    assert!(names.contains(&"web_search"));
+    assert!(names.contains(&"web_fetch"));
 }

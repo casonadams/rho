@@ -187,7 +187,7 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
     let renderer = TerminalRenderer::with_ui(ui);
 
     renderer.finish_tool_line(ToolLine {
-        name: "fetch".to_string(),
+        name: "web_fetch".to_string(),
         arguments: serde_json::json!({"url": "https://serde.rs/"}),
         is_error: false,
         output: "serde docs".to_string(),
@@ -211,7 +211,7 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
             _ => {}
         }
     }
-    assert!(output.contains("fetch"));
+    assert!(output.contains("web_fetch"));
     assert!(output.contains("https://serde.rs/"));
     assert!(output.contains("fetched (text)"));
     assert_eq!(output.matches("https://serde.rs/").count(), 1);
@@ -223,7 +223,7 @@ fn search_tool_displays_cleanly() {
     let renderer = TerminalRenderer::with_ui(ui);
 
     renderer.finish_tool_line(ToolLine {
-        name: "search".to_string(),
+        name: "web_search".to_string(),
         arguments: serde_json::json!({"query": "serde release"}),
         is_error: false,
         output: "results".to_string(),
@@ -247,7 +247,7 @@ fn search_tool_displays_cleanly() {
             _ => {}
         }
     }
-    assert!(output.contains("search"));
+    assert!(output.contains("web_search"));
     assert!(output.contains("\"serde release\""));
 }
 

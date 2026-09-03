@@ -48,7 +48,7 @@ pub fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Pat
     let mut normalized = arguments.clone();
     match tool_name {
         "bash" => normalize_bash(&mut normalized, working_dir),
-        "search" => normalize_web_search(&mut normalized),
+        "web_search" => normalize_web_search(&mut normalized),
         _ => {}
     }
     serde_json::to_string(&(tool_name, normalized)).unwrap_or_else(|_| format!("{tool_name}:<invalid>"))

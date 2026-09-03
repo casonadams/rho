@@ -4,7 +4,7 @@ pub mod extract;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::web::http::{HttpClient, HttpRequest};
 use cache::FetchCache;
-pub use rho_harness_core::args::FetchArgs;
+pub use rho_harness_core::args::WebFetchArgs;
 use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 
@@ -34,7 +34,7 @@ impl WebFetchTool {
         }
     }
 
-    pub async fn execute(&self, args: FetchArgs) -> Result<ToolResult, AppError> {
+    pub async fn execute(&self, args: WebFetchArgs) -> Result<ToolResult, AppError> {
         let url_str = args.url.trim();
         if url_str.is_empty() {
             return Ok(ToolResult::error("Empty URL provided for fetch"));
@@ -142,8 +142,8 @@ impl WebFetchTool {
 }
 
 impl Tool for WebFetchTool {
-    const NAME: &'static str = "fetch";
-    type Args = FetchArgs;
+    const NAME: &'static str = "web_fetch";
+    type Args = WebFetchArgs;
     type Output = String;
     type Error = ToolExecutionError;
 
@@ -152,7 +152,7 @@ impl Tool for WebFetchTool {
     }
 
     fn parameters(&self) -> serde_json::Value {
-        generated_schema::<FetchArgs>()
+        generated_schema::<WebFetchArgs>()
     }
 
     async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {

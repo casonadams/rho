@@ -5,8 +5,8 @@ Available tools:
 - write: Create or overwrite files (automatically creates parent directories)
 - edit: Make precise file edits with exact text replacement (every edits[].oldText must match uniquely)
 - bash: Execute bash commands in the current working directory
-- search: Search the web and return structured summaries and URLs
-- fetch: Fetch and extract clean text or markdown from URLs
+- web_search: Search the web and return structured summaries and URLs
+- web_fetch: Fetch and extract clean text or markdown from URLs
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

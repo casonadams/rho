@@ -84,8 +84,8 @@ fn rig_schemas_are_generated_from_typed_arguments() {
         ("write", &["content", "path"][..]),
         ("edit", &["edits", "path"][..]),
         ("bash", &["command"][..]),
-        ("search", &["query"][..]),
-        ("fetch", &["url"][..]),
+        ("web_search", &["query"][..]),
+        ("web_fetch", &["url"][..]),
     ];
 
     for (name, required) in expected {
@@ -104,7 +104,7 @@ fn rig_schemas_are_generated_from_typed_arguments() {
 #[tokio::test]
 async fn rig_dispatch_rejects_malformed_arguments_for_every_tool() {
     let tools = tool_set();
-    for name in ["read", "write", "edit", "bash", "search", "fetch"] {
+    for name in ["read", "write", "edit", "bash", "web_search", "web_fetch"] {
         let result = tools
             .execute(name, "{\"unexpected\":true}", &mut ToolContext::new())
             .await;
