@@ -1,6 +1,6 @@
 ---
 name: repo-agents-builder
-description: Create or improve repository-level AGENTS.md files. Use when asked to initialize, generate, audit, trim, or update coding-agent instructions for a repository or monorepo.
+description: Create or improve repository AGENTS.md coding-agent instructions.
 argument-hint: "[repository path]"
 ---
 

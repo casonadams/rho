@@ -275,7 +275,11 @@ impl SlashCommandHandler {
             }
             "skill" | "skills" => {
                 let cwd = std::env::current_dir().ok();
-                let skills = crate::skills::resolved_skills(Some(&ctx.config.config_dir), cwd.as_deref());
+                let skills = crate::skills::resolved_skills(
+                    Some(&ctx.config.config_dir),
+                    cwd.as_deref(),
+                    !ctx.config.disable_built_in_skills,
+                );
                 let lookup = |name: &str| skills.iter().find(|skill| skill.metadata.name == name).cloned();
                 let list = |output: &mut String| {
                     for skill in &skills {
@@ -369,7 +373,11 @@ impl SlashCommandHandler {
             custom => {
                 let cwd = std::env::current_dir().ok();
                 if let Some(skill_name) = custom.strip_prefix("skill:") {
-                    let skills = crate::skills::resolved_skills(Some(&ctx.config.config_dir), cwd.as_deref());
+                    let skills = crate::skills::resolved_skills(
+                        Some(&ctx.config.config_dir),
+                        cwd.as_deref(),
+                        !ctx.config.disable_built_in_skills,
+                    );
                     if let Some(matched) = skills.iter().find(|s| s.metadata.name == skill_name)
                         && let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name)
                     {

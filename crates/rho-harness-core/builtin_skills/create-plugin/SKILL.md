@@ -1,6 +1,6 @@
 ---
 name: create-plugin
-description: Create, test, and package an MCP tool server or Rig-native lifecycle hook plugin for rho. Use when asked to write an extension, tool, or hook plugin for rho.
+description: Scaffold and package an MCP tool server or rho lifecycle plugin.
 argument-hint: "<plugin-idea-or-specification>"
 ---
 

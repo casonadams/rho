@@ -18,7 +18,7 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
-    pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>) -> Self {
+    pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>, include_builtins: bool) -> Self {
         let base = dir.as_ref();
         let mut instruction_files = Vec::new();
 
@@ -27,10 +27,11 @@ impl ProjectContext {
         }
         Self::load_candidate_instructions(base, &mut instruction_files);
 
-        let skills: Vec<SkillMetadata> = rho_harness_core::skills::resolved_skills(config_dir, Some(base))
-            .into_iter()
-            .map(|skill| skill.metadata)
-            .collect();
+        let skills: Vec<SkillMetadata> =
+            rho_harness_core::skills::resolved_skills(config_dir, Some(base), include_builtins)
+                .into_iter()
+                .map(|skill| skill.metadata)
+                .collect();
 
         let mut base_system_prompt = DEFAULT_SYSTEM_PROMPT.to_string();
         if let Some(cfg) = config_dir

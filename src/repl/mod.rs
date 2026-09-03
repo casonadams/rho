@@ -88,11 +88,14 @@ impl ReplSession {
         let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
         self.config = config;
 
-        let skills: Vec<String> =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref())
-                .into_iter()
-                .map(|s| s.metadata.name)
-                .collect();
+        let skills: Vec<String> = crate::skills::resolved_skills(
+            Some(&self.config.config_dir),
+            std::env::current_dir().ok().as_deref(),
+            !self.config.disable_built_in_skills,
+        )
+        .into_iter()
+        .map(|s| s.metadata.name)
+        .collect();
         let tools = rebuilt.tool_names.clone();
         let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
         for mcp in self.config.mcp.servers.keys() {
@@ -131,8 +134,11 @@ impl ReplSession {
         self.config = engine.config.clone();
         engine.refresh_quota().await;
 
-        let skills =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
+        let skills = crate::skills::resolved_skills(
+            Some(&self.config.config_dir),
+            std::env::current_dir().ok().as_deref(),
+            !self.config.disable_built_in_skills,
+        );
         let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
         let tools = engine.tool_names.clone();
         let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
@@ -160,8 +166,11 @@ impl ReplSession {
         );
         let edit_mode = Box::new(Emacs::new(keybindings));
 
-        let skills =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
+        let skills = crate::skills::resolved_skills(
+            Some(&self.config.config_dir),
+            std::env::current_dir().ok().as_deref(),
+            !self.config.disable_built_in_skills,
+        );
         let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
             Some(&self.config.config_dir),
             std::env::current_dir().ok().as_deref(),

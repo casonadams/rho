@@ -17,7 +17,7 @@ async fn test_project_context_discovery() {
     .await
     .unwrap();
 
-    let ctx = ProjectContext::discover(&temp_dir, None).await;
+    let ctx = ProjectContext::discover(&temp_dir, None, true).await;
     assert_eq!(ctx.instruction_files.len(), 1);
     assert!(ctx.instruction_files[0].0.ends_with("AGENTS.md"));
     assert!(ctx.skills.len() >= 2);
@@ -55,7 +55,7 @@ async fn test_user_config_skills_override_builtin_skills() {
     .await
     .unwrap();
 
-    let ctx = ProjectContext::discover(&project_dir, Some(&config_dir)).await;
+    let ctx = ProjectContext::discover(&project_dir, Some(&config_dir), true).await;
     let plan_skill = ctx.skills.iter().find(|s| s.name == "plan").unwrap();
     assert_eq!(plan_skill.description, "Custom user plan override");
     assert!(plan_skill.location.contains("config/skills/plan/SKILL.md"));

@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Turn fuzzy feature or bug-fix intent into a durable spec before planning or coding. Use for "write a spec", "spec this feature", or "define requirements".
+description: Turn a fuzzy feature or bug request into a durable spec.
 argument-hint: "<feature, bug, or product idea>"
 ---
 

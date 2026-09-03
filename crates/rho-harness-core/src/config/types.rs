@@ -26,6 +26,7 @@ pub(crate) enum ConfigKey {
     ReserveTokens,
     KeepRecentTokens,
     ThinkingLevel,
+    DisableBuiltInSkills,
 }
 
 impl FromStr for ConfigKey {
@@ -54,6 +55,7 @@ impl FromStr for ConfigKey {
             "follow_up_mode" => Ok(Self::FollowUpMode),
             "reserve_tokens" => Ok(Self::ReserveTokens),
             "keep_recent_tokens" => Ok(Self::KeepRecentTokens),
+            "disable_built_in_skills" => Ok(Self::DisableBuiltInSkills),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -83,6 +85,7 @@ impl ConfigKey {
             Self::ReserveTokens => "reserve_tokens",
             Self::KeepRecentTokens => "keep_recent_tokens",
             Self::ThinkingLevel => "thinking_level",
+            Self::DisableBuiltInSkills => "disable_built_in_skills",
         }
     }
 }
@@ -186,6 +189,7 @@ pub struct Config {
     pub follow_up_mode: crate::queue::QueueMode,
     pub thinking_level: Option<String>,
     pub context_injection_max_tokens: usize,
+    pub disable_built_in_skills: bool,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
@@ -221,6 +225,7 @@ impl Default for Config {
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
             thinking_level: None,
             context_injection_max_tokens: 4000,
+            disable_built_in_skills: false,
             plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
@@ -256,6 +261,7 @@ pub(super) struct FileConfig {
     pub follow_up_mode: Option<crate::queue::QueueMode>,
     pub thinking_level: Option<String>,
     pub context_injection_max_tokens: Option<usize>,
+    pub disable_built_in_skills: Option<bool>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
     #[serde(default)]

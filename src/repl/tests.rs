@@ -17,7 +17,7 @@ fn slash_commands_complete_from_a_prefix() {
 
 #[test]
 fn skill_names_complete_from_prefix() {
-    let skills = crate::skills::resolved_skills(None, None);
+    let skills = crate::skills::resolved_skills(None, None, true);
     let sources = crate::repl::interactive::CompletionSources::new().with_skills(skills);
     let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/skill pl", 9);

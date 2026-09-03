@@ -72,6 +72,9 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(tokens) = file.context_injection_max_tokens {
         config.context_injection_max_tokens = tokens;
     }
+    if let Some(v) = file.disable_built_in_skills {
+        config.disable_built_in_skills = v;
+    }
     if let Some(mcp) = file.mcp {
         config.mcp = mcp;
     }

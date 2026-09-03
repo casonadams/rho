@@ -131,14 +131,19 @@ Global settings, credentials, state cache, skills, and instructions live under
   1. Project `.rho/skills/` or `./skills/` (highest precedence, overrides user &
      built-in)
   2. User `~/.agents/skills/`, `~/.config/rho/skills/`, or `~/.skills/`
-  3. Embedded built-in skills (`create-plugin`, `plan`, `repo-agents-builder`,
-     `spec`)
+  3. Embedded built-in skills (`create-plugin`, `lean`, `plan`,
+     `repo-agents-builder`, `simplify`, `spec`)
 
   Skills can be written as single flat markdown files (`skills/my-skill.md`) or
   structured directories (`skills/my-skill/SKILL.md` with optional supporting
   scripts/examples). Metadata (name, description, argument hints) is declared in
-  YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>` or
-  `@<name>`.
+  YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>`
+  (e.g. `/skill:simplify src/api`); completion offers skill names after typing
+  `/skill `.
+
+  Set `disable_built_in_skills = true` in `config.toml` to hide the embedded
+  built-ins; user and project skills still resolve. Toggle it from the CLI with
+  `rho config disable_built_in_skills true`.
 
 ---
 

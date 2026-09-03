@@ -34,7 +34,7 @@ fn write_builtin_override(dir: &Path, name: &str, body: &str) {
 
 #[test]
 fn builtins_resolve_with_builtin_origin_and_content() {
-    let resolved = resolved_skills(None, None);
+    let resolved = resolved_skills(None, None, true);
     let plan = resolved
         .iter()
         .find(|skill| skill.metadata.name == "plan")
@@ -55,7 +55,7 @@ fn user_override_replaces_same_name_builtin() {
         "---\nname: plan\ndescription: User plan override\n---\n# Custom Plan\n",
     );
 
-    let resolved = resolved_skills(Some(&fixture.config_dir), None);
+    let resolved = resolved_skills(Some(&fixture.config_dir), None, true);
     let plan = resolved.iter().find(|skill| skill.metadata.name == "plan").unwrap();
     assert_eq!(plan.origin, SkillOrigin::User);
     assert_eq!(plan.metadata.description, "User plan override");
@@ -85,7 +85,7 @@ fn project_override_beats_user_and_user_additions_survive() {
         "---\nname: team-notes\ndescription: User notes workflow\n---\n# Notes\n",
     );
 
-    let resolved = resolved_skills(Some(&fixture.config_dir), Some(&fixture.project_dir));
+    let resolved = resolved_skills(Some(&fixture.config_dir), Some(&fixture.project_dir), true);
     let plan = resolved.iter().find(|skill| skill.metadata.name == "plan").unwrap();
     assert_eq!(plan.origin, SkillOrigin::Project);
     assert_eq!(plan.metadata.description, "Project plan");
@@ -106,7 +106,7 @@ fn flat_skill_files_use_their_file_stem_as_name() {
     std::fs::create_dir_all(&skills_dir).unwrap();
     std::fs::write(skills_dir.join("deploy.md"), "# Deploy workflow\nPush builds.\n").unwrap();
 
-    let resolved = resolved_skills(None, Some(&fixture.project_dir));
+    let resolved = resolved_skills(None, Some(&fixture.project_dir), true);
     let deploy = resolved
         .iter()
         .find(|skill| skill.metadata.name == "deploy")
@@ -114,4 +114,19 @@ fn flat_skill_files_use_their_file_stem_as_name() {
     assert_eq!(deploy.origin, SkillOrigin::Project);
     assert_eq!(deploy.metadata.description, "Push builds.");
     assert!(resolved_content(&resolved, "deploy").unwrap().contains("Push builds."));
+}
+
+#[test]
+fn disable_builtins_excludes_embedded_but_keeps_user_skills() {
+    let fixture = fixture();
+    write_builtin_override(
+        &fixture.config_dir.join("skills"),
+        "team-notes",
+        "---\nname: team-notes\ndescription: User notes workflow\n---\n# Notes\n",
+    );
+
+    let resolved = resolved_skills(Some(&fixture.config_dir), Some(&fixture.project_dir), false);
+    assert!(resolved.iter().all(|skill| skill.origin != SkillOrigin::Builtin));
+    assert!(resolved.iter().any(|skill| skill.metadata.name == "team-notes"));
+    assert!(resolved_content(&resolved, "plan").is_none());
 }

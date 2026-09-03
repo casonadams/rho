@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Plan an implementation before writing code. Explore the codebase, clarify ambiguities, and deliver a concise action plan with vertical slices, acceptance criteria, and tasks.
+description: Explore the codebase and deliver a vertical-slice implementation plan with acceptance criteria.
 argument-hint: "<task-description-or-spec>"
 ---
 
