@@ -363,21 +363,21 @@ impl SessionManager {
     }
 }
 
-fn set_private_directory_permissions(path: &Path) -> Result<()> {
+fn set_private_directory_permissions(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+        std::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
 }
 
-fn set_private_file_permissions(path: &Path) -> Result<()> {
+fn set_private_file_permissions(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
-        if path.exists() {
+        if _path.exists() {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+            std::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o600))?;
         }
     }
     Ok(())

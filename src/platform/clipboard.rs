@@ -1,5 +1,7 @@
 use anyhow::Result;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::io::Write;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::process::{Command, Stdio};
 
 pub struct ClipboardImage {
