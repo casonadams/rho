@@ -74,19 +74,19 @@ order once the active turn settles.
 
 | Provider       | Auth Type          | Environment Variable / Login                     |
 | -------------- | ------------------ | ------------------------------------------------ |
+| `chatgpt`      | Subscription OAuth | `rho login chatgpt` (OAuth PKCE)                 |
+| `copilot`      | Subscription OAuth | `rho login copilot` (GitHub device login)        |
+| `antigravity`  | Google OAuth       | `rho login antigravity` (OAuth PKCE)             |
+| `openrouter`   | OAuth / API Key    | `OPENROUTER_API_KEY` or `rho login openrouter`   |
 | `anthropic`    | API Key            | `ANTHROPIC_API_KEY` or `rho login anthropic`     |
 | `openai`       | API Key            | `OPENAI_API_KEY` or `rho login openai`           |
 | `deepseek`     | API Key            | `DEEPSEEK_API_KEY` or `rho login deepseek`       |
 | `gemini`       | API Key            | `GEMINI_API_KEY` or `rho login gemini`           |
-| `antigravity`  | API Key            | `GEMINI_API_KEY` or `rho login antigravity`      |
 | `groq`         | API Key            | `GROQ_API_KEY` or `rho login groq`               |
-| `openrouter`   | API Key            | `OPENROUTER_API_KEY` or `rho login openrouter`   |
 | `xai`          | API Key            | `XAI_API_KEY` or `rho login xai`                 |
 | `mistral`      | API Key            | `MISTRAL_API_KEY` or `rho login mistral`         |
 | `cohere`       | API Key            | `COHERE_API_KEY` or `rho login cohere`           |
 | `ollama-cloud` | API Key            | `OLLAMA_API_KEY` or `rho login ollama-cloud`     |
-| `chatgpt`      | Subscription OAuth | `rho login chatgpt` (OAuth PKCE)                 |
-| `copilot`      | Subscription OAuth | `rho login copilot` (GitHub device login)        |
 | `local`        | Local Service      | `OLLAMA_HOST` (default `http://localhost:11434`) |
 
 ### Custom OpenAI-compatible providers

@@ -31,20 +31,20 @@ pub enum CredentialStrategy {
 
 impl ProviderId {
     pub const ALL: [Self; 14] = [
-        Self::Anthropic,
-        Self::OpenAi,
         Self::ChatGpt,
         Self::Copilot,
         Self::Antigravity,
+        Self::OpenRouter,
+        Self::Anthropic,
+        Self::OpenAi,
         Self::DeepSeek,
         Self::Gemini,
         Self::Groq,
-        Self::Local,
-        Self::OllamaCloud,
-        Self::OpenRouter,
         Self::XAi,
         Self::Mistral,
         Self::Cohere,
+        Self::OllamaCloud,
+        Self::Local,
     ];
 
     pub const API_KEY_PROVIDERS: [Self; 11] = [
