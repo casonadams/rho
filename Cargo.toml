@@ -26,6 +26,7 @@ thiserror = "2.0"
 anyhow = "1.0"
 tiktoken-rs = "0.6"
 chrono = { version = "0.4", features = ["serde"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 fuzzy-matcher = "0.3.7"
 rho-harness-core = { version = "0.2.0", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.2.0", path = "crates/rho-engine" }
@@ -99,7 +100,7 @@ fuzzy-matcher = "0.3.7"
 regex = "1.11"
 unicode-width = "0.2"
 arboard = "3.4"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image.workspace = true
 dirs = "6.0"
 
 [target.'cfg(unix)'.dependencies]

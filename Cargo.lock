@@ -6141,6 +6141,7 @@ dependencies = [
  "grep-searcher",
  "html2text",
  "ignore",
+ "image",
  "libc",
  "moka",
  "pdf-extract",

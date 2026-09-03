@@ -6,6 +6,7 @@ use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
 
+pub mod images;
 #[cfg(test)]
 mod tests;
 

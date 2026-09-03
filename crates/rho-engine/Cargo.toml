@@ -21,6 +21,7 @@ uuid = { workspace = true, features = ["v4"] }
 chrono.workspace = true
 thiserror.workspace = true
 anyhow = "1.0"
+image.workspace = true
 sha2 = "0.10"
 base64 = "0.22"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "form", "json", "stream"] }
