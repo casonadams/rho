@@ -246,6 +246,30 @@ fn print_session_status_and_notice_emit_transcript_item() {
 }
 
 #[test]
+fn print_compaction_and_cache_miss_notices() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.print_compaction_cost_notice(154_000, Some(0.46));
+    renderer.print_cache_miss_notice(crate::ui::render::renderer::CacheMissNotice {
+        missed_tokens: 45_000,
+        cost: Some(0.14),
+        idle_minutes: Some(5),
+    });
+
+    let items = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text)) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].contains("Compaction: 154k tokens billed (~$0.46)"));
+    assert!(items[1].contains("Cache miss after 5m idle: 45k tokens re-billed (~$0.14)"));
+}
+
+#[test]
 fn test_classify_read_path() {
     use rho_harness_core::presentation::summary::{ReadClassification, classify_read_path};
 

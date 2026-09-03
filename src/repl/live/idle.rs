@@ -21,6 +21,7 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
     let mut batch = LiveBatch::new();
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_escape_time: Option<std::time::Instant> = None;
     loop {
         tokio::select! {
             biased;
@@ -123,8 +124,29 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         }
                     }
                     InputAction::Cancel => {
+                        let was_empty = controller.state().editor().text().is_empty();
                         controller.state_mut().autocomplete.close();
                         controller.state_mut().editor_mut().set_text("");
+                        if was_empty {
+                            let now = std::time::Instant::now();
+                            if let Some(prev) = last_escape_time.take() {
+                                if now.duration_since(prev) < std::time::Duration::from_millis(500) {
+                                    if let Ok(tree) = engine.session_manager.load_tree().await {
+                                        let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
+                                        session.renderer.print_notice(&format!(
+                                            "\nConversation Tree (Session: {}):\n{rendered}\n",
+                                            engine.session_manager.session_id
+                                        ));
+                                    }
+                                } else {
+                                    last_escape_time = Some(now);
+                                }
+                            } else {
+                                last_escape_time = Some(now);
+                            }
+                        } else {
+                            last_escape_time = None;
+                        }
                         controller.redraw()?;
                     }
                     InputAction::ToggleExpandTools => {

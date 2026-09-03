@@ -15,6 +15,13 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CacheMissNotice {
+    pub missed_tokens: u64,
+    pub cost: Option<f64>,
+    pub idle_minutes: Option<u64>,
+}
+
 #[derive(Clone)]
 pub struct TerminalRenderer {
     pub theme: Theme,
@@ -180,6 +187,34 @@ impl TerminalRenderer {
         } else {
             self.write_output(text);
         }
+    }
+
+    pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {
+        let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+        let cost_str = cost
+            .filter(|c| *c >= 0.01)
+            .map(|c| format!(" (~${c:.2})"))
+            .unwrap_or_default();
+        let tokens_str = crate::ui::interactive::footer::format_tokens(tokens);
+        let text = format!("{warning}Compaction: {tokens_str} tokens billed{cost_str}{warning:#}\n");
+        self.print_notice(&text);
+    }
+
+    pub fn print_cache_miss_notice(&self, notice: CacheMissNotice) {
+        let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+        let cost_str = notice
+            .cost
+            .filter(|c| *c >= 0.01)
+            .map(|c| format!(" (~${c:.2})"))
+            .unwrap_or_default();
+        let tokens_str = crate::ui::interactive::footer::format_tokens(notice.missed_tokens);
+        let reason = if let Some(mins) = notice.idle_minutes {
+            format!("after {mins}m idle")
+        } else {
+            "after model switch".to_string()
+        };
+        let text = format!("{warning}Cache miss {reason}: {tokens_str} tokens re-billed{cost_str}{warning:#}\n");
+        self.print_notice(&text);
     }
 
     pub fn start_spinner(&self, message: &str) -> RenderActivity {
