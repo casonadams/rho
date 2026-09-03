@@ -209,7 +209,7 @@ The workspace is structured into four clean, focused crates:
 - **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `web_search`, `web_fetch`), and standard MCP
+  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `web_search`, `web_fetch`), and standard MCP
   client.
 - **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
   lifecycle hooks.
