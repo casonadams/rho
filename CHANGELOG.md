@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/casonadams/rho/compare/v0.1.6...v0.1.7) (2026-09-03)
+
+
+### Bug Fixes
+
+* **provider:** configure no_proxy and pass api key to gemini client builder ([#7](https://github.com/casonadams/rho/issues/7)) ([7b24314](https://github.com/casonadams/rho/commit/7b243141bfcf81a367e9328701cec4abdc1206ca))
+
 ## [0.1.6](https://github.com/casonadams/rho/compare/v0.1.5...v0.1.6) (2026-09-02)
 
 
