@@ -226,6 +226,28 @@ pub(crate) async fn read_idle_input(ctx: IdleContext<'_, '_>) -> Result<Option<Q
                         paste_clipboard(&session.renderer, controller);
                         batch.flush(controller, true)?;
                     }
+                    InputAction::SessionTree => {
+                        if let Ok(tree) = engine.session_manager.load_tree().await {
+                            super::modal::open_tree_selector(&tree, controller);
+                            controller.redraw()?;
+                        }
+                    }
+                    InputAction::SessionResume => {
+                        super::modal::open_session_selector(&session.config.sessions_dir, controller);
+                        controller.redraw()?;
+                    }
+                    InputAction::SessionNew => {
+                        *engine = crate::platform::agent_engine(
+                            session.config.clone(),
+                            session.auth_store.clone(),
+                            None,
+                        )
+                        .await?;
+                        controller.clear_transcript();
+                        session.renderer.print_status("Context cleared");
+                        update_footer(controller.state_mut(), session, engine);
+                        controller.redraw()?;
+                    }
                     InputAction::Suspend => {
                         crate::platform::suspend::suspend_process();
                         controller.redraw()?;

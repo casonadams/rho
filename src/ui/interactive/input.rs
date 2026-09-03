@@ -23,6 +23,9 @@ pub enum InputAction {
     ThinkingToggle,
     MessageCopy,
     ClipboardPasteImage,
+    SessionTree,
+    SessionResume,
+    SessionNew,
     Suspend,
     Ignore,
 }
@@ -53,10 +56,10 @@ pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> Input
             KeyAction::AppMessageCopy => InputAction::MessageCopy,
             KeyAction::AppMessageFollowUp => InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
             KeyAction::AppMessageDequeue => InputAction::DequeueQueued,
-            KeyAction::AppSessionNew
-            | KeyAction::AppSessionTree
-            | KeyAction::AppSessionFork
-            | KeyAction::AppSessionResume => InputAction::Ignore,
+            KeyAction::AppSessionNew => InputAction::SessionNew,
+            KeyAction::AppSessionTree => InputAction::SessionTree,
+            KeyAction::AppSessionResume => InputAction::SessionResume,
+            KeyAction::AppSessionFork => InputAction::Ignore,
             KeyAction::TuiEditorCursorUp => InputAction::HistoryPrevious,
             KeyAction::TuiEditorCursorDown => InputAction::HistoryNext,
             KeyAction::TuiEditorCursorLeft => InputAction::Edit(UiAction::MoveLeft),
