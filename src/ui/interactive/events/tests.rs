@@ -41,6 +41,7 @@ async fn interaction_response_resolves_the_request() {
             options: Vec::new(),
             initial_selection: 0,
             allow_custom: false,
+            initial_text: None,
         })
         .await
     });
@@ -62,6 +63,7 @@ async fn dropping_responder_reports_a_closed_request() {
             options: Vec::new(),
             initial_selection: 0,
             allow_custom: true,
+            initial_text: None,
         })
         .await
     });
@@ -101,6 +103,7 @@ async fn writer_transport_is_line_oriented_and_rejects_interactions() {
             options: Vec::new(),
             initial_selection: 0,
             allow_custom: false,
+            initial_text: None,
         })
         .await;
 
@@ -199,6 +202,7 @@ async fn pending_batch_exposes_newline_size_and_interaction_barriers() {
             options: Vec::new(),
             initial_selection: 0,
             allow_custom: false,
+            initial_text: None,
         })
         .await
     });

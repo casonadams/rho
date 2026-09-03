@@ -4,6 +4,9 @@ use super::editor::EditorState;
 pub struct ModalOption {
     pub label: String,
     pub description: Option<String>,
+    /// Inline input shown at the bottom of the same modal when this option
+    /// is chosen; the submitted text travels back with the selection.
+    pub input: Option<crate::ui::interactive::InteractionInput>,
 }
 
 impl ModalOption {
@@ -11,6 +14,7 @@ impl ModalOption {
         Self {
             label: label.into(),
             description: description.map(Into::into),
+            input: None,
         }
     }
 }
@@ -20,6 +24,7 @@ impl From<String> for ModalOption {
         Self {
             label,
             description: None,
+            input: None,
         }
     }
 }
@@ -29,6 +34,7 @@ impl From<&str> for ModalOption {
         Self {
             label: label.to_string(),
             description: None,
+            input: None,
         }
     }
 }
@@ -38,6 +44,7 @@ impl From<crate::ui::interactive::InteractionOption> for ModalOption {
         Self {
             label: opt.label,
             description: opt.description,
+            input: opt.input,
         }
     }
 }
@@ -63,6 +70,9 @@ pub struct ModalState {
     pub allow_custom: bool,
     pub filter_query: String,
     pub is_searchable: bool,
+    /// Option whose inline input is being edited, if the input mode was
+    /// entered by selecting an option carrying an input spec.
+    pub input_option: Option<usize>,
 }
 
 impl ModalState {
@@ -79,6 +89,7 @@ impl ModalState {
             allow_custom: false,
             filter_query: String::new(),
             is_searchable: false,
+            input_option: None,
         }
     }
 
@@ -115,6 +126,7 @@ impl ModalState {
 
     pub fn exit_input_mode(&mut self) {
         self.mode = ModalMode::Select;
+        self.input_option = None;
         self.input.set_text("");
     }
 

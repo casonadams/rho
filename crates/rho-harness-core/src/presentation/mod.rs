@@ -13,6 +13,7 @@ pub use structured::{RecordingSink, StdoutNdjsonSink, StructuredOutputSink, Stru
 pub use summary::summarize_tool_output;
 pub use transformer::{DisplayTransformer, DisplayTransformerPipeline, ReplaceTransformer};
 pub use types::{
-    ApprovalResult, BashApproval, BlockDisplay, InteractionOption, InteractionPrompt, InteractionResponse, RiskTier,
-    SessionStatus, ToolLine, ToolOutcome, UI_EVENT_VERSION, UiEnvelope, UiEvent, WelcomeDisplay,
+    ApprovalResult, BashApproval, BlockDisplay, InteractionInput, InteractionOption, InteractionPrompt,
+    InteractionResponse, RiskTier, SessionStatus, ToolLine, ToolOutcome, UI_EVENT_VERSION, UiEnvelope, UiEvent,
+    WelcomeDisplay,
 };

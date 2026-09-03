@@ -10,6 +10,19 @@ pub struct SelectOption {
     pub label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Inline input shown at the bottom of the same modal when this option is
+    /// chosen; the submitted text returns with the selection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<SelectInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SelectInput {
+    /// Label for the input line (e.g. "edit", "pattern", "reason").
+    pub label: String,
+    /// Prefill for the input buffer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 impl SelectOption {
@@ -17,6 +30,7 @@ impl SelectOption {
         Self {
             label: label.into(),
             description: None,
+            input: None,
         }
     }
 
@@ -24,6 +38,23 @@ impl SelectOption {
         Self {
             label: label.into(),
             description: Some(description.into()),
+            input: None,
+        }
+    }
+
+    pub fn with_input(
+        label: impl Into<String>,
+        description: impl Into<String>,
+        input_label: impl Into<String>,
+        input_value: Option<String>,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            description: Some(description.into()),
+            input: Some(SelectInput {
+                label: input_label.into(),
+                value: input_value,
+            }),
         }
     }
 }
@@ -39,6 +70,9 @@ pub struct ToolInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SelectResult {
     Selected(usize),
+    /// Text submitted through an option's inline input; carries both so the
+    /// plugin knows which action the text belongs to.
+    SelectedWithInput { index: usize, text: String },
     Custom(String),
     Cancelled,
 }
@@ -83,7 +117,14 @@ impl HostContext {
             "allow_custom": allow_custom,
         });
         let res = self.call_host("host/ui/select", params).await;
-        if let Some(idx) = res.get("selected").and_then(Value::as_u64) {
+        if let Some(idx) = res.get("selected").and_then(Value::as_u64)
+            && let Some(text) = res.get("custom").and_then(Value::as_str)
+        {
+            SelectResult::SelectedWithInput {
+                index: idx as usize,
+                text: text.to_string(),
+            }
+        } else if let Some(idx) = res.get("selected").and_then(Value::as_u64) {
             SelectResult::Selected(idx as usize)
         } else if let Some(custom) = res.get("custom").and_then(Value::as_str) {
             SelectResult::Custom(custom.to_string())
@@ -96,6 +137,19 @@ impl HostContext {
         let params = json!({
             "title": title,
             "message": message,
+        });
+        let res = self.call_host("host/ui/input", params).await;
+        res.get("value").and_then(Value::as_str).map(str::to_string)
+    }
+
+    /// Like `input`, but prefills the editable text buffer with `value` so the
+    /// user modifies an existing input instead of retyping it. Older hosts
+    /// ignore the extra field and behave like `input`.
+    pub async fn input_with_default(&self, title: &str, message: &str, value: &str) -> Option<String> {
+        let params = json!({
+            "title": title,
+            "message": message,
+            "value": value,
         });
         let res = self.call_host("host/ui/input", params).await;
         res.get("value").and_then(Value::as_str).map(str::to_string)

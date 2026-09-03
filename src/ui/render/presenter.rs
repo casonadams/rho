@@ -93,14 +93,17 @@ impl Presenter for TerminalRenderer {
                     crate::ui::interactive::InteractionOption {
                         label: "Allow".to_string(),
                         description: Some("Execute this tool call".to_string()),
+                        input: None,
                     },
                     crate::ui::interactive::InteractionOption {
                         label: "Deny".to_string(),
                         description: Some("Block this tool call".to_string()),
+                        input: None,
                     },
                 ],
                 initial_selection: 0,
                 allow_custom: false,
+                initial_text: None,
             };
 
             match ui.request(prompt).await {

@@ -5,8 +5,8 @@ pub mod types;
 
 pub use batch::{BatchDecision, FlushBarrier, PendingUiBatch, PendingUiDrain};
 pub use types::{
-    InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, OutputEvent, ToolStartRequest,
-    UiEvent, UiPortError,
+    InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, OutputEvent,
+    ToolStartRequest, UiEvent, UiPortError,
 };
 
 use crate::ui::interactive::Activity;

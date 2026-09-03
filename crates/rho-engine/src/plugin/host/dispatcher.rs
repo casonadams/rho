@@ -60,6 +60,11 @@ impl HostDispatcher {
                 custom: None,
                 cancelled: false,
             },
+            Some(InteractionResponse::SelectedWithInput { index, text }) => HostUiSelectResult {
+                selected: Some(index),
+                custom: Some(text),
+                cancelled: false,
+            },
             Some(InteractionResponse::Custom(text)) => HostUiSelectResult {
                 selected: None,
                 custom: Some(text),

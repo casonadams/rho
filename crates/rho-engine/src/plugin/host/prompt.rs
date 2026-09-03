@@ -9,14 +9,17 @@ pub fn build_confirm_prompt(params: HostUiConfirmParams) -> InteractionPrompt {
             InteractionOption {
                 label: "Yes".to_string(),
                 description: None,
+                input: None,
             },
             InteractionOption {
                 label: "No".to_string(),
                 description: None,
+                input: None,
             },
         ],
         initial_selection: if params.default_yes { 0 } else { 1 },
         allow_custom: false,
+        initial_text: None,
     }
 }
 
@@ -27,6 +30,7 @@ pub fn build_select_prompt(params: HostUiSelectParams) -> InteractionPrompt {
         .map(|opt| InteractionOption {
             label: opt.label,
             description: opt.description,
+            input: opt.input,
         })
         .collect();
 
@@ -36,6 +40,7 @@ pub fn build_select_prompt(params: HostUiSelectParams) -> InteractionPrompt {
         options,
         initial_selection: params.initial_selection,
         allow_custom: params.allow_custom,
+        initial_text: None,
     }
 }
 
@@ -44,10 +49,12 @@ pub fn build_input_prompt(params: HostUiInputParams) -> InteractionPrompt {
         title: params.title,
         body: params.message,
         options: vec![InteractionOption {
-            label: "Submit text input".to_string(),
+            label: "Accept input".to_string(),
             description: None,
+            input: None,
         }],
         initial_selection: 0,
         allow_custom: true,
+        initial_text: params.value,
     }
 }

@@ -26,6 +26,19 @@ pub struct InteractionOption {
     pub label: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// Inline input shown at the bottom of the same modal when this option is
+    /// chosen; the submitted text travels back with the selection.
+    #[serde(default)]
+    pub input: Option<InteractionInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteractionInput {
+    /// Label for the input line (e.g. "edit", "pattern", "reason").
+    pub label: String,
+    /// Prefill for the input buffer.
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 /// A generic modal request; deserializable straight from plugin `ui/prompt`
@@ -39,6 +52,10 @@ pub struct InteractionPrompt {
     pub initial_selection: usize,
     #[serde(default)]
     pub allow_custom: bool,
+    /// Prefill for the custom text input (used by host/ui/input), so users
+    /// edit an existing value instead of retyping it.
+    #[serde(default)]
+    pub initial_text: Option<String>,
 }
 
 /// Serializes as `{"selected":n}` / `{"custom":"..."}` / `"cancelled"` — the
@@ -47,6 +64,12 @@ pub struct InteractionPrompt {
 #[serde(rename_all = "snake_case")]
 pub enum InteractionResponse {
     Selected(usize),
+    /// Text submitted through an option's inline input; carries both so the
+    /// plugin knows which action the text belongs to.
+    SelectedWithInput {
+        index: usize,
+        text: String,
+    },
     Custom(String),
     Cancelled,
 }

@@ -1,3 +1,4 @@
+use rho_harness_core::presentation::InteractionInput;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -23,6 +24,8 @@ pub struct HostSelectOption {
     pub label: String,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub input: Option<InteractionInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +56,9 @@ pub struct HostUiInputParams {
     pub message: String,
     #[serde(default)]
     pub secret: bool,
+    /// Optional prefill so the user edits an existing value rather than retyping it.
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

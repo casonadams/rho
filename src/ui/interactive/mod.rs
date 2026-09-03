@@ -15,8 +15,9 @@ pub mod tree_view;
 
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
-    BatchDecision, FlushBarrier, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
-    InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, ToolStartRequest, UiEvent, UiPortError,
+    BatchDecision, FlushBarrier, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder,
+    InteractionResponse, InteractiveUi, OutputEvent, PendingUiBatch, PendingUiDrain, ToolStartRequest, UiEvent,
+    UiPortError,
 };
 pub use footer::{
     abbreviate_home, fit_right_aligned, format_footer_lines, format_stats_line, format_tokens, format_top_line,

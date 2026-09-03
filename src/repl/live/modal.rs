@@ -46,13 +46,20 @@ pub fn install_interaction<B: crate::ui::interactive::TerminalBackend>(
         .map(|option| crate::ui::interactive::ModalOption {
             label: option.label,
             description: option.description,
+            input: option.input,
         })
         .collect::<Vec<_>>();
     let is_empty_options = options.is_empty();
     let mut state = ModalState::new(prompt.title, prompt.body, options).with_custom(prompt.allow_custom);
     state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
     if is_empty_options || (prompt.allow_custom && state.options.is_empty()) {
-        state.enter_input_mode("answer");
+        state.enter_input_mode("input");
+    }
+    if let Some(prefill) = prompt.initial_text {
+        // Open straight into edit mode with the buffer prefilled; entering
+        // input mode later (Enter/typing) would wipe the buffer.
+        state.enter_input_mode("input");
+        state.input.set_text(prefill);
     }
     controller.state_mut().push_modal(state);
     *modal = Some(PendingModal { responder });
@@ -494,9 +501,14 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
                     .active_modal()
                     .map(|m| m.input.text().trim().to_string())
                     .unwrap_or_default();
+                let input_option = controller.state().active_modal().and_then(|m| m.input_option);
                 controller.state_mut().pop_modal();
                 if let Some(pending) = pending.take() {
-                    let response = if !custom.is_empty() {
+                    let response = if let Some(index) = input_option {
+                        // Inline input for a selected option: the text travels
+                        // back with the selection even when empty.
+                        InteractionResponse::SelectedWithInput { index, text: custom }
+                    } else if !custom.is_empty() {
                         InteractionResponse::Custom(custom)
                     } else {
                         InteractionResponse::Cancelled
@@ -524,6 +536,21 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
         crate::ui::interactive::ModalMode::Select => match key.code {
             KeyCode::Up | KeyCode::BackTab => controller.state_mut().select_previous_modal_option(),
             KeyCode::Down | KeyCode::Tab => controller.state_mut().select_next_modal_option(),
+            // Vim-style navigation for pure pickers; modals that capture typing
+            // (custom input, searchable) keep chars for text entry.
+            KeyCode::Char('j') | KeyCode::Char('k') => {
+                let captures_typing = controller
+                    .state()
+                    .active_modal()
+                    .is_some_and(|m| m.allow_custom || m.is_searchable);
+                if !captures_typing {
+                    if key.code == KeyCode::Char('j') {
+                        controller.state_mut().select_next_modal_option();
+                    } else {
+                        controller.state_mut().select_previous_modal_option();
+                    }
+                }
+            }
             KeyCode::Esc => {
                 controller.state_mut().pop_modal();
                 if let Some(pending) = pending.take() {
@@ -545,9 +572,27 @@ pub fn handle_modal_key<B: crate::ui::interactive::TerminalBackend>(
                     || selected_label.contains("custom input")
                     || selected_label.contains("Type something")
                     || selected_label.contains("Type a custom")
-                    || selected_label == "Deny with reason";
+                    || selected_label == "Deny with reason"
+                    || selected_label == "Accept input";
 
-                if triggers_input {
+                let option_input = controller
+                    .state()
+                    .active_modal()
+                    .and_then(|m| m.options.get(selected))
+                    .and_then(|opt| opt.input.clone());
+
+                if let Some(spec) = option_input {
+                    // Inline input at the bottom of the same modal; Esc returns
+                    // to the option list without losing the selection.
+                    if let Some(modal) = controller.state_mut().active_modal_mut() {
+                        modal.selected = selected;
+                        modal.input_option = Some(selected);
+                        modal.enter_input_mode(&spec.label);
+                        if let Some(prefill) = spec.value {
+                            modal.input.set_text(prefill);
+                        }
+                    }
+                } else if triggers_input {
                     let prompt_label = if selected_label.contains("reason") || selected_label.contains("feedback") {
                         "reason"
                     } else {

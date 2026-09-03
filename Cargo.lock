@@ -457,9 +457,9 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.4.43"
+version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3976abdc8fe7d1133d43d304afd42abdf5bc3e1319d263d223bde07b5efc4be8"
+checksum = "515a1f282e33d55983c499d7e9e87082e81cbc32974825bf9032f928392d5844"
 dependencies = [
  "compression-codecs",
  "compression-core",
@@ -1054,9 +1054,9 @@ dependencies = [
 
 [[package]]
 name = "compression-codecs"
-version = "0.4.38"
+version = "0.4.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce2548391e9c1929c21bf6aa2680af86fe4c1b33e6cea9ac1cfeec0bd11218cf"
+checksum = "2fe67f2944eef52fc7b106b8c9450d243a88701a0c065f7f57235e76abaed7df"
 dependencies = [
  "compression-core",
  "flate2",
@@ -1065,9 +1065,9 @@ dependencies = [
 
 [[package]]
 name = "compression-core"
-version = "0.4.32"
+version = "0.4.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
+checksum = "6e8ccc4ea9f6acc32d102c0f6d471d11d913ad15f20c04de743374861fa1d414"
 
 [[package]]
 name = "concurrent-queue"
@@ -1256,7 +1256,7 @@ checksum = "829d955a0bb380ef178a640b91779e3987da38c9aea133b20614cfed8cdea9c6"
 dependencies = [
  "bitflags 2.13.1",
  "crossterm_winapi",
- "mio 1.2.2",
+ "mio 1.2.3",
  "parking_lot",
  "rustix 0.38.44",
  "serde",
@@ -4568,9 +4568,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427"
+checksum = "4b18443e9c262bfe8fa82f51666e2642c53393f7e5c27b3e1aeab922cff5b9d8"
 dependencies = [
  "libc",
  "log",
@@ -6023,7 +6023,7 @@ checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 
 [[package]]
 name = "rho"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -6061,7 +6061,7 @@ dependencies = [
 
 [[package]]
 name = "rho-engine"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6095,7 +6095,7 @@ dependencies = [
 
 [[package]]
 name = "rho-harness-core"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6118,7 +6118,7 @@ dependencies = [
 
 [[package]]
 name = "rho-plugin-sdk"
-version = "0.1.7"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -6814,7 +6814,7 @@ checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
 dependencies = [
  "libc",
  "mio 0.8.11",
- "mio 1.2.2",
+ "mio 1.2.3",
  "signal-hook",
 ]
 
@@ -7410,7 +7410,7 @@ checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
 dependencies = [
  "bytes",
  "libc",
- "mio 1.2.2",
+ "mio 1.2.3",
  "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
