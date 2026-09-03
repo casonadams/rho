@@ -10,6 +10,7 @@ use help::print_help;
 use rho_engine::auth::AuthStore;
 use rho_harness_core::error::Result;
 use std::fmt::Write as _;
+use std::io::IsTerminal as _;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandResult {
@@ -303,7 +304,7 @@ impl SlashCommandHandler {
                             matched.metadata.name, matched.origin
                         ));
                     }
-                } else if ctx.renderer.has_interactive_ui() {
+                } else if ctx.renderer.has_interactive_ui() && std::io::stdin().is_terminal() {
                     let choices: Vec<String> = skills
                         .iter()
                         .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
