@@ -57,6 +57,9 @@ pub(super) fn merge_file(config: &mut Config, file: super::FileConfig) {
     if let Some(r) = file.region {
         config.region = r;
     }
+    if let Some(v) = file.show_version {
+        config.show_version = v;
+    }
     if let Some(s) = file.steering_mode {
         config.steering_mode = s;
     }

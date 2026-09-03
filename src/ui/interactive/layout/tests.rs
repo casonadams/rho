@@ -68,7 +68,7 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
         spinner_frame: 0,
     });
 
-    assert_eq!(layout.top_divider, "\u{1b}[2m────────\u{1b}[0m");
+    assert_eq!(layout.top_divider, "\u{1b}[2m──rho───\u{1b}[0m");
     assert_eq!(layout.editor_lines, [""]);
     assert_eq!(layout.footer_lines.len(), 2);
     assert_eq!(layout.cursor, CursorPosition { row: 0, column: 0 });
@@ -540,7 +540,32 @@ fn bash_mode_border_turns_amber() {
 }
 
 #[test]
-fn top_divider_embeds_rho_label_at_full_width() {
+fn top_divider_embeds_version_label_when_enabled() {
+    let editor = EditorState::default();
+    let footer = FooterState {
+        show_version: true,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 25,
+        spinner_frame: 0,
+    });
+
+    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
+    assert_eq!(stripped, 25, "divider must stay exactly one terminal row wide");
+    let label = concat!("rho ", env!("CARGO_PKG_VERSION"));
+    assert!(layout.top_divider.contains(label));
+    assert!(layout.bottom_divider.contains("─") && !layout.bottom_divider.contains("rho"));
+}
+
+#[test]
+fn top_divider_omits_version_by_default() {
     let editor = EditorState::default();
     let footer = FooterState::default();
     let layout = layout(LayoutInput {
@@ -555,11 +580,9 @@ fn top_divider_embeds_rho_label_at_full_width() {
     });
 
     let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
-    assert_eq!(stripped, 25, "divider must stay exactly one terminal row wide");
-    let label = concat!("rho-", env!("CARGO_PKG_VERSION"));
-    assert!(layout.top_divider.contains(label));
-    assert!(layout.top_divider.contains("─rho-"));
-    assert!(layout.bottom_divider.contains("─") && !layout.bottom_divider.contains("rho"));
+    assert_eq!(stripped, 25);
+    assert!(layout.top_divider.contains("─rho───"));
+    assert!(!layout.top_divider.contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]

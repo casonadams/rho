@@ -108,7 +108,12 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             } else {
                 thinking_divider_style(input.footer.thinking_level.as_deref())
             };
-            let top_div = top_divider(width, style, reset);
+            let label = if input.footer.show_version {
+                concat!("rho ", env!("CARGO_PKG_VERSION"))
+            } else {
+                "rho"
+            };
+            let top_div = top_divider(width, label, (style, reset));
             lines.push(top_div.clone());
 
             let (mut ed_lines, ed_cursor) = wrap_editor(input.editor, width);
@@ -161,8 +166,7 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
     }
 }
 
-fn top_divider(width: usize, style: &str, reset: &str) -> String {
-    let label = concat!("rho-", env!("CARGO_PKG_VERSION"));
+fn top_divider(width: usize, label: &str, (style, reset): (&str, &str)) -> String {
     if width >= label.len() + 4 {
         let lead = width - label.len() - 3;
         format!("{style}{}{label}{}{reset}", "─".repeat(lead), "─".repeat(3))
