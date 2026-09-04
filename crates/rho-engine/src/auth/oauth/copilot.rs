@@ -28,7 +28,7 @@ struct CopilotInternalToken {
 }
 
 pub async fn perform_copilot_device_flow(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
-    let client = http_client()?;
+    let client = http_client();
 
     let mut form = HashMap::new();
     form.insert("client_id", COPILOT_CLIENT_ID);
@@ -114,7 +114,7 @@ pub async fn perform_copilot_device_flow(callbacks: &dyn OAuthLoginCallbacks) ->
 }
 
 pub async fn refresh_copilot_token(github_token: &str) -> Result<StoredCredential> {
-    let client = http_client()?;
+    let client = http_client();
 
     let copilot_res = client
         .get(COPILOT_INTERNAL_URL)

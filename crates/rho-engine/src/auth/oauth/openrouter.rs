@@ -91,7 +91,7 @@ pub async fn perform_openrouter_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Res
         .on_progress("Exchanging authorization code for OpenRouter API key...")
         .await?;
 
-    let client = http_client()?;
+    let client = http_client();
     let body = build_exchange_body(&code, &pkce.verifier);
 
     let res = client

@@ -14,12 +14,7 @@ use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 
-pub(super) fn http_client() -> Result<reqwest::Client> {
-    reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .map_err(|e| AppError::Other(e.into()))
-}
+pub(super) use super::http::http_client;
 
 pub async fn perform_oauth_login(
     provider: ProviderId,

@@ -64,7 +64,7 @@ pub async fn perform_openai_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Result<
         .on_progress("Exchanging authorization code for tokens...")
         .await?;
 
-    let client = http_client()?;
+    let client = http_client();
     let mut form = HashMap::new();
     form.insert("grant_type", "authorization_code");
     form.insert("client_id", OPENAI_CLIENT_ID);
@@ -108,7 +108,7 @@ pub async fn perform_openai_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Result<
 }
 
 pub async fn refresh_openai_token(refresh_token: &str) -> Result<StoredCredential> {
-    let client = http_client()?;
+    let client = http_client();
 
     let mut form = HashMap::new();
     form.insert("grant_type", "refresh_token");
