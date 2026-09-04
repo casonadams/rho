@@ -18,7 +18,7 @@ rho
 rho -p "summarize this repository"
 
 # Select model & provider
-rho --provider anthropic --model claude-3-7-sonnet-20250219
+rho --provider gemini --model gemini-3.8-flash
 rho --provider openai --model gpt-4o
 
 # Resume existing session
@@ -39,7 +39,7 @@ Write a message here; wrapped lines and explicit
 newlines grow the editor upward.
 ─────────────────────────────────────────────────────────
 ~/src/github.com/casonadams/rho (main)
-↑6.9k ↓514 5.4%/128k @14.3t/s      qwen3.8:27b-mlx • high
+↑6.9k ↓514 5.4%/128k @14t/s       qwen3.8:27b-mlx • high
 ```
 
 The **top line** shows the working directory, git branch, and session name. The

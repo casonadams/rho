@@ -101,8 +101,11 @@ pub fn format_stats_line(footer: &FooterState, width: usize) -> String {
         parts.push(context_percent_str);
     }
 
-    if let Some(speed) = footer.tokens_per_second {
-        parts.push(format!("@{speed:.1}t/s"));
+    if let Some(speed) = footer.tokens_per_second
+        && speed > 0.0
+    {
+        let tps = (speed.round() as u64).max(1);
+        parts.push(format!("@{tps}t/s"));
     }
 
     let left = parts.join(" ");

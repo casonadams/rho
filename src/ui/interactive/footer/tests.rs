@@ -48,7 +48,7 @@ fn sanitize_status_collapses_whitespace() {
 fn top_line_contains_cwd_branch_session_and_quota() {
     let footer = FooterState {
         activity: Activity::Idle,
-        model: "claude-3-7-sonnet".into(),
+        model: "gemini-3.8-flash".into(),
         thinking_level: None,
         cwd: Some("/Users/alice/project".into()),
         git_branch: Some("main".into()),
@@ -66,7 +66,7 @@ fn top_line_contains_cwd_branch_session_and_quota() {
 fn stats_line_formats_usage_and_model() {
     let footer = FooterState {
         activity: Activity::Idle,
-        model: "claude-3-7-sonnet".into(),
+        model: "gemini-3.8-flash".into(),
         thinking_level: Some("medium".into()),
         total_input_tokens: 1_200,
         total_output_tokens: 450,
@@ -75,7 +75,7 @@ fn stats_line_formats_usage_and_model() {
         total_cost: Some(0.012),
         context_percent: Some(1.2),
         context_window: 200_000,
-        tokens_per_second: Some(45.2),
+        tokens_per_second: Some(258.0),
         ..FooterState::default()
     };
     let line = format_stats_line(&footer, 80);
@@ -85,8 +85,27 @@ fn stats_line_formats_usage_and_model() {
     assert!(line.contains("W2.0k"));
     assert!(line.contains("$0.012"));
     assert!(line.contains("1.2%/200k"));
-    assert!(line.contains("@45.2t/s"));
-    assert!(line.ends_with("claude-3-7-sonnet • medium"));
+    assert!(line.contains("@258t/s"));
+    assert!(line.ends_with("gemini-3.8-flash • medium"));
+}
+
+#[test]
+fn stats_line_clamps_sub_one_tokens_per_second() {
+    let footer = FooterState {
+        model: "llama".into(),
+        tokens_per_second: Some(0.3),
+        ..FooterState::default()
+    };
+    let line = format_stats_line(&footer, 80);
+    assert!(line.contains("@1t/s"));
+
+    let zero_footer = FooterState {
+        model: "llama".into(),
+        tokens_per_second: Some(0.0),
+        ..FooterState::default()
+    };
+    let zero_line = format_stats_line(&zero_footer, 80);
+    assert!(!zero_line.contains("t/s"));
 }
 
 #[test]

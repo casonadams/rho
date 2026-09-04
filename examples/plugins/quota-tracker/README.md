@@ -15,5 +15,5 @@ args = ["/path/to/rho/examples/plugins/quota-tracker/tracker.js"]
 
 ```text
 ~/src/github.com/casonadams/rho (main)   5h: 50% • 7d: 17%
-↑4.2k ↓210 3.2%/128k @24.1t/s   claude-3-7-sonnet • high
+↑4.2k ↓210 3.2%/128k @258t/s   gemini-3.8-flash • high
 ```
