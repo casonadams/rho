@@ -6143,6 +6143,7 @@ dependencies = [
  "ignore",
  "image",
  "libc",
+ "memchr",
  "moka",
  "pdf-extract",
  "percent-encoding",

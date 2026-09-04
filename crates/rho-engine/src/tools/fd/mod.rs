@@ -1,24 +1,23 @@
-use crate::tools::traversal::{build_type_matcher, search_root, walker_builder};
-use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size, truncate_head};
-use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
-use ignore::WalkState;
-use ignore::types::Types;
-use regex::Regex;
-pub use rho_harness_core::args::FdArgs;
+mod entry;
+mod query;
+mod stats;
+#[cfg(test)]
+mod tests;
+
+pub use entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, format_results, sort_entries};
+use query::FdQuery;
+pub use rho_harness_core::args::{FdArgs, FdSort};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::PoisonError;
-use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(test)]
-mod tests;
+use crate::tools::traversal::{build_type_matcher, search_root};
+use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+use regex::Regex;
 
 pub const DEFAULT_FD_LIMIT: usize = 200;
 pub const MAX_FD_LIMIT: usize = 1000;
-pub const FD_COLLECTION_CEILING: usize = 20_000;
 pub const MAX_FD_DEPTH: usize = 10;
 
 pub struct FdTool {
@@ -51,6 +50,16 @@ impl FdTool {
             Err(message) => return Ok(ToolResult::error(message)),
         };
         let limit = args.limit.unwrap_or(DEFAULT_FD_LIMIT).clamp(1, MAX_FD_LIMIT);
+        let show_stats = args.stats.unwrap_or(
+            args.min_lines.is_some()
+                || args.max_lines.is_some()
+                || matches!(args.sort, Some(FdSort::Lines | FdSort::Size)),
+        );
+        let stats_needed = show_stats
+            || args.min_lines.is_some()
+            || args.max_lines.is_some()
+            || matches!(args.sort, Some(FdSort::Lines | FdSort::Size));
+
         let query = FdQuery {
             workspace_root: workspace.root().to_path_buf(),
             search_root,
@@ -58,6 +67,11 @@ impl FdTool {
             types,
             include_hidden: args.hidden.unwrap_or(false),
             depth: args.depth.map(|depth| depth.clamp(1, MAX_FD_DEPTH)),
+            stats_needed,
+            min_lines: args.min_lines,
+            max_lines: args.max_lines,
+            sort: args.sort,
+            show_stats,
         };
         match tokio::task::spawn_blocking(move || query.run(limit)).await {
             Ok(result) => Ok(result),
@@ -72,98 +86,6 @@ fn compile_pattern(pattern: &str) -> Result<Regex, String> {
         .case_insensitive(case_insensitive)
         .build()
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
-}
-
-struct FdQuery {
-    workspace_root: PathBuf,
-    search_root: PathBuf,
-    regex: Regex,
-    types: Option<Types>,
-    include_hidden: bool,
-    depth: Option<usize>,
-}
-
-impl FdQuery {
-    fn run(self, limit: usize) -> ToolResult {
-        let FdQuery {
-            workspace_root,
-            search_root,
-            regex,
-            types,
-            include_hidden,
-            depth,
-        } = self;
-        let mut builder = walker_builder(&search_root, include_hidden);
-        builder.max_depth(depth);
-        if let Some(types) = &types {
-            builder.types(types.clone());
-        }
-
-        let collected: Mutex<Vec<String>> = Mutex::new(Vec::new());
-        let hit_ceiling = AtomicBool::new(false);
-        builder.build_parallel().run(|| {
-            Box::new(|entry| {
-                let Ok(entry) = entry else {
-                    return WalkState::Continue;
-                };
-                let Ok(relative) = entry.path().strip_prefix(&workspace_root) else {
-                    return WalkState::Continue;
-                };
-                let relative = relative.to_string_lossy().replace('\\', "/");
-                if relative.is_empty() || !regex.is_match(&relative) {
-                    return WalkState::Continue;
-                }
-                // The walker's type matcher only filters files; type-filtered
-                // listings exclude directories while still descending into them.
-                if types.is_some() && entry.file_type().is_some_and(|ft| ft.is_dir()) {
-                    return WalkState::Continue;
-                }
-                let mut paths = collected.lock().unwrap_or_else(PoisonError::into_inner);
-                if paths.len() >= FD_COLLECTION_CEILING {
-                    return WalkState::Quit;
-                }
-                paths.push(relative);
-                if paths.len() >= FD_COLLECTION_CEILING {
-                    hit_ceiling.store(true, Ordering::Relaxed);
-                    return WalkState::Quit;
-                }
-                WalkState::Continue
-            })
-        });
-
-        let paths = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
-        format_results(paths, hit_ceiling.load(Ordering::Relaxed), limit)
-    }
-}
-
-fn format_results(mut paths: Vec<String>, hit_ceiling: bool, limit: usize) -> ToolResult {
-    if paths.is_empty() {
-        return ToolResult::success("No files found matching pattern");
-    }
-    // Sort before truncating so parallel-walk collection order never leaks into output.
-    paths.sort();
-    let total = paths.len();
-    let mut notices: Vec<String> = Vec::new();
-    if total > limit {
-        notices.push(if hit_ceiling {
-            format!(
-                "showing first {limit} of {FD_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
-            )
-        } else {
-            format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
-        });
-        paths.truncate(limit);
-    }
-    // pi caps find output by bytes only; the result limit already caps rows.
-    let truncation = truncate_head(&paths.join("\n"), usize::MAX, DEFAULT_MAX_BYTES);
-    if truncation.truncated_by.is_some() {
-        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
-    }
-    let mut output = truncation.content;
-    if !notices.is_empty() {
-        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
-    }
-    ToolResult::success(output)
 }
 
 impl Tool for FdTool {

@@ -38,9 +38,10 @@ Find files and directories by workspace-relative path pattern.
 
 Usage:
 - pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against workspace-relative paths.
-- Files and directories both match; results are sorted lexicographically and capped at limit (default 200, max 1000) with a 20,000-entry collection ceiling; output is byte-capped at 50KB.
+- Files and directories both match; results are sorted lexicographically by default and capped at limit (default 200, max 1000) with a 20,000-entry collection ceiling; output is byte-capped at 50KB.
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
-- Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. pattern '.' with depth 2.";
+- Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. pattern '.' with depth 2.
+- Set stats: true to include line counts and byte sizes; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines', 'size', or 'path') to order results.";
 
 pub static PROMPT_RG: &str = "\
 Search file contents with line-oriented results.

@@ -11,7 +11,7 @@ pub mod write;
 
 pub use bash::BashArgs;
 pub use edit::{EditArgs, EditReplacement};
-pub use fd::FdArgs;
+pub use fd::{FdArgs, FdSort};
 pub use read::ReadArgs;
 pub use rg::RgArgs;
 pub use web_fetch::WebFetchArgs;

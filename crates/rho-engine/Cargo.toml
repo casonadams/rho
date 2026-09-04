@@ -39,6 +39,7 @@ regex = "1.11"
 ignore = "0.4"
 grep-regex = "0.1"
 grep-searcher = "0.1"
+memchr = "2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -14,7 +14,7 @@ pub mod write;
 pub use bash::{BashArgs, BashTool};
 pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_builtin_tools};
 pub use edit::{EditArgs, EditTool};
-pub use fd::{FdArgs, FdTool};
+pub use fd::{FdArgs, FdSort, FdTool};
 pub use read::{ReadArgs, ReadTool};
 pub use registry::ToolRegistry;
 pub use rg::{RgArgs, RgTool};
