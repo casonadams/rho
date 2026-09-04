@@ -20,7 +20,8 @@ working directory. Resolve the repository root before reading or writing files.
 Inspect evidence before proposing instructions. This prevents generic advice,
 invented commands, and stale repository summaries.
 
-1. Read the global `~/.config/rho/AGENTS.md` when available so the repository file
+1. Read global instructions (`~/.agents/AGENTS.md`, `~/.config/agents/AGENTS.md`,
+   or `~/.config/rho/AGENTS.md`) when available so the repository file
    complements rather than repeats global defaults.
 2. Find existing `AGENTS.md` and `CLAUDE.md` files, including nested files.
    Check version-control status before editing so uncommitted user work is

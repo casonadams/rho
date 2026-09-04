@@ -66,3 +66,104 @@ async fn test_user_config_skills_override_builtin_skills() {
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
+
+#[tokio::test]
+async fn test_global_agents_md_discovery_hierarchy() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_hierarchy_test_{}", uuid::Uuid::new_v4()));
+    let home_dir = temp_dir.join("home");
+    let config_dir = temp_dir.join("config");
+    let project_dir = temp_dir.join("project");
+
+    let global_agents_dir = home_dir.join(".agents");
+    let xdg_agents_dir = home_dir.join(".config").join("agents");
+    let project_agents_dir = project_dir.join(".agents");
+
+    tokio::fs::create_dir_all(&global_agents_dir).await.unwrap();
+    tokio::fs::create_dir_all(&xdg_agents_dir).await.unwrap();
+    tokio::fs::create_dir_all(&config_dir).await.unwrap();
+    tokio::fs::create_dir_all(&project_agents_dir).await.unwrap();
+
+    tokio::fs::write(global_agents_dir.join("AGENTS.md"), "# 1. Global User Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(xdg_agents_dir.join("AGENTS.md"), "# 2. XDG Global Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(config_dir.join("AGENTS.md"), "# 3. Rho Config Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(project_agents_dir.join("AGENTS.md"), "# 4. Project Base Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(project_dir.join("AGENTS.md"), "# 5. Project Active Rules\n")
+        .await
+        .unwrap();
+
+    let ctx = ProjectContext::discover_with_dirs(
+        &project_dir,
+        ContextDirs {
+            config_dir: Some(&config_dir),
+            home_dir: Some(&home_dir),
+        },
+        true,
+    )
+    .await;
+
+    assert_eq!(ctx.instruction_files.len(), 5);
+    assert_eq!(ctx.instruction_files[0].1, "# 1. Global User Rules");
+    assert_eq!(ctx.instruction_files[1].1, "# 2. XDG Global Rules");
+    assert_eq!(ctx.instruction_files[2].1, "# 3. Rho Config Rules");
+    assert_eq!(ctx.instruction_files[3].1, "# 4. Project Base Rules");
+    assert_eq!(ctx.instruction_files[4].1, "# 5. Project Active Rules");
+
+    let prompt = ctx.build_system_prompt();
+    let idx1 = prompt.find("# 1. Global User Rules").unwrap();
+    let idx2 = prompt.find("# 2. XDG Global Rules").unwrap();
+    let idx3 = prompt.find("# 3. Rho Config Rules").unwrap();
+    let idx4 = prompt.find("# 4. Project Base Rules").unwrap();
+    let idx5 = prompt.find("# 5. Project Active Rules").unwrap();
+
+    assert!(idx1 < idx2);
+    assert!(idx2 < idx3);
+    assert!(idx3 < idx4);
+    assert!(idx4 < idx5);
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}
+
+#[tokio::test]
+async fn test_instruction_deduplication_via_symlink() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_dedup_test_{}", uuid::Uuid::new_v4()));
+    let home_dir = temp_dir.join("home");
+    let config_dir = temp_dir.join("config");
+    let project_dir = temp_dir.join("project");
+
+    let global_agents_dir = home_dir.join(".agents");
+    tokio::fs::create_dir_all(&global_agents_dir).await.unwrap();
+    tokio::fs::create_dir_all(&config_dir).await.unwrap();
+    tokio::fs::create_dir_all(&project_dir).await.unwrap();
+
+    let canonical_file = global_agents_dir.join("AGENTS.md");
+    tokio::fs::write(&canonical_file, "# Canonical Rules\n").await.unwrap();
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&canonical_file, config_dir.join("AGENTS.md")).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_file(&canonical_file, config_dir.join("AGENTS.md")).unwrap();
+
+    let ctx = ProjectContext::discover_with_dirs(
+        &project_dir,
+        ContextDirs {
+            config_dir: Some(&config_dir),
+            home_dir: Some(&home_dir),
+        },
+        true,
+    )
+    .await;
+
+    // The file should only be loaded once despite existing at both paths
+    assert_eq!(ctx.instruction_files.len(), 1);
+    assert_eq!(ctx.instruction_files[0].1, "# Canonical Rules");
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}

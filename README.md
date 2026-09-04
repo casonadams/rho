@@ -127,12 +127,14 @@ Global settings, credentials, state cache, skills, and instructions live under
 └── skills/                # Global skills directory (SKILL.md files)
 ```
 
-- **Instructions**: Discovers global `~/.config/rho/AGENTS.md` and workspace
-  `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`.
+- **Instructions**: Discovers instructions hierarchically from global to project:
+  1. Global user `~/.agents/AGENTS.md`, `~/.config/agents/AGENTS.md`, or `~/.config/rho/AGENTS.md`
+  2. Project base `.agents/AGENTS.md`
+  3. Workspace `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
 - **Skills**: Declarative `SKILL.md` workflows resolved with precedence:
-  1. Project `.rho/skills/` or `./skills/` (highest precedence, overrides user &
+  1. Project `.agents/skills/`, `.rho/skills/`, or `./skills/` (highest precedence, overrides user &
      built-in)
-  2. User `~/.agents/skills/`, `~/.config/rho/skills/`, or `~/.skills/`
+  2. User `~/.agents/skills/`, `~/.config/agents/skills/`, `~/.config/rho/skills/`, or `~/.skills/`
   3. Embedded built-in skills (`create-plugin`, `lean`, `plan`,
      `repo-agents-builder`, `simplify`, `spec`)
 

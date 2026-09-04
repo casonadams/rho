@@ -1,5 +1,5 @@
 use super::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 struct SkillFixture {
     root: PathBuf,
@@ -129,4 +129,42 @@ fn disable_builtins_excludes_embedded_but_keeps_user_skills() {
     assert!(resolved.iter().all(|skill| skill.origin != SkillOrigin::Builtin));
     assert!(resolved.iter().any(|skill| skill.metadata.name == "team-notes"));
     assert!(resolved_content(&resolved, "plan").is_none());
+}
+
+#[test]
+fn agents_skills_user_and_project_resolution() {
+    let fixture = fixture();
+    let home = fixture.root.join("home");
+    let user_agents_skills = home.join(".agents/skills");
+    let project_agents_skills = fixture.project_dir.join(".agents/skills");
+
+    write_builtin_override(
+        &user_agents_skills,
+        "shared-tool",
+        "---\nname: shared-tool\ndescription: Global tool\n---\n# Global\n",
+    );
+    write_builtin_override(
+        &project_agents_skills,
+        "shared-tool",
+        "---\nname: shared-tool\ndescription: Project tool override\n---\n# Project Override\n",
+    );
+    write_builtin_override(
+        &project_agents_skills,
+        "repo-lint",
+        "---\nname: repo-lint\ndescription: Repo lint workflow\n---\n# Lint\n",
+    );
+
+    let paths = SkillResolutionPaths {
+        config_dir: Some(&fixture.config_dir),
+        project_dir: Some(&fixture.project_dir),
+        home_dir: Some(&home),
+    };
+    let resolved = resolved_skills_for_paths(paths, true);
+
+    let shared = resolved.iter().find(|s| s.metadata.name == "shared-tool").unwrap();
+    assert_eq!(shared.origin, SkillOrigin::Project);
+    assert_eq!(shared.metadata.description, "Project tool override");
+
+    let lint = resolved.iter().find(|s| s.metadata.name == "repo-lint").unwrap();
+    assert_eq!(lint.origin, SkillOrigin::Project);
 }
