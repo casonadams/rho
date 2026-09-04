@@ -105,7 +105,6 @@ impl AgentEngine {
                 None => runner,
             };
             let mut model_call_start = Some(Instant::now());
-            self.usage.start_step();
             let mut total_generation_elapsed_ms: u64 = 0;
             let mut stream = runner.stream().await;
             let mut final_response = None;
@@ -147,25 +146,15 @@ impl AgentEngine {
                         ..
                     }) => {
                         sink.resume_model_spinner();
-                        let delta_tokens = match &content {
-                            rig::streaming::ToolCallDeltaContent::Delta(chunk) => {
-                                rho_harness_core::tokens::estimate_text_tokens(chunk, &self.config.model) as u64
-                            }
-                            rig::streaming::ToolCallDeltaContent::Name(name) => {
-                                rho_harness_core::tokens::estimate_text_tokens(name, &self.config.model) as u64
-                            }
-                        };
-                        self.usage.record_streaming_chunk(delta_tokens);
                         streaming_tool.handle_delta(content, &sink);
                     }
                     MultiTurnStreamItem::StreamAssistantItem(item) => {
-                        if model_call_start.is_none() {
-                            model_call_start = Some(Instant::now());
-                            self.usage.start_step();
-                        }
                         for event in display_events(item, &mut reasoning_parts) {
                             match event {
                                 super::history::DisplayEvent::Text(text) => {
+                                    if model_call_start.is_none() {
+                                        model_call_start = Some(Instant::now());
+                                    }
                                     let delta_tokens =
                                         rho_harness_core::tokens::estimate_text_tokens(&text, &self.config.model)
                                             as u64;
@@ -173,6 +162,9 @@ impl AgentEngine {
                                     sink.emit_text(&text);
                                 }
                                 super::history::DisplayEvent::Reasoning(text) => {
+                                    if model_call_start.is_none() {
+                                        model_call_start = Some(Instant::now());
+                                    }
                                     let delta_tokens =
                                         rho_harness_core::tokens::estimate_text_tokens(&text, &self.config.model)
                                             as u64;
@@ -204,13 +196,11 @@ impl AgentEngine {
                     }
                     MultiTurnStreamItem::ModelTurnRetried { .. } => {
                         model_call_start = Some(Instant::now());
-                        self.usage.start_step();
                         sink.resume_model_spinner();
                     }
                     MultiTurnStreamItem::ToolExecutionCommitted { .. } => {
                         streaming_tool.reset();
                         model_call_start = Some(Instant::now());
-                        self.usage.start_step();
                     }
                     MultiTurnStreamItem::StreamUserItem(_) => {}
                 }

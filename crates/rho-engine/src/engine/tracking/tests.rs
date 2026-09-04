@@ -253,3 +253,27 @@ fn usage_tracker_tokens_per_second_during_streaming() {
     tracker.record_step(step, 500);
     assert_eq!(tracker.tokens_per_second(), Some(200.0));
 }
+
+#[test]
+fn usage_tracker_step_start_only_on_first_streaming_chunk() {
+    let tracker = UsageTracker::default();
+    tracker.start_turn(Some(100));
+    // Turn started but no tokens streamed yet - step_start should be None and tps None
+    assert_eq!(tracker.tokens_per_second(), None);
+
+    // When text or reasoning chunks stream in, step_start begins
+    tracker.record_streaming_chunk(25);
+
+    // After step is recorded with duration, speed is stable
+    let step = StructuralUsage {
+        input_tokens: 100,
+        output_tokens: 50,
+        total_tokens: 150,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
+        tool_use_prompt_tokens: None,
+        reasoning_tokens: None,
+    };
+    tracker.record_step(step, 250);
+    assert_eq!(tracker.tokens_per_second(), Some(200.0));
+}

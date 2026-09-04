@@ -26,7 +26,7 @@ impl InFlightUsage {
                 tool_use_prompt_tokens: None,
                 reasoning_tokens: None,
             }),
-            step_start: Some(Instant::now()),
+            step_start: None,
             ..Self::default()
         };
     }
