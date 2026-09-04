@@ -9,7 +9,6 @@ use rho_harness_core::presentation::ToolLine;
 use std::process::Stdio;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 
 pub struct UserBashResult {
     pub output: String,
@@ -29,19 +28,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     let mut batch = LiveBatch::new();
     let controller = &mut *io.controller;
 
-    #[cfg(unix)]
-    let mut command = {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg(cmd);
-        c
-    };
-
-    #[cfg(windows)]
-    let mut command = {
-        let mut c = Command::new("cmd.exe");
-        c.arg("/c").arg(cmd);
-        c
-    };
+    let mut command = rho_engine::tools::bash::resolve_shell_command(cmd);
 
     command.stdin(Stdio::null());
     command.stdout(Stdio::piped());

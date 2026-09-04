@@ -163,3 +163,44 @@ async fn test_bash_cancellation_kills_process_group() {
     // After future is cancelled/dropped, ProcessTreeGuard drops and untracks the PID
     assert_eq!(crate::process::tracked_pid_count(), initial_count);
 }
+
+#[tokio::test]
+async fn test_bash_timeout_preserves_accumulated_output() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "echo 'early output'; sleep 3".to_string(),
+            timeout: Some(1),
+        })
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(res.content.contains("early output"));
+    assert!(res.content.contains("timed out after 1 seconds"));
+}
+
+#[tokio::test]
+async fn test_bash_nonzero_exit_preserves_output_before_status() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "echo 'first output line'; exit 42".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(res.content.contains("first output line"));
+    assert!(res.content.ends_with("Command exited with code 42"));
+}
+
+#[test]
+fn test_accumulator_sanitizes_binary_output() {
+    let mut acc = OutputAccumulator::new();
+    acc.append(b"hello\x00\x07world\n");
+    acc.finish();
+    let snap = acc.snapshot();
+    assert_eq!(snap.content, "helloworld\n");
+}

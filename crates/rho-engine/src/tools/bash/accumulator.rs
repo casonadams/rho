@@ -60,7 +60,8 @@ impl OutputAccumulator {
         }
         self.total_raw_bytes = self.total_raw_bytes.saturating_add(data.len());
         let text = String::from_utf8_lossy(data);
-        self.append_decoded_text(&text);
+        let sanitized = super::sanitize::sanitize_binary_output(&text);
+        self.append_decoded_text(&sanitized);
 
         if self.temp_file_writer.is_some() || self.should_use_temp_file() {
             self.ensure_temp_file();

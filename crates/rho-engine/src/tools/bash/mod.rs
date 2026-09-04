@@ -1,20 +1,54 @@
 pub mod accumulator;
+pub mod read_only;
+pub mod sanitize;
+pub mod shell;
 
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 pub use accumulator::{OutputAccumulator, OutputSnapshot};
+pub use read_only::is_read_only_command;
 pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
+pub use sanitize::sanitize_binary_output;
+pub use shell::resolve_shell_command;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
-use tokio::process::Command;
 
 #[cfg(test)]
 mod tests;
 
 pub const DEFAULT_BASH_TIMEOUT_SEC: u64 = 30;
+
+struct TaskGuard(Option<tokio::task::JoinHandle<()>>);
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        if let Some(h) = self.0.take() {
+            h.abort();
+        }
+    }
+}
+
+fn spawn_reader_task<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
+    mut reader: R,
+    tx: tokio::sync::mpsc::UnboundedSender<String>,
+) -> TaskGuard {
+    TaskGuard(Some(tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut buf).await {
+            if n == 0 {
+                break;
+            }
+            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+            if tx.send(s).is_err() {
+                break;
+            }
+        }
+    })))
+}
 
 pub struct BashTool {
     pub base_dir: PathBuf,
@@ -33,20 +67,7 @@ impl BashTool {
     {
         let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
 
-        #[cfg(unix)]
-        let mut cmd = {
-            let mut c = Command::new("/bin/sh");
-            c.arg("-c").arg(&args.command);
-            c
-        };
-
-        #[cfg(windows)]
-        let mut cmd = {
-            let mut c = Command::new("cmd.exe");
-            c.arg("/C").arg(&args.command);
-            c
-        };
-
+        let mut cmd = resolve_shell_command(&args.command);
         let base = Workspace::new(&self.base_dir);
         cmd.current_dir(base.root());
         cmd.stdin(Stdio::null());
@@ -70,38 +91,8 @@ impl BashTool {
         let mut guard = crate::process::ProcessTreeGuard::new(child);
 
         let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-        let stdout_tx = chunk_tx.clone();
-        let stdout_task = tokio::spawn(async move {
-            use tokio::io::AsyncReadExt;
-            let mut reader = stdout;
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = reader.read(&mut buf).await {
-                if n == 0 {
-                    break;
-                }
-                let s = String::from_utf8_lossy(&buf[..n]).to_string();
-                if stdout_tx.send(s).is_err() {
-                    break;
-                }
-            }
-        });
-
-        let stderr_tx = chunk_tx;
-        let stderr_task = tokio::spawn(async move {
-            use tokio::io::AsyncReadExt;
-            let mut reader = stderr;
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = reader.read(&mut buf).await {
-                if n == 0 {
-                    break;
-                }
-                let s = String::from_utf8_lossy(&buf[..n]).to_string();
-                if stderr_tx.send(s).is_err() {
-                    break;
-                }
-            }
-        });
+        let mut stdout_task = spawn_reader_task(stdout, chunk_tx.clone());
+        let mut stderr_task = spawn_reader_task(stderr, chunk_tx);
 
         let mut accumulator = OutputAccumulator::new();
         let execution_future = async {
@@ -109,8 +100,12 @@ impl BashTool {
                 on_chunk(&chunk);
                 accumulator.append(chunk.as_bytes());
             }
-            let _ = stdout_task.await;
-            let _ = stderr_task.await;
+            if let Some(h) = stdout_task.0.take() {
+                let _ = h.await;
+            }
+            if let Some(h) = stderr_task.0.take() {
+                let _ = h.await;
+            }
             accumulator.finish();
             guard.wait().await
         };
@@ -124,89 +119,50 @@ impl BashTool {
                 )));
             }
             Err(_) => {
+                drop(stdout_task);
+                drop(stderr_task);
                 guard.kill().await;
-                return Ok(ToolResult::error(format!(
-                    "Command '{}' timed out after {} seconds",
-                    args.command, timeout_sec
-                )));
+                while let Ok(chunk) = chunk_rx.try_recv() {
+                    on_chunk(&chunk);
+                    accumulator.append(chunk.as_bytes());
+                }
+                accumulator.finish();
+                let snapshot = accumulator.snapshot();
+                let output = snapshot.formatted_text.trim();
+                let status_msg = format!("Command timed out after {timeout_sec} seconds");
+                let res = if output.is_empty() {
+                    status_msg
+                } else {
+                    format!("{output}\n\n{status_msg}")
+                };
+                return Ok(ToolResult::error(res));
             }
         };
 
         let exit_code = status.code().unwrap_or(-1);
         let snapshot = accumulator.snapshot();
-        let truncated_output = snapshot.formatted_text;
+        let output = snapshot.formatted_text.trim();
 
         if status.success() {
-            let res = if truncated_output.trim().is_empty() {
+            let res = if output.is_empty() {
                 "[Command completed with exit code 0 (no output)]".to_string()
             } else {
-                truncated_output
+                snapshot.formatted_text
             };
             Ok(ToolResult::success(res))
         } else {
-            let res = format!("Command exited with code {exit_code}:\n{truncated_output}");
+            let status_msg = format!("Command exited with code {exit_code}");
+            let res = if output.is_empty() {
+                status_msg
+            } else {
+                format!("{output}\n\n{status_msg}")
+            };
             Ok(ToolResult::error(res))
         }
     }
 
     pub async fn execute(&self, args: BashArgs) -> Result<ToolResult, AppError> {
         self.execute_streaming(args, |_| {}).await
-    }
-}
-
-pub fn is_read_only_command(command: &str) -> bool {
-    let cmd = command.trim();
-    if cmd.contains('>') || cmd.contains("$(") || cmd.contains('`') {
-        return false;
-    }
-    let subcommands: Vec<&str> = cmd
-        .split([';', '&', '|'])
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    subcommands.iter().all(|sub| is_single_read_only_command(sub))
-}
-
-fn is_single_read_only_command(cmd: &str) -> bool {
-    let lower = cmd.to_lowercase();
-    if lower.contains("-delete") || lower.contains("-exec") {
-        return false;
-    }
-    let tokens: Vec<&str> = cmd.split_whitespace().collect();
-    let Some(first) = tokens.first() else {
-        return true;
-    };
-    let exe = first.split('/').next_back().unwrap_or(first).to_ascii_lowercase();
-
-    match exe.as_str() {
-        "ls" | "pwd" | "whoami" | "which" | "whereis" | "echo" | "printf" | "cat" | "head" | "tail" | "grep" | "rg"
-        | "find" | "wc" | "diff" | "file" | "stat" | "uname" | "printenv" | "true" | "false" => true,
-        "git" => {
-            if let Some(sub) = tokens.get(1) {
-                match *sub {
-                    "status" | "diff" | "log" | "show" | "describe" => true,
-                    "branch" => tokens
-                        .iter()
-                        .any(|&t| t == "--show-current" || t == "-a" || t == "-r" || t == "--list" || t == "-l"),
-                    "config" => tokens.iter().any(|&t| t == "--get" || t == "--list" || t == "-l"),
-                    _ => false,
-                }
-            } else {
-                true
-            }
-        }
-        "cargo" => {
-            if let Some(sub) = tokens.get(1) {
-                matches!(
-                    *sub,
-                    "check" | "clippy" | "test" | "fmt" | "tree" | "metadata" | "verify-project" | "read-manifest"
-                )
-            } else {
-                false
-            }
-        }
-        _ => false,
     }
 }
 
