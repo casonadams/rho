@@ -11,8 +11,8 @@ pub enum FdSort {
 
 #[derive(Debug, Default, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct FdArgs {
-    /// Smart-case regex matched unanchored against each entry's workspace-relative path (case-insensitive unless it contains an uppercase character)
-    pub pattern: String,
+    /// Smart-case regex matched unanchored against each entry's workspace-relative path (case-insensitive unless it contains an uppercase character). If omitted, matches all entries.
+    pub pattern: Option<String>,
     /// Subdirectory to search, relative to the workspace root (default: workspace root)
     pub path: Option<String>,
     /// Filter entries by type using default definitions (e.g. 'rust', 'py'); unknown names are rejected

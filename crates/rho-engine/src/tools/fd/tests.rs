@@ -19,7 +19,7 @@ fn fixture() -> TempDir {
 
 async fn find(dir: &TempDir, pattern: &str, mutate: impl FnOnce(&mut FdArgs)) -> ToolResult {
     let mut args = FdArgs {
-        pattern: pattern.to_string(),
+        pattern: Some(pattern.to_string()),
         ..Default::default()
     };
     mutate(&mut args);
@@ -157,11 +157,31 @@ fn oversized_output_is_byte_capped_before_the_notices() {
 }
 
 #[tokio::test]
-async fn empty_pattern_is_a_tool_error() {
+async fn no_pattern_or_empty_pattern_matches_all_files() {
     let dir = fixture();
-    let result = find(&dir, "   ", |_| {}).await;
-    assert!(result.is_error);
-    assert!(result.content.contains("Empty pattern"));
+    let no_pat = FdTool::new(dir.path()).execute(FdArgs::default()).await.unwrap();
+    assert!(!no_pat.is_error);
+    assert!(no_pat.content.contains("src/ui/widget.rs"));
+    assert!(no_pat.content.contains("README.md"));
+
+    let empty = find(&dir, "   ", |_| {}).await;
+    assert!(!empty.is_error);
+    assert_eq!(empty.content, no_pat.content);
+}
+
+#[tokio::test]
+async fn path_without_pattern_lists_files_in_subtree() {
+    let dir = fixture();
+    let args = FdArgs {
+        path: Some("src".to_string()),
+        ..Default::default()
+    };
+    let result = FdTool::new(dir.path()).execute(args).await.unwrap();
+    assert!(!result.is_error);
+    assert!(result.content.contains("src/main.rs"));
+    assert!(result.content.contains("src/lib.rs"));
+    assert!(result.content.contains("src/ui/widget.rs"));
+    assert!(!result.content.contains("README.md"));
 }
 
 #[tokio::test]
@@ -208,6 +228,11 @@ fn schema_exposes_renamed_type_property() {
     assert!(schema["properties"].get("min_lines").is_some());
     assert!(schema["properties"].get("max_lines").is_some());
     assert!(schema["properties"].get("sort").is_some());
+    let required = schema.get("required").and_then(|r| r.as_array());
+    assert!(
+        required.is_none() || !required.unwrap().iter().any(|v| v == "pattern"),
+        "pattern should be optional in schema"
+    );
 }
 
 #[tokio::test]

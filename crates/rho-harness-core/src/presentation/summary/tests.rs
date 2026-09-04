@@ -44,3 +44,15 @@ fn format_tool_args_summary_bash_multibyte_truncation() {
     assert!(summary.ends_with("..."));
     assert!(!summary.contains('`'));
 }
+
+#[test]
+fn format_tool_args_summary_fd() {
+    let with_pattern = serde_json::json!({ "pattern": "widget", "path": "src" });
+    assert_eq!(format_tool_args_summary("fd", &with_pattern), "widget in src");
+
+    let without_pattern = serde_json::json!({ "path": "src" });
+    assert_eq!(format_tool_args_summary("fd", &without_pattern), "src");
+
+    let default_root = serde_json::json!({});
+    assert_eq!(format_tool_args_summary("fd", &default_root), ".");
+}

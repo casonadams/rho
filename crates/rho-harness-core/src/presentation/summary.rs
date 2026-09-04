@@ -176,7 +176,11 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
             let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let rel = to_relative_path(path);
-            format!("{pattern} in {rel}")
+            if pattern.is_empty() {
+                rel
+            } else {
+                format!("{pattern} in {rel}")
+            }
         }
         "ls" => {
             let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");

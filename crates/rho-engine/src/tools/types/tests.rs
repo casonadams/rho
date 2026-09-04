@@ -106,9 +106,11 @@ fn rig_schemas_are_generated_from_typed_arguments() {
 async fn rig_dispatch_rejects_malformed_arguments_for_every_tool() {
     let tools = tool_set();
     for name in ["read", "write", "edit", "bash", "fd", "web_search", "web_fetch"] {
-        let result = tools
-            .execute(name, "{\"unexpected\":true}", &mut ToolContext::new())
-            .await;
+        let result = tools.execute(name, "not json", &mut ToolContext::new()).await;
+        assert!(result.is_error_kind(ToolErrorKind::InvalidArgs), "{name}: {result:?}");
+    }
+    for name in ["read", "write", "edit", "bash", "web_search", "web_fetch"] {
+        let result = tools.execute(name, "{}", &mut ToolContext::new()).await;
         assert!(result.is_error_kind(ToolErrorKind::InvalidArgs), "{name}: {result:?}");
     }
 }

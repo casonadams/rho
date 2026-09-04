@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) struct FdQuery {
     pub workspace_root: PathBuf,
     pub search_root: PathBuf,
-    pub regex: Regex,
+    pub regex: Option<Regex>,
     pub types: Option<Types>,
     pub include_hidden: bool,
     pub depth: Option<usize>,
@@ -57,7 +57,7 @@ impl FdQuery {
                     return WalkState::Continue;
                 };
                 let relative = relative.to_string_lossy().replace('\\', "/");
-                if relative.is_empty() || !regex.is_match(&relative) {
+                if relative.is_empty() || regex.as_ref().is_some_and(|r| !r.is_match(&relative)) {
                     return WalkState::Continue;
                 }
                 let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());

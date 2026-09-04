@@ -32,13 +32,13 @@ impl FdTool {
     }
 
     pub async fn execute(&self, args: FdArgs) -> Result<ToolResult, AppError> {
-        let pattern = args.pattern.trim();
-        if pattern.is_empty() {
-            return Ok(ToolResult::error("Empty pattern provided for fd tool"));
-        }
-        let regex = match compile_pattern(pattern) {
-            Ok(regex) => regex,
-            Err(message) => return Ok(ToolResult::error(message)),
+        let pattern = args.pattern.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let regex = match pattern {
+            Some(p) => match compile_pattern(p) {
+                Ok(regex) => Some(regex),
+                Err(message) => return Ok(ToolResult::error(message)),
+            },
+            None => None,
         };
         let types = match build_type_matcher(args.file_type.as_deref()) {
             Ok(types) => types,
