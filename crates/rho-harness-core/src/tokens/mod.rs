@@ -1,8 +1,12 @@
 use rig::message::{AssistantContent, Message, UserContent};
 use std::sync::LazyLock;
 
+pub mod cut_point;
+
 #[cfg(test)]
 mod tests;
+
+pub use cut_point::{find_node_token_cut_point, find_token_cut_point, is_tool_result_message, is_user_turn_start};
 
 pub const ESTIMATED_IMAGE_TOKENS: usize = 1200;
 pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
@@ -59,37 +63,6 @@ pub fn calculate_context_tokens(
             trailing_estimated_tokens: estimated,
         }
     }
-}
-
-fn is_tool_result_message(message: &Message) -> bool {
-    if let Message::User { content } = message {
-        content.iter().any(|c| matches!(c, UserContent::ToolResult(_)))
-    } else {
-        false
-    }
-}
-
-pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, model: &str) -> usize {
-    if messages.is_empty() {
-        return 0;
-    }
-    let mut accumulated_tokens: usize = 0;
-    let mut cut_idx = messages.len();
-
-    for i in (0..messages.len()).rev() {
-        let msg_tokens = estimate_message_tokens(&messages[i], model);
-        accumulated_tokens = accumulated_tokens.saturating_add(msg_tokens);
-        cut_idx = i;
-        if accumulated_tokens >= keep_recent_tokens {
-            break;
-        }
-    }
-
-    while cut_idx > 0 && is_tool_result_message(&messages[cut_idx]) {
-        cut_idx -= 1;
-    }
-
-    cut_idx
 }
 
 static CL100K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::cl100k_base().ok());

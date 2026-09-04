@@ -1,5 +1,12 @@
+pub mod files;
+pub mod serialize;
 pub mod types;
 
+#[cfg(test)]
+mod tests;
+
+pub use files::{extract_file_ops, normalize_path, render_file_lists_xml};
+pub use serialize::{MAX_TOOL_RESULT_CHARS, serialize_conversation};
 pub use types::{CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message};
 
 use super::SessionManager;

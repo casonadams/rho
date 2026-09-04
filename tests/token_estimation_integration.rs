@@ -81,6 +81,6 @@ fn test_cut_point_preserves_tool_pairs() {
         Message::assistant("Assistant summary"),
     ];
 
-    let cut_idx = find_token_cut_point(&messages, 10, "gpt-4");
-    assert!(cut_idx <= 1);
+    let cut = find_token_cut_point(&messages, 10, "gpt-4");
+    assert!(cut.cut_index <= 1);
 }
