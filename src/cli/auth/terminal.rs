@@ -12,7 +12,26 @@ pub fn open_url_in_browser(url: &str) -> std::io::Result<()> {
     }
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd").args(["/C", "start", "", url]).spawn()?;
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let launched = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Start-Process -FilePath $env:RHO_AUTH_URL",
+            ])
+            .env("RHO_AUTH_URL", url)
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn();
+
+        if launched.is_err() {
+            Command::new("cmd")
+                .args(["/C", "start", "", url.replace('&', "^&").as_str()])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()?;
+        }
     }
     Ok(())
 }
