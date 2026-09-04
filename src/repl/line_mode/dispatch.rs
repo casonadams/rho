@@ -54,8 +54,8 @@ pub async fn handle_command_result(
             *engine = session.reload_engine(engine).await?;
             Ok(DispatchOutcome::Continue)
         }
-        CommandResult::Compact { .. } => {
-            compact_context(session, engine).await;
+        CommandResult::Compact { instructions } => {
+            compact_context(session, engine, instructions.as_deref()).await;
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Tree | CommandResult::OpenTreeSelector => {
@@ -136,13 +136,21 @@ pub async fn handle_command_result(
     }
 }
 
-async fn compact_context(session: &ReplSession, engine: &AgentEngine) {
-    let session_id = engine.session_manager.session_id.clone();
+pub(crate) async fn compact_context(session: &ReplSession, engine: &AgentEngine, instructions: Option<&str>) {
     session
         .renderer
         .print_notice("  [Compacting conversation context...]\n");
-    let memory =
-        crate::session::context::context_memory(engine.session_manager.clone(), 1, session.config.compaction_max_bytes);
-    let _ = memory.load(&session_id).await;
-    session.renderer.print_notice("  [Context compaction completed]\n");
+    match engine.compact_session(instructions).await {
+        Ok(stats) => {
+            let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
+            let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
+            let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
+            session.renderer.print_notice(&format!(
+                "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
+            ));
+        }
+        Err(err) => session
+            .renderer
+            .print_notice(&format!("  [Compaction failed: {err}]\n")),
+    }
 }

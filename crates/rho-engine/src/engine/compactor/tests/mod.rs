@@ -1,4 +1,5 @@
 mod auto_compact;
+mod branch;
 mod common;
 mod compactor;
 mod orchestrator;

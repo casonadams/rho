@@ -70,15 +70,25 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
                         let ok_res = RpcResponse::success(req_id, "tool_response", None);
                         writer.write_message(&ok_res).await?;
                     }
-                    RpcCommand::Compact { .. } => {
-                        let memory = crate::session::context::context_memory(
-                            engine.session_manager.clone(),
-                            1,
-                            config.compaction_max_bytes,
-                        );
-                        let _ = memory.load(&session_id).await;
-                        let ok_res = RpcResponse::success(req_id, "compact", None);
-                        writer.write_message(&ok_res).await?;
+                    RpcCommand::Compact { instructions } => {
+                        match engine.compact_session(instructions.as_deref()).await {
+                            Ok(stats) => {
+                                let ok_res = RpcResponse::success(
+                                    req_id,
+                                    "compact",
+                                    Some(serde_json::json!({
+                                        "tokens_before": stats.tokens_before,
+                                        "tokens_after": stats.tokens_after,
+                                        "saved_tokens": stats.saved_tokens,
+                                    })),
+                                );
+                                writer.write_message(&ok_res).await?;
+                            }
+                            Err(e) => {
+                                let err_res = RpcResponse::failure(req_id, "compact", &e.to_string());
+                                writer.write_message(&err_res).await?;
+                            }
+                        }
                     }
                     RpcCommand::SetModel { model, provider } => {
                         let mut new_config = config.clone();

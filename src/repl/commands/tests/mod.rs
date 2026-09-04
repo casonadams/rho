@@ -37,6 +37,7 @@ pub(super) fn test_context<'a>(
     }
 }
 
+mod compact;
 mod dispatch;
 mod export;
 mod session;

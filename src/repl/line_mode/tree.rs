@@ -19,23 +19,21 @@ pub async fn switch_active_branch(leaf_id: String, session: &mut ReplSession, en
     let has_assistant = abandoned
         .iter()
         .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
-    if has_assistant
+    let summary_text = if has_assistant
         && session.renderer.has_interactive_ui()
         && let Ok(true) = inquire::Confirm::new("Summarize discoveries from abandoned branch before switching?")
             .with_default(true)
             .prompt()
     {
-        let summary_text = abandoned
-            .iter()
-            .map(|n| format!("{:?}", n.messages))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let _ = engine
-            .session_manager
-            .append_branch_summary(&summary_text, &old_leaf)
-            .await;
-    }
+        let messages: Vec<_> = abandoned.iter().flat_map(|n| n.messages.clone()).collect();
+        Some(engine.summarize_branch(&messages).await)
+    } else {
+        None
+    };
     let _ = engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
+    if let Some(summary) = summary_text {
+        let _ = engine.session_manager.append_branch_summary(&summary, &old_leaf).await;
+    }
     *engine = engine
         .rebuild(session.config.clone(), session.auth_store.clone())
         .await?;

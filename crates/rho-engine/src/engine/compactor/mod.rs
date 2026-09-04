@@ -1,3 +1,4 @@
+pub mod branch;
 pub mod llm;
 pub mod orchestrator;
 pub mod overflow;

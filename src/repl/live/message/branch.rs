@@ -23,7 +23,7 @@ pub(super) async fn handle_switch_branch<B: TerminalBackend>(
     let has_assistant = abandoned
         .iter()
         .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
-    if has_assistant && ctx.session.renderer.has_interactive_ui() {
+    let summary_text = if has_assistant && ctx.session.renderer.has_interactive_ui() {
         let mut paused = ctx.input.pause()?;
         paused.drain();
         ctx.controller.suspend()?;
@@ -36,19 +36,22 @@ pub(super) async fn handle_switch_branch<B: TerminalBackend>(
         controller_res?;
         input_res?;
         if let Ok(true) = confirmed {
-            let summary_text = abandoned
-                .iter()
-                .map(|n| format!("{:?}", n.messages))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let _ = ctx
-                .engine
-                .session_manager
-                .append_branch_summary(&summary_text, &old_leaf)
-                .await;
+            let messages: Vec<_> = abandoned.iter().flat_map(|n| n.messages.clone()).collect();
+            Some(ctx.engine.summarize_branch(&messages).await)
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
     ctx.engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
+    if let Some(summary) = summary_text {
+        let _ = ctx
+            .engine
+            .session_manager
+            .append_branch_summary(&summary, &old_leaf)
+            .await;
+    }
     *ctx.engine = ctx
         .engine
         .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())

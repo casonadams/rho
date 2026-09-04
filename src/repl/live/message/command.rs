@@ -79,18 +79,27 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
         CommandResult::Reload => {
             *ctx.engine = ctx.session.reload_engine(ctx.engine).await?;
         }
-        CommandResult::Compact { .. } => {
-            let session_id = ctx.engine.session_manager.session_id.clone();
+        CommandResult::Compact { instructions } => {
             ctx.session
                 .renderer
                 .print_notice("  [Compacting conversation context...]\n");
-            let memory = crate::session::context::context_memory(
-                ctx.engine.session_manager.clone(),
-                1,
-                ctx.session.config.compaction_max_bytes,
-            );
-            let _ = memory.load(&session_id).await;
-            ctx.session.renderer.print_notice("  [Context compaction completed]\n");
+            match ctx.engine.compact_session(instructions.as_deref()).await {
+                Ok(stats) => {
+                    let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
+                    let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
+                    let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
+                    ctx.session.renderer.print_notice(&format!(
+                        "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
+                    ));
+                    super::super::turn::sync_turn_footer(io.controller, ctx.engine);
+                    let _ = io.controller.redraw();
+                }
+                Err(err) => {
+                    ctx.session
+                        .renderer
+                        .print_notice(&format!("  [Compaction failed: {err}]\n"));
+                }
+            }
         }
         CommandResult::ExpandedPrompt { text } => {
             ctx.session.renderer.print_notice("  [Expanded template]\n");
