@@ -13,6 +13,12 @@ pub fn output_cursor(value: &str, terminal_width: usize) -> (usize, bool) {
                         break;
                     }
                 }
+            } else if characters.next_if_eq(&']').is_some() {
+                for sequence_character in characters.by_ref() {
+                    if sequence_character == '\x07' || sequence_character == '\u{1b}' {
+                        break;
+                    }
+                }
             }
             continue;
         }

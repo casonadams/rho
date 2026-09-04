@@ -116,7 +116,10 @@ impl TerminalApprovalSink {
 
         if let Ok(mut state) = self.state.lock() {
             let redacted = self.session_manager.redact_credentials(text);
-            if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Text {
+            if state.last_display == DisplayKind::Tool
+                || state.last_display == DisplayKind::Text
+                || state.last_display == DisplayKind::None
+            {
                 prefix_blank = true;
             }
             state.last_display = DisplayKind::Thinking;
@@ -148,7 +151,10 @@ impl TerminalApprovalSink {
         self.flush_reasoning();
         let mut prefix_blank = false;
         if let Ok(mut state) = self.state.lock() {
-            if state.last_display == DisplayKind::Tool || state.last_display == DisplayKind::Thinking {
+            if state.last_display == DisplayKind::Tool
+                || state.last_display == DisplayKind::Thinking
+                || state.last_display == DisplayKind::None
+            {
                 prefix_blank = true;
             }
             state.last_display = DisplayKind::Text;

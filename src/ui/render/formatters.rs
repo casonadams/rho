@@ -99,6 +99,5 @@ pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> Strin
     for line in thinking_text.trim().lines() {
         out.push_str(&format!("{d}{line}{d:#}\n"));
     }
-    out.push('\n');
     out
 }

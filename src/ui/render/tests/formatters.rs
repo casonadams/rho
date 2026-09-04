@@ -80,5 +80,5 @@ fn test_format_thinking_block_renders_dimmed_with_trailing_breaks() {
     assert!(formatted.contains("analyzing the problem"));
     assert!(formatted.contains("checking tests"));
     assert!(!formatted.contains("┌─ Thinking"));
-    assert!(formatted.ends_with("\n\n"));
+    assert!(formatted.ends_with('\n'));
 }

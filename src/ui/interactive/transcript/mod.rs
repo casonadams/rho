@@ -23,10 +23,10 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
             let rendered = md.render_token(text, input.theme);
             let flushed = md.flush(input.theme);
             let full = format!("{rendered}{flushed}");
-            if full.is_empty() {
-                full
+            if full.trim().is_empty() {
+                String::new()
             } else {
-                format!("{OSC133_ZONE_START}{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
+                format!("{OSC133_ZONE_START}\n{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
             }
         }
         TranscriptItem::Thinking(text) => {
@@ -35,7 +35,7 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
                 String::new()
             } else if input.hide_thinking {
                 let dim = input.theme.dimmed;
-                format!("{dim}Thinking...{dim:#}\n")
+                format!("\n{dim}Thinking...{dim:#}\n")
             } else {
                 format_thinking_block(trimmed, input.theme)
             }

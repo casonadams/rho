@@ -33,7 +33,12 @@ impl OutputTracker {
         } else {
             self.line.push_str(output);
         }
-        self.open = !output.ends_with('\n');
+        let has_newline =
+            output.ends_with('\n') || (output.rfind('\n').is_some() && output_cursor(&self.line, usize::MAX).0 == 0);
+        self.open = !has_newline;
+        if !self.open {
+            self.line.clear();
+        }
     }
 
     pub fn restore_cursor<B: TerminalBackend>(&self, backend: &mut B, width: usize) -> io::Result<()> {

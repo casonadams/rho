@@ -91,6 +91,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.output.update(rendered);
             if self.output.is_open() {
                 self.backend.write_text("\r\n")?;
+                self.output.update("\n");
             }
         }
 
