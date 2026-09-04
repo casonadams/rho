@@ -692,3 +692,100 @@ async fn agent_eval_context_reports_usage_only_when_available_and_is_determinist
     assert!(!encoded.contains("credential-sentinel"));
     assert!(!encoded.contains("historical request"));
 }
+
+#[tokio::test]
+async fn agent_eval_mid_turn_steering_skips_subsequent_batched_tools() {
+    let dir = temp_dir("steering-eval");
+    std::fs::create_dir_all(&dir).unwrap();
+    let first = dir.join("first.txt");
+    let second = dir.join("second.txt");
+    std::fs::write(&first, "sample content").unwrap();
+
+    let model = MockCompletionModel::from_stream_turns([
+        vec![
+            MockStreamEvent::tool_call("call-1", "read", json!({"path": first})),
+            MockStreamEvent::tool_call(
+                "call-2",
+                "write",
+                json!({"path": second, "content": "should be skipped"}),
+            ),
+            final_event(Usage::new()),
+        ],
+        vec![
+            MockStreamEvent::text("handled steering gracefully"),
+            final_event(Usage::new()),
+        ],
+    ]);
+
+    let engine = mock_engine(
+        model.clone(),
+        MockEngineConfig {
+            base_dir: &dir,
+            session_manager: None,
+            built_in_tools: builtin_tools_for(&dir),
+            app_config: rho::config::Config {
+                max_turns: 3,
+                ..rho::config::Config::default()
+            },
+        },
+    );
+
+    let steering = std::sync::Arc::new(rho::repl::coordinator::SharedSteeringQueue::new(
+        rho::engine::runner::QueueMode::All,
+    ));
+    steering.enqueue("stop modifying files, answer now".to_string());
+
+    let request = TurnRequest::new("start inspection").with_steering(steering);
+    let output = engine
+        .run_turn(request, std::sync::Arc::new(StructuredPresenter::stdout()))
+        .await
+        .unwrap();
+
+    assert_eq!(output.final_text, "handled steering gracefully");
+    assert!(
+        !second.exists(),
+        "batched write tool call must be skipped after steering"
+    );
+
+    let requests = model.requests();
+    assert!(requests.len() >= 2);
+    let history_str = format!("{:?}", requests[1]);
+    assert!(history_str.contains("[USER STEERING INTERRUPT]"));
+    assert!(history_str.contains("stop modifying files, answer now"));
+    assert!(history_str.contains("Tool execution cancelled due to user steering interrupt."));
+}
+
+#[tokio::test]
+async fn agent_eval_context_cli_flags_override_and_suppress() {
+    let dir = temp_dir("context-eval");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("AGENTS.md"), "# Suppressed Rules\n").unwrap();
+    std::fs::write(dir.join("SYSTEM.md"), "Ignored file system prompt\n").unwrap();
+
+    let config = rho::config::Config {
+        system_prompt: Some("CLI custom persona".to_string()),
+        append_system_prompt: Some("CLI appended rule".to_string()),
+        no_context_files: true,
+        sessions_dir: dir.join("sessions"),
+        ..rho::config::Config::default()
+    };
+    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(Usage::new())]]);
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &dir,
+            session_manager: None,
+            built_in_tools: builtin_tools_for(&dir),
+            app_config: config,
+        },
+    );
+
+    let ctx = engine.project_context().await.unwrap();
+    let prompt = ctx.build_system_prompt();
+
+    assert!(prompt.contains("CLI custom persona"));
+    assert!(prompt.contains("CLI appended rule"));
+    assert!(!prompt.contains("Ignored file system prompt"));
+    assert!(!prompt.contains("<project_instructions"));
+    assert!(!prompt.contains("Suppressed Rules"));
+}
