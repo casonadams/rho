@@ -52,7 +52,6 @@ done
             enabled: true,
             servers: mcp_servers,
         },
-        auto_approve: true,
         ..Config::default()
     };
 

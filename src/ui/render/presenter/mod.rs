@@ -1,19 +1,15 @@
 //! `Presenter` implementation bridging `TerminalRenderer` to harness core.
 
-mod approval;
 mod sink;
 
 pub use sink::InteractiveStreamSink;
 
 use super::renderer::TerminalRenderer;
-use approval::prompt_interactive_tool_approval;
 use async_trait::async_trait;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use rho_harness_core::presentation::{ActivityToken, activity_token};
-use rho_harness_core::presentation::{
-    ApprovalResult, BashApproval, InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay,
-};
+use rho_harness_core::presentation::{InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay};
 use serde_json::Value;
 
 #[async_trait]
@@ -80,14 +76,6 @@ impl Presenter for TerminalRenderer {
         )
     }
 
-    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {
-        if let Some(ui) = &self.ui {
-            prompt_interactive_tool_approval(ui, name, arguments).await
-        } else {
-            ApprovalResult::Approved
-        }
-    }
-
     async fn request_interaction(&self, prompt: InteractionPrompt) -> Option<InteractionResponse> {
         self.ui.as_ref()?.request(prompt).await.ok()
     }
@@ -98,10 +86,6 @@ impl Presenter for TerminalRenderer {
 
     fn set_extra_status(&self, status: Option<String>) {
         TerminalRenderer::set_extra_status(self, status);
-    }
-
-    async fn prompt_bash_approval(&self, _request: BashApproval) -> ApprovalResult {
-        ApprovalResult::Approved
     }
 
     async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {

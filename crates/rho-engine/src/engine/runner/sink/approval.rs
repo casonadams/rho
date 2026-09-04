@@ -32,7 +32,6 @@ impl TerminalApprovalSink {
             session_manager,
             run_tracker: config.run_tracker,
             state: Mutex::new(TerminalSinkState {
-                auto_approve: config.auto_approve,
                 spinner: Some(spinner),
                 pending: HashMap::new(),
                 reasoning: Vec::new(),

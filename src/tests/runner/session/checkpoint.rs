@@ -21,7 +21,6 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
     let first = test_engine(
         first_model,
         Config {
-            auto_approve: true,
             max_turns: 2,
             ..Config::default()
         },
@@ -49,7 +48,6 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
     let resumed = test_engine_with_session(
         resumed_model.clone(),
         Config {
-            auto_approve: true,
             max_turns: 2,
             ..Config::default()
         },

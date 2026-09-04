@@ -103,7 +103,7 @@ impl AgentEngine {
         self.context.limit_for(&self.config.model)
     }
 
-    pub(crate) async fn project_context(&self) -> Result<context::ProjectContext> {
+    pub async fn project_context(&self) -> Result<context::ProjectContext> {
         let cwd = std::env::current_dir()?;
         let mut cache = self.project_context.lock().await;
         if cache.as_ref().map(|(dir, _)| dir.as_path()) != Some(cwd.as_path()) {
@@ -117,6 +117,13 @@ impl AgentEngine {
         };
         cached.refresh_runtime_state().await;
         Ok(cached.clone())
+    }
+
+    pub async fn instruction_files(&self) -> Vec<String> {
+        self.project_context()
+            .await
+            .map(|ctx| ctx.instruction_files.into_iter().map(|(path, _)| path).collect())
+            .unwrap_or_default()
     }
 
     pub fn context_usage_percent(&self) -> Option<usize> {

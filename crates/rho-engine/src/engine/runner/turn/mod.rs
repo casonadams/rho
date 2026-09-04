@@ -62,7 +62,6 @@ impl AgentEngine {
             &presenter,
             TerminalSinkConfig {
                 model_label,
-                auto_approve: self.config.auto_approve,
                 run_tracker: self.run_tracker.clone(),
             },
             self.session_manager.clone(),
@@ -120,7 +119,7 @@ impl AgentEngine {
                             let pending = checkpoint_messages(&visible_history, &history)?;
                             self.session_manager.save_checkpoint(pending.clone()).await?;
                             checkpoint = Some(pending);
-                            if !self.config.auto_approve && presenter.prompt_continue_budget(max_turns).await {
+                            if presenter.prompt_continue_budget(max_turns).await {
                                 budget_hit = true;
                                 break;
                             }

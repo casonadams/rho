@@ -2,10 +2,9 @@ use super::*;
 
 #[test]
 fn test_cli_parsing_prompt() {
-    let args = vec!["rho", "-p", "fix bug in auth", "-y"];
+    let args = vec!["rho", "-p", "fix bug in auth"];
     let cli = Cli::try_parse_from(args).unwrap();
     assert_eq!(cli.prompt.as_deref(), Some("fix bug in auth"));
-    assert!(cli.auto_approve);
 }
 
 #[test]

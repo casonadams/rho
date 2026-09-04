@@ -14,13 +14,7 @@ async fn malformed_tool_arguments_are_model_visible_tool_failures() {
         ],
         [MockStreamEvent::text("recovered"), final_event(Usage::new())],
     ]);
-    let engine = test_engine(
-        model.clone(),
-        Config {
-            auto_approve: true,
-            ..Config::default()
-        },
-    );
+    let engine = test_engine(model.clone(), Config::default());
     let output = engine
         .run_turn(request("read"), presenter(&TerminalRenderer::default()))
         .await

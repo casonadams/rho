@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use rho_harness_core::presentation::activity::ActivityToken;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::stream::ToolStreamPort;
-use rho_harness_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
+use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 
 #[derive(Default)]
 pub struct NoopPresenter;
@@ -35,12 +35,6 @@ impl Presenter for NoopPresenter {
     fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::default()
-    }
-    async fn prompt_tool_approval(&self, _name: &str, _arguments: &serde_json::Value) -> ApprovalResult {
-        ApprovalResult::Approved
-    }
-    async fn prompt_bash_approval(&self, _request: BashApproval) -> ApprovalResult {
-        ApprovalResult::Approved
     }
     async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
         false

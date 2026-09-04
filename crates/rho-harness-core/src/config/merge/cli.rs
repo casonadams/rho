@@ -20,7 +20,4 @@ pub(crate) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     if let Some(ref t) = c.thinking {
         config.thinking_level = if t == "off" { None } else { Some(t.clone()) };
     }
-    if c.auto_approve {
-        config.auto_approve = true;
-    }
 }

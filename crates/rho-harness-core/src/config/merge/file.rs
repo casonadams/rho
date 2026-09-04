@@ -8,9 +8,6 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(p) = file.provider {
         config.provider = p;
     }
-    if let Some(a) = file.auto_approve {
-        config.auto_approve = a;
-    }
     if let Some(max_output_tokens) = file.max_output_tokens {
         config.max_output_tokens = Some(max_output_tokens);
     }

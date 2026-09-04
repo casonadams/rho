@@ -68,7 +68,6 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
     };
     let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("completed"), final_event(usage)]]);
     let config = Config {
-        auto_approve: true,
         max_turns: 2,
         sessions_dir: sessions,
         ..Config::default()

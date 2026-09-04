@@ -1,8 +1,8 @@
-use super::formatters::{format_bash_approval_card, format_session_status};
+use super::formatters::format_session_status;
 use super::renderer::TerminalRenderer;
 use crate::ui::block::{BlockFormat, terminal_width};
 use rho_harness_core::presentation::summary::to_relative_path;
-use rho_harness_core::presentation::{BashApproval, BlockDisplay, SessionStatus, WelcomeDisplay};
+use rho_harness_core::presentation::{BlockDisplay, SessionStatus, WelcomeDisplay};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CacheMissNotice {
@@ -17,13 +17,14 @@ impl TerminalRenderer {
             .ok()
             .map(|path| to_relative_path(&path.display().to_string()))
             .unwrap_or_else(|| ".".to_string());
+        let agents = display.agents.iter().map(|path| to_relative_path(path)).collect();
         let item = crate::ui::interactive::WelcomeItem {
             version: env!("CARGO_PKG_VERSION").to_string(),
             model: display.model.to_string(),
             provider: display.provider.to_string(),
-            auto_approve: display.auto_approve,
             resumed: display.resumed,
             location,
+            agents,
             tools: display.tools.clone(),
             skills: display.skills.clone(),
             plugins: display.plugins.clone(),
@@ -123,10 +124,5 @@ impl TerminalRenderer {
             let user = self.theme.prompt;
             self.write_output(&format!("{user}>{user:#} {input}\n\n"));
         }
-    }
-
-    pub fn print_bash_approval_request(&self, request: &BashApproval) {
-        let card = format_bash_approval_card(request, &self.theme, terminal_width());
-        self.write_output(&format!("\n{card}\n"));
     }
 }

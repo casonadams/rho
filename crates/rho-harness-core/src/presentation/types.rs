@@ -3,22 +3,6 @@ use serde_json::Value;
 
 pub const UI_EVENT_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RiskTier {
-    ReadOnly,
-    Mutating,
-    HighRisk,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ApprovalResult {
-    Approved,
-    ApprovedForSession,
-    Denied { reason: String },
-}
-
 /// One selectable row in a generic modal rendered on behalf of a caller
 /// (plugin or engine).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,8 +62,9 @@ pub enum InteractionResponse {
 pub struct WelcomeDisplay {
     pub model: String,
     pub provider: String,
-    pub auto_approve: bool,
     pub resumed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -94,14 +79,6 @@ pub struct SessionStatus {
     pub provider: String,
     pub context: String,
     pub quota: Option<String>,
-    pub auto_approve: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BashApproval {
-    pub command: String,
-    pub tier: RiskTier,
-    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -10,7 +10,6 @@ fn visible_stream_clears_spinner_and_hidden_output_resumes_it() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),
@@ -37,7 +36,6 @@ fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),
@@ -63,7 +61,6 @@ fn interactive_stream_preserves_spinner_until_finished() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),
@@ -99,7 +96,6 @@ fn reasoning_flushes_before_tool_classification() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: false,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),

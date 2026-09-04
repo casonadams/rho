@@ -20,7 +20,6 @@ fn test_file_merge() {
     let file_cfg = FileConfig {
         model: Some("gpt-4o".to_string()),
         provider: Some("openai".to_string()),
-        auto_approve: Some(true),
         max_output_tokens: Some(8192),
         max_turns: Some(10),
         context_limit: Some(65536),
@@ -32,7 +31,6 @@ fn test_file_merge() {
     merge::merge_file(&mut cfg, file_cfg);
     assert_eq!(cfg.model, "gpt-4o");
     assert_eq!(cfg.provider, "openai");
-    assert!(cfg.auto_approve);
     assert_eq!(cfg.max_output_tokens, Some(8192));
     assert_eq!(cfg.max_turns, 10);
     assert_eq!(cfg.context_limit, Some(65536));
@@ -65,7 +63,6 @@ fn test_precedence_is_defaults_file_environment_then_cli() {
         provider: None,
         max_output_tokens: None,
         max_turns: Some(40),
-        auto_approve: false,
         thinking: None,
         name: None,
         export: None,
@@ -93,13 +90,13 @@ fn test_invalid_environment_values_are_rejected() {
     .to_string();
     assert!(error.contains("AI_CONTEXT_LIMIT"));
 
-    let environment = std::collections::HashMap::from([("AI_AUTO_APPROVE", "sometimes")]);
+    let environment = std::collections::HashMap::from([("WEB_ALLOW_PRIVATE_NETWORK", "sometimes")]);
     let error = merge::apply_env_overrides_with(&mut config, |name| {
         environment.get(name).map(|value| (*value).to_string())
     })
     .unwrap_err()
     .to_string();
-    assert!(error.contains("AI_AUTO_APPROVE"));
+    assert!(error.contains("WEB_ALLOW_PRIVATE_NETWORK"));
 }
 
 #[test]

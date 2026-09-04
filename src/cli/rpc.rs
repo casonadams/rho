@@ -16,7 +16,7 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
     let mut writer = JsonLinesWriter::new(stdout);
 
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
-    let (presenter, _approval_tx) = RpcPresenter::new(event_tx.clone());
+    let presenter = RpcPresenter::new(event_tx.clone());
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(presenter);
 
     let mut engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None).await?;
@@ -103,7 +103,6 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
                             "session_id": engine.session_manager.session_id,
                             "model": config.model,
                             "provider": config.provider,
-                            "auto_approve": config.auto_approve,
                         });
                         let ok_res = RpcResponse::success(req_id, "get_state", Some(data));
                         writer.write_message(&ok_res).await?;

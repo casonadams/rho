@@ -47,7 +47,6 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         session,

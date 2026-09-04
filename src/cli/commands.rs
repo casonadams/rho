@@ -56,7 +56,6 @@ fn handle_config(
                     println!("Provider: {} (custom)", config.provider);
                 }
             }
-            println!("Auto approve: {}", config.auto_approve);
             println!("Max turns: {}", config.max_turns);
             println!("Context window messages: {}", config.context_window_messages);
             println!("Compaction max bytes: {}", config.compaction_max_bytes);

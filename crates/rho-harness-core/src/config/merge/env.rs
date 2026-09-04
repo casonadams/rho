@@ -19,9 +19,6 @@ where
     {
         config.provider = val.trim().to_string();
     }
-    if let Some(val) = get("AI_AUTO_APPROVE") {
-        config.auto_approve = parse_bool("AI_AUTO_APPROVE", &val)?;
-    }
     if let Some(val) = get("AI_CONTEXT_LIMIT") {
         config.context_limit = Some(parse_positive("AI_CONTEXT_LIMIT", &val)?);
     }

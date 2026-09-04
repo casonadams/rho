@@ -35,17 +35,6 @@ pub struct Cli {
     #[arg(long = "max-turns", env = "AI_MAX_TURNS")]
     pub max_turns: Option<usize>,
 
-    /// Automatically approve operations that are normally approval-required, including outside-workspace writes and mutating or uncertain Bash calls
-    #[arg(
-        short = 'y',
-        short_alias = 'a',
-        long = "auto-approve",
-        alias = "approve",
-        default_value_t = false,
-        hide = true
-    )]
-    pub auto_approve: bool,
-
     /// Thinking level: off, minimal, low, medium, high, xhigh, max
     #[arg(long = "thinking", env = "AI_THINKING_LEVEL")]
     pub thinking: Option<String>,

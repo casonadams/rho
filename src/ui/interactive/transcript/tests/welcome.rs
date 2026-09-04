@@ -8,9 +8,9 @@ fn render_transcript_welcome() {
         version: "0.1.0".into(),
         model: "gpt-4".into(),
         provider: "openai".into(),
-        auto_approve: false,
         resumed: false,
         location: ".".into(),
+        agents: vec!["AGENTS.md".into()],
         tools: vec!["read".into(), "write".into(), "playwright_click".into()],
         skills: vec!["plan".into(), "spec".into()],
         plugins: vec!["permission".into()],
@@ -25,6 +25,8 @@ fn render_transcript_welcome() {
     });
     assert!(rendered.contains("rho"));
     assert!(rendered.contains("Type /help for commands"));
+    assert!(rendered.contains("[agents]"));
+    assert!(rendered.contains("AGENTS.md"));
     assert!(rendered.contains("[skills]"));
     assert!(rendered.contains("plan, spec"));
     assert!(rendered.contains("[tools]"));
@@ -33,4 +35,31 @@ fn render_transcript_welcome() {
     assert!(rendered.contains("playwright (1 tool)"));
     assert!(rendered.contains("[plugins]"));
     assert!(rendered.contains("permission"));
+}
+
+#[test]
+fn render_transcript_welcome_without_agents() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Welcome(WelcomeItem {
+        version: "0.1.0".into(),
+        model: "gpt-4".into(),
+        provider: "openai".into(),
+        resumed: false,
+        location: ".".into(),
+        agents: Vec::new(),
+        tools: vec!["read".into()],
+        skills: Vec::new(),
+        plugins: Vec::new(),
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    assert!(!rendered.contains("[agents]"));
+    assert!(!rendered.contains("[skills]"));
+    assert!(rendered.contains("[tools]"));
 }

@@ -1,24 +1,7 @@
-//! Path-cleaning, tool-arg summarization, and bash-approval helpers.
+//! Path-cleaning and tool-arg summarization helpers.
 
-use super::types::{BashApproval, RiskTier};
 use crate::args::read::DEFAULT_READ_LIMIT;
 use std::path::Path;
-
-pub fn bash_approval_details(request: &BashApproval) -> Vec<String> {
-    let mut lines = vec![format!("$ {}", clean_command_paths(&request.command))];
-    if request.tier == RiskTier::HighRisk && !request.reasons.is_empty() {
-        lines.push(String::new());
-        lines.extend(request.reasons.iter().map(|reason| reason.to_string()));
-    }
-    lines
-}
-
-pub fn approval_heading(tier: RiskTier) -> &'static str {
-    match tier {
-        RiskTier::HighRisk => "High-risk bash command",
-        RiskTier::ReadOnly | RiskTier::Mutating => "Bash command requires approval",
-    }
-}
 
 pub fn to_relative_path(raw_path: &str) -> String {
     let clean = raw_path.trim().trim_matches('"').trim_matches('\'');
@@ -187,19 +170,6 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             to_relative_path(path)
         }
         _ => "".to_string(),
-    }
-}
-
-/// Full-fidelity tool input for approval prompts: unlike the tool-line
-/// summary there is no truncation, since the user is approving exactly this
-/// input. Unknown tools return an empty string (callers fall back to JSON).
-pub fn format_tool_args_full(name: &str, args: &serde_json::Value) -> String {
-    match name {
-        "bash" => clean_command_paths(args.get("command").and_then(|c| c.as_str()).unwrap_or("")),
-        "read" | "write" | "edit" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or("")),
-        "web_search" => args.get("query").and_then(|q| q.as_str()).unwrap_or("").to_string(),
-        "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
-        _ => String::new(),
     }
 }
 

@@ -15,7 +15,6 @@ fn print_session_status_and_notice_emit_transcript_item() {
         provider: "anthropic".to_string(),
         context: "42% context".to_string(),
         quota: Some("80% quota".to_string()),
-        auto_approve: true,
     });
     renderer.print_notice("  [Notice message]\n");
 
@@ -86,7 +85,6 @@ fn session_status_keeps_runtime_context_visible() {
             provider: "anthropic".to_string(),
             context: "27.4% (1M)".to_string(),
             quota: Some("93% (3h22m)".to_string()),
-            auto_approve: false,
         }),
         "claude-sonnet | 27.4% (1M) | 93% (3h22m)"
     );
@@ -96,7 +94,6 @@ fn session_status_keeps_runtime_context_visible() {
             provider: "ollama".to_string(),
             context: "0% (376k)".to_string(),
             quota: None,
-            auto_approve: true,
         }),
         "qwen | 0% (376k)"
     );

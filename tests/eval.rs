@@ -574,7 +574,6 @@ async fn agent_eval_session_cancellation_boundaries_remain_resumable() {
                 session_manager: None,
                 built_in_tools: builtin_tools_for(&dir),
                 app_config: rho::config::Config {
-                    auto_approve: true,
                     max_turns: 2,
                     ..rho::config::Config::default()
                 },

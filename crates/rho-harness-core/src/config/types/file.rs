@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 pub(crate) struct FileConfig {
     pub model: Option<String>,
     pub provider: Option<String>,
-    pub auto_approve: Option<bool>,
     pub max_output_tokens: Option<u64>,
     pub max_turns: Option<usize>,
     pub context_limit: Option<usize>,

@@ -10,7 +10,6 @@ pub const DEFAULT_MAX_TURNS: usize = 250;
 pub struct Config {
     pub model: String,
     pub provider: String,
-    pub auto_approve: bool,
     pub max_output_tokens: Option<u64>,
     pub max_turns: usize,
     pub context_limit: Option<usize>,
@@ -45,7 +44,6 @@ impl Default for Config {
         Self {
             model: "claude-3-7-sonnet-20250219".to_string(),
             provider: "anthropic".to_string(),
-            auto_approve: false,
             max_output_tokens: None,
             max_turns: DEFAULT_MAX_TURNS,
             context_limit: None,

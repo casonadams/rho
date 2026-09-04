@@ -31,13 +31,7 @@ async fn mutating_tools_execute_sequentially() {
         ],
         vec![MockStreamEvent::text("done"), final_event(Usage::new())],
     ]);
-    let engine = test_engine(
-        model,
-        Config {
-            auto_approve: true,
-            ..Config::default()
-        },
-    );
+    let engine = test_engine(model, Config::default());
     engine
         .run_turn(request("run"), presenter(&TerminalRenderer::default()))
         .await
@@ -59,13 +53,7 @@ async fn cancelled_tool_run_persists_no_incomplete_result() {
         ),
         final_event(Usage::new()),
     ]]);
-    let engine = test_engine(
-        model,
-        Config {
-            auto_approve: true,
-            ..Config::default()
-        },
-    );
+    let engine = test_engine(model, Config::default());
     let result = tokio::time::timeout(
         std::time::Duration::from_millis(50),
         engine.run_turn(request("run"), presenter(&TerminalRenderer::default())),

@@ -36,7 +36,7 @@ pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Res
     session.config = engine.config.clone();
     engine.refresh_quota().await;
 
-    print_line_mode_welcome(session, &engine);
+    print_line_mode_welcome(session, &engine).await;
 
     let mut line_editor = build_line_editor(&session.config, &session.auth_store)?;
     let prompt = SimplePrompt;
@@ -54,7 +54,6 @@ pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Res
             provider: session.config.provider.clone(),
             context: engine.context_remaining_display(),
             quota,
-            auto_approve: session.config.auto_approve,
         });
 
         let sig = line_editor.read_line(&prompt);

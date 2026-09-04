@@ -1,4 +1,4 @@
-//! Terminal rendering, approval prompts, and tool-result formatting.
+//! Terminal rendering and tool-result formatting.
 //!
 //! Submodules:
 //! - [`renderer`]: the core `TerminalRenderer` struct and its user-facing methods.
@@ -6,7 +6,7 @@
 //!
 //! Render payload data and text summarization live in `rho-harness-core`'s
 //! presentation module and are re-exported here so external callers continue
-//! to use `crate::ui::render::{TerminalRenderer, ApprovalResult, BashApproval, ToolLine}` etc.
+//! to use `crate::ui::render::{TerminalRenderer, ToolLine}` etc.
 
 pub(crate) mod card;
 pub(crate) mod diff;
@@ -25,9 +25,7 @@ pub(crate) use preview::{detect_language_from_args, fetch_content_kind, tool_tit
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
-pub use rho_harness_core::presentation::{
-    ApprovalResult, BashApproval, RiskTier, SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay,
-};
+pub use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 pub use rpc_presenter::RpcPresenter;
 
 pub fn format_duration(duration: std::time::Duration) -> String {

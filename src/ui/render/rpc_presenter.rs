@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use rho_harness_core::presentation::activity::ActivityToken;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::stream::ToolStreamPort;
-use rho_harness_core::presentation::{ApprovalResult, BashApproval, SessionStatus, ToolLine, WelcomeDisplay};
+use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 use rho_harness_core::rpc::protocol::RpcEvent;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -13,10 +13,8 @@ pub struct RpcPresenter {
 }
 
 impl RpcPresenter {
-    pub fn new(event_tx: mpsc::UnboundedSender<RpcEvent>) -> (Self, mpsc::UnboundedSender<(String, bool)>) {
-        let (approval_tx, _approval_rx) = mpsc::unbounded_channel();
-        let presenter = Self { event_tx };
-        (presenter, approval_tx)
+    pub fn new(event_tx: mpsc::UnboundedSender<RpcEvent>) -> Self {
+        Self { event_tx }
     }
 
     pub fn emit(&self, event: RpcEvent) {
@@ -101,30 +99,6 @@ impl Presenter for RpcPresenter {
 
     fn stream_port(&self) -> ToolStreamPort {
         ToolStreamPort::default()
-    }
-
-    async fn prompt_tool_approval(&self, name: &str, arguments: &Value) -> ApprovalResult {
-        let approval_id = uuid::Uuid::new_v4().to_string();
-        self.emit(RpcEvent::ToolApprovalRequest {
-            approval_id: approval_id.clone(),
-            tool: name.to_string(),
-            arguments: arguments.clone(),
-            description: None,
-        });
-
-        ApprovalResult::Approved
-    }
-
-    async fn prompt_bash_approval(&self, request: BashApproval) -> ApprovalResult {
-        let approval_id = uuid::Uuid::new_v4().to_string();
-        self.emit(RpcEvent::ToolApprovalRequest {
-            approval_id: approval_id.clone(),
-            tool: "bash".to_string(),
-            arguments: serde_json::json!({ "command": request.command }),
-            description: request.reasons.first().cloned(),
-        });
-
-        ApprovalResult::Approved
     }
 
     async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {

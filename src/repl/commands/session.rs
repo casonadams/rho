@@ -64,7 +64,6 @@ pub fn handle_session(ctx: &SlashCommandContext<'_>) {
         "  Keep Recent Window:          {} tokens",
         ctx.config.keep_recent_tokens
     );
-    let _ = writeln!(out, "  Auto-Approve:                {}", ctx.config.auto_approve);
     let _ = writeln!(out, "  Max Turns:                   {}", ctx.config.max_turns);
     let _ = writeln!(out, "  Steering Mode:               {}", ctx.config.steering_mode);
     let _ = writeln!(out, "  Follow-up Mode:              {}", ctx.config.follow_up_mode);

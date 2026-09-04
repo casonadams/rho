@@ -21,7 +21,6 @@ fn thinking_trailing_newlines_collapse_to_single_blank_line_before_text() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),
@@ -47,7 +46,6 @@ fn token_by_token_reasoning_with_trailing_newlines_collapses_cleanly() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),
@@ -74,7 +72,6 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),
@@ -102,7 +99,6 @@ fn thinking_followed_by_tool_closes_line_cleanly() {
         &presenter(&renderer),
         TerminalSinkConfig {
             model_label: "model".to_string(),
-            auto_approve: true,
             run_tracker: crate::engine::metrics::RunTracker::default(),
         },
         terminal_session(),

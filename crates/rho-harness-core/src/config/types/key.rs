@@ -4,7 +4,6 @@ use std::str::FromStr;
 pub(crate) enum ConfigKey {
     Model,
     Provider,
-    AutoApprove,
     MaxOutputTokens,
     MaxTurns,
     ContextLimit,
@@ -33,7 +32,6 @@ impl FromStr for ConfigKey {
             "model" => Ok(Self::Model),
             "provider" => Ok(Self::Provider),
             "thinking_level" => Ok(Self::ThinkingLevel),
-            "auto_approve" => Ok(Self::AutoApprove),
             "max_output_tokens" => Ok(Self::MaxOutputTokens),
             "max_turns" => Ok(Self::MaxTurns),
             "context_limit" => Ok(Self::ContextLimit),
@@ -61,7 +59,6 @@ impl ConfigKey {
         match self {
             Self::Model => "model",
             Self::Provider => "provider",
-            Self::AutoApprove => "auto_approve",
             Self::MaxOutputTokens => "max_output_tokens",
             Self::MaxTurns => "max_turns",
             Self::ContextLimit => "context_limit",

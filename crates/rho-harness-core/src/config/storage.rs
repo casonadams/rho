@@ -20,7 +20,6 @@ impl super::Config {
         match key {
             ConfigKey::Model => file_config.model = Some(value.to_string()),
             ConfigKey::Provider => file_config.provider = Some(value.to_string()),
-            ConfigKey::AutoApprove => file_config.auto_approve = Some(parse_bool(key.as_str(), value)?),
             ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
             ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(key.as_str(), value)?),
             ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(key.as_str(), value)?),

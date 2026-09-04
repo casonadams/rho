@@ -27,7 +27,6 @@ impl EvalHarness {
             super::mock::MockEngineConfig {
                 base_dir,
                 app_config: rho_harness_core::config::Config {
-                    auto_approve: true,
                     max_turns: scenario.max_turns,
                     ..rho_harness_core::config::Config::default()
                 },

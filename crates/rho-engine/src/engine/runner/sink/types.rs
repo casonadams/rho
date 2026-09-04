@@ -37,12 +37,10 @@ pub struct PendingToolCall {
 
 pub struct TerminalSinkConfig {
     pub model_label: String,
-    pub auto_approve: bool,
     pub run_tracker: RunTracker,
 }
 
 pub struct TerminalSinkState {
-    pub auto_approve: bool,
     pub spinner: Option<ActivityToken>,
     pub pending: HashMap<String, PendingToolCall>,
     pub reasoning: Vec<String>,

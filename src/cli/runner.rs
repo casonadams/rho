@@ -22,7 +22,7 @@ impl CliRunner {
     pub async fn run_json_turn(self, prompt: &str) -> Result<(), Box<dyn std::error::Error>> {
         let (event_tx, mut event_rx) =
             tokio::sync::mpsc::unbounded_channel::<rho_harness_core::rpc::protocol::RpcEvent>();
-        let (presenter, _) = crate::ui::render::RpcPresenter::new(event_tx);
+        let presenter = crate::ui::render::RpcPresenter::new(event_tx);
         let presenter_arc: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(presenter);
 
         let writer_task = tokio::spawn(async move {

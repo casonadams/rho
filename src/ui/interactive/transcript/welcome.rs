@@ -16,6 +16,16 @@ pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
     let indent = "  ";
     let wrap_width = 76;
 
+    if !welcome.agents.is_empty() {
+        let text = welcome.agents.join(", ");
+        let wrapped = wrap_to_width(&text, wrap_width);
+        out.push_str(&format!("{dim}[agents]{dim:#}\n"));
+        for line in wrapped {
+            out.push_str(&format!("{indent}{line}\n"));
+        }
+        out.push('\n');
+    }
+
     if !welcome.skills.is_empty() {
         let text = welcome.skills.join(", ");
         let wrapped = wrap_to_width(&text, wrap_width);

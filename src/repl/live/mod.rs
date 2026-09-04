@@ -52,11 +52,13 @@ impl ReplSession {
             }
         }
 
+        let agents = engine.instruction_files().await;
+
         self.renderer.print_welcome(&WelcomeDisplay {
             model: self.config.model.clone(),
             provider: self.config.provider.clone(),
-            auto_approve: self.config.auto_approve,
             resumed: self.resume_id.is_some(),
+            agents,
             tools,
             skills: skill_names,
             plugins,

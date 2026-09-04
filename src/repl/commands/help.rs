@@ -42,7 +42,6 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
     } else {
         let _ = writeln!(output, "  Provider                    {}", config.provider);
     }
-    let _ = writeln!(output, "  Auto approve                {}", config.auto_approve);
     let _ = writeln!(
         output,
         "  Thinking                    {}",
