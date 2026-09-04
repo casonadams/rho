@@ -1,4 +1,5 @@
 use crate::tools::traversal::{build_type_matcher, search_root, walker_builder};
+use crate::tools::truncate::{DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, format_size, truncate_head, truncate_line};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::sinks::UTF8;
@@ -19,7 +20,6 @@ mod tests;
 pub const DEFAULT_RG_LIMIT: usize = 200;
 pub const MAX_RG_LIMIT: usize = 1000;
 pub const RG_COLLECTION_CEILING: usize = 5_000;
-pub const MAX_RG_LINE_CHARS: usize = 500;
 pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
 
 pub struct RgTool {
@@ -78,6 +78,7 @@ struct LineMatch {
     path: String,
     line: u64,
     text: String,
+    truncated: bool,
 }
 
 struct RgQuery {
@@ -143,10 +144,15 @@ impl RgQuery {
                     if matches.len() >= RG_COLLECTION_CEILING {
                         return Ok(false); // stop matching this file; the Quit below follows
                     }
+                    // Truncate at collection time so pathological one-line files
+                    // cannot balloon shared state; pi computes the same text at
+                    // render time, and the flag below only counts shown rows.
+                    let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
                     matches.push(LineMatch {
                         path: relative.clone(),
                         line: line_number,
-                        text: truncate_line(line.trim_end_matches(['\n', '\r'])),
+                        text: truncated.text,
+                        truncated: truncated.was_truncated,
                     });
                     Ok(true)
                 });
@@ -167,14 +173,6 @@ impl RgQuery {
     }
 }
 
-fn truncate_line(line: &str) -> String {
-    if line.chars().count() <= MAX_RG_LINE_CHARS {
-        return line.to_string();
-    }
-    let truncated: String = line.chars().take(MAX_RG_LINE_CHARS).collect();
-    format!("{truncated}\u{2026}")
-}
-
 fn render(matches: &[LineMatch]) -> String {
     matches
         .iter()
@@ -190,18 +188,36 @@ fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
     // Sort before truncating so parallel-walk collection order never leaks into output.
     matches.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
     let total = matches.len();
-    if total <= limit {
-        return ToolResult::success(render(&matches));
+    let mut notices: Vec<String> = Vec::new();
+    if total > limit {
+        notices.push(if total >= RG_COLLECTION_CEILING {
+            format!(
+                "showing first {limit} of {RG_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
+            )
+        } else {
+            format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
+        });
+        matches.truncate(limit);
     }
-    let notice = if total >= RG_COLLECTION_CEILING {
-        format!(
-            "[showing first {limit} of {RG_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type]"
-        )
-    } else {
-        format!("[showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type]")
-    };
-    matches.truncate(limit);
-    ToolResult::success(format!("{}\n{notice}", render(&matches)))
+    // pi tracks line truncation over emitted rows only, so hidden matches
+    // never claim the notice.
+    let lines_truncated = matches.iter().any(|m| m.truncated);
+    let rendered = render(&matches);
+    // pi caps grep output by bytes only; the match limit already caps rows.
+    let truncation = truncate_head(&rendered, usize::MAX, DEFAULT_MAX_BYTES);
+    if truncation.truncated_by.is_some() {
+        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
+    }
+    let mut output = truncation.content;
+    if lines_truncated {
+        notices.push(format!(
+            "Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines"
+        ));
+    }
+    if !notices.is_empty() {
+        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+    }
+    ToolResult::success(output)
 }
 
 impl Tool for RgTool {

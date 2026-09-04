@@ -8,6 +8,39 @@ fn test_format_size() {
 }
 
 #[test]
+fn test_truncate_line_keeps_short_lines_unmarked() {
+    let res = truncate_line("short match");
+    assert_eq!(res.text, "short match");
+    assert!(!res.was_truncated);
+}
+
+#[test]
+fn test_truncate_line_at_the_limit_is_unmarked() {
+    let line = "a".repeat(GREP_MAX_LINE_LENGTH);
+    let res = truncate_line(&line);
+    assert_eq!(res.text, line);
+    assert!(!res.was_truncated);
+}
+
+#[test]
+fn test_truncate_line_caps_with_a_marked_suffix() {
+    let res = truncate_line(&"x".repeat(600));
+    assert_eq!(res.text, format!("{}... [truncated]", "x".repeat(GREP_MAX_LINE_LENGTH)));
+    assert!(res.was_truncated);
+}
+
+#[test]
+fn test_truncate_line_counts_multibyte_chars_individually() {
+    let res = truncate_line(&"é".repeat(600));
+    assert!(res.was_truncated);
+    assert_eq!(
+        res.text.chars().count(),
+        GREP_MAX_LINE_LENGTH + "... [truncated]".chars().count()
+    );
+    assert!(res.text.starts_with(&"é".repeat(GREP_MAX_LINE_LENGTH)));
+}
+
+#[test]
 fn test_truncate_head_within_limits() {
     let text = "line 1\nline 2\nline 3";
     let res = truncate_head(text, 10, 100);

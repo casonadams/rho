@@ -6,9 +6,11 @@
 //! partial final line through `last_line_partial`.
 
 mod head;
+mod line;
 mod tail;
 
 pub use head::truncate_head;
+pub use line::{TruncatedLine, truncate_line};
 pub use tail::truncate_tail;
 
 #[cfg(test)]
@@ -16,6 +18,8 @@ mod tests;
 
 pub const DEFAULT_MAX_LINES: usize = 2000;
 pub const DEFAULT_MAX_BYTES: usize = 50 * 1024; // 50 KB
+/// Max chars per search match line (pi's `GREP_MAX_LINE_LENGTH`).
+pub const GREP_MAX_LINE_LENGTH: usize = 500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TruncatedBy {
