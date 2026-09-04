@@ -36,7 +36,7 @@ async fn matches_report_path_line_and_text() {
     let dir = fixture();
     let result = search(&dir, "widget", |_| {}).await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "src/ui/widget.rs:1:pub struct Widget;");
+    assert_eq!(result.content, "src/ui/widget.rs:1: pub struct Widget;");
 }
 
 #[tokio::test]
@@ -46,10 +46,10 @@ async fn results_are_ordered_by_path_then_line() {
     assert_eq!(
         result.content.lines().collect::<Vec<_>>(),
         [
-            "README.md:3:pub markdown",
-            "src/lib.rs:1:pub mod ui;",
-            "src/ui/widget.rs:1:pub struct Widget;",
-            "src/ui/widget.rs:2:pub enum Kind { A, B }",
+            "README.md:3: pub markdown",
+            "src/lib.rs:1: pub mod ui;",
+            "src/ui/widget.rs:1: pub struct Widget;",
+            "src/ui/widget.rs:2: pub enum Kind { A, B }",
         ]
     );
 }
@@ -58,13 +58,13 @@ async fn results_are_ordered_by_path_then_line() {
 async fn pattern_is_smart_case() {
     let dir = fixture();
     let lower = search(&dir, "todo", |_| {}).await;
-    assert_eq!(lower.content, "README.md:2:todo list");
+    assert_eq!(lower.content, "README.md:2: todo list");
 
     let upper = search(&dir, "TODO", |_| {}).await;
-    assert_eq!(upper.content, "No matches.");
+    assert_eq!(upper.content, "No matches found");
 
     let mixed = search(&dir, "Todo", |_| {}).await;
-    assert_eq!(mixed.content, "No matches.");
+    assert_eq!(mixed.content, "No matches found");
 }
 
 #[tokio::test]
@@ -74,7 +74,7 @@ async fn binary_files_are_skipped() {
     blob.extend_from_slice(b"needle\n");
     std::fs::write(dir.path().join("blob.bin"), blob).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
-    assert_eq!(result.content, "No matches.");
+    assert_eq!(result.content, "No matches found");
 }
 
 #[tokio::test]
@@ -96,7 +96,7 @@ async fn long_match_lines_are_truncated_with_a_marked_suffix_and_notice() {
     std::fs::write(dir.path().join("long.txt"), format!("needle{}\n", "x".repeat(600))).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
-    let text = result.content.strip_prefix("long.txt:1:").unwrap();
+    let text = result.content.strip_prefix("long.txt:1: ").unwrap();
     let line_text = text.split("\n\n").next().unwrap();
     assert_eq!(line_text.chars().count(), 500 + "... [truncated]".len());
     assert!(line_text.ends_with("... [truncated]"));
@@ -135,9 +135,9 @@ async fn type_filter_scopes_matches_to_source_files() {
     assert_eq!(
         filtered.content.lines().collect::<Vec<_>>(),
         [
-            "src/lib.rs:1:pub mod ui;",
-            "src/ui/widget.rs:1:pub struct Widget;",
-            "src/ui/widget.rs:2:pub enum Kind { A, B }",
+            "src/lib.rs:1: pub mod ui;",
+            "src/ui/widget.rs:1: pub struct Widget;",
+            "src/ui/widget.rs:2: pub enum Kind { A, B }",
         ]
     );
 
@@ -150,17 +150,17 @@ async fn type_filter_scopes_matches_to_source_files() {
 async fn gitignore_rules_are_respected_by_default() {
     let dir = fixture();
     let result = search(&dir, "secret", |_| {}).await;
-    assert_eq!(result.content, "No matches.");
+    assert_eq!(result.content, "No matches found");
 }
 
 #[tokio::test]
 async fn hidden_flag_includes_hidden_and_ignored_entries() {
     let dir = fixture();
     let ignored = search(&dir, "secret", |args| args.hidden = Some(true)).await;
-    assert_eq!(ignored.content, "notes.txt:1:secret notes");
+    assert_eq!(ignored.content, "notes.txt:1: secret notes");
 
     let dotfile = search(&dir, "hidden todo", |args| args.hidden = Some(true)).await;
-    assert_eq!(dotfile.content, ".hidden_file:1:hidden todo");
+    assert_eq!(dotfile.content, ".hidden_file:1: hidden todo");
 }
 
 #[tokio::test]
@@ -170,7 +170,7 @@ async fn limit_truncates_with_a_narrowing_notice() {
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "README.md:1:# Fixture\nREADME.md:2:todo list\n\n[showing first 2 of 7 matches; narrow with a tighter pattern, path, or type]"
+        "README.md:1: # Fixture\nREADME.md:2: todo list\n\n[showing first 2 of 7 matches; narrow with a tighter pattern, path, or type]"
     );
 }
 
@@ -180,7 +180,7 @@ async fn limit_clamps_to_at_least_one() {
     let result = search(&dir, ".", |args| args.limit = Some(0)).await;
     assert_eq!(
         result.content,
-        "README.md:1:# Fixture\n\n[showing first 1 of 7 matches; narrow with a tighter pattern, path, or type]"
+        "README.md:1: # Fixture\n\n[showing first 1 of 7 matches; narrow with a tighter pattern, path, or type]"
     );
 }
 
@@ -193,7 +193,7 @@ async fn collection_ceiling_stops_traversal_and_flags_the_notice() {
     assert!(!result.is_error);
     let lines: Vec<&str> = result.content.lines().collect();
     assert_eq!(lines.len(), 202);
-    assert_eq!(lines[0], "many.txt:1:needle line 0");
+    assert_eq!(lines[0], "many.txt:1: needle line 0");
     assert_eq!(
         lines[201],
         "[showing first 200 of 5000+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type]"

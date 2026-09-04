@@ -1,4 +1,5 @@
 use crate::tools::traversal::{build_type_matcher, search_root, walker_builder};
+use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size, truncate_head};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use ignore::WalkState;
 use ignore::types::Types;
@@ -137,23 +138,32 @@ impl FdQuery {
 
 fn format_results(mut paths: Vec<String>, hit_ceiling: bool, limit: usize) -> ToolResult {
     if paths.is_empty() {
-        return ToolResult::success("No matches.");
+        return ToolResult::success("No files found matching pattern");
     }
     // Sort before truncating so parallel-walk collection order never leaks into output.
     paths.sort();
     let total = paths.len();
-    if total <= limit {
-        return ToolResult::success(paths.join("\n"));
+    let mut notices: Vec<String> = Vec::new();
+    if total > limit {
+        notices.push(if hit_ceiling {
+            format!(
+                "showing first {limit} of {FD_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
+            )
+        } else {
+            format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
+        });
+        paths.truncate(limit);
     }
-    let notice = if hit_ceiling {
-        format!(
-            "[showing first {limit} of {FD_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type]"
-        )
-    } else {
-        format!("[showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type]")
-    };
-    paths.truncate(limit);
-    ToolResult::success(format!("{}\n{notice}", paths.join("\n")))
+    // pi caps find output by bytes only; the result limit already caps rows.
+    let truncation = truncate_head(&paths.join("\n"), usize::MAX, DEFAULT_MAX_BYTES);
+    if truncation.truncated_by.is_some() {
+        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
+    }
+    let mut output = truncation.content;
+    if !notices.is_empty() {
+        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+    }
+    ToolResult::success(output)
 }
 
 impl Tool for FdTool {

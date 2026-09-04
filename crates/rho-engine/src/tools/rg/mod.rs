@@ -176,14 +176,15 @@ impl RgQuery {
 fn render(matches: &[LineMatch]) -> String {
     matches
         .iter()
-        .map(|m| format!("{}:{}:{}", m.path, m.line, m.text))
+        // pi's grep line format: `path:line: text` with a space before the text.
+        .map(|m| format!("{}:{}: {}", m.path, m.line, m.text))
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
     if matches.is_empty() {
-        return ToolResult::success("No matches.");
+        return ToolResult::success("No matches found");
     }
     // Sort before truncating so parallel-walk collection order never leaks into output.
     matches.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));

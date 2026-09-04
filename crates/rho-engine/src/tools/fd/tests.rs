@@ -46,13 +46,13 @@ async fn matches_unanchored_against_workspace_relative_paths() {
 async fn pattern_is_smart_case() {
     let dir = fixture();
     let upper = find(&dir, "WIDGET", |_| {}).await;
-    assert_eq!(upper.content, "No matches.");
+    assert_eq!(upper.content, "No files found matching pattern");
 
     let lower = find(&dir, "widget", |_| {}).await;
     assert_eq!(lower.content, "src/ui/widget.rs");
 
     let mixed = find(&dir, "Widget", |_| {}).await;
-    assert_eq!(mixed.content, "No matches.");
+    assert_eq!(mixed.content, "No files found matching pattern");
 }
 
 #[tokio::test]
@@ -97,7 +97,7 @@ async fn gitignore_rules_are_respected_by_default() {
     let dir = fixture();
     let result = find(&dir, "notes", |_| {}).await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "No matches.");
+    assert_eq!(result.content, "No files found matching pattern");
 }
 
 #[tokio::test]
@@ -117,7 +117,7 @@ async fn limit_truncates_with_a_narrowing_notice() {
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "README.md\nsrc\n[showing first 2 of 6 matches; narrow with a tighter pattern, path, or type]"
+        "README.md\nsrc\n\n[showing first 2 of 6 matches; narrow with a tighter pattern, path, or type]"
     );
 }
 
@@ -127,8 +127,21 @@ async fn limit_clamps_to_at_least_one() {
     let result = find(&dir, ".", |args| args.limit = Some(0)).await;
     assert_eq!(
         result.content,
-        "README.md\n[showing first 1 of 6 matches; narrow with a tighter pattern, path, or type]"
+        "README.md\n\n[showing first 1 of 6 matches; narrow with a tighter pattern, path, or type]"
     );
+}
+
+#[test]
+fn oversized_output_is_byte_capped_before_the_notices() {
+    // format_results is pure, so synthetic long paths stand in for a
+    // thousand-file fixture; 300 rows of 237 chars exceed the 50KB cap.
+    let paths: Vec<String> = (0..300).map(|i| format!("dir{i:0>3}/{}", "p".repeat(230))).collect();
+    let result = format_results(paths, false, 250);
+    let body = result.content.split("\n\n").next().unwrap();
+    assert!(body.len() <= DEFAULT_MAX_BYTES);
+    assert!(result.content.contains("showing first 250 of 300 matches"));
+    // pi's assembly: notices joined with ". " in one trailing bracket.
+    assert!(result.content.ends_with("path, or type. 50.0KB limit reached]"));
 }
 
 #[tokio::test]
