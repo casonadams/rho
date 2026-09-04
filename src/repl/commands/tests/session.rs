@@ -15,6 +15,7 @@ async fn session_command_prints_diagnostics() {
         session_id: Some("session-diag-123"),
         session_manager: None,
         engine: None,
+        home_dir: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
@@ -55,6 +56,7 @@ async fn session_command_prints_diagnostics_with_engine() {
         session_id: Some(&session_id),
         session_manager: None,
         engine: Some(&engine),
+        home_dir: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();

@@ -14,14 +14,6 @@ pub fn discover_instructions(base: &Path, dirs: ContextDirs<'_>) -> Vec<(String,
     // 1. Global / user-level instructions (broadest scope, loaded first)
     if let Some(home) = dirs.home_dir {
         load_candidate_instructions(&home.join(".agents"), &mut files, &mut seen);
-        let xdg_agents = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| home.join(".config"))
-            .join("agents");
-        load_candidate_instructions(&xdg_agents, &mut files, &mut seen);
-    }
-    if let Some(cfg) = dirs.config_dir {
-        load_candidate_instructions(cfg, &mut files, &mut seen);
     }
 
     // 2. Project-level instructions (committed base first, then workspace root)

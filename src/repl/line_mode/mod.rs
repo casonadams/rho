@@ -73,6 +73,7 @@ pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Res
                         session_id: Some(&engine.session_manager.session_id),
                         session_manager: Some(&engine.session_manager),
                         engine: Some(&engine),
+                        home_dir: None,
                     };
                     let result = SlashCommandHandler::handle(input, &mut command_context).await?;
                     if let Some(cmd_res) = result {

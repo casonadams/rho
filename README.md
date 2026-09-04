@@ -2,6 +2,12 @@
 
 `rho` is a fast, clean, minimal coding-agent CLI built in Rust on Rig 0.42.
 
+## Installation
+
+```sh
+cargo install rho
+```
+
 ## Quick Start
 
 ```sh
@@ -118,29 +124,25 @@ readable artifact) work in the interactive REPL.
 
 ## Configuration & Skills (`~/.config/rho/`)
 
-Global settings, credentials, state cache, skills, and instructions live under
-`~/.config/rho` (override via `RHO_HOME`):
+Global settings, credentials, and state cache live under `~/.config/rho`
+(override via `RHO_HOME`):
 
 ```text
 ~/.config/rho/
 ├── auth.json              # Stored API keys and OAuth tokens
 ├── state.json             # Cached last-used model & thinking level
-├── config.toml            # Application settings
-├── AGENTS.md              # Global default agent rules & instructions
-└── skills/                # Global skills directory (SKILL.md files)
+└── config.toml            # Application settings
 ```
 
 - **Instructions**: Discovers instructions hierarchically from global to
   project:
-  1. Global user `~/.agents/AGENTS.md`, `~/.config/agents/AGENTS.md`, or
-     `~/.config/rho/AGENTS.md`
+  1. Global user `~/.agents/AGENTS.md`
   2. Project base `.agents/AGENTS.md`
   3. Workspace `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
 - **Skills**: Declarative `SKILL.md` workflows resolved with precedence:
   1. Project `.agents/skills/`, `.rho/skills/`, or `./skills/` (highest
      precedence, overrides user skills)
-  2. User `~/.agents/skills/`, `~/.config/agents/skills/`,
-     `~/.config/rho/skills/`, or `~/.skills/`
+  2. User `~/.agents/skills/`
 
   Skills can be written as single flat markdown files (`skills/my-skill.md`) or
   structured directories (`skills/my-skill/SKILL.md` with optional supporting

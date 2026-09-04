@@ -30,6 +30,7 @@ impl ReplSession {
                     session_id: Some(&engine.session_manager.session_id),
                     session_manager: Some(&engine.session_manager),
                     engine: Some(engine),
+                    home_dir: None,
                 };
                 SlashCommandHandler::handle(&input, &mut command_context).await?
             };

@@ -40,7 +40,6 @@ fn write_skill(dir: &Path, name: &str, body: &str) {
 fn empty_directories_resolve_to_no_skills() {
     let fixture = fixture();
     let paths = SkillResolutionPaths {
-        config_dir: Some(&fixture.config_dir),
         project_dir: Some(&fixture.project_dir),
         home_dir: Some(&fixture.home_dir),
     };
@@ -52,21 +51,36 @@ fn empty_directories_resolve_to_no_skills() {
 fn user_skill_resolves_with_user_origin_and_content() {
     let fixture = fixture();
     write_skill(
-        &fixture.config_dir.join("skills"),
+        &fixture.home_dir.join(".agents/skills"),
         "plan",
         "---\nname: plan\ndescription: User plan override\n---\n# Custom Plan\n",
     );
+    write_skill(
+        &fixture.config_dir.join("skills"),
+        "ignored-config",
+        "---\nname: ignored-config\ndescription: Ignored config skill\n---\n# Ignored\n",
+    );
+    write_skill(
+        &fixture.home_dir.join(".config/agents/skills"),
+        "ignored-xdg",
+        "---\nname: ignored-xdg\ndescription: Ignored XDG skill\n---\n# Ignored\n",
+    );
+    write_skill(
+        &fixture.home_dir.join(".skills"),
+        "ignored-dot-skills",
+        "---\nname: ignored-dot-skills\ndescription: Ignored dot skill\n---\n# Ignored\n",
+    );
 
     let paths = SkillResolutionPaths {
-        config_dir: Some(&fixture.config_dir),
         project_dir: None,
         home_dir: Some(&fixture.home_dir),
     };
     let resolved = resolved_skills_for_paths(paths);
+    assert_eq!(resolved.len(), 1);
     let plan = resolved.iter().find(|skill| skill.metadata.name == "plan").unwrap();
     assert_eq!(plan.origin, SkillOrigin::User);
     assert_eq!(plan.metadata.description, "User plan override");
-    assert!(plan.metadata.location.contains("config/skills/plan/SKILL.md"));
+    assert!(plan.metadata.location.contains(".agents/skills/plan/SKILL.md"));
     assert_eq!(
         std::fs::read_to_string(&plan.metadata.location).unwrap(),
         "---\nname: plan\ndescription: User plan override\n---\n# Custom Plan\n"
@@ -77,7 +91,7 @@ fn user_skill_resolves_with_user_origin_and_content() {
 fn project_override_beats_user_and_user_additions_survive() {
     let fixture = fixture();
     write_skill(
-        &fixture.config_dir.join("skills"),
+        &fixture.home_dir.join(".agents/skills"),
         "plan",
         "---\nname: plan\ndescription: User plan\n---\n# User Plan\n",
     );
@@ -87,13 +101,12 @@ fn project_override_beats_user_and_user_additions_survive() {
         "---\nname: plan\ndescription: Project plan\n---\n# Project Plan\n",
     );
     write_skill(
-        &fixture.config_dir.join("skills"),
+        &fixture.home_dir.join(".agents/skills"),
         "team-notes",
         "---\nname: team-notes\ndescription: User notes workflow\n---\n# Notes\n",
     );
 
     let paths = SkillResolutionPaths {
-        config_dir: Some(&fixture.config_dir),
         project_dir: Some(&fixture.project_dir),
         home_dir: Some(&fixture.home_dir),
     };
@@ -127,7 +140,6 @@ fn flat_skill_files_use_their_file_stem_as_name() {
     std::fs::write(skills_dir.join("deploy.md"), "# Deploy workflow\nPush builds.\n").unwrap();
 
     let paths = SkillResolutionPaths {
-        config_dir: None,
         project_dir: Some(&fixture.project_dir),
         home_dir: Some(&fixture.home_dir),
     };
@@ -168,7 +180,6 @@ fn agents_skills_user_and_project_resolution() {
     );
 
     let paths = SkillResolutionPaths {
-        config_dir: Some(&fixture.config_dir),
         project_dir: Some(&fixture.project_dir),
         home_dir: Some(&fixture.home_dir),
     };

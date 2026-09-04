@@ -46,7 +46,6 @@ impl ProjectContext {
         let instruction_files = instructions::discover_instructions(base, dirs);
 
         let paths = rho_harness_core::skills::SkillResolutionPaths {
-            config_dir: dirs.config_dir,
             project_dir: Some(base),
             home_dir: dirs.home_dir,
         };

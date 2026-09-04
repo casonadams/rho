@@ -6,8 +6,7 @@ use rho_engine::auth::AuthStore;
 #[tokio::test]
 async fn skill_command_lists_resolved_overrides_with_origin() {
     let workspace = std::env::temp_dir().join(format!("skill_cmd_{}", uuid::Uuid::new_v4()));
-    let config_dir = workspace.join("config");
-    let user_skill_dir = config_dir.join("skills").join("team-notes");
+    let user_skill_dir = workspace.join(".agents").join("skills").join("team-notes");
     std::fs::create_dir_all(&user_skill_dir).unwrap();
     std::fs::write(
         user_skill_dir.join("SKILL.md"),
@@ -15,10 +14,7 @@ async fn skill_command_lists_resolved_overrides_with_origin() {
     )
     .unwrap();
 
-    let mut config = Config {
-        config_dir,
-        ..Config::default()
-    };
+    let mut config = Config::default();
     let mut auth = AuthStore::default();
     let (renderer, mut events) = collecting_renderer();
     let mut context = SlashCommandContext {
@@ -28,6 +24,7 @@ async fn skill_command_lists_resolved_overrides_with_origin() {
         session_id: None,
         session_manager: None,
         engine: None,
+        home_dir: Some(&workspace),
     };
 
     let listing = SlashCommandHandler::handle("/skills", &mut context).await.unwrap();
@@ -62,6 +59,7 @@ async fn skill_command_reports_unknown_names_with_available_skills() {
         session_id: None,
         session_manager: None,
         engine: None,
+        home_dir: None,
     };
 
     let result = SlashCommandHandler::handle("/skill does-not-exist", &mut context)
@@ -77,8 +75,7 @@ async fn skill_command_reports_unknown_names_with_available_skills() {
 #[tokio::test]
 async fn test_slash_skill_colon_invocation() {
     let workspace = std::env::temp_dir().join(format!("skill_colon_{}", uuid::Uuid::new_v4()));
-    let config_dir = workspace.join("config");
-    let user_skill_dir = config_dir.join("skills").join("my-flow");
+    let user_skill_dir = workspace.join(".agents").join("skills").join("my-flow");
     std::fs::create_dir_all(&user_skill_dir).unwrap();
     std::fs::write(
         user_skill_dir.join("SKILL.md"),
@@ -86,10 +83,7 @@ async fn test_slash_skill_colon_invocation() {
     )
     .unwrap();
 
-    let mut config = Config {
-        config_dir,
-        ..Config::default()
-    };
+    let mut config = Config::default();
     let mut auth = AuthStore::default();
     let (renderer, _) = collecting_renderer();
     let mut context = SlashCommandContext {
@@ -99,6 +93,7 @@ async fn test_slash_skill_colon_invocation() {
         session_id: None,
         session_manager: None,
         engine: None,
+        home_dir: Some(&workspace),
     };
 
     let result = SlashCommandHandler::handle("/skill:my-flow create foo", &mut context)

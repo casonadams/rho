@@ -33,7 +33,6 @@ pub struct ResolvedSkill {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SkillResolutionPaths<'a> {
-    pub config_dir: Option<&'a Path>,
     pub project_dir: Option<&'a Path>,
     pub home_dir: Option<&'a Path>,
 }

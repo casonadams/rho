@@ -3,17 +3,15 @@ use super::types::{ResolvedSkill, SkillMetadata, SkillOrigin, SkillResolutionPat
 use std::path::{Path, PathBuf};
 
 /// Resolve every skill available to the session: declarative skills as `SKILL.md`
-/// files under user directories (`~/.agents/skills`, `~/.config/agents/skills`,
-/// `<config_dir>/skills`) and project skill directories (`.agents/skills`,
-/// `.rho/skills`, `skills`). Project skills replace user skills by name.
+/// files under user directory `~/.agents/skills` and project skill directories
+/// (`.agents/skills`, `.rho/skills`, `skills`). Project skills replace user skills by name.
 /// Skills carry readable content only and are never executed.
-pub fn resolved_skills(config_dir: Option<&Path>, project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
+pub fn resolved_skills(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()
         .map(PathBuf::from);
     let paths = SkillResolutionPaths {
-        config_dir,
         project_dir,
         home_dir: home.as_deref(),
     };
@@ -26,15 +24,6 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
 
     if let Some(home_path) = paths.home_dir {
         scan_directory(&home_path.join(".agents/skills"), SkillOrigin::User, &mut resolved);
-        let xdg_skills = std::env::var("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| home_path.join(".config"))
-            .join("agents/skills");
-        scan_directory(&xdg_skills, SkillOrigin::User, &mut resolved);
-        scan_directory(&home_path.join(".skills"), SkillOrigin::User, &mut resolved);
-    }
-    if let Some(config_dir) = paths.config_dir {
-        scan_directory(&config_dir.join("skills"), SkillOrigin::User, &mut resolved);
     }
     if let Some(project_dir) = paths.project_dir {
         scan_directory(&project_dir.join(".agents/skills"), SkillOrigin::Project, &mut resolved);

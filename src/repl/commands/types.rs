@@ -55,6 +55,7 @@ pub struct SlashCommandContext<'a> {
     pub session_id: Option<&'a str>,
     pub session_manager: Option<&'a rho_harness_core::session::SessionManager>,
     pub engine: Option<&'a AgentEngine>,
+    pub home_dir: Option<&'a std::path::Path>,
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[

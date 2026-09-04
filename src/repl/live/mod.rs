@@ -42,8 +42,7 @@ impl ReplSession {
         update_footer(&mut state, self, &engine);
         let mut controller = TerminalController::stdout(state)?;
         let mut input = TerminalInputReader::spawn()?;
-        let skills =
-            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref());
+        let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
         let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
         let tools = engine.tool_names.clone();
         let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();

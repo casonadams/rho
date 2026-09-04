@@ -34,6 +34,7 @@ async fn export_command_writes_markdown_default_path() {
         session_id: Some(&session_id),
         session_manager: Some(&session_manager),
         engine: None,
+        home_dir: None,
     };
 
     let result = SlashCommandHandler::handle("/export", &mut context).await.unwrap();
@@ -69,6 +70,7 @@ async fn export_command_writes_html_to_override_path() {
         session_id: Some(&session_id),
         session_manager: Some(&session_manager),
         engine: None,
+        home_dir: None,
     };
 
     let result = SlashCommandHandler::handle(
@@ -104,6 +106,7 @@ async fn export_command_rejects_unknown_format_with_usage() {
         session_id: Some(&session_id),
         session_manager: Some(&session_manager),
         engine: None,
+        home_dir: None,
     };
 
     let result = SlashCommandHandler::handle("/export xml", &mut context).await.unwrap();

@@ -32,6 +32,7 @@ pub(super) fn test_context<'a>(
         session_id: None,
         session_manager: None,
         engine: None,
+        home_dir: None,
     }
 }
 

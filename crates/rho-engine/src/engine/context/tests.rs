@@ -40,11 +40,14 @@ async fn test_project_context_discovery() {
 #[tokio::test]
 async fn test_user_config_skills_discovery() {
     let temp_dir = std::env::temp_dir().join(format!("ctx_override_test_{}", uuid::Uuid::new_v4()));
+    let home_dir = temp_dir.join("home");
     let config_dir = temp_dir.join("config");
     let project_dir = temp_dir.join("project");
-    let user_skill_dir = config_dir.join("skills").join("plan");
+    let user_skill_dir = home_dir.join(".agents").join("skills").join("plan");
+    let ignored_skill_dir = config_dir.join("skills").join("ignored");
 
     tokio::fs::create_dir_all(&user_skill_dir).await.unwrap();
+    tokio::fs::create_dir_all(&ignored_skill_dir).await.unwrap();
     tokio::fs::create_dir_all(&project_dir).await.unwrap();
 
     tokio::fs::write(
@@ -53,15 +56,29 @@ async fn test_user_config_skills_discovery() {
     )
     .await
     .unwrap();
+    tokio::fs::write(
+        ignored_skill_dir.join("SKILL.md"),
+        "---\nname: ignored\ndescription: Ignored config skill\n---\n# Ignored\n",
+    )
+    .await
+    .unwrap();
 
-    let ctx = ProjectContext::discover(&project_dir, Some(&config_dir)).await;
+    let ctx = ProjectContext::discover_with_dirs(
+        &project_dir,
+        ContextDirs {
+            config_dir: Some(&config_dir),
+            home_dir: Some(&home_dir),
+        },
+    )
+    .await;
     let plan_skill = ctx.skills.iter().find(|s| s.name == "plan").unwrap();
     assert_eq!(plan_skill.description, "Custom user plan override");
-    assert!(plan_skill.location.contains("config/skills/plan/SKILL.md"));
+    assert!(plan_skill.location.contains(".agents/skills/plan/SKILL.md"));
+    assert!(!ctx.skills.iter().any(|s| s.name == "ignored"));
 
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Custom user plan override"));
-    assert!(prompt.contains("config/skills/plan/SKILL.md"));
+    assert!(prompt.contains(".agents/skills/plan/SKILL.md"));
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
@@ -107,24 +124,21 @@ async fn test_global_agents_md_discovery_hierarchy() {
     )
     .await;
 
-    assert_eq!(ctx.instruction_files.len(), 5);
+    // Only HOME/.agents and project directories are searched
+    assert_eq!(ctx.instruction_files.len(), 3);
     assert_eq!(ctx.instruction_files[0].1, "# 1. Global User Rules");
-    assert_eq!(ctx.instruction_files[1].1, "# 2. XDG Global Rules");
-    assert_eq!(ctx.instruction_files[2].1, "# 3. Rho Config Rules");
-    assert_eq!(ctx.instruction_files[3].1, "# 4. Project Base Rules");
-    assert_eq!(ctx.instruction_files[4].1, "# 5. Project Active Rules");
+    assert_eq!(ctx.instruction_files[1].1, "# 4. Project Base Rules");
+    assert_eq!(ctx.instruction_files[2].1, "# 5. Project Active Rules");
 
     let prompt = ctx.build_system_prompt();
     let idx1 = prompt.find("# 1. Global User Rules").unwrap();
-    let idx2 = prompt.find("# 2. XDG Global Rules").unwrap();
-    let idx3 = prompt.find("# 3. Rho Config Rules").unwrap();
     let idx4 = prompt.find("# 4. Project Base Rules").unwrap();
     let idx5 = prompt.find("# 5. Project Active Rules").unwrap();
 
-    assert!(idx1 < idx2);
-    assert!(idx2 < idx3);
-    assert!(idx3 < idx4);
+    assert!(idx1 < idx4);
     assert!(idx4 < idx5);
+    assert!(!prompt.contains("# 2. XDG Global Rules"));
+    assert!(!prompt.contains("# 3. Rho Config Rules"));
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
@@ -135,19 +149,17 @@ async fn test_instruction_deduplication_via_symlink() {
     let home_dir = temp_dir.join("home");
     let config_dir = temp_dir.join("config");
     let project_dir = temp_dir.join("project");
+    let project_agents_dir = project_dir.join(".agents");
 
-    let global_agents_dir = home_dir.join(".agents");
-    tokio::fs::create_dir_all(&global_agents_dir).await.unwrap();
-    tokio::fs::create_dir_all(&config_dir).await.unwrap();
-    tokio::fs::create_dir_all(&project_dir).await.unwrap();
+    tokio::fs::create_dir_all(&project_agents_dir).await.unwrap();
 
-    let canonical_file = global_agents_dir.join("AGENTS.md");
+    let canonical_file = project_agents_dir.join("AGENTS.md");
     tokio::fs::write(&canonical_file, "# Canonical Rules\n").await.unwrap();
 
     #[cfg(unix)]
-    std::os::unix::fs::symlink(&canonical_file, config_dir.join("AGENTS.md")).unwrap();
+    std::os::unix::fs::symlink(&canonical_file, project_dir.join("AGENTS.md")).unwrap();
     #[cfg(windows)]
-    std::os::windows::fs::symlink_file(&canonical_file, config_dir.join("AGENTS.md")).unwrap();
+    std::os::windows::fs::symlink_file(&canonical_file, project_dir.join("AGENTS.md")).unwrap();
 
     let ctx = ProjectContext::discover_with_dirs(
         &project_dir,
