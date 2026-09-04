@@ -39,7 +39,7 @@ fn gif_fixture() -> Vec<u8> {
 
 /// Real 2×2 24-bit BMP with controllable planes/bpp for header-sanity tests.
 fn bmp_with(planes: u16, bits_per_pixel: u16) -> Vec<u8> {
-    let row_size = ((2 * usize::from(bits_per_pixel) + 31) / 32) * 4;
+    let row_size = (2 * usize::from(bits_per_pixel)).div_ceil(32) * 4;
     let pixel_data = row_size * 2;
     let pixel_offset = 14u32 + 40;
     let mut b = Vec::new();

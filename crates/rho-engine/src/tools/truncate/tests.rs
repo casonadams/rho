@@ -64,7 +64,7 @@ fn test_truncate_head_by_lines() {
 #[test]
 fn test_truncate_head_by_bytes() {
     let text = "aaaa\nbbbb\ncccc\ndddd";
-    let res = truncate_head(&text, 10, 9);
+    let res = truncate_head(text, 10, 9);
     assert!(res.truncated);
     assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
     assert_eq!(res.output_bytes, 9);
@@ -128,7 +128,7 @@ fn test_truncate_tail_by_lines() {
 
 #[test]
 fn test_truncate_tail_by_bytes() {
-    let lines = vec!["aaaa", "bbbb", "cccc", "dddd"];
+    let lines = ["aaaa", "bbbb", "cccc", "dddd"];
     let text = lines.join("\n");
     let res = truncate_tail(&text, 10, 9);
     assert!(res.truncated);

@@ -398,3 +398,28 @@ async fn test_user_bash_runner_streams_and_completes() {
     assert!(!res.is_error);
     assert!(res.output.contains("hello from user bash"));
 }
+
+#[tokio::test]
+async fn test_user_bash_runner_cancellation_preempts_and_terminates() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (_events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
+    let cancel_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel_event]);
+
+    let renderer = crate::ui::TerminalRenderer::default();
+    let mut live_io = super::LiveIo {
+        controller: &mut controller,
+        events: &mut events_rx,
+        input: &mut input_reader,
+    };
+
+    let res = super::bash_runner::run_user_bash("sleep 30 & wait", &renderer, &mut live_io)
+        .await
+        .unwrap();
+
+    assert!(res.is_cancelled);
+    assert!(res.is_error);
+}

@@ -10,7 +10,6 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 pub type PendingResponses = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<JsonRpcResponse, String>>>>>;
@@ -34,7 +33,7 @@ pub struct DaemonProcess {
     stdin_tx: mpsc::Sender<String>,
     pending: PendingResponses,
     subscriptions: HashSet<String>,
-    _child: Arc<Mutex<Child>>,
+    _guard: Arc<Mutex<crate::process::ProcessTreeGuard>>,
 }
 
 impl DaemonProcess {
@@ -46,10 +45,13 @@ impl DaemonProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        cmd.kill_on_drop(true);
+        crate::process::isolate_group(&mut cmd);
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn {}: {e}", args.name))?;
         let child_stdin = child.stdin.take().ok_or("Failed to open child stdin")?;
         let child_stdout = child.stdout.take().ok_or("Failed to open child stdout")?;
+        let guard = crate::process::ProcessTreeGuard::new(child);
         let pending: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
         let (stdin_tx, stdin_rx) = mpsc::channel::<String>(64);
 
@@ -69,7 +71,7 @@ impl DaemonProcess {
             stdin_tx,
             pending,
             subscriptions: HashSet::new(),
-            _child: Arc::new(Mutex::new(child)),
+            _guard: Arc::new(Mutex::new(guard)),
         })
     }
 

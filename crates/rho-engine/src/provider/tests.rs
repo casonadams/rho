@@ -3,10 +3,12 @@ use rho_harness_core::config::ProviderConfig;
 use std::collections::BTreeMap;
 
 fn config_with_provider(name: &str, spec: ProviderConfig, allow_private: bool) -> Config {
-    let mut config = Config::default();
-    config.provider = name.to_string();
+    let mut config = Config {
+        provider: name.to_string(),
+        allow_private_network: allow_private,
+        ..Default::default()
+    };
     config.providers.insert(name.to_string(), spec);
-    config.allow_private_network = allow_private;
     config
 }
 
@@ -131,8 +133,10 @@ fn well_known_provider_still_routes_to_dedicated_arms() {
     std::fs::create_dir_all(&dir).unwrap();
     let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
     auth_store.set_key("groq", "gsk-test").unwrap();
-    let mut config = Config::default();
-    config.provider = "groq".to_string();
+    let config = Config {
+        provider: "groq".to_string(),
+        ..Default::default()
+    };
     // A [providers.groq] entry would be rejected by config validation, so an
     // empty map proves the enum arm handled it.
     ProviderFactory::create_model(&config, "llama-3.3-70b", &auth_store).unwrap();

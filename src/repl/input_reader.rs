@@ -43,6 +43,21 @@ impl TerminalInputReader {
         Self::spawn_with(Box::new(|_| Ok(None))).expect("spawn dummy reader")
     }
 
+    #[cfg(test)]
+    pub(crate) fn spawn_with_events(events: Vec<crossterm::event::Event>) -> Self {
+        let events = std::sync::Mutex::new(events.into_iter());
+        Self::spawn_with(Box::new(move |timeout| {
+            if let Ok(mut iter) = events.lock()
+                && let Some(evt) = iter.next()
+            {
+                return Ok(Some(evt));
+            }
+            std::thread::sleep(timeout);
+            Ok(None)
+        }))
+        .expect("spawn mock reader")
+    }
+
     fn spawn_with(read_next: ReadNext) -> io::Result<Self> {
         let (event_sender, events) = mpsc::unbounded_channel();
         let (control, controls) = std_mpsc::channel();

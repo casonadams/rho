@@ -19,6 +19,14 @@ use std::io::Read;
 use std::str::FromStr;
 
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    struct ProcessCleanupGuard;
+    impl Drop for ProcessCleanupGuard {
+        fn drop(&mut self) {
+            rho_engine::process::kill_all_tracked_processes();
+        }
+    }
+    let _process_cleanup = ProcessCleanupGuard;
+
     let cli = <Cli as clap::Parser>::parse();
     let config = Config::load(Some(&cli))?;
     // Retained so /reload can re-apply CLI overrides after re-reading config.
@@ -215,6 +223,7 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 Ok(_) => Ok(()),
                 Err(e) => {
                     eprintln!("Error: {e}");
+                    rho_engine::process::kill_all_tracked_processes();
                     std::process::exit(1);
                 }
             };
@@ -244,6 +253,7 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
             Ok(_) => Ok(()),
             Err(e) => {
                 eprintln!("Error: {e}");
+                rho_engine::process::kill_all_tracked_processes();
                 std::process::exit(1);
             }
         }

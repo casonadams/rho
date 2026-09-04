@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InputAction, map_key};
 use crossterm::event::Event;
-use rho_engine::process::{isolate_group, kill_tree};
+use rho_engine::process::{ProcessTreeGuard, isolate_group};
 use rho_harness_core::presentation::ToolLine;
 use std::process::Stdio;
 use std::time::Instant;
@@ -73,6 +73,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
 
     let stdout = child.stdout.take().expect("stdout piped");
     let stderr = child.stderr.take().expect("stderr piped");
+    let mut guard = ProcessTreeGuard::new(child);
 
     let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let stdout_tx = chunk_tx.clone();
@@ -107,6 +108,23 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     loop {
         tokio::select! {
             biased;
+            event = input_reader.recv() => {
+                if let Some(Ok(Event::Key(key))) = event {
+                    match map_key(key) {
+                        InputAction::Cancel => {
+                            stdout_task.abort();
+                            stderr_task.abort();
+                            guard.kill().await;
+                            break;
+                        }
+                        InputAction::ToggleExpandTools => {
+                            let _ = controller.toggle_tools_expanded();
+                            batch.flush(controller, true)?;
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Some(chunk) = chunk_rx.recv() => {
                 output.push_str(&chunk);
                 renderer.tool_chunk(&chunk);
@@ -123,22 +141,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                 };
                 batch.flush(controller, spinner_advanced)?;
             }
-            event = input_reader.recv() => {
-                if let Some(Ok(Event::Key(key))) = event {
-                    match map_key(key) {
-                        InputAction::Cancel => {
-                            kill_tree(&mut child).await;
-                            break;
-                        }
-                        InputAction::ToggleExpandTools => {
-                            let _ = controller.toggle_tools_expanded();
-                            batch.flush(controller, true)?;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            res = child.wait() => {
+            res = guard.wait() => {
                 let _ = stdout_task.await;
                 let _ = stderr_task.await;
                 while let Ok(chunk) = chunk_rx.try_recv() {
@@ -171,15 +174,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
         }
     }
 
-    let _ = stdout_task.await;
-    let _ = stderr_task.await;
-    while let Ok(chunk) = chunk_rx.try_recv() {
-        output.push_str(&chunk);
-        renderer.tool_chunk(&chunk);
-    }
-    batch.flush(controller, false)?;
     let duration_ms = started.elapsed().as_millis() as u64;
-
     renderer.finish_tool_line(ToolLine {
         name: "bash".to_string(),
         arguments: args_val,

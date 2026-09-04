@@ -67,6 +67,7 @@ impl BashTool {
 
         let stdout = child.stdout.take().expect("child stdout was piped");
         let stderr = child.stderr.take().expect("child stderr was piped");
+        let mut guard = crate::process::ProcessTreeGuard::new(child);
 
         let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
@@ -111,7 +112,7 @@ impl BashTool {
             let _ = stdout_task.await;
             let _ = stderr_task.await;
             accumulator.finish();
-            child.wait().await
+            guard.wait().await
         };
 
         let status = match tokio::time::timeout(Duration::from_secs(timeout_sec), execution_future).await {
@@ -123,7 +124,7 @@ impl BashTool {
                 )));
             }
             Err(_) => {
-                crate::process::kill_tree(&mut child).await;
+                guard.kill().await;
                 return Ok(ToolResult::error(format!(
                     "Command '{}' timed out after {} seconds",
                     args.command, timeout_sec

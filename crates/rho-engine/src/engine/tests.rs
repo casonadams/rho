@@ -4,7 +4,7 @@ use crate::mcp::load_mcp_tools;
 use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use rig::memory::ConversationMemory;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn temp_dir(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("engine_{label}_{}", uuid::Uuid::new_v4()))
@@ -13,9 +13,11 @@ fn temp_dir(label: &str) -> PathBuf {
 fn test_config(label: &str) -> (Config, PathBuf) {
     let dir = temp_dir(label);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut config = Config::default();
-    config.sessions_dir = dir.join("sessions");
-    config.auth_file = dir.join("auth.json");
+    let config = Config {
+        sessions_dir: dir.join("sessions"),
+        auth_file: dir.join("auth.json"),
+        ..Default::default()
+    };
     (config, dir)
 }
 
@@ -27,7 +29,7 @@ fn with_dummy_provider_key() {
     }
 }
 
-fn mock_mcp_server(workspace: &PathBuf) -> (String, String) {
+fn mock_mcp_server(workspace: &Path) -> (String, String) {
     let script = workspace.join(format!("mock_mcp_server_{}.sh", uuid::Uuid::new_v4().simple()));
     std::fs::write(
         &script,

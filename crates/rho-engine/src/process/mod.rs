@@ -1,5 +1,11 @@
 //! Process-group isolation and RAII lifecycle guards so kills reach the entire command tree.
 
+mod guard;
+#[cfg(test)]
+mod tests;
+
+pub use guard::ProcessTreeGuard;
+
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
 use tokio::process::Command;
@@ -38,7 +44,7 @@ fn kill_windows_tree(pid: u32) {
         .output();
 }
 
-fn kill_group_by_pid(pid: u32) {
+pub(crate) fn kill_group_by_pid(pid: u32) {
     if pid <= 1 {
         return;
     }
@@ -95,93 +101,3 @@ pub fn kill_tree_sync(child: &mut tokio::process::Child) {
     }
     let _ = child.start_kill();
 }
-
-/// RAII guard wrapping a child process to guarantee whole-tree termination on drop.
-pub struct ProcessTreeGuard {
-    child: Option<tokio::process::Child>,
-    pid: Option<u32>,
-}
-
-impl ProcessTreeGuard {
-    pub fn new(child: tokio::process::Child) -> Self {
-        let pid = child.id();
-        if let Some(pid) = pid {
-            track_pid(pid);
-        }
-        Self {
-            child: Some(child),
-            pid,
-        }
-    }
-
-    pub fn id(&self) -> Option<u32> {
-        self.pid
-    }
-
-    pub fn child_mut(&mut self) -> Option<&mut tokio::process::Child> {
-        self.child.as_mut()
-    }
-
-    pub async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
-        let child = self
-            .child
-            .as_mut()
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "child already reaped"))?;
-        let res = child.wait().await;
-        if res.is_ok() {
-            if let Some(pid) = self.pid.take() {
-                untrack_pid(pid);
-            }
-            self.child = None;
-        }
-        res
-    }
-
-    pub async fn kill(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            if let Some(pid) = self.pid.take() {
-                untrack_pid(pid);
-                kill_group_by_pid(pid);
-            }
-            let _ = child.kill().await;
-        }
-    }
-
-    pub async fn kill_and_wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
-        if let Some(mut child) = self.child.take() {
-            if let Some(pid) = self.pid.take() {
-                untrack_pid(pid);
-                kill_group_by_pid(pid);
-            }
-            let _ = child.kill().await;
-            child.wait().await
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "child already reaped",
-            ))
-        }
-    }
-
-    pub fn disarm(mut self) -> Option<tokio::process::Child> {
-        if let Some(pid) = self.pid.take() {
-            untrack_pid(pid);
-        }
-        self.child.take()
-    }
-}
-
-impl Drop for ProcessTreeGuard {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
-            if let Some(pid) = self.pid.take() {
-                untrack_pid(pid);
-                kill_group_by_pid(pid);
-            }
-            let _ = child.start_kill();
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests;

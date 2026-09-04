@@ -511,6 +511,7 @@ impl ReplSession {
                 }
             }
             _ = tokio::signal::ctrl_c() => {
+                rho_engine::process::kill_all_tracked_processes();
                 renderer.flush();
                 engine.record_cancellation("operator interrupt").await?;
                 renderer.write_output("\nCanceled.\n");

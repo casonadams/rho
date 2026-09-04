@@ -123,3 +123,43 @@ async fn test_bash_timeout() {
     assert!(res.is_error);
     assert!(res.content.contains("timed out after 1 seconds"));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_bash_timeout_kills_process_group() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let initial_count = crate::process::tracked_pid_count();
+
+    let res = tool
+        .execute(BashArgs {
+            command: "sleep 30 & wait".to_string(),
+            timeout: Some(1),
+        })
+        .await
+        .unwrap();
+
+    assert!(res.is_error);
+    assert!(res.content.contains("timed out"));
+    assert_eq!(crate::process::tracked_pid_count(), initial_count);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_bash_cancellation_kills_process_group() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let initial_count = crate::process::tracked_pid_count();
+
+    let future = tool.execute(BashArgs {
+        command: "sleep 30 & wait".to_string(),
+        timeout: Some(30),
+    });
+
+    // Run until the process is spawned and running, then drop the future to simulate cancellation
+    tokio::select! {
+        _ = future => {}
+        _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {}
+    }
+
+    // After future is cancelled/dropped, ProcessTreeGuard drops and untracks the PID
+    assert_eq!(crate::process::tracked_pid_count(), initial_count);
+}

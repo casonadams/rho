@@ -5,24 +5,22 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tokio::process::{ChildStdin, ChildStdout, Command};
 
 pub const MAX_STDERR_BYTES: usize = 64 * 1024;
 
 pub struct McpChildHandle {
     pub stderr_buffer: Arc<Mutex<String>>,
-    child: Child,
+    _guard: crate::process::ProcessTreeGuard,
 }
 
 impl McpChildHandle {
+    pub fn id(&self) -> Option<u32> {
+        self._guard.id()
+    }
+
     pub fn last_stderr(&self) -> String {
         self.stderr_buffer.lock().unwrap().clone()
-    }
-}
-
-impl Drop for McpChildHandle {
-    fn drop(&mut self) {
-        crate::process::kill_tree_sync(&mut self.child);
     }
 }
 
@@ -78,7 +76,14 @@ impl McpProcess {
             }
         });
 
-        Ok((stdin, stdout, McpChildHandle { stderr_buffer, child }))
+        Ok((
+            stdin,
+            stdout,
+            McpChildHandle {
+                stderr_buffer,
+                _guard: crate::process::ProcessTreeGuard::new(child),
+            },
+        ))
     }
 }
 
@@ -124,11 +129,22 @@ mod tests {
     async fn test_spawn_mcp_process() {
         let config = McpServerConfig {
             command: "/bin/sh".to_string(),
-            args: vec!["-c".to_string(), "echo ready".to_string()],
+            args: vec!["-c".to_string(), "sleep 30 & wait".to_string()],
             env: BTreeMap::new(),
             enabled: true,
         };
         let (_stdin, _stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+        let pid = handle.id().expect("handle has pid");
+        assert!(pid > 1);
         drop(handle);
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            if unsafe { libc::kill(-(pid as libc::pid_t), 0) } == -1 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        panic!("mcp process group {pid} still alive after handle drop");
     }
 }
