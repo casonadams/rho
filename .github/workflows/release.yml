@@ -78,6 +78,8 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
+          cargo publish -p rho-plugin-sdk
+          sleep 15
           cargo publish -p rho-harness-core
           sleep 15
           cargo publish -p rho-engine --no-verify
