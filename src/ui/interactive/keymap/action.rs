@@ -1,6 +1,3 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use std::collections::HashMap;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyAction {
     AppInterrupt,
@@ -145,78 +142,5 @@ impl KeyAction {
             "tui.select.cancel" => Some(Self::TuiSelectCancel),
             _ => None,
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct KeyChord {
-    pub code: KeyCode,
-    pub modifiers: KeyModifiers,
-}
-
-impl KeyChord {
-    pub fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
-        Self { code, modifiers }
-    }
-
-    pub fn matches(&self, event: &KeyEvent) -> bool {
-        if event.kind == KeyEventKind::Release {
-            return false;
-        }
-
-        // Special handling for Shift+Tab: in crossterm, Shift+Tab can arrive either as
-        // (KeyCode::BackTab, KeyModifiers::NONE / SHIFT) OR (KeyCode::Tab, KeyModifiers::SHIFT)
-        let is_self_shift_tab = (self.code == KeyCode::Tab && self.modifiers.contains(KeyModifiers::SHIFT))
-            || self.code == KeyCode::BackTab;
-        let is_event_shift_tab = (event.code == KeyCode::Tab && event.modifiers.contains(KeyModifiers::SHIFT))
-            || event.code == KeyCode::BackTab;
-
-        if is_self_shift_tab && is_event_shift_tab {
-            return true;
-        }
-
-        let norm_event_code = match event.code {
-            KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
-            other => other,
-        };
-        let norm_self_code = match self.code {
-            KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
-            other => other,
-        };
-        norm_event_code == norm_self_code && event.modifiers == self.modifiers
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct KeybindingMap {
-    bindings: HashMap<KeyChord, KeyAction>,
-    action_keys: HashMap<KeyAction, Vec<KeyChord>>,
-}
-
-impl KeybindingMap {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn bind(&mut self, chord: KeyChord, action: KeyAction) {
-        self.bindings.insert(chord, action);
-        self.action_keys.entry(action).or_default().push(chord);
-    }
-
-    pub fn unbind_action(&mut self, action: KeyAction) {
-        if let Some(chords) = self.action_keys.remove(&action) {
-            for chord in chords {
-                self.bindings.remove(&chord);
-            }
-        }
-    }
-
-    pub fn get_action(&self, event: &KeyEvent) -> Option<KeyAction> {
-        for (chord, action) in &self.bindings {
-            if chord.matches(event) {
-                return Some(*action);
-            }
-        }
-        None
     }
 }
