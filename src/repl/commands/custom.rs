@@ -10,7 +10,7 @@ pub async fn handle_custom(
     if let Some(skill_name) = custom.strip_prefix("skill:") {
         let skills = crate::skills::resolved_skills(Some(&ctx.config.config_dir), cwd.as_deref());
         if let Some(matched) = skills.iter().find(|s| s.metadata.name == skill_name)
-            && let Some(content) = crate::skills::resolved_content(&skills, &matched.metadata.name)
+            && let Ok(content) = std::fs::read_to_string(&matched.metadata.location)
         {
             ctx.renderer.print_notice(&format!(
                 "\n[skill: {} ({})]\n{content}\n",

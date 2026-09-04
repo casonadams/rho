@@ -68,7 +68,7 @@ fn user_skill_resolves_with_user_origin_and_content() {
     assert_eq!(plan.metadata.description, "User plan override");
     assert!(plan.metadata.location.contains("config/skills/plan/SKILL.md"));
     assert_eq!(
-        resolved_content(&resolved, "plan").unwrap(),
+        std::fs::read_to_string(&plan.metadata.location).unwrap(),
         "---\nname: plan\ndescription: User plan override\n---\n# Custom Plan\n"
     );
 }
@@ -101,14 +101,22 @@ fn project_override_beats_user_and_user_additions_survive() {
     let plan = resolved.iter().find(|skill| skill.metadata.name == "plan").unwrap();
     assert_eq!(plan.origin, SkillOrigin::Project);
     assert_eq!(plan.metadata.description, "Project plan");
-    assert!(resolved_content(&resolved, "plan").unwrap().contains("# Project Plan"));
+    assert!(
+        std::fs::read_to_string(&plan.metadata.location)
+            .unwrap()
+            .contains("# Project Plan")
+    );
 
     let notes = resolved
         .iter()
         .find(|skill| skill.metadata.name == "team-notes")
         .unwrap();
     assert_eq!(notes.origin, SkillOrigin::User);
-    assert!(resolved_content(&resolved, "team-notes").unwrap().contains("# Notes"));
+    assert!(
+        std::fs::read_to_string(&notes.metadata.location)
+            .unwrap()
+            .contains("# Notes")
+    );
 }
 
 #[test]
@@ -130,7 +138,11 @@ fn flat_skill_files_use_their_file_stem_as_name() {
         .expect("flat file stem becomes the skill name");
     assert_eq!(deploy.origin, SkillOrigin::Project);
     assert_eq!(deploy.metadata.description, "Push builds.");
-    assert!(resolved_content(&resolved, "deploy").unwrap().contains("Push builds."));
+    assert!(
+        std::fs::read_to_string(&deploy.metadata.location)
+            .unwrap()
+            .contains("Push builds.")
+    );
 }
 
 #[test]

@@ -45,14 +45,6 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
     resolved
 }
 
-/// Full content of one skill by name in the resolved set.
-///
-/// Skills are read from their recorded file location, never interpreted or executed.
-pub fn resolved_content(skills: &[ResolvedSkill], name: &str) -> Option<String> {
-    let skill = skills.iter().find(|skill| skill.metadata.name == name)?;
-    std::fs::read_to_string(&skill.metadata.location).ok()
-}
-
 fn scan_directory(directory: &Path, origin: SkillOrigin, resolved: &mut Vec<ResolvedSkill>) {
     if !directory.exists() || !directory.is_dir() {
         return;

@@ -38,7 +38,7 @@ async fn test_project_context_discovery() {
 }
 
 #[tokio::test]
-async fn test_user_config_skills_override_builtin_skills() {
+async fn test_user_config_skills_discovery() {
     let temp_dir = std::env::temp_dir().join(format!("ctx_override_test_{}", uuid::Uuid::new_v4()));
     let config_dir = temp_dir.join("config");
     let project_dir = temp_dir.join("project");
