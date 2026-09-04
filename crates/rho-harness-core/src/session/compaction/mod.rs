@@ -1,11 +1,19 @@
+pub mod fallback;
 pub mod files;
+pub mod prompts;
 pub mod serialize;
 pub mod types;
 
 #[cfg(test)]
 mod tests;
 
+pub use fallback::generate_fallback_summary;
 pub use files::{extract_file_ops, normalize_path, render_file_lists_xml};
+pub use prompts::{
+    SUMMARIZATION_PROMPT, SUMMARIZATION_SYSTEM_PROMPT, TURN_PREFIX_SUMMARIZATION_PROMPT, UPDATE_SUMMARIZATION_PROMPT,
+    build_summarization_prompt, build_turn_prefix_prompt, build_update_summarization_prompt,
+    compose_compaction_summary, merge_split_turn_summary,
+};
 pub use serialize::{MAX_TOOL_RESULT_CHARS, serialize_conversation};
 pub use types::{CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message};
 
