@@ -1,55 +1,10 @@
-use super::helpers::{final_event, presenter, request, test_engine};
-use crate::auth::AuthStore;
+use super::super::helpers::{presenter, request, test_engine};
 use crate::config::Config;
-use crate::engine::runner::{RunStatus, TerminalApprovalSink, TerminalSinkConfig, map_completion_error, redact_text};
-use crate::error::AppError;
+use crate::engine::runner::{TerminalApprovalSink, TerminalSinkConfig, map_completion_error, redact_text};
 use crate::session::SessionManager;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
-use rig::completion::{FinishReason, Usage};
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
-
-#[tokio::test]
-async fn normalized_usage_is_exposed_when_available() {
-    let usage = Usage {
-        input_tokens: 10,
-        output_tokens: 4,
-        total_tokens: 14,
-        cached_input_tokens: 3,
-        cache_creation_input_tokens: 2,
-        tool_use_prompt_tokens: 1,
-        reasoning_tokens: 2,
-    };
-    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("done"), final_event(usage)]]);
-    let engine = test_engine(model, Config::default());
-    let output = engine
-        .run_turn(request("prompt"), presenter(&TerminalRenderer::default()))
-        .await
-        .unwrap();
-
-    assert_eq!(output.usage, Some(usage.into()));
-    assert!(output.metrics.usage_available);
-    assert_eq!(output.metrics.usage.unwrap().cached_input_tokens, Some(3));
-    assert_eq!(output.metrics.usage.unwrap().reasoning_tokens, Some(2));
-    assert_eq!(engine.context_usage_display(), "15/200k (0%)");
-}
-
-#[tokio::test]
-async fn content_filter_finish_is_distinct() {
-    let final_record =
-        rig::streaming::StreamFinal::new("mock", Usage::new()).with_finish_reason(FinishReason::ContentFilter);
-    let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::text("filtered partial"),
-        MockStreamEvent::FinalResponse(final_record),
-    ]]);
-    let engine = test_engine(model, Config::default());
-    let output = engine
-        .run_turn(request("prompt"), presenter(&TerminalRenderer::default()))
-        .await
-        .unwrap();
-
-    assert_eq!(output.status, RunStatus::ContentFiltered);
-}
 
 #[tokio::test]
 async fn provider_stream_failures_do_not_expose_upstream_details() {
@@ -68,27 +23,6 @@ async fn provider_stream_failures_do_not_expose_upstream_details() {
     let persisted = std::fs::read_to_string(&engine.session_manager.file_path).unwrap();
     assert!(!persisted.contains("credential-sentinel"));
     assert!(!persisted.contains("Bearer"));
-}
-
-#[tokio::test]
-async fn explicit_output_limit_and_max_turn_budget_reach_rig() {
-    let config = Config {
-        max_output_tokens: Some(321),
-        max_turns: 1,
-        ..Config::default()
-    };
-    let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::tool_call("call-1", "read", serde_json::json!({"path": "missing"})),
-        final_event(Usage::new()),
-    ]]);
-    let engine = test_engine(model.clone(), config);
-    let error = engine
-        .run_turn(request("read"), presenter(&TerminalRenderer::default()))
-        .await
-        .unwrap_err();
-
-    assert!(matches!(error, AppError::ModelBudgetExhausted { max_turns: 1 }));
-    assert_eq!(model.requests()[0].max_tokens, Some(321));
 }
 
 #[test]
@@ -118,6 +52,7 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
         },
         session,
     );
+
     let args = serde_json::json!({"path":"credential-sentinel"});
     sink.tool_start("read", &args);
     sink.tool_finished(rho_engine::engine::runner::ToolFinishDetails {
@@ -169,9 +104,4 @@ fn cancellation_reason_is_redacted() {
         "sensitive upstream detail redacted"
     );
     assert_eq!(redact_text("operator stop"), "operator stop");
-}
-
-#[test]
-fn auth_store_type_remains_constructible_for_public_engine_api() {
-    let _ = AuthStore::default();
 }
