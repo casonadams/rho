@@ -19,12 +19,7 @@ pub fn context_window_size(model: &str) -> usize {
         372_000
     } else if lower.contains("gpt-5.4") || lower.contains("gpt-5.5") {
         272_000
-    } else if lower.contains("claude-3-7")
-        || lower.contains("claude-3-5")
-        || lower.contains("claude-3")
-        || lower.contains("o1")
-        || lower.contains("o3")
-    {
+    } else if lower.contains("claude") || lower.contains("o1") || lower.contains("o3") {
         200_000
     } else {
         128_000

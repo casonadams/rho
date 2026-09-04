@@ -80,3 +80,15 @@ fn test_find_token_cut_point_and_tool_pair_preservation() {
     let cut_idx = find_token_cut_point(&messages, 10, "gpt-4");
     assert!(cut_idx <= 1);
 }
+
+#[test]
+fn test_context_window_size() {
+    assert_eq!(context_window_size("claude-sonnet-4-6"), 200_000);
+    assert_eq!(context_window_size("claude-opus-4-6"), 200_000);
+    assert_eq!(context_window_size("claude-3-7-sonnet"), 200_000);
+    assert_eq!(context_window_size("gemini-2.5-pro"), 2_000_000);
+    assert_eq!(context_window_size("gemini-2.5-flash"), 1_000_000);
+    assert_eq!(context_window_size("gpt-5.6"), 372_000);
+    assert_eq!(context_window_size("gpt-5.4"), 272_000);
+    assert_eq!(context_window_size("unknown-model"), 128_000);
+}
