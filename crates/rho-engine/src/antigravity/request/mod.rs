@@ -10,6 +10,9 @@ pub mod contents;
 pub mod model;
 pub mod schema;
 
+#[cfg(test)]
+mod tests;
+
 pub use contents::*;
 pub use model::*;
 pub use schema::*;

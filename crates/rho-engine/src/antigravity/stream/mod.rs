@@ -1,114 +1,19 @@
 //! Antigravity wire format, stream side: SSE chunk decoding into rig's
 //! canonical streaming events.
 
-use rig::completion::{CompletionError, FinishReason, Usage};
+pub mod wire;
+
+#[cfg(test)]
+mod tests;
+
+pub use wire::map_finish_reason;
+use wire::{StreamChunk, StreamPart, usage_from_metadata};
+
+use rig::completion::CompletionError;
 use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
-use serde::Deserialize;
 use serde_json::Value;
 
 use super::request::sanitize_tool_call_id;
-
-#[derive(Deserialize, Debug, Default, Clone)]
-#[serde(rename_all = "camelCase")]
-struct StreamPart {
-    #[serde(default)]
-    text: Option<String>,
-    #[serde(default)]
-    thought: Option<bool>,
-    #[serde(default)]
-    thought_signature: Option<String>,
-    #[serde(default)]
-    function_call: Option<StreamFunctionCall>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-struct StreamFunctionCall {
-    #[serde(default)]
-    id: Option<String>,
-    name: String,
-    #[serde(default)]
-    args: Value,
-}
-
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct StreamCandidate {
-    #[serde(default)]
-    content: Option<StreamContent>,
-    #[serde(default)]
-    finish_reason: Option<String>,
-}
-
-#[derive(Deserialize, Debug, Default, Clone)]
-#[serde(rename_all = "camelCase")]
-struct StreamContent {
-    #[serde(default)]
-    parts: Vec<StreamPart>,
-}
-
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct UsageMetadata {
-    #[serde(default)]
-    prompt_token_count: u64,
-    #[serde(default)]
-    candidates_token_count: u64,
-    #[serde(default)]
-    thoughts_token_count: u64,
-    #[serde(default)]
-    cached_content_token_count: u64,
-    #[serde(default)]
-    total_token_count: u64,
-}
-
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct StreamChunk {
-    #[serde(default)]
-    response: Option<StreamResponseBody>,
-    #[serde(flatten)]
-    direct: StreamResponseBody,
-    #[serde(default)]
-    error: Option<StreamError>,
-}
-
-#[derive(Deserialize, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-struct StreamResponseBody {
-    #[serde(default)]
-    candidates: Vec<StreamCandidate>,
-    #[serde(default)]
-    usage_metadata: Option<UsageMetadata>,
-}
-
-#[derive(Deserialize, Debug)]
-struct StreamError {
-    message: Option<Value>,
-}
-
-fn usage_from_metadata(metadata: &UsageMetadata) -> Usage {
-    Usage {
-        input_tokens: metadata
-            .prompt_token_count
-            .saturating_sub(metadata.cached_content_token_count),
-        output_tokens: metadata.candidates_token_count + metadata.thoughts_token_count,
-        total_tokens: metadata.total_token_count,
-        cached_input_tokens: metadata.cached_content_token_count,
-        cache_creation_input_tokens: 0,
-        tool_use_prompt_tokens: 0,
-        reasoning_tokens: metadata.thoughts_token_count,
-    }
-}
-
-pub fn map_finish_reason(reason: &str) -> FinishReason {
-    match reason {
-        "STOP" => FinishReason::Stop,
-        "MAX_TOKENS" => FinishReason::Length,
-        "SAFETY" | "PROHIBITED_CONTENT" | "BLOCKLIST" => FinishReason::ContentFilter,
-        other => FinishReason::Other(other.to_string()),
-    }
-}
 
 /// Incremental SSE parser for Antigravity `streamGenerateContent?alt=sse`.
 ///
