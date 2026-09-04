@@ -40,7 +40,8 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let (editor_lines, top_divider, bottom_divider, footer_lines, cursor, cursor_visible, cursor_row) =
         if let Some(modal) = input.modal {
             let modal_start_row = lines.len();
-            let (modal_lines, modal_cursor, modal_cursor_visible) = render_modal_overlay(modal, width);
+            let (modal_lines, modal_cursor, modal_cursor_visible) =
+                render_modal_overlay(modal, width, input.terminal_height);
             lines.extend(modal_lines.clone());
             (
                 modal_lines,
