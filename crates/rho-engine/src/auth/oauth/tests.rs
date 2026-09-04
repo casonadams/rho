@@ -107,3 +107,39 @@ async fn test_refresh_oauth_token_unsupported_provider_passthrough() {
     let refreshed = refresh_oauth_token(ProviderId::Local, &cred).await.unwrap();
     assert_eq!(refreshed, cred);
 }
+
+#[test]
+fn test_openrouter_build_auth_url() {
+    let url_with_cb = openrouter::build_auth_url(Some("http://localhost:1234/callback"), "challenge123");
+    assert!(url_with_cb.starts_with(openrouter::OPENROUTER_AUTH_URL));
+    assert!(url_with_cb.contains("callback_url=http://localhost:1234/callback"));
+    assert!(url_with_cb.contains("code_challenge=challenge123"));
+    assert!(url_with_cb.contains("code_challenge_method=S256"));
+    assert!(url_with_cb.contains("key_label=rho"));
+
+    let url_headless = openrouter::build_auth_url(None, "challenge456");
+    assert!(!url_headless.contains("callback_url="));
+    assert!(url_headless.contains("code_challenge=challenge456"));
+    assert!(url_headless.contains("key_label=rho"));
+}
+
+#[test]
+fn test_openrouter_build_exchange_body() {
+    let body = openrouter::build_exchange_body("code123", "verifier456");
+    assert_eq!(body.get("code"), Some(&"code123"));
+    assert_eq!(body.get("code_verifier"), Some(&"verifier456"));
+    assert_eq!(body.get("code_challenge_method"), Some(&"S256"));
+}
+
+#[test]
+fn test_openrouter_parse_key_response() {
+    let json_valid = r#"{"key": "sk-or-v1-abcdef123456"}"#;
+    let key = openrouter::parse_key_response(json_valid).unwrap();
+    assert_eq!(key, "sk-or-v1-abcdef123456");
+
+    let json_empty_key = r#"{"key": "   "}"#;
+    assert!(openrouter::parse_key_response(json_empty_key).is_err());
+
+    let json_invalid = r#"{"error": "invalid_grant"}"#;
+    assert!(openrouter::parse_key_response(json_invalid).is_err());
+}

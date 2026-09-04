@@ -8,7 +8,7 @@ mod terminal;
 mod tests;
 
 pub use callbacks::TerminalOAuthCallbacks;
-pub use provider::{prompt_select_provider, resolve_provider_name};
+pub use provider::{AuthMethod, prompt_auth_method, prompt_select_provider, resolve_provider_name};
 use terminal::prompt_password;
 
 use crate::auth::AuthStore;
@@ -18,6 +18,29 @@ use rho_engine::auth::perform_oauth_login;
 use rho_harness_core::provider::ProviderId;
 use std::str::FromStr;
 
+fn provider_login_name(id: ProviderId) -> &'static str {
+    match id {
+        ProviderId::ChatGpt => "ChatGPT",
+        ProviderId::Copilot => "GitHub Copilot",
+        ProviderId::Antigravity => "Google Antigravity",
+        ProviderId::OpenRouter => "OpenRouter",
+        _ => id.as_str(),
+    }
+}
+
+async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+    let callbacks = TerminalOAuthCallbacks;
+    let cred = perform_oauth_login(id, &callbacks).await?;
+    auth_store.set_credential(id.as_str(), cred)?;
+    crate::repl::interactive::spawn_background_model_refresh(config, auth_store);
+    println!(
+        "Logged in to {}. Credentials saved to {}",
+        provider_login_name(id),
+        config.auth_file.display()
+    );
+    Ok(())
+}
+
 pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
     let target = match provider {
         Some(name) => resolve_provider_name(Some(name), &config.provider),
@@ -26,35 +49,14 @@ pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store:
 
     if let Ok(id) = ProviderId::from_str(&target) {
         match id {
-            ProviderId::ChatGpt => {
-                let callbacks = TerminalOAuthCallbacks;
-                let cred = perform_oauth_login(id, &callbacks).await?;
-                auth_store.set_credential(id.as_str(), cred)?;
-                println!(
-                    "Logged in to ChatGPT. Credentials saved to {}",
-                    config.auth_file.display()
-                );
-                return Ok(());
+            ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity => {
+                return perform_oauth_and_save(id, config, auth_store).await;
             }
-            ProviderId::Copilot => {
-                let callbacks = TerminalOAuthCallbacks;
-                let cred = perform_oauth_login(id, &callbacks).await?;
-                auth_store.set_credential(id.as_str(), cred)?;
-                println!(
-                    "Logged in to GitHub Copilot. Credentials saved to {}",
-                    config.auth_file.display()
-                );
-                return Ok(());
-            }
-            ProviderId::Antigravity => {
-                let callbacks = TerminalOAuthCallbacks;
-                let cred = perform_oauth_login(id, &callbacks).await?;
-                auth_store.set_credential(id.as_str(), cred)?;
-                println!(
-                    "Logged in to Google Antigravity. Credentials saved to {}",
-                    config.auth_file.display()
-                );
-                return Ok(());
+            ProviderId::OpenRouter => {
+                let method = prompt_auth_method("OpenRouter")?;
+                if method == AuthMethod::OAuth {
+                    return perform_oauth_and_save(id, config, auth_store).await;
+                }
             }
             ProviderId::Local => {
                 println!("Local models run offline and do not require credentials.");
