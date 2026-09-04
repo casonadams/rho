@@ -1,4 +1,4 @@
-use super::fake::{FakeTerminal, Operation};
+use super::super::fake::{FakeTerminal, Operation};
 use crate::ui::interactive::controller::TerminalController;
 use crate::ui::interactive::{InteractiveState, ToolStartRequest};
 
