@@ -13,6 +13,7 @@ mod state;
 mod transcript;
 pub mod tree_view;
 
+pub use controller::cache;
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
     BatchDecision, FlushBarrier, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder,

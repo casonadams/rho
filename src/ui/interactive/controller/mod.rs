@@ -1,5 +1,6 @@
 pub mod ansi;
 pub mod backend;
+pub mod cache;
 pub mod lifecycle;
 pub mod output;
 pub mod paint;
