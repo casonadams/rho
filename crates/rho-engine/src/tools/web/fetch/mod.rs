@@ -1,9 +1,14 @@
 pub mod cache;
 pub mod extract;
+mod format;
+
+#[cfg(test)]
+mod tests;
 
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::web::http::{HttpClient, HttpRequest};
 use cache::FetchCache;
+use format::{FormatFetchParams, format_fetch_output};
 pub use rho_harness_core::args::WebFetchArgs;
 use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
@@ -21,6 +26,11 @@ pub struct WebFetchTool {
     pub timeout_sec: u64,
     pub max_bytes: usize,
     pub default_limit: usize,
+}
+
+struct FetchOptions<'a> {
+    mode: &'a str,
+    format_override: Option<&'a str>,
 }
 
 impl WebFetchTool {
@@ -49,45 +59,25 @@ impl WebFetchTool {
         let full_text = if let Some(cached) = self.cache.get(&cache_key).await {
             cached
         } else {
-            let extracted = self.fetch_and_extract(url_str, (&mode, args.format.as_deref())).await?;
+            let options = FetchOptions {
+                mode: &mode,
+                format_override: args.format.as_deref(),
+            };
+            let extracted = self.fetch_and_extract(url_str, options).await?;
             self.cache.insert(cache_key, extracted.clone()).await;
             extracted
         };
 
-        let lines: Vec<&str> = full_text.lines().collect();
-        let total_lines = lines.len();
-
-        if total_lines == 0 {
-            return Ok(ToolResult::success("[Empty content returned from URL]"));
-        }
-
-        let start_idx = (offset - 1).min(total_lines);
-        let end_idx = (start_idx + limit).min(total_lines);
-
-        let mut output = String::new();
-        for (i, line) in lines[start_idx..end_idx].iter().enumerate() {
-            let line_num = start_idx + i + 1;
-            output.push_str(&format!("{line_num:5}\t{line}\n"));
-        }
-
-        if end_idx < total_lines {
-            output.push_str(&format!(
-                "\n[Lines {}-{} of {} total lines from {}]",
-                offset, end_idx, total_lines, url_str
-            ));
-        }
-
-        Ok(ToolResult::success(output))
+        Ok(format_fetch_output(FormatFetchParams {
+            text: &full_text,
+            offset,
+            limit,
+            url_str,
+        }))
     }
 
-    async fn fetch_and_extract(&self, url_str: &str, options: (&str, Option<&str>)) -> Result<String, AppError> {
-        let (mode, format_override) = options;
-        // PDF check
-        let is_pdf = format_override == Some("pdf")
-            || url_str.to_lowercase().ends_with(".pdf")
-            || url_str.to_lowercase().contains(".pdf?");
-
-        if is_pdf {
+    async fn fetch_and_extract(&self, url_str: &str, options: FetchOptions<'_>) -> Result<String, AppError> {
+        if extract::is_pdf_request(url_str, options.format_override) {
             let (bytes, _) = self
                 .http
                 .get_bytes(HttpRequest {
@@ -109,35 +99,14 @@ impl WebFetchTool {
                 max_bytes: self.max_bytes,
             })
             .await?;
-        let ct_lower = content_type.to_lowercase();
 
-        if let Some(fmt) = format_override {
-            match fmt.to_lowercase().as_str() {
-                "json" => return Ok(extract::extract_json(&body)),
-                "csv" | "tsv" => return Ok(extract::extract_csv(&body, if fmt == "tsv" { b'\t' } else { b',' })),
-                "xml" | "rss" | "atom" => return Ok(extract::extract_feed_or_xml(&body, url_str)),
-                "markdown" | "md" => return Ok(extract::resolve_markdown_links(&body, url_str)),
-                _ => {}
-            }
-        }
-
-        if ct_lower.contains("json") {
-            Ok(extract::extract_json(&body))
-        } else if ct_lower.contains("xml") || ct_lower.contains("rss") || ct_lower.contains("atom") {
-            Ok(extract::extract_feed_or_xml(&body, url_str))
-        } else if ct_lower.contains("csv") || ct_lower.contains("tab-separated") {
-            let delim = if ct_lower.contains("tab-separated") || url_str.ends_with(".tsv") {
-                b'\t'
-            } else {
-                b','
-            };
-            Ok(extract::extract_csv(&body, delim))
-        } else if ct_lower.contains("markdown") || url_str.ends_with(".md") {
-            Ok(extract::resolve_markdown_links(&body, url_str))
-        } else {
-            // Default HTML extraction
-            Ok(extract::extract_html(&body, url_str, mode))
-        }
+        Ok(extract::extract_text(extract::ExtractTextParams {
+            body: &body,
+            content_type: &content_type,
+            url_str,
+            mode: options.mode,
+            format_override: options.format_override,
+        }))
     }
 }
 
