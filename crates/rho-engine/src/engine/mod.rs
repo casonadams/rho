@@ -112,7 +112,7 @@ impl AgentEngine {
         if cache.as_ref().map(|(dir, _)| dir.as_path()) != Some(cwd.as_path()) {
             *cache = Some((
                 cwd.clone(),
-                context::ProjectContext::discover(&cwd, Some(&self.config.config_dir)).await,
+                context::ProjectContext::discover_with_config(&cwd, &self.config).await,
             ));
         }
         let Some((_, cached)) = cache.as_mut() else {

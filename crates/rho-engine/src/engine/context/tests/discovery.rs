@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 
 #[tokio::test]
 async fn test_project_context_discovery() {
@@ -68,6 +68,7 @@ async fn test_user_config_skills_discovery() {
         ContextDirs {
             config_dir: Some(&config_dir),
             home_dir: Some(&home_dir),
+            ..Default::default()
         },
     )
     .await;
@@ -120,11 +121,11 @@ async fn test_global_agents_md_discovery_hierarchy() {
         ContextDirs {
             config_dir: Some(&config_dir),
             home_dir: Some(&home_dir),
+            ..Default::default()
         },
     )
     .await;
 
-    // Only HOME/.agents and project directories are searched
     assert_eq!(ctx.instruction_files.len(), 3);
     assert_eq!(ctx.instruction_files[0].1, "# 1. Global User Rules");
     assert_eq!(ctx.instruction_files[1].1, "# 4. Project Base Rules");
@@ -166,11 +167,11 @@ async fn test_instruction_deduplication_via_symlink() {
         ContextDirs {
             config_dir: Some(&config_dir),
             home_dir: Some(&home_dir),
+            ..Default::default()
         },
     )
     .await;
 
-    // The file should only be loaded once despite existing at both paths
     assert_eq!(ctx.instruction_files.len(), 1);
     assert_eq!(ctx.instruction_files[0].1, "# Canonical Rules");
 

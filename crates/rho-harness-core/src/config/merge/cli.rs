@@ -20,4 +20,13 @@ pub(crate) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     if let Some(ref t) = c.thinking {
         config.thinking_level = if t == "off" { None } else { Some(t.clone()) };
     }
+    if let Some(ref sp) = c.system_prompt {
+        config.system_prompt = Some(sp.clone());
+    }
+    if let Some(ref asp) = c.append_system_prompt {
+        config.append_system_prompt = Some(asp.clone());
+    }
+    if c.no_context_files {
+        config.no_context_files = true;
+    }
 }

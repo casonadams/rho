@@ -5,9 +5,15 @@ use std::path::{Path, PathBuf};
 pub struct ContextDirs<'a> {
     pub config_dir: Option<&'a Path>,
     pub home_dir: Option<&'a Path>,
+    pub system_prompt: Option<&'a str>,
+    pub append_system_prompt: Option<&'a str>,
+    pub no_context_files: bool,
 }
 
 pub fn discover_instructions(base: &Path, dirs: ContextDirs<'_>) -> Vec<(String, String)> {
+    if dirs.no_context_files {
+        return Vec::new();
+    }
     let mut files = Vec::new();
     let mut seen = HashSet::new();
 

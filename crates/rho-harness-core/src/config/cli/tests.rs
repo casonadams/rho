@@ -80,6 +80,25 @@ fn test_cli_parses_runtime_limits() {
 }
 
 #[test]
+fn test_cli_flags() {
+    let cli = Cli::try_parse_from([
+        "rho",
+        "--system-prompt",
+        "custom system prompt",
+        "--append-system-prompt",
+        "append instructions",
+        "--no-context-files",
+    ])
+    .unwrap();
+    assert_eq!(cli.system_prompt.as_deref(), Some("custom system prompt"));
+    assert_eq!(cli.append_system_prompt.as_deref(), Some("append instructions"));
+    assert!(cli.no_context_files);
+
+    let cli_alias = Cli::try_parse_from(["rho", "--nc"]).unwrap();
+    assert!(cli_alias.no_context_files);
+}
+
+#[test]
 fn help_matches_documented_auth_sessions_limits_and_context() {
     use clap::CommandFactory;
 

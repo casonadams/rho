@@ -30,6 +30,12 @@ pub struct Config {
     pub follow_up_mode: crate::queue::QueueMode,
     pub thinking_level: Option<String>,
     pub context_injection_max_tokens: usize,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub append_system_prompt: Option<String>,
+    #[serde(default)]
+    pub no_context_files: bool,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
@@ -64,6 +70,9 @@ impl Default for Config {
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
             thinking_level: None,
             context_injection_max_tokens: 4000,
+            system_prompt: None,
+            append_system_prompt: None,
+            no_context_files: false,
             plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),

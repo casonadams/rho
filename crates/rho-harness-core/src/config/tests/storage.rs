@@ -8,8 +8,10 @@ fn test_state_file_loads_last_model_and_thinking_level() {
     crate::state::AppState::set_last_model(&dir, "gemini-2.0-flash", Some("gemini")).unwrap();
     crate::state::AppState::set_last_thinking_level(&dir, Some("high")).unwrap();
 
-    let mut config = Config::default();
-    config.config_dir = dir.clone();
+    let mut config = Config {
+        config_dir: dir.clone(),
+        ..Default::default()
+    };
 
     let state = crate::state::AppState::load(&config.config_dir);
     if let Some(m) = state.last_model {

@@ -1,4 +1,5 @@
 use super::super::{Config, FileConfig, cli, merge};
+use clap::Parser;
 
 #[test]
 fn test_default_config() {
@@ -71,6 +72,9 @@ fn test_precedence_is_defaults_file_environment_then_cli() {
         resume_picker: false,
         mode: "interactive".to_string(),
         message: Vec::new(),
+        system_prompt: None,
+        append_system_prompt: None,
+        no_context_files: false,
         command: None,
     };
     merge::apply_cli_overrides(&mut config, Some(&cli));
@@ -104,4 +108,23 @@ fn test_positive_integer_parsing() {
     assert_eq!(merge::parse_positive_for_test::<usize>("LIMIT", "25").unwrap(), 25);
     assert!(merge::parse_positive_for_test::<usize>("LIMIT", "0").is_err());
     assert!(merge::parse_positive_for_test::<u64>("LIMIT", "invalid").is_err());
+}
+
+#[test]
+fn test_cli_context_flag_overrides() {
+    let mut config = Config::default();
+    let cli = cli::Cli::try_parse_from([
+        "rho",
+        "--system-prompt",
+        "custom system prompt",
+        "--append-system-prompt",
+        "additional instructions",
+        "--nc",
+    ])
+    .unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+
+    assert_eq!(config.system_prompt.as_deref(), Some("custom system prompt"));
+    assert_eq!(config.append_system_prompt.as_deref(), Some("additional instructions"));
+    assert!(config.no_context_files);
 }

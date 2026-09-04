@@ -67,6 +67,18 @@ pub struct Cli {
     #[arg(trailing_var_arg = true)]
     pub message: Vec<String>,
 
+    /// Override base system prompt
+    #[arg(long = "system-prompt")]
+    pub system_prompt: Option<String>,
+
+    /// Additional instructions to append to the system prompt
+    #[arg(long = "append-system-prompt")]
+    pub append_system_prompt: Option<String>,
+
+    /// Disable discovery of AGENTS.md, CLAUDE.md, and .cursorrules
+    #[arg(long = "no-context-files", visible_alias = "nc", default_value_t = false)]
+    pub no_context_files: bool,
+
     /// Subcommand to execute
     #[command(subcommand)]
     pub command: Option<Commands>,
