@@ -13,6 +13,10 @@ pub struct RunningToolWidgetInput<'a> {
 }
 
 pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
+    if input.tool.preview.is_none() && input.tool.output.is_empty() && input.tool.name != "bash" {
+        return Vec::new();
+    }
+
     let width = input.width.max(20);
     let title = tool_title_style(false);
     let accent = input.theme.highlight;

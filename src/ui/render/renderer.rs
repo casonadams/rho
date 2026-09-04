@@ -83,11 +83,16 @@ impl TerminalRenderer {
             None
         };
         if let Some(ui) = &self.ui {
-            let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
-                name: name.to_string(),
-                args_summary: summary,
-                preview,
-            });
+            let has_running_widget = preview.is_some() || name == "bash";
+            if has_running_widget {
+                let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
+                    name: name.to_string(),
+                    args_summary: summary,
+                    preview,
+                });
+            } else {
+                let _ = ui.set_running_tool(Some(name.to_string()));
+            }
         } else {
             self.print_tool_start(name, args);
         }

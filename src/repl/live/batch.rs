@@ -66,6 +66,10 @@ impl LiveBatch {
             controller.state_mut().footer_mut().activity = activity;
             changed = true;
         }
+        if let Some(running) = drained.running_tool {
+            controller.state_mut().footer_mut().running_tool = running;
+            changed = true;
+        }
         if let Some(extra) = drained.extra_status {
             controller.state_mut().footer_mut().extra_status = extra;
             changed = true;
@@ -101,7 +105,10 @@ pub fn handle_ui_event<B: crate::ui::interactive::TerminalBackend>(
             controller.state_mut().footer_mut().activity = activity;
             controller.redraw()?;
         }
-        UiEvent::RunningTool(_) => {}
+        UiEvent::RunningTool(tool) => {
+            controller.state_mut().footer_mut().running_tool = tool;
+            controller.redraw()?;
+        }
         UiEvent::ExtraStatus(status) => {
             controller.state_mut().footer_mut().extra_status = status;
             controller.redraw()?;

@@ -668,3 +668,25 @@ fn running_tool_widget_with_preview_renders_diff_card() {
     assert!(full.contains("- line removed"));
     assert!(full.contains("Elapsed"));
 }
+
+#[test]
+fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
+    let theme = crate::ui::theme::Theme::default();
+    let tool_fd = crate::ui::interactive::state::RunningTool::new("fd", "pattern in .", None);
+    let lines_fd = super::render_running_tool_widget(super::RunningToolWidgetInput {
+        tool: &tool_fd,
+        theme: &theme,
+        width: 60,
+        tools_expanded: false,
+    });
+    assert!(lines_fd.is_empty(), "fd should not render a running widget card");
+
+    let tool_rg = crate::ui::interactive::state::RunningTool::new("rg", "/pattern/ in .", None);
+    let lines_rg = super::render_running_tool_widget(super::RunningToolWidgetInput {
+        tool: &tool_rg,
+        theme: &theme,
+        width: 60,
+        tools_expanded: false,
+    });
+    assert!(lines_rg.is_empty(), "rg should not render a running widget card");
+}
