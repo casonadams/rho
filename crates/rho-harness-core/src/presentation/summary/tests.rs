@@ -40,6 +40,7 @@ fn format_tool_args_summary_bash_multibyte_truncation() {
     let cmd = format!("echo {}", "🦀".repeat(70));
     let args = serde_json::json!({ "command": cmd });
     let summary = format_tool_args_summary("bash", &args);
-    assert!(summary.starts_with("`echo "));
-    assert!(summary.ends_with("...`"));
+    assert!(summary.starts_with("echo "));
+    assert!(summary.ends_with("..."));
+    assert!(!summary.contains('`'));
 }

@@ -44,19 +44,27 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
     if edits.is_empty() {
         return None;
     }
-    let d = theme.dimmed;
-    let mut out = format!("{d}```diff{d:#}\n");
+    let path_str = args.get("path").and_then(|v| v.as_str());
+    let mut out = String::new();
     for (idx, edit) in edits.iter().enumerate() {
         let old_text = edit.get("oldText").and_then(|v| v.as_str()).unwrap_or("");
         let new_text = edit.get("newText").and_then(|v| v.as_str()).unwrap_or("");
+        let start_line = edit
+            .get("line")
+            .or_else(|| edit.get("start_line"))
+            .or_else(|| edit.get("line_number"))
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+            .or_else(|| path_str.and_then(|p| super::diff::find_edit_line_number(p, old_text, new_text)));
+
         out.push_str(&super::diff::format_entry_diff(super::diff::EntryDiffInput {
             idx,
             old_text,
             new_text,
             theme,
+            start_line,
         }));
     }
-    out.push_str(&format!("{d}```{d:#}\n"));
     Some(out)
 }
 
@@ -66,22 +74,21 @@ pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expa
         return None;
     }
     let d = theme.dimmed;
-    let green = theme.tool_ok;
-    let mut out = format!("{d}```diff{d:#}\n");
+    let lang = super::preview::detect_language_from_args(args);
+    let mut out = String::new();
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len();
     let max = if expanded { total } else { 8.min(total) };
-    for line in &lines[..max] {
+    let gutter_width = max.to_string().len().max(3);
+    for (idx, line) in lines[..max].iter().enumerate() {
+        let line_num = idx + 1;
         let no_tabs = line.replace('\t', "   ");
-        out.push_str(&format!("{green}+ {no_tabs}{green:#}\n"));
+        let highlighted = crate::ui::markdown::highlight_code_line(&no_tabs, lang, theme);
+        out.push_str(&format!("{d}{line_num:>gutter_width$} │ {d:#}{highlighted}\n"));
     }
     if !expanded && total > 8 {
-        out.push_str(&format!(
-            "{d}... ({} more lines, {total} total, Ctrl+O to expand){d:#}\n",
-            total - 8
-        ));
+        out.push_str(&format!("{d}... ({} more lines, {total} total){d:#}\n", total - 8));
     }
-    out.push_str(&format!("{d}```{d:#}\n"));
     Some(out)
 }
 

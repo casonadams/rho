@@ -22,6 +22,7 @@ async fn test_edit_unique_replacement() {
         .unwrap();
 
     assert!(!res.is_error);
+    assert_eq!(res.metadata, Some(serde_json::json!({ "line_numbers": [2] })));
     let updated = tokio::fs::read_to_string(&file_path).await.unwrap();
     assert_eq!(updated, "fn hello() {\n    println!(\"rust\");\n}\n");
 

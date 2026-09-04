@@ -22,7 +22,6 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
     });
     assert!(collapsed.contains("read"));
     assert!(collapsed.contains("src/main.rs"));
-    assert!(collapsed.contains("(ctrl+o to expand)"));
     assert!(!collapsed.contains("println"));
 
     let expanded = render_transcript_item(TranscriptRenderInput {
@@ -34,7 +33,6 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
     });
     assert!(expanded.contains("read"));
     assert!(expanded.contains("src/main.rs"));
-    assert!(!expanded.contains("(ctrl+o to expand)"));
     assert!(expanded.contains("println"));
     // Verify syntax highlighting is applied (contains ANSI color escapes)
     assert!(expanded.contains("\x1b["));

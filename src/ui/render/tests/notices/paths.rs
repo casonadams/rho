@@ -6,10 +6,10 @@ use rho_harness_core::presentation::summary::{
 #[test]
 fn bash_summary_formats_timeout_inline() {
     let with_timeout = format_tool_args_summary("bash", &serde_json::json!({"command": "cargo build", "timeout": 30}));
-    assert_eq!(with_timeout, "`cargo build` (timeout 30s)");
+    assert_eq!(with_timeout, "cargo build (timeout 30s)");
 
     let without_timeout = format_tool_args_summary("bash", &serde_json::json!({"command": "cargo build"}));
-    assert_eq!(without_timeout, "`cargo build`");
+    assert_eq!(without_timeout, "cargo build");
 }
 
 #[test]

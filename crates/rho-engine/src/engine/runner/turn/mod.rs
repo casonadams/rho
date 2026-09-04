@@ -1,4 +1,5 @@
 mod completion;
+mod streaming_tool;
 mod tool_hook;
 pub mod types;
 
@@ -25,6 +26,7 @@ use std::time::Instant;
 
 use super::history::{budget_history, checkpoint_messages, continuation_history, display_events, map_streaming_error};
 use super::sink::{TerminalApprovalSink, TerminalSinkConfig, TurnArtifacts};
+use streaming_tool::StreamingToolTracker;
 use tool_hook::TurnToolExecutionHook;
 
 impl AgentEngine {
@@ -98,6 +100,7 @@ impl AgentEngine {
             let mut final_response = None;
             let mut reasoning_parts = HashSet::new();
             let mut budget_hit = false;
+            let mut streaming_tool = StreamingToolTracker::default();
 
             while let Some(item) = stream.next().await {
                 let item = match item {
@@ -128,8 +131,12 @@ impl AgentEngine {
                     }
                 };
                 match item {
-                    MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCallDelta { .. }) => {
+                    MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCallDelta {
+                        content,
+                        ..
+                    }) => {
                         sink.resume_model_spinner();
+                        streaming_tool.handle_delta(content, &sink);
                     }
                     MultiTurnStreamItem::StreamAssistantItem(item) => {
                         if model_call_start.is_none() {
@@ -146,8 +153,12 @@ impl AgentEngine {
                             }
                         }
                     }
-                    MultiTurnStreamItem::FinalResponse(response) => final_response = Some(response),
+                    MultiTurnStreamItem::FinalResponse(response) => {
+                        streaming_tool.reset();
+                        final_response = Some(response);
+                    }
                     MultiTurnStreamItem::CompletionCall(call) => {
+                        streaming_tool.reset();
                         if let Some(start) = model_call_start.take() {
                             total_generation_elapsed_ms += start.elapsed().as_millis().max(1) as u64;
                         }
@@ -158,6 +169,7 @@ impl AgentEngine {
                         sink.resume_model_spinner();
                     }
                     MultiTurnStreamItem::ToolExecutionCommitted { .. } => {
+                        streaming_tool.reset();
                         model_call_start = Some(Instant::now());
                     }
                     MultiTurnStreamItem::StreamUserItem(_) => {}

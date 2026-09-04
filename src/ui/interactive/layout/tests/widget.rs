@@ -48,7 +48,7 @@ fn running_tool_widget_renders_header_tail_and_elapsed() {
     assert!(full.contains("bash"), "should contain tool name");
     assert!(full.contains("cargo test"), "should contain command");
     assert!(
-        full.contains("... (2 earlier lines, Ctrl+O to expand)"),
+        full.contains("... (2 earlier lines)"),
         "should show skipped lines count"
     );
     assert!(full.contains("line 7"), "should show latest tailed lines");
@@ -72,7 +72,7 @@ fn running_tool_widget_renders_header_tail_and_elapsed() {
     );
     assert!(full_expanded.contains("line 7"));
     assert!(
-        !full_expanded.contains("earlier lines, Ctrl+O"),
+        !full_expanded.contains("earlier lines"),
         "expanded view should not have skip hint"
     );
 }

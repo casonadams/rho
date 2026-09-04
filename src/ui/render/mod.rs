@@ -21,7 +21,7 @@ pub mod rpc_presenter;
 mod tests;
 
 pub(crate) use formatters::{format_edit_diff, format_thinking_block, format_write_preview};
-pub(crate) use preview::{fetch_content_kind, tool_title_style};
+pub(crate) use preview::{detect_language_from_args, fetch_content_kind, tool_title_style};
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};

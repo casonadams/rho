@@ -35,3 +35,12 @@ pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
         "text"
     }
 }
+
+pub fn detect_language_from_args(args: &serde_json::Value) -> Option<&str> {
+    let path = args.get("path").or_else(|| args.get("file_path"))?.as_str()?;
+    detect_language_from_path(path)
+}
+
+pub fn detect_language_from_path(path: &str) -> Option<&str> {
+    std::path::Path::new(path).extension()?.to_str()
+}

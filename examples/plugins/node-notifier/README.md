@@ -28,7 +28,7 @@ The user wants me to run git status.
 [Node.js Notifier] Starting tool 'bash'...
 [Node.js Notifier] Finished 'bash' (400 chars output)
 
-bash `git status`
+bash git status
 ...
 Took 47ms
 ```

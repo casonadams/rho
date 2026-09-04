@@ -1,7 +1,7 @@
 use crate::ui::block::BlockFormat;
 use crate::ui::render::{
-    fetch_content_kind, format_duration_ms, format_edit_diff, format_tool_args_summary, format_write_preview,
-    read_summary_parts, tool_title_style,
+    detect_language_from_args, fetch_content_kind, format_duration_ms, format_edit_diff, format_tool_args_summary,
+    format_write_preview, read_summary_parts, tool_title_style,
 };
 
 use super::types::{ToolItem, TranscriptRenderInput};
@@ -31,28 +31,21 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
             let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
             format!("{range_style}{range}{range_style:#}")
         });
-        let expand_hint = if !tools_expanded {
-            let dim = theme.dimmed;
-            format!(" {dim}(ctrl+o to expand){dim:#}")
-        } else {
-            String::new()
-        };
-
         match rho_harness_core::presentation::summary::classify_read_path(&tool.arguments) {
             Some(rho_harness_core::presentation::summary::ReadClassification::Skill { name }) => {
                 let skill_tag = anstyle::Style::new()
                     .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
                     .effects(anstyle::Effects::BOLD);
-                format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}{expand_hint}")
+                format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}")
             }
             Some(rho_harness_core::presentation::summary::ReadClassification::Resource { path }) => {
-                format!("{title}read resource{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
+                format!("{title}read resource{title:#} {accent}{path}{accent:#}{range_suffix}")
             }
             Some(rho_harness_core::presentation::summary::ReadClassification::Docs { path }) => {
-                format!("{title}read docs{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
+                format!("{title}read docs{title:#} {accent}{path}{accent:#}{range_suffix}")
             }
             None => {
-                format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}{expand_hint}")
+                format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}")
             }
         }
     } else if display_name == "web_fetch" && !tool.is_error {
@@ -89,12 +82,12 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
         }
     } else if !tool.is_error && tool.name == "edit" {
         if let Some(diff) = format_edit_diff(&tool.arguments, theme) {
-            content.push('\n');
+            content.push_str("\n\n");
             content.push_str(&diff);
         }
     } else if !tool.is_error && tool.name == "write" {
         if let Some(preview) = format_write_preview(&tool.arguments, theme, tools_expanded) {
-            content.push('\n');
+            content.push_str("\n\n");
             content.push_str(&preview);
         }
     } else if tool.name == "bash" || tool.is_error || (tools_expanded && tool.name != "edit" && tool.name != "write") {
@@ -116,7 +109,7 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
                 if truncated.skipped_count > 0 {
                     let dim = theme.dimmed;
                     content.push_str(&format!(
-                        "{dim}... ({} earlier lines, Ctrl+O to expand){dim:#}\n",
+                        "{dim}... ({} earlier lines){dim:#}\n",
                         truncated.skipped_count
                     ));
                 }
@@ -137,9 +130,4 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
         .with_vertical_padding()
         .render_styled(&content);
     format!("\n{block}")
-}
-
-fn detect_language_from_args(args: &serde_json::Value) -> Option<&str> {
-    let path = args.get("path").or_else(|| args.get("file_path"))?.as_str()?;
-    std::path::Path::new(path).extension()?.to_str()
 }

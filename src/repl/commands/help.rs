@@ -31,6 +31,7 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
   Shift+Tab                   Cycle thinking level\n\
   Ctrl+C                      Cancel the active operation\n\
   Ctrl+D                      Exit at an empty prompt\n\
+  Ctrl+O                      Expand or collapse tool output\n\
 \nCurrent session\n"
         .to_string();
 

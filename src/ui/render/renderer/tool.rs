@@ -17,7 +17,7 @@ impl TerminalRenderer {
             None
         };
         if let Some(ui) = &self.ui {
-            let has_running_widget = preview.is_some() || name == "bash";
+            let has_running_widget = preview.is_some() || name == "bash" || name == "write";
             if has_running_widget {
                 let _ = ui.tool_start(crate::ui::interactive::ToolStartRequest {
                     name: name.to_string(),
@@ -60,7 +60,7 @@ impl TerminalRenderer {
         let summary = format_tool_args_summary(name, args);
         let header = self.theme.tool_header;
         let dim = self.theme.dimmed;
-        self.write_output(&format!("{header}{name}{header:#} {dim}{summary}{dim:#}\n"));
+        self.write_output(&format!("\n{header}{name}{header:#} {dim}{summary}{dim:#}\n"));
     }
 
     pub fn print_tool_end(&self, outcome: ToolOutcome) {

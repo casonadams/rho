@@ -148,11 +148,7 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
             let clean = clean_command_paths(raw_cmd);
             let (preview, was_truncated) = truncate_preview(&clean, 60);
-            let cmd_str = if was_truncated {
-                format!("`{preview}...`")
-            } else {
-                format!("`{clean}`")
-            };
+            let cmd_str = if was_truncated { format!("{preview}...") } else { clean };
             if let Some(timeout) = args
                 .get("timeout")
                 .and_then(|t| t.as_u64().or_else(|| t.as_f64().map(|f| f as u64)))

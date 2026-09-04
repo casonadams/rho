@@ -1,5 +1,7 @@
 use crate::engine::metrics::RunTracker;
+use rho_harness_core::presentation::ActivityToken;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::time::Instant;
 
 #[derive(Clone)]
@@ -37,4 +39,22 @@ pub struct TerminalSinkConfig {
     pub model_label: String,
     pub auto_approve: bool,
     pub run_tracker: RunTracker,
+}
+
+pub struct TerminalSinkState {
+    pub auto_approve: bool,
+    pub spinner: Option<ActivityToken>,
+    pub pending: HashMap<String, PendingToolCall>,
+    pub reasoning: Vec<String>,
+    pub completed: Vec<CompletedTool>,
+    pub last_display: DisplayKind,
+    pub pending_reasoning_newlines: usize,
+    pub has_reasoning_content: bool,
+}
+
+pub struct ToolFinishDetails<'a> {
+    pub name: &'a str,
+    pub arguments: &'a Value,
+    pub output: &'a str,
+    pub is_error: bool,
 }

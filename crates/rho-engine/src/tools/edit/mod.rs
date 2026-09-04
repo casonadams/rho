@@ -76,6 +76,8 @@ impl EditTool {
         let line_ending = detect_line_ending(&content);
         let mut current_content = content.clone();
 
+        let mut line_numbers = Vec::new();
+
         for (i, edit) in args.edits.iter().enumerate() {
             let normalized_old = normalize_line_endings(&edit.old_text, line_ending);
             let normalized_new = normalize_line_endings(&edit.new_text, line_ending);
@@ -106,6 +108,9 @@ impl EditTool {
                 )));
             }
 
+            let line_num = 1 + current_content[..matches[0].0].matches('\n').count();
+            line_numbers.push(line_num);
+
             current_content = current_content.replacen(normalized_old.as_ref(), normalized_new.as_ref(), 1);
         }
 
@@ -116,11 +121,18 @@ impl EditTool {
         }
 
         match atomic_write(&path, current_content.as_bytes()).await {
-            Ok(_) => Ok(ToolResult::success(format!(
-                "Successfully applied {} replacement(s) to {}",
-                args.edits.len(),
-                clean_path
-            ))),
+            Ok(_) => Ok(ToolResult {
+                content: format!(
+                    "Successfully applied {} replacement(s) to {}",
+                    args.edits.len(),
+                    clean_path
+                ),
+                is_error: false,
+                metadata: Some(serde_json::json!({
+                    "line_numbers": line_numbers,
+                })),
+                image: None,
+            }),
             Err(e) => Ok(ToolResult::error(format!(
                 "Failed to write updated file {clean_path}: {e}"
             ))),

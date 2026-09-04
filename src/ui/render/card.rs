@@ -59,12 +59,12 @@ pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> Strin
     };
     if !line.is_error && line.name == "edit" {
         if let Some(diff) = format_edit_diff(&line.arguments, theme) {
-            content.push('\n');
+            content.push_str("\n\n");
             content.push_str(&diff);
         }
     } else if !line.is_error && line.name == "write" {
         if let Some(preview) = format_write_preview(&line.arguments, theme, true) {
-            content.push('\n');
+            content.push_str("\n\n");
             content.push_str(&preview);
         }
     } else if line.name == "bash" || line.is_error {

@@ -84,13 +84,19 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         "write",
         "Write full content to a file, automatically creating parent directories.",
         generated_schema::<WriteArgs>(),
-        move |_ctx, args| {
+        move |ctx, args| {
             let w = Arc::clone(&w);
+            let stream = ctx.get::<rho_harness_core::presentation::ToolStreamPort>().cloned();
             Box::pin(async move {
                 let args: WriteArgs = match parse_args(args) {
                     Ok(a) => a,
                     Err(err) => return into_dynamic_result(Ok(err)),
                 };
+                if let Some(stream_port) = stream {
+                    for line in args.content.lines() {
+                        stream_port.stream_chunk(&format!("{line}\n"));
+                    }
+                }
                 into_dynamic_result(w.execute(args).await)
             })
         },

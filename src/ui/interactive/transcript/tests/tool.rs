@@ -22,7 +22,7 @@ fn render_transcript_tool_collapsed_shows_preview() {
     });
     assert!(!rendered.contains("line_one"));
     assert!(rendered.contains("line_ten"));
-    assert!(rendered.contains("5 earlier lines, Ctrl+O to expand"));
+    assert!(rendered.contains("5 earlier lines"));
     assert!(rendered.contains("Took 150ms"));
 }
 
@@ -76,6 +76,6 @@ fn render_transcript_tool_expanded_shows_full_output() {
     });
     assert!(rendered.contains("line_one"));
     assert!(rendered.contains("line_ten"));
-    assert!(!rendered.contains("earlier lines, Ctrl+O to expand"));
+    assert!(!rendered.contains("earlier lines"));
     assert!(rendered.contains("Took 150ms"));
 }

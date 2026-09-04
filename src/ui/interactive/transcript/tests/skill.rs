@@ -22,7 +22,6 @@ fn render_transcript_skill_read_collapsed() {
     });
     assert!(rendered.contains("[skill]"));
     assert!(rendered.contains("plan"));
-    assert!(rendered.contains("(ctrl+o to expand)"));
     assert!(!rendered.contains("Full instructions here"));
 }
 
@@ -65,7 +64,6 @@ fn render_transcript_skill_invocation_user_message() {
     });
     assert!(collapsed.contains("[skill]"));
     assert!(collapsed.contains("plan"));
-    assert!(collapsed.contains("(ctrl+o to expand)"));
     assert!(collapsed.contains("create feature"));
     assert!(!collapsed.contains("Plan skill body"));
 

@@ -23,7 +23,7 @@ fn running_tool_widget_large_output_pre_slicing_and_skipped_count() {
     });
     let full = lines.join("\n");
     assert!(
-        full.contains("... (115 earlier lines, Ctrl+O to expand)"),
+        full.contains("... (115 earlier lines)"),
         "expected 115 skipped lines, got:\n{full}"
     );
     assert!(full.contains("line 116"));
@@ -43,7 +43,7 @@ fn running_tool_widget_large_output_pre_slicing_and_skipped_count() {
     let full_expanded = lines_expanded.join("\n");
     assert!(full_expanded.contains("line 1"));
     assert!(full_expanded.contains("line 120"));
-    assert!(!full_expanded.contains("earlier lines, Ctrl+O to expand"));
+    assert!(!full_expanded.contains("earlier lines"));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn running_tool_widget_pre_slice_boundary_50_and_51_lines() {
     });
     let full_50 = lines_50.join("\n");
     assert!(
-        full_50.contains("... (45 earlier lines, Ctrl+O to expand)"),
+        full_50.contains("... (45 earlier lines)"),
         "50 lines should show 45 earlier lines (50 - 5)"
     );
     assert!(full_50.contains("line 50"));
@@ -87,7 +87,7 @@ fn running_tool_widget_pre_slice_boundary_50_and_51_lines() {
     });
     let full_51 = lines_51.join("\n");
     assert!(
-        full_51.contains("... (46 earlier lines, Ctrl+O to expand)"),
+        full_51.contains("... (46 earlier lines)"),
         "51 lines should show 46 earlier lines (51 - 5)"
     );
     assert!(full_51.contains("line 47"));
@@ -117,6 +117,6 @@ fn running_tool_widget_large_output_with_soft_wrapping() {
     let full = lines.join("\n");
     // 56 total logical lines. Line 56 wraps into 4 visual lines at inner width 26.
     // 55 single lines + 4 wrapped lines = 59 visual lines. Showing 5 visual lines means 54 skipped.
-    assert!(full.contains("earlier lines, Ctrl+O to expand"));
+    assert!(full.contains("earlier lines"));
     assert!(full.contains("line 56"));
 }

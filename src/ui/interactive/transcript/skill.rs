@@ -13,8 +13,7 @@ pub fn render_user_message(text: &str, input: &TranscriptRenderInput<'_>) -> Str
         let skill_block_text = if tools_expanded {
             format!("{skill_tag}[skill]{skill_tag:#} **{skill_name}**\n\n{skill_content}")
         } else {
-            let dim = theme.dimmed;
-            format!("{skill_tag}[skill]{skill_tag:#} {skill_name} {dim}(ctrl+o to expand){dim:#}")
+            format!("{skill_tag}[skill]{skill_tag:#} {skill_name}")
         };
         let skill_formatted = BlockFormat::new(theme.tool_success_bg, width)
             .with_vertical_padding()

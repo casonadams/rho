@@ -1,5 +1,8 @@
 use super::super::helpers::{clear_spinner, redact_value};
-use super::types::{CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig};
+use super::reasoning::split_reasoning_chunk;
+use super::types::{
+    CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
+};
 use crate::engine::metrics::RunTracker;
 use rho_harness_core::presentation::{Presenter, ToolLine, summarize_tool_output};
 use rho_harness_core::session::SessionManager;
@@ -8,28 +11,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
-pub struct TerminalSinkState {
-    pub auto_approve: bool,
-    pub spinner: Option<rho_harness_core::presentation::ActivityToken>,
-    pub pending: HashMap<String, PendingToolCall>,
-    pub reasoning: Vec<String>,
-    pub completed: Vec<CompletedTool>,
-    pub last_display: DisplayKind,
-}
-
 pub struct TerminalApprovalSink {
     pub presenter: std::sync::Arc<dyn Presenter>,
     pub model_label: String,
     pub session_manager: SessionManager,
     pub run_tracker: RunTracker,
     pub state: Mutex<TerminalSinkState>,
-}
-
-pub struct ToolFinishDetails<'a> {
-    pub name: &'a str,
-    pub arguments: &'a Value,
-    pub output: &'a str,
-    pub is_error: bool,
 }
 
 impl TerminalApprovalSink {
@@ -51,6 +38,8 @@ impl TerminalApprovalSink {
                 reasoning: Vec::new(),
                 completed: Vec::new(),
                 last_display: DisplayKind::None,
+                pending_reasoning_newlines: 0,
+                has_reasoning_content: false,
             }),
         })
     }
@@ -82,7 +71,7 @@ impl TerminalApprovalSink {
     }
 
     pub fn flush_reasoning(&self) {
-        let had_reasoning = self
+        let had_content = self
             .state
             .lock()
             .map(|mut state| {
@@ -90,12 +79,15 @@ impl TerminalApprovalSink {
                     return false;
                 }
                 state.reasoning.clear();
+                state.pending_reasoning_newlines = 0;
+                let had_content = state.has_reasoning_content;
+                state.has_reasoning_content = false;
                 state.last_display = DisplayKind::Thinking;
-                true
+                had_content
             })
             .unwrap_or(false);
 
-        if had_reasoning {
+        if had_content {
             self.presenter.write_output("\n");
         }
     }
@@ -112,36 +104,54 @@ impl TerminalApprovalSink {
             state.spinner = Some(self.presenter.start_spinner("thinking..."));
         }
         let mut prefix_blank = false;
-        let mut text_to_stream = text.to_string();
+        let mut internal_newlines = None;
+        let mut content_to_stream = String::new();
 
         if let Ok(mut state) = self.state.lock() {
             let redacted = self.session_manager.redact_credentials(text);
-            if state.last_display == DisplayKind::Tool
-                || state.last_display == DisplayKind::Text
-                || state.last_display == DisplayKind::None
-            {
-                prefix_blank = true;
-            }
-            state.last_display = DisplayKind::Thinking;
-
-            if let Some(last) = state.reasoning.last()
+            let text_to_stream = if let Some(last) = state.reasoning.last()
                 && !last.is_empty()
                 && (last.ends_with('.') || last.ends_with('!') || last.ends_with('?'))
                 && !redacted.starts_with(' ')
                 && !redacted.starts_with('\n')
             {
-                text_to_stream = format!(" {redacted}");
-                state.reasoning.push(text_to_stream.clone());
+                format!(" {redacted}")
             } else {
-                text_to_stream = redacted.clone();
-                state.reasoning.push(redacted);
+                redacted.clone()
+            };
+            state.reasoning.push(text_to_stream.clone());
+
+            let (content, trailing_newlines) = split_reasoning_chunk(&text_to_stream);
+            if !content.is_empty() {
+                if state.has_reasoning_content && state.pending_reasoning_newlines > 0 {
+                    let count = state.pending_reasoning_newlines.min(2);
+                    internal_newlines = Some(if count == 1 { "\n" } else { "\n\n" });
+                    state.pending_reasoning_newlines = 0;
+                }
+                if state.last_display == DisplayKind::Tool
+                    || state.last_display == DisplayKind::Text
+                    || state.last_display == DisplayKind::None
+                {
+                    prefix_blank = true;
+                }
+                state.last_display = DisplayKind::Thinking;
+                state.has_reasoning_content = true;
+                state.pending_reasoning_newlines = trailing_newlines;
+                content_to_stream = content.to_string();
+            } else {
+                state.pending_reasoning_newlines += trailing_newlines;
             }
         }
 
         if prefix_blank {
             self.presenter.write_output("\n");
         }
-        self.presenter.print_thinking_token(&text_to_stream);
+        if let Some(newlines) = internal_newlines {
+            self.presenter.print_thinking_token(newlines);
+        }
+        if !content_to_stream.is_empty() {
+            self.presenter.print_thinking_token(&content_to_stream);
+        }
     }
 
     pub fn emit_text(&self, text: &str) {
@@ -222,5 +232,9 @@ impl TerminalApprovalSink {
             });
             state.spinner = Some(self.presenter.start_spinner("thinking..."));
         }
+    }
+
+    pub fn tool_chunk(&self, chunk: &str) {
+        self.presenter.stream_port().stream_chunk(chunk);
     }
 }

@@ -49,6 +49,7 @@ preventing terminal jitter.
 | `Enter`       | Submit prompt.                                                               |
 | `Shift+Enter` | Insert a newline without submitting.                                         |
 | `Ctrl+J`      | Insert a newline, including in terminals that encode it as a raw line feed.  |
+| `Ctrl+O`      | Toggle expanding or collapsing tool output in the transcript.                |
 | `Alt+Enter`   | Submit with follow-up queueing.                                              |
 | `Escape`      | Clear an idle draft, or cancel active execution and restore queued messages. |
 
