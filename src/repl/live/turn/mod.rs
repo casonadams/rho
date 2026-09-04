@@ -1,13 +1,15 @@
+mod input;
+
+use input::{TurnInputContext, TurnKeyResult, handle_turn_key};
+
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
 use super::modal::handle_modal_key;
-use super::navigation::{
-    apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard, restore_queued_messages,
-};
+use super::navigation::restore_queued_messages;
 use super::{ActiveTurn, EditorResources, LiveIo};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InputAction, UiAction, map_key};
+use crate::ui::interactive::{Activity, UiAction};
 use crossterm::event::Event;
 
 pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
@@ -75,57 +77,15 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                 ) {
                     continue;
                 }
-                match map_key(key) {
-                    InputAction::Edit(action) => {
-                        controller.state_mut().apply(action);
-                        batch.flush(controller, true)?;
-                    }
-                    InputAction::HistoryPrevious => {
-                        if navigate_history_previous(controller, history) {
-                            batch.flush(controller, true)?;
-                        }
-                    }
-                    InputAction::HistoryNext => {
-                        if navigate_history_next(controller, history) {
-                            batch.flush(controller, true)?;
-                        }
-                    }
-                    InputAction::Complete => {
-                        if apply_completion(controller, completions) {
-                            batch.flush(controller, true)?;
-                        }
-                    }
-                    InputAction::ToggleExpandTools => {
-                        let expanded = controller.toggle_tools_expanded()?;
-                        renderer.print_status(&format!(
-                            "Tool output: {}",
-                            if expanded { "expanded" } else { "collapsed" }
-                        ));
-                    }
-                    InputAction::ThinkingToggle => {
-                        let hide = controller.toggle_thinking()?;
-                        renderer.print_status(&format!(
-                            "Thinking blocks: {}",
-                            if hide { "hidden" } else { "visible" }
-                        ));
-                    }
-                    InputAction::ClipboardPasteImage => {
-                        paste_clipboard(renderer, controller);
-                        batch.flush(controller, true)?;
-                    }
-                    InputAction::DequeueQueued => {
-                        let queued = controller.state_mut().dequeue_all();
-                        if !queued.is_empty() {
-                            let text = queued
-                                .into_iter()
-                                .map(|m| m.text)
-                                .collect::<Vec<_>>()
-                                .join("\n");
-                            controller.state_mut().editor_mut().set_text(&text);
-                            batch.flush(controller, true)?;
-                        }
-                    }
-                    InputAction::Cancel => {
+                let mut ctx = TurnInputContext {
+                    controller,
+                    history,
+                    completions,
+                    renderer,
+                    batch: &mut batch,
+                };
+                match handle_turn_key(key, &mut ctx)? {
+                    TurnKeyResult::Cancelled => {
                         batch.flush(controller, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
@@ -134,7 +94,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                         batch.flush(controller, false)?;
                         return Ok(());
                     }
-                    _ => {}
+                    TurnKeyResult::Handled | TurnKeyResult::Ignored => {}
                 }
             }
             result = &mut run => {

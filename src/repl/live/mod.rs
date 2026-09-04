@@ -8,53 +8,20 @@ pub mod navigation;
 #[cfg(test)]
 mod tests;
 pub mod turn;
+pub mod types;
+
+pub use types::*;
 
 use batch::drain_ui_events;
 use idle::read_idle_input;
 use navigation::update_footer;
-use tokio::sync::mpsc;
 
 use super::ReplSession;
-use super::input_reader::TerminalInputReader;
 use super::interactive::{CompletionSet, InteractiveHistory};
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{InteractiveState, QueuedMessage, TerminalController, UiEvent};
+use crate::ui::interactive::{InteractiveState, TerminalController};
 use crate::ui::render::WelcomeDisplay;
-
-pub struct LiveIo<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
-    pub controller: &'a mut TerminalController<B>,
-    pub events: &'a mut mpsc::UnboundedReceiver<UiEvent>,
-    pub input: &'a mut TerminalInputReader,
-}
-
-pub struct EditorResources<'a> {
-    pub history: &'a mut InteractiveHistory,
-    pub completions: &'a CompletionSet,
-}
-
-pub struct LiveMessage<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
-    pub io: LiveIo<'a, B>,
-    pub editor: EditorResources<'a>,
-    pub message: QueuedMessage,
-}
-
-pub struct ActiveTurn<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
-    pub io: LiveIo<'a, B>,
-    pub editor: EditorResources<'a>,
-    pub prompt: &'a str,
-}
-
-pub struct IdleContext<'a, 'b, B: crate::ui::interactive::TerminalBackend = crate::ui::interactive::CrosstermBackend> {
-    pub io: LiveIo<'a, B>,
-    pub editor: EditorResources<'a>,
-    pub session: &'b mut ReplSession,
-    pub engine: &'b mut crate::engine::AgentEngine,
-}
-
-pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
-    stdin_is_tty && stdout_is_tty
-}
 
 impl ReplSession {
     pub(super) async fn run_live(&mut self) -> Result<()> {

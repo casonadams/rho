@@ -1,128 +1,17 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-
-use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use crate::engine::AgentEngine;
-use crate::engine::runner::{
-    CancellationSignal, PendingMessageQueue, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, SteeringQueueProvider,
-    TurnRequest,
-};
-use crate::error::AppError;
-use crate::ui::TerminalRenderer;
+use crate::engine::runner::{QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary};
 use crate::ui::interactive::{QueueKind, QueuedMessage};
+
+mod runner;
+mod types;
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CoordinatorInput {
-    Prompt(QueuedMessage),
-    Command(String),
-    Cancel,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum ActiveQueueResult<E> {
-    Completed {
-        delivered: Vec<QueuedMessage>,
-        deferred_commands: Vec<String>,
-    },
-    Failed {
-        error: E,
-        delivered: Vec<QueuedMessage>,
-        restored: Vec<QueuedMessage>,
-        deferred_commands: Vec<String>,
-    },
-    Cancelled {
-        delivered: Vec<QueuedMessage>,
-        restored: Vec<QueuedMessage>,
-        deferred_commands: Vec<String>,
-        cancellation_error: Option<E>,
-    },
-}
-
-#[async_trait]
-pub trait ActivePromptRunner: Send + Sync {
-    type Error: Send;
-
-    async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
-    async fn steer(&self, prompt: &QueuedMessage) -> Result<(), Self::Error>;
-    async fn cancel_active(&self) -> Result<(), Self::Error>;
-}
-
-#[derive(Clone, Default)]
-pub struct SharedSteeringQueue {
-    queue: Arc<Mutex<PendingMessageQueue<String>>>,
-}
-
-impl SharedSteeringQueue {
-    pub fn new(mode: crate::engine::runner::QueueMode) -> Self {
-        Self {
-            queue: Arc::new(Mutex::new(PendingMessageQueue::new(mode))),
-        }
-    }
-
-    pub fn enqueue(&self, msg: String) {
-        self.queue.lock().unwrap().enqueue(msg);
-    }
-}
-
-#[async_trait]
-impl SteeringQueueProvider for SharedSteeringQueue {
-    async fn poll_steering(&self) -> Vec<String> {
-        self.queue.lock().unwrap().drain()
-    }
-}
-
-pub struct ReplAgentRunner<'a> {
-    engine: &'a AgentEngine,
-    renderer: &'a TerminalRenderer,
-    cancellation: CancellationSignal,
-    steering: SharedSteeringQueue,
-}
-
-impl<'a> ReplAgentRunner<'a> {
-    pub fn new(engine: &'a AgentEngine, renderer: &'a TerminalRenderer) -> Self {
-        Self {
-            engine,
-            renderer,
-            cancellation: CancellationSignal::default(),
-            steering: SharedSteeringQueue::new(engine.config.steering_mode),
-        }
-    }
-}
-
-#[async_trait]
-impl ActivePromptRunner for ReplAgentRunner<'_> {
-    type Error = AppError;
-
-    async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
-        self.engine
-            .run_turn(
-                TurnRequest {
-                    prompt: &prompt.text,
-                    cancellation: Some(&self.cancellation),
-                    steering: Some(&self.steering),
-                },
-                std::sync::Arc::new(self.renderer.clone()),
-            )
-            .await
-            .map(|_| ())
-    }
-
-    async fn steer(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
-        self.steering.enqueue(prompt.text.clone());
-        self.cancellation.interrupt_stream();
-        Ok(())
-    }
-
-    async fn cancel_active(&self) -> Result<(), Self::Error> {
-        self.cancellation.cancel();
-        self.engine.record_cancellation("operator interrupt").await
-    }
-}
+pub use runner::ReplAgentRunner;
+pub use types::{ActivePromptRunner, ActiveQueueResult, CoordinatorInput, SharedSteeringQueue};
 
 pub async fn run_active_queue<R>(
     initial: QueuedMessage,
