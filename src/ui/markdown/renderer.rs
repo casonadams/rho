@@ -34,6 +34,7 @@ impl MarkdownRenderer {
 
             if self.emitted_on_current_line {
                 out.push_str(&self.stream_tracker.render_inline_token(chunk, theme));
+                out.push_str(&self.stream_tracker.reset_line());
                 out.push('\n');
                 self.current_line.clear();
                 self.emitted_on_current_line = false;
@@ -68,7 +69,7 @@ impl MarkdownRenderer {
         self.emitted_on_current_line = true;
         let mut out = String::new();
         self.spacing.prepare_content(&mut out);
-        out.push_str(&self.stream_tracker.render_inline_token(remaining, theme));
+        out.push_str(&self.stream_tracker.render_inline_token(&self.current_line, theme));
         out
     }
 
@@ -79,6 +80,7 @@ impl MarkdownRenderer {
             let line = std::mem::take(&mut self.current_line);
             out.push_str(&self.process_line(&line, theme));
         } else if self.emitted_on_current_line {
+            out.push_str(&self.stream_tracker.reset_line());
             self.current_line.clear();
             out.push('\n');
             self.spacing.note_content();

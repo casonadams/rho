@@ -41,6 +41,69 @@ fn test_split_list_marker_does_not_drop_item_text() {
 }
 
 #[test]
+fn test_split_ordered_list_marker() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let t1 = md.render_token("1", &theme);
+    let t2 = md.render_token(".", &theme);
+    let t3 = md.render_token(" First step\n", &theme);
+    let flushed = md.flush(&theme);
+    let full = format!("{t1}{t2}{t3}{flushed}");
+    assert!(full.contains("1."));
+    assert!(full.contains("First step"));
+}
+
+#[test]
+fn test_multi_digit_ordered_list_marker() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let t1 = md.render_token("10", &theme);
+    let t2 = md.render_token(".", &theme);
+    let t3 = md.render_token(" Tenth step\n", &theme);
+    let flushed = md.flush(&theme);
+    let full = format!("{t1}{t2}{t3}{flushed}");
+    assert!(full.contains("10."));
+    assert!(full.contains("Tenth step"));
+}
+
+#[test]
+fn test_stream_split_bold_asterisks() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let t1 = md.render_token("This is *", &theme);
+    let t2 = md.render_token("*bold** text\n", &theme);
+    let full = format!("{t1}{t2}");
+    assert!(full.contains("bold"));
+    assert!(full.contains("\x1b[1m"));
+}
+
+#[test]
+fn test_stream_math_asterisks_does_not_toggle_italic() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let t1 = md.render_token("Math: 3 * ", &theme);
+    let t2 = md.render_token("4 = 12\n", &theme);
+    let full = format!("{t1}{t2}");
+    assert!(full.contains("3 * 4 = 12"));
+    assert!(!full.contains("\x1b[3m"));
+}
+
+#[test]
+fn test_unbuffered_transition_preserves_buffered_prefix() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let t1 = md.render_token("-", &theme);
+    let t2 = md.render_token("-flag\n", &theme);
+    let full = format!("{t1}{t2}");
+    assert!(full.contains("--flag"));
+}
+
+#[test]
 fn test_flush_emits_newline_when_line_uncompleted() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();

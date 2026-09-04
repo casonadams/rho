@@ -91,7 +91,11 @@ impl TerminalRenderer {
         let remaining = self
             .markdown
             .lock()
-            .map(|mut markdown| markdown.flush(&self.theme))
+            .map(|mut markdown| {
+                let out = markdown.flush(&self.theme);
+                *markdown = MarkdownRenderer::new();
+                out
+            })
             .unwrap_or_default();
         if !remaining.is_empty() {
             self.write_output(&remaining);

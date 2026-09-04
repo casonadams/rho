@@ -50,3 +50,32 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
     assert!(output.contains("read"));
     assert!(output.contains("src/lib.rs"));
 }
+
+#[test]
+fn renderer_flush_resets_markdown_state_between_turns() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    // Turn 1
+    renderer.print_token("First response.\n");
+    renderer.flush();
+
+    // Drain turn 1
+    while events.try_recv().is_ok() {}
+
+    // Turn 2 begins with header
+    renderer.print_token("# Second Turn Title\n");
+    renderer.flush();
+
+    let mut turn2_output = String::new();
+    while let Ok(event) = events.try_recv() {
+        if let UiEvent::Output(OutputEvent::Text(text)) = event {
+            turn2_output.push_str(&text);
+        }
+    }
+    assert!(
+        !turn2_output.starts_with('\n'),
+        "expected no extra leading newline, got: {turn2_output:?}"
+    );
+    assert!(turn2_output.contains("Second Turn Title"));
+}
