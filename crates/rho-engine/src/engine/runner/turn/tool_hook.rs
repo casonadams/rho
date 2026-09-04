@@ -1,43 +1,77 @@
+pub mod steering;
+
 use crate::engine::runner::sink::{TerminalApprovalSink, ToolFinishDetails};
+use crate::engine::runner::turn::types::SteeringQueueProvider;
 use crate::provider::supports_tool_result_images;
-use rig::agent::hook::{AgentHook, ToolResultAction};
+use rig::agent::hook::{
+    AgentHook, CompletionCall, CompletionCallAction, HookContext, ToolCall, ToolCallAction, ToolResultAction,
+    ToolResultEvent,
+};
 use rig::completion::message::{Image, MimeType, ToolResultContent};
 use rig::tool::ToolOutput;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+pub use steering::{STEERING_SKIP_REASON, attach_steering_to_output, format_steering_messages};
 
 /// Renders the sink display and decides the model-visible action for every
 /// tool result. Image blocks are kept only for providers whose rig adapter
 /// serializes them; for everyone else they are replaced with an omission note
 /// so the request cannot fail with "does not support images in tool results".
 pub struct TurnToolExecutionHook {
-    sink: std::sync::Arc<TerminalApprovalSink>,
+    sink: Arc<TerminalApprovalSink>,
     provider: String,
+    steering: Option<Arc<dyn SteeringQueueProvider>>,
+    steered: AtomicBool,
 }
 
 impl TurnToolExecutionHook {
-    pub fn new(sink: std::sync::Arc<TerminalApprovalSink>, provider: &str) -> Self {
+    pub fn new(
+        sink: Arc<TerminalApprovalSink>,
+        provider: &str,
+        steering: Option<Arc<dyn SteeringQueueProvider>>,
+    ) -> Self {
         Self {
             sink,
             provider: provider.to_string(),
+            steering,
+            steered: AtomicBool::new(false),
         }
+    }
+
+    pub fn is_steered(&self) -> bool {
+        self.steered.load(Ordering::Relaxed)
+    }
+
+    pub fn set_steered(&self, val: bool) {
+        self.steered.store(val, Ordering::Relaxed);
     }
 }
 
 impl AgentHook for TurnToolExecutionHook {
-    async fn on_tool_call(
-        &self,
-        _ctx: &rig::agent::hook::HookContext,
-        event: rig::agent::hook::ToolCall<'_>,
-    ) -> rig::agent::hook::ToolCallAction {
-        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
-        self.sink.tool_start(event.tool_name, &arguments);
-        rig::agent::hook::ToolCallAction::run()
+    async fn on_completion_call(&self, _ctx: &HookContext, _event: CompletionCall<'_>) -> CompletionCallAction {
+        self.set_steered(false);
+        CompletionCallAction::continue_run()
     }
 
-    async fn on_tool_result(
-        &self,
-        _ctx: &rig::agent::hook::HookContext,
-        event: rig::agent::hook::ToolResultEvent<'_>,
-    ) -> ToolResultAction {
+    async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
+        if self.is_steered() {
+            return ToolCallAction::skip(STEERING_SKIP_REASON);
+        }
+        if let Some(steering) = &self.steering {
+            let messages = steering.poll_steering().await;
+            if !messages.is_empty() {
+                self.set_steered(true);
+                let text = format_steering_messages(&messages);
+                return ToolCallAction::skip(format!("{STEERING_SKIP_REASON}\n\n{text}"));
+            }
+        }
+        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
+        self.sink.tool_start(event.tool_name, &arguments);
+        ToolCallAction::run()
+    }
+
+    async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
         let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
         let (action, output) = gated_result(event.presentation, &self.provider);
         let is_error = !event.raw_result.is_success();
@@ -47,6 +81,17 @@ impl AgentHook for TurnToolExecutionHook {
             output: &output,
             is_error,
         });
+
+        if let Some(steering) = &self.steering {
+            let messages = steering.poll_steering().await;
+            if !messages.is_empty() {
+                self.set_steered(true);
+                let steering_text = format_steering_messages(&messages);
+                let augmented = attach_steering_to_output(&output, &steering_text);
+                return ToolResultAction::rewrite(augmented);
+            }
+        }
+
         action
     }
 }

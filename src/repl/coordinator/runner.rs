@@ -36,7 +36,7 @@ impl ActivePromptRunner for ReplAgentRunner<'_> {
                 TurnRequest {
                     prompt: &prompt.text,
                     cancellation: Some(&self.cancellation),
-                    steering: Some(&self.steering),
+                    steering: Some(std::sync::Arc::new(self.steering.clone())),
                 },
                 std::sync::Arc::new(self.renderer.clone()),
             )

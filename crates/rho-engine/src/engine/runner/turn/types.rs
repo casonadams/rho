@@ -45,7 +45,7 @@ pub trait SteeringQueueProvider: Send + Sync {
 pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,
-    pub steering: Option<&'a dyn SteeringQueueProvider>,
+    pub steering: Option<std::sync::Arc<dyn SteeringQueueProvider>>,
 }
 
 impl<'a> TurnRequest<'a> {
@@ -55,6 +55,16 @@ impl<'a> TurnRequest<'a> {
             cancellation: None,
             steering: None,
         }
+    }
+
+    pub fn with_cancellation(mut self, cancellation: &'a CancellationSignal) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    pub fn with_steering(mut self, steering: std::sync::Arc<dyn SteeringQueueProvider>) -> Self {
+        self.steering = Some(steering);
+        self
     }
 }
 

@@ -109,7 +109,11 @@ impl AgentEngine {
             for p in &self.plugins {
                 p.register_hooks(&mut hook_stack);
             }
-            hook_stack.push(TurnToolExecutionHook::new(sink.clone(), &self.config.provider));
+            hook_stack.push(TurnToolExecutionHook::new(
+                sink.clone(),
+                &self.config.provider,
+                request.steering.clone(),
+            ));
 
             let agent_guard = self.agent.read().await;
             let runner = build_runner(&agent_guard, &current_prompt)

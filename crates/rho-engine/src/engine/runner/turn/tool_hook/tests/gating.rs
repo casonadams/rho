@@ -1,4 +1,4 @@
-use super::{gated_result, text_render, with_omission_note};
+use super::super::{gated_result, text_render, with_omission_note};
 use rig::agent::hook::ToolResultAction;
 use rig::completion::message::{DocumentSourceKind, Image, ImageMediaType, ToolResultContent};
 use rig::tool::ToolOutput;
