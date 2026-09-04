@@ -23,6 +23,10 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.width.max(1)
     }
 
+    pub fn terminal_height(&self) -> usize {
+        self.height.max(1)
+    }
+
     pub fn suspend(&mut self) -> io::Result<()> {
         if !self.active {
             return Ok(());

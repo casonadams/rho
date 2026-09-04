@@ -22,25 +22,35 @@ pub enum Operation {
 
 pub type SharedOperations = Rc<RefCell<Vec<Operation>>>;
 pub type SharedWidth = Rc<Cell<u16>>;
+pub type SharedHeight = Rc<Cell<u16>>;
 
 pub struct FakeTerminal {
     pub operations: SharedOperations,
     pub width: SharedWidth,
+    pub height: SharedHeight,
     pub fail_write: bool,
 }
 
 impl FakeTerminal {
     pub fn new(width: u16) -> (Self, SharedOperations, SharedWidth) {
+        let (term, ops, w, _) = Self::with_size(width, 24);
+        (term, ops, w)
+    }
+
+    pub fn with_size(width: u16, height: u16) -> (Self, SharedOperations, SharedWidth, SharedHeight) {
         let operations = Rc::new(RefCell::new(Vec::new()));
         let width = Rc::new(Cell::new(width));
+        let height = Rc::new(Cell::new(height));
         (
             Self {
                 operations: Rc::clone(&operations),
                 width: Rc::clone(&width),
+                height: Rc::clone(&height),
                 fail_write: false,
             },
             operations,
             width,
+            height,
         )
     }
 }
@@ -53,7 +63,7 @@ impl TerminalBackend for FakeTerminal {
 
     fn size(&self) -> io::Result<(u16, u16)> {
         self.operations.borrow_mut().push(Operation::Size);
-        Ok((self.width.get(), 24))
+        Ok((self.width.get(), self.height.get()))
     }
 
     fn hide_cursor(&mut self) -> io::Result<()> {

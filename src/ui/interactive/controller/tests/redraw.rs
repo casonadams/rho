@@ -73,3 +73,39 @@ fn unchanged_size_does_not_redraw() {
     assert!(!controller.refresh_size().unwrap());
     assert_eq!(*operations.borrow(), [Operation::Size]);
 }
+
+#[test]
+fn resize_vertical_only_rerenders_and_updates_height() {
+    let (backend, operations, _width, height) = FakeTerminal::with_size(60, 24);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    assert_eq!(controller.terminal_height(), 24);
+    assert_eq!(controller.terminal_width(), 60);
+
+    operations.borrow_mut().clear();
+    height.set(12);
+
+    assert!(controller.refresh_size().unwrap());
+    assert_eq!(controller.terminal_height(), 12);
+    assert_eq!(controller.terminal_width(), 60);
+
+    let operations = operations.borrow();
+    assert!(operations.contains(&Operation::Clear));
+    assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
+}
+
+#[test]
+fn resize_both_dimensions_rerenders_and_updates_both() {
+    let (backend, operations, width, height) = FakeTerminal::with_size(60, 24);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+    operations.borrow_mut().clear();
+    width.set(40);
+    height.set(15);
+
+    assert!(controller.refresh_size().unwrap());
+    assert_eq!(controller.terminal_width(), 40);
+    assert_eq!(controller.terminal_height(), 15);
+
+    let ops = operations.borrow();
+    assert!(ops.contains(&Operation::Clear));
+}

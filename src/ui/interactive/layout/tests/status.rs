@@ -21,6 +21,7 @@ fn footer_contains_available_status_and_queue_count() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -57,6 +58,7 @@ fn queued_messages_render_above_the_working_line() {
         queued_messages: &queued,
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -86,6 +88,7 @@ fn narrow_layout_never_exceeds_terminal_width() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 5,
+        terminal_height: 24,
         spinner_frame: 1,
     });
 
@@ -122,6 +125,7 @@ fn queued_messages_render_below_widget_lines_and_above_editor() {
         queued_messages: &queued,
         widget_lines: &widgets,
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 

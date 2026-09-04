@@ -14,6 +14,7 @@ fn system_message_renders_in_dedicated_area_above_editor() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -44,6 +45,7 @@ fn system_message_collapses_when_empty_or_none() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
     assert!(layout_none.system_lines.is_empty());
@@ -58,6 +60,7 @@ fn system_message_collapses_when_empty_or_none() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
     assert!(layout_empty.system_lines.is_empty());
@@ -80,6 +83,7 @@ fn system_message_and_spinner_render_together_in_dedicated_area() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 

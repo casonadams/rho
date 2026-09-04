@@ -16,6 +16,7 @@ fn modal_hides_widget_lines() {
         queued_messages: &[],
         widget_lines: &widgets,
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -40,6 +41,7 @@ fn modal_layout_renders_input_frame_style() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 40,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -74,6 +76,7 @@ fn searchable_modal_renders_with_unified_header_and_indicator() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 50,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 

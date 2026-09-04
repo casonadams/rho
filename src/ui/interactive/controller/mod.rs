@@ -21,6 +21,7 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) backend: B,
     pub(super) state: InteractiveState,
     pub(super) width: usize,
+    pub(super) height: usize,
     pub(super) rendered: Option<InteractiveLayout>,
     pub(super) output: OutputTracker,
     pub(super) spinner_frame: usize,
@@ -33,8 +34,8 @@ pub struct TerminalController<B: TerminalBackend> {
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn new(mut backend: B, state: InteractiveState) -> io::Result<Self> {
         backend.set_raw_mode(true)?;
-        let width = match backend.size() {
-            Ok((width, _)) => usize::from(width),
+        let (width, height) = match backend.size() {
+            Ok((width, height)) => (usize::from(width), usize::from(height)),
             Err(error) => {
                 let _ = backend.set_raw_mode(false);
                 return Err(error);
@@ -44,6 +45,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             backend,
             state,
             width,
+            height,
             rendered: None,
             output: OutputTracker::new(),
             spinner_frame: 0,
@@ -90,12 +92,13 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn refresh_size(&mut self) -> io::Result<bool> {
-        let (width, _) = self.backend.size()?;
-        let width = usize::from(width);
-        if width == self.width {
+        let (width, height) = self.backend.size()?;
+        let (width, height) = (usize::from(width), usize::from(height));
+        if width == self.width && height == self.height {
             return Ok(false);
         }
         self.width = width;
+        self.height = height;
         if self.transcript.is_empty() {
             self.redraw()?;
         } else {
@@ -136,6 +139,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             queued_messages: &queue_slice,
             widget_lines: &widget_lines,
             terminal_width: self.width,
+            terminal_height: self.height,
             spinner_frame: self.spinner_frame,
         })
     }

@@ -29,6 +29,7 @@ fn thinking_borders_change_color_with_thinking_level() {
             queued_messages: &[],
             widget_lines: &[],
             terminal_width: 10,
+            terminal_height: 24,
             spinner_frame: 0,
         });
 
@@ -57,6 +58,7 @@ fn bash_mode_border_turns_amber() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 10,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -80,6 +82,7 @@ fn top_divider_shows_name_and_version_when_label_enabled() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 25,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -103,6 +106,7 @@ fn top_divider_shows_nothing_by_default() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 25,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -125,6 +129,7 @@ fn top_divider_falls_back_to_plain_dashes_when_narrow() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 6,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 

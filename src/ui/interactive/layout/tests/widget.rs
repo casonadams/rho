@@ -22,6 +22,7 @@ fn widget_lines_affect_height_and_cursor_row() {
         queued_messages: &[],
         widget_lines: &widgets,
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 

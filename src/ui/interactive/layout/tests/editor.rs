@@ -14,6 +14,7 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 8,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -38,6 +39,7 @@ fn explicit_newlines_grow_the_editor() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 20,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -60,6 +62,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 4,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -83,6 +86,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 3,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -104,6 +108,7 @@ fn full_final_line_adds_a_cursor_line() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 2,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -125,6 +130,7 @@ fn editor_layout_tracks_lines_and_dividers() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 
@@ -147,6 +153,7 @@ fn multiline_editor_height_matches_content() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
+        terminal_height: 24,
         spinner_frame: 0,
     });
 

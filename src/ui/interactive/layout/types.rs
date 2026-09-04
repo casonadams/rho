@@ -43,5 +43,6 @@ pub struct LayoutInput<'a> {
     pub queued_messages: &'a [QueuedMessage],
     pub widget_lines: &'a [String],
     pub terminal_width: usize,
+    pub terminal_height: usize,
     pub spinner_frame: usize,
 }
