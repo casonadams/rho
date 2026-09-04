@@ -18,13 +18,26 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
     let syntax = lang
         .and_then(|l| ss.find_syntax_by_token(l).or_else(|| ss.find_syntax_by_extension(l)))
         .unwrap_or_else(|| ss.find_syntax_plain_text());
-    let syn_theme = &ts.themes["base16-ocean.dark"];
+    let syn_theme = if theme.is_light() {
+        &ts.themes["base16-ocean.light"]
+    } else {
+        &ts.themes["base16-ocean.dark"]
+    };
     let mut highlighter = HighlightLines::new(syntax, syn_theme);
     if let Ok(ranges) = highlighter.highlight_line(line, ss) {
         let mut out = String::new();
         for (style, text) in ranges {
-            let ansi = syntect_color_to_ansi16(style.foreground);
-            out.push_str(ansi);
+            if theme.is_ansi() {
+                let ansi = syntect_color_to_ansi16(style.foreground);
+                out.push_str(ansi);
+            } else {
+                use std::fmt::Write as _;
+                let _ = write!(
+                    out,
+                    "\x1b[38;2;{};{};{}m",
+                    style.foreground.r, style.foreground.g, style.foreground.b
+                );
+            }
             out.push_str(text);
         }
         out.push_str("\x1b[0m");

@@ -51,9 +51,17 @@ impl TerminalRenderer {
     pub fn print_block(&self, display: &BlockDisplay) {
         let bg = match display.style.as_str() {
             "error" => self.theme.tool_error_bg,
-            "warning" => anstyle::Style::new()
-                .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
-                .fg_color(Some(anstyle::AnsiColor::Black.into())),
+            "warning" => {
+                if let Some(fg) = self.theme.warning.get_fg_color() {
+                    anstyle::Style::new()
+                        .bg_color(Some(fg))
+                        .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black)))
+                } else {
+                    anstyle::Style::new()
+                        .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
+                        .fg_color(Some(anstyle::AnsiColor::Black.into()))
+                }
+            }
             "success" => self.theme.tool_success_bg,
             _ => self.theme.user_message_bg,
         };
@@ -94,7 +102,7 @@ impl TerminalRenderer {
     }
 
     pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {
-        let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+        let warning = self.theme.warning;
         let cost_str = cost
             .filter(|c| *c >= 0.01)
             .map(|c| format!(" (~${c:.2})"))
@@ -105,7 +113,7 @@ impl TerminalRenderer {
     }
 
     pub fn print_cache_miss_notice(&self, notice: CacheMissNotice) {
-        let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+        let warning = self.theme.warning;
         let cost_str = notice
             .cost
             .filter(|c| *c >= 0.01)

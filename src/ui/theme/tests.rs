@@ -66,6 +66,123 @@ fn all_10_builtin_themes_load_and_have_metadata() {
 }
 
 #[test]
+fn default_theme_uses_only_ansi_colors() {
+    let theme = Theme::default();
+    assert!(theme.is_ansi());
+    assert_eq!(theme.terminal_bg, None);
+    assert_eq!(theme.terminal_fg, None);
+    assert!(matches!(theme.prompt.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_header.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_ok.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_err.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.highlight.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.warning.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.skill_tag.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.user_message_bg.get_bg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_success_bg.get_bg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_error_bg.get_bg_color(), Some(Color::Ansi(_))));
+}
+
+#[test]
+fn built_in_themes_use_only_hex_rgb_colors() {
+    let registry = ThemeRegistry::default();
+    for meta in registry.list() {
+        if meta.name == "default" || meta.name == "ansi" {
+            continue;
+        }
+        let theme = registry.get(&meta.name).unwrap();
+        assert!(!theme.is_ansi(), "theme {} should not be ANSI", meta.name);
+        assert!(theme.terminal_bg.is_some(), "{}: terminal_bg", meta.name);
+        assert!(theme.terminal_fg.is_some(), "{}: terminal_fg", meta.name);
+        assert!(
+            matches!(theme.prompt.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: prompt",
+            meta.name
+        );
+        assert!(
+            matches!(theme.assistant.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: assistant",
+            meta.name
+        );
+        assert!(
+            matches!(theme.thinking.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: thinking",
+            meta.name
+        );
+        assert!(
+            matches!(theme.tool_header.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: tool_header",
+            meta.name
+        );
+        assert!(
+            matches!(theme.tool_ok.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: tool_ok",
+            meta.name
+        );
+        assert!(
+            matches!(theme.tool_err.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: tool_err",
+            meta.name
+        );
+        assert!(
+            matches!(theme.highlight.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: highlight",
+            meta.name
+        );
+        assert!(
+            matches!(theme.code_inline.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: code_inline",
+            meta.name
+        );
+        assert!(
+            matches!(theme.heading_h1.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: heading_h1",
+            meta.name
+        );
+        assert!(
+            matches!(theme.heading_h2.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: heading_h2",
+            meta.name
+        );
+        assert!(
+            matches!(theme.heading_h3.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: heading_h3",
+            meta.name
+        );
+        assert!(
+            matches!(theme.dimmed.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: dimmed",
+            meta.name
+        );
+        assert!(
+            matches!(theme.warning.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: warning",
+            meta.name
+        );
+        assert!(
+            matches!(theme.skill_tag.get_fg_color(), Some(Color::Rgb(_))),
+            "{}: skill_tag",
+            meta.name
+        );
+        assert!(
+            matches!(theme.user_message_bg.get_bg_color(), Some(Color::Rgb(_))),
+            "{}: user_message_bg",
+            meta.name
+        );
+        assert!(
+            matches!(theme.tool_success_bg.get_bg_color(), Some(Color::Rgb(_))),
+            "{}: tool_success_bg",
+            meta.name
+        );
+        assert!(
+            matches!(theme.tool_error_bg.get_bg_color(), Some(Color::Rgb(_))),
+            "{}: tool_error_bg",
+            meta.name
+        );
+    }
+}
+
+#[test]
 fn registry_aliases_and_listing() {
     let registry = ThemeRegistry::default();
     assert!(registry.contains("ansi"));

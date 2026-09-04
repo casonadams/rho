@@ -16,6 +16,9 @@ use anstyle::{AnsiColor, Color, Effects, Style};
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub name: String,
+    pub is_light: bool,
+    pub terminal_bg: Option<String>,
+    pub terminal_fg: Option<String>,
     pub prompt: Style,
     pub assistant: Style,
     pub thinking: Style,
@@ -28,9 +31,29 @@ pub struct Theme {
     pub heading_h2: Style,
     pub heading_h3: Style,
     pub dimmed: Style,
+    pub warning: Style,
+    pub skill_tag: Style,
     pub user_message_bg: Style,
     pub tool_success_bg: Style,
     pub tool_error_bg: Style,
+}
+
+impl Theme {
+    pub fn is_ansi(&self) -> bool {
+        self.name == "default" || self.name == "ansi"
+    }
+
+    pub fn is_light(&self) -> bool {
+        self.is_light
+    }
+
+    pub fn tool_title_style(&self, is_error: bool) -> Style {
+        if is_error {
+            self.tool_err.bold()
+        } else {
+            Style::new().bold()
+        }
+    }
 }
 
 fn background(color: AnsiColor) -> Style {
@@ -41,6 +64,9 @@ impl Default for Theme {
     fn default() -> Self {
         Self {
             name: "default".to_string(),
+            is_light: false,
+            terminal_bg: None,
+            terminal_fg: None,
             prompt: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
             assistant: Style::new(),
             thinking: Style::new().effects(Effects::DIMMED),
@@ -53,6 +79,8 @@ impl Default for Theme {
             heading_h2: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue))),
             heading_h3: Style::new().effects(Effects::DIMMED),
             dimmed: Style::new().effects(Effects::DIMMED),
+            warning: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))),
+            skill_tag: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Magenta))).bold(),
             user_message_bg: background(AnsiColor::Black),
             tool_success_bg: background(AnsiColor::Black),
             tool_error_bg: background(AnsiColor::Black),

@@ -31,6 +31,16 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn set_theme(&mut self, theme: crate::ui::theme::Theme) -> io::Result<()> {
+        if theme.is_ansi() {
+            let _ = self.backend.write_text("\x1b]111\x1b\\\x1b]110\x1b\\");
+        } else {
+            if let Some(bg) = &theme.terminal_bg {
+                let _ = self.backend.write_text(&format!("\x1b]11;{bg}\x1b\\"));
+            }
+            if let Some(fg) = &theme.terminal_fg {
+                let _ = self.backend.write_text(&format!("\x1b]10;{fg}\x1b\\"));
+            }
+        }
         self.theme = theme;
         self.cache.clear();
         self.full_redraw()

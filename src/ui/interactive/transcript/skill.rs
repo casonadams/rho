@@ -7,9 +7,7 @@ pub fn render_user_message(text: &str, input: &TranscriptRenderInput<'_>) -> Str
     let tools_expanded = input.tools_expanded;
 
     if let Some((skill_name, skill_content, user_msg)) = parse_skill_block(text) {
-        let skill_tag = anstyle::Style::new()
-            .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
-            .effects(anstyle::Effects::BOLD);
+        let skill_tag = theme.skill_tag;
         let skill_block_text = if tools_expanded {
             format!("{skill_tag}[skill]{skill_tag:#} **{skill_name}**\n\n{skill_content}")
         } else {

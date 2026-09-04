@@ -1,7 +1,7 @@
 use crate::ui::block::BlockFormat;
 use crate::ui::render::{
     detect_language_from_args, fetch_content_kind, format_duration_ms, format_edit_diff, format_tool_args_summary,
-    format_write_preview, read_summary_parts, tool_title_style,
+    format_write_preview, read_summary_parts,
 };
 
 use super::types::{ToolItem, TranscriptRenderInput};
@@ -16,7 +16,7 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
     } else {
         theme.tool_success_bg
     };
-    let title = tool_title_style(tool.is_error);
+    let title = theme.tool_title_style(tool.is_error);
     let accent = theme.highlight;
     let display_name = match tool.name.as_str() {
         "search" | "websearch" => "web_search",
@@ -28,14 +28,12 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
     let mut content = if tool.name == "read" && !tool.is_error {
         let (path, range) = read_summary_parts(&tool.arguments);
         let range_suffix = range.map_or_else(String::new, |range| {
-            let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+            let range_style = theme.warning;
             format!("{range_style}{range}{range_style:#}")
         });
         match rho_harness_core::presentation::summary::classify_read_path(&tool.arguments) {
             Some(rho_harness_core::presentation::summary::ReadClassification::Skill { name }) => {
-                let skill_tag = anstyle::Style::new()
-                    .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
-                    .effects(anstyle::Effects::BOLD);
+                let skill_tag = theme.skill_tag;
                 format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}")
             }
             Some(rho_harness_core::presentation::summary::ReadClassification::Resource { path }) => {
@@ -54,7 +52,7 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
             .get("url")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+        let status = theme.warning;
         let kind = fetch_content_kind(&tool.arguments);
         format!("{title}web_fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
     } else {

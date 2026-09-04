@@ -98,6 +98,7 @@ fn theme_selector_modal_navigation_and_selection() {
         crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Down, crossterm::event::KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, down_key, &mut None).unwrap();
     assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+    assert_eq!(controller.theme().name, "catppuccin");
 
     let enter_key =
         crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
@@ -109,6 +110,27 @@ fn theme_selector_modal_navigation_and_selection() {
         }
         _ => panic!("expected ThemeSelected result"),
     }
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn theme_selector_modal_cancels_and_restores_original_theme() {
+    let config = rho_harness_core::config::Config::default();
+    let auth_store = crate::auth::AuthStore::load(&config.auth_file).unwrap_or_default();
+    let session = crate::repl::ReplSession::new(config, auth_store, None);
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    super::super::modal::open_theme_selector(&session, &mut controller);
+    assert_eq!(controller.theme().name, "default");
+
+    let down_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Down, crossterm::event::KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, down_key, &mut None).unwrap();
+    assert_eq!(controller.theme().name, "catppuccin");
+
+    let esc_key = crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Esc, crossterm::event::KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, esc_key, &mut None).unwrap();
+    assert_eq!(controller.theme().name, "default");
     assert!(controller.state().active_modal().is_none());
 }
 

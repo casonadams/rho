@@ -33,7 +33,8 @@ pub fn open_theme_selector<B: TerminalBackend>(session: &ReplSession, controller
         ));
     }
 
-    let mut modal = ModalState::new("Select Theme", "", options).with_search(true);
+    let initial_theme = session.config.theme.clone();
+    let mut modal = ModalState::new("Select Theme", initial_theme, options).with_search(true);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }
@@ -43,6 +44,20 @@ fn extract_selected_theme<B: TerminalBackend>(controller: &TerminalController<B>
     Some(opt.label.clone())
 }
 
+fn apply_preview_theme<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<()> {
+    if let Some(theme_name) = extract_selected_theme(controller)
+        && theme_name != controller.theme().name
+    {
+        let registry = crate::ui::theme::ThemeRegistry::default();
+        if let Some(theme) = registry.get(&theme_name).cloned() {
+            controller.set_theme(theme)?;
+            return Ok(());
+        }
+    }
+    controller.redraw()?;
+    Ok(())
+}
+
 pub fn handle_theme_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -50,12 +65,12 @@ pub fn handle_theme_key<B: TerminalBackend>(
     match key.code {
         KeyCode::Up | KeyCode::BackTab => {
             controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
+            apply_preview_theme(controller)?;
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Down | KeyCode::Tab => {
             controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
+            apply_preview_theme(controller)?;
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Enter => {
@@ -68,8 +83,18 @@ pub fn handle_theme_key<B: TerminalBackend>(
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Esc => {
+            let initial_theme = controller
+                .state()
+                .active_modal()
+                .map(|m| m.body.clone())
+                .unwrap_or_else(|| "default".to_string());
             controller.state_mut().pop_modal();
-            controller.redraw()?;
+            let registry = crate::ui::theme::ThemeRegistry::default();
+            if let Some(theme) = registry.get(&initial_theme).cloned() {
+                controller.set_theme(theme)?;
+            } else {
+                controller.redraw()?;
+            }
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Backspace => {
@@ -78,12 +103,22 @@ pub fn handle_theme_key<B: TerminalBackend>(
                 query.pop();
                 modal.set_filter(&query);
             }
-            controller.redraw()?;
+            apply_preview_theme(controller)?;
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            let initial_theme = controller
+                .state()
+                .active_modal()
+                .map(|m| m.body.clone())
+                .unwrap_or_else(|| "default".to_string());
             controller.state_mut().pop_modal();
-            controller.redraw()?;
+            let registry = crate::ui::theme::ThemeRegistry::default();
+            if let Some(theme) = registry.get(&initial_theme).cloned() {
+                controller.set_theme(theme)?;
+            } else {
+                controller.redraw()?;
+            }
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Char(c)
@@ -96,7 +131,7 @@ pub fn handle_theme_key<B: TerminalBackend>(
                 query.push(c);
                 modal.set_filter(&query);
             }
-            controller.redraw()?;
+            apply_preview_theme(controller)?;
             Ok(ModalKeyResult::Handled)
         }
         _ => Ok(ModalKeyResult::Handled),

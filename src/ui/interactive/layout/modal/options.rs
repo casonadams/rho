@@ -55,7 +55,7 @@ pub(super) fn modal_hint(modal: &ModalState) -> &'static str {
             "\x1b[2mEnter to select • Ctrl+S to set as default • Esc to cancel\x1b[0m"
         }
         crate::ui::interactive::ModalMode::Select if modal.title == "Select Theme" => {
-            "\x1b[2mEnter to select • Esc to cancel\x1b[0m"
+            "\x1b[2m↑/↓ preview • Enter select • Esc cancel\x1b[0m"
         }
         crate::ui::interactive::ModalMode::Select if modal.title == "Conversation Tree" => {
             "\x1b[2m↑/↓ select • Enter navigate • Shift+L label • Esc cancel\x1b[0m"

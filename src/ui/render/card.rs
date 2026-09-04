@@ -1,5 +1,5 @@
 use super::formatters::{format_edit_diff, format_write_preview};
-use super::preview::{fetch_content_kind, tool_title_style};
+use super::preview::fetch_content_kind;
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
@@ -14,7 +14,7 @@ pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> Strin
     } else {
         theme.tool_success_bg
     };
-    let title = tool_title_style(line.is_error);
+    let title = theme.tool_title_style(line.is_error);
     let accent = theme.highlight;
     let summary = format_tool_args_summary(&line.name, &line.arguments);
     let display_name = match line.name.as_str() {
@@ -25,14 +25,12 @@ pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> Strin
     let mut content = if line.name == "read" && !line.is_error {
         let (path, range) = read_summary_parts(&line.arguments);
         let range_suffix = range.map_or_else(String::new, |range| {
-            let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+            let range_style = theme.warning;
             format!("{range_style}{range}{range_style:#}")
         });
         match classify_read_path(&line.arguments) {
             Some(ReadClassification::Skill { name }) => {
-                let skill_tag = anstyle::Style::new()
-                    .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
-                    .effects(anstyle::Effects::BOLD);
+                let skill_tag = theme.skill_tag;
                 format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}")
             }
             Some(ReadClassification::Resource { path }) => {
@@ -51,7 +49,7 @@ pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> Strin
             .get("url")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
+        let status = theme.warning;
         let kind = fetch_content_kind(&line.arguments);
         format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
     } else {
