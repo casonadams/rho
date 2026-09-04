@@ -48,7 +48,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         None => SessionManager::new(&config.base_dir.join("sessions"), None).unwrap(),
     };
     let agent = build_coding_agent(
-        ModelHandle::new(model),
+        ModelHandle::new(model.clone()),
         &app_config,
         CodingRuntime {
             base_dir: config.base_dir,
@@ -79,7 +79,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
         base_tools,
         base_dir: std::path::PathBuf::from("."),
-        model: None,
+        model: Some(ModelHandle::new(model)),
         mcp_loader: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     }
 }

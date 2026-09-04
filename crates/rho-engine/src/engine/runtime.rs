@@ -2,7 +2,6 @@ use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 
 use rho_harness_core::session::SessionManager;
-use rho_harness_core::session::context::context_memory;
 use rig::agent::{Agent, AgentBuilder, AgentRunner, ModelHandle};
 use std::path::Path;
 
@@ -29,9 +28,8 @@ pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRu
         memory, built_in_tools, ..
     } = runtime;
 
-    let context_memory = context_memory(memory, config.context_window_messages, config.compaction_max_bytes);
     let builder = AgentBuilder::from_model_handle(model)
-        .memory(context_memory)
+        .memory(memory)
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
         .dynamic_tools(built_in_tools.unwrap_or_default());

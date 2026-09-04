@@ -20,6 +20,7 @@ pub struct AgentEngineBuilder {
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
     extra_tools: Vec<rig::tool::DynamicTool>,
     plugins: Vec<Arc<dyn crate::plugin::RhoPlugin>>,
+    model: Option<ModelHandle>,
 }
 
 impl AgentEngineBuilder {
@@ -33,7 +34,13 @@ impl AgentEngineBuilder {
             resume_id: None,
             session_manager: None,
             base_dir: None,
+            model: None,
         }
+    }
+
+    pub fn model(mut self, model: ModelHandle) -> Self {
+        self.model = Some(model);
+        self
     }
 
     pub fn resume(mut self, resume_id: Option<&str>) -> Self {
@@ -102,43 +109,47 @@ impl AgentEngineBuilder {
 
         let shared_auth = Arc::new(tokio::sync::Mutex::new(auth_store.clone()));
 
-        let model = match create_engine_model(&config, &auth_store, shared_auth.clone()) {
-            Ok(m) => m,
-            Err(e) => {
-                if is_unmodified_default {
-                    let configured = auth_store.list_configured_providers();
-                    let mut fallback = None;
-                    for p in configured {
-                        let default_model = default_model_for_provider(&p);
-                        let mut trial_config = config.clone();
-                        trial_config.provider = p.clone();
-                        trial_config.model = default_model.to_string();
-                        if let Ok(m) = create_engine_model(&trial_config, &auth_store, shared_auth.clone()) {
-                            config = trial_config;
-                            fallback = Some(m);
-                            break;
+        let model = if let Some(m) = self.model {
+            m
+        } else {
+            match create_engine_model(&config, &auth_store, shared_auth.clone()) {
+                Ok(m) => m,
+                Err(e) => {
+                    if is_unmodified_default {
+                        let configured = auth_store.list_configured_providers();
+                        let mut fallback = None;
+                        for p in configured {
+                            let default_model = default_model_for_provider(&p);
+                            let mut trial_config = config.clone();
+                            trial_config.provider = p.clone();
+                            trial_config.model = default_model.to_string();
+                            if let Ok(m) = create_engine_model(&trial_config, &auth_store, shared_auth.clone()) {
+                                config = trial_config;
+                                fallback = Some(m);
+                                break;
+                            }
                         }
-                    }
 
-                    if let Some(m) = fallback {
-                        m
-                    } else if let Ok(local_model) = create_engine_model(
-                        &Config {
-                            provider: "local".to_string(),
-                            model: "llama3.2".to_string(),
-                            ..config.clone()
-                        },
-                        &auth_store,
-                        shared_auth.clone(),
-                    ) {
-                        config.provider = "local".to_string();
-                        config.model = "llama3.2".to_string();
-                        local_model
+                        if let Some(m) = fallback {
+                            m
+                        } else if let Ok(local_model) = create_engine_model(
+                            &Config {
+                                provider: "local".to_string(),
+                                model: "llama3.2".to_string(),
+                                ..config.clone()
+                            },
+                            &auth_store,
+                            shared_auth.clone(),
+                        ) {
+                            config.provider = "local".to_string();
+                            config.model = "llama3.2".to_string();
+                            local_model
+                        } else {
+                            return Err(e);
+                        }
                     } else {
                         return Err(e);
                     }
-                } else {
-                    return Err(e);
                 }
             }
         };

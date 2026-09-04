@@ -71,6 +71,10 @@ impl SessionManager {
         Ok(())
     }
 
+    pub async fn active_messages(&self) -> Result<Vec<Message>> {
+        Ok(self.state.lock().await.messages.clone())
+    }
+
     pub(crate) fn remember_memory_error(&self, error: &AppError) {
         if let Ok(mut current) = self.memory_error.lock() {
             *current = Some(error.to_string());

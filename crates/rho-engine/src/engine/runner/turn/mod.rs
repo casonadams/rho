@@ -16,7 +16,6 @@ use futures::StreamExt;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::session::SessionEventKind;
-use rho_harness_core::session::context::context_memory;
 use rig::agent::MultiTurnStreamItem;
 use rig::memory::ConversationMemory;
 use rig::streaming::StreamedAssistantContent;
@@ -45,20 +44,39 @@ impl AgentEngine {
             )
             .await?;
         let preamble = context.build_system_prompt();
-        let visible_history = context_memory(
-            self.session_manager.clone(),
-            self.config.context_window_messages,
-            self.config.compaction_max_bytes,
-        )
-        .load(&self.session_manager.session_id)
-        .await
-        .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
+        let mut visible_history = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
+            .await
+            .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
         let mut checkpoint = self.session_manager.load_checkpoint().await?;
+
+        let context_window = rho_harness_core::tokens::context_window_size(&self.config.model);
+        let mut history_tokens =
+            rho_harness_core::tokens::calculate_context_tokens(&visible_history, None, &self.config.model).total_tokens;
+
+        if rho_harness_core::tokens::should_compact(history_tokens, context_window, self.config.reserve_tokens) {
+            match self.compact_session(None).await {
+                Ok(stats) => {
+                    presenter.print_notice(&format!(
+                        "[Auto-compacted context: {} -> {} tokens (saved {})]",
+                        stats.tokens_before, stats.tokens_after, stats.saved_tokens
+                    ));
+                    visible_history = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
+                        .await
+                        .map_err(|e| {
+                            AppError::Session(format!("Model-visible session history could not be loaded: {e}"))
+                        })?;
+                    history_tokens =
+                        rho_harness_core::tokens::calculate_context_tokens(&visible_history, None, &self.config.model)
+                            .total_tokens;
+                }
+                Err(err) => {
+                    eprintln!("Warning: Proactive auto-compaction failed: {err}");
+                }
+            }
+        }
 
         self.run_tracker.start();
         let preamble_tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model);
-        let history_tokens =
-            rho_harness_core::tokens::calculate_context_tokens(&visible_history, None, &self.config.model).total_tokens;
         let prompt_tokens = rho_harness_core::tokens::estimate_text_tokens(&augmented_prompt, &self.config.model);
         let estimated_prompt_tokens = preamble_tokens
             .saturating_add(history_tokens)
@@ -77,6 +95,7 @@ impl AgentEngine {
         let mut current_prompt = augmented_prompt;
         let mut total_tool_calls = 0;
         let mut current_budget = self.config.max_turns;
+        let mut overflow_recovered = false;
 
         loop {
             let mut tool_context = ToolContext::new();
@@ -110,6 +129,7 @@ impl AgentEngine {
             let mut final_response = None;
             let mut reasoning_parts = HashSet::new();
             let mut budget_hit = false;
+            let mut overflow_retry = false;
             let mut streaming_tool = StreamingToolTracker::default();
 
             while let Some(item) = stream.next().await {
@@ -118,6 +138,35 @@ impl AgentEngine {
                     Err(error) => {
                         sink.finish_spinner();
                         sink.flush_display();
+                        if !overflow_recovered && crate::engine::compactor::is_context_overflow_error(&error) {
+                            overflow_recovered = true;
+                            presenter.print_notice("[Context overflow detected: auto-compacting and retrying turn...]");
+                            match self.compact_session(None).await {
+                                Ok(stats) => {
+                                    presenter.print_notice(&format!(
+                                        "[Compacted context: {} -> {} tokens (saved {})]",
+                                        stats.tokens_before, stats.tokens_after, stats.saved_tokens
+                                    ));
+                                    visible_history = ConversationMemory::load(
+                                        &self.session_manager,
+                                        &self.session_manager.session_id,
+                                    )
+                                    .await
+                                    .map_err(|e| {
+                                        AppError::Session(format!(
+                                            "Model-visible session history could not be loaded: {e}"
+                                        ))
+                                    })?;
+                                    checkpoint = self.session_manager.load_checkpoint().await?;
+                                    sink.resume_model_spinner();
+                                    overflow_retry = true;
+                                    break;
+                                }
+                                Err(compact_err) => {
+                                    eprintln!("Warning: Auto-compaction after context overflow failed: {compact_err}");
+                                }
+                            }
+                        }
                         if let Some(memory_error) = self.session_manager.take_memory_error() {
                             let error = AppError::Session(memory_error);
                             self.record_failed_metrics(&error).await?;
@@ -204,6 +253,10 @@ impl AgentEngine {
                     }
                     MultiTurnStreamItem::StreamUserItem(_) => {}
                 }
+            }
+
+            if overflow_retry {
+                continue;
             }
 
             if budget_hit {
