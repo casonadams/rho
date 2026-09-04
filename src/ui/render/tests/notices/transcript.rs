@@ -98,3 +98,17 @@ fn session_status_keeps_runtime_context_visible() {
         "qwen | 0% (376k)"
     );
 }
+
+#[test]
+fn print_status_emits_system_message_event() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.print_status("Model: claude-3-5-sonnet");
+
+    let event = events.try_recv().expect("must emit event");
+    match event {
+        UiEvent::SystemMessage(Some(msg)) => assert_eq!(msg, "Model: claude-3-5-sonnet"),
+        _ => panic!("expected SystemMessage"),
+    }
+}

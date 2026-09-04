@@ -27,6 +27,7 @@ pub struct InteractiveState {
     queue: VecDeque<QueuedMessage>,
     modals: Vec<ModalFrame>,
     pub autocomplete: AutocompleteState,
+    system_message: Option<String>,
 }
 
 impl InteractiveState {
@@ -49,6 +50,14 @@ impl InteractiveState {
 
     pub fn hide_thinking(&self) -> bool {
         self.hide_thinking
+    }
+
+    pub fn system_message(&self) -> Option<&str> {
+        self.system_message.as_deref()
+    }
+
+    pub fn set_system_message(&mut self, message: Option<String>) {
+        self.system_message = message;
     }
 
     pub fn set_hide_thinking(&mut self, hide: bool) {

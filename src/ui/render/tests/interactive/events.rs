@@ -37,6 +37,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
             )),
             UiEvent::RunningTool(_)
             | UiEvent::ExtraStatus(_)
+            | UiEvent::SystemMessage(_)
             | UiEvent::ToolStart(_)
             | UiEvent::ToolChunk { .. }
             | UiEvent::ToolEnd => {}

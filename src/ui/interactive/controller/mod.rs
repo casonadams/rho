@@ -3,6 +3,7 @@ pub mod backend;
 pub mod lifecycle;
 pub mod output;
 pub mod paint;
+pub mod system_message;
 #[cfg(test)]
 mod tests;
 pub mod tools;
@@ -26,6 +27,7 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) active: bool,
     pub(super) theme: crate::ui::theme::Theme,
     pub(super) transcript: Vec<super::TranscriptItem>,
+    pub(super) system_message_expires_at: Option<std::time::Instant>,
 }
 
 impl<B: TerminalBackend> TerminalController<B> {
@@ -48,24 +50,13 @@ impl<B: TerminalBackend> TerminalController<B> {
             active: true,
             theme: crate::ui::theme::Theme::default(),
             transcript: Vec::new(),
+            system_message_expires_at: None,
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
             return Err(error);
         }
         Ok(controller)
-    }
-
-    pub fn state(&self) -> &InteractiveState {
-        &self.state
-    }
-
-    pub fn state_mut(&mut self) -> &mut InteractiveState {
-        &mut self.state
-    }
-
-    pub fn terminal_width(&self) -> usize {
-        self.width.max(1)
     }
 
     pub fn redraw(&mut self) -> io::Result<()> {
@@ -119,6 +110,7 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn tick(&mut self) -> io::Result<()> {
         self.advance_spinner();
+        self.check_system_message_expiration();
         self.redraw()
     }
 
@@ -140,6 +132,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             modal: self.state.active_modal(),
             autocomplete: Some(&self.state.autocomplete),
             footer: self.state.footer(),
+            system_message: self.state.system_message(),
             queued_messages: &queue_slice,
             widget_lines: &widget_lines,
             terminal_width: self.width,

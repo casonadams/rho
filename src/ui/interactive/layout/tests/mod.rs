@@ -4,5 +4,6 @@ mod editor;
 mod modal;
 mod running_tool;
 mod status;
+mod system_message;
 mod text;
 mod widget;

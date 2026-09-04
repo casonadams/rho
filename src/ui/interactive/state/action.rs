@@ -24,6 +24,7 @@ impl InteractiveState {
             UiAction::Undo => self.editor.undo(),
             UiAction::Paste(text) => self.editor.handle_paste(&text),
             UiAction::Submit(kind) => {
+                self.system_message = None;
                 if let Some(message) = self.editor.take_submission(kind) {
                     self.queue.push_back(message.clone());
                     return UiEffect::Queued(message);

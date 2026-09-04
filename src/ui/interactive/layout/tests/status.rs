@@ -17,6 +17,7 @@ fn footer_contains_available_status_and_queue_count() {
         modal: None,
         autocomplete: None,
         footer: &footer,
+        system_message: None,
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
@@ -52,6 +53,7 @@ fn queued_messages_render_above_the_working_line() {
         modal: None,
         autocomplete: None,
         footer: &footer,
+        system_message: None,
         queued_messages: &queued,
         widget_lines: &[],
         terminal_width: 80,
@@ -80,6 +82,7 @@ fn narrow_layout_never_exceeds_terminal_width() {
         modal: None,
         autocomplete: None,
         footer: &footer,
+        system_message: None,
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 5,
@@ -91,5 +94,51 @@ fn narrow_layout_never_exceeds_terminal_width() {
     assert_eq!(
         crate::ui::interactive::layout::text::visible_width(&layout.top_divider),
         5
+    );
+}
+
+#[test]
+fn queued_messages_render_below_widget_lines_and_above_editor() {
+    let default_editor = EditorState::default();
+    let footer = FooterState {
+        activity: Activity::Working,
+        ..FooterState::default()
+    };
+    let queued = vec![QueuedMessage {
+        text: "do this next".into(),
+        kind: QueueKind::Steering,
+    }];
+    let widgets = vec![
+        "┌─ bash cargo test ──┐".to_string(),
+        "│ running 1 test     │".to_string(),
+        "└────────────────────┘".to_string(),
+    ];
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &queued,
+        widget_lines: &widgets,
+        terminal_width: 80,
+        spinner_frame: 0,
+    });
+
+    let widget_pos = layout.lines.iter().position(|l| l.contains("bash cargo test")).unwrap();
+    let steering_pos = layout
+        .lines
+        .iter()
+        .position(|l| l.contains("Steering: do this next"))
+        .unwrap();
+    let top_div_pos = layout.lines.iter().position(|l| l == &layout.top_divider).unwrap();
+
+    assert!(
+        widget_pos < steering_pos,
+        "running tool widget must appear before steering text"
+    );
+    assert!(
+        steering_pos < top_div_pos,
+        "steering text must appear before editor divider"
     );
 }

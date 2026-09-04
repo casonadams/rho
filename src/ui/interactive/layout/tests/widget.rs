@@ -18,6 +18,7 @@ fn widget_lines_affect_height_and_cursor_row() {
         modal: None,
         autocomplete: None,
         footer: &default_footer,
+        system_message: None,
         queued_messages: &[],
         widget_lines: &widgets,
         terminal_width: 80,

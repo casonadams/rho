@@ -84,9 +84,13 @@ impl TerminalRenderer {
     }
 
     pub fn print_status(&self, message: &str) {
-        let dim = self.theme.dimmed;
-        let text = format!("{dim}{message}{dim:#}\n");
-        self.print_notice(&text);
+        if let Some(ui) = &self.ui {
+            let _ = ui.set_system_message(Some(message.to_string()));
+        } else {
+            let dim = self.theme.dimmed;
+            let text = format!("{dim}{message}{dim:#}\n");
+            self.write_output(&text);
+        }
     }
 
     pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {

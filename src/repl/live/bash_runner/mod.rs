@@ -5,12 +5,12 @@ mod progress;
 pub use format::UserBashResult;
 
 use crossterm::event::Event;
-use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
+use rho_engine::tools::bash::OutputAccumulator;
 use rho_harness_core::presentation::ToolLine;
 use std::time::Instant;
 
 use command::RunningCommand;
-use format::{BashOutcome, finish_bash_result};
+use format::{BashOutcome, finalize_run, finish_bash_result};
 use progress::StreamProgress;
 
 use super::LiveIo;
@@ -18,19 +18,6 @@ use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InputAction, map_key};
-
-fn finalize_run(
-    chunk_rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
-    accumulator: &mut OutputAccumulator,
-    renderer: &TerminalRenderer,
-) -> OutputSnapshot {
-    while let Ok(chunk) = chunk_rx.try_recv() {
-        accumulator.append(chunk.as_bytes());
-        renderer.tool_chunk(&chunk);
-    }
-    accumulator.finish();
-    accumulator.snapshot()
-}
 
 pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     cmd: &str,
@@ -86,7 +73,21 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                             break;
                         }
                         InputAction::ToggleExpandTools => {
-                            let _ = controller.toggle_tools_expanded();
+                            let expanded = controller.toggle_tools_expanded()?;
+                            renderer.print_status(&format!(
+                                "Tool output: {}",
+                                if expanded { "expanded" } else { "collapsed" }
+                            ));
+                            batch.drain_events(controller, io.events)?;
+                            batch.flush(controller, true)?;
+                        }
+                        InputAction::ThinkingToggle => {
+                            let hide = controller.toggle_thinking()?;
+                            renderer.print_status(&format!(
+                                "Thinking blocks: {}",
+                                if hide { "hidden" } else { "visible" }
+                            ));
+                            batch.drain_events(controller, io.events)?;
                             batch.flush(controller, true)?;
                         }
                         _ => {}
@@ -106,7 +107,8 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                 }
             }
             _ = frame.tick() => {
-                if progress.on_tick(controller) {
+                let expired = controller.check_system_message_expiration();
+                if progress.on_tick(controller) || expired {
                     batch.drain_events(controller, io.events)?;
                     batch.flush(controller, true)?;
                 }

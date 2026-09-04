@@ -6,11 +6,11 @@ use editor::open_external_editor;
 use modal_action::{ModalActionContext, apply_modal_key_result};
 use shortcut::{IdleShortcutContext, handle_shortcut_action};
 
-use super::IdleContext;
 use super::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
 use super::modal::handle_modal_key;
 use super::navigation::{apply_completion, navigate_history_next, navigate_history_previous};
+use super::{EditorResources, IdleContext, LiveIo};
 use crate::error::Result;
 use crate::ui::interactive::{InputAction, QueuedMessage, UiAction, UiEffect, map_key};
 use crossterm::event::Event;
@@ -18,13 +18,13 @@ use crossterm::event::Event;
 pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
     ctx: IdleContext<'_, '_, B>,
 ) -> Result<Option<QueuedMessage>> {
-    let controller = ctx.io.controller;
-    let ui_events = ctx.io.events;
-    let input = ctx.io.input;
-    let history = ctx.editor.history;
-    let completions = ctx.editor.completions;
-    let session = &mut *ctx.session;
-    let engine = &mut *ctx.engine;
+    let LiveIo {
+        controller,
+        events: ui_events,
+        input,
+    } = ctx.io;
+    let EditorResources { history, completions } = ctx.editor;
+    let (session, engine) = (&mut *ctx.session, &mut *ctx.engine);
     let mut batch = LiveBatch::new();
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -33,7 +33,10 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
     loop {
         tokio::select! {
             biased;
-            _ = frame.tick() => batch.flush(controller, false)?,
+            _ = frame.tick() => {
+                let expired = controller.check_system_message_expiration();
+                batch.flush(controller, expired)?;
+            }
             event = input.recv() => {
                 let event = match event {
                     Some(Ok(event)) => event,
@@ -68,6 +71,8 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
                     },
                     &mut batch,
                 ).await? {
+                    batch.drain_events(controller, ui_events)?;
+                    batch.flush(controller, true)?;
                     continue;
                 }
                 if matches!(handle_autocomplete_key(controller, completions, key), AutocompleteKeyResult::Handled) {
@@ -107,11 +112,7 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
                     InputAction::DequeueQueued => {
                         let queued = controller.state_mut().dequeue_all();
                         if !queued.is_empty() {
-                            let text = queued
-                                .into_iter()
-                                .map(|m| m.text)
-                                .collect::<Vec<_>>()
-                                .join("\n");
+                            let text = queued.into_iter().map(|m| m.text).collect::<Vec<_>>().join("\n");
                             controller.state_mut().editor_mut().set_text(&text);
                             batch.flush(controller, true)?;
                         }
@@ -132,6 +133,8 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
                             },
                             &mut batch,
                         ).await?;
+                        batch.drain_events(controller, ui_events)?;
+                        batch.flush(controller, true)?;
                     }
                 }
             }

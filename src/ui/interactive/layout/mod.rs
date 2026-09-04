@@ -8,7 +8,7 @@ pub mod text;
 pub mod types;
 pub mod widget;
 
-pub use chrome::thinking_divider_style;
+pub use chrome::{system_lines_text, thinking_divider_style};
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
@@ -22,15 +22,14 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
     let mut lines = Vec::new();
 
-    let queued_lines = queued_lines_text(input.queued_messages, width);
-    lines.extend(queued_lines.clone());
-
-    let (working_line, widget_lines) = if input.modal.is_some() {
-        (String::new(), Vec::new())
+    let (working_line, widget_lines, queued_lines, system_lines) = if input.modal.is_some() {
+        (String::new(), Vec::new(), Vec::new(), Vec::new())
     } else {
         (
             working_line_text(input.footer, input.spinner_frame, width),
             input.widget_lines.to_vec(),
+            queued_lines_text(input.queued_messages, width),
+            system_lines_text(input.system_message, width),
         )
     };
 
@@ -54,6 +53,12 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             )
         } else {
             lines.push(String::new());
+            if !queued_lines.is_empty() {
+                lines.extend(queued_lines.clone());
+            }
+            if !system_lines.is_empty() {
+                lines.extend(system_lines.clone());
+            }
             if !working_line.is_empty() {
                 lines.push(working_line.clone());
             }
@@ -110,6 +115,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         cursor_row,
         queued_lines,
         widget_lines,
+        system_lines,
         working_line,
         top_divider,
         editor_lines,

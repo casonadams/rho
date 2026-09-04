@@ -11,6 +11,18 @@ impl TerminalController<CrosstermBackend> {
 }
 
 impl<B: TerminalBackend> TerminalController<B> {
+    pub fn state(&self) -> &crate::ui::interactive::InteractiveState {
+        &self.state
+    }
+
+    pub fn state_mut(&mut self) -> &mut crate::ui::interactive::InteractiveState {
+        &mut self.state
+    }
+
+    pub fn terminal_width(&self) -> usize {
+        self.width.max(1)
+    }
+
     pub fn suspend(&mut self) -> io::Result<()> {
         if !self.active {
             return Ok(());

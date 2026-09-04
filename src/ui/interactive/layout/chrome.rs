@@ -58,3 +58,30 @@ pub fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usiz
     let full = format!("{accent}{spinner}{reset} {dim}Working...{reset}");
     truncate_to_width(&full, width)
 }
+
+pub fn system_lines_text(system_message: Option<&str>, width: usize) -> Vec<String> {
+    let Some(message) = system_message.filter(|m| !m.trim().is_empty()) else {
+        return Vec::new();
+    };
+    if width < 5 {
+        return Vec::new();
+    }
+    let dim = "\x1b[2m";
+    let reset = "\x1b[0m";
+    let accent = "\x1b[36m";
+    let mut lines = Vec::new();
+    for (i, line) in message.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let prefix = if i == 0 {
+            format!("{accent}ℹ{reset} ")
+        } else {
+            "  ".to_string()
+        };
+        let text = format!("{prefix}{dim}{trimmed}{reset}");
+        lines.push(truncate_to_width(&text, width));
+    }
+    lines
+}

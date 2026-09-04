@@ -2,6 +2,7 @@ mod bash;
 mod bash_stream;
 mod batch;
 mod common;
+mod footer;
 mod history;
 mod modals;
 mod session_modal;

@@ -56,7 +56,15 @@ impl AgentEngine {
         let mut checkpoint = self.session_manager.load_checkpoint().await?;
 
         self.run_tracker.start();
-        self.usage.start_response();
+        let preamble_tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model);
+        let history_tokens =
+            rho_harness_core::tokens::calculate_context_tokens(&visible_history, None, &self.config.model).total_tokens;
+        let prompt_tokens = rho_harness_core::tokens::estimate_text_tokens(&augmented_prompt, &self.config.model);
+        let estimated_prompt_tokens = preamble_tokens
+            .saturating_add(history_tokens)
+            .saturating_add(prompt_tokens) as u64;
+        self.usage.start_turn(Some(estimated_prompt_tokens));
+        let _in_flight_guard = self.usage.in_flight_guard();
         let model_label = format!("{}:{}", self.config.model, self.context_usage_display());
         let sink = TerminalApprovalSink::new(
             &presenter,
@@ -97,6 +105,7 @@ impl AgentEngine {
                 None => runner,
             };
             let mut model_call_start = Some(Instant::now());
+            self.usage.start_step();
             let mut total_generation_elapsed_ms: u64 = 0;
             let mut stream = runner.stream().await;
             let mut final_response = None;
@@ -138,16 +147,38 @@ impl AgentEngine {
                         ..
                     }) => {
                         sink.resume_model_spinner();
+                        let delta_tokens = match &content {
+                            rig::streaming::ToolCallDeltaContent::Delta(chunk) => {
+                                rho_harness_core::tokens::estimate_text_tokens(chunk, &self.config.model) as u64
+                            }
+                            rig::streaming::ToolCallDeltaContent::Name(name) => {
+                                rho_harness_core::tokens::estimate_text_tokens(name, &self.config.model) as u64
+                            }
+                        };
+                        self.usage.record_streaming_chunk(delta_tokens);
                         streaming_tool.handle_delta(content, &sink);
                     }
                     MultiTurnStreamItem::StreamAssistantItem(item) => {
                         if model_call_start.is_none() {
                             model_call_start = Some(Instant::now());
+                            self.usage.start_step();
                         }
                         for event in display_events(item, &mut reasoning_parts) {
                             match event {
-                                super::history::DisplayEvent::Text(text) => sink.emit_text(&text),
-                                super::history::DisplayEvent::Reasoning(text) => sink.emit_reasoning(&text),
+                                super::history::DisplayEvent::Text(text) => {
+                                    let delta_tokens =
+                                        rho_harness_core::tokens::estimate_text_tokens(&text, &self.config.model)
+                                            as u64;
+                                    self.usage.record_streaming_chunk(delta_tokens);
+                                    sink.emit_text(&text);
+                                }
+                                super::history::DisplayEvent::Reasoning(text) => {
+                                    let delta_tokens =
+                                        rho_harness_core::tokens::estimate_text_tokens(&text, &self.config.model)
+                                            as u64;
+                                    self.usage.record_streaming_chunk(delta_tokens);
+                                    sink.emit_reasoning(&text);
+                                }
                                 super::history::DisplayEvent::ToolCall { .. } => {
                                     sink.resume_model_spinner();
                                     total_tool_calls += 1;
@@ -161,18 +192,25 @@ impl AgentEngine {
                     }
                     MultiTurnStreamItem::CompletionCall(call) => {
                         streaming_tool.reset();
-                        if let Some(start) = model_call_start.take() {
-                            total_generation_elapsed_ms += start.elapsed().as_millis().max(1) as u64;
-                        }
+                        let elapsed_ms = if let Some(start) = model_call_start.take() {
+                            let ms = start.elapsed().as_millis().max(1) as u64;
+                            total_generation_elapsed_ms += ms;
+                            ms
+                        } else {
+                            0
+                        };
+                        self.usage.record_step(call.usage.into(), elapsed_ms);
                         self.run_tracker.completion(call);
                     }
                     MultiTurnStreamItem::ModelTurnRetried { .. } => {
                         model_call_start = Some(Instant::now());
+                        self.usage.start_step();
                         sink.resume_model_spinner();
                     }
                     MultiTurnStreamItem::ToolExecutionCommitted { .. } => {
                         streaming_tool.reset();
                         model_call_start = Some(Instant::now());
+                        self.usage.start_step();
                     }
                     MultiTurnStreamItem::StreamUserItem(_) => {}
                 }

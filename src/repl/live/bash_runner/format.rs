@@ -13,6 +13,19 @@ pub(super) struct BashOutcome {
     pub args_val: serde_json::Value,
 }
 
+pub(super) fn finalize_run(
+    chunk_rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+    accumulator: &mut rho_engine::tools::bash::OutputAccumulator,
+    renderer: &crate::ui::TerminalRenderer,
+) -> OutputSnapshot {
+    while let Ok(chunk) = chunk_rx.try_recv() {
+        accumulator.append(chunk.as_bytes());
+        renderer.tool_chunk(&chunk);
+    }
+    accumulator.finish();
+    accumulator.snapshot()
+}
+
 pub(super) fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
     if let Some(code) = outcome.exit_code {
         let is_error = code != 0;

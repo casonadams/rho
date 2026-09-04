@@ -98,3 +98,158 @@ fn quota_tracker_caching_and_backoff() {
     // After failure, error_until is set in the future so should_fetch is false
     assert!(!tracker_fail.should_fetch());
 }
+
+#[test]
+fn usage_tracker_in_flight_streaming_and_step_reconciliation() {
+    let tracker = UsageTracker::default();
+
+    tracker.start_turn(Some(500));
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 500);
+    assert_eq!(totals.total_output, 0);
+    let latest = tracker.latest().expect("estimated context exists");
+    assert_eq!(latest.input_tokens, 500);
+
+    tracker.record_streaming_chunk(15);
+    tracker.record_streaming_chunk(10);
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 500);
+    assert_eq!(totals.total_output, 25);
+
+    let step_usage = StructuralUsage {
+        input_tokens: 520,
+        output_tokens: 28,
+        total_tokens: 548,
+        cached_input_tokens: Some(100),
+        cache_creation_input_tokens: Some(50),
+        tool_use_prompt_tokens: None,
+        reasoning_tokens: None,
+    };
+    tracker.record_step(step_usage, 500);
+
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 520);
+    assert_eq!(totals.total_output, 28);
+    assert_eq!(totals.total_cache_read, 100);
+    assert_eq!(totals.total_cache_write, 50);
+
+    let latest = tracker.latest().expect("exact context exists");
+    assert_eq!(latest.input_tokens, 520);
+    assert_eq!(latest.cached_input_tokens, Some(100));
+
+    let turn_usage = TurnUsage::single(step_usage);
+    tracker.record_turn(turn_usage, 500);
+
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 520);
+    assert_eq!(totals.total_output, 28);
+    assert_eq!(totals.total_cache_read, 100);
+    assert_eq!(totals.total_cache_write, 50);
+}
+
+#[test]
+fn usage_tracker_in_flight_multi_step_progression() {
+    let tracker = UsageTracker::default();
+
+    tracker.start_turn(Some(1000));
+    tracker.record_streaming_chunk(10);
+
+    let step1 = StructuralUsage {
+        input_tokens: 1000,
+        output_tokens: 15,
+        total_tokens: 1015,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
+        tool_use_prompt_tokens: None,
+        reasoning_tokens: None,
+    };
+    tracker.record_step(step1, 200);
+
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 1000);
+    assert_eq!(totals.total_output, 15);
+
+    tracker.start_step();
+    tracker.record_streaming_chunk(20);
+    let totals = tracker.totals();
+    assert_eq!(totals.total_output, 35);
+
+    let step2 = StructuralUsage {
+        input_tokens: 1200,
+        output_tokens: 30,
+        total_tokens: 1230,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
+        tool_use_prompt_tokens: None,
+        reasoning_tokens: None,
+    };
+    tracker.record_step(step2, 300);
+
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 2200);
+    assert_eq!(totals.total_output, 45);
+
+    let latest = tracker.latest().expect("latest context from step 2");
+    assert_eq!(latest.input_tokens, 1200);
+}
+
+#[test]
+fn usage_tracker_guard_commits_partial_on_drop() {
+    let tracker = UsageTracker::default();
+
+    {
+        let _guard = tracker.in_flight_guard();
+        tracker.start_turn(Some(200));
+
+        let step1 = StructuralUsage {
+            input_tokens: 200,
+            output_tokens: 50,
+            total_tokens: 250,
+            cached_input_tokens: None,
+            cache_creation_input_tokens: None,
+            tool_use_prompt_tokens: None,
+            reasoning_tokens: None,
+        };
+        tracker.record_step(step1, 200);
+    }
+
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 200);
+    assert_eq!(totals.total_output, 50);
+}
+
+#[test]
+fn usage_tracker_guard_clears_uncompleted_on_drop() {
+    let tracker = UsageTracker::default();
+
+    {
+        let _guard = tracker.in_flight_guard();
+        tracker.start_turn(Some(200));
+        tracker.record_streaming_chunk(5);
+    }
+
+    let totals = tracker.totals();
+    assert_eq!(totals.total_input, 0);
+    assert_eq!(totals.total_output, 0);
+    assert_eq!(tracker.latest(), None);
+}
+
+#[test]
+fn usage_tracker_tokens_per_second_during_streaming() {
+    let tracker = UsageTracker::default();
+    tracker.start_turn(Some(100));
+    tracker.record_streaming_chunk(50);
+    assert_eq!(tracker.tokens_per_second(), None);
+
+    let step = StructuralUsage {
+        input_tokens: 100,
+        output_tokens: 100,
+        total_tokens: 200,
+        cached_input_tokens: None,
+        cache_creation_input_tokens: None,
+        tool_use_prompt_tokens: None,
+        reasoning_tokens: None,
+    };
+    tracker.record_step(step, 500);
+    assert_eq!(tracker.tokens_per_second(), Some(200.0));
+}

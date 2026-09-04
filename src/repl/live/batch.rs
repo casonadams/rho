@@ -65,6 +65,14 @@ impl LiveBatch {
             controller.state_mut().footer_mut().extra_status = extra;
             changed = true;
         }
+        if let Some(system_msg) = drained.system_message {
+            if let Some(msg) = system_msg {
+                controller.set_system_message(msg);
+            } else {
+                controller.clear_system_message();
+            }
+            changed = true;
+        }
         if let Some(request) = drained.tool_start {
             controller.start_tool(request)?;
             changed = true;

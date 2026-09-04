@@ -3,5 +3,6 @@ mod fake;
 mod lifecycle;
 mod output;
 mod redraw;
+mod system_message;
 mod tools;
 mod transcript;

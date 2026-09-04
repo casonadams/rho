@@ -15,6 +15,7 @@ pub(super) fn collected_output(events: &mut mpsc::UnboundedReceiver<UiEvent>) ->
         .filter_map(|event| match event {
             UiEvent::Output(OutputEvent::Text(text)) => Some(text),
             UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text)) => Some(text),
+            UiEvent::SystemMessage(Some(text)) => Some(text),
             _ => None,
         })
         .collect()

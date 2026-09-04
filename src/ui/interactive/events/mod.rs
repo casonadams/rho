@@ -86,6 +86,15 @@ impl InteractiveUi {
         }
     }
 
+    pub fn set_system_message(&self, message: Option<String>) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::SystemMessage(message))
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
+
     pub fn tool_start(&self, request: ToolStartRequest) -> Result<(), UiPortError> {
         match self.transport.as_ref() {
             Transport::Channel(sender) => sender

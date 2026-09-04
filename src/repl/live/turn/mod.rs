@@ -1,5 +1,7 @@
+pub(crate) mod footer;
 mod input;
 
+pub(crate) use footer::sync_turn_footer;
 use input::{TurnInputContext, TurnKeyResult, handle_turn_key};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
@@ -32,6 +34,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut spinner_tick = 0_usize;
+    sync_turn_footer(controller, engine);
     let mut run = std::pin::pin!(engine.run_turn(request, std::sync::Arc::new(renderer.clone())));
 
     loop {
@@ -50,7 +53,9 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                 } else {
                     false
                 };
-                batch.flush(controller, spinner_advanced)?;
+                let expired = controller.check_system_message_expiration();
+                let footer_changed = sync_turn_footer(controller, engine);
+                batch.flush(controller, spinner_advanced || footer_changed || expired)?;
             }
             event = input_reader.recv() => {
                 let event = match event {
@@ -99,11 +104,13 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
             }
             result = &mut run => {
                 renderer.flush();
+                sync_turn_footer(controller, engine);
                 batch.drain_events(controller, ui_events)?;
                 batch.flush(controller, false)?;
                 if let Err(error) = result {
                     restore_queued_messages(controller);
                     renderer.print_notice(&format!("\nError: {error}\n"));
+                    sync_turn_footer(controller, engine);
                     batch.drain_events(controller, ui_events)?;
                     batch.flush(controller, false)?;
                 }
@@ -117,8 +124,9 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                             needs_flush = true;
                         }
                     }
-                    if needs_flush {
-                        batch.flush(controller, false)?;
+                    let footer_changed = sync_turn_footer(controller, engine);
+                    if needs_flush || footer_changed {
+                        batch.flush(controller, footer_changed)?;
                     }
                 }
             }

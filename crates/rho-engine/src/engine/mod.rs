@@ -154,6 +154,10 @@ impl AgentEngine {
         self.usage.totals()
     }
 
+    pub fn usage(&self) -> &UsageTracker {
+        &self.usage
+    }
+
     pub fn tokens_per_second(&self) -> Option<f64> {
         self.usage.tokens_per_second()
     }
