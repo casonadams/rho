@@ -1,3 +1,4 @@
+pub(crate) mod atomic;
 pub mod bash;
 pub mod builtin_tools;
 pub mod edit;

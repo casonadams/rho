@@ -1,9 +1,13 @@
+use crate::tools::atomic::atomic_write;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 pub use rho_harness_core::args::WriteArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+mod tests;
 
 pub struct WriteTool {
     pub base_dir: PathBuf,
@@ -41,6 +45,11 @@ impl WriteTool {
                 "Write target is outside the permitted workspace: {clean_path}"
             )));
         }
+        if path.is_dir() {
+            return Ok(ToolResult::error(format!(
+                "Cannot write to {clean_path}: target path is a directory"
+            )));
+        }
         if let Some(parent) = path.parent()
             && let Err(e) = tokio::fs::create_dir_all(parent).await
         {
@@ -57,7 +66,7 @@ impl WriteTool {
 
         let bytes_len = args.content.len();
         let lines_len = args.content.lines().count();
-        match tokio::fs::write(&path, &args.content).await {
+        match atomic_write(&path, args.content.as_bytes()).await {
             Ok(_) => Ok(ToolResult::success(format!(
                 "Successfully wrote {} bytes ({} lines) to {}",
                 bytes_len, lines_len, clean_path
@@ -83,48 +92,5 @@ impl Tool for WriteTool {
 
     async fn call(&self, _context: &mut ToolContext, args: Self::Args) -> Result<Self::Output, Self::Error> {
         into_rig_result(self.execute(args).await)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn rejects_excluded_targets_before_writing() {
-        let temp_dir = std::env::temp_dir().join(format!("write_test_{}", uuid::Uuid::new_v4()));
-        let excluded = temp_dir.join("rho");
-        tokio::fs::create_dir_all(&excluded).await.unwrap();
-        let path = excluded.join("config.toml");
-        let tool = WriteTool::with_exclusions(&temp_dir, [&excluded]);
-        let result = tool
-            .execute(WriteArgs {
-                path: path.to_string_lossy().into_owned(),
-                content: "secret = true".to_string(),
-            })
-            .await
-            .unwrap();
-        assert!(result.is_error);
-        assert!(!path.exists());
-        let _ = tokio::fs::remove_dir_all(temp_dir).await;
-    }
-
-    #[tokio::test]
-    async fn test_write_tool() {
-        let temp_dir = std::env::temp_dir().join(format!("write_test_{}", uuid::Uuid::new_v4()));
-        let tool = WriteTool::new(&temp_dir);
-        let file_path = temp_dir.join("sub/nested/file.txt");
-        let res = tool
-            .execute(WriteArgs {
-                path: file_path.to_str().unwrap().to_string(),
-                content: "hello world\nsecond line\n".to_string(),
-            })
-            .await
-            .unwrap();
-        assert!(!res.is_error);
-        assert!(res.content.contains("Successfully wrote"));
-        let disk_content = tokio::fs::read_to_string(&file_path).await.unwrap();
-        assert_eq!(disk_content, "hello world\nsecond line\n");
-        let _ = tokio::fs::remove_dir_all(temp_dir).await;
     }
 }

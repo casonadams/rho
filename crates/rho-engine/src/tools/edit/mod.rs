@@ -1,13 +1,16 @@
+pub mod normalize;
+#[cfg(test)]
+mod tests;
+
+use crate::tools::atomic::atomic_write;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
+pub use normalize::{detect_line_ending, has_whitespace_relaxed_match, normalize_line_endings, truncate_snippet};
 pub use rho_harness_core::args::EditArgs;
 pub use rho_harness_core::args::EditReplacement;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
-
-#[cfg(test)]
-mod tests;
 
 pub struct EditTool {
     pub base_dir: PathBuf,
@@ -55,6 +58,12 @@ impl EditTool {
             )));
         }
 
+        if path.is_dir() {
+            return Ok(ToolResult::error(format!(
+                "Cannot edit {clean_path}: target path is a directory"
+            )));
+        }
+
         if args.edits.is_empty() {
             return Ok(ToolResult::error("No edits provided in edit tool call"));
         }
@@ -64,42 +73,49 @@ impl EditTool {
             Err(e) => return Ok(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
         };
 
-        // Validate all edits before applying
+        let line_ending = detect_line_ending(&content);
         let mut current_content = content.clone();
+
         for (i, edit) in args.edits.iter().enumerate() {
-            if edit.old_text.is_empty() {
+            let normalized_old = normalize_line_endings(&edit.old_text, line_ending);
+            let normalized_new = normalize_line_endings(&edit.new_text, line_ending);
+
+            if normalized_old.is_empty() {
                 return Ok(ToolResult::error(format!("Edit #{}: oldText must not be empty", i + 1)));
             }
 
-            let matches: Vec<_> = current_content.match_indices(&edit.old_text).collect();
+            let matches: Vec<_> = current_content.match_indices(normalized_old.as_ref()).collect();
             if matches.is_empty() {
+                let hint = if has_whitespace_relaxed_match(&current_content, &normalized_old) {
+                    "\n\nNote: A matching block with different whitespace or indentation was found. Verify exact indentation and line breaks."
+                } else {
+                    ""
+                };
                 return Ok(ToolResult::error(format!(
-                    "Edit #{}: oldText not found in file (exact match required):\n{}",
+                    "Edit #{}: oldText not found in file (exact match required):\n{}{hint}",
                     i + 1,
                     truncate_snippet(&edit.old_text, 120)
                 )));
             }
             if matches.len() > 1 {
                 return Ok(ToolResult::error(format!(
-                    "Edit #{}: oldText found {} times in file (must be unique):\n{}",
+                    "Edit #{}: oldText found {} times in file (must be unique):\n{}\n\nNote: Provide more surrounding context lines in oldText to disambiguate the match.",
                     i + 1,
                     matches.len(),
                     truncate_snippet(&edit.old_text, 120)
                 )));
             }
 
-            current_content = current_content.replacen(&edit.old_text, &edit.new_text, 1);
+            current_content = current_content.replacen(normalized_old.as_ref(), normalized_new.as_ref(), 1);
         }
 
-        // Revalidate after reading and validating all replacements, immediately before mutation.
         if !workspace.can_mutate(clean_path) {
             return Ok(ToolResult::error(format!(
                 "Edit target moved outside the permitted workspace: {clean_path}"
             )));
         }
 
-        // Commit atomically
-        match tokio::fs::write(&path, &current_content).await {
+        match atomic_write(&path, current_content.as_bytes()).await {
             Ok(_) => Ok(ToolResult::success(format!(
                 "Successfully applied {} replacement(s) to {}",
                 args.edits.len(),
@@ -109,15 +125,6 @@ impl EditTool {
                 "Failed to write updated file {clean_path}: {e}"
             ))),
         }
-    }
-}
-
-fn truncate_snippet(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{truncated}...")
     }
 }
 
