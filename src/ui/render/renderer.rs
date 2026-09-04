@@ -1,26 +1,17 @@
-use super::formatters::{
-    format_bash_approval_card, format_edit_diff, format_session_status, format_thinking_block, format_write_preview,
-};
-use super::preview::{fetch_content_kind, tool_title_style};
-use crate::ui::block::{BlockFormat, terminal_width};
+use super::card::render_headless_tool_card;
+use super::formatters::{format_edit_diff, format_thinking_block, format_write_preview};
+pub use super::notices::CacheMissNotice;
 use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
 use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::theme::Theme;
 use indicatif::{ProgressBar, ProgressStyle};
 use rho_harness_core::presentation::stream::ToolStreamPort;
-use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts, to_relative_path};
-use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
+use rho_harness_core::presentation::summary::format_tool_args_summary;
+use rho_harness_core::presentation::{ToolLine, ToolOutcome};
 use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CacheMissNotice {
-    pub missed_tokens: u64,
-    pub cost: Option<f64>,
-    pub idle_minutes: Option<u64>,
-}
 
 #[derive(Clone)]
 pub struct TerminalRenderer {
@@ -118,114 +109,10 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_welcome(&self, display: &WelcomeDisplay) {
-        let location = std::env::current_dir()
-            .ok()
-            .map(|path| to_relative_path(&path.display().to_string()))
-            .unwrap_or_else(|| ".".to_string());
-        let item = crate::ui::interactive::WelcomeItem {
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            model: display.model.to_string(),
-            provider: display.provider.to_string(),
-            auto_approve: display.auto_approve,
-            resumed: display.resumed,
-            location,
-            tools: display.tools.clone(),
-            skills: display.skills.clone(),
-            plugins: display.plugins.clone(),
-        };
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(item));
-        } else {
-            let text = crate::ui::interactive::format_welcome_content(&item, &self.theme);
-            self.write_output(&text);
-        }
-    }
-
-    pub fn print_session_status(&self, display: &SessionStatus) {
-        let dim = self.theme.dimmed;
-        let status = format_session_status(display);
-        let text = format!("{dim}{status}{dim:#}\n");
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text));
-        } else {
-            self.write_output(&text);
-        }
-    }
-
     pub fn set_extra_status(&self, status: Option<String>) {
         if let Some(ui) = &self.ui {
             let _ = ui.set_extra_status(status);
         }
-    }
-
-    pub fn print_block(&self, display: &rho_harness_core::presentation::BlockDisplay) {
-        let bg = match display.style.as_str() {
-            "error" => self.theme.tool_error_bg,
-            "warning" => anstyle::Style::new()
-                .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
-                .fg_color(Some(anstyle::AnsiColor::Black.into())),
-            "success" => self.theme.tool_success_bg,
-            _ => self.theme.user_message_bg,
-        };
-        let formatted_title = if display.title.is_empty() {
-            String::new()
-        } else {
-            let bold = anstyle::Style::new().bold();
-            format!("{bold}{}{bold:#}\n\n", display.title)
-        };
-        let full_text = format!("{formatted_title}{}", display.content);
-        let rendered = crate::ui::block::BlockFormat::new(bg, terminal_width())
-            .with_vertical_padding()
-            .render_styled(&full_text);
-        let block_output = format!("\n{rendered}\n");
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(block_output));
-        } else {
-            self.write_output(&block_output);
-        }
-    }
-
-    pub fn print_notice(&self, text: &str) {
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text.to_string()));
-        } else {
-            self.write_output(text);
-        }
-    }
-
-    pub fn print_status(&self, message: &str) {
-        let dim = self.theme.dimmed;
-        let text = format!("{dim}{message}{dim:#}\n");
-        self.print_notice(&text);
-    }
-
-    pub fn print_compaction_cost_notice(&self, tokens: u64, cost: Option<f64>) {
-        let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-        let cost_str = cost
-            .filter(|c| *c >= 0.01)
-            .map(|c| format!(" (~${c:.2})"))
-            .unwrap_or_default();
-        let tokens_str = crate::ui::interactive::footer::format_tokens(tokens);
-        let text = format!("{warning}Compaction: {tokens_str} tokens billed{cost_str}{warning:#}\n");
-        self.print_notice(&text);
-    }
-
-    pub fn print_cache_miss_notice(&self, notice: CacheMissNotice) {
-        let warning = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-        let cost_str = notice
-            .cost
-            .filter(|c| *c >= 0.01)
-            .map(|c| format!(" (~${c:.2})"))
-            .unwrap_or_default();
-        let tokens_str = crate::ui::interactive::footer::format_tokens(notice.missed_tokens);
-        let reason = if let Some(mins) = notice.idle_minutes {
-            format!("after {mins}m idle")
-        } else {
-            "after model switch".to_string()
-        };
-        let text = format!("{warning}Cache miss {reason}: {tokens_str} tokens re-billed{cost_str}{warning:#}\n");
-        self.print_notice(&text);
     }
 
     pub fn start_spinner(&self, message: &str) -> RenderActivity {
@@ -255,114 +142,22 @@ impl TerminalRenderer {
         self.start_spinner(&msg)
     }
 
-    pub fn print_user_block(&self, input: &str) {
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::UserMessage(input.to_string()));
-        } else {
-            let user = self.theme.prompt;
-            self.write_output(&format!("{user}>{user:#} {input}\n\n"));
-        }
-    }
-
     pub fn finish_tool_line(&self, line: ToolLine) {
         if let Some(ui) = &self.ui {
-            // Single event, no tool_end: push_transcript_item clears the running widget in the
-            // same frame it prints the block; a separate tool_end would collapse the region first.
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(
                 crate::ui::interactive::ToolItem {
-                    name: line.name.clone(),
-                    arguments: line.arguments.clone(),
+                    name: line.name,
+                    arguments: line.arguments,
                     is_error: line.is_error,
-                    output: line.output.clone(),
-                    output_summary: line.output_summary.clone(),
+                    output: line.output,
+                    output_summary: line.output_summary,
                     duration_ms: line.duration_ms,
                 },
             ));
             return;
         }
-        let background = if line.is_error {
-            self.theme.tool_error_bg
-        } else {
-            self.theme.tool_success_bg
-        };
-        let title = tool_title_style(line.is_error);
-        let accent = self.theme.highlight;
-        let summary = format_tool_args_summary(&line.name, &line.arguments);
-        let display_name = match line.name.as_str() {
-            "search" | "websearch" => "web_search",
-            "fetch" | "webfetch" => "web_fetch",
-            other => other,
-        };
-        let mut content = if line.name == "read" && !line.is_error {
-            let (path, range) = read_summary_parts(&line.arguments);
-            let range_suffix = range.map_or_else(String::new, |range| {
-                let range_style = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-                format!("{range_style}{range}{range_style:#}")
-            });
-            match rho_harness_core::presentation::summary::classify_read_path(&line.arguments) {
-                Some(rho_harness_core::presentation::summary::ReadClassification::Skill { name }) => {
-                    let skill_tag = anstyle::Style::new()
-                        .fg_color(Some(anstyle::AnsiColor::Magenta.into()))
-                        .effects(anstyle::Effects::BOLD);
-                    format!("{skill_tag}[skill]{skill_tag:#} {name}{range_suffix}")
-                }
-                Some(rho_harness_core::presentation::summary::ReadClassification::Resource { path }) => {
-                    format!("{title}read resource{title:#} {accent}{path}{accent:#}{range_suffix}")
-                }
-                Some(rho_harness_core::presentation::summary::ReadClassification::Docs { path }) => {
-                    format!("{title}read docs{title:#} {accent}{path}{accent:#}{range_suffix}")
-                }
-                None => {
-                    format!("{title}read{title:#} {accent}{path}{accent:#}{range_suffix}")
-                }
-            }
-        } else if display_name == "web_fetch" && !line.is_error {
-            let url = line
-                .arguments
-                .get("url")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("");
-            let status = anstyle::Style::new().fg_color(Some(anstyle::AnsiColor::Yellow.into()));
-            let kind = fetch_content_kind(&line.arguments);
-            format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}")
-        } else {
-            format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
-        };
-        if !line.is_error && line.name == "edit" {
-            if let Some(diff) = format_edit_diff(&line.arguments, &self.theme) {
-                content.push('\n');
-                content.push_str(&diff);
-            }
-        } else if !line.is_error && line.name == "write" {
-            if let Some(preview) = format_write_preview(&line.arguments, &self.theme, true) {
-                content.push('\n');
-                content.push_str(&preview);
-            }
-        } else if line.name == "bash" || line.is_error {
-            let raw_output = if !line.output.is_empty() {
-                line.output.as_str()
-            } else {
-                line.output_summary.as_str()
-            };
-            let clean = raw_output.trim_end();
-            if !clean.is_empty() {
-                content.push_str("\n\n");
-                content.push_str(clean);
-            }
-        }
-
-        if line.name == "bash"
-            && let Some(duration) = line.duration_ms
-        {
-            let dim = self.theme.dimmed;
-            content.push_str("\n\n");
-            content.push_str(&format!("{dim}Took {}{dim:#}", super::format_duration_ms(duration)));
-        }
-
-        let block = BlockFormat::new(background, terminal_width())
-            .with_vertical_padding()
-            .render_styled(&content);
-        self.write_output(&format!("\n{block}"));
+        let card = render_headless_tool_card(&line, &self.theme);
+        self.write_output(&card);
     }
 
     pub fn print_token(&self, token: &str) {
@@ -432,10 +227,5 @@ impl TerminalRenderer {
             let ok = self.theme.tool_ok;
             self.write_output(&format!("{ok}{}{ok:#}\n", outcome.name));
         }
-    }
-
-    pub fn print_bash_approval_request(&self, request: &rho_harness_core::presentation::BashApproval) {
-        let card = format_bash_approval_card(request, &self.theme, terminal_width());
-        self.write_output(&format!("\n{card}\n"));
     }
 }

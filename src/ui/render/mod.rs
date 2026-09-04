@@ -8,8 +8,10 @@
 //! presentation module and are re-exported here so external callers continue
 //! to use `crate::ui::render::{TerminalRenderer, ApprovalResult, BashApproval, ToolLine}` etc.
 
+pub(crate) mod card;
 pub(crate) mod diff;
 pub(crate) mod formatters;
+pub(crate) mod notices;
 pub(crate) mod presenter;
 pub(crate) mod preview;
 pub(crate) mod renderer;
@@ -20,7 +22,7 @@ mod tests;
 
 pub(crate) use formatters::{format_edit_diff, format_thinking_block, format_write_preview};
 pub(crate) use preview::{fetch_content_kind, tool_title_style};
-pub use renderer::{RenderActivity, TerminalRenderer};
+pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
 pub use rho_harness_core::presentation::{

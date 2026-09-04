@@ -65,8 +65,10 @@ order once the active turn settles.
 - `write`: Create or overwrite files (automatically creates parent directories).
 - `edit`: Make precise file edits with exact text replacement.
 - `bash`: Execute shell commands in the current working directory.
-- `fd`: Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.
-- `rg`: Search file contents by pattern with line-oriented results; gitignore-aware, skips binary and oversized files, and bounds output.
+- `fd`: Find files and directories by workspace-relative path with a smart-case
+  regex; gitignore-aware and bounded.
+- `rg`: Search file contents by pattern with line-oriented results;
+  gitignore-aware, skips binary and oversized files, and bounds output.
 - `web_search`: Search the web and return structured summaries and URLs.
 - `web_fetch`: Fetch and extract clean readable text or markdown from URLs.
 
@@ -127,22 +129,25 @@ Global settings, credentials, state cache, skills, and instructions live under
 └── skills/                # Global skills directory (SKILL.md files)
 ```
 
-- **Instructions**: Discovers instructions hierarchically from global to project:
-  1. Global user `~/.agents/AGENTS.md`, `~/.config/agents/AGENTS.md`, or `~/.config/rho/AGENTS.md`
+- **Instructions**: Discovers instructions hierarchically from global to
+  project:
+  1. Global user `~/.agents/AGENTS.md`, `~/.config/agents/AGENTS.md`, or
+     `~/.config/rho/AGENTS.md`
   2. Project base `.agents/AGENTS.md`
   3. Workspace `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
 - **Skills**: Declarative `SKILL.md` workflows resolved with precedence:
-  1. Project `.agents/skills/`, `.rho/skills/`, or `./skills/` (highest precedence, overrides user &
-     built-in)
-  2. User `~/.agents/skills/`, `~/.config/agents/skills/`, `~/.config/rho/skills/`, or `~/.skills/`
+  1. Project `.agents/skills/`, `.rho/skills/`, or `./skills/` (highest
+     precedence, overrides user & built-in)
+  2. User `~/.agents/skills/`, `~/.config/agents/skills/`,
+     `~/.config/rho/skills/`, or `~/.skills/`
   3. Embedded built-in skills (`create-plugin`, `lean`, `plan`,
      `repo-agents-builder`, `simplify`, `spec`)
 
   Skills can be written as single flat markdown files (`skills/my-skill.md`) or
   structured directories (`skills/my-skill/SKILL.md` with optional supporting
   scripts/examples). Metadata (name, description, argument hints) is declared in
-  YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>`
-  (e.g. `/skill:simplify src/api`); completion offers skill names after typing
+  YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>` (e.g.
+  `/skill:simplify src/api`); completion offers skill names after typing
   `/skill `.
 
   Set `disable_built_in_skills = true` in `config.toml` to hide the embedded
@@ -211,9 +216,21 @@ The workspace is structured into four clean, focused crates:
 - **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `web_search`, `web_fetch`), and standard MCP
-  client.
+  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `web_search`,
+  `web_fetch`), and standard MCP client.
 - **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
   lifecycle hooks.
 - **`rho`**: Binary CLI entrypoint, interactive TUI editor, slash commands, and
   terminal rendering engine.
+
+---
+
+## Development
+
+Run tests, formatting, and lint checks across the workspace:
+
+```sh
+cargo test --workspace
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+```

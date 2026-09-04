@@ -38,17 +38,17 @@ clippy-fix: ## Automatically fix Clippy suggestions where possible
 	$(CARGO) clippy --all-targets --fix --allow-dirty --allow-staged
 
 .PHONY: test
-test: ## Run tests with nextest
-	$(CARGO) nextest run
+test: ## Run tests across the workspace
+	$(CARGO) test --workspace
 
 .PHONY: test-cargo
 test-cargo: ## Run standard cargo tests across all targets
-	$(CARGO) test --all-targets
+	$(CARGO) test --workspace --all-targets
 
 .PHONY: test-all
 test-all: ## Run all tests including unit, integration, and doc tests
-	$(CARGO) test --all-targets
-	$(CARGO) test --doc
+	$(CARGO) test --workspace --all-targets
+	$(CARGO) test --workspace --doc
 
 .PHONY: run
 run: ## Run the rho CLI

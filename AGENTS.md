@@ -19,8 +19,8 @@
 
 ## Testing and performance
 
-- Use `cargo nextest run --workspace` for fast parallel test feedback during development
-  (a bare `cargo nextest run` only covers the root `rho` package, not the other crates).
+- Use `cargo test --workspace` for test feedback during development (a bare
+  `cargo test` only covers the root `rho` package, not the other crates).
 - Place unit tests in a dedicated `tests.rs` or `tests/` file
   (`#[cfg(test)] mod tests;`) to keep production implementation files concise
   and cleanly separated from test harnesses.
@@ -38,4 +38,4 @@
 ## Completion
 
 - Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
-  `cargo nextest run --workspace` before finishing.
+  `cargo test --workspace` before finishing.
