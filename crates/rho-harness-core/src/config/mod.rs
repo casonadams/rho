@@ -2,7 +2,9 @@ pub mod cli;
 mod merge;
 mod types;
 
-pub use types::{Config, McpConfig, McpServerConfig, PluginConfig, ProviderConfig, default_config_dir};
+pub use types::{
+    Config, DEFAULT_MAX_TURNS, McpConfig, McpServerConfig, PluginConfig, ProviderConfig, default_config_dir,
+};
 
 use crate::error::{AppError, Result};
 

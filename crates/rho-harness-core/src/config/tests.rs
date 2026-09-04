@@ -217,7 +217,7 @@ fn test_default_config() {
     assert_eq!(cfg.search_min_interval_ms, 2000);
     assert_eq!(cfg.output_max_bytes, 50_000);
     assert_eq!(cfg.max_output_tokens, None);
-    assert_eq!(cfg.max_turns, 100);
+    assert_eq!(cfg.max_turns, 250);
     assert_eq!(cfg.context_window_messages, 24);
     assert_eq!(cfg.compaction_max_bytes, 8192);
     assert!(!cfg.allow_private_network);

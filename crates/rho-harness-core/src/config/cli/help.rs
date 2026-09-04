@@ -15,7 +15,7 @@ Environment Variables:
   AI_PROVIDER                      - Default provider
   AI_THINKING_LEVEL                - Default thinking level (off, minimal, low, medium, high, xhigh, max)
   AI_MAX_OUTPUT_TOKENS             - Maximum output tokens per turn
-  AI_MAX_TURNS                     - Maximum model turns per run (default: 100)
+  AI_MAX_TURNS                     - Maximum model turns per run (default: 250)
   AI_CONTEXT_WINDOW_MESSAGES       - Context window messages before compaction (default: 24)
   AI_COMPACTION_MAX_BYTES          - Maximum bytes per compaction summary (default: 8192)
   RHO_HOME                         - Custom configuration directory (default: ~/.config/rho)

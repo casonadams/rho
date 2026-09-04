@@ -198,6 +198,8 @@ pub struct Config {
     pub auth_file: PathBuf,
 }
 
+pub const DEFAULT_MAX_TURNS: usize = 250;
+
 impl Default for Config {
     fn default() -> Self {
         let base_dir = default_config_dir();
@@ -206,7 +208,7 @@ impl Default for Config {
             provider: "anthropic".to_string(),
             auto_approve: false,
             max_output_tokens: None,
-            max_turns: 100,
+            max_turns: DEFAULT_MAX_TURNS,
             context_limit: None,
             context_window_messages: crate::session::context::DEFAULT_CONTEXT_WINDOW_MESSAGES,
             compaction_max_bytes: crate::session::context::DEFAULT_COMPACTION_MAX_BYTES,
