@@ -1,12 +1,42 @@
 use std::sync::LazyLock;
 
+use crate::tools::web::http::{HttpRequest, LYNX_UA};
+use crate::tools::web::search::engine::EngineRequest;
+use crate::tools::web::search::query::urlencoding_encode;
 use crate::tools::web::search::result::SearchResult;
+use rho_harness_core::args::WebSearchRecency;
+use rho_harness_core::error::AppError;
 use scraper::{Html, Selector};
 use url::Url;
 
 static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.result-link").expect("valid selector"));
 static SNIPPET_SEL: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("td.result-snippet").expect("valid selector"));
+
+pub async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+    let df_param = match req.recency {
+        Some(WebSearchRecency::Day) => "&df=d",
+        Some(WebSearchRecency::Week) => "&df=w",
+        Some(WebSearchRecency::Month) => "&df=m",
+        Some(WebSearchRecency::Year) => "&df=y",
+        None => "",
+    };
+    let url = format!(
+        "https://lite.duckduckgo.com/lite/?q={}&kl={}{df_param}",
+        urlencoding_encode(req.query),
+        urlencoding_encode(req.region)
+    );
+    let (html, _) = req
+        .http
+        .get_text(HttpRequest {
+            url: &url,
+            user_agent: Some(LYNX_UA),
+            timeout_sec: req.timeout_sec,
+            max_bytes: 2_000_000,
+        })
+        .await?;
+    Ok(parse_ddg_lite_html(&html))
+}
 
 pub fn decode_ddg_url(raw: &str) -> String {
     let Ok(u) = Url::parse(raw) else {

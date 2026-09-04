@@ -1,6 +1,8 @@
 pub mod brave;
 pub mod ddg_lite;
+pub mod engine;
 pub mod firecrawl;
+pub mod query;
 pub mod result;
 pub mod yahoo;
 
@@ -8,36 +10,23 @@ pub mod yahoo;
 mod tests;
 
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
-use crate::tools::web::http::{BRAVE_CHROME_UA, HttpClient, HttpRequest, LYNX_UA};
+use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
-use rand::seq::SliceRandom;
-use result::SearchResult;
+pub use engine::{EngineKind, EngineRequest, MultiEngineParams, search_multi_engine, search_single_engine};
+pub use query::{
+    build_search_query_with_filters, matches_domain_filters, matches_site, normalize_domain, normalize_domain_filters,
+    relax_query,
+};
+pub use result::{FormatResultsParams, SearchResult, deduplicate_results, format_search_results};
 pub use rho_harness_core::args::{WebSearchArgs, WebSearchRecency};
 use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
-use std::collections::HashSet;
-use url::Url;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum EngineKind {
-    Brave,
-    DuckDuckGoLite,
-    Yahoo,
-    Firecrawl,
-}
 
 pub struct SearchQueryParams<'a> {
     pub query: &'a str,
     pub limit: usize,
     pub recency: Option<WebSearchRecency>,
     pub domains: Option<&'a [String]>,
-}
-
-pub struct FormatResultsParams<'a> {
-    pub query: &'a str,
-    pub results: &'a [SearchResult],
-    pub limit: usize,
-    pub today: &'a str,
 }
 
 pub struct WebSearchConfig {
@@ -75,10 +64,8 @@ impl WebSearchTool {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let effective_query = build_search_query_with_filters(query, domains);
-
-        // Perform rate-limited multi-engine search
         let results = self
-            .search_multi_engine(SearchQueryParams {
+            .search(SearchQueryParams {
                 query: &effective_query,
                 limit,
                 recency,
@@ -91,7 +78,7 @@ impl WebSearchTool {
                 let relaxed = relax_query(query);
                 if relaxed != query {
                     let relaxed_results = self
-                        .search_multi_engine(SearchQueryParams {
+                        .search(SearchQueryParams {
                             query: &relaxed,
                             limit,
                             recency: None,
@@ -121,317 +108,19 @@ impl WebSearchTool {
         })))
     }
 
-    async fn search_multi_engine(&self, params: SearchQueryParams<'_>) -> Vec<SearchResult> {
-        let engines = {
-            let mut list = vec![
-                EngineKind::Brave,
-                EngineKind::DuckDuckGoLite,
-                EngineKind::Yahoo,
-                EngineKind::Firecrawl,
-            ];
-            let mut rng = rand::thread_rng();
-            list.shuffle(&mut rng);
-            list
-        };
-
-        let (allowed, blocked) = normalize_domain_filters(params.domains);
-
-        for engine in engines {
-            self.rate_limiter.acquire().await;
-            let res = match engine {
-                EngineKind::Brave => self.search_brave(params.query, params.recency).await,
-                EngineKind::DuckDuckGoLite => self.search_ddg_lite(params.query, params.recency).await,
-                EngineKind::Yahoo => self.search_yahoo(params.query, params.recency).await,
-                EngineKind::Firecrawl => self.search_firecrawl(params.query).await,
-            };
-
-            if let Ok(results) = res {
-                let filtered: Vec<SearchResult> = results
-                    .into_iter()
-                    .filter(|r| match Url::parse(&r.url) {
-                        Ok(u) => {
-                            if let Some(host) = u.host_str() {
-                                matches_domain_filters(host, &allowed, &blocked)
-                            } else {
-                                false
-                            }
-                        }
-                        Err(_) => false,
-                    })
-                    .collect();
-
-                let deduplicated = deduplicate_results(filtered);
-                if !deduplicated.is_empty() {
-                    return deduplicated.into_iter().take(params.limit).collect();
-                }
-            }
-        }
-
-        Vec::new()
+    async fn search(&self, params: SearchQueryParams<'_>) -> Vec<SearchResult> {
+        search_multi_engine(MultiEngineParams {
+            http: &self.http,
+            rate_limiter: &self.rate_limiter,
+            region: &self.region,
+            timeout_sec: self.timeout_sec,
+            query: params.query,
+            limit: params.limit,
+            recency: params.recency,
+            domains: params.domains,
+        })
+        .await
     }
-
-    async fn search_brave(
-        &self,
-        query: &str,
-        recency: Option<WebSearchRecency>,
-    ) -> Result<Vec<SearchResult>, AppError> {
-        let tf_param = match recency {
-            Some(WebSearchRecency::Day) => "&tf=pd",
-            Some(WebSearchRecency::Week) => "&tf=pw",
-            Some(WebSearchRecency::Month) => "&tf=pm",
-            Some(WebSearchRecency::Year) => "&tf=py",
-            None => "",
-        };
-        let url = format!(
-            "https://search.brave.com/search?q={}&source=web{tf_param}",
-            urlencoding_encode(query)
-        );
-        let (html, _) = self
-            .http
-            .get_text(HttpRequest {
-                url: &url,
-                user_agent: Some(BRAVE_CHROME_UA),
-                timeout_sec: self.timeout_sec,
-                max_bytes: 2_000_000,
-            })
-            .await?;
-        Ok(brave::parse_brave_html(&html))
-    }
-
-    async fn search_ddg_lite(
-        &self,
-        query: &str,
-        recency: Option<WebSearchRecency>,
-    ) -> Result<Vec<SearchResult>, AppError> {
-        let df_param = match recency {
-            Some(WebSearchRecency::Day) => "&df=d",
-            Some(WebSearchRecency::Week) => "&df=w",
-            Some(WebSearchRecency::Month) => "&df=m",
-            Some(WebSearchRecency::Year) => "&df=y",
-            None => "",
-        };
-        let url = format!(
-            "https://lite.duckduckgo.com/lite/?q={}&kl={}{df_param}",
-            urlencoding_encode(query),
-            urlencoding_encode(&self.region)
-        );
-        let (html, _) = self
-            .http
-            .get_text(HttpRequest {
-                url: &url,
-                user_agent: Some(LYNX_UA),
-                timeout_sec: self.timeout_sec,
-                max_bytes: 2_000_000,
-            })
-            .await?;
-        Ok(ddg_lite::parse_ddg_lite_html(&html))
-    }
-
-    async fn search_yahoo(
-        &self,
-        query: &str,
-        recency: Option<WebSearchRecency>,
-    ) -> Result<Vec<SearchResult>, AppError> {
-        let age_param = match recency {
-            Some(WebSearchRecency::Day) => "&age=1d",
-            Some(WebSearchRecency::Week) => "&age=1w",
-            Some(WebSearchRecency::Month) => "&age=1m",
-            Some(WebSearchRecency::Year) => "&age=1y",
-            None => "",
-        };
-        let url = format!(
-            "https://search.yahoo.com/search?p={}{age_param}",
-            urlencoding_encode(query)
-        );
-        let (html, _) = self
-            .http
-            .get_text(HttpRequest {
-                url: &url,
-                user_agent: Some(LYNX_UA),
-                timeout_sec: self.timeout_sec,
-                max_bytes: 2_000_000,
-            })
-            .await?;
-        Ok(yahoo::parse_yahoo_html(&html))
-    }
-
-    async fn search_firecrawl(&self, query: &str) -> Result<Vec<SearchResult>, AppError> {
-        let payload = serde_json::json!({
-            "query": query,
-            "limit": 10,
-            "sources": ["web"]
-        });
-
-        let resp = self
-            .http
-            .client
-            .post("https://api.firecrawl.dev/v2/search")
-            .json(&payload)
-            .timeout(std::time::Duration::from_secs(self.timeout_sec))
-            .send()
-            .await
-            .map_err(|e| AppError::Tool(format!("Firecrawl request failed: {e}")))?;
-
-        if resp.status().is_success() {
-            let body = resp.text().await.unwrap_or_default();
-            Ok(firecrawl::parse_firecrawl_json(&body))
-        } else {
-            Err(AppError::Tool("Firecrawl search error".to_string()))
-        }
-    }
-}
-
-pub fn normalize_domain(raw: &str) -> Option<String> {
-    let mut input = raw.trim().to_lowercase();
-    if input.is_empty() {
-        return None;
-    }
-    if let Some(stripped) = input.strip_prefix('-') {
-        input = stripped.trim().to_string();
-    }
-    if input.is_empty() {
-        return None;
-    }
-    if let Ok(parsed) = Url::parse(&input) {
-        if let Some(host) = parsed.host_str() {
-            input = host.to_string();
-        }
-    } else if let Ok(parsed) = Url::parse(&format!("https://{input}")) {
-        if let Some(host) = parsed.host_str() {
-            input = host.to_string();
-        }
-    } else {
-        input = input.split('/').next()?.split(':').next()?.to_string();
-    }
-    let trimmed = input.trim_start_matches("www.").trim_matches('.').to_string();
-    if trimmed.contains('.') && !trimmed.contains(' ') {
-        Some(trimmed)
-    } else {
-        None
-    }
-}
-
-pub fn normalize_domain_filters(domains: Option<&[String]>) -> (Vec<String>, Vec<String>) {
-    let mut allowed = Vec::new();
-    let mut blocked = Vec::new();
-    let Some(domains) = domains else {
-        return (allowed, blocked);
-    };
-
-    for raw in domains {
-        let is_blocked = raw.trim().starts_with('-');
-        if let Some(domain) = normalize_domain(raw) {
-            if is_blocked {
-                if !blocked.contains(&domain) {
-                    blocked.push(domain);
-                }
-            } else if !allowed.contains(&domain) {
-                allowed.push(domain);
-            }
-        }
-    }
-    (allowed, blocked)
-}
-
-fn matches_site(host: &str, target_domain: &str) -> bool {
-    let normalized_host = host.strip_prefix("www.").unwrap_or(host).to_lowercase();
-    let normalized_target = target_domain
-        .strip_prefix("www.")
-        .unwrap_or(target_domain)
-        .to_lowercase();
-    normalized_host == normalized_target || normalized_host.ends_with(&format!(".{normalized_target}"))
-}
-
-pub fn matches_domain_filters(host: &str, allowed: &[String], blocked: &[String]) -> bool {
-    if allowed.is_empty() && blocked.is_empty() {
-        return true;
-    }
-    if !allowed.is_empty() && !allowed.iter().any(|domain| matches_site(host, domain)) {
-        return false;
-    }
-    !blocked.iter().any(|domain| matches_site(host, domain))
-}
-
-pub fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) -> String {
-    let cleaned = query.split_whitespace().collect::<Vec<_>>().join(" ");
-    let (allowed, blocked) = normalize_domain_filters(domains);
-    if allowed.is_empty() && blocked.is_empty() {
-        return cleaned;
-    }
-
-    let mut parts = vec![cleaned];
-    if allowed.len() == 1 && !parts[0].to_lowercase().contains("site:") {
-        parts.push(format!("site:{}", allowed[0]));
-    } else if allowed.len() > 1 && !parts[0].to_lowercase().contains("site:") {
-        let sites = allowed
-            .iter()
-            .map(|d| format!("site:{d}"))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        parts.push(sites);
-    }
-
-    for b in blocked {
-        let neg = format!("-site:{b}");
-        if !parts[0].contains(&neg) {
-            parts.push(neg);
-        }
-    }
-
-    parts.join(" ").trim().to_string()
-}
-
-fn urlencoding_encode(s: &str) -> String {
-    percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
-}
-
-fn relax_query(query: &str) -> String {
-    query
-        .replace(['"', '\'', '(', ')', '[', ']', '+'], " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn deduplicate_results(results: Vec<SearchResult>) -> Vec<SearchResult> {
-    let mut seen_domains = HashSet::new();
-    let mut seen_urls = HashSet::new();
-    let mut deduped = Vec::new();
-
-    for r in results {
-        if seen_urls.contains(&r.url) {
-            continue;
-        }
-        seen_urls.insert(r.url.clone());
-
-        if let Ok(u) = Url::parse(&r.url)
-            && let Some(domain) = u.host_str()
-        {
-            if seen_domains.contains(domain) {
-                continue;
-            }
-            seen_domains.insert(domain.to_string());
-        }
-
-        deduped.push(r);
-    }
-    deduped
-}
-
-fn format_search_results(params: FormatResultsParams<'_>) -> String {
-    let mut out = format!(
-        "**Search results for:** {} (searched on {})\n\n",
-        params.query, params.today
-    );
-    for (i, r) in params.results.iter().take(params.limit).enumerate() {
-        let idx = i + 1;
-        out.push_str(&format!("{idx}. {}\n   URL: {}\n", r.title, r.url));
-        if !r.abstract_text.is_empty() {
-            out.push_str(&format!("   Summary: {}\n", r.abstract_text));
-        }
-        out.push('\n');
-    }
-    out.trim_end().to_string()
 }
 
 impl Tool for WebSearchTool {

@@ -51,3 +51,44 @@ fn test_build_search_query_with_filters() {
         "multi site:a.com OR site:b.com"
     );
 }
+
+#[test]
+fn test_relax_query() {
+    assert_eq!(
+        relax_query("\"exact match\" +term (group) [tag]"),
+        "exact match term group tag"
+    );
+}
+
+#[test]
+fn test_deduplicate_results() {
+    let results = vec![
+        SearchResult::new("Doc 1", "first", "https://docs.rs/crate/a"),
+        SearchResult::new("Doc 2", "duplicate domain", "https://docs.rs/crate/b"),
+        SearchResult::new("Exact URL Dup", "dup", "https://docs.rs/crate/a"),
+        SearchResult::new("Repo", "rust repo", "https://github.com/rust-lang/rust"),
+    ];
+    let deduped = deduplicate_results(results);
+    assert_eq!(deduped.len(), 2);
+    assert_eq!(deduped[0].url, "https://docs.rs/crate/a");
+    assert_eq!(deduped[1].url, "https://github.com/rust-lang/rust");
+}
+
+#[test]
+fn test_format_search_results() {
+    let results = vec![
+        SearchResult::new("Rust", "A systems programming language", "https://www.rust-lang.org/"),
+        SearchResult::new("Crates.io", "Registry", "https://crates.io/"),
+    ];
+    let formatted = format_search_results(FormatResultsParams {
+        query: "rust lang",
+        results: &results,
+        limit: 1,
+        today: "2026-09-03",
+    });
+    assert!(formatted.starts_with("**Search results for:** rust lang (searched on 2026-09-03)"));
+    assert!(formatted.contains("1. Rust"));
+    assert!(formatted.contains("URL: https://www.rust-lang.org/"));
+    assert!(formatted.contains("Summary: A systems programming language"));
+    assert!(!formatted.contains("Crates.io"));
+}
