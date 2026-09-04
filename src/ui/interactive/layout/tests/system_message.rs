@@ -16,6 +16,7 @@ fn system_message_renders_in_dedicated_area_above_editor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.system_lines.len(), 1);
@@ -47,6 +48,7 @@ fn system_message_collapses_when_empty_or_none() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
     assert!(layout_none.system_lines.is_empty());
     assert_eq!(layout_none.height(), 6);
@@ -62,6 +64,7 @@ fn system_message_collapses_when_empty_or_none() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
     assert!(layout_empty.system_lines.is_empty());
     assert_eq!(layout_empty.height(), 6);
@@ -85,6 +88,7 @@ fn system_message_and_spinner_render_together_in_dedicated_area() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.system_lines.len(), 1);

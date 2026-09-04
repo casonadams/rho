@@ -36,6 +36,11 @@ pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Res
     session.config = engine.config.clone();
     engine.refresh_quota().await;
 
+    let registry = crate::ui::theme::ThemeRegistry::new(Some(&session.config.config_dir));
+    if let Some(initial_theme) = registry.get(&session.config.theme).cloned() {
+        session.renderer.theme = initial_theme;
+    }
+
     print_line_mode_welcome(session, &engine).await;
 
     let mut line_editor = build_line_editor(&session.config, &session.auth_store)?;

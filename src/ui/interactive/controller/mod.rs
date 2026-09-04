@@ -145,6 +145,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             terminal_width: self.width,
             terminal_height: self.height,
             spinner_frame: self.spinner_frame,
+            theme: Some(&self.theme),
         })
     }
 }

@@ -10,6 +10,8 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
         Some(complete_skills(&set.skills, argument, cursor))
     } else if let Some(argument) = prefix.strip_prefix("/model ") {
         Some(complete_models(&set.models, argument, cursor))
+    } else if let Some(argument) = prefix.strip_prefix("/theme ") {
+        Some(complete_theme(argument, cursor))
     } else if let Some(argument) = prefix.strip_prefix("/thinking ") {
         Some(complete_thinking(argument, cursor))
     } else if let Some(argument) = prefix.strip_prefix("/login ") {
@@ -102,6 +104,31 @@ fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
         .map(|(_, lvl)| Completion {
             value: format!("/thinking {}", lvl.0),
             description: Some(lvl.1.to_string()),
+            replacement: 0..cursor,
+        })
+        .collect()
+}
+
+fn complete_theme(argument: &str, cursor: usize) -> Vec<Completion> {
+    let registry = crate::ui::theme::ThemeRegistry::default();
+    let themes = registry.list();
+    let mut scored: Vec<(i32, &crate::ui::theme::ThemeMetadata)> = themes
+        .into_iter()
+        .filter_map(|t| {
+            if argument.is_empty() {
+                Some((0, t))
+            } else {
+                fuzzy_match(argument, &t.name).map(|score| (score, t))
+            }
+        })
+        .collect();
+    scored.sort_by_key(|(score, t)| (*score, t.name.clone()));
+
+    scored
+        .into_iter()
+        .map(|(_, t)| Completion {
+            value: format!("/theme {}", t.name),
+            description: Some(t.description.clone()),
             replacement: 0..cursor,
         })
         .collect()

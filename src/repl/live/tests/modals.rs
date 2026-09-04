@@ -79,3 +79,63 @@ fn settings_selector_modal_toggles() {
             .contains("Expanded")
     );
 }
+
+#[test]
+fn theme_selector_modal_navigation_and_selection() {
+    let config = rho_harness_core::config::Config::default();
+    let auth_store = crate::auth::AuthStore::load(&config.auth_file).unwrap_or_default();
+    let session = crate::repl::ReplSession::new(config, auth_store, None);
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    super::super::modal::open_theme_selector(&session, &mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Select Theme");
+
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.options.len(), 10);
+    assert_eq!(modal.options[0].label, "default");
+
+    let down_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Down, crossterm::event::KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, down_key, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let res = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+
+    match res {
+        super::super::modal::ModalKeyResult::ThemeSelected { theme } => {
+            assert_eq!(theme, "catppuccin");
+        }
+        _ => panic!("expected ThemeSelected result"),
+    }
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn modal_key_handler_ignores_key_release_events() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::super::modal::open_settings_selector(&mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+
+    let release_down = crossterm::event::KeyEvent {
+        code: crossterm::event::KeyCode::Down,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Release,
+        state: crossterm::event::KeyEventState::empty(),
+    };
+    let res = super::super::modal::handle_modal_key(&mut controller, release_down, &mut None).unwrap();
+    assert_eq!(res, super::super::modal::ModalKeyResult::Handled);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+
+    let release_enter = crossterm::event::KeyEvent {
+        code: crossterm::event::KeyCode::Enter,
+        modifiers: crossterm::event::KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Release,
+        state: crossterm::event::KeyEventState::empty(),
+    };
+    let res = super::super::modal::handle_modal_key(&mut controller, release_enter, &mut None).unwrap();
+    assert_eq!(res, super::super::modal::ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_some());
+    assert!(!controller.state().hide_thinking());
+}

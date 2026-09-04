@@ -93,3 +93,73 @@ fn test_autocomplete_pi_exact_contract() {
     assert_eq!(controller.state().editor().text(), "/skill spec ");
     assert!(!controller.state().autocomplete.visible);
 }
+
+#[test]
+fn test_autocomplete_ignores_key_release_events() {
+    let skill1 = ResolvedSkill {
+        metadata: SkillMetadata {
+            name: "lean".to_string(),
+            description: "Lean workflow".to_string(),
+            location: "/path".to_string(),
+        },
+        origin: SkillOrigin::User,
+    };
+    let skill2 = ResolvedSkill {
+        metadata: SkillMetadata {
+            name: "spec".to_string(),
+            description: "Specification workflow".to_string(),
+            location: "/path".to_string(),
+        },
+        origin: SkillOrigin::User,
+    };
+    let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill1, skill2]);
+    let completions = CompletionSet::from_sources(sources);
+    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+
+    controller.state_mut().editor_mut().set_text("/skill ");
+    update_autocomplete_state_generic(&mut controller, &completions);
+    assert!(controller.state().autocomplete.visible);
+    assert_eq!(controller.state().autocomplete.selected, 0);
+
+    let down_release = KeyEvent {
+        code: KeyCode::Down,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Release,
+        state: crossterm::event::KeyEventState::empty(),
+    };
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, down_release);
+    assert!(matches!(res, AutocompleteKeyResult::Handled));
+    assert_eq!(controller.state().autocomplete.selected, 0);
+}
+
+#[test]
+fn test_autocomplete_theme_command_and_arguments() {
+    let sources = crate::repl::interactive::CompletionSources::new();
+    let completions = CompletionSet::from_sources(sources);
+    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+
+    controller.state_mut().editor_mut().set_text("/them");
+    update_autocomplete_state_generic(&mut controller, &completions);
+    assert!(controller.state().autocomplete.visible);
+    assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/theme");
+
+    controller.state_mut().editor_mut().set_text("/theme ");
+    update_autocomplete_state_generic(&mut controller, &completions);
+    assert!(controller.state().autocomplete.visible);
+    assert!(
+        controller
+            .state()
+            .autocomplete
+            .items
+            .iter()
+            .any(|item| item.value == "/theme nord")
+    );
+    assert!(
+        controller
+            .state()
+            .autocomplete
+            .items
+            .iter()
+            .any(|item| item.value == "/theme catppuccin")
+    );
+}

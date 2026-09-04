@@ -1,7 +1,21 @@
+pub mod builtin;
+pub mod color;
+pub mod definition;
+pub mod registry;
+
+#[cfg(test)]
+mod tests;
+
+pub use builtin::{BuiltinTheme, builtin_themes};
+pub use color::parse_color;
+pub use definition::ThemeDef;
+pub use registry::{ThemeMetadata, ThemeRegistry};
+
 use anstyle::{AnsiColor, Color, Effects, Style};
 
 #[derive(Debug, Clone)]
 pub struct Theme {
+    pub name: String,
     pub prompt: Style,
     pub assistant: Style,
     pub thinking: Style,
@@ -26,6 +40,7 @@ fn background(color: AnsiColor) -> Style {
 impl Default for Theme {
     fn default() -> Self {
         Self {
+            name: "default".to_string(),
             prompt: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
             assistant: Style::new(),
             thinking: Style::new().effects(Effects::DIMMED),
@@ -42,18 +57,5 @@ impl Default for Theme {
             tool_success_bg: background(AnsiColor::Black),
             tool_error_bg: background(AnsiColor::Black),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn block_backgrounds_use_only_terminal_ansi_colors() {
-        let theme = Theme::default();
-        assert_eq!(theme.user_message_bg.render().to_string(), "\x1b[40m");
-        assert_eq!(theme.tool_success_bg.render().to_string(), "\x1b[40m");
-        assert_eq!(theme.tool_error_bg.render().to_string(), "\x1b[40m");
     }
 }

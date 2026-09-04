@@ -95,3 +95,26 @@ fn width_resize_invalidates_cache_while_height_resize_preserves_cache() {
     let width_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
     assert_ne!(initial_rendered, width_rendered);
 }
+
+#[test]
+fn set_theme_invalidates_cache_and_repaints_with_new_theme() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    controller
+        .push_transcript_item(TranscriptItem::UserMessage("theme test message".into()))
+        .unwrap();
+
+    let registry = crate::ui::theme::ThemeRegistry::default();
+    let nord = registry.get("nord").unwrap().clone();
+
+    operations.borrow_mut().clear();
+    controller.set_theme(nord).unwrap();
+
+    assert_eq!(controller.theme().name, "nord");
+    let ops = operations.borrow();
+    assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[3J".into())));
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("theme test message")))
+    );
+}

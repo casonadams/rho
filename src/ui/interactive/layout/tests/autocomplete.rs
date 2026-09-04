@@ -112,6 +112,7 @@ fn autocomplete_layout_bounded_by_terminal_height() {
         terminal_width: 80,
         terminal_height: 8,
         spinner_frame: 0,
+        theme: None,
     });
     assert!(layout_8.height() <= 8);
     assert!(layout_8.lines.iter().any(|l| l.contains("/item")));
@@ -127,6 +128,7 @@ fn autocomplete_layout_bounded_by_terminal_height() {
         terminal_width: 80,
         terminal_height: 6,
         spinner_frame: 0,
+        theme: None,
     });
     assert!(layout_6.height() <= 6);
     assert!(!layout_6.lines.iter().any(|l| l.contains("/item")));

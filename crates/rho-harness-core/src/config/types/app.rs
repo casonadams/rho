@@ -29,6 +29,7 @@ pub struct Config {
     pub steering_mode: crate::queue::QueueMode,
     pub follow_up_mode: crate::queue::QueueMode,
     pub thinking_level: Option<String>,
+    pub theme: String,
     pub context_injection_max_tokens: usize,
     #[serde(default)]
     pub system_prompt: Option<String>,
@@ -69,6 +70,7 @@ impl Default for Config {
             steering_mode: crate::queue::QueueMode::OneAtATime,
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
             thinking_level: None,
+            theme: "default".to_string(),
             context_injection_max_tokens: 4000,
             system_prompt: None,
             append_system_prompt: None,

@@ -65,6 +65,9 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(t) = file.thinking_level {
         config.thinking_level = Some(t);
     }
+    if let Some(theme) = file.theme {
+        config.theme = theme;
+    }
     if let Some(tokens) = file.context_injection_max_tokens {
         config.context_injection_max_tokens = tokens;
     }

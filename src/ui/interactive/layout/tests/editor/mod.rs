@@ -19,6 +19,7 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
         terminal_width: 8,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.top_divider, "\u{1b}[2m────────\u{1b}[0m");
@@ -44,6 +45,7 @@ fn explicit_newlines_grow_the_editor() {
         terminal_width: 20,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.editor_lines, ["one", "two", ""]);
@@ -67,6 +69,7 @@ fn editor_layout_tracks_lines_and_dividers() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.editor_lines.len(), 1);
@@ -90,6 +93,7 @@ fn multiline_editor_height_matches_content() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.editor_lines.len(), 3);

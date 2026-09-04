@@ -6,6 +6,7 @@ mod model;
 mod plugin;
 mod session;
 mod skill;
+mod theme;
 mod thinking;
 mod types;
 
@@ -106,6 +107,7 @@ impl SlashCommandHandler {
                 }
             },
             "model" => model::handle_model(ctx, &parts),
+            "theme" => theme::handle_theme(ctx, &parts),
             "skill" | "skills" => skill::handle_skill(ctx, &parts),
             "plugin" | "plugins" => Ok(plugin::handle_plugins(ctx)),
             "login" => Ok(Some(CommandResult::Login {

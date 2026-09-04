@@ -26,6 +26,16 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.full_redraw()
     }
 
+    pub fn theme(&self) -> &crate::ui::theme::Theme {
+        &self.theme
+    }
+
+    pub fn set_theme(&mut self, theme: crate::ui::theme::Theme) -> io::Result<()> {
+        self.theme = theme;
+        self.cache.clear();
+        self.full_redraw()
+    }
+
     pub fn tools_expanded(&self) -> bool {
         self.state.tools_expanded()
     }

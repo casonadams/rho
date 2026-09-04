@@ -6,16 +6,25 @@ use options::{modal_hint, render_modal_options};
 
 pub(crate) fn render_modal_overlay(
     modal: &ModalState,
-    width: usize,
-    height: usize,
+    size: (usize, usize),
+    theme: Option<&crate::ui::theme::Theme>,
 ) -> (Vec<String>, CursorPosition, bool) {
+    let (width, height) = size;
+    let default_theme = crate::ui::theme::Theme::default();
+    let theme = theme.unwrap_or(&default_theme);
+    let highlight = theme.highlight;
+    let bold = anstyle::Style::new().bold();
+
     let width = width.max(20);
     let inner_width = width.saturating_sub(4).max(1);
     let budget = height.max(6);
 
     let mut header_lines = Vec::new();
     header_lines.push("─".repeat(width));
-    header_lines.push(format!("  \x1b[1;36m{}\x1b[0m", modal.title.trim()));
+    header_lines.push(format!(
+        "  {highlight}{bold}{}{bold:#}{highlight:#}",
+        modal.title.trim()
+    ));
 
     let mut cursor = CursorPosition { row: 0, column: 0 };
     let mut cursor_visible = false;
@@ -33,7 +42,7 @@ pub(crate) fn render_modal_overlay(
 
     let input_wrapped = match &modal.mode {
         ModalMode::Input { prompt_label } => {
-            let prefix = format!("\x1b[1;36m{prompt_label}:\x1b[0m ");
+            let prefix = format!("{highlight}{bold}{prompt_label}:{bold:#}{highlight:#} ");
             let input_text = modal.input.text();
             let prompt_line = format!("{prefix}{input_text}");
             wrap_to_width(&prompt_line, inner_width)
@@ -60,7 +69,14 @@ pub(crate) fn render_modal_overlay(
         remaining_for_content.clamp(1, modal.options.len().clamp(1, 5))
     };
 
-    let options_lines = render_modal_options(modal, inner_width, max_opts);
+    let options_lines = render_modal_options(
+        modal,
+        options::ModalOptionsLayout {
+            inner_width,
+            max_visible: max_opts,
+            theme,
+        },
+    );
     let space_after_options = remaining_for_content.saturating_sub(options_lines.len());
 
     let body_lines = render_modal_body(&modal.body, inner_width, space_after_options);

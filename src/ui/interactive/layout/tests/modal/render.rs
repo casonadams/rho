@@ -18,6 +18,7 @@ fn modal_hides_widget_lines() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.widget_lines.is_empty());
@@ -43,6 +44,7 @@ fn modal_layout_renders_input_frame_style() {
         terminal_width: 40,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.top_divider.is_empty());
@@ -78,6 +80,7 @@ fn searchable_modal_renders_with_unified_header_and_indicator() {
         terminal_width: 50,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.editor_lines.iter().any(|l| l.contains("Select Model")));

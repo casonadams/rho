@@ -17,6 +17,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
         terminal_width: 4,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.editor_lines, ["ab界", "c"]);
@@ -41,6 +42,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
         terminal_width: 3,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.editor_lines, ["abc", "def"]);
@@ -63,6 +65,7 @@ fn full_final_line_adds_a_cursor_line() {
         terminal_width: 2,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.editor_lines, ["界", ""]);

@@ -120,6 +120,19 @@ pub(super) async fn apply_modal_key_result<B: TerminalBackend>(
             ctx.controller.redraw()?;
             Ok(true)
         }
+        ModalKeyResult::ThemeSelected { theme } => {
+            let registry = crate::ui::theme::ThemeRegistry::new(Some(&ctx.session.config.config_dir));
+            if let Some(resolved) = registry.get(&theme).cloned() {
+                ctx.session.config.theme = theme.clone();
+                ctx.session.renderer.theme = resolved.clone();
+                let _ = ctx.controller.set_theme(resolved);
+                let _ =
+                    rho_harness_core::config::Config::set_file_value(&ctx.session.config.config_dir, "theme", &theme);
+                ctx.session.renderer.print_status(&format!("Theme: {theme}"));
+            }
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
         ModalKeyResult::NotHandled => Ok(false),
     }
 }

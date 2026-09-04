@@ -26,6 +26,10 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
         return AutocompleteKeyResult::NotHandled;
     }
 
+    if key.kind == crossterm::event::KeyEventKind::Release {
+        return AutocompleteKeyResult::Handled;
+    }
+
     match (key.code, key.modifiers) {
         // Navigation: Up/Down, Ctrl+P/Ctrl+N, and Shift+Tab
         (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {

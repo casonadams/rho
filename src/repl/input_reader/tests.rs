@@ -79,3 +79,34 @@ async fn drain_discards_buffered_events() {
     assert!(reader.events.try_recv().is_err());
     reader.stop_and_join().unwrap();
 }
+
+#[tokio::test]
+async fn discards_key_release_events_while_forwarding_press_and_repeat() {
+    let (mut reader, source, _) = test_reader();
+    let press = Event::Key(KeyEvent {
+        code: KeyCode::Down,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Press,
+        state: crossterm::event::KeyEventState::empty(),
+    });
+    let release = Event::Key(KeyEvent {
+        code: KeyCode::Down,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Release,
+        state: crossterm::event::KeyEventState::empty(),
+    });
+    let repeat = Event::Key(KeyEvent {
+        code: KeyCode::Down,
+        modifiers: KeyModifiers::NONE,
+        kind: crossterm::event::KeyEventKind::Repeat,
+        state: crossterm::event::KeyEventState::empty(),
+    });
+
+    source.send(SourceCommand::Event(press.clone())).unwrap();
+    source.send(SourceCommand::Event(release)).unwrap();
+    source.send(SourceCommand::Event(repeat.clone())).unwrap();
+
+    assert_eq!(reader.recv().await.unwrap().unwrap(), press);
+    assert_eq!(reader.recv().await.unwrap().unwrap(), repeat);
+    reader.stop_and_join().unwrap();
+}

@@ -60,6 +60,9 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
                     continue;
                 }
                 let Event::Key(key) = event else { continue };
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    continue;
+                }
                 let modal_res = handle_modal_key(controller, key, &mut batch.modal)?;
                 if apply_modal_key_result(
                     modal_res,

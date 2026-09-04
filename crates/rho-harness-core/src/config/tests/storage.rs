@@ -38,10 +38,12 @@ fn test_set_file_value_persists_and_validates() {
 
     Config::set_file_value(&dir, "model", "gpt-test").unwrap();
     Config::set_file_value(&dir, "max_turns", "7").unwrap();
+    Config::set_file_value(&dir, "theme", "nord").unwrap();
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
     assert_eq!(file.model.as_deref(), Some("gpt-test"));
     assert_eq!(file.max_turns, Some(7));
+    assert_eq!(file.theme.as_deref(), Some("nord"));
     assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
     assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
 

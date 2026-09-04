@@ -24,6 +24,7 @@ fn widget_lines_affect_height_and_cursor_row() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.widget_lines.len(), 3);

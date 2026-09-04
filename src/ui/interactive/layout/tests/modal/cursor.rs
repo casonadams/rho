@@ -26,6 +26,7 @@ fn modal_input_mode_cursor_with_body_truncation() {
         terminal_width: 80,
         terminal_height: 15,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.lines.len() <= 15);
@@ -56,6 +57,7 @@ fn modal_searchable_cursor_with_body_truncation() {
         terminal_width: 80,
         terminal_height: 15,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.lines.len() <= 15);

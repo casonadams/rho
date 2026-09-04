@@ -45,4 +45,5 @@ pub struct LayoutInput<'a> {
     pub terminal_width: usize,
     pub terminal_height: usize,
     pub spinner_frame: usize,
+    pub theme: Option<&'a crate::ui::theme::Theme>,
 }

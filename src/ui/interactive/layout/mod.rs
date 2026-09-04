@@ -21,19 +21,16 @@ use normal::render_normal_layout;
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     if let Some(modal) = input.modal {
-        render_modal_layout(modal, input.terminal_width, input.terminal_height)
+        render_modal_layout(modal, &input)
     } else {
         render_normal_layout(input)
     }
 }
 
-fn render_modal_layout(
-    modal: &crate::ui::interactive::ModalState,
-    width: usize,
-    terminal_height: usize,
-) -> InteractiveLayout {
-    let width = width.max(1);
-    let (modal_lines, modal_cursor, modal_cursor_visible) = render_modal_overlay(modal, width, terminal_height);
+fn render_modal_layout(modal: &crate::ui::interactive::ModalState, input: &LayoutInput<'_>) -> InteractiveLayout {
+    let width = input.terminal_width.max(1);
+    let (modal_lines, modal_cursor, modal_cursor_visible) =
+        render_modal_overlay(modal, (width, input.terminal_height), input.theme);
     let cursor_row = modal_cursor.row;
 
     InteractiveLayout {

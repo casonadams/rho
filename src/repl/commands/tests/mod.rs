@@ -42,3 +42,4 @@ mod dispatch;
 mod export;
 mod session;
 mod skills;
+mod theme;

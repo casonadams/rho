@@ -17,7 +17,7 @@ pub async fn handle_command_result(
 ) -> Result<DispatchOutcome> {
     match cmd_res {
         CommandResult::Exit => Ok(DispatchOutcome::Break),
-        CommandResult::OpenModelSelector | CommandResult::OpenSettingsSelector => {
+        CommandResult::OpenModelSelector | CommandResult::OpenSettingsSelector | CommandResult::OpenThemeSelector => {
             // In legacy reedline mode, fallback to command prompt
             Ok(DispatchOutcome::Continue)
         }
@@ -118,6 +118,16 @@ pub async fn handle_command_result(
             session.renderer.print_notice(&format!(
                 "  [Rewound context to Turn {turn} ({count} messages retained)]\n"
             ));
+            Ok(DispatchOutcome::Continue)
+        }
+        CommandResult::ThemeChanged { theme } => {
+            let registry = crate::ui::theme::ThemeRegistry::new(Some(&session.config.config_dir));
+            if let Some(resolved) = registry.get(&theme).cloned() {
+                session.config.theme = theme.clone();
+                session.renderer.theme = resolved;
+                let _ = rho_harness_core::config::Config::set_file_value(&session.config.config_dir, "theme", &theme);
+                session.renderer.print_status(&format!("Theme: {theme}"));
+            }
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Logout { provider } => {

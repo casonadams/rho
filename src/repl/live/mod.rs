@@ -38,9 +38,16 @@ impl ReplSession {
 
         let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
         self.renderer = TerminalRenderer::with_ui(ui);
+        let registry = crate::ui::theme::ThemeRegistry::new(Some(&self.config.config_dir));
+        if let Some(initial_theme) = registry.get(&self.config.theme).cloned() {
+            self.renderer.theme = initial_theme;
+        }
         let mut state = InteractiveState::default();
         update_footer(&mut state, self, &engine);
         let mut controller = TerminalController::stdout(state)?;
+        if let Some(initial_theme) = registry.get(&self.config.theme).cloned() {
+            let _ = controller.set_theme(initial_theme);
+        }
         let mut input = TerminalInputReader::spawn()?;
         let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
         let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();

@@ -28,6 +28,7 @@ pub(super) fn read_loop(
         }
 
         match read_next(CONTROL_POLL_INTERVAL) {
+            Ok(Some(crossterm::event::Event::Key(key))) if key.kind == crossterm::event::KeyEventKind::Release => {}
             Ok(Some(event)) => {
                 if event_sender.send(Ok(event)).is_err() {
                     return;

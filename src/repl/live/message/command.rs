@@ -54,6 +54,21 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             super::super::modal::open_settings_selector(io.controller);
             io.controller.redraw()?;
         }
+        CommandResult::OpenThemeSelector => {
+            super::super::modal::open_theme_selector(ctx.session, io.controller);
+            io.controller.redraw()?;
+        }
+        CommandResult::ThemeChanged { theme } => {
+            let registry = crate::ui::theme::ThemeRegistry::new(Some(&ctx.session.config.config_dir));
+            if let Some(resolved) = registry.get(&theme).cloned() {
+                ctx.session.config.theme = theme.clone();
+                ctx.session.renderer.theme = resolved.clone();
+                let _ = io.controller.set_theme(resolved);
+                let _ =
+                    rho_harness_core::config::Config::set_file_value(&ctx.session.config.config_dir, "theme", &theme);
+                ctx.session.renderer.print_status(&format!("Theme: {theme}"));
+            }
+        }
         CommandResult::ClearContext => {
             *ctx.engine =
                 crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;

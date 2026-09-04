@@ -109,7 +109,9 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     }
 
     let visible_ft_lines = ft_lines[..ft_lines.len().min(budget.footer_count)].to_vec();
-    let footer_style = crate::ui::theme::Theme::default().dimmed;
+    let default_theme = crate::ui::theme::Theme::default();
+    let active_theme = input.theme.unwrap_or(&default_theme);
+    let footer_style = active_theme.dimmed;
     for fl in &visible_ft_lines {
         lines.push(format!("{footer_style}{fl}{footer_style:#}"));
     }

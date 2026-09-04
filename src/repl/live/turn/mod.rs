@@ -86,6 +86,9 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                     continue;
                 }
                 let Event::Key(key) = event else { continue };
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    continue;
+                }
                 if !matches!(
                     handle_modal_key(controller, key, &mut batch.modal)?,
                     super::modal::ModalKeyResult::NotHandled

@@ -23,6 +23,7 @@ fn footer_contains_available_status_and_queue_count() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.footer_lines[0].ends_with("80% quota"));
@@ -60,6 +61,7 @@ fn queued_messages_render_above_the_working_line() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.queued_lines.len(), 3);
@@ -90,6 +92,7 @@ fn narrow_layout_never_exceeds_terminal_width() {
         terminal_width: 5,
         terminal_height: 24,
         spinner_frame: 1,
+        theme: None,
     });
 
     assert!(layout.footer_lines[0].width() <= 5);
@@ -127,6 +130,7 @@ fn queued_messages_render_below_widget_lines_and_above_editor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     let widget_pos = layout.lines.iter().position(|l| l.contains("bash cargo test")).unwrap();

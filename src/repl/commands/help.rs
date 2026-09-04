@@ -9,6 +9,7 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
   /help                       Show this reference\n\
   /settings                   Interactive runtime interface settings\n\
   /model [model] [provider]   Inspect or switch the model\n\
+  /theme [name]               Inspect or switch the UI color theme\n\
   /resume [id]                Resume a prior session\n\
   /thinking [level]           Configure thinking effort (off, minimal, low, medium, high, max)\n\
   /skill [name]               List or inspect skills\n\

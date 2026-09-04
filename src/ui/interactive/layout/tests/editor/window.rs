@@ -52,6 +52,7 @@ fn multiline_editor_windowed_to_terminal_height_when_oversized() {
         terminal_width: 80,
         terminal_height: 12,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.height() <= 12, "layout height {} must be <= 12", layout.height());
@@ -85,6 +86,7 @@ fn multiline_editor_cursor_tracking_within_window() {
         terminal_width: 80,
         terminal_height: 15,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.height() <= 15);
@@ -114,6 +116,7 @@ fn minimal_terminal_height_graceful_degradation() {
             terminal_width: 40,
             terminal_height: h,
             spinner_frame: 0,
+            theme: None,
         });
 
         let expected_max = h.max(1);

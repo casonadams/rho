@@ -4,6 +4,7 @@ pub mod session;
 pub mod settings;
 #[cfg(test)]
 mod tests;
+pub mod theme;
 pub mod tree;
 
 use crate::error::Result;
@@ -14,6 +15,7 @@ pub use interaction::{PendingModal, install_interaction};
 pub use model::open_model_selector;
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
+pub use theme::open_theme_selector;
 pub use tree::open_tree_selector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +39,9 @@ pub enum ModalKeyResult {
     },
     SessionDeleted {
         session_id: String,
+    },
+    ThemeSelected {
+        theme: String,
     },
 }
 
@@ -62,11 +67,16 @@ pub fn handle_modal_key<B: TerminalBackend>(
         return Ok(ModalKeyResult::NotHandled);
     };
 
+    if key.kind == crossterm::event::KeyEventKind::Release {
+        return Ok(ModalKeyResult::Handled);
+    }
+
     match active.title.as_str() {
         "Settings" => settings::handle_settings_key(controller, key),
         "Resume Session" => session::handle_session_key(controller, key),
         "Conversation Tree" => tree::handle_tree_key(controller, key),
         "Select Model" => model::handle_model_key(controller, key),
+        "Select Theme" => theme::handle_theme_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

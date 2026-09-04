@@ -22,6 +22,7 @@ fn busy_activity_renders_working_line_above_the_editor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.working_line.contains('\u{280b}'));
@@ -52,6 +53,7 @@ fn thinking_activity_also_renders_the_working_line() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.working_line.contains('\u{280b}'));
@@ -79,6 +81,7 @@ fn idle_activity_renders_no_working_line() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.working_line, "");
@@ -111,6 +114,7 @@ fn busy_activity_under_modal_hides_working_line() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert_eq!(layout.working_line, "");

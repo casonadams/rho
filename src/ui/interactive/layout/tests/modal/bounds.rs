@@ -26,6 +26,7 @@ fn modal_body_truncation_on_small_terminal() {
         terminal_width: 80,
         terminal_height: 15,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.lines.len() <= 15);
@@ -92,6 +93,7 @@ fn modal_body_truncation_minimal_omitted_lines() {
         terminal_width: 80,
         terminal_height: 15,
         spinner_frame: 0,
+        theme: None,
     });
 
     assert!(layout.lines.len() <= 15);
@@ -123,6 +125,7 @@ fn modal_body_suppressed_on_minimal_terminal_height() {
         terminal_width: 80,
         terminal_height: 8,
         spinner_frame: 0,
+        theme: None,
     });
     assert!(layout_8.lines.len() <= 8);
     assert!(layout_8.lines.iter().any(|l| l.contains("Allow")));
@@ -140,6 +143,7 @@ fn modal_body_suppressed_on_minimal_terminal_height() {
         terminal_width: 80,
         terminal_height: 6,
         spinner_frame: 0,
+        theme: None,
     });
     assert!(layout_6.lines.len() <= 6);
     assert!(layout_6.lines.iter().any(|l| l.contains("Allow")));
