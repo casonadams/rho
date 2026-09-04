@@ -34,7 +34,7 @@ pub struct AgentEngine {
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
-    pub(crate) auth_store: AuthStore,
+    pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
 }
 
 impl AgentEngine {
@@ -171,19 +171,22 @@ impl AgentEngine {
         if !self.quota.should_fetch() {
             return;
         }
-        let mut auth_store = self.auth_store.clone();
-        let token = match auth_store.get_key("antigravity").await {
-            Ok(Some(t)) => t,
-            _ => {
-                self.quota.record_failure();
-                return;
-            }
-        };
-        let project_id = match auth_store.get_credential("antigravity") {
-            Some(rho_harness_core::auth::StoredCredential::OAuth {
-                account_id: Some(id), ..
-            }) => id.clone(),
-            _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+        let (token, project_id) = {
+            let mut store = self.auth_store.lock().await;
+            let token = match store.get_key("antigravity").await {
+                Ok(Some(t)) => t,
+                _ => {
+                    self.quota.record_failure();
+                    return;
+                }
+            };
+            let project_id = match store.get_credential("antigravity") {
+                Some(rho_harness_core::auth::StoredCredential::OAuth {
+                    account_id: Some(id), ..
+                }) => id.clone(),
+                _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+            };
+            (token, project_id)
         };
         match crate::antigravity::fetch_quota(&token, &project_id, &self.config.model).await {
             Some(display) => self.quota.record_success(display),

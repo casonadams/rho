@@ -74,7 +74,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
-        auth_store: crate::auth::AuthStore::default(),
+        auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
     }
 }
 

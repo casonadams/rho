@@ -6,6 +6,7 @@ use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rho_harness_core::provider::ProviderId;
 use rho_harness_core::session::SessionManager;
+use rig::agent::ModelHandle;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -99,7 +100,9 @@ impl AgentEngineBuilder {
             let _ = auth_store.get_key(provider_id.as_str()).await?;
         }
 
-        let model = match crate::provider::ProviderFactory::create_model(&config, &config.model, &auth_store) {
+        let shared_auth = Arc::new(tokio::sync::Mutex::new(auth_store.clone()));
+
+        let model = match create_engine_model(&config, &auth_store, shared_auth.clone()) {
             Ok(m) => m,
             Err(e) => {
                 if is_unmodified_default {
@@ -110,11 +113,7 @@ impl AgentEngineBuilder {
                         let mut trial_config = config.clone();
                         trial_config.provider = p.clone();
                         trial_config.model = default_model.to_string();
-                        if let Ok(m) = crate::provider::ProviderFactory::create_model(
-                            &trial_config,
-                            &trial_config.model,
-                            &auth_store,
-                        ) {
+                        if let Ok(m) = create_engine_model(&trial_config, &auth_store, shared_auth.clone()) {
                             config = trial_config;
                             fallback = Some(m);
                             break;
@@ -123,14 +122,14 @@ impl AgentEngineBuilder {
 
                     if let Some(m) = fallback {
                         m
-                    } else if let Ok(local_model) = crate::provider::ProviderFactory::create_model(
+                    } else if let Ok(local_model) = create_engine_model(
                         &Config {
                             provider: "local".to_string(),
                             model: "llama3.2".to_string(),
                             ..config.clone()
                         },
-                        "llama3.2",
                         &auth_store,
+                        shared_auth.clone(),
                     ) {
                         config.provider = "local".to_string();
                         config.model = "llama3.2".to_string();
@@ -184,9 +183,29 @@ impl AgentEngineBuilder {
             context: ContextTracker::new(context_limit),
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
-            auth_store,
+            auth_store: shared_auth,
         })
     }
+}
+
+fn create_engine_model(
+    config: &Config,
+    auth_store: &AuthStore,
+    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
+) -> Result<ModelHandle> {
+    let name = config.provider.trim();
+    if let Ok(provider_id) = ProviderId::from_str(name) {
+        return crate::provider::ProviderFactory::create_model_for(
+            crate::provider::ModelRequest {
+                provider: provider_id,
+                model: &config.model,
+                thinking_level: config.thinking_level.as_deref(),
+                shared_auth: Some(shared_auth),
+            },
+            auth_store,
+        );
+    }
+    crate::provider::ProviderFactory::create_model(config, &config.model, auth_store)
 }
 
 fn default_model_for_provider(provider: &str) -> &'static str {

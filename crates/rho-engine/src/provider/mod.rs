@@ -22,6 +22,7 @@ pub struct ModelRequest<'a> {
     pub model: &'a str,
     /// rho's `thinking_level`; Antigravity uses it to pick the runtime variant.
     pub thinking_level: Option<&'a str>,
+    pub shared_auth: Option<std::sync::Arc<tokio::sync::Mutex<AuthStore>>>,
 }
 
 pub struct ProviderFactory;
@@ -35,6 +36,7 @@ impl ProviderFactory {
                     provider: provider_id,
                     model,
                     thinking_level: config.thinking_level.as_deref(),
+                    shared_auth: None,
                 },
                 auth_store,
             );
@@ -188,7 +190,10 @@ impl ProviderFactory {
                     }) => id.clone(),
                     _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
                 };
-                let client = crate::antigravity::AntigravityClient::new(key, project_id, model)
+                let store = request
+                    .shared_auth
+                    .unwrap_or_else(|| std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone())));
+                let client = crate::antigravity::AntigravityClient::with_auth_store(store, project_id, model)
                     .with_effort(request.thinking_level);
                 crate::antigravity::into_handle(client)
             }
