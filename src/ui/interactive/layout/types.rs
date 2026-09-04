@@ -11,6 +11,7 @@ pub struct InteractiveLayout {
     pub lines: Vec<String>,
     pub cursor: CursorPosition,
     pub cursor_visible: bool,
+    pub cursor_row: usize,
     pub queued_lines: Vec<String>,
     pub widget_lines: Vec<String>,
     pub working_line: String,
@@ -27,14 +28,7 @@ impl InteractiveLayout {
     }
 
     pub fn cursor_row(&self) -> usize {
-        let mut row = self.queued_lines.len();
-        if !self.widget_lines.is_empty() {
-            row += self.widget_lines.len() + 1;
-        }
-        if !self.top_divider.is_empty() {
-            row += 3;
-        }
-        row + self.cursor.row
+        self.cursor_row
     }
 }
 

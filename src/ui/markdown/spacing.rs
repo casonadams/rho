@@ -3,14 +3,14 @@
 #[derive(Debug)]
 pub struct SpacingTracker {
     is_start: bool,
-    last_line_was_blank: bool,
+    pending_blank: bool,
 }
 
 impl Default for SpacingTracker {
     fn default() -> Self {
         Self {
             is_start: true,
-            last_line_was_blank: true,
+            pending_blank: false,
         }
     }
 }
@@ -18,31 +18,34 @@ impl Default for SpacingTracker {
 impl SpacingTracker {
     pub fn note_content(&mut self) {
         self.is_start = false;
-        self.last_line_was_blank = false;
+        self.pending_blank = false;
     }
 
     pub fn note_blank(&mut self) {
-        self.last_line_was_blank = true;
+        if !self.is_start {
+            self.pending_blank = true;
+        }
+    }
+
+    pub fn prepare_content(&mut self, out: &mut String) {
+        if !self.is_start && self.pending_blank {
+            out.push('\n');
+        }
+        self.is_start = false;
+        self.pending_blank = false;
     }
 
     pub fn append_block(&mut self, out: &mut String, rendered: &str) {
-        if !self.is_start && !self.last_line_was_blank {
-            out.push('\n');
-        }
+        self.prepare_content(out);
         out.push_str(rendered);
         self.note_content();
     }
 
-    pub fn ensure_preceding_blank(&mut self, out: &mut String) {
-        if !self.is_start && !self.last_line_was_blank {
-            out.push('\n');
-        }
+    pub fn ensure_preceding_blank(&mut self, _out: &mut String) {
+        self.note_blank();
     }
 
-    pub fn handle_empty_line(&mut self, out: &mut String) {
-        if !self.is_start && !self.last_line_was_blank {
-            out.push('\n');
-            self.note_blank();
-        }
+    pub fn handle_empty_line(&mut self, _out: &mut String) {
+        self.note_blank();
     }
 }

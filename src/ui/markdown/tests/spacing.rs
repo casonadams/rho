@@ -61,3 +61,15 @@ fn test_code_fence_spacing_is_normalized() {
     let out = md.render_token(text, &theme);
     assert!(out.contains("Intro text\n\n"));
 }
+
+#[test]
+fn test_trailing_blank_lines_are_stripped() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let text = "Paragraph one\n\n\n\n";
+    let out = md.render_token(text, &theme);
+    let flushed = md.flush(&theme);
+    let full = format!("{out}{flushed}");
+    assert_eq!(full, "Paragraph one\n");
+}

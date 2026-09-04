@@ -25,10 +25,10 @@ fn widget_lines_affect_height_and_cursor_row() {
     });
 
     assert_eq!(layout.widget_lines.len(), 3);
-    // 1 (editor) + 0 (queued) + 2 (footer) + 2 (status/spacer) + 1 (top_divider) + 1 (bottom_divider) + 3 (widgets) + 1 (spacer) = 11
-    assert_eq!(layout.height(), 11);
-    // cursor_row: 0 (queued) + 4 (widgets + spacer) + 3 (status/spacer + top_divider) + 0 (cursor.row) = 7
-    assert_eq!(layout.cursor_row(), 7);
+    // 3 (widgets) + 1 (spacer) + 1 (top_divider) + 1 (editor) + 1 (bottom_divider) + 2 (footer) = 9
+    assert_eq!(layout.height(), 9);
+    // cursor_row: 3 (widgets) + 1 (spacer) + 1 (top_divider) + 0 (editor cursor row) = 5
+    assert_eq!(layout.cursor_row(), 5);
 }
 
 #[test]

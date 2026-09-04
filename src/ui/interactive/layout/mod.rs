@@ -36,11 +36,11 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
 
     if !widget_lines.is_empty() {
         lines.extend(widget_lines.clone());
-        lines.push(String::new());
     }
 
-    let (editor_lines, top_divider, bottom_divider, footer_lines, cursor, cursor_visible) =
+    let (editor_lines, top_divider, bottom_divider, footer_lines, cursor, cursor_visible, cursor_row) =
         if let Some(modal) = input.modal {
+            let modal_start_row = lines.len();
             let (modal_lines, modal_cursor, modal_cursor_visible) = render_modal_overlay(modal, width);
             lines.extend(modal_lines.clone());
             (
@@ -50,10 +50,13 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
                 Vec::new(),
                 modal_cursor,
                 modal_cursor_visible,
+                modal_start_row + modal_cursor.row,
             )
         } else {
             lines.push(String::new());
-            lines.push(working_line.clone());
+            if !working_line.is_empty() {
+                lines.push(working_line.clone());
+            }
 
             let is_bash_mode = input.editor.text().trim_start().starts_with('!');
             let (style, reset) = if is_bash_mode {
@@ -76,6 +79,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
                     ed_lines.extend(ac_lines);
                 }
             }
+            let editor_start_row = lines.len();
             lines.extend(ed_lines.clone());
 
             let bot_div = format!("{style}{}{reset}", "─".repeat(width));
@@ -86,7 +90,15 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
             for fl in &ft_lines {
                 lines.push(format!("{footer_style}{fl}{footer_style:#}"));
             }
-            (ed_lines, top_div, bot_div, ft_lines, ed_cursor, true)
+            (
+                ed_lines,
+                top_div,
+                bot_div,
+                ft_lines,
+                ed_cursor,
+                true,
+                editor_start_row + ed_cursor.row,
+            )
         };
 
     let footer = footer_lines.join("\n");
@@ -95,6 +107,7 @@ pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
         lines,
         cursor,
         cursor_visible,
+        cursor_row,
         queued_lines,
         widget_lines,
         working_line,

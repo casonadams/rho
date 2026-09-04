@@ -66,8 +66,10 @@ impl MarkdownRenderer {
             return String::new();
         }
         self.emitted_on_current_line = true;
-        self.spacing.note_content();
-        self.stream_tracker.render_inline_token(remaining, theme)
+        let mut out = String::new();
+        self.spacing.prepare_content(&mut out);
+        out.push_str(&self.stream_tracker.render_inline_token(remaining, theme));
+        out
     }
 
     pub fn flush(&mut self, theme: &Theme) -> String {
@@ -119,6 +121,7 @@ impl MarkdownRenderer {
 
         if trimmed.is_empty() {
             if self.code_fence.in_code_block {
+                self.spacing.prepare_content(&mut out);
                 out.push_str(&highlight_code_line(line, self.code_fence.code_lang.as_deref(), theme));
                 out.push('\n');
                 self.spacing.note_content();
@@ -132,6 +135,7 @@ impl MarkdownRenderer {
             self.spacing.ensure_preceding_blank(&mut out);
         }
 
+        self.spacing.prepare_content(&mut out);
         out.push_str(&render_line(line, &mut self.code_fence, theme));
         out.push('\n');
         self.spacing.note_content();

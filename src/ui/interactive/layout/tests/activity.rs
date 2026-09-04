@@ -76,7 +76,7 @@ fn idle_activity_renders_no_working_line() {
     });
 
     assert_eq!(layout.working_line, "");
-    assert_eq!(layout.height(), 7);
+    assert_eq!(layout.height(), 6);
 }
 
 #[test]

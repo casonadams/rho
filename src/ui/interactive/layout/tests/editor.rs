@@ -20,7 +20,7 @@ fn empty_editor_has_one_line_and_fixed_chrome() {
     assert_eq!(layout.editor_lines, [""]);
     assert_eq!(layout.footer_lines.len(), 2);
     assert_eq!(layout.cursor, CursorPosition { row: 0, column: 0 });
-    assert_eq!(layout.height(), 7);
+    assert_eq!(layout.height(), 6);
 }
 
 #[test]
@@ -41,7 +41,7 @@ fn explicit_newlines_grow_the_editor() {
 
     assert_eq!(layout.editor_lines, ["one", "two", ""]);
     assert_eq!(layout.cursor, CursorPosition { row: 2, column: 0 });
-    assert_eq!(layout.height(), 9);
+    assert_eq!(layout.height(), 8);
 }
 
 #[test]
@@ -123,8 +123,8 @@ fn editor_layout_tracks_lines_and_dividers() {
     });
 
     assert_eq!(layout.editor_lines.len(), 1);
-    assert_eq!(layout.height(), 7);
-    assert_eq!(layout.cursor_row(), 3);
+    assert_eq!(layout.height(), 6);
+    assert_eq!(layout.cursor_row(), 2);
 }
 
 #[test]
@@ -144,5 +144,5 @@ fn multiline_editor_height_matches_content() {
     });
 
     assert_eq!(layout.editor_lines.len(), 3);
-    assert_eq!(layout.height(), 9);
+    assert_eq!(layout.height(), 8);
 }
