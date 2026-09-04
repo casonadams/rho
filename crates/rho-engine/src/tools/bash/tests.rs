@@ -138,12 +138,13 @@ async fn test_bash_timeout() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_bash_timeout_kills_process_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("pid.txt");
     let tool = BashTool::new(std::env::current_dir().unwrap());
-    let initial_count = crate::process::tracked_pid_count();
 
     let res = tool
         .execute(BashArgs {
-            command: "sleep 30 & wait".to_string(),
+            command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
             timeout: Some(1),
         })
         .await
@@ -151,28 +152,43 @@ async fn test_bash_timeout_kills_process_group() {
 
     assert!(res.is_error);
     assert!(res.content.contains("timed out"));
-    assert_eq!(crate::process::tracked_pid_count(), initial_count);
+
+    let pid: u32 = std::fs::read_to_string(&pid_file)
+        .expect("read pid file")
+        .trim()
+        .parse()
+        .expect("parse pid");
+    assert!(!crate::process::is_pid_tracked(pid));
+    crate::process::wait_group_dead(pid).await;
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn test_bash_cancellation_kills_process_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("pid.txt");
     let tool = BashTool::new(std::env::current_dir().unwrap());
-    let initial_count = crate::process::tracked_pid_count();
 
-    let future = tool.execute(BashArgs {
-        command: "sleep 30 & wait".to_string(),
+    let mut future = Box::pin(tool.execute(BashArgs {
+        command: format!("echo $$ > '{}' && sleep 30 & wait", pid_file.display()),
         timeout: Some(30),
-    });
+    }));
 
-    // Run until the process is spawned and running, then drop the future to simulate cancellation
     tokio::select! {
-        _ = future => {}
-        _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {}
+        _ = async {
+            while !pid_file.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        } => {}
+        _ = &mut future => {}
     }
 
-    // After future is cancelled/dropped, ProcessTreeGuard drops and untracks the PID
-    assert_eq!(crate::process::tracked_pid_count(), initial_count);
+    drop(future);
+
+    let content = std::fs::read_to_string(&pid_file).expect("read pid file");
+    let pid: u32 = content.trim().parse().expect("parse pid");
+    assert!(!crate::process::is_pid_tracked(pid));
+    crate::process::wait_group_dead(pid).await;
 }
 
 #[tokio::test]

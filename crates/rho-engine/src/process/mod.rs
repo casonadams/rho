@@ -86,6 +86,23 @@ pub fn tracked_pid_count() -> usize {
     TRACKED_PIDS.lock().map(|s| s.len()).unwrap_or(0)
 }
 
+#[cfg(test)]
+pub fn is_pid_tracked(pid: u32) -> bool {
+    TRACKED_PIDS.lock().map(|s| s.contains(&pid)).unwrap_or(false)
+}
+
+#[cfg(all(test, unix))]
+pub async fn wait_group_dead(pid: u32) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while std::time::Instant::now() < deadline {
+        if unsafe { libc::kill(-(pid as libc::pid_t), 0) } == -1 {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("process group {pid} still has living members");
+}
+
 /// Kills the child and all of its descendants.
 pub async fn kill_tree(child: &mut tokio::process::Child) {
     if let Some(pid) = child.id() {
