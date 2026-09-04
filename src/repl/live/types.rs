@@ -11,6 +11,37 @@ pub struct LiveIo<'a, B: crate::ui::interactive::TerminalBackend = crate::ui::in
     pub input: &'a mut TerminalInputReader,
 }
 
+impl<'a, B: crate::ui::interactive::TerminalBackend> LiveIo<'a, B> {
+    pub fn suspend_for<R, F: FnOnce() -> R>(&mut self, action: F) -> crate::error::Result<R> {
+        let mut paused = self.input.pause()?;
+        paused.drain();
+        self.controller.suspend()?;
+        let result = action();
+        let controller_res = self.controller.resume();
+        let input_res = paused.resume();
+        self.input.drain();
+        controller_res?;
+        input_res?;
+        Ok(result)
+    }
+
+    pub async fn suspend_for_async<R, Fut: std::future::Future<Output = R>, F: FnOnce() -> Fut>(
+        &mut self,
+        action: F,
+    ) -> crate::error::Result<R> {
+        let mut paused = self.input.pause()?;
+        paused.drain();
+        self.controller.suspend()?;
+        let result = action().await;
+        let controller_res = self.controller.resume();
+        let input_res = paused.resume();
+        self.input.drain();
+        controller_res?;
+        input_res?;
+        Ok(result)
+    }
+}
+
 pub struct EditorResources<'a> {
     pub history: &'a mut InteractiveHistory,
     pub completions: &'a CompletionSet,

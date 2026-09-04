@@ -5,4 +5,5 @@ mod common;
 mod history;
 mod modals;
 mod session_modal;
+mod suspend;
 mod tree_modal;

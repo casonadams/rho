@@ -67,3 +67,15 @@ fn shutdown_stops_and_joins_a_paused_reader() {
     reader.stop_and_join().unwrap();
     reader.stop_and_join().unwrap();
 }
+
+#[tokio::test]
+async fn drain_discards_buffered_events() {
+    let (mut reader, source, _) = test_reader();
+    let event = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+    source.send(SourceCommand::Event(event.clone())).unwrap();
+    source.send(SourceCommand::Event(event)).unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    reader.drain();
+    assert!(reader.events.try_recv().is_err());
+    reader.stop_and_join().unwrap();
+}

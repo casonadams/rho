@@ -1,6 +1,7 @@
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
+use crate::repl::input_reader::TerminalInputReader;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
@@ -9,6 +10,7 @@ pub(super) struct BranchSwitchContext<'a, 'b, 'c, B: TerminalBackend> {
     pub engine: &'b mut AgentEngine,
     pub controller: &'c mut TerminalController<B>,
     pub history: &'c mut InteractiveHistory,
+    pub input: &'c mut TerminalInputReader,
 }
 
 pub(super) async fn handle_switch_branch<B: TerminalBackend>(
@@ -21,22 +23,30 @@ pub(super) async fn handle_switch_branch<B: TerminalBackend>(
     let has_assistant = abandoned
         .iter()
         .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
-    if has_assistant
-        && ctx.session.renderer.has_interactive_ui()
-        && let Ok(true) = inquire::Confirm::new("Summarize discoveries from abandoned branch before switching?")
+    if has_assistant && ctx.session.renderer.has_interactive_ui() {
+        let mut paused = ctx.input.pause()?;
+        paused.drain();
+        ctx.controller.suspend()?;
+        let confirmed = inquire::Confirm::new("Summarize discoveries from abandoned branch before switching?")
             .with_default(true)
-            .prompt()
-    {
-        let summary_text = abandoned
-            .iter()
-            .map(|n| format!("{:?}", n.messages))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let _ = ctx
-            .engine
-            .session_manager
-            .append_branch_summary(&summary_text, &old_leaf)
-            .await;
+            .prompt();
+        let controller_res = ctx.controller.resume();
+        let input_res = paused.resume();
+        ctx.input.drain();
+        controller_res?;
+        input_res?;
+        if let Ok(true) = confirmed {
+            let summary_text = abandoned
+                .iter()
+                .map(|n| format!("{:?}", n.messages))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let _ = ctx
+                .engine
+                .session_manager
+                .append_branch_summary(&summary_text, &old_leaf)
+                .await;
+        }
     }
     ctx.engine.session_manager.switch_branch(Some(leaf_id.clone())).await?;
     *ctx.engine = ctx

@@ -39,10 +39,15 @@ pub async fn handle_command_result(
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Login { provider } => {
-            crate::cli::login_provider(provider.as_deref(), &session.config, &mut session.auth_store).await?;
-            *engine = engine
-                .rebuild(session.config.clone(), session.auth_store.clone())
-                .await?;
+            match crate::cli::login_provider(provider.as_deref(), &session.config, &mut session.auth_store).await {
+                Ok(()) => {
+                    *engine = engine
+                        .rebuild(session.config.clone(), session.auth_store.clone())
+                        .await?;
+                }
+                Err(crate::error::AppError::Cancelled(_)) => {}
+                Err(err) => session.renderer.print_notice(&format!("  Login failed: {err}\n")),
+            }
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Reload => {
@@ -116,10 +121,15 @@ pub async fn handle_command_result(
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Logout { provider } => {
-            crate::cli::logout_provider(provider.as_deref(), &session.config, &mut session.auth_store)?;
-            *engine = engine
-                .rebuild(session.config.clone(), session.auth_store.clone())
-                .await?;
+            match crate::cli::logout_provider(provider.as_deref(), &session.config, &mut session.auth_store) {
+                Ok(()) => {
+                    *engine = engine
+                        .rebuild(session.config.clone(), session.auth_store.clone())
+                        .await?;
+                }
+                Err(crate::error::AppError::Cancelled(_)) => {}
+                Err(err) => session.renderer.print_notice(&format!("  Logout failed: {err}\n")),
+            }
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Continue => Ok(DispatchOutcome::Continue),

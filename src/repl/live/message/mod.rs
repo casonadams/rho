@@ -1,3 +1,4 @@
+mod auth_cmd;
 mod bash_escape;
 mod branch;
 mod command;

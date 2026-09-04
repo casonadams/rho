@@ -10,11 +10,15 @@ pub(super) enum Control {
 }
 
 pub(crate) struct PausedInput<'a> {
-    pub(super) reader: &'a TerminalInputReader,
+    pub(super) reader: &'a mut TerminalInputReader,
     pub(super) resumed: bool,
 }
 
 impl PausedInput<'_> {
+    pub(crate) fn drain(&mut self) {
+        self.reader.drain();
+    }
+
     pub(crate) fn resume(mut self) -> io::Result<()> {
         self.resumed = true;
         self.reader.control.send(Control::Resume).map_err(|_| reader_stopped())

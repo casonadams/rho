@@ -18,18 +18,28 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
     live: LiveMessage<'_, B>,
     result: CommandResult,
 ) -> Result<bool> {
-    let LiveMessage { io, editor, message: _ } = live;
+    let LiveMessage {
+        mut io,
+        editor,
+        message: _,
+    } = live;
 
     if handle_session_command(
         &mut ctx,
         SessionCommandIo {
             controller: io.controller,
             history: editor.history,
+            input: io.input,
         },
         result.clone(),
     )
     .await?
     {
+        drain_ui_events(io.controller, io.events, &mut None)?;
+        return Ok(false);
+    }
+
+    if super::auth_cmd::handle_auth_command(&mut ctx, &mut io, &result).await? {
         drain_ui_events(io.controller, io.events, &mut None)?;
         return Ok(false);
     }
@@ -61,13 +71,6 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
                 &new_model,
                 new_provider.as_deref(),
             );
-            *ctx.engine = ctx
-                .engine
-                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-                .await?;
-        }
-        CommandResult::Login { provider } => {
-            crate::cli::login_provider(provider.as_deref(), &ctx.session.config, &mut ctx.session.auth_store).await?;
             *ctx.engine = ctx
                 .engine
                 .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
@@ -105,13 +108,6 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             .await?;
             ctx.engine.refresh_quota().await;
             return Ok(false);
-        }
-        CommandResult::Logout { provider } => {
-            crate::cli::logout_provider(provider.as_deref(), &ctx.session.config, &mut ctx.session.auth_store)?;
-            *ctx.engine = ctx
-                .engine
-                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-                .await?;
         }
         CommandResult::Continue => {}
         _ => {}

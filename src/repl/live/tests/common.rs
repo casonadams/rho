@@ -92,6 +92,59 @@ impl TerminalBackend for RedrawCountingTerminal {
     }
 }
 
+pub(super) struct ModeTrackingTerminal {
+    pub(super) raw_mode: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ModeTrackingTerminal {
+    pub(super) fn new(raw_mode: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        Self { raw_mode }
+    }
+}
+
+impl TerminalBackend for ModeTrackingTerminal {
+    fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()> {
+        self.raw_mode.store(enabled, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn size(&self) -> io::Result<(u16, u16)> {
+        Ok((80, 24))
+    }
+
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn show_cursor(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn move_up(&mut self, _rows: usize) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn move_down(&mut self, _rows: usize) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn clear_line(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn write_text(&mut self, _text: &str) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 #[test]
 fn live_ui_requires_both_terminal_streams() {
     use super::super::live_ui_supported;

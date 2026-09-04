@@ -2,12 +2,14 @@ use super::branch::{BranchSwitchContext, handle_switch_branch};
 use super::command::LiveCommandContext;
 use crate::error::Result;
 use crate::repl::commands::CommandResult;
+use crate::repl::input_reader::TerminalInputReader;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
 pub(super) struct SessionCommandIo<'a, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
     pub history: &'a mut InteractiveHistory,
+    pub input: &'a mut TerminalInputReader,
 }
 
 pub(super) async fn handle_session_command<B: TerminalBackend>(
@@ -36,6 +38,7 @@ pub(super) async fn handle_session_command<B: TerminalBackend>(
                     engine: ctx.engine,
                     controller: io.controller,
                     history: io.history,
+                    input: io.input,
                 },
                 leaf_id,
             )

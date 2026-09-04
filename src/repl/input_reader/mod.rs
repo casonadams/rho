@@ -78,7 +78,11 @@ impl TerminalInputReader {
         self.events.recv().await
     }
 
-    pub(crate) fn pause(&self) -> io::Result<PausedInput<'_>> {
+    pub(crate) fn drain(&mut self) {
+        while self.events.try_recv().is_ok() {}
+    }
+
+    pub(crate) fn pause(&mut self) -> io::Result<PausedInput<'_>> {
         let (acknowledge, acknowledged) = std_mpsc::sync_channel(1);
         self.control
             .send(Control::Pause(acknowledge))
