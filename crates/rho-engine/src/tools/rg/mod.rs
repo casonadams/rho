@@ -1,26 +1,22 @@
-use crate::tools::traversal::{build_type_matcher, search_root, walker_builder};
-use crate::tools::truncate::{DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, format_size, truncate_head, truncate_line};
+mod entry;
+mod query;
+#[cfg(test)]
+mod tests;
+
+pub use entry::{LineMatch, RG_COLLECTION_CEILING, format_results, render};
+pub use query::{MAX_RG_FILE_BYTES, RgQuery};
+pub use rho_harness_core::args::RgArgs;
+
+use crate::tools::traversal::{build_type_matcher, search_root};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
-use grep_searcher::sinks::UTF8;
-use grep_searcher::{BinaryDetection, SearcherBuilder};
-use ignore::WalkState;
-use ignore::types::Types;
-pub use rho_harness_core::args::RgArgs;
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::PoisonError;
-
-#[cfg(test)]
-mod tests;
 
 pub const DEFAULT_RG_LIMIT: usize = 200;
 pub const MAX_RG_LIMIT: usize = 1000;
-pub const RG_COLLECTION_CEILING: usize = 5_000;
-pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
 
 pub struct RgTool {
     base_dir: PathBuf,
@@ -72,153 +68,6 @@ fn compile_matcher(pattern: &str) -> Result<RegexMatcher, String> {
         .case_insensitive(case_insensitive)
         .build(pattern)
         .map_err(|error| format!("invalid pattern {pattern:?}: {error}"))
-}
-
-struct LineMatch {
-    path: String,
-    line: u64,
-    text: String,
-    truncated: bool,
-}
-
-struct RgQuery {
-    workspace_root: PathBuf,
-    search_root: PathBuf,
-    matcher: RegexMatcher,
-    types: Option<Types>,
-    include_hidden: bool,
-}
-
-impl RgQuery {
-    fn run(self, limit: usize) -> ToolResult {
-        let RgQuery {
-            workspace_root,
-            search_root,
-            matcher,
-            types,
-            include_hidden,
-        } = self;
-        let mut builder = walker_builder(&search_root, include_hidden);
-        if let Some(types) = &types {
-            builder.types(types.clone());
-        }
-
-        let matches: Mutex<Vec<LineMatch>> = Mutex::new(Vec::new());
-        builder.build_parallel().run(|| {
-            let mut searcher = SearcherBuilder::new()
-                .line_number(true)
-                .binary_detection(BinaryDetection::quit(b'\x00'))
-                .build();
-            // Shared state is captured by reference; the searcher is owned by
-            // each visitor so the boxed closure stays self-contained.
-            let matches = &matches;
-            let matcher = &matcher;
-            let workspace_root = &workspace_root;
-            Box::new(move |entry| {
-                let Ok(entry) = entry else {
-                    return WalkState::Continue;
-                };
-                // The walker's type matcher only filters files, so directory
-                // entries still arrive here and must be excluded from search.
-                let Some(file_type) = entry.file_type() else {
-                    return WalkState::Continue;
-                };
-                if file_type.is_dir() || file_type.is_symlink() {
-                    return WalkState::Continue;
-                }
-                let Ok(relative) = entry.path().strip_prefix(workspace_root) else {
-                    return WalkState::Continue;
-                };
-                let relative = relative.to_string_lossy().replace('\\', "/");
-                if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
-                    return WalkState::Quit;
-                }
-                let Ok(metadata) = entry.metadata() else {
-                    return WalkState::Continue;
-                };
-                if metadata.len() > MAX_RG_FILE_BYTES {
-                    return WalkState::Continue;
-                }
-                let mut sink = UTF8(|line_number, line| {
-                    let mut matches = matches.lock().unwrap_or_else(PoisonError::into_inner);
-                    if matches.len() >= RG_COLLECTION_CEILING {
-                        return Ok(false); // stop matching this file; the Quit below follows
-                    }
-                    // Truncate at collection time so pathological one-line files
-                    // cannot balloon shared state; pi computes the same text at
-                    // render time, and the flag below only counts shown rows.
-                    let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-                    matches.push(LineMatch {
-                        path: relative.clone(),
-                        line: line_number,
-                        text: truncated.text,
-                        truncated: truncated.was_truncated,
-                    });
-                    Ok(true)
-                });
-                // Unreadable files are skipped, never fatal.
-                if searcher.search_path(matcher, entry.path(), &mut sink).is_err() {
-                    return WalkState::Continue;
-                }
-                if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
-                    WalkState::Quit
-                } else {
-                    WalkState::Continue
-                }
-            })
-        });
-
-        let matches = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
-        format_results(matches, limit)
-    }
-}
-
-fn render(matches: &[LineMatch]) -> String {
-    matches
-        .iter()
-        // pi's grep line format: `path:line: text` with a space before the text.
-        .map(|m| format!("{}:{}: {}", m.path, m.line, m.text))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
-    if matches.is_empty() {
-        return ToolResult::success("No matches found");
-    }
-    // Sort before truncating so parallel-walk collection order never leaks into output.
-    matches.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
-    let total = matches.len();
-    let mut notices: Vec<String> = Vec::new();
-    if total > limit {
-        notices.push(if total >= RG_COLLECTION_CEILING {
-            format!(
-                "showing first {limit} of {RG_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
-            )
-        } else {
-            format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
-        });
-        matches.truncate(limit);
-    }
-    // pi tracks line truncation over emitted rows only, so hidden matches
-    // never claim the notice.
-    let lines_truncated = matches.iter().any(|m| m.truncated);
-    let rendered = render(&matches);
-    // pi caps grep output by bytes only; the match limit already caps rows.
-    let truncation = truncate_head(&rendered, usize::MAX, DEFAULT_MAX_BYTES);
-    if truncation.truncated_by.is_some() {
-        notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
-    }
-    let mut output = truncation.content;
-    if lines_truncated {
-        notices.push(format!(
-            "Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines"
-        ));
-    }
-    if !notices.is_empty() {
-        output.push_str(&format!("\n\n[{}]", notices.join(". ")));
-    }
-    ToolResult::success(output)
 }
 
 impl Tool for RgTool {

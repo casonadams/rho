@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::truncate::DEFAULT_MAX_BYTES;
 use tempfile::TempDir;
 
 fn fixture() -> TempDir {
