@@ -9,7 +9,10 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
   /help                       Show this reference\n\
   /settings                   Interactive runtime interface settings\n\
   /model [model] [provider]   Inspect or switch the model\n\
+  /resume [id]                Resume a prior session\n\
+  /thinking [level]           Configure thinking effort (off, minimal, low, medium, high, max)\n\
   /skill [name]               List or inspect skills\n\
+  /plugin                     List configured MCP servers and plugins\n\
   /session                    Display token capacity and session diagnostics\n\
   /compact [instructions]     Summarize earlier context to free context space\n\
   /tree                       View conversation turn and branch tree\n\
@@ -17,14 +20,15 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
   /clone                      Duplicate active branch into a new session\n\
   /name [name]                Assign a human-readable name to the session\n\
   /rewind <turn>              Rewind context to a specific prior turn\n\
-  /clear                      Start a new session; preserve history\n\
+  /clear                      Start a new session; preserve history (alias: /new)\n\
   /login [provider]           Add API-key or subscription auth\n\
   /logout [provider]          Remove stored provider auth\n\
   /reload                     Re-read config, skills, and MCP tools; keep history\n\
   /export [html|md] [path]    Export the active branch as a readable artifact\n\
-  /exit                       Exit rho\n\
+  /exit                       Exit rho (alias: /quit)\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\
+  Shift+Tab                   Cycle thinking level\n\
   Ctrl+C                      Cancel the active operation\n\
   Ctrl+D                      Exit at an empty prompt\n\
 \nCurrent session\n"

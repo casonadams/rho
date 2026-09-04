@@ -20,6 +20,7 @@ impl ReplSession {
                 renderer: &self.renderer,
                 session_id: Some(&engine.session_manager.session_id),
                 session_manager: Some(&engine.session_manager),
+                engine: Some(engine),
             };
             SlashCommandHandler::handle(&input, &mut command_context).await?
         } else {

@@ -41,6 +41,7 @@ async fn skill_command_lists_resolved_overrides_with_origin() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
 
     let listing = SlashCommandHandler::handle("/skills", &mut context).await.unwrap();
@@ -74,6 +75,7 @@ async fn skill_command_reports_unknown_names_with_available_skills() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle("/skill does-not-exist", &mut context)
@@ -97,6 +99,7 @@ async fn help_is_emitted_through_the_renderer() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle("/help", &mut context).await.unwrap();
@@ -118,6 +121,7 @@ async fn login_is_dispatched_without_collecting_credentials() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
     let result = SlashCommandHandler::handle("/login chatgpt", &mut context)
         .await
@@ -150,6 +154,7 @@ async fn model_switch_is_emitted_and_updates_configuration() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
     let result = SlashCommandHandler::handle("/model gpt-4o openai", &mut context)
         .await
@@ -172,6 +177,7 @@ async fn session_command_prints_diagnostics() {
         renderer: &renderer,
         session_id: Some("session-diag-123"),
         session_manager: None,
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
@@ -193,6 +199,7 @@ async fn compact_tree_and_rewind_commands_return_expected_results() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
 
     let compact = SlashCommandHandler::handle("/compact keep tests only", &mut context)
@@ -223,6 +230,7 @@ async fn reload_command_requests_engine_reload() {
         renderer: &renderer,
         session_id: None,
         session_manager: None,
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle("/reload", &mut context).await.unwrap();
@@ -262,6 +270,7 @@ async fn export_command_writes_markdown_default_path() {
         renderer: &renderer,
         session_id: Some(&session_id),
         session_manager: Some(&session_manager),
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle("/export", &mut context).await.unwrap();
@@ -296,6 +305,7 @@ async fn export_command_writes_html_to_override_path() {
         renderer: &renderer,
         session_id: Some(&session_id),
         session_manager: Some(&session_manager),
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle(
@@ -330,6 +340,7 @@ async fn export_command_rejects_unknown_format_with_usage() {
         renderer: &renderer,
         session_id: Some(&session_id),
         session_manager: Some(&session_manager),
+        engine: None,
     };
 
     let result = SlashCommandHandler::handle("/export xml", &mut context).await.unwrap();
@@ -337,4 +348,45 @@ async fn export_command_rejects_unknown_format_with_usage() {
     assert!(collected_output(&mut events).contains("Usage: /export"));
 
     std::fs::remove_dir_all(workspace).unwrap();
+}
+
+#[tokio::test]
+async fn session_command_prints_diagnostics_with_engine() {
+    let temp = std::env::temp_dir().join(format!("session_diag_{}", uuid::Uuid::new_v4()));
+    let mut config = Config {
+        sessions_dir: temp.join("sessions"),
+        thinking_level: Some("high".to_string()),
+        ..Config::default()
+    };
+    let mut auth = AuthStore::default();
+    let (renderer, mut events) = collecting_renderer();
+    std::fs::create_dir_all(&config.sessions_dir).unwrap();
+    let session_manager = rho_harness_core::session::SessionManager::new(&config.sessions_dir, None).unwrap();
+    let session_id = session_manager.session_id.clone();
+    let engine = rho_engine::engine::eval::mock::mock_engine_with_session(
+        rig::test_utils::MockCompletionModel::default(),
+        rho_engine::engine::eval::mock::MockEngineConfig {
+            base_dir: &temp,
+            app_config: config.clone(),
+            session_manager: Some(session_manager),
+            built_in_tools: None,
+        },
+    );
+
+    let mut context = SlashCommandContext {
+        config: &mut config,
+        auth_store: &mut auth,
+        renderer: &renderer,
+        session_id: Some(&session_id),
+        session_manager: None,
+        engine: Some(&engine),
+    };
+
+    let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
+    assert!(matches!(result, Some(CommandResult::Continue)));
+    let output = collected_output(&mut events);
+    assert!(output.contains("Session Diagnostics"));
+    assert!(output.contains("Thinking Level:              high"));
+    assert!(output.contains("Context Usage:"));
+    let _ = std::fs::remove_dir_all(temp);
 }

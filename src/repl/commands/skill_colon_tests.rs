@@ -36,6 +36,7 @@ mod tests {
             renderer: &renderer,
             session_id: None,
             session_manager: None,
+            engine: None,
         };
 
         let result = SlashCommandHandler::handle("/skill:my-flow create foo", &mut context)
@@ -59,6 +60,7 @@ mod tests {
             renderer: &renderer,
             session_id: None,
             session_manager: None,
+            engine: None,
         };
 
         let new_res = SlashCommandHandler::handle("/new", &mut context).await.unwrap();
