@@ -151,7 +151,15 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
             }
             event = ui_events.recv() => {
                 if let Some(event) = event {
-                    batch.enqueue(controller, event)?;
+                    let mut needs_flush = batch.push_event(controller, event)?;
+                    while let Ok(next) = ui_events.try_recv() {
+                        if batch.push_event(controller, next)? {
+                            needs_flush = true;
+                        }
+                    }
+                    if needs_flush {
+                        batch.flush(controller, false)?;
+                    }
                 }
             }
         }

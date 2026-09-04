@@ -74,7 +74,7 @@ impl PendingUiBatch {
             }
             UiEvent::Activity(activity) => {
                 self.activity = Some(activity);
-                BatchDecision::Flush(FlushBarrier::Newline)
+                BatchDecision::Pending
             }
             UiEvent::ToolStart(request) => {
                 self.tool_start = Some(request);
@@ -86,7 +86,7 @@ impl PendingUiBatch {
             }
             UiEvent::ToolEnd => {
                 self.tool_end = true;
-                BatchDecision::Flush(FlushBarrier::Newline)
+                BatchDecision::Pending
             }
             UiEvent::Transcript(item) => {
                 self.transcript_items.push(item);
@@ -98,7 +98,7 @@ impl PendingUiBatch {
             }
             UiEvent::ExtraStatus(status) => {
                 self.extra_status = Some(status);
-                BatchDecision::Flush(FlushBarrier::Newline)
+                BatchDecision::Pending
             }
             event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
         }
