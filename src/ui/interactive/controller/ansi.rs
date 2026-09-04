@@ -1,5 +1,8 @@
 use unicode_width::UnicodeWidthChar;
 
+pub const CSI_BEGIN_SYNC_UPDATE: &str = "\x1b[?2026h";
+pub const CSI_END_SYNC_UPDATE: &str = "\x1b[?2026l";
+
 pub fn output_cursor(value: &str, terminal_width: usize) -> (usize, bool) {
     let terminal_width = terminal_width.max(1);
     let mut column = 0;

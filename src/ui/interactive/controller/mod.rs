@@ -29,6 +29,7 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) active: bool,
     pub(super) theme: crate::ui::theme::Theme,
     pub(super) transcript: Vec<super::TranscriptItem>,
+    pub(super) cache: cache::TranscriptRenderCache,
     pub(super) system_message_expires_at: Option<std::time::Instant>,
 }
 
@@ -36,7 +37,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     pub fn new(mut backend: B, state: InteractiveState) -> io::Result<Self> {
         backend.set_raw_mode(true)?;
         let (width, height) = match backend.size() {
-            Ok((width, height)) => (usize::from(width), usize::from(height)),
+            Ok((w, h)) => (usize::from(w), usize::from(h)),
             Err(error) => {
                 let _ = backend.set_raw_mode(false);
                 return Err(error);
@@ -53,6 +54,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             active: true,
             theme: crate::ui::theme::Theme::default(),
             transcript: Vec::new(),
+            cache: cache::TranscriptRenderCache::new(),
             system_message_expires_at: None,
         };
         if let Err(error) = controller.redraw() {
@@ -82,21 +84,22 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
-        let cursor_visible = rendered.cursor_visible;
-        self.rendered = Some(rendered);
-        if cursor_visible {
+        if rendered.cursor_visible {
             self.backend.show_cursor()?;
         } else {
             self.backend.hide_cursor()?;
         }
+        self.rendered = Some(rendered);
         self.backend.flush()
     }
 
     pub fn refresh_size(&mut self) -> io::Result<bool> {
-        let (width, height) = self.backend.size()?;
-        let (width, height) = (usize::from(width), usize::from(height));
+        let (width, height) = self.backend.size().map(|(w, h)| (usize::from(w), usize::from(h)))?;
         if width == self.width && height == self.height {
             return Ok(false);
+        }
+        if width != self.width {
+            self.cache.clear();
         }
         self.width = width;
         self.height = height;
