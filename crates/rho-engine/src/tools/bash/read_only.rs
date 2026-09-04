@@ -26,14 +26,45 @@ fn is_single_read_only_command(cmd: &str) -> bool {
 
     match exe.as_str() {
         "ls" | "pwd" | "whoami" | "which" | "whereis" | "echo" | "printf" | "cat" | "head" | "tail" | "grep" | "rg"
-        | "find" | "wc" | "diff" | "file" | "stat" | "uname" | "printenv" | "true" | "false" => true,
+        | "find" | "wc" | "diff" | "file" | "stat" | "uname" | "printenv" | "true" | "false" | "sort" | "uniq"
+        | "cut" | "tr" | "cmp" | "comm" | "column" | "jq" | "date" | "uptime" | "id" | "arch" | "hostname"
+        | "locale" | "type" => true,
+        "python" | "python3" => tokens.iter().any(|&t| t == "--version" || t == "-V"),
+        "node" => tokens.iter().any(|&t| t == "--version" || t == "-v"),
+        "rustc" => tokens.iter().any(|&t| t == "--version" || t == "-V"),
+        "go" => {
+            if let Some(sub) = tokens.get(1) {
+                matches!(*sub, "version" | "list" | "test")
+            } else {
+                false
+            }
+        }
+        "npm" | "pnpm" => {
+            if let Some(sub) = tokens.get(1) {
+                matches!(*sub, "list" | "ls" | "test" | "view" | "info" | "outdated")
+                    || tokens.iter().any(|&t| t == "--version" || t == "-v")
+            } else {
+                tokens.iter().any(|&t| t == "--version" || t == "-v")
+            }
+        }
+        "yarn" => {
+            if let Some(sub) = tokens.get(1) {
+                matches!(*sub, "list" | "test" | "why") || tokens.iter().any(|&t| t == "--version" || t == "-v")
+            } else {
+                tokens.iter().any(|&t| t == "--version" || t == "-v")
+            }
+        }
         "git" => {
             if let Some(sub) = tokens.get(1) {
                 match *sub {
-                    "status" | "diff" | "log" | "show" | "describe" => true,
+                    "status" | "diff" | "log" | "show" | "describe" | "rev-parse" => true,
                     "branch" => tokens
                         .iter()
                         .any(|&t| t == "--show-current" || t == "-a" || t == "-r" || t == "--list" || t == "-l"),
+                    "tag" => tokens.iter().any(|&t| t == "-l" || t == "--list") || tokens.len() == 2,
+                    "remote" => tokens
+                        .iter()
+                        .all(|&t| t != "add" && t != "remove" && t != "rm" && t != "set-url"),
                     "config" => tokens.iter().any(|&t| t == "--get" || t == "--list" || t == "-l"),
                     _ => false,
                 }
@@ -46,9 +77,9 @@ fn is_single_read_only_command(cmd: &str) -> bool {
                 matches!(
                     *sub,
                     "check" | "clippy" | "test" | "fmt" | "tree" | "metadata" | "verify-project" | "read-manifest"
-                )
+                ) || tokens.iter().any(|&t| t == "--version" || t == "-V")
             } else {
-                false
+                tokens.iter().any(|&t| t == "--version" || t == "-V")
             }
         }
         _ => false,

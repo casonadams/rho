@@ -21,6 +21,17 @@ fn test_is_read_only_command() {
     assert!(!is_read_only_command("git config user.name model"));
     assert!(is_read_only_command("git branch --show-current"));
     assert!(is_read_only_command("git config --get user.name"));
+    assert!(is_read_only_command("git rev-parse HEAD"));
+    assert!(is_read_only_command("git remote -v"));
+    assert!(is_read_only_command("jq . package.json"));
+    assert!(is_read_only_command("sort file.txt | uniq"));
+    assert!(is_read_only_command("python3 --version"));
+    assert!(is_read_only_command("node -v"));
+    assert!(is_read_only_command("npm test"));
+    assert!(is_read_only_command("go version"));
+    assert!(!is_read_only_command("npm publish"));
+    assert!(!is_read_only_command("python script.py"));
+    assert!(!is_read_only_command("git remote add origin https://..."));
 }
 
 #[test]
@@ -203,4 +214,19 @@ fn test_accumulator_sanitizes_binary_output() {
     acc.finish();
     let snap = acc.snapshot();
     assert_eq!(snap.content, "helloworld\n");
+}
+
+#[tokio::test]
+async fn test_bash_sets_noninteractive_env_safeguards() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "echo \"CI=$CI;GIT=$GIT_TERMINAL_PROMPT;PAGER=$PAGER\"".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(res.content.contains("CI=true;GIT=0;PAGER=cat"));
 }

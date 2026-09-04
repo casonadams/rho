@@ -74,6 +74,9 @@ impl BashTool {
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd.kill_on_drop(true);
+        cmd.env("CI", "true");
+        cmd.env("GIT_TERMINAL_PROMPT", "0");
+        cmd.env("PAGER", "cat");
         crate::process::isolate_group(&mut cmd);
 
         let mut child = match cmd.spawn() {

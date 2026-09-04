@@ -34,6 +34,9 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
     command.kill_on_drop(true);
+    command.env("CI", "true");
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("PAGER", "cat");
     isolate_group(&mut command);
 
     let mut child = match command.spawn() {
