@@ -91,7 +91,7 @@ pub fn is_table_divider(line: &str) -> bool {
 
 pub fn render_markdown_table(lines: &[String], theme: &Theme) -> String {
     let width = crossterm::terminal::size()
-        .map(|(columns, _)| usize::from(columns.saturating_sub(2)))
+        .map(|(columns, _)| usize::from(columns.saturating_sub(2)).max(40))
         .unwrap_or(78);
     render_markdown_table_at_width(lines, theme, width)
 }

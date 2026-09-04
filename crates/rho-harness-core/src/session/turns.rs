@@ -1,3 +1,5 @@
+use super::SessionManager;
+use crate::error::Result;
 use rig::message::Message;
 use serde::{Deserialize, Serialize};
 
@@ -88,4 +90,27 @@ pub fn calculate_rewind_cutoff(messages: &[Message], target_turn: usize) -> usiz
     }
 
     cutoff_idx
+}
+
+impl SessionManager {
+    pub async fn load_turns(&self) -> Result<Vec<ConversationTurn>> {
+        let messages = self.load_messages().await?;
+        Ok(extract_turns(&messages))
+    }
+
+    pub async fn rewind_to_turn(&self, target_turn: usize) -> Result<usize> {
+        let messages = self.load_messages().await?;
+        let cutoff_idx = calculate_rewind_cutoff(&messages, target_turn);
+
+        if cutoff_idx == 0 || cutoff_idx >= messages.len() {
+            return Ok(messages.len());
+        }
+
+        let retained = messages[..cutoff_idx].to_vec();
+        self.clear_messages(&self.session_id).await?;
+        if !retained.is_empty() {
+            self.append_messages(&self.session_id, retained.clone()).await?;
+        }
+        Ok(retained.len())
+    }
 }
