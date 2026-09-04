@@ -1,18 +1,23 @@
 pub(crate) mod footer;
 mod input;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use footer::sync_turn_footer;
-use input::{TurnInputContext, TurnKeyResult, handle_turn_key};
+use input::{TurnInputContext, TurnKeyResult, handle_turn_key, reconcile_consumed_steering};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
 use super::modal::handle_modal_key;
 use super::navigation::restore_queued_messages;
 use super::{ActiveTurn, EditorResources, LiveIo};
 use crate::engine::AgentEngine;
+use crate::engine::runner::{CancellationSignal, TurnRequest};
 use crate::error::Result;
+use crate::repl::coordinator::SharedSteeringQueue;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, UiAction};
+use crate::ui::interactive::{Activity, QueueKind, UiAction};
 use crossterm::event::Event;
+use std::sync::Arc;
 
 pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     engine: &AgentEngine,
@@ -29,7 +34,11 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
         prompt,
     } = turn;
 
-    let request = crate::engine::runner::TurnRequest::new(prompt);
+    let cancellation = Arc::new(CancellationSignal::default());
+    let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
+    let request = TurnRequest::new(prompt)
+        .with_cancellation(&cancellation)
+        .with_steering(steering.clone());
     let mut batch = LiveBatch::new();
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -41,6 +50,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
         tokio::select! {
             biased;
             _ = frame.tick() => {
+                let steering_reconciled = reconcile_consumed_steering(controller, &steering);
                 if controller.state().active_modal().is_some() {
                     batch.flush(controller, false)?;
                     continue;
@@ -55,7 +65,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                 };
                 let expired = controller.check_system_message_expiration();
                 let footer_changed = sync_turn_footer(controller, engine);
-                batch.flush(controller, spinner_advanced || footer_changed || expired)?;
+                batch.flush(controller, spinner_advanced || footer_changed || expired || steering_reconciled)?;
             }
             event = input_reader.recv() => {
                 let event = match event {
@@ -88,9 +98,14 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                     completions,
                     renderer,
                     batch: &mut batch,
+                    steering: &steering,
                 };
                 match handle_turn_key(key, &mut ctx)? {
                     TurnKeyResult::Cancelled => {
+                        cancellation.cancel();
+                        steering.clear();
+                        reconcile_consumed_steering(controller, &steering);
+                        controller.state_mut().retain_queued(|msg| msg.kind != QueueKind::Steering);
                         batch.flush(controller, false)?;
                         engine.record_cancellation("operator interrupt").await?;
                         restore_queued_messages(controller);
@@ -103,6 +118,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                 }
             }
             result = &mut run => {
+                reconcile_consumed_steering(controller, &steering);
                 renderer.flush();
                 sync_turn_footer(controller, engine);
                 batch.drain_events(controller, ui_events)?;
@@ -118,6 +134,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
             }
             event = ui_events.recv() => {
                 if let Some(event) = event {
+                    let steering_reconciled = reconcile_consumed_steering(controller, &steering);
                     let mut needs_flush = batch.push_event(controller, event)?;
                     while let Ok(next) = ui_events.try_recv() {
                         if batch.push_event(controller, next)? {
@@ -125,8 +142,8 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                         }
                     }
                     let footer_changed = sync_turn_footer(controller, engine);
-                    if needs_flush || footer_changed {
-                        batch.flush(controller, footer_changed)?;
+                    if needs_flush || footer_changed || steering_reconciled {
+                        batch.flush(controller, footer_changed || steering_reconciled)?;
                     }
                 }
             }

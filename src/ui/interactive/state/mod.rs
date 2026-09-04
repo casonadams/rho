@@ -117,6 +117,10 @@ impl InteractiveState {
         self.queue.clear();
     }
 
+    pub fn retain_queued(&mut self, f: impl FnMut(&QueuedMessage) -> bool) {
+        self.queue.retain(f);
+    }
+
     pub fn active_modal(&self) -> Option<&ModalState> {
         self.modals.last().map(|frame| &frame.modal)
     }

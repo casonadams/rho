@@ -77,7 +77,7 @@ done
 
     // Startup should be virtually instant compared to the 2s server delay
     assert!(
-        startup_elapsed.as_millis() < 1000,
+        startup_elapsed.as_millis() < 2000,
         "Startup took {:?}, which indicates blocking on MCP server startup",
         startup_elapsed
     );

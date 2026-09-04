@@ -44,23 +44,42 @@ pub trait ActivePromptRunner: Send + Sync {
 #[derive(Clone, Default)]
 pub struct SharedSteeringQueue {
     queue: Arc<Mutex<PendingMessageQueue<String>>>,
+    consumed: Arc<Mutex<Vec<String>>>,
 }
 
 impl SharedSteeringQueue {
     pub fn new(mode: crate::engine::runner::QueueMode) -> Self {
         Self {
             queue: Arc::new(Mutex::new(PendingMessageQueue::new(mode))),
+            consumed: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     pub fn enqueue(&self, msg: String) {
         self.queue.lock().unwrap().enqueue(msg);
     }
+
+    pub fn clear(&self) {
+        self.queue.lock().unwrap().clear();
+    }
+
+    pub fn consumed(&self) -> Vec<String> {
+        self.consumed.lock().unwrap().clone()
+    }
+
+    pub fn take_consumed(&self) -> Vec<String> {
+        let mut guard = self.consumed.lock().unwrap();
+        std::mem::take(&mut *guard)
+    }
 }
 
 #[async_trait]
 impl SteeringQueueProvider for SharedSteeringQueue {
     async fn poll_steering(&self) -> Vec<String> {
-        self.queue.lock().unwrap().drain()
+        let drained = self.queue.lock().unwrap().drain();
+        if !drained.is_empty() {
+            self.consumed.lock().unwrap().extend(drained.clone());
+        }
+        drained
     }
 }
