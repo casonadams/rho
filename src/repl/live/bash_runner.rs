@@ -8,10 +8,12 @@ use rho_engine::process::{ProcessTreeGuard, isolate_group};
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
 use std::process::Stdio;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::io::AsyncReadExt;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
+
+const STREAM_REDRAW_INTERVAL: Duration = Duration::from_millis(50);
 
 pub struct UserBashResult {
     pub output: String,
@@ -111,6 +113,9 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     let stderr = child.stderr.take().expect("stderr piped");
     let mut guard = ProcessTreeGuard::new(child);
 
+    batch.drain_events(controller, io.events)?;
+    batch.flush(controller, true)?;
+
     let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let stdout_task = spawn_stream_reader(stdout, chunk_tx.clone());
     let stderr_task = spawn_stream_reader(stderr, chunk_tx);
@@ -119,6 +124,8 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut spinner_tick = 0_usize;
+    let mut last_redraw = Instant::now();
+    let mut needs_redraw = false;
 
     let input_reader = &mut *io.input;
 
@@ -145,7 +152,17 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
             Some(chunk) = chunk_rx.recv() => {
                 accumulator.append(chunk.as_bytes());
                 renderer.tool_chunk(&chunk);
-                batch.flush(controller, true)?;
+                while let Ok(more) = chunk_rx.try_recv() {
+                    accumulator.append(more.as_bytes());
+                    renderer.tool_chunk(&more);
+                }
+                needs_redraw = true;
+                if last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
+                    batch.drain_events(controller, io.events)?;
+                    batch.flush(controller, true)?;
+                    last_redraw = Instant::now();
+                    needs_redraw = false;
+                }
             }
             _ = frame.tick() => {
                 spinner_tick += 1;
@@ -156,7 +173,17 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                 } else {
                     false
                 };
-                batch.flush(controller, spinner_advanced)?;
+                let should_redraw = if needs_redraw && last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
+                    needs_redraw = false;
+                    last_redraw = Instant::now();
+                    true
+                } else {
+                    spinner_advanced
+                };
+                if should_redraw {
+                    batch.drain_events(controller, io.events)?;
+                    batch.flush(controller, true)?;
+                }
             }
             res = guard.wait() => {
                 let _ = stdout_task.await;
@@ -165,6 +192,7 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
                     accumulator.append(chunk.as_bytes());
                     renderer.tool_chunk(&chunk);
                 }
+                batch.drain_events(controller, io.events)?;
                 batch.flush(controller, false)?;
 
                 accumulator.finish();
@@ -196,7 +224,10 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
 
     while let Ok(chunk) = chunk_rx.try_recv() {
         accumulator.append(chunk.as_bytes());
+        renderer.tool_chunk(&chunk);
     }
+    batch.drain_events(controller, io.events)?;
+    batch.flush(controller, false)?;
     accumulator.finish();
     let snapshot = accumulator.snapshot();
     let duration_ms = started.elapsed().as_millis() as u64;

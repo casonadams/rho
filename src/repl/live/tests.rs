@@ -488,3 +488,119 @@ async fn test_user_bash_runner_failed_command_includes_exit_code() {
     assert!(res.output.contains("failure details"));
     assert!(res.output.contains("Command exited with code 42"));
 }
+
+struct RedrawCountingTerminal {
+    redraws: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl TerminalBackend for RedrawCountingTerminal {
+    fn set_raw_mode(&mut self, _enabled: bool) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn size(&self) -> io::Result<(u16, u16)> {
+        Ok((80, 24))
+    }
+
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        self.redraws.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn show_cursor(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn move_up(&mut self, _rows: usize) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn move_down(&mut self, _rows: usize) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn move_to_column(&mut self, _column: usize) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn clear_line(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn write_text(&mut self, _text: &str) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn test_user_bash_runner_throttles_redraws_under_rapid_streaming() {
+    let redraw_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let backend = RedrawCountingTerminal {
+        redraws: redraw_count.clone(),
+    };
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+
+    let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+    let mut live_io = super::LiveIo {
+        controller: &mut controller,
+        events: &mut events_rx,
+        input: &mut input_reader,
+    };
+
+    let res = super::bash_runner::run_user_bash("seq 1 500", &renderer, &mut live_io)
+        .await
+        .unwrap();
+
+    assert!(!res.is_cancelled);
+    assert!(!res.is_error);
+    assert!(res.output.contains("500"));
+
+    let redraws = redraw_count.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(redraws > 0, "must perform at least one redraw");
+    assert!(
+        redraws <= 10,
+        "rapid 500-line output must be throttled to <= 10 redraws, got {redraws}"
+    );
+}
+
+#[tokio::test]
+async fn test_user_bash_runner_streaming_updates_output_over_time() {
+    let redraw_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let backend = RedrawCountingTerminal {
+        redraws: redraw_count.clone(),
+    };
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+
+    let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+    let mut live_io = super::LiveIo {
+        controller: &mut controller,
+        events: &mut events_rx,
+        input: &mut input_reader,
+    };
+
+    let res = super::bash_runner::run_user_bash(
+        "sh -c 'echo first; sleep 0.06; echo second; sleep 0.06; echo third'",
+        &renderer,
+        &mut live_io,
+    )
+    .await
+    .unwrap();
+
+    assert!(!res.is_cancelled);
+    assert!(!res.is_error);
+    assert!(res.output.contains("first"));
+    assert!(res.output.contains("second"));
+    assert!(res.output.contains("third"));
+
+    let redraws = redraw_count.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(redraws >= 3, "must redraw across timed phases, got {redraws}");
+    assert!(redraws <= 15, "must throttle redraws, got {redraws}");
+}
