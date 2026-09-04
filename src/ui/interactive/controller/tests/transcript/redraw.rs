@@ -1,7 +1,7 @@
-use super::fake::{FakeTerminal, Operation};
+use super::super::fake::{FakeTerminal, Operation};
 use crate::ui::interactive::controller::TerminalController;
 use crate::ui::interactive::controller::ansi::{CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE};
-use crate::ui::interactive::{InteractiveState, ToolItem, TranscriptItem};
+use crate::ui::interactive::{InteractiveState, TranscriptItem};
 
 #[test]
 fn full_redraw_rerenders_all_transcript_items_on_resize() {
@@ -20,25 +20,6 @@ fn full_redraw_rerenders_all_transcript_items_on_resize() {
     assert!(
         ops.iter()
             .any(|op| matches!(op, Operation::Write(text) if text.contains("hello world message")))
-    );
-}
-
-#[test]
-fn assistant_transcript_item_is_recorded_without_duplicate_write_output() {
-    let (backend, operations, _) = FakeTerminal::new(60);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-    operations.borrow_mut().clear();
-
-    controller
-        .push_transcript_item(TranscriptItem::AssistantText("streamed response answer".into()))
-        .unwrap();
-
-    assert_eq!(controller.transcript().len(), 1);
-    let ops = operations.borrow();
-    assert!(
-        !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("streamed response answer"))),
-        "pushing already-streamed assistant text should not write to output again"
     );
 }
 
@@ -92,36 +73,6 @@ fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
         1,
         "all transcript items must be batched in a single write"
     );
-}
-
-#[test]
-fn full_redraw_reuses_cached_rendered_items_across_expansion_toggles() {
-    let (backend, operations, _) = FakeTerminal::new(60);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-    let tool = TranscriptItem::Tool(ToolItem {
-        name: "read".into(),
-        arguments: serde_json::json!({"path": "src/main.rs"}),
-        is_error: false,
-        output: "fn main() {}".into(),
-        output_summary: "1 line".into(),
-        duration_ms: None,
-    });
-    controller.push_transcript_item(tool).unwrap();
-    assert_eq!(controller.cache().len(), 1);
-
-    controller.toggle_tools_expanded().unwrap();
-    let expanded_entry = controller.cache().entry(0).unwrap().clone();
-    assert!(expanded_entry.standard.is_some());
-    assert!(expanded_entry.alternate.is_some());
-
-    controller.toggle_tools_expanded().unwrap();
-    let collapsed_entry = controller.cache().entry(0).unwrap().clone();
-    assert_eq!(expanded_entry, collapsed_entry);
-
-    operations.borrow_mut().clear();
-    controller.full_redraw().unwrap();
-    let final_entry = controller.cache().entry(0).unwrap().clone();
-    assert_eq!(collapsed_entry, final_entry);
 }
 
 #[test]

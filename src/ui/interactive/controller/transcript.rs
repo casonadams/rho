@@ -1,11 +1,10 @@
-use std::io;
-
 use super::TerminalController;
 use super::ansi::{CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE, terminal_newlines};
 use super::backend::TerminalBackend;
 use super::cache::{TranscriptRenderCache, target_slot};
 use super::paint;
 use crate::ui::interactive::{TranscriptItem, TranscriptRenderInput, render_transcript_item};
+use std::io;
 
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn transcript(&self) -> &[TranscriptItem] {
@@ -27,24 +26,46 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.full_redraw()
     }
 
-    pub fn toggle_tools_expanded(&mut self) -> io::Result<bool> {
-        let tools_expanded = self.state_mut().toggle_tools_expanded();
-        if self.transcript.is_empty() {
-            self.redraw()?;
-        } else {
-            self.full_redraw()?;
+    pub fn tools_expanded(&self) -> bool {
+        self.state.tools_expanded()
+    }
+
+    pub fn set_tools_expanded(&mut self, expanded: bool) -> io::Result<bool> {
+        if self.state.tools_expanded() == expanded {
+            return Ok(expanded);
         }
-        Ok(tools_expanded)
+        self.state_mut().set_tools_expanded(expanded);
+        self.redraw_transcript_or_live()?;
+        Ok(expanded)
+    }
+
+    pub fn toggle_tools_expanded(&mut self) -> io::Result<bool> {
+        self.set_tools_expanded(!self.state.tools_expanded())
+    }
+
+    pub fn hide_thinking(&self) -> bool {
+        self.state.hide_thinking()
+    }
+
+    pub fn set_hide_thinking(&mut self, hide: bool) -> io::Result<bool> {
+        if self.state.hide_thinking() == hide {
+            return Ok(hide);
+        }
+        self.state_mut().set_hide_thinking(hide);
+        self.redraw_transcript_or_live()?;
+        Ok(hide)
     }
 
     pub fn toggle_thinking(&mut self) -> io::Result<bool> {
-        let hide_thinking = self.state_mut().toggle_thinking();
+        self.set_hide_thinking(!self.state.hide_thinking())
+    }
+
+    pub(super) fn redraw_transcript_or_live(&mut self) -> io::Result<()> {
         if self.transcript.is_empty() {
-            self.redraw()?;
+            self.redraw()
         } else {
-            self.full_redraw()?;
+            self.full_redraw()
         }
-        Ok(hide_thinking)
     }
 
     pub fn push_transcript_item(&mut self, item: TranscriptItem) -> io::Result<bool> {
@@ -61,8 +82,8 @@ impl<B: TerminalBackend> TerminalController<B> {
             tools_expanded,
             hide_thinking,
         });
-        let slot = target_slot(&item, tools_expanded, hide_thinking);
-        self.cache.push(slot, &rendered);
+        self.cache
+            .push(target_slot(&item, tools_expanded, hide_thinking), &rendered);
         self.transcript.push(item);
         if !rendered.is_empty() && !is_streamed_assistant {
             self.write_output(&rendered)?;
@@ -82,8 +103,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.backend.write_text("\x1b[2J\x1b[H\x1b[3J")?;
             self.output.clear();
 
-            let tools_expanded = self.state.tools_expanded();
-            let hide_thinking = self.state.hide_thinking();
+            let (tools_expanded, hide_thinking) = (self.state.tools_expanded(), self.state.hide_thinking());
             let mut redraw_buffer = String::new();
 
             for (idx, item) in self.transcript.iter().enumerate() {
