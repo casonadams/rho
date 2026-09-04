@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/casonadams/rho/compare/v0.2.0...v0.2.1) (2026-09-04)
+
+
+### Features
+
+* **auth:** add openrouter oauth pkce support and cli login options ([5c9617d](https://github.com/casonadams/rho/commit/5c9617d059b4fbfcb4509f0d563375ad0f143150))
+* **auth:** split login menu into oauth and api key submenus ([04e35c9](https://github.com/casonadams/rho/commit/04e35c967f07fd10bf73dd2054d45225207a7991))
+* **config:** restrict external instructions and skills to ~/.agents and update readme ([ea09cc9](https://github.com/casonadams/rho/commit/ea09cc909cd7158cee0901f7d6ae8546163a3d35))
+* **mcp:** implement concurrent server loading and lazy background tool initialization ([c08cbee](https://github.com/casonadams/rho/commit/c08cbee42d60c0cad581395ea82c10edf36fd9ff))
+* **provider:** classify oauth providers and credential strategies ([d1dfc46](https://github.com/casonadams/rho/commit/d1dfc4645d76d3bf36e7afc345f8dbeff55e3fe6))
+* **tools:** make fd pattern argument optional to match all entries ([0431741](https://github.com/casonadams/rho/commit/0431741d1cee151b17a5ff48f723e683f3a03fb1))
+
 ## [0.2.0](https://github.com/casonadams/rho/compare/v0.1.7...v0.2.0) (2026-09-04)
 
 
