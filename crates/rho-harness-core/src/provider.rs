@@ -26,6 +26,7 @@ pub enum ProviderId {
 pub enum CredentialStrategy {
     ApiKey,
     SubscriptionOAuth,
+    OAuthOrApiKey,
     Local,
 }
 
@@ -47,19 +48,28 @@ impl ProviderId {
         Self::Local,
     ];
 
-    pub const API_KEY_PROVIDERS: [Self; 11] = [
+    pub const OAUTH_PROVIDERS: [Self; 4] = [Self::ChatGpt, Self::Copilot, Self::Antigravity, Self::OpenRouter];
+
+    pub const API_KEY_PROVIDERS: [Self; 10] = [
         Self::Anthropic,
         Self::OpenAi,
         Self::DeepSeek,
         Self::Gemini,
         Self::Groq,
-        Self::Local,
         Self::OllamaCloud,
         Self::OpenRouter,
         Self::XAi,
         Self::Mistral,
         Self::Cohere,
     ];
+
+    pub fn supports_oauth(self) -> bool {
+        Self::OAUTH_PROVIDERS.contains(&self)
+    }
+
+    pub fn supports_api_key(self) -> bool {
+        Self::API_KEY_PROVIDERS.contains(&self)
+    }
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -83,6 +93,7 @@ impl ProviderId {
     pub fn credential_strategy(self) -> CredentialStrategy {
         match self {
             Self::ChatGpt | Self::Copilot | Self::Antigravity => CredentialStrategy::SubscriptionOAuth,
+            Self::OpenRouter => CredentialStrategy::OAuthOrApiKey,
             Self::Local => CredentialStrategy::Local,
             _ => CredentialStrategy::ApiKey,
         }
@@ -92,6 +103,7 @@ impl ProviderId {
         match self.credential_strategy() {
             CredentialStrategy::ApiKey => "API key",
             CredentialStrategy::SubscriptionOAuth => "subscription OAuth",
+            CredentialStrategy::OAuthOrApiKey => "OAuth or API key",
             CredentialStrategy::Local => "local; no login",
         }
     }
@@ -144,3 +156,6 @@ impl FromStr for ProviderId {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
