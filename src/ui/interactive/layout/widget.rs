@@ -46,11 +46,23 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         if input.tools_expanded {
             content.push_str(&raw_output);
         } else {
-            let truncated = truncate_to_visual_lines(&raw_output, 5, width.saturating_sub(4).max(1));
-            if truncated.skipped_count > 0 {
+            const PRE_SLICE_LINE_LIMIT: usize = 50;
+            let total_lines = raw_output.bytes().filter(|&b| b == b'\n').count() + 1;
+            let (tail_text, earlier_skipped) = if total_lines > PRE_SLICE_LINE_LIMIT {
+                if let Some((idx, _)) = raw_output.rmatch_indices('\n').nth(PRE_SLICE_LINE_LIMIT - 1) {
+                    (&raw_output[idx + 1..], total_lines - PRE_SLICE_LINE_LIMIT)
+                } else {
+                    (raw_output.as_str(), 0)
+                }
+            } else {
+                (raw_output.as_str(), 0)
+            };
+
+            let truncated = truncate_to_visual_lines(tail_text, 5, width.saturating_sub(4).max(1));
+            let total_skipped = earlier_skipped + truncated.skipped_count;
+            if total_skipped > 0 {
                 content.push_str(&format!(
-                    "{dim}... ({} earlier lines, Ctrl+O to expand){dim:#}\n",
-                    truncated.skipped_count
+                    "{dim}... ({total_skipped} earlier lines, Ctrl+O to expand){dim:#}\n"
                 ));
             }
             content.push_str(&truncated.visual_lines.join("\n"));

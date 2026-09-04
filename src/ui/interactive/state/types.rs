@@ -1,6 +1,5 @@
 use super::editor::EditorState;
 use super::modal::ModalState;
-use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueKind {
@@ -29,35 +28,6 @@ impl Activity {
             Self::Thinking => "thinking",
             Self::Working => "working",
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunningTool {
-    pub name: String,
-    pub args_summary: String,
-    pub started: Instant,
-    pub output: String,
-    pub preview: Option<String>,
-}
-
-impl RunningTool {
-    pub fn new(name: impl Into<String>, args_summary: impl Into<String>, preview: Option<String>) -> Self {
-        Self {
-            name: name.into(),
-            args_summary: args_summary.into(),
-            started: Instant::now(),
-            output: String::new(),
-            preview,
-        }
-    }
-
-    pub fn append_chunk(&mut self, chunk: &str) {
-        self.output.push_str(chunk);
-    }
-
-    pub fn elapsed(&self) -> std::time::Duration {
-        self.started.elapsed()
     }
 }
 
