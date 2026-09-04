@@ -25,6 +25,23 @@ fn test_mcp_tool_result_as_text() {
     assert_eq!(result.as_text(), "line 1\nline 2");
 }
 
+#[test]
+fn test_mcp_tool_result_as_text_bounded_multibyte_boundary() {
+    let result = McpToolResult {
+        content: vec![McpContent {
+            kind: "text".to_string(),
+            text: Some("hello 🦀 world".to_string()),
+            data: None,
+            mime_type: None,
+        }],
+        is_error: Some(false),
+    };
+    // "hello " is 6 bytes, "🦀" is 4 bytes (indices 6..10).
+    // Cutting at 7, 8, or 9 bytes falls in the middle of '🦀'.
+    let bounded = result.as_text_truncated(8);
+    assert!(bounded.starts_with("hello \n[MCP tool output truncated at 8 bytes]"));
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn test_mcp_client_handshake_and_tools_list() {

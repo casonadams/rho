@@ -147,8 +147,9 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "bash" => {
             let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
             let clean = clean_command_paths(raw_cmd);
-            let cmd_str = if clean.len() > 60 {
-                format!("`{}...`", &clean[..60])
+            let (preview, was_truncated) = truncate_preview(&clean, 60);
+            let cmd_str = if was_truncated {
+                format!("`{preview}...`")
             } else {
                 format!("`{clean}`")
             };
@@ -202,13 +203,25 @@ pub fn format_tool_args_full(name: &str, args: &serde_json::Value) -> String {
     }
 }
 
+fn truncate_preview(text: &str, limit: usize) -> (&str, bool) {
+    if let Some((idx, _)) = text.char_indices().nth(limit) {
+        (&text[..idx], true)
+    } else {
+        (text, false)
+    }
+}
+
 pub fn summarize_tool_output(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("").trim();
-    if first_line.len() > 60 {
-        format!("{}...", &first_line[..60])
+    let (preview, was_truncated) = truncate_preview(first_line, 60);
+    if was_truncated {
+        format!("{preview}...")
     } else if !first_line.is_empty() {
         first_line.to_string()
     } else {
         format!("{} lines", content.lines().count())
     }
 }
+
+#[cfg(test)]
+mod tests;

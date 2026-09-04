@@ -58,7 +58,7 @@ impl McpToolResult {
             }
         }
         if out.len() > max_bytes && max_bytes > 0 {
-            let truncated = &out[..max_bytes.min(out.len())];
+            let truncated = &out[..out.floor_char_boundary(max_bytes.min(out.len()))];
             format!("{truncated}\n[MCP tool output truncated at {max_bytes} bytes]")
         } else {
             out
