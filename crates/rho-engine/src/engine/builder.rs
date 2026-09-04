@@ -184,6 +184,7 @@ impl AgentEngineBuilder {
             context: ContextTracker::new(context_limit),
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
+            auth_store,
         })
     }
 }

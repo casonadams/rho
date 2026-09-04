@@ -88,6 +88,7 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
         context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
+        auth_store: crate::auth::AuthStore::default(),
     };
     let TurnOutput { metrics, usage, .. } = engine
         .run_turn(TurnRequest::new("continue"), super::presenter::presenter())

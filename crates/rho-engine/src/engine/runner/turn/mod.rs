@@ -94,7 +94,8 @@ impl AgentEngine {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),
                 None => runner,
             };
-            let stream_start = Instant::now();
+            let mut model_call_start = Some(Instant::now());
+            let mut total_generation_elapsed_ms: u64 = 0;
             let mut stream = runner.stream().await;
             let mut final_response = None;
             let mut reasoning_parts = HashSet::new();
@@ -133,6 +134,9 @@ impl AgentEngine {
                         sink.resume_model_spinner();
                     }
                     MultiTurnStreamItem::StreamAssistantItem(item) => {
+                        if model_call_start.is_none() {
+                            model_call_start = Some(Instant::now());
+                        }
                         for event in display_events(item, &mut reasoning_parts) {
                             match event {
                                 super::history::DisplayEvent::Text(text) => sink.emit_text(&text),
@@ -145,9 +149,19 @@ impl AgentEngine {
                         }
                     }
                     MultiTurnStreamItem::FinalResponse(response) => final_response = Some(response),
-                    MultiTurnStreamItem::CompletionCall(call) => self.run_tracker.completion(call),
-                    MultiTurnStreamItem::ModelTurnRetried { .. } => sink.resume_model_spinner(),
-                    MultiTurnStreamItem::ToolExecutionCommitted { .. } => {}
+                    MultiTurnStreamItem::CompletionCall(call) => {
+                        if let Some(start) = model_call_start.take() {
+                            total_generation_elapsed_ms += start.elapsed().as_millis().max(1) as u64;
+                        }
+                        self.run_tracker.completion(call);
+                    }
+                    MultiTurnStreamItem::ModelTurnRetried { .. } => {
+                        model_call_start = Some(Instant::now());
+                        sink.resume_model_spinner();
+                    }
+                    MultiTurnStreamItem::ToolExecutionCommitted { .. } => {
+                        model_call_start = Some(Instant::now());
+                    }
                     MultiTurnStreamItem::StreamUserItem(_) => {}
                 }
             }
@@ -159,7 +173,9 @@ impl AgentEngine {
                 continue;
             }
 
-            let generation_elapsed_ms = stream_start.elapsed().as_millis().max(1) as u64;
+            let generation_elapsed_ms = (total_generation_elapsed_ms
+                + model_call_start.map(|s| s.elapsed().as_millis() as u64).unwrap_or(0))
+            .max(1);
             sink.finish_spinner();
             sink.flush_display();
             let Some(response) = final_response else {
@@ -266,11 +282,9 @@ impl AgentEngine {
 
         let usage = response.usage;
         let usage_details = usage.has_values().then(|| usage.into());
-        if generation_elapsed_ms > 0 {
-            self.usage.record_with_duration(usage.into(), generation_elapsed_ms);
-        } else {
-            self.record_usage(usage.into());
-        }
+        let latest_context_usage = response.completion_calls.last().map(|call| call.usage).unwrap_or(usage);
+        let turn_usage = crate::engine::tracking::TurnUsage::new(usage.into(), latest_context_usage.into());
+        self.usage.record_turn(turn_usage, generation_elapsed_ms);
         self.session_manager
             .append_event(
                 SessionEventKind::UsageMetrics,

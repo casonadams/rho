@@ -242,3 +242,21 @@ async fn builder_attaches_dynamic_plugin_tools() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn refresh_quota_non_antigravity_is_noop() {
+    with_dummy_provider_key();
+    let (config, dir) = test_config("quota_noop");
+    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .base_dir(std::env::temp_dir())
+        .build()
+        .await
+        .unwrap();
+
+    assert_eq!(engine.quota_display(), None);
+    engine.refresh_quota().await;
+    assert_eq!(engine.quota_display(), None);
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

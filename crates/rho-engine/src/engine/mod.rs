@@ -34,6 +34,7 @@ pub struct AgentEngine {
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
+    pub(crate) auth_store: AuthStore,
 }
 
 impl AgentEngine {
@@ -162,13 +163,35 @@ impl AgentEngine {
         }
     }
 
-    pub async fn refresh_quota(&self) {}
+    pub async fn refresh_quota(&self) {
+        let provider = self.config.provider.trim();
+        if !provider.eq_ignore_ascii_case("antigravity") && !provider.eq_ignore_ascii_case("google-antigravity") {
+            return;
+        }
+        if !self.quota.should_fetch() {
+            return;
+        }
+        let mut auth_store = self.auth_store.clone();
+        let token = match auth_store.get_key("antigravity").await {
+            Ok(Some(t)) => t,
+            _ => {
+                self.quota.record_failure();
+                return;
+            }
+        };
+        let project_id = match auth_store.get_credential("antigravity") {
+            Some(rho_harness_core::auth::StoredCredential::OAuth {
+                account_id: Some(id), ..
+            }) => id.clone(),
+            _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+        };
+        match crate::antigravity::fetch_quota(&token, &project_id, &self.config.model).await {
+            Some(display) => self.quota.record_success(display),
+            None => self.quota.record_failure(),
+        }
+    }
 
     pub fn quota_display(&self) -> Option<String> {
         self.quota.latest()
-    }
-
-    pub(crate) fn record_usage(&self, usage: metrics::StructuralUsage) {
-        self.usage.record(usage);
     }
 }
