@@ -89,7 +89,7 @@ fn friendly_error(status: Option<u16>, body: &str) -> String {
 }
 
 /// POST a Cloud Code Assist metadata endpoint, trying endpoint candidates.
-async fn post_metadata(path: &str, token: &str, body: serde_json::Value) -> Option<serde_json::Value> {
+pub(crate) async fn post_metadata(path: &str, token: &str, body: serde_json::Value) -> Option<serde_json::Value> {
     for endpoint in ENDPOINT_CANDIDATES {
         let response = http_client()
             .post(format!("{endpoint}{path}"))
