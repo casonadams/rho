@@ -80,3 +80,20 @@ fn renderer_flush_resets_markdown_state_between_turns() {
     );
     assert!(turn2_output.contains("Second Turn Title"));
 }
+
+#[test]
+fn fast_tools_emit_footer_status_without_live_widget_bounce() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.start_tool_run("edit", &serde_json::json!({"path": "src/main.rs"}));
+    assert!(matches!(events.try_recv(), Ok(UiEvent::RunningTool(Some(name))) if name == "edit"));
+    assert!(events.try_recv().is_err(), "edit should not emit ToolStart widget");
+
+    renderer.start_tool_run("write", &serde_json::json!({"path": "src/main.rs", "content": "hello"}));
+    assert!(matches!(events.try_recv(), Ok(UiEvent::RunningTool(Some(name))) if name == "write"));
+    assert!(events.try_recv().is_err(), "write should not emit ToolStart widget");
+
+    renderer.start_tool_run("bash", &serde_json::json!({"command": "cargo test"}));
+    assert!(matches!(events.try_recv(), Ok(UiEvent::ToolStart(req)) if req.name == "bash"));
+}

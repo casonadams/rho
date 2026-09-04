@@ -13,11 +13,7 @@ pub struct RunningToolWidgetInput<'a> {
 }
 
 pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
-    if input.tool.preview.is_none()
-        && input.tool.output.is_empty()
-        && input.tool.name != "bash"
-        && input.tool.name != "write"
-    {
+    if input.tool.preview.is_none() && input.tool.output.is_empty() && input.tool.name != "bash" {
         return Vec::new();
     }
 
@@ -47,22 +43,7 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
     let raw_output = input.tool.output.trim_end().replace('\t', "   ");
     if !raw_output.is_empty() {
         content.push_str("\n\n");
-        if input.tool.name == "write" {
-            let lang = crate::ui::render::preview::detect_language_from_path(&input.tool.args_summary);
-            let lines: Vec<&str> = raw_output.lines().collect();
-            let total = lines.len();
-            let max = if input.tools_expanded { total } else { 10.min(total) };
-            let gutter_width = max.to_string().len().max(3);
-            for (idx, line) in lines[..max].iter().enumerate() {
-                let line_num = idx + 1;
-                let highlighted = crate::ui::markdown::highlight_code_line(line, lang, input.theme);
-                content.push_str(&format!("{dim}{line_num:>gutter_width$} │ {dim:#}{highlighted}\n"));
-            }
-            if !input.tools_expanded && total > 10 {
-                let dim = input.theme.dimmed;
-                content.push_str(&format!("{dim}... ({} more lines, {total} total){dim:#}\n", total - 10));
-            }
-        } else if input.tools_expanded {
+        if input.tools_expanded {
             content.push_str(&raw_output);
         } else {
             const PRE_SLICE_LINE_LIMIT: usize = 50;
