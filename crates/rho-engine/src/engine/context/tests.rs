@@ -17,12 +17,11 @@ async fn test_project_context_discovery() {
     .await
     .unwrap();
 
-    let ctx = ProjectContext::discover(&temp_dir, None, true).await;
+    let ctx = ProjectContext::discover(&temp_dir, None).await;
     assert_eq!(ctx.instruction_files.len(), 1);
     assert!(ctx.instruction_files[0].0.ends_with("AGENTS.md"));
-    assert!(ctx.skills.len() >= 2);
+    assert_eq!(ctx.skills.len(), 1);
     assert!(ctx.skills.iter().any(|s| s.name == "plan"));
-    assert!(ctx.skills.iter().any(|s| s.name == "create-plugin"));
 
     let prompt = ctx.build_system_prompt();
     assert!(prompt.contains("Agent Rules"));
@@ -55,7 +54,7 @@ async fn test_user_config_skills_override_builtin_skills() {
     .await
     .unwrap();
 
-    let ctx = ProjectContext::discover(&project_dir, Some(&config_dir), true).await;
+    let ctx = ProjectContext::discover(&project_dir, Some(&config_dir)).await;
     let plan_skill = ctx.skills.iter().find(|s| s.name == "plan").unwrap();
     assert_eq!(plan_skill.description, "Custom user plan override");
     assert!(plan_skill.location.contains("config/skills/plan/SKILL.md"));
@@ -105,7 +104,6 @@ async fn test_global_agents_md_discovery_hierarchy() {
             config_dir: Some(&config_dir),
             home_dir: Some(&home_dir),
         },
-        true,
     )
     .await;
 
@@ -157,7 +155,6 @@ async fn test_instruction_deduplication_via_symlink() {
             config_dir: Some(&config_dir),
             home_dir: Some(&home_dir),
         },
-        true,
     )
     .await;
 

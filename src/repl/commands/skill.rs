@@ -5,11 +5,7 @@ use std::io::IsTerminal as _;
 
 pub fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     let cwd = std::env::current_dir().ok();
-    let skills = crate::skills::resolved_skills(
-        Some(&ctx.config.config_dir),
-        cwd.as_deref(),
-        !ctx.config.disable_built_in_skills,
-    );
+    let skills = crate::skills::resolved_skills(Some(&ctx.config.config_dir), cwd.as_deref());
     let lookup = |name: &str| skills.iter().find(|skill| skill.metadata.name == name).cloned();
     let list = |output: &mut String| {
         for skill in &skills {

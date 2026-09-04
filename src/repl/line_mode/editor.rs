@@ -19,11 +19,7 @@ pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reed
     );
     let edit_mode = Box::new(Emacs::new(keybindings));
 
-    let skills = crate::skills::resolved_skills(
-        Some(&config.config_dir),
-        std::env::current_dir().ok().as_deref(),
-        !config.disable_built_in_skills,
-    );
+    let skills = crate::skills::resolved_skills(Some(&config.config_dir), std::env::current_dir().ok().as_deref());
     let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
         Some(&config.config_dir),
         std::env::current_dir().ok().as_deref(),
@@ -57,7 +53,6 @@ pub fn print_line_mode_welcome(session: &ReplSession, engine: &AgentEngine) {
     let skills = crate::skills::resolved_skills(
         Some(&session.config.config_dir),
         std::env::current_dir().ok().as_deref(),
-        !session.config.disable_built_in_skills,
     );
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
     let tools = engine.tool_names.clone();

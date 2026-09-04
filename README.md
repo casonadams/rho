@@ -138,11 +138,9 @@ Global settings, credentials, state cache, skills, and instructions live under
   3. Workspace `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
 - **Skills**: Declarative `SKILL.md` workflows resolved with precedence:
   1. Project `.agents/skills/`, `.rho/skills/`, or `./skills/` (highest
-     precedence, overrides user & built-in)
+     precedence, overrides user skills)
   2. User `~/.agents/skills/`, `~/.config/agents/skills/`,
      `~/.config/rho/skills/`, or `~/.skills/`
-  3. Embedded built-in skills (`create-plugin`, `lean`, `plan`,
-     `repo-agents-builder`, `simplify`, `spec`)
 
   Skills can be written as single flat markdown files (`skills/my-skill.md`) or
   structured directories (`skills/my-skill/SKILL.md` with optional supporting
@@ -150,10 +148,6 @@ Global settings, credentials, state cache, skills, and instructions live under
   YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>` (e.g.
   `/skill:simplify src/api`); completion offers skill names after typing
   `/skill `.
-
-  Set `disable_built_in_skills = true` in `config.toml` to hide the embedded
-  built-ins; user and project skills still resolve. Toggle it from the CLI with
-  `rho config disable_built_in_skills true`.
 
 ---
 

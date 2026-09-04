@@ -56,14 +56,11 @@ impl ReplSession {
         let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
         self.config = config;
 
-        let skills: Vec<String> = crate::skills::resolved_skills(
-            Some(&self.config.config_dir),
-            std::env::current_dir().ok().as_deref(),
-            !self.config.disable_built_in_skills,
-        )
-        .into_iter()
-        .map(|s| s.metadata.name)
-        .collect();
+        let skills: Vec<String> =
+            crate::skills::resolved_skills(Some(&self.config.config_dir), std::env::current_dir().ok().as_deref())
+                .into_iter()
+                .map(|s| s.metadata.name)
+                .collect();
         let tools = rebuilt.tool_names.clone();
 
         self.renderer.print_notice(&format!(

@@ -180,23 +180,6 @@ async fn test_read_missing_file() {
     assert!(res.content.contains("File not found"));
 }
 
-#[tokio::test]
-async fn test_read_builtin_embedded_skill() {
-    let tool = ReadTool::new(std::env::temp_dir());
-    let res = tool
-        .execute(ReadArgs {
-            path: "rho://skills/create-plugin".to_string(),
-            offset: None,
-            limit: None,
-        })
-        .await
-        .unwrap();
-
-    assert!(!res.is_error);
-    assert!(res.content.contains("Creating an MCP Tool Server"));
-    assert!(res.content.contains("Scaffold and package"));
-}
-
 // --- image attachment tests (generated fixtures, no binary files) ---
 
 use base64::Engine as _;

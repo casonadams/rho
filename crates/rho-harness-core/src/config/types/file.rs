@@ -27,7 +27,6 @@ pub(crate) struct FileConfig {
     pub follow_up_mode: Option<crate::queue::QueueMode>,
     pub thinking_level: Option<String>,
     pub context_injection_max_tokens: Option<usize>,
-    pub disable_built_in_skills: Option<bool>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
     #[serde(default)]

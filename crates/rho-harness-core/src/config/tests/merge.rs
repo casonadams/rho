@@ -39,16 +39,6 @@ fn test_file_merge() {
     assert_eq!(cfg.context_window_messages, 16);
     assert_eq!(cfg.compaction_max_bytes, 4096);
     assert_eq!(cfg.search_min_interval_ms, 3000);
-
-    let mut cfg = Config::default();
-    merge::merge_file(
-        &mut cfg,
-        FileConfig {
-            disable_built_in_skills: Some(true),
-            ..Default::default()
-        },
-    );
-    assert!(cfg.disable_built_in_skills);
 }
 
 #[test]

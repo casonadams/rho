@@ -1,19 +1,13 @@
-use super::builtin::{builtin_skills, get_builtin_skill_content};
 use super::parser::parse_skill_file;
 use super::types::{ResolvedSkill, SkillMetadata, SkillOrigin, SkillResolutionPaths};
 use std::path::{Path, PathBuf};
 
-/// Resolve every skill available to the session: embedded built-ins (unless
-/// `include_builtins` is false), then
-/// declarative overrides as `SKILL.md` files under user directories (`~/.agents/skills`,
-/// `~/.config/agents/skills`, `<config_dir>/skills`) and project skill directories
-/// (`.agents/skills`, `.rho/skills`, `skills`). Later origins replace earlier ones by name.
-/// Overrides carry readable content only and are never executed.
-pub fn resolved_skills(
-    config_dir: Option<&Path>,
-    project_dir: Option<&Path>,
-    include_builtins: bool,
-) -> Vec<ResolvedSkill> {
+/// Resolve every skill available to the session: declarative skills as `SKILL.md`
+/// files under user directories (`~/.agents/skills`, `~/.config/agents/skills`,
+/// `<config_dir>/skills`) and project skill directories (`.agents/skills`,
+/// `.rho/skills`, `skills`). Project skills replace user skills by name.
+/// Skills carry readable content only and are never executed.
+pub fn resolved_skills(config_dir: Option<&Path>, project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()
@@ -23,22 +17,12 @@ pub fn resolved_skills(
         project_dir,
         home_dir: home.as_deref(),
     };
-    resolved_skills_for_paths(paths, include_builtins)
+    resolved_skills_for_paths(paths)
 }
 
 /// Resolve skills with an explicit user home directory.
-pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>, include_builtins: bool) -> Vec<ResolvedSkill> {
-    let mut resolved: Vec<ResolvedSkill> = if include_builtins {
-        builtin_skills()
-            .into_iter()
-            .map(|metadata| ResolvedSkill {
-                metadata,
-                origin: SkillOrigin::Builtin,
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<ResolvedSkill> {
+    let mut resolved: Vec<ResolvedSkill> = Vec::new();
 
     if let Some(home_path) = paths.home_dir {
         scan_directory(&home_path.join(".agents/skills"), SkillOrigin::User, &mut resolved);
@@ -63,15 +47,10 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>, include_builti
 
 /// Full content of one skill by name in the resolved set.
 ///
-/// Built-in content is embedded; overrides are read from their recorded file
-/// location, never interpreted or executed.
+/// Skills are read from their recorded file location, never interpreted or executed.
 pub fn resolved_content(skills: &[ResolvedSkill], name: &str) -> Option<String> {
     let skill = skills.iter().find(|skill| skill.metadata.name == name)?;
-    if skill.metadata.location.starts_with("rho://skills/") {
-        get_builtin_skill_content(name).map(str::to_string)
-    } else {
-        std::fs::read_to_string(&skill.metadata.location).ok()
-    }
+    std::fs::read_to_string(&skill.metadata.location).ok()
 }
 
 fn scan_directory(directory: &Path, origin: SkillOrigin, resolved: &mut Vec<ResolvedSkill>) {

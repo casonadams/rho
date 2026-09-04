@@ -8,11 +8,10 @@ pub struct SkillMetadata {
     pub location: String,
 }
 
-/// Where a resolved skill came from; `Project` overrides `User` overrides
-/// `Builtin` for the same skill name.
+/// Where a resolved skill came from; `Project` overrides `User`
+/// for the same skill name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillOrigin {
-    Builtin,
     User,
     Project,
 }
@@ -20,7 +19,6 @@ pub enum SkillOrigin {
 impl fmt::Display for SkillOrigin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Builtin => write!(f, "built-in"),
             Self::User => write!(f, "user"),
             Self::Project => write!(f, "project"),
         }

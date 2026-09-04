@@ -17,8 +17,15 @@ fn slash_commands_complete_from_a_prefix() {
 
 #[test]
 fn skill_names_complete_from_prefix() {
-    let skills = crate::skills::resolved_skills(None, None, true);
-    let sources = crate::repl::interactive::CompletionSources::new().with_skills(skills);
+    let skill = rho_harness_core::skills::ResolvedSkill {
+        metadata: rho_harness_core::skills::SkillMetadata {
+            name: "plan".to_string(),
+            description: "Planning workflow".to_string(),
+            location: "/path".to_string(),
+        },
+        origin: rho_harness_core::skills::SkillOrigin::User,
+    };
+    let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill]);
     let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/skill pl", 9);
     assert!(suggestions.iter().any(|s| s.value == "/skill plan"));

@@ -22,7 +22,7 @@ pub struct ProjectContext {
 }
 
 impl ProjectContext {
-    pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>, include_builtins: bool) -> Self {
+    pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>) -> Self {
         let home = if config_dir.is_some() {
             std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
@@ -37,12 +37,11 @@ impl ProjectContext {
                 config_dir,
                 home_dir: home.as_deref(),
             },
-            include_builtins,
         )
         .await
     }
 
-    pub async fn discover_with_dirs(dir: impl AsRef<Path>, dirs: ContextDirs<'_>, include_builtins: bool) -> Self {
+    pub async fn discover_with_dirs(dir: impl AsRef<Path>, dirs: ContextDirs<'_>) -> Self {
         let base = dir.as_ref();
         let instruction_files = instructions::discover_instructions(base, dirs);
 
@@ -51,7 +50,7 @@ impl ProjectContext {
             project_dir: Some(base),
             home_dir: dirs.home_dir,
         };
-        let skills: Vec<SkillMetadata> = rho_harness_core::skills::resolved_skills_for_paths(paths, include_builtins)
+        let skills: Vec<SkillMetadata> = rho_harness_core::skills::resolved_skills_for_paths(paths)
             .into_iter()
             .map(|skill| skill.metadata)
             .collect();

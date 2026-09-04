@@ -23,7 +23,6 @@ pub(crate) enum ConfigKey {
     ReserveTokens,
     KeepRecentTokens,
     ThinkingLevel,
-    DisableBuiltInSkills,
 }
 
 impl FromStr for ConfigKey {
@@ -52,7 +51,6 @@ impl FromStr for ConfigKey {
             "follow_up_mode" => Ok(Self::FollowUpMode),
             "reserve_tokens" => Ok(Self::ReserveTokens),
             "keep_recent_tokens" => Ok(Self::KeepRecentTokens),
-            "disable_built_in_skills" => Ok(Self::DisableBuiltInSkills),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -82,7 +80,6 @@ impl ConfigKey {
             Self::ReserveTokens => "reserve_tokens",
             Self::KeepRecentTokens => "keep_recent_tokens",
             Self::ThinkingLevel => "thinking_level",
-            Self::DisableBuiltInSkills => "disable_built_in_skills",
         }
     }
 }

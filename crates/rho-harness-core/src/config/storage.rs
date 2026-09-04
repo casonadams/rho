@@ -47,9 +47,6 @@ impl super::Config {
             ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
             ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
             ConfigKey::ThinkingLevel => file_config.thinking_level = Some(value.to_string()),
-            ConfigKey::DisableBuiltInSkills => {
-                file_config.disable_built_in_skills = Some(parse_bool(key.as_str(), value)?)
-            }
         }
 
         write_file_config(&path, &file_config)

@@ -29,10 +29,6 @@ impl ReadTool {
             return Ok(ToolResult::error("Empty file path provided for read tool"));
         }
 
-        if let Some(builtin) = rho_harness_core::skills::get_builtin_skill_content(clean_path) {
-            return Ok(format_content(builtin, clean_path, &args));
-        }
-
         let workspace = Workspace::new(&self.base_dir);
         let Some(path) = workspace.resolve(clean_path) else {
             return Ok(ToolResult::error("Empty file path provided for read tool"));

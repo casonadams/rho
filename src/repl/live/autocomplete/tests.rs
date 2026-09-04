@@ -49,7 +49,7 @@ fn test_autocomplete_pi_exact_contract() {
             description: "Planning workflow".to_string(),
             location: "/path".to_string(),
         },
-        origin: SkillOrigin::Builtin,
+        origin: SkillOrigin::User,
     };
     let skill2 = ResolvedSkill {
         metadata: SkillMetadata {
@@ -57,7 +57,7 @@ fn test_autocomplete_pi_exact_contract() {
             description: "Specification workflow".to_string(),
             location: "/path".to_string(),
         },
-        origin: SkillOrigin::Builtin,
+        origin: SkillOrigin::User,
     };
     let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill1, skill2]);
     let completions = CompletionSet::from_sources(sources);
