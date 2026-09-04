@@ -1,4 +1,4 @@
-//! Markdown streaming renderer with terminal-friendly formatting.
+//! Markdown rendering engine with streaming support.
 //!
 //! Submodules:
 //! - [`renderer`]: the core `MarkdownRenderer` state machine that processes tokens line-by-line.
@@ -7,6 +7,8 @@
 //! - [`table`]: markdown table parsing and layout.
 //! - [`line`]: line-level element rendering and prefix buffering.
 //! - [`stream`]: inline token streaming state tracker.
+//! - [`spacing`]: block separation and newline normalization.
+//! - [`mermaid`]: mermaid diagram block tracker.
 //!
 //! Public API is re-exported here so external callers continue to use
 //! `crate::ui::markdown::{MarkdownRenderer, render_inline_elements, ...}`.
@@ -14,7 +16,9 @@
 mod elements;
 mod highlight;
 mod line;
+mod mermaid;
 mod renderer;
+mod spacing;
 mod stream;
 mod table;
 

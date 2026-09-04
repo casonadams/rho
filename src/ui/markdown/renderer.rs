@@ -1,38 +1,22 @@
 //! Core `MarkdownRenderer` state machine with spacing normalization.
 
-use super::elements::render_mermaid_block;
 use super::highlight::highlight_code_line;
 use super::line::{CodeFenceTracker, needs_preceding_blank_line, render_line, should_buffer_line};
+use super::mermaid::MermaidBlockTracker;
+use super::spacing::SpacingTracker;
 use super::stream::InlineStreamTracker;
 use super::table::{is_table_line, render_markdown_table};
 use crate::ui::theme::Theme;
 
+#[derive(Default)]
 pub struct MarkdownRenderer {
     code_fence: CodeFenceTracker,
-    in_mermaid_block: bool,
+    mermaid: MermaidBlockTracker,
     current_line: String,
     emitted_on_current_line: bool,
     table_lines: Vec<String>,
-    mermaid_lines: Vec<String>,
     stream_tracker: InlineStreamTracker,
-    is_start: bool,
-    last_line_was_blank: bool,
-}
-
-impl Default for MarkdownRenderer {
-    fn default() -> Self {
-        Self {
-            code_fence: CodeFenceTracker::default(),
-            in_mermaid_block: false,
-            current_line: String::new(),
-            emitted_on_current_line: false,
-            table_lines: Vec::new(),
-            mermaid_lines: Vec::new(),
-            stream_tracker: InlineStreamTracker::default(),
-            is_start: true,
-            last_line_was_blank: true,
-        }
-    }
+    spacing: SpacingTracker,
 }
 
 impl MarkdownRenderer {
@@ -53,8 +37,7 @@ impl MarkdownRenderer {
                 out.push('\n');
                 self.current_line.clear();
                 self.emitted_on_current_line = false;
-                self.is_start = false;
-                self.last_line_was_blank = false;
+                self.spacing.note_content();
             } else {
                 let line = std::mem::take(&mut self.current_line);
                 out.push_str(&self.process_line(&line, theme));
@@ -72,73 +55,58 @@ impl MarkdownRenderer {
 
     fn handle_trailing_chunk(&mut self, remaining: &str, theme: &Theme) -> String {
         self.current_line.push_str(remaining);
-
         if self.emitted_on_current_line {
             return self.stream_tracker.render_inline_token(remaining, theme);
         }
         if self.code_fence.in_code_block
-            || self.in_mermaid_block
+            || self.mermaid.in_block()
             || !self.table_lines.is_empty()
             || should_buffer_line(&self.current_line)
         {
             return String::new();
         }
-
         self.emitted_on_current_line = true;
-        self.is_start = false;
-        self.last_line_was_blank = false;
+        self.spacing.note_content();
         self.stream_tracker.render_inline_token(remaining, theme)
     }
 
     pub fn flush(&mut self, theme: &Theme) -> String {
         let mut out = String::new();
         self.flush_buffered_blocks(&mut out, theme);
-        if !self.current_line.is_empty() {
-            if !self.emitted_on_current_line {
-                let line = std::mem::take(&mut self.current_line);
-                out.push_str(&self.process_line(&line, theme));
-            } else {
-                self.current_line.clear();
-                out.push('\n');
-                self.last_line_was_blank = false;
-            }
+        if !self.current_line.is_empty() && !self.emitted_on_current_line {
+            let line = std::mem::take(&mut self.current_line);
+            out.push_str(&self.process_line(&line, theme));
         } else if self.emitted_on_current_line {
+            self.current_line.clear();
             out.push('\n');
-            self.last_line_was_blank = false;
+            self.spacing.note_content();
         }
         self.emitted_on_current_line = false;
         out
     }
 
-    fn append_block(&mut self, out: &mut String, rendered: &str) {
-        if !self.is_start && !self.last_line_was_blank {
-            out.push('\n');
-        }
-        out.push_str(rendered);
-        self.is_start = false;
-        self.last_line_was_blank = false;
-    }
-
     fn flush_buffered_blocks(&mut self, out: &mut String, theme: &Theme) {
         if !self.table_lines.is_empty() {
             let rendered = render_markdown_table(&std::mem::take(&mut self.table_lines), theme);
-            self.append_block(out, &rendered);
+            self.spacing.append_block(out, &rendered);
         }
-        if self.in_mermaid_block && !self.mermaid_lines.is_empty() {
-            self.in_mermaid_block = false;
-            let rendered = render_mermaid_block(&std::mem::take(&mut self.mermaid_lines).join("\n"), theme);
-            self.append_block(out, &rendered);
+        if let Some(rendered) = self.mermaid.flush_rendered(theme) {
+            self.spacing.append_block(out, &rendered);
         }
     }
 
     fn process_line(&mut self, line: &str, theme: &Theme) -> String {
         let trimmed = line.trim();
 
-        if let Some(rendered) = self.check_mermaid_toggle(trimmed, theme) {
-            return rendered;
+        if let Some(opt_rendered) = self.mermaid.try_render_fence(trimmed, theme) {
+            let mut out = String::new();
+            if let Some(rendered) = opt_rendered {
+                self.spacing.append_block(&mut out, &rendered);
+            }
+            return out;
         }
-        if self.in_mermaid_block {
-            self.mermaid_lines.push(line.to_string());
+        if self.mermaid.in_block() {
+            self.mermaid.push_line(line);
             return String::new();
         }
         if is_table_line(trimmed) {
@@ -153,47 +121,21 @@ impl MarkdownRenderer {
             if self.code_fence.in_code_block {
                 out.push_str(&highlight_code_line(line, self.code_fence.code_lang.as_deref(), theme));
                 out.push('\n');
-                self.is_start = false;
-                self.last_line_was_blank = false;
-            } else if !self.is_start && !self.last_line_was_blank {
-                out.push('\n');
-                self.last_line_was_blank = true;
+                self.spacing.note_content();
+            } else {
+                self.spacing.handle_empty_line(&mut out);
             }
             return out;
         }
 
-        if needs_preceding_blank_line(trimmed, self.code_fence.in_code_block)
-            && !self.is_start
-            && !self.last_line_was_blank
-        {
-            out.push('\n');
+        if needs_preceding_blank_line(trimmed, self.code_fence.in_code_block) {
+            self.spacing.ensure_preceding_blank(&mut out);
         }
 
-        out.push_str(&self.render_line(line, theme));
+        out.push_str(&render_line(line, &mut self.code_fence, theme));
         out.push('\n');
-        self.is_start = false;
-        self.last_line_was_blank = false;
+        self.spacing.note_content();
         out
-    }
-
-    fn check_mermaid_toggle(&mut self, trimmed: &str, theme: &Theme) -> Option<String> {
-        if !trimmed.starts_with("```") {
-            return None;
-        }
-        let tag = trimmed.trim_start_matches('`').trim();
-        if self.in_mermaid_block {
-            self.in_mermaid_block = false;
-            let mut out = String::new();
-            let src = std::mem::take(&mut self.mermaid_lines).join("\n");
-            self.append_block(&mut out, &render_mermaid_block(&src, theme));
-            Some(out)
-        } else if tag.eq_ignore_ascii_case("mermaid") {
-            self.in_mermaid_block = true;
-            self.mermaid_lines.clear();
-            Some(String::new())
-        } else {
-            None
-        }
     }
 
     pub fn render_line(&mut self, line: &str, theme: &Theme) -> String {
