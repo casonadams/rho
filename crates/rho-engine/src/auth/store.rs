@@ -130,6 +130,24 @@ impl AuthStore {
         Ok(None)
     }
 
+    pub async fn force_refresh(&mut self, provider: &str) -> Result<Option<String>> {
+        if let Some(cred) = self.credentials.get(provider) {
+            match cred {
+                StoredCredential::OAuth { .. } => {
+                    let provider_id = ProviderId::from_str(provider)
+                        .map_err(|e| AppError::Auth(format!("Unknown provider '{provider}': {e}")))?;
+                    let refreshed = refresh_oauth_token(provider_id, cred).await?;
+                    let access = refreshed.raw_secret().to_string();
+                    self.credentials.insert(provider.to_string(), refreshed);
+                    self.save()?;
+                    return Ok(Some(access));
+                }
+                StoredCredential::ApiKey { key, .. } => return resolve_secret_value(key).map(Some),
+            }
+        }
+        self.get_key(provider).await
+    }
+
     pub fn get_credential(&self, provider: &str) -> Option<&StoredCredential> {
         self.credentials.get(provider)
     }

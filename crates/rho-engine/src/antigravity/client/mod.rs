@@ -12,6 +12,7 @@ use rig::streaming::{RawStreamingChoice, StreamFinal};
 pub mod completion;
 pub mod discovery;
 pub mod http;
+pub mod token;
 
 #[cfg(test)]
 mod tests;
@@ -19,6 +20,7 @@ mod tests;
 pub use discovery::{discover_models, is_selectable_runtime_model, load_project_id};
 pub(crate) use http::post_metadata;
 pub use http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, http_client};
+pub use token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 
 /// One (endpoint, project, runtime-model) routing combination for a stream POST.
 #[derive(Clone, Copy)]
@@ -29,7 +31,13 @@ pub struct Endpoint<'a> {
     effort: Effort,
 }
 
-impl Endpoint<'_> {
+#[derive(Clone, Copy)]
+struct EndpointTarget<'a, 't> {
+    endpoint: Endpoint<'a>,
+    token: &'t str,
+}
+
+impl<'a> Endpoint<'a> {
     fn wire_target(&self) -> RequestTarget<'_> {
         RequestTarget {
             project: self.project,
@@ -37,25 +45,63 @@ impl Endpoint<'_> {
             effort: self.effort,
         }
     }
+
+    fn with_token<'t>(&self, token: &'t str) -> EndpointTarget<'a, 't> {
+        EndpointTarget { endpoint: *self, token }
+    }
 }
 
 /// Rig client for the Antigravity Cloud Code Assist API.
 #[derive(Clone)]
 pub struct AntigravityClient {
-    token: String,
+    token_provider: std::sync::Arc<dyn TokenProvider>,
     project_id: String,
     model: String,
     effort: Effort,
+    endpoint: Option<String>,
 }
 
 impl AntigravityClient {
     pub fn new(token: impl Into<String>, project_id: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
-            token: token.into(),
+            token_provider: std::sync::Arc::new(StaticTokenProvider::new(token)),
             project_id: project_id.into(),
             model: model.into(),
             effort: Effort::Off,
+            endpoint: None,
         }
+    }
+
+    pub fn with_token_provider(
+        token_provider: std::sync::Arc<dyn TokenProvider>,
+        project_id: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            token_provider,
+            project_id: project_id.into(),
+            model: model.into(),
+            effort: Effort::Off,
+            endpoint: None,
+        }
+    }
+
+    pub fn with_auth_store(
+        store: std::sync::Arc<tokio::sync::Mutex<crate::auth::store::AuthStore>>,
+        project_id: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self::with_token_provider(
+            std::sync::Arc::new(AuthStoreTokenProvider::new(store, "antigravity")),
+            project_id,
+            model,
+        )
+    }
+
+    /// Override the backend API endpoint base URL (primarily for tests and custom proxies).
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
     }
 
     /// Set the thinking effort (rho's `thinking_level`) used to pick the
@@ -71,21 +117,21 @@ impl AntigravityClient {
 
     async fn post_stream(
         &self,
-        endpoint: Endpoint<'_>,
+        target: EndpointTarget<'_, '_>,
         request: &CompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
         let envelope = request::new_envelope();
-        let target = endpoint.wire_target();
-        let body = request::build_request_body(target, request, &envelope).map_err(|e| (None, e.to_string()))?;
-        let mut headers = antigravity_headers(&self.token);
-        if request::wants_claude_thinking_header(target.runtime_model, target.effort) {
+        let wire_target = target.endpoint.wire_target();
+        let body = request::build_request_body(wire_target, request, &envelope).map_err(|e| (None, e.to_string()))?;
+        let mut headers = antigravity_headers(target.token);
+        if request::wants_claude_thinking_header(wire_target.runtime_model, wire_target.effort) {
             headers.insert(
                 "anthropic-beta",
                 reqwest::header::HeaderValue::from_static("interleaved-thinking-2025-05-14"),
             );
         }
         let response = http_client()
-            .post(Self::streaming_endpoint(endpoint.base_url))
+            .post(Self::streaming_endpoint(target.endpoint.base_url))
             .headers(headers)
             .body(body.to_string())
             .send()
@@ -100,6 +146,11 @@ impl AntigravityClient {
     }
 
     async fn open_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
+        let mut token = self
+            .token_provider
+            .token()
+            .await
+            .map_err(|e| (None, format!("Failed to acquire Antigravity access token: {e}")))?;
         let runtime_model = request::resolve_runtime_model(&self.model, self.effort);
         let mut candidates = vec![runtime_model.clone()];
         if let Some(fallback) = request::fallback_runtime_model(&runtime_model) {
@@ -107,15 +158,32 @@ impl AntigravityClient {
         }
 
         let mut last: Option<(Option<u16>, String)> = None;
+        let mut refreshed = false;
+        let endpoints: Vec<&str> = match self.endpoint.as_deref() {
+            Some(custom) => vec![custom],
+            None => ENDPOINT_CANDIDATES.to_vec(),
+        };
         for candidate in candidates {
-            for candidate_endpoint in ENDPOINT_CANDIDATES {
+            for &candidate_endpoint in &endpoints {
                 let endpoint = Endpoint {
                     base_url: candidate_endpoint,
                     project: &self.project_id,
                     runtime_model: &candidate,
                     effort: self.effort,
                 };
-                match self.post_stream(endpoint, request).await {
+                let mut res = self.post_stream(endpoint.with_token(&token), request).await;
+                if let Err((Some(401), ref body)) = res
+                    && !refreshed
+                {
+                    if let Ok(new_token) = self.token_provider.force_refresh().await {
+                        token = new_token;
+                        refreshed = true;
+                        res = self.post_stream(endpoint.with_token(&token), request).await;
+                    } else {
+                        return Err((Some(401), body.clone()));
+                    }
+                }
+                match res {
                     Ok(response) => return Ok(response),
                     Err((Some(429), body)) if body.contains("Individual quota reached") => {
                         // Quota is account-wide; other endpoints won't help.

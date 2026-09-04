@@ -1,5 +1,6 @@
 use super::discovery::{extract_project_id, is_selectable_runtime_model};
 use super::http::{antigravity_headers, friendly_error};
+use rig::completion::CompletionRequest;
 
 #[test]
 fn is_selectable_runtime_model_filters_correctly() {
@@ -93,4 +94,176 @@ fn antigravity_headers_sets_expected_keys() {
     assert!(headers.get("user-agent").is_some());
     assert!(headers.get("x-goog-api-client").is_some());
     assert!(headers.get("client-metadata").is_some());
+}
+
+fn test_completion_request() -> CompletionRequest {
+    CompletionRequest {
+        model: None,
+        preamble: Some("system prompt".to_string()),
+        chat_history: vec![rig::message::Message::user("hello")],
+        documents: Vec::new(),
+        tools: Vec::new(),
+        temperature: None,
+        max_tokens: None,
+        tool_choice: None,
+        additional_params: None,
+        output_schema: None,
+        record_telemetry_content: false,
+    }
+}
+
+#[tokio::test]
+async fn open_stream_retries_on_401_with_forced_token_refresh() {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        // Request 1: 401 Unauthorized
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+            let _ = stream.write_all(resp.as_bytes()).await;
+        }
+        // Request 2: 200 OK
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).await.unwrap_or(0);
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+            assert!(req_str.contains("Bearer token-refreshed"));
+            let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
+            let _ = stream.write_all(resp.as_bytes()).await;
+        }
+    });
+
+    struct MockProvider {
+        refresh_count: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl TokenProvider for MockProvider {
+        async fn token(&self) -> Result<String, String> {
+            Ok("token-initial".into())
+        }
+        async fn force_refresh(&self) -> Result<String, String> {
+            self.refresh_count.fetch_add(1, Ordering::SeqCst);
+            Ok("token-refreshed".into())
+        }
+    }
+
+    let refresh_count = Arc::new(AtomicUsize::new(0));
+    let provider = Arc::new(MockProvider {
+        refresh_count: refresh_count.clone(),
+    });
+
+    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro")
+        .with_endpoint(format!("http://{addr}"));
+
+    let req = test_completion_request();
+    let response = client.open_stream(&req).await;
+    assert!(response.is_ok(), "Expected retry to succeed with 200 OK");
+    assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn open_stream_stops_after_single_retry_if_401_persists() {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        // Request 1: 401 Unauthorized
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+            let _ = stream.write_all(resp.as_bytes()).await;
+        }
+        // Request 2 (retry): 401 Unauthorized again
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+            let _ = stream.write_all(resp.as_bytes()).await;
+        }
+    });
+
+    struct MockProvider {
+        refresh_count: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl TokenProvider for MockProvider {
+        async fn token(&self) -> Result<String, String> {
+            Ok("token-1".into())
+        }
+        async fn force_refresh(&self) -> Result<String, String> {
+            self.refresh_count.fetch_add(1, Ordering::SeqCst);
+            Ok("token-2".into())
+        }
+    }
+
+    let refresh_count = Arc::new(AtomicUsize::new(0));
+    let provider = Arc::new(MockProvider {
+        refresh_count: refresh_count.clone(),
+    });
+
+    let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro")
+        .with_endpoint(format!("http://{addr}"));
+
+    let req = test_completion_request();
+    let err = client.open_stream(&req).await.unwrap_err();
+    assert_eq!(err.0, Some(401));
+    assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn open_stream_fails_immediately_if_refresh_fails() {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf).await;
+            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+            let _ = stream.write_all(resp.as_bytes()).await;
+        }
+    });
+
+    struct FailingRefreshProvider;
+
+    #[async_trait::async_trait]
+    impl TokenProvider for FailingRefreshProvider {
+        async fn token(&self) -> Result<String, String> {
+            Ok("stale-token".into())
+        }
+        async fn force_refresh(&self) -> Result<String, String> {
+            Err("token revoked".into())
+        }
+    }
+
+    let client =
+        AntigravityClient::with_token_provider(Arc::new(FailingRefreshProvider), "test-project", "gemini-2.5-pro")
+            .with_endpoint(format!("http://{addr}"));
+
+    let req = test_completion_request();
+    let err = client.open_stream(&req).await.unwrap_err();
+    assert_eq!(err.0, Some(401));
 }

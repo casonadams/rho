@@ -45,3 +45,24 @@ fn expands_dynamic_key_resolvers() {
 
     assert_eq!(store.get_key_sync("custom").unwrap().as_deref(), Some("env_secret_123"));
 }
+
+#[tokio::test]
+async fn force_refresh_returns_api_key_directly() {
+    let file = NamedTempFile::new().unwrap();
+    let mut store = AuthStore::load(file.path()).unwrap();
+    store.set_key("anthropic", "sk-ant-api03-test").unwrap();
+
+    let refreshed = store.force_refresh("anthropic").await.unwrap();
+    assert_eq!(refreshed.as_deref(), Some("sk-ant-api03-test"));
+}
+
+#[tokio::test]
+async fn force_refresh_missing_refresh_token_fails() {
+    let file = NamedTempFile::new().unwrap();
+    let mut store = AuthStore::load(file.path()).unwrap();
+    let cred = StoredCredential::oauth("stale_token", None, Some(1799999999000));
+    store.set_credential("antigravity", cred).unwrap();
+
+    let err = store.force_refresh("antigravity").await.unwrap_err();
+    assert!(err.to_string().contains("No refresh token") || err.to_string().contains("expired"));
+}
