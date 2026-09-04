@@ -1,4 +1,5 @@
 mod activity;
+mod autocomplete;
 mod divider;
 mod editor;
 mod modal;

@@ -45,3 +45,25 @@ pub(crate) fn wrap_editor(editor: &EditorState, width: usize) -> (Vec<String>, C
         cursor.expect("editor cursor must be on a UTF-8 character boundary"),
     )
 }
+
+pub(crate) fn window_editor(
+    lines: Vec<String>,
+    cursor: CursorPosition,
+    max_lines: usize,
+) -> (Vec<String>, CursorPosition) {
+    let total = lines.len();
+    let max_lines = max_lines.max(1);
+    if total <= max_lines {
+        return (lines, cursor);
+    }
+
+    let half = max_lines / 2;
+    let ideal_start = cursor.row.saturating_sub(half);
+    let start = ideal_start.min(total.saturating_sub(max_lines));
+    let windowed = lines.into_iter().skip(start).take(max_lines).collect();
+    let new_cursor = CursorPosition {
+        row: cursor.row - start,
+        column: cursor.column,
+    };
+    (windowed, new_cursor)
+}

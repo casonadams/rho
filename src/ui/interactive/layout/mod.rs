@@ -1,127 +1,54 @@
 pub mod autocomplete;
+pub mod budget;
 pub mod chrome;
 pub mod editor;
 pub mod modal;
+pub mod normal;
 #[cfg(test)]
 mod tests;
 pub mod text;
 pub mod types;
 pub mod widget;
 
-pub use chrome::{system_lines_text, thinking_divider_style};
+#[cfg(test)]
+pub use chrome::system_lines_text;
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
 
-use autocomplete::render_autocomplete_dropdown;
-use chrome::{queued_lines_text, top_divider, working_line_text};
-use editor::wrap_editor;
 use modal::render_modal_overlay;
+use normal::render_normal_layout;
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
-    let width = input.terminal_width.max(1);
-    let mut lines = Vec::new();
-
-    let (working_line, widget_lines, queued_lines, system_lines) = if input.modal.is_some() {
-        (String::new(), Vec::new(), Vec::new(), Vec::new())
+    if let Some(modal) = input.modal {
+        render_modal_layout(modal, input.terminal_width, input.terminal_height)
     } else {
-        (
-            working_line_text(input.footer, input.spinner_frame, width),
-            input.widget_lines.to_vec(),
-            queued_lines_text(input.queued_messages, width),
-            system_lines_text(input.system_message, width),
-        )
-    };
-
-    if !widget_lines.is_empty() {
-        lines.extend(widget_lines.clone());
+        render_normal_layout(input)
     }
+}
 
-    let (editor_lines, top_divider, bottom_divider, footer_lines, cursor, cursor_visible, cursor_row) =
-        if let Some(modal) = input.modal {
-            let modal_start_row = lines.len();
-            let (modal_lines, modal_cursor, modal_cursor_visible) =
-                render_modal_overlay(modal, width, input.terminal_height);
-            lines.extend(modal_lines.clone());
-            (
-                modal_lines,
-                String::new(),
-                String::new(),
-                Vec::new(),
-                modal_cursor,
-                modal_cursor_visible,
-                modal_start_row + modal_cursor.row,
-            )
-        } else {
-            lines.push(String::new());
-            if !queued_lines.is_empty() {
-                lines.extend(queued_lines.clone());
-            }
-            if !system_lines.is_empty() {
-                lines.extend(system_lines.clone());
-            }
-            if !working_line.is_empty() {
-                lines.push(working_line.clone());
-            }
-
-            let is_bash_mode = input.editor.text().trim_start().starts_with('!');
-            let (style, reset) = if is_bash_mode {
-                ("\x1b[33m", "\x1b[0m")
-            } else {
-                thinking_divider_style(input.footer.thinking_level.as_deref())
-            };
-            let label = if input.footer.show_label {
-                concat!("rho ", env!("CARGO_PKG_VERSION"))
-            } else {
-                ""
-            };
-            let top_div = top_divider(width, label, (style, reset));
-            lines.push(top_div.clone());
-
-            let (mut ed_lines, ed_cursor) = wrap_editor(input.editor, width);
-            if let Some(ac) = input.autocomplete {
-                let ac_lines = render_autocomplete_dropdown(ac, width);
-                if !ac_lines.is_empty() {
-                    ed_lines.extend(ac_lines);
-                }
-            }
-            let editor_start_row = lines.len();
-            lines.extend(ed_lines.clone());
-
-            let bot_div = format!("{style}{}{reset}", "─".repeat(width));
-            lines.push(bot_div.clone());
-
-            let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
-            let footer_style = crate::ui::theme::Theme::default().dimmed;
-            for fl in &ft_lines {
-                lines.push(format!("{footer_style}{fl}{footer_style:#}"));
-            }
-            (
-                ed_lines,
-                top_div,
-                bot_div,
-                ft_lines,
-                ed_cursor,
-                true,
-                editor_start_row + ed_cursor.row,
-            )
-        };
-
-    let footer = footer_lines.join("\n");
+fn render_modal_layout(
+    modal: &crate::ui::interactive::ModalState,
+    width: usize,
+    terminal_height: usize,
+) -> InteractiveLayout {
+    let width = width.max(1);
+    let (modal_lines, modal_cursor, modal_cursor_visible) = render_modal_overlay(modal, width, terminal_height);
+    let cursor_row = modal_cursor.row;
 
     InteractiveLayout {
-        lines,
-        cursor,
-        cursor_visible,
+        lines: modal_lines.clone(),
+        cursor: modal_cursor,
+        cursor_visible: modal_cursor_visible,
         cursor_row,
-        queued_lines,
-        widget_lines,
-        system_lines,
-        working_line,
-        top_divider,
-        editor_lines,
-        bottom_divider,
-        footer_lines,
-        footer,
+        queued_lines: Vec::new(),
+        widget_lines: Vec::new(),
+        system_lines: Vec::new(),
+        working_line: String::new(),
+        top_divider: String::new(),
+        editor_lines: modal_lines,
+        bottom_divider: String::new(),
+        footer_lines: Vec::new(),
+        footer: String::new(),
     }
 }

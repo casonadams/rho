@@ -1,20 +1,17 @@
 use crate::ui::interactive::state::autocomplete::AutocompleteState;
 use unicode_width::UnicodeWidthStr;
 
-const MAX_VISIBLE_ITEMS: usize = 7;
+pub(crate) const MAX_VISIBLE_ITEMS: usize = 7;
 
-/// Renders a Pi-style compact fuzzy autocomplete menu.
-/// Shows up to MAX_VISIBLE_ITEMS with selection indicator, command name, and description.
-pub(crate) fn render_autocomplete_dropdown(state: &AutocompleteState, width: usize) -> Vec<String> {
-    if !state.visible || state.items.is_empty() || width < 15 {
+pub(crate) fn render_autocomplete_dropdown(state: &AutocompleteState, width: usize, max_lines: usize) -> Vec<String> {
+    if !state.visible || state.items.is_empty() || width < 15 || max_lines < 2 {
         return Vec::new();
     }
 
     let total = state.items.len();
-    let visible_count = total.min(MAX_VISIBLE_ITEMS);
+    let visible_count = total.min(MAX_VISIBLE_ITEMS).min(max_lines);
 
-    // Calculate window slice to keep selected item in view
-    let start = if total <= MAX_VISIBLE_ITEMS || state.selected < visible_count / 2 {
+    let start = if total <= visible_count || state.selected < visible_count / 2 {
         0
     } else if state.selected + (visible_count - visible_count / 2) >= total {
         total - visible_count
@@ -74,52 +71,4 @@ fn truncate_width(s: &str, max_width: usize) -> String {
         current_width += w;
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::repl::interactive::Completion;
-    use std::ops::Range;
-
-    #[test]
-    fn test_render_autocomplete_dropdown() {
-        let mut state = AutocompleteState::default();
-        let items = vec![
-            Completion {
-                value: "/model".to_string(),
-                description: Some("Switch model".to_string()),
-                replacement: Range { start: 0, end: 1 },
-            },
-            Completion {
-                value: "/skill".to_string(),
-                description: Some("Inspect skills".to_string()),
-                replacement: Range { start: 0, end: 1 },
-            },
-        ];
-        state.open(items);
-
-        let lines = render_autocomplete_dropdown(&state, 60);
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("/model"));
-        assert!(lines[0].contains("Switch model"));
-        assert!(lines[1].contains("/skill"));
-    }
-
-    #[test]
-    fn descriptions_share_the_footer_dim_style() {
-        // Descriptions must match the footer's plain faint (`Theme::dimmed`,
-        // SGR 2) — stacking faint on gray (`2;90`) is unreadably dark.
-        let footer_dim = crate::ui::theme::Theme::default().dimmed.render().to_string();
-        let mut state = AutocompleteState::default();
-        state.open(vec![Completion {
-            value: "/model".to_string(),
-            description: Some("Switch model".to_string()),
-            replacement: Range { start: 0, end: 1 },
-        }]);
-
-        let lines = render_autocomplete_dropdown(&state, 60);
-        assert!(lines[0].contains(&footer_dim), "{}", lines[0]);
-        assert!(!lines[0].contains("\x1b[2;90m"), "{}", lines[0]);
-    }
 }
