@@ -17,12 +17,23 @@ pub use types::{CommandResult, SLASH_COMMANDS, SlashCommandContext};
 use help::print_help;
 use rho_harness_core::error::Result;
 
+pub fn is_slash_command(input: &str) -> bool {
+    let trimmed = input.trim();
+    if !trimmed.starts_with('/') {
+        return false;
+    }
+    let Some(first_word) = trimmed[1..].split_whitespace().next() else {
+        return false;
+    };
+    !first_word.contains('/') && !first_word.contains('\\') && !std::path::Path::new(trimmed).exists()
+}
+
 pub struct SlashCommandHandler;
 
 impl SlashCommandHandler {
     pub async fn handle(input: &str, ctx: &mut SlashCommandContext<'_>) -> Result<Option<CommandResult>> {
         let trimmed = input.trim();
-        if !trimmed.starts_with('/') {
+        if !is_slash_command(trimmed) {
             return Ok(None);
         }
 

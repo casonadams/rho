@@ -22,7 +22,7 @@ impl ReplSession {
         mut live: LiveMessage<'_, B>,
     ) -> Result<bool> {
         let input = live.message.text.trim().to_string();
-        if input.starts_with('/') {
+        if crate::repl::commands::is_slash_command(&input) {
             let command_result = {
                 let mut command_context = SlashCommandContext {
                     config: &mut self.config,

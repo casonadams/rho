@@ -33,7 +33,7 @@ impl CompletionSet {
             } else {
                 Vec::new()
             }
-        } else if prefix.starts_with('/') && !prefix.contains(' ') {
+        } else if prefix.starts_with('/') && !prefix.contains(' ') && !prefix[1..].contains('/') {
             let query = prefix.trim_start_matches('/');
             let mut scored: Vec<(i32, &CommandItem)> = self
                 .commands

@@ -38,7 +38,7 @@ where
                     next = input.recv(), if accepting_input => {
                         match next {
                             Some(CoordinatorInput::Prompt(prompt)) => {
-                                if prompt.text.starts_with('/') {
+                                if crate::repl::commands::is_slash_command(&prompt.text) {
                                     deferred_commands.push(prompt.text);
                                 } else if prompt.kind == QueueKind::Steering {
                                     let _ = runner.steer(&prompt).await;
@@ -105,7 +105,7 @@ fn drain_pending_input(
     while let Ok(next) = input.try_recv() {
         match next {
             CoordinatorInput::Prompt(prompt) => {
-                if prompt.text.starts_with('/') {
+                if crate::repl::commands::is_slash_command(&prompt.text) {
                     deferred_commands.push(prompt.text);
                 } else {
                     queued.push_back(prompt);

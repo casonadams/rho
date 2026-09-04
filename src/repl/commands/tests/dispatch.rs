@@ -116,3 +116,38 @@ async fn test_new_and_thinking_commands() {
     assert_eq!(think_res, Some(CommandResult::Continue));
     assert_eq!(context.config.thinking_level.as_deref(), Some("high"));
 }
+
+#[tokio::test]
+async fn file_paths_starting_with_slash_are_not_treated_as_commands() {
+    use crate::repl::commands::is_slash_command;
+
+    assert!(is_slash_command("/help"));
+    assert!(is_slash_command("/model gpt-4o openai"));
+    assert!(is_slash_command("/skill:create-plugin"));
+    assert!(is_slash_command("/unknown_command"));
+
+    assert!(!is_slash_command(""));
+    assert!(!is_slash_command("/"));
+    assert!(!is_slash_command("// comment"));
+    assert!(!is_slash_command(
+        "/var/folders/m3/7v9fjc054tvbwgcqw7kl51t40000gn/t/rho-clipboard-85923951.png"
+    ));
+    assert!(!is_slash_command("/Users/alice/photo.png"));
+    assert!(!is_slash_command("/tmp/file.txt"));
+
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, _) = collecting_renderer();
+    let mut context = test_context(&mut config, &mut auth, &renderer);
+
+    let result = SlashCommandHandler::handle(
+        "/var/folders/m3/7v9fjc054tvbwgcqw7kl51t40000gn/t/rho-clipboard-85923951.png",
+        &mut context,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result, None);
+
+    let comment_result = SlashCommandHandler::handle("// comment", &mut context).await.unwrap();
+    assert_eq!(comment_result, None);
+}

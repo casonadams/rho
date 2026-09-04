@@ -64,7 +64,7 @@ pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Res
                     continue;
                 }
 
-                if input.starts_with('/') {
+                if crate::repl::commands::is_slash_command(input) {
                     let mut command_context = SlashCommandContext {
                         config: &mut session.config,
                         auth_store: &mut session.auth_store,
