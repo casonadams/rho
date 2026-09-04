@@ -1,4 +1,5 @@
 mod checkpoint;
+mod compaction_tree;
 mod memory;
 mod storage;
 mod tree;

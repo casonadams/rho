@@ -1,5 +1,6 @@
 mod branch;
 mod checkpoint;
+pub mod compaction;
 pub mod context;
 mod cwd;
 mod event;
@@ -17,6 +18,7 @@ mod validation;
 
 use secrets::SecretGuard;
 
+pub use compaction::{CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message};
 pub use cwd::{last_session_for_cwd, record_session_for_cwd};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
 pub(crate) use format::{create_session_file, load_file};

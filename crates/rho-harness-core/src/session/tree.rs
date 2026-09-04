@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use super::compaction::CompactionMetadata;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TreeNodeKind {
@@ -26,6 +28,17 @@ pub struct TreeNodeData {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+}
+
+impl TreeNodeData {
+    pub fn compaction_metadata(&self) -> Option<CompactionMetadata> {
+        if self.kind != TreeNodeKind::Compaction {
+            return None;
+        }
+        self.metadata
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -103,10 +116,50 @@ impl SessionTree {
     }
 
     pub fn ancestor_messages(&self, leaf_id: &str) -> Vec<Message> {
-        self.ancestor_nodes(leaf_id)
-            .into_iter()
-            .flat_map(|node| node.messages.clone())
-            .collect()
+        let nodes = self.ancestor_nodes(leaf_id);
+        let Some(compaction_idx) = nodes.iter().rposition(|n| n.kind == TreeNodeKind::Compaction) else {
+            return nodes.into_iter().flat_map(|node| node.messages.clone()).collect();
+        };
+
+        let compaction_node = nodes[compaction_idx];
+        let metadata = compaction_node.compaction_metadata();
+        let summary_message = if !compaction_node.messages.is_empty() {
+            compaction_node.messages.clone()
+        } else if let Some(ref meta) = metadata {
+            vec![Message::System {
+                content: meta.summary.clone(),
+            }]
+        } else if let Some(summary) = compaction_node
+            .metadata
+            .as_ref()
+            .and_then(|v| v.get("summary").and_then(|s| s.as_str()))
+        {
+            vec![Message::System {
+                content: summary.to_string(),
+            }]
+        } else {
+            Vec::new()
+        };
+
+        let first_kept_idx = metadata
+            .as_ref()
+            .and_then(|m| m.first_kept_node_id.as_deref())
+            .or_else(|| {
+                compaction_node
+                    .metadata
+                    .as_ref()
+                    .and_then(|v| v.get("first_kept_node_id").and_then(|s| s.as_str()))
+            })
+            .and_then(|id| nodes.iter().position(|n| n.id == id));
+
+        let start_idx = first_kept_idx.unwrap_or(compaction_idx + 1);
+        let mut messages = summary_message;
+        for node in &nodes[start_idx..] {
+            if node.kind != TreeNodeKind::Compaction {
+                messages.extend(node.messages.clone());
+            }
+        }
+        messages
     }
 
     pub fn active_messages(&self) -> Vec<Message> {
