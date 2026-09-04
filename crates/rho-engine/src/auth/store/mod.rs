@@ -1,5 +1,7 @@
 //! Secure persistent credential store supporting API keys and OAuth tokens.
 
+mod io;
+
 use super::oauth::refresh_oauth_token;
 use super::resolver::resolve_secret_value;
 use rho_harness_core::auth::StoredCredential;
@@ -7,8 +9,6 @@ use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -19,53 +19,11 @@ pub struct AuthStore {
     credentials: HashMap<String, StoredCredential>,
 }
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum RawStoredEntry {
-    Structured(StoredCredential),
-    LegacyString(String),
-}
-
 impl AuthStore {
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        if !path.exists() {
-            return Ok(Self {
-                file_path: path.to_path_buf(),
-                credentials: HashMap::new(),
-            });
-        }
-        let content =
-            std::fs::read_to_string(path).map_err(|e| AppError::Auth(format!("Failed to read auth file: {e}")))?;
-
-        let raw_map: HashMap<String, RawStoredEntry> = serde_json::from_str(&content).unwrap_or_default();
-
-        let mut credentials = HashMap::new();
-        for (k, entry) in raw_map {
-            match entry {
-                RawStoredEntry::Structured(mut c) => {
-                    if let StoredCredential::OAuth {
-                        ref access_token,
-                        ref mut account_id,
-                        ..
-                    } = c
-                        && account_id.is_none()
-                        && k == "chatgpt"
-                    {
-                        *account_id = super::oauth::extract_chatgpt_account_id(access_token);
-                    }
-                    credentials.insert(k, c);
-                }
-                RawStoredEntry::LegacyString(s) => {
-                    credentials.insert(k, StoredCredential::api_key(s));
-                }
-            }
-        }
-
-        Ok(Self {
-            file_path: path.to_path_buf(),
-            credentials,
-        })
+        let file_path = path.as_ref().to_path_buf();
+        let credentials = io::load_credentials(&file_path)?;
+        Ok(Self { file_path, credentials })
     }
 
     pub fn get_key_sync(&self, provider: &str) -> Result<Option<String>> {
@@ -76,21 +34,7 @@ impl AuthStore {
             };
         }
 
-        if let Ok(id) = ProviderId::from_str(provider)
-            && let Some(env_name) = id.api_key_env()
-            && let Ok(val) = std::env::var(env_name)
-            && !val.trim().is_empty()
-        {
-            return resolve_secret_value(&val).map(Some);
-        }
-        let generic_env = format!("{}_API_KEY", provider.to_ascii_uppercase().replace('-', "_"));
-        if let Ok(val) = std::env::var(&generic_env)
-            && !val.trim().is_empty()
-        {
-            return resolve_secret_value(&val).map(Some);
-        }
-
-        Ok(None)
+        resolve_env_key(provider)
     }
 
     pub async fn get_key(&mut self, provider: &str) -> Result<Option<String>> {
@@ -113,21 +57,7 @@ impl AuthStore {
             };
         }
 
-        if let Ok(id) = ProviderId::from_str(provider)
-            && let Some(env_name) = id.api_key_env()
-            && let Ok(val) = std::env::var(env_name)
-            && !val.trim().is_empty()
-        {
-            return resolve_secret_value(&val).map(Some);
-        }
-        let generic_env = format!("{}_API_KEY", provider.to_ascii_uppercase().replace('-', "_"));
-        if let Ok(val) = std::env::var(&generic_env)
-            && !val.trim().is_empty()
-        {
-            return resolve_secret_value(&val).map(Some);
-        }
-
-        Ok(None)
+        resolve_env_key(provider)
     }
 
     pub async fn force_refresh(&mut self, provider: &str) -> Result<Option<String>> {
@@ -189,34 +119,24 @@ impl AuthStore {
     }
 
     fn save(&self) -> Result<()> {
-        if let Some(parent) = self.file_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let json = serde_json::to_string_pretty(&self.credentials)
-            .map_err(|e| AppError::Auth(format!("Failed to serialize auth store: {e}")))?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&self.file_path)?;
-            file.write_all(json.as_bytes())?;
-        }
-
-        #[cfg(not(unix))]
-        {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&self.file_path)?;
-            file.write_all(json.as_bytes())?;
-        }
-
-        Ok(())
+        io::save_credentials(&self.file_path, &self.credentials)
     }
+}
+
+fn resolve_env_key(provider: &str) -> Result<Option<String>> {
+    if let Ok(id) = ProviderId::from_str(provider)
+        && let Some(env_name) = id.api_key_env()
+        && let Ok(val) = std::env::var(env_name)
+        && !val.trim().is_empty()
+    {
+        return resolve_secret_value(&val).map(Some);
+    }
+    let generic_env = format!("{}_API_KEY", provider.to_ascii_uppercase().replace('-', "_"));
+    if let Ok(val) = std::env::var(&generic_env)
+        && !val.trim().is_empty()
+    {
+        return resolve_secret_value(&val).map(Some);
+    }
+
+    Ok(None)
 }

@@ -192,3 +192,18 @@ fn agents_skills_user_and_project_resolution() {
     let lint = resolved.iter().find(|s| s.metadata.name == "repo-lint").unwrap();
     assert_eq!(lint.origin, SkillOrigin::Project);
 }
+
+#[test]
+fn resolved_skills_with_home_respects_explicit_override() {
+    let fixture = fixture();
+    write_skill(
+        &fixture.home_dir.join(".agents/skills"),
+        "custom-workflow",
+        "---\nname: custom-workflow\ndescription: Custom workflow\n---\n# Workflow\n",
+    );
+
+    let resolved = resolved_skills_with_home(Some(&fixture.project_dir), Some(&fixture.home_dir));
+    let skill = resolved.iter().find(|s| s.metadata.name == "custom-workflow").unwrap();
+    assert_eq!(skill.origin, SkillOrigin::User);
+    assert_eq!(skill.metadata.description, "Custom workflow");
+}

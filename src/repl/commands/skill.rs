@@ -5,15 +5,7 @@ use std::io::IsTerminal as _;
 
 pub fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     let cwd = std::env::current_dir().ok();
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .ok()
-        .map(std::path::PathBuf::from);
-    let paths = rho_harness_core::skills::SkillResolutionPaths {
-        project_dir: cwd.as_deref(),
-        home_dir: ctx.home_dir.or(home.as_deref()),
-    };
-    let skills = rho_harness_core::skills::resolved_skills_for_paths(paths);
+    let skills = rho_harness_core::skills::resolved_skills_with_home(cwd.as_deref(), ctx.home_dir);
 
     let print_available = |ctx: &mut SlashCommandContext<'_>, not_found: Option<&str>| {
         let mut output = not_found

@@ -7,13 +7,18 @@ use std::path::{Path, PathBuf};
 /// (`.agents/skills`, `.rho/skills`, `skills`). Project skills replace user skills by name.
 /// Skills carry readable content only and are never executed.
 pub fn resolved_skills(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
-    let home = std::env::var("HOME")
+    resolved_skills_with_home(project_dir, None)
+}
+
+/// Resolve skills with an optional explicit home directory override, falling back to environment.
+pub fn resolved_skills_with_home(project_dir: Option<&Path>, home_dir: Option<&Path>) -> Vec<ResolvedSkill> {
+    let env_home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()
         .map(PathBuf::from);
     let paths = SkillResolutionPaths {
         project_dir,
-        home_dir: home.as_deref(),
+        home_dir: home_dir.or(env_home.as_deref()),
     };
     resolved_skills_for_paths(paths)
 }

@@ -91,6 +91,7 @@ fn help_matches_documented_auth_sessions_limits_and_context() {
         "openai",
         "chatgpt",
         "copilot",
+        "antigravity",
         "explicit login required",
         "provider default when omitted",
         "pending budget checkpoint",

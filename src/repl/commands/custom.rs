@@ -8,15 +8,7 @@ pub async fn handle_custom(
 ) -> Result<Option<CommandResult>> {
     let cwd = std::env::current_dir().ok();
     if let Some(skill_name) = custom.strip_prefix("skill:") {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .ok()
-            .map(std::path::PathBuf::from);
-        let paths = rho_harness_core::skills::SkillResolutionPaths {
-            project_dir: cwd.as_deref(),
-            home_dir: ctx.home_dir.or(home.as_deref()),
-        };
-        let skills = rho_harness_core::skills::resolved_skills_for_paths(paths);
+        let skills = rho_harness_core::skills::resolved_skills_with_home(cwd.as_deref(), ctx.home_dir);
         if let Some(matched) = skills.iter().find(|s| s.metadata.name == skill_name)
             && let Ok(content) = std::fs::read_to_string(&matched.metadata.location)
         {
