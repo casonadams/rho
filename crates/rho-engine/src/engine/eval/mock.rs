@@ -57,24 +57,30 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         },
     )
     .unwrap();
+    let tool_names = config
+        .built_in_tools
+        .clone()
+        .unwrap_or_default()
+        .iter()
+        .map(|tool| tool.name().to_string())
+        .collect();
+    let base_tools = config.built_in_tools.clone().unwrap_or_default();
     AgentEngine {
         config: app_config,
         session_manager,
-        tool_names: config
-            .built_in_tools
-            .clone()
-            .unwrap_or_default()
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect(),
+        tool_names: std::sync::Arc::new(std::sync::RwLock::new(tool_names)),
         plugins: Vec::new(),
-        agent: Box::new(agent),
+        agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
+        base_tools,
+        base_dir: std::path::PathBuf::from("."),
+        model: None,
+        mcp_loader: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     }
 }
 

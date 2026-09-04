@@ -80,15 +80,19 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
     let engine = AgentEngine {
         config,
         session_manager: store,
-        tool_names: Vec::new(),
+        tool_names: std::sync::Arc::new(std::sync::RwLock::new(Vec::new())),
         plugins: Vec::new(),
-        agent: Box::new(agent),
+        agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
         context: crate::engine::tracking::ContextTracker::new(None),
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
+        base_tools: Vec::new(),
+        base_dir: std::path::PathBuf::from("."),
+        model: None,
+        mcp_loader: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     };
     let TurnOutput { metrics, usage, .. } = engine
         .run_turn(TurnRequest::new("continue"), super::presenter::presenter())

@@ -35,6 +35,7 @@ impl AgentEngine {
         request: TurnRequest<'_>,
         presenter: std::sync::Arc<dyn Presenter>,
     ) -> Result<TurnOutput> {
+        self.ensure_tools_loaded().await?;
         let augmented_prompt = request.prompt.to_string();
         let context = self.project_context().await?;
         self.session_manager
@@ -84,12 +85,14 @@ impl AgentEngine {
             }
             hook_stack.push(TurnToolExecutionHook::new(sink.clone(), &self.config.provider));
 
-            let runner = build_runner(&self.agent, &current_prompt)
+            let agent_guard = self.agent.read().await;
+            let runner = build_runner(&agent_guard, &current_prompt)
                 .conversation(self.session_manager.session_id.clone())
                 .preamble(&preamble)
                 .max_turns(current_budget)
                 .tool_context(tool_context)
                 .add_hook(hook_stack);
+            drop(agent_guard);
             let runner = match checkpoint.as_ref() {
                 Some(pending) => runner.history(continuation_history(&visible_history, pending)),
                 None => runner,

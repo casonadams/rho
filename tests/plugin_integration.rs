@@ -159,8 +159,8 @@ async fn test_dynamic_plugin_tool_registration_and_execution() {
         .await
         .unwrap();
 
-    assert!(engine.tool_names.contains(&"generate_image".to_string()));
-    assert!(engine.tool_names.contains(&"read".to_string()));
+    assert!(engine.tool_names().contains(&"generate_image".to_string()));
+    assert!(engine.tool_names().contains(&"read".to_string()));
 }
 
 #[tokio::test]
@@ -273,8 +273,8 @@ async fn test_native_in_process_rho_plugin() {
         .await
         .unwrap();
 
-    assert!(engine.tool_names.contains(&"custom_eval".to_string()));
-    assert!(engine.tool_names.contains(&"read".to_string()));
+    assert!(engine.tool_names().contains(&"custom_eval".to_string()));
+    assert!(engine.tool_names().contains(&"read".to_string()));
 }
 
 #[tokio::test]

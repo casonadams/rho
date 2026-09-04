@@ -44,7 +44,7 @@ impl ReplSession {
         let mut input = TerminalInputReader::spawn()?;
         let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
         let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
-        let tools = engine.tool_names.clone();
+        let tools = engine.tool_names();
         let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
         for mcp in self.config.mcp.servers.keys() {
             if !plugins.contains(mcp) {

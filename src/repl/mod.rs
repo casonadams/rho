@@ -60,7 +60,7 @@ impl ReplSession {
             .into_iter()
             .map(|s| s.metadata.name)
             .collect();
-        let tools = rebuilt.tool_names.clone();
+        let tools = rebuilt.tool_names();
 
         self.renderer.print_notice(&format!(
             "  [Reloaded config, skills, and tools ({} skills, {} tools); session preserved]\n",

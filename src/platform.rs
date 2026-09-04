@@ -28,11 +28,9 @@ pub async fn active_tools_with_auth(config: &Config, base_dir: &Path, _auth_stor
 
 pub async fn agent_engine(config: Config, auth_store: AuthStore, resume: Option<&str>) -> Result<AgentEngine> {
     let base_dir = std::env::current_dir()?;
-    let assembly = active_tools(&config, &base_dir).await?;
     AgentEngineBuilder::new(config, auth_store)
         .resume(resume)
         .base_dir(base_dir)
-        .tools(assembly.rig_tools)
         .build()
         .await
 }

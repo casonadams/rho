@@ -110,7 +110,7 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
         .build()
         .await
         .unwrap();
-    assert_eq!(engine.tool_names.len(), tools.len());
+    assert_eq!(engine.tool_names().len(), tools.len());
 
     let session_id = engine.session_manager.session_id.clone();
     engine
@@ -135,7 +135,7 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
 
     assert_eq!(rebuilt.config.max_turns, 7);
     assert_eq!(rebuilt.session_manager.session_id, session_id);
-    assert_eq!(rebuilt.tool_names.len(), tools.len());
+    assert_eq!(rebuilt.tool_names().len(), tools.len());
     let history_after = rebuilt.session_manager.load(&session_id).await.unwrap();
     assert_eq!(history_after, history_before);
     assert_eq!(std::fs::read(&jsonl).unwrap(), jsonl_before);
@@ -172,9 +172,9 @@ async fn rebuild_respawns_mcp_tools_and_reaps_previous_children() {
 
     let rebuilt = engine.rebuild(config.clone(), auth_store.clone()).await.unwrap();
     assert!(
-        rebuilt.tool_names.iter().any(|name| name == "mock_ping"),
+        rebuilt.tool_names().iter().any(|name| name == "mock_ping"),
         "rebuild must re-attach MCP tools, got: {:?}",
-        rebuilt.tool_names
+        rebuilt.tool_names()
     );
     // Old engine still alive here (rebuild borrows); drop it and confirm its
     // child is reaped while the rebuilt engine's child keeps running.
@@ -236,9 +236,9 @@ async fn builder_attaches_dynamic_plugin_tools() {
         .await
         .unwrap();
 
-    assert!(engine.tool_names.contains(&"generate_image".to_string()));
-    assert!(engine.tool_names.contains(&"read".to_string()));
-    assert!(engine.tool_names.contains(&"bash".to_string()));
+    assert!(engine.tool_names().contains(&"generate_image".to_string()));
+    assert!(engine.tool_names().contains(&"read".to_string()));
+    assert!(engine.tool_names().contains(&"bash".to_string()));
 
     std::fs::remove_dir_all(dir).unwrap();
 }

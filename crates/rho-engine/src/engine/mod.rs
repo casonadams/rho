@@ -26,15 +26,19 @@ use metrics::format_tokens;
 pub struct AgentEngine {
     pub config: Config,
     pub session_manager: SessionManager,
-    pub tool_names: Vec<String>,
+    pub(crate) tool_names: Arc<std::sync::RwLock<Vec<String>>>,
     pub(crate) plugins: Vec<Arc<dyn crate::plugin::RhoPlugin>>,
-    pub(crate) agent: Box<Agent>,
+    pub(crate) agent: Arc<tokio::sync::RwLock<Agent>>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
     pub(crate) context: ContextTracker,
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
+    pub(crate) base_tools: Vec<rig::tool::DynamicTool>,
+    pub(crate) base_dir: std::path::PathBuf,
+    pub(crate) model: Option<rig::agent::ModelHandle>,
+    pub(crate) mcp_loader: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<Vec<rig::tool::DynamicTool>>>>>,
 }
 
 impl AgentEngine {
@@ -45,16 +49,54 @@ impl AgentEngine {
             .await
     }
 
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tool_names.read().unwrap().clone()
+    }
+
+    pub async fn ensure_tools_loaded(&self) -> Result<()> {
+        let mut loader = self.mcp_loader.lock().await;
+        let Some(handle) = loader.take() else {
+            return Ok(());
+        };
+        let mcp_tools = match handle.await {
+            Ok(tools) => tools,
+            Err(e) => {
+                eprintln!("Warning: Background MCP loader task failed: {e}");
+                Vec::new()
+            }
+        };
+        if !mcp_tools.is_empty() {
+            let mut all_tools = self.base_tools.clone();
+            all_tools.extend(mcp_tools);
+
+            let names: Vec<String> = all_tools.iter().map(|t| t.name().to_string()).collect();
+            *self.tool_names.write().unwrap() = names;
+
+            if let Some(ref model) = self.model {
+                let new_agent = runtime::build_coding_agent(
+                    model.clone(),
+                    &self.config,
+                    runtime::CodingRuntime {
+                        base_dir: &self.base_dir,
+                        memory: self.session_manager.clone(),
+                        built_in_tools: Some(all_tools),
+                    },
+                )?;
+                *self.agent.write().await = new_agent;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
         let base_dir = std::env::current_dir()?;
-        let mut tools = crate::tools::build_builtin_tools(&base_dir, &config)?;
-        tools.extend(crate::mcp::load_mcp_tools(&config, &base_dir).await);
-        builder::AgentEngineBuilder::new(config, auth_store)
+        let rebuilt = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
             .base_dir(base_dir)
-            .tools(tools)
             .build()
-            .await
+            .await?;
+        rebuilt.ensure_tools_loaded().await?;
+        Ok(rebuilt)
     }
 
     pub fn context_limit(&self) -> Option<usize> {

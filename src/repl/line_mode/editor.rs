@@ -52,7 +52,7 @@ pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reed
 pub fn print_line_mode_welcome(session: &ReplSession, engine: &AgentEngine) {
     let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
-    let tools = engine.tool_names.clone();
+    let tools = engine.tool_names();
     let mut plugins = session.config.plugins.keys().cloned().collect::<Vec<_>>();
     for mcp in session.config.mcp.servers.keys() {
         if !plugins.contains(mcp) {
