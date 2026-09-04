@@ -39,11 +39,20 @@ pub struct FunctionCall {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct FunctionResponsePart {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inline_data: Option<InlineData>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct FunctionResponse {
     pub name: String,
     pub response: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<FunctionResponsePart>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -116,6 +125,34 @@ pub fn image_data(data: &rig::message::DocumentSourceKind) -> Option<String> {
     }
 }
 
+pub fn image_mime_type(media_type: Option<&rig::message::ImageMediaType>) -> &'static str {
+    match media_type {
+        Some(rig::message::ImageMediaType::JPEG) => "image/jpeg",
+        Some(rig::message::ImageMediaType::PNG) => "image/png",
+        Some(rig::message::ImageMediaType::GIF) => "image/gif",
+        Some(rig::message::ImageMediaType::WEBP) => "image/webp",
+        Some(rig::message::ImageMediaType::HEIC) => "image/heic",
+        Some(rig::message::ImageMediaType::HEIF) => "image/heif",
+        Some(rig::message::ImageMediaType::SVG) => "image/svg+xml",
+        None => "image/png",
+    }
+}
+
+pub fn tool_result_inline_data(image: &rig::message::Image) -> Option<InlineData> {
+    let data = image_data(&image.data)?;
+    let (mime, data) = match data.strip_prefix("data:") {
+        Some(rest) => match rest.split_once(";base64,") {
+            Some((m, d)) => (m.to_string(), d.to_string()),
+            None => return None,
+        },
+        None => (image_mime_type(image.media_type.as_ref()).to_string(), data),
+    };
+    if data.is_empty() {
+        return None;
+    }
+    Some(InlineData { mime_type: mime, data })
+}
+
 /// Convert rig chat history into Gemini `contents`, mirroring pi's replay
 /// rules: unsigned tool calls on Gemini 3+ are dropped and their results are
 /// replayed as user observations, because the backend validates thought
@@ -142,6 +179,17 @@ pub fn convert_contents(request: &CompletionRequest, runtime_model: &str) -> Vec
                             let response_text = tool_result_text(&result.content);
                             let raw_id = result.call.to_string();
                             let sanitized_id = sanitize_tool_call_id(&raw_id);
+                            let image_parts: Vec<FunctionResponsePart> = result
+                                .content
+                                .iter()
+                                .filter_map(|c| match c {
+                                    rig::message::ToolResultContent::Image(image) => tool_result_inline_data(image)
+                                        .map(|inline_data| FunctionResponsePart {
+                                            inline_data: Some(inline_data),
+                                        }),
+                                    _ => None,
+                                })
+                                .collect();
                             let dropped_args = requires_sig
                                 .then(|| dropped.get(&raw_id).or_else(|| dropped.get(&sanitized_id)).cloned())
                                 .flatten();
@@ -152,12 +200,21 @@ pub fn convert_contents(request: &CompletionRequest, runtime_model: &str) -> Vec
                                     format!("`{}` ({})", result.name, args)
                                 };
                                 parts.push(part_text(format!("[Observation from {label}:\n{response_text}]")));
+                                for p in image_parts {
+                                    if let Some(inline_data) = p.inline_data {
+                                        parts.push(Part {
+                                            inline_data: Some(inline_data),
+                                            ..Part::default()
+                                        });
+                                    }
+                                }
                             } else {
                                 parts.push(Part {
                                     function_response: Some(FunctionResponse {
                                         name: result.name.clone(),
                                         response: json!({ "output": response_text }),
                                         id: call_ids.then(|| sanitized_id.clone()),
+                                        parts: (!image_parts.is_empty()).then_some(image_parts),
                                     }),
                                     ..Part::default()
                                 });
@@ -166,16 +223,8 @@ pub fn convert_contents(request: &CompletionRequest, runtime_model: &str) -> Vec
                         UserContent::Image(image) => {
                             let data = image_data(&image.data);
                             if let Some(data) = data {
-                                let media_type = image.media_type.as_ref().map(|m| match m {
-                                    rig::message::ImageMediaType::JPEG => "image/jpeg",
-                                    rig::message::ImageMediaType::PNG => "image/png",
-                                    rig::message::ImageMediaType::GIF => "image/gif",
-                                    rig::message::ImageMediaType::WEBP => "image/webp",
-                                    rig::message::ImageMediaType::HEIC => "image/heic",
-                                    rig::message::ImageMediaType::HEIF => "image/heif",
-                                    rig::message::ImageMediaType::SVG => "image/svg+xml",
-                                });
-                                if let Some(part) = part_image(&data, media_type) {
+                                let media_type = image_mime_type(image.media_type.as_ref());
+                                if let Some(part) = part_image(&data, Some(media_type)) {
                                     parts.push(part);
                                 }
                             }

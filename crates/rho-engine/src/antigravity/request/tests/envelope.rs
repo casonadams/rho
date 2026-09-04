@@ -153,3 +153,60 @@ fn tools_use_json_schema_for_gemini_and_legacy_parameters_for_claude() {
     assert_eq!(declaration["parameters"]["required"][0], "command");
     assert!(body["request"]["toolConfig"]["functionCallingConfig"]["mode"] == "VALIDATED");
 }
+
+#[test]
+fn tool_result_with_image_serializes_multimodal_function_response() {
+    let tool_call = rig::message::ToolCall {
+        id: rig::message::ToolCallId::new("call-1").unwrap(),
+        provider: None,
+        function: rig::message::ToolFunction {
+            name: "read".to_string(),
+            arguments: serde_json::json!({"path": "image.png"}),
+        },
+        signature: None,
+        additional_params: None,
+    };
+    let tool_result = rig::message::ToolResult {
+        call: rig::message::ToolCallId::new("call-1").unwrap(),
+        provider: None,
+        name: "read".to_string(),
+        content: vec![
+            rig::message::ToolResultContent::Text(rig::message::Text::new("Read image file")),
+            rig::message::ToolResultContent::image_base64(
+                "iVBORw0KGgo=",
+                Some(rig::message::ImageMediaType::PNG),
+                None,
+            ),
+        ],
+    };
+    let history = vec![
+        Message::User {
+            content: vec![UserContent::text("read image")],
+        },
+        Message::Assistant {
+            id: None,
+            content: vec![rig::message::AssistantContent::ToolCall(tool_call)],
+        },
+        Message::User {
+            content: vec![UserContent::ToolResult(tool_result)],
+        },
+    ];
+    let request = minimal_request(history);
+
+    // Claude runtime retains functionCall + functionResponse with parts containing inlineData.
+    let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
+    let contents = body["request"]["contents"].as_array().unwrap();
+    let fn_response = &contents[2]["parts"][0]["functionResponse"];
+    assert_eq!(fn_response["name"], "read");
+    let parts = fn_response["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 1);
+    assert_eq!(parts[0]["inlineData"]["mimeType"], "image/png");
+    assert_eq!(parts[0]["inlineData"]["data"], "iVBORw0KGgo=");
+
+    // Gemini 3 unsigned tool call flattens into observation text + inlineData part.
+    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+    let contents = body["request"]["contents"].as_array().unwrap();
+    assert_eq!(contents[0]["parts"].as_array().unwrap().len(), 3);
+    assert_eq!(contents[0]["parts"][2]["inlineData"]["mimeType"], "image/png");
+    assert_eq!(contents[0]["parts"][2]["inlineData"]["data"], "iVBORw0KGgo=");
+}

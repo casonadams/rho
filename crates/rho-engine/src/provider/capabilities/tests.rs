@@ -2,7 +2,14 @@ use super::supports_tool_result_images;
 
 #[test]
 fn providers_that_serialize_tool_result_images() {
-    for provider in ["anthropic", "gemini", "google", "chatgpt"] {
+    for provider in [
+        "anthropic",
+        "gemini",
+        "google",
+        "chatgpt",
+        "antigravity",
+        "google-antigravity",
+    ] {
         assert!(
             supports_tool_result_images(provider),
             "{provider} should support tool-result images"
@@ -24,8 +31,6 @@ fn providers_that_hard_error_on_tool_result_images() {
         "mistral",
         "cohere",
         "copilot",
-        "antigravity",
-        "google-antigravity",
     ] {
         assert!(
             !supports_tool_result_images(provider),
