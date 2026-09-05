@@ -24,7 +24,7 @@ pub fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result
 
     let selected_name = if parts.len() > 1 {
         Some(parts[1].to_string())
-    } else if ctx.renderer.has_interactive_ui() && std::io::stdin().is_terminal() {
+    } else if !ctx.renderer.has_interactive_ui() && std::io::stdin().is_terminal() {
         let choices: Vec<String> = skills
             .iter()
             .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
