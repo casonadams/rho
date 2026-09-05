@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/casonadams/rho/compare/v0.3.0...v0.3.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ci:** pass --allow-dirty to cargo publish and sync Cargo.lock ([81c6922](https://github.com/casonadams/rho/commit/81c6922fc534f541268466358b63f6ecc19948c6))
+
 ## [0.3.0](https://github.com/casonadams/rho/compare/v0.2.3...v0.3.0) (2026-09-05)
 
 
