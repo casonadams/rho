@@ -1,6 +1,9 @@
 use super::*;
+use crate::auth::AuthStore;
 use rho_harness_core::auth::StoredCredential;
+use std::sync::Arc;
 use tempfile::NamedTempFile;
+use tokio::sync::Mutex;
 
 #[tokio::test]
 async fn static_provider_returns_configured_token() {

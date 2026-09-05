@@ -1,5 +1,6 @@
 pub mod antigravity;
 pub mod auth;
+pub mod claude;
 pub mod engine;
 pub mod mcp;
 pub mod ollama;
