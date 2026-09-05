@@ -62,20 +62,14 @@ fn modal_body_truncation_on_small_terminal() {
         .parse()
         .expect("parse count");
     assert_eq!(rendered_body_lines + omitted_count, 30);
-    assert!(
-        layout
-            .lines
-            .last()
-            .expect("bottom line")
-            .contains("─".repeat(80).as_str())
-    );
+    assert!(layout.bottom_divider.contains("─".repeat(80).as_str()));
 }
 
 #[test]
 fn modal_body_truncation_minimal_omitted_lines() {
     let default_editor = EditorState::default();
     let default_footer = FooterState::default();
-    let body = (1..=7).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+    let body = (1..=9).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
     let modal = ModalState::new(
         "Permission",
         &body,
@@ -147,11 +141,5 @@ fn modal_body_suppressed_on_minimal_terminal_height() {
     });
     assert!(layout_6.lines.len() <= 6);
     assert!(layout_6.lines.iter().any(|l| l.contains("Allow")));
-    assert!(
-        layout_6
-            .lines
-            .last()
-            .expect("bottom line")
-            .contains("─".repeat(80).as_str())
-    );
+    assert!(layout_6.bottom_divider.contains("─".repeat(80).as_str()));
 }

@@ -1,6 +1,6 @@
 use super::autocomplete::render_autocomplete_dropdown;
 use super::budget::{NormalBudgetInput, compute_normal_budget};
-use super::chrome::{queued_lines_text, thinking_divider_style, top_divider, working_line_text};
+use super::chrome::{modal_top_divider, queued_lines_text, thinking_divider_style, top_divider, working_line_text};
 use super::editor::{window_editor, wrap_editor};
 use super::types::{InteractiveLayout, LayoutInput};
 
@@ -13,22 +13,33 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     let queued_lines = queued_lines_text(input.queued_messages, width);
 
     let (all_ed_lines, full_cursor) = wrap_editor(input.editor, width);
-    let ac_desired = if let Some(ac) = input.autocomplete {
-        if ac.visible && !ac.items.is_empty() && width >= 15 {
-            ac.items.len().min(super::autocomplete::MAX_VISIBLE_ITEMS)
-        } else {
-            0
-        }
+    let ac_desired = if input.modal.is_none()
+        && let Some(ac) = input.autocomplete
+        && ac.visible
+        && !ac.items.is_empty()
+        && width >= 15
+    {
+        ac.items.len().min(super::autocomplete::MAX_VISIBLE_ITEMS)
     } else {
         0
     };
-    let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width, input.system_message);
+
+    let total_editor_lines = if let Some(modal) = input.modal {
+        super::modal::in_input_modal_desired_lines(modal, input.editor.text(), width.saturating_sub(4).max(1))
+    } else {
+        all_ed_lines.len()
+    };
+    let ft_lines = if let Some(modal) = input.modal {
+        vec![super::modal::modal_hint(modal).to_string()]
+    } else {
+        crate::ui::interactive::footer::format_footer_lines(input.footer, width, input.system_message)
+    };
 
     let budget = compute_normal_budget(&NormalBudgetInput {
         terminal_height: input.terminal_height,
         raw_widgets_count: widget_lines.len(),
         raw_queued_count: queued_lines.len(),
-        total_editor_lines: all_ed_lines.len(),
+        total_editor_lines,
         autocomplete_desired: ac_desired,
         raw_footer_count: ft_lines.len(),
     });
@@ -61,8 +72,9 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         String::new()
     };
 
-    let is_bash_mode = input.editor.text().trim_start().starts_with('!');
-    let (style, reset) = if is_bash_mode {
+    let (style, reset) = if input.modal.is_some() {
+        ("\x1b[1;36m", "\x1b[0m")
+    } else if input.editor.text().trim_start().starts_with('!') {
         ("\x1b[33m", "\x1b[0m")
     } else {
         thinking_divider_style(input.footer.thinking_level.as_deref())
@@ -72,7 +84,10 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     } else {
         ""
     };
-    let top_div = top_divider(width, label, (style, reset));
+    let top_div = match input.modal {
+        Some(modal) => modal_top_divider(width, &modal.title, (style, reset)),
+        None => top_divider(width, label, (style, reset)),
+    };
     if budget.show_top_div {
         lines.push(top_div.clone());
     }
@@ -80,18 +95,29 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     let default_theme = crate::ui::theme::Theme::default();
     let active_theme = input.theme.unwrap_or(&default_theme);
 
-    let ac_lines = if let Some(ac) = input.autocomplete {
-        render_autocomplete_dropdown(ac, (width, budget.autocomplete_max_lines), active_theme)
+    let (ed_lines, ed_cursor, ed_cursor_visible) = if let Some(modal) = input.modal {
+        super::modal::render_in_input_modal(super::modal::InInputModalInput {
+            modal,
+            draft_text: input.editor.text(),
+            bounds: (width, budget.editor_max_lines),
+            theme: active_theme,
+        })
     } else {
-        Vec::new()
-    };
+        let ac_lines = if let Some(ac) = input.autocomplete {
+            render_autocomplete_dropdown(ac, (width, budget.autocomplete_max_lines), active_theme)
+        } else {
+            Vec::new()
+        };
 
-    let unused_ac = budget.autocomplete_max_lines.saturating_sub(ac_lines.len());
-    let ed_max = budget.editor_max_lines + unused_ac.min(all_ed_lines.len().saturating_sub(budget.editor_max_lines));
-    let (mut ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
-    if !ac_lines.is_empty() {
-        ed_lines.extend(ac_lines);
-    }
+        let unused_ac = budget.autocomplete_max_lines.saturating_sub(ac_lines.len());
+        let ed_max =
+            budget.editor_max_lines + unused_ac.min(all_ed_lines.len().saturating_sub(budget.editor_max_lines));
+        let (mut ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
+        if !ac_lines.is_empty() {
+            ed_lines.extend(ac_lines);
+        }
+        (ed_lines, ed_cursor, true)
+    };
 
     let editor_start_row = lines.len();
     lines.extend(ed_lines.clone());
@@ -114,7 +140,7 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         lines,
         bg: String::new(),
         cursor: ed_cursor,
-        cursor_visible: true,
+        cursor_visible: ed_cursor_visible,
         cursor_row,
         queued_lines: visible_queued,
         widget_lines: visible_widgets,

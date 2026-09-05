@@ -62,7 +62,8 @@ fn modal_searchable_cursor_with_body_truncation() {
 
     assert!(layout.lines.len() <= 15);
     assert!(layout.cursor_visible);
-    assert_eq!(layout.cursor_row, 2);
+    assert_eq!(layout.cursor_row, 3);
+    assert!(layout.lines[layout.cursor_row].contains('>'));
     assert!(layout.cursor_row < layout.lines.len());
     assert!(layout.cursor.column <= 80);
 }

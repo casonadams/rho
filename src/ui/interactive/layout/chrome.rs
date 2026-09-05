@@ -23,6 +23,20 @@ pub fn top_divider(width: usize, label: &str, (style, reset): (&str, &str)) -> S
     }
 }
 
+pub fn modal_top_divider(width: usize, title: &str, (style, reset): (&str, &str)) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        return format!("{style}{}{reset}", "─".repeat(width));
+    }
+    let label = format!(" {title} ");
+    if width >= label.len() + 4 {
+        let trail = width.saturating_sub(label.len() + 2);
+        format!("{style}──{label}{}{reset}", "─".repeat(trail))
+    } else {
+        format!("{style}{}{reset}", "─".repeat(width))
+    }
+}
+
 pub fn queued_lines_text(queued: &[QueuedMessage], width: usize) -> Vec<String> {
     if queued.is_empty() || width < 12 {
         return Vec::new();

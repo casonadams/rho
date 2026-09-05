@@ -49,7 +49,7 @@ pub(super) fn format_option_line(opt: &ModalOption, fmt: OptionFormat<'_>) -> St
     format!("{prefix}{label}  {dimmed}{cleaned_desc}{dimmed:#}")
 }
 
-pub(super) fn modal_hint(modal: &ModalState) -> &'static str {
+pub(crate) fn modal_hint(modal: &ModalState) -> &'static str {
     match &modal.mode {
         crate::ui::interactive::ModalMode::Select if modal.title == "Select Model" => {
             "\x1b[2mEnter to select • Ctrl+S to set as default • Esc to cancel\x1b[0m"

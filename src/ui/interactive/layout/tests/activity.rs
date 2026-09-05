@@ -158,7 +158,7 @@ fn busy_activity_does_not_change_layout_height_or_cursor_row() {
 }
 
 #[test]
-fn busy_activity_under_modal_hides_working_line() {
+fn busy_activity_under_modal_shows_working_line_when_budget_permits() {
     let default_editor = EditorState::default();
     let footer = FooterState {
         activity: Activity::Working,
@@ -186,5 +186,6 @@ fn busy_activity_under_modal_hides_working_line() {
         theme: None,
     });
 
-    assert_eq!(layout.working_line, "");
+    assert!(!layout.working_line.is_empty());
+    assert!(layout.lines.iter().any(|l| l.contains("Working...")));
 }
