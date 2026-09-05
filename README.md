@@ -64,6 +64,36 @@ order once the active turn settles.
 
 ---
 
+## Theming
+
+Run `/theme` inside the REPL for an interactive selector with live preview; the
+choice is saved to `config.toml` immediately. rho ships 10 built-in themes (9
+dark, plus `catppuccin-latte` for light terminals). Custom themes live in
+`~/.config/rho/themes/*.toml` and may define `background`, `foreground`, and the
+16 palette colors (`color0`-`color15`); rho maps them onto its UI roles, with
+block surfaces coming from the `color0` slot.
+
+### Use the `default` theme with walh-shell
+
+The `default` theme is special: instead of hardcoding hex colors it emits plain
+16-color ANSI codes, so everything rho draws follows your terminal's own
+palette. [walh-shell](https://github.com/casonadams/walh-shell) recolors that
+palette live in your shell - with `default`, rho renders in exactly the same
+colors as your prompt, tooling, and block surfaces (ANSI black is walh-shell's
+derived surface tint). This is the recommended pairing.
+
+### Mermaid diagrams and themes
+
+Mermaid fences render as monochrome text - the diagram renderer emits no color
+codes of its own. With the `default` theme the diagram simply picks up your
+terminal palette; with any other theme it is drawn in that theme's foreground
+color on its background, so diagrams do not get accent colors and can look flat
+compared to the rest of the UI. Diagrams wider than the terminal are clipped to
+the width (box alignment is preserved, but the right edge is cut off), so keep
+flows narrow or split them into multiple fences.
+
+---
+
 ## Core Built-in Tools
 
 `rho` includes 8 native, robust built-in tools:
