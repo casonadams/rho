@@ -3,6 +3,7 @@ mod bash_stream;
 mod batch;
 mod claude_modal;
 mod common;
+mod default_model;
 mod footer;
 mod history;
 mod modals;

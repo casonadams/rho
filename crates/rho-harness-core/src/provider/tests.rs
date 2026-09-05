@@ -136,3 +136,20 @@ fn from_str_aliases_and_case_insensitivity() {
     assert_eq!(ProviderId::from_str("ollamacloud").unwrap(), ProviderId::OllamaCloud);
     assert!(ProviderId::from_str("nonexistent-ai").is_err());
 }
+
+#[test]
+fn infer_provider_for_model_resolves_common_prefixes() {
+    assert_eq!(
+        infer_provider_for_model("claude-3-7-sonnet-20250219"),
+        Some("anthropic")
+    );
+    assert_eq!(infer_provider_for_model("gpt-4o"), Some("openai"));
+    assert_eq!(infer_provider_for_model("o3-mini"), Some("openai"));
+    assert_eq!(infer_provider_for_model("gemini-2.0-flash"), Some("gemini"));
+    assert_eq!(infer_provider_for_model("deepseek-chat"), Some("deepseek"));
+    assert_eq!(infer_provider_for_model("grok-2"), Some("xai"));
+    assert_eq!(infer_provider_for_model("mistral-large-latest"), Some("mistral"));
+    assert_eq!(infer_provider_for_model("llama-3.3-70b-versatile"), Some("groq"));
+    assert_eq!(infer_provider_for_model("meta-llama/llama-3-70b"), Some("openrouter"));
+    assert_eq!(infer_provider_for_model("unknown-model"), None);
+}

@@ -35,15 +35,10 @@ pub(crate) async fn apply_modal_key_result<B: TerminalBackend>(
             )
             .await;
             if save_as_default {
-                let _ = rho_harness_core::config::Config::set_file_value_async(
+                ctx.session.config.set_default_model(&model, &provider);
+                let _ = rho_harness_core::config::Config::save_default_model_async(
                     &ctx.session.config.config_dir,
-                    "model",
                     &model,
-                )
-                .await;
-                let _ = rho_harness_core::config::Config::set_file_value_async(
-                    &ctx.session.config.config_dir,
-                    "provider",
                     &provider,
                 )
                 .await;

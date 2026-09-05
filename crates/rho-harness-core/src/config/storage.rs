@@ -19,6 +19,14 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_default_model_async(config_dir: &Path, model: &str, provider: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        file_config.model = Some(model.to_string());
+        file_config.provider = Some(provider.to_string());
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub fn add_plugin(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
         validate_plugin_args(name, &plugin)?;
         let path = config_dir.join("config.toml");

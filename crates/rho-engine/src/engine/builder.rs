@@ -102,8 +102,14 @@ impl AgentEngineBuilder {
 
         let mut config = self.config;
         let mut auth_store = self.auth_store;
-        let is_unmodified_default =
-            !config.model_from_state && config.provider == "local" && config.model == "llama3.2";
+        let is_unmodified_default = config.default_model.is_none()
+            && !config.model_from_state
+            && config.provider == "local"
+            && config.model == "llama3.2";
+        let is_provider_without_model = config.default_model.is_none()
+            && !config.model_from_state
+            && config.provider != "local"
+            && config.model == "llama3.2";
 
         // Auto-refresh expired OAuth tokens before building the model client
         // (get_key refreshes + persists when the stored token is stale).
@@ -119,7 +125,17 @@ impl AgentEngineBuilder {
             match create_engine_model(&config, &auth_store, Some(shared_auth.clone())) {
                 Ok(m) => m,
                 Err(e) => {
-                    if is_unmodified_default {
+                    if is_provider_without_model {
+                        let default_model = default_model_for_provider(&config.provider);
+                        let mut trial_config = config.clone();
+                        trial_config.model = default_model.to_string();
+                        if let Ok(m) = create_engine_model(&trial_config, &auth_store, Some(shared_auth.clone())) {
+                            config = trial_config;
+                            m
+                        } else {
+                            return Err(e);
+                        }
+                    } else if is_unmodified_default {
                         let configured = auth_store.list_configured_providers();
                         let mut fallback = None;
                         for p in configured {

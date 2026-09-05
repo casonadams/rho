@@ -2,11 +2,23 @@ use super::super::Config;
 use super::super::types::FileConfig;
 
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
+    let model_specified = file.model.is_some();
     if let Some(m) = file.model {
-        config.model = m;
+        config.model = m.clone();
+        config.default_model = Some(m);
+        config.model_from_state = false;
     }
     if let Some(p) = file.provider {
-        config.provider = p;
+        config.provider = p.clone();
+        config.default_provider = Some(p);
+    } else if model_specified {
+        if let Some(inferred) = crate::provider::infer_provider_for_model(&config.model) {
+            config.provider = inferred.to_string();
+            config.default_provider = Some(inferred.to_string());
+        } else {
+            config.provider = "local".to_string();
+            config.default_provider = None;
+        }
     }
     if let Some(max_output_tokens) = file.max_output_tokens {
         config.max_output_tokens = Some(max_output_tokens);

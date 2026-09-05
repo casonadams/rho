@@ -39,6 +39,10 @@ pub struct Config {
     pub no_context_files: bool,
     #[serde(default)]
     pub model_from_state: bool,
+    #[serde(default)]
+    pub default_model: Option<String>,
+    #[serde(default)]
+    pub default_provider: Option<String>,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
@@ -78,6 +82,8 @@ impl Default for Config {
             append_system_prompt: None,
             no_context_files: false,
             model_from_state: false,
+            default_model: None,
+            default_provider: None,
             plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
@@ -85,5 +91,15 @@ impl Default for Config {
             auth_file: base_dir.join("auth.json"),
             config_dir: base_dir,
         }
+    }
+}
+
+impl Config {
+    pub fn set_default_model(&mut self, model: &str, provider: &str) {
+        self.model = model.to_string();
+        self.provider = provider.to_string();
+        self.default_model = Some(model.to_string());
+        self.default_provider = Some(provider.to_string());
+        self.model_from_state = false;
     }
 }

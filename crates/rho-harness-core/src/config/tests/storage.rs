@@ -71,27 +71,29 @@ fn plugin_entries_round_trip_and_are_removed_atomically() {
 }
 
 #[test]
-fn test_state_model_takes_precedence_over_config_file() {
+fn test_config_file_model_takes_precedence_over_state_model() {
     let dir = std::env::temp_dir().join(format!("rho_precedence_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    // 1. Write model to config.toml
+    // 1. Write model to config.toml (default saved model)
     Config::set_file_value(&dir, "model", "config-model").unwrap();
     Config::set_file_value(&dir, "provider", "openai").unwrap();
 
     // 2. Write last used model to state.json
     crate::state::AppState::set_last_model(&dir, "state-model", Some("gemini")).unwrap();
 
-    // 3. Load config pointing to dir
+    // 3. Load config pointing to dir: saved default model must take precedence
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
     }
     let config = Config::load(None).unwrap();
-    assert_eq!(config.model, "state-model");
-    assert_eq!(config.provider, "gemini");
-    assert!(config.model_from_state);
+    assert_eq!(config.model, "config-model");
+    assert_eq!(config.provider, "openai");
+    assert_eq!(config.default_model.as_deref(), Some("config-model"));
+    assert_eq!(config.default_provider.as_deref(), Some("openai"));
+    assert!(!config.model_from_state);
 
-    // 4. Explicit CLI flag overrides state.json
+    // 4. Explicit CLI flag overrides config file
     let cli = crate::config::cli::Cli {
         prompt: None,
         model: Some("cli-model".to_string()),
@@ -114,6 +116,54 @@ fn test_state_model_takes_precedence_over_config_file() {
     let cli_config = Config::load(Some(&cli)).unwrap();
     assert_eq!(cli_config.model, "cli-model");
     assert!(!cli_config.model_from_state);
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_state_model_used_when_no_config_file_model() {
+    let dir = std::env::temp_dir().join(format!("rho_state_fallback_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // 1. Write last used model to state.json without any model in config.toml
+    crate::state::AppState::set_last_model(&dir, "state-model", Some("gemini")).unwrap();
+
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+    assert_eq!(config.model, "state-model");
+    assert_eq!(config.provider, "gemini");
+    assert!(config.model_from_state);
+    assert_eq!(config.default_model, None);
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn test_save_default_model_persists_both_fields() {
+    let dir = std::env::temp_dir().join(format!("rho_save_default_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::save_default_model_async(&dir, "saved-model", "saved-provider")
+        .await
+        .unwrap();
+
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+    assert_eq!(config.model, "saved-model");
+    assert_eq!(config.provider, "saved-provider");
+    assert_eq!(config.default_model.as_deref(), Some("saved-model"));
+    assert_eq!(config.default_provider.as_deref(), Some("saved-provider"));
+    assert!(!config.model_from_state);
 
     unsafe {
         std::env::remove_var("RHO_HOME");

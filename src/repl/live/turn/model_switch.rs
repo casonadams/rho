@@ -42,8 +42,8 @@ pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(input: TurnModel
     config.provider = provider.to_string();
     let _ = rho_harness_core::state::AppState::set_last_model_async(&config.config_dir, model, Some(provider)).await;
     if save_as_default {
-        let _ = rho_harness_core::config::Config::set_file_value_async(&config.config_dir, "model", model).await;
-        let _ = rho_harness_core::config::Config::set_file_value_async(&config.config_dir, "provider", provider).await;
+        config.set_default_model(model, provider);
+        let _ = rho_harness_core::config::Config::save_default_model_async(&config.config_dir, model, provider).await;
         renderer.print_status(&format!("Default model: {model} ({provider})"));
     } else {
         renderer.print_status(&format!("Model: {model} ({provider})"));

@@ -10,13 +10,27 @@ pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
+    let default_model = session
+        .config
+        .default_model
+        .as_deref()
+        .or_else(|| (!session.config.model_from_state).then_some(session.config.model.as_str()));
+
     for (i, item) in discovered.iter().enumerate() {
         let is_active = item.id == session.config.model;
         if is_active {
             initial_selection = i;
         }
+        let is_default = default_model.is_some_and(|dm| {
+            item.id == dm
+                && session
+                    .config
+                    .default_provider
+                    .as_deref()
+                    .is_none_or(|dp| item.provider == dp)
+        });
         let active_mark = if is_active { "✓" } else { "" };
-        let default_mark = if is_active { "default" } else { "" };
+        let default_mark = if is_default { "default" } else { "" };
         options.push(ModalOption::new(
             item.id.clone(),
             Some(format!(

@@ -19,6 +19,18 @@ impl Config {
         let _ = dotenvy::dotenv();
         let mut config = Config::default();
 
+        let state = crate::state::AppState::load(&config.config_dir);
+        if let Some(m) = state.last_model {
+            config.model = m;
+            config.model_from_state = true;
+        }
+        if let Some(p) = state.last_provider {
+            config.provider = p;
+        }
+        if let Some(t) = state.last_thinking_level {
+            config.thinking_level = Some(t);
+        }
+
         let config_file = config.config_dir.join("config.toml");
         if config_file.exists() {
             let content = std::fs::read_to_string(&config_file)
@@ -36,18 +48,6 @@ impl Config {
             {
                 merge::merge_file(&mut config, project_file_cfg);
             }
-        }
-
-        let state = crate::state::AppState::load(&config.config_dir);
-        if let Some(m) = state.last_model {
-            config.model = m;
-            config.model_from_state = true;
-        }
-        if let Some(p) = state.last_provider {
-            config.provider = p;
-        }
-        if let Some(t) = state.last_thinking_level {
-            config.thinking_level = Some(t);
         }
 
         merge::apply_env_overrides(&mut config)?;

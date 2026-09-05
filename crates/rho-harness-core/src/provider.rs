@@ -169,5 +169,8 @@ impl FromStr for ProviderId {
     }
 }
 
+pub use inference::infer_provider_for_model;
+
+mod inference;
 #[cfg(test)]
 mod tests;
