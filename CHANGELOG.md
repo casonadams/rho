@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.2.2](https://github.com/casonadams/rho/compare/v0.2.1...v0.2.2) (2026-09-05)
+
+
+### Features
+
+* **antigravity:** support multimodal image blocks in tool results ([7479c28](https://github.com/casonadams/rho/commit/7479c288ec08ace400f50a5c3f05ed551fef5d7d))
+* **cli:** add system prompt and context file CLI flags ([fed881e](https://github.com/casonadams/rho/commit/fed881e336f23067ade3c2977403c3341b33125f))
+* **engine:** fetch ollama-cloud quota and resolve context windows from catalogs ([0ec7331](https://github.com/casonadams/rho/commit/0ec73310b856024a69afba87425cc203911d5275))
+* **engine:** intercept tool batches and inject steering interrupts ([915fa3d](https://github.com/casonadams/rho/commit/915fa3d71264400e69f5679fea1a68ba84c026f7))
+* **engine:** orchestrate session compaction and context overflow recovery ([3696c32](https://github.com/casonadams/rho/commit/3696c3214e30b6ec69faa8b15035d0c1b704fe57))
+* **repl:** stream live turn footer metrics and display system messages ([84a8c20](https://github.com/casonadams/rho/commit/84a8c207c410337257c3de035f21827d5d080140))
+* **repl:** wire compact command and branch summarization ([f5e8928](https://github.com/casonadams/rho/commit/f5e8928a33a7f638e8b267e46f31bf612131fde2))
+* **repl:** wire interactive steering queue and mid-turn delivery ([fd3a3c9](https://github.com/casonadams/rho/commit/fd3a3c90f53513fec607005d300f2c9239d80198))
+* **session:** add serialization, token cut point, and file tracking ([173645d](https://github.com/casonadams/rho/commit/173645d08dccc31baa190827f069bd0a3a97aba7))
+* **session:** add summarization prompts and fallback summary generation ([057f1c4](https://github.com/casonadams/rho/commit/057f1c4fec98db6e51a1eba2a6aaa4bf56afa69f))
+* **session:** support compaction nodes and tree context projection ([304c78f](https://github.com/casonadams/rho/commit/304c78f02a1bc2f567c59455c7a1d13a0ca3fc02))
+* **ui:** add programmatic expansion setters with no-op fast paths ([902e8b3](https://github.com/casonadams/rho/commit/902e8b3557fc5ade47733294fb0527497b9ee830))
+* **ui:** adopt 16-color palette mapping with OSC terminal backgrounds and live preview ([2b000a7](https://github.com/casonadams/rho/commit/2b000a7085890f67f6caaec254cb81c66fca8e9c))
+* **ui:** bound modal overlay height and truncate body on small terminals ([71b13f4](https://github.com/casonadams/rho/commit/71b13f435d37059d6e984f65336825b39968719d))
+* **ui:** bound normal layout height and window editor around cursor ([d195795](https://github.com/casonadams/rho/commit/d195795421400892ffd01556cb9f208f56f9acc5))
+* **ui:** clip mermaid diagrams to the render width ([c34196e](https://github.com/casonadams/rho/commit/c34196e49467fc9534502df1b3164fa424bf2d42))
+* **ui:** format tokens per second as whole numbers clamped to 1t/s ([bacad04](https://github.com/casonadams/rho/commit/bacad04b65117b0cdec6eb579d8abe19c7d6c2bb))
+* **ui:** implement theming engine with built-ins and /theme command ([c39a682](https://github.com/casonadams/rho/commit/c39a6820150c57a129a80c271717d433f358b698))
+* **ui:** implement transcript render cache with dual-state item support ([a98aa2d](https://github.com/casonadams/rho/commit/a98aa2dd48a0363f6c7aadaa619994aba750add9))
+* **ui:** integrate transcript render cache and synchronized redraw batching ([6aaeffb](https://github.com/casonadams/rho/commit/6aaeffb95c04790a2d2378426832edfc77b5850a))
+* **ui:** paint rho's region with theme background and foreground ([5a43a34](https://github.com/casonadams/rho/commit/5a43a3431f8dfb00f70f869ad1bde06b7743986f))
+* **ui:** render the startup session picker with rho's themed UI ([8c767af](https://github.com/casonadams/rho/commit/8c767af7328b430e83f994fd741d998bb8044c15))
+* **ui:** show a dedicated compacting activity state ([5ba7f89](https://github.com/casonadams/rho/commit/5ba7f898d08613003d9642662e98210ca5adc7b4))
+* **ui:** track terminal height and handle vertical resize ([e00c0cf](https://github.com/casonadams/rho/commit/e00c0cfa438061dcb273d0a46390a1a291cd9ca5))
+
+
+### Bug Fixes
+
+* **auth:** launch windows browser without url truncation ([93c28c4](https://github.com/casonadams/rho/commit/93c28c40880db1bffba1625f59a06572880252ef))
+* **engine:** exclude tool streaming deltas and tool execution from tokens per second ([9eb2d3a](https://github.com/casonadams/rho/commit/9eb2d3a7b7a34819db6398f9b4c11b352c035e46))
+* **repl:** do not treat absolute file paths as slash commands ([30c211d](https://github.com/casonadams/rho/commit/30c211ddb2377e1073b2d743edb2e3da261a84c2))
+* **repl:** suspend interactive ui and drain input during prompts ([5cde319](https://github.com/casonadams/rho/commit/5cde319206442775aae232ad2d475afd3906d330))
+* **ui:** omit live widget for fast tools without output ([f1a70f1](https://github.com/casonadams/rho/commit/f1a70f1f5690d91dfbdde53a35a3f4a97b8d0d3c))
+
 ## [0.2.1](https://github.com/casonadams/rho/compare/v0.2.0...v0.2.1) (2026-09-04)
 
 
