@@ -2576,6 +2576,8 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
+ "toml",
+ "toml_edit 0.22.27",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-c-sharp",

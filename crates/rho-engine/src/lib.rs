@@ -4,6 +4,7 @@ pub mod claude;
 pub mod engine;
 pub mod mcp;
 pub mod ollama;
+pub mod permission;
 pub mod plugin;
 pub mod process;
 pub mod provider;
