@@ -28,10 +28,8 @@ fn widget_lines_affect_height_and_cursor_row() {
     });
 
     assert_eq!(layout.widget_lines.len(), 3);
-    // 3 (widgets) + 1 (spacer) + 1 (top_divider) + 1 (editor) + 1 (bottom_divider) + 2 (footer) = 9
-    assert_eq!(layout.height(), 9);
-    // cursor_row: 3 (widgets) + 1 (spacer) + 1 (top_divider) + 0 (editor cursor row) = 5
-    assert_eq!(layout.cursor_row(), 5);
+    assert_eq!(layout.height(), 10);
+    assert_eq!(layout.cursor_row(), 6);
 }
 
 #[test]

@@ -29,7 +29,7 @@ fn busy_activity_renders_working_line_above_the_editor() {
     assert!(layout.working_line.contains("Working..."));
     assert!(layout.working_line.contains("\u{1b}[2m"));
     assert!(layout.footer_lines[1].ends_with("model"));
-    assert_eq!(layout.height(), 6);
+    assert_eq!(layout.height(), 7);
 }
 
 #[test]
@@ -114,6 +114,7 @@ fn idle_activity_renders_no_working_line() {
     });
 
     assert_eq!(layout.working_line, "");
+    assert_eq!(layout.height(), 7);
 }
 
 #[test]

@@ -101,7 +101,7 @@ fn autocomplete_layout_bounded_by_terminal_height() {
     ac.open(make_items(10));
     let footer = FooterState::default();
 
-    let layout_8 = layout(LayoutInput {
+    let layout_9 = layout(LayoutInput {
         editor: &editor,
         modal: None,
         autocomplete: Some(&ac),
@@ -110,14 +110,14 @@ fn autocomplete_layout_bounded_by_terminal_height() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
-        terminal_height: 8,
+        terminal_height: 9,
         spinner_frame: 0,
         theme: None,
     });
-    assert!(layout_8.height() <= 8);
-    assert!(layout_8.lines.iter().any(|l| l.contains("/item")));
+    assert!(layout_9.height() <= 9);
+    assert!(layout_9.lines.iter().any(|l| l.contains("/item")));
 
-    let layout_6 = layout(LayoutInput {
+    let layout_7 = layout(LayoutInput {
         editor: &editor,
         modal: None,
         autocomplete: Some(&ac),
@@ -126,10 +126,10 @@ fn autocomplete_layout_bounded_by_terminal_height() {
         queued_messages: &[],
         widget_lines: &[],
         terminal_width: 80,
-        terminal_height: 6,
+        terminal_height: 7,
         spinner_frame: 0,
         theme: None,
     });
-    assert!(layout_6.height() <= 6);
-    assert!(!layout_6.lines.iter().any(|l| l.contains("/item")));
+    assert!(layout_7.height() <= 7);
+    assert!(!layout_7.lines.iter().any(|l| l.contains("/item")));
 }

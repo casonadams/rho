@@ -8,6 +8,7 @@ pub(crate) struct NormalBudgetInput {
 }
 
 pub(crate) struct NormalLayoutBudget {
+    pub show_spacer: bool,
     pub show_activity_row: bool,
     pub show_top_div: bool,
     pub show_bot_div: bool,
@@ -21,17 +22,19 @@ pub(crate) struct NormalLayoutBudget {
 pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBudget {
     let budget = input.terminal_height.max(1);
 
-    let (show_activity_row, show_top_div, show_bot_div, footer_count) = match budget {
-        0..=1 => (false, false, false, 0),
-        2 => (false, true, false, 0),
-        3 => (false, true, true, 0),
-        4 => (false, true, true, input.raw_footer_count.min(1)),
-        5 => (false, true, true, input.raw_footer_count.min(2)),
-        _ => (true, true, true, input.raw_footer_count.min(2)),
+    let (show_spacer, show_activity_row, show_top_div, show_bot_div, footer_count) = match budget {
+        0..=1 => (false, false, false, false, 0),
+        2 => (false, false, true, false, 0),
+        3 => (false, false, true, true, 0),
+        4 => (false, false, true, true, input.raw_footer_count.min(1)),
+        5 => (false, false, true, true, input.raw_footer_count.min(2)),
+        6 => (false, true, true, true, input.raw_footer_count.min(2)),
+        _ => (true, true, true, true, input.raw_footer_count.min(2)),
     };
 
     let min_editor = 1;
-    let reserved_chrome = usize::from(show_activity_row)
+    let reserved_chrome = usize::from(show_spacer)
+        + usize::from(show_activity_row)
         + usize::from(show_top_div)
         + usize::from(show_bot_div)
         + footer_count
@@ -77,6 +80,7 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     };
 
     NormalLayoutBudget {
+        show_spacer,
         show_activity_row,
         show_top_div,
         show_bot_div,

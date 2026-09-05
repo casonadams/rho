@@ -32,8 +32,8 @@ fn tool_completion_in_place_preserves_editor_row_and_output_continuity() {
     assert_eq!(controller.transcript().len(), 1);
 
     let rendered = controller.rendered.as_ref().expect("rendered layout exists");
-    assert_eq!(rendered.cursor_row(), 2);
-    assert_eq!(rendered.lines.len(), 6);
+    assert_eq!(rendered.cursor_row(), 3);
+    assert_eq!(rendered.lines.len(), 7);
 
     operations.borrow_mut().clear();
     controller.write_output("Done.\n").unwrap();
@@ -89,8 +89,8 @@ fn consecutive_tools_commit_in_place_without_cumulative_drift() {
     assert_eq!(controller.transcript().len(), 2);
     assert!(controller.state().active_tool().is_none());
     let rendered = controller.rendered.as_ref().unwrap();
-    assert_eq!(rendered.cursor_row(), 2);
-    assert_eq!(rendered.lines.len(), 6);
+    assert_eq!(rendered.cursor_row(), 3);
+    assert_eq!(rendered.lines.len(), 7);
 }
 
 #[test]

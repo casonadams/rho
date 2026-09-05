@@ -42,6 +42,10 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         lines.extend(visible_widgets.clone());
     }
 
+    if budget.show_spacer {
+        lines.push(String::new());
+    }
+
     let visible_queued = if budget.queued_count > 0 {
         let count = budget.queued_count.min(queued_lines.len());
         queued_lines[..count].to_vec()
