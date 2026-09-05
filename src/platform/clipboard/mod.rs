@@ -122,6 +122,12 @@ pub fn get_image() -> Result<Option<ClipboardImage>> {
     Ok(None)
 }
 
+pub async fn get_image_async() -> Result<Option<ClipboardImage>> {
+    tokio::task::spawn_blocking(get_image)
+        .await
+        .map_err(|e| anyhow::anyhow!("Clipboard image task failed: {e}"))?
+}
+
 pub fn save_image_to_temp_png(img: &ClipboardImage) -> Result<std::path::PathBuf> {
     let file_name = format!("rho-clipboard-{}.png", uuid::Uuid::new_v4());
     let path = std::env::temp_dir().join(file_name);

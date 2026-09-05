@@ -12,7 +12,7 @@ pub use client::{
 pub use flow::{
     CALLBACK_TIMEOUT, DEFAULT_LOOPBACK_PORT, acquire_auth_code, build_authorize_url, parse_auth_code_and_state,
 };
-pub use local::detect_local_claude_credentials;
+pub use local::{detect_local_claude_credentials, detect_local_claude_credentials_async};
 
 use crate::auth::pkce::{PkceChallenge, generate_state};
 use rho_harness_core::auth::{OAuthLoginCallbacks, SelectOption, StoredCredential};
@@ -40,7 +40,7 @@ fn make_oauth_cred(
 }
 
 pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
-    if let Some(local_cred) = detect_local_claude_credentials() {
+    if let Some(local_cred) = detect_local_claude_credentials_async().await {
         let email = match &local_cred {
             StoredCredential::OAuth {
                 account_email: Some(e), ..

@@ -26,6 +26,25 @@ pub fn discover_prompt_templates(config_dir: Option<&Path>, cwd: Option<&Path>) 
     resolved.into_values().collect()
 }
 
+pub async fn discover_prompt_templates_async(config_dir: Option<&Path>, cwd: Option<&Path>) -> Vec<PromptTemplate> {
+    let mut resolved = BTreeMap::new();
+
+    if let Some(cfg) = config_dir {
+        let user_prompts = cfg.join("prompts");
+        load_templates_from_dir_async(&user_prompts, "user", &mut resolved).await;
+    }
+
+    if let Some(cwd) = cwd {
+        let project_dot_rho = cwd.join(".rho/prompts");
+        load_templates_from_dir_async(&project_dot_rho, "project", &mut resolved).await;
+
+        let project_prompts = cwd.join("prompts");
+        load_templates_from_dir_async(&project_prompts, "project", &mut resolved).await;
+    }
+
+    resolved.into_values().collect()
+}
+
 fn load_templates_from_dir(dir: &Path, origin: &str, target: &mut BTreeMap<String, PromptTemplate>) {
     if !dir.is_dir() {
         return;
@@ -39,6 +58,24 @@ fn load_templates_from_dir(dir: &Path, origin: &str, target: &mut BTreeMap<Strin
             && path.extension().and_then(|e| e.to_str()) == Some("md")
             && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
             && let Ok(content) = std::fs::read_to_string(&path)
+        {
+            let template = PromptTemplate::parse(stem, &content, origin);
+            target.insert(stem.to_string(), template);
+        }
+    }
+}
+
+async fn load_templates_from_dir_async(dir: &Path, origin: &str, target: &mut BTreeMap<String, PromptTemplate>) {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return;
+    };
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("md")
+            && let Ok(metadata) = entry.metadata().await
+            && metadata.is_file()
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            && let Ok(content) = tokio::fs::read_to_string(&path).await
         {
             let template = PromptTemplate::parse(stem, &content, origin);
             target.insert(stem.to_string(), template);

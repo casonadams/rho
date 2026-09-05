@@ -102,7 +102,8 @@ impl AgentEngineBuilder {
 
         let mut config = self.config;
         let mut auth_store = self.auth_store;
-        let is_unmodified_default = config.provider == "local" && config.model == "llama3.2";
+        let is_unmodified_default =
+            !config.model_from_state && config.provider == "local" && config.model == "llama3.2";
 
         // Auto-refresh expired OAuth tokens before building the model client
         // (get_key refreshes + persists when the stored token is stale).
@@ -171,22 +172,18 @@ impl AgentEngineBuilder {
             None => None,
         };
 
-        let custom_tools = self.rig_tools.is_some();
         let mut tools = match self.rig_tools {
             Some(t) => t,
-            None => crate::tools::builtin_tools::build_builtin_tools(&base_dir, &config)?,
+            None => {
+                let mut tools = crate::tools::builtin_tools::build_builtin_tools(&base_dir, &config)?;
+                if config.mcp.enabled && !config.mcp.servers.is_empty() {
+                    tools.extend(crate::mcp::load_mcp_tools(&config, &base_dir).await);
+                }
+                tools
+            }
         };
         tools.extend(self.extra_tools);
         let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
-
-        let mcp_loader = if !custom_tools && config.mcp.enabled && !config.mcp.servers.is_empty() {
-            let mcp_config = config.clone();
-            let mcp_dir = base_dir.clone();
-            let handle = tokio::spawn(async move { crate::mcp::load_mcp_tools(&mcp_config, &mcp_dir).await });
-            Some(handle)
-        } else {
-            None
-        };
 
         let agent = super::runtime::build_coding_agent(
             model.clone(),
@@ -194,7 +191,7 @@ impl AgentEngineBuilder {
             CodingRuntime {
                 base_dir: &base_dir,
                 memory: session_manager.clone(),
-                built_in_tools: Some(tools.clone()),
+                built_in_tools: Some(tools),
             },
         )?;
 
@@ -210,10 +207,7 @@ impl AgentEngineBuilder {
             run_tracker: super::metrics::RunTracker::default(),
             project_context: Arc::default(),
             auth_store: shared_auth,
-            base_tools: tools,
-            base_dir,
             model: Some(model),
-            mcp_loader: Arc::new(tokio::sync::Mutex::new(mcp_loader)),
         })
     }
 }

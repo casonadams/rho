@@ -3,7 +3,7 @@
 mod io;
 
 use super::oauth::refresh_oauth_token;
-use super::resolver::resolve_secret_value;
+use super::resolver::{resolve_secret_value, resolve_secret_value_async};
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::provider::ProviderId;
@@ -46,7 +46,7 @@ impl AuthStore {
     pub async fn get_key(&mut self, provider: &str) -> Result<Option<String>> {
         if let Some(cred) = self.credentials.get(provider) {
             return match cred {
-                StoredCredential::ApiKey { key, .. } => resolve_secret_value(key).map(Some),
+                StoredCredential::ApiKey { key, .. } => resolve_secret_value_async(key).await.map(Some),
                 StoredCredential::OAuth { .. } => {
                     // Check if token needs refresh (within 60 seconds of expiring)
                     if cred.is_expired(60)

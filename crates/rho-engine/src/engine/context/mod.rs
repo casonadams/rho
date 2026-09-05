@@ -63,18 +63,25 @@ impl ProjectContext {
 
     pub async fn discover_with_dirs(dir: impl AsRef<Path>, dirs: ContextDirs<'_>) -> Self {
         let base = dir.as_ref();
-        let (instruction_files, seen_instruction_files) = instructions::discover_instructions_with_seen(base, dirs);
+        let (instruction_files, seen_instruction_files) =
+            instructions::discover_instructions_with_seen_async(base, dirs).await;
 
-        let paths = rho_harness_core::skills::SkillResolutionPaths {
-            project_dir: Some(base),
-            home_dir: dirs.home_dir,
-        };
-        let skills: Vec<SkillMetadata> = rho_harness_core::skills::resolved_skills_for_paths(paths)
-            .into_iter()
-            .map(|skill| skill.metadata)
-            .collect();
+        let base_owned = base.to_path_buf();
+        let home_owned = dirs.home_dir.map(Path::to_path_buf);
+        let skills: Vec<SkillMetadata> = tokio::task::spawn_blocking(move || {
+            let paths = rho_harness_core::skills::SkillResolutionPaths {
+                project_dir: Some(&base_owned),
+                home_dir: home_owned.as_deref(),
+            };
+            rho_harness_core::skills::resolved_skills_for_paths(paths)
+                .into_iter()
+                .map(|skill| skill.metadata)
+                .collect()
+        })
+        .await
+        .unwrap_or_default();
 
-        let mut base_system_prompt = resolve_base_system_prompt(base, dirs);
+        let mut base_system_prompt = resolve_base_system_prompt(base, dirs).await;
         if let Some(append) = dirs.append_system_prompt {
             let trimmed = append.trim();
             if !trimmed.is_empty() {
@@ -107,6 +114,10 @@ impl ProjectContext {
 
     pub fn activate_path_instructions(&mut self, path: &Path) {
         activation::activate_path_instructions(self, path);
+    }
+
+    pub async fn activate_path_instructions_async(&mut self, path: &Path) {
+        activation::activate_path_instructions_async(self, path).await;
     }
 
     /// Re-read only the per-turn volatile fields; files and skill metadata are
@@ -142,23 +153,23 @@ fn resolve_home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn resolve_base_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {
+async fn resolve_base_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {
     if let Some(prompt) = dirs.system_prompt {
         return prompt.to_string();
     }
     let mut prompt = DEFAULT_SYSTEM_PROMPT.to_string();
     if let Some(home) = dirs.home_dir
-        && let Ok(custom) = std::fs::read_to_string(home.join(".agents/SYSTEM.md"))
+        && let Ok(custom) = tokio::fs::read_to_string(home.join(".agents/SYSTEM.md")).await
     {
         prompt = custom;
     }
     if let Some(cfg) = dirs.config_dir
-        && let Ok(custom) = std::fs::read_to_string(cfg.join("SYSTEM.md"))
+        && let Ok(custom) = tokio::fs::read_to_string(cfg.join("SYSTEM.md")).await
     {
         prompt = custom;
     }
     for candidate in [".agents/SYSTEM.md", ".rho/SYSTEM.md", "prompts/SYSTEM.md", "SYSTEM.md"] {
-        if let Ok(custom) = std::fs::read_to_string(base.join(candidate)) {
+        if let Ok(custom) = tokio::fs::read_to_string(base.join(candidate)).await {
             return custom;
         }
     }

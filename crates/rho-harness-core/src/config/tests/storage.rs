@@ -69,3 +69,54 @@ fn plugin_entries_round_trip_and_are_removed_atomically() {
     assert!(Config::remove_plugin(&dir, "fixture").is_err());
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn test_state_model_takes_precedence_over_config_file() {
+    let dir = std::env::temp_dir().join(format!("rho_precedence_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // 1. Write model to config.toml
+    Config::set_file_value(&dir, "model", "config-model").unwrap();
+    Config::set_file_value(&dir, "provider", "openai").unwrap();
+
+    // 2. Write last used model to state.json
+    crate::state::AppState::set_last_model(&dir, "state-model", Some("gemini")).unwrap();
+
+    // 3. Load config pointing to dir
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+    assert_eq!(config.model, "state-model");
+    assert_eq!(config.provider, "gemini");
+    assert!(config.model_from_state);
+
+    // 4. Explicit CLI flag overrides state.json
+    let cli = crate::config::cli::Cli {
+        prompt: None,
+        model: Some("cli-model".to_string()),
+        provider: None,
+        max_output_tokens: None,
+        max_turns: None,
+        thinking: None,
+        name: None,
+        export: None,
+        resume: None,
+        r#continue: false,
+        resume_picker: false,
+        mode: "interactive".to_string(),
+        message: Vec::new(),
+        system_prompt: None,
+        append_system_prompt: None,
+        no_context_files: false,
+        command: None,
+    };
+    let cli_config = Config::load(Some(&cli)).unwrap();
+    assert_eq!(cli_config.model, "cli-model");
+    assert!(!cli_config.model_from_state);
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

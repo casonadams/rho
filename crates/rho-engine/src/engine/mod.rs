@@ -39,10 +39,7 @@ pub struct AgentEngine {
     pub(crate) run_tracker: metrics::RunTracker,
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
-    pub(crate) base_tools: Vec<rig::tool::DynamicTool>,
-    pub(crate) base_dir: std::path::PathBuf,
     pub(crate) model: Option<rig::agent::ModelHandle>,
-    pub(crate) mcp_loader: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<Vec<rig::tool::DynamicTool>>>>>,
 }
 
 impl AgentEngine {
@@ -66,41 +63,6 @@ impl AgentEngine {
         builder::create_engine_model(config, &auth_store, Some(self.auth_store.clone()))
     }
 
-    pub async fn ensure_tools_loaded(&self) -> Result<()> {
-        let mut loader = self.mcp_loader.lock().await;
-        let Some(handle) = loader.take() else {
-            return Ok(());
-        };
-        let mcp_tools = match handle.await {
-            Ok(tools) => tools,
-            Err(e) => {
-                eprintln!("Warning: Background MCP loader task failed: {e}");
-                Vec::new()
-            }
-        };
-        if !mcp_tools.is_empty() {
-            let mut all_tools = self.base_tools.clone();
-            all_tools.extend(mcp_tools);
-
-            let names: Vec<String> = all_tools.iter().map(|t| t.name().to_string()).collect();
-            *self.tool_names.write().unwrap() = names;
-
-            if let Some(ref model) = self.model {
-                let new_agent = runtime::build_coding_agent(
-                    model.clone(),
-                    &self.config,
-                    runtime::CodingRuntime {
-                        base_dir: &self.base_dir,
-                        memory: self.session_manager.clone(),
-                        built_in_tools: Some(all_tools),
-                    },
-                )?;
-                *self.agent.write().await = new_agent;
-            }
-        }
-        Ok(())
-    }
-
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
         let base_dir = std::env::current_dir()?;
         let rebuilt = builder::AgentEngineBuilder::new(config, auth_store)
@@ -108,7 +70,6 @@ impl AgentEngine {
             .base_dir(base_dir)
             .build()
             .await?;
-        rebuilt.ensure_tools_loaded().await?;
         rebuilt.refresh_quota().await;
         Ok(rebuilt)
     }
@@ -143,7 +104,7 @@ impl AgentEngine {
     pub async fn activate_path_instructions(&self, path: &std::path::Path) {
         let mut cache = self.project_context.lock().await;
         if let Some((_, cached)) = cache.as_mut() {
-            cached.activate_path_instructions(path);
+            cached.activate_path_instructions_async(path).await;
         }
     }
 

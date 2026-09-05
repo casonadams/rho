@@ -10,6 +10,7 @@ use std::time::Duration;
 pub const CLOUD_HOST: &str = "https://ollama.com";
 
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    crate::install_crypto_provider();
     reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(10))

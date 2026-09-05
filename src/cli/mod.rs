@@ -17,6 +17,7 @@ use crate::repl::ReplSession;
 use std::io::Read;
 
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    rho_engine::install_crypto_provider();
     struct ProcessCleanupGuard;
     impl Drop for ProcessCleanupGuard {
         fn drop(&mut self) {

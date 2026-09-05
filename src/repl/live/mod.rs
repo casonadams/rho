@@ -75,20 +75,17 @@ impl ReplSession {
         });
         drain_ui_events(&mut controller, &mut ui_events, &mut None)?;
 
-        let mut history = InteractiveHistory::with_file(1000, self.config.config_dir.join("history.txt"))
+        let mut history = InteractiveHistory::with_file_async(1000, self.config.config_dir.join("history.txt"))
+            .await
             .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
-        let config_dir = self.config.config_dir.clone();
-        let prompt_templates = tokio::task::spawn_blocking(move || {
-            rho_harness_core::prompts::discover_prompt_templates(
-                Some(&config_dir),
-                std::env::current_dir().ok().as_deref(),
-            )
-            .into_iter()
-            .map(|t| t.metadata.name)
-            .collect::<Vec<_>>()
-        })
+        let prompt_templates = rho_harness_core::prompts::discover_prompt_templates_async(
+            Some(&self.config.config_dir),
+            std::env::current_dir().ok().as_deref(),
+        )
         .await
-        .unwrap_or_default();
+        .into_iter()
+        .map(|t| t.metadata.name)
+        .collect::<Vec<_>>();
         crate::repl::interactive::spawn_background_model_refresh(&self.config, &self.auth_store);
         let models = crate::repl::interactive::discover_models(&self.config, &self.auth_store);
         let custom_providers = self.config.providers.keys().cloned().collect();

@@ -27,6 +27,30 @@ pub fn resolve_secret_value(raw: &str) -> Result<String> {
     Ok(trimmed.to_string())
 }
 
+pub async fn resolve_secret_value_async(raw: &str) -> Result<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("$$") {
+        return Ok(format!("${rest}"));
+    }
+    if let Some(rest) = trimmed.strip_prefix("$!") {
+        return Ok(format!("!{rest}"));
+    }
+
+    if let Some(cmd) = trimmed.strip_prefix('!') {
+        return execute_command_async(cmd).await;
+    }
+
+    if trimmed.starts_with('$') {
+        return expand_env(trimmed);
+    }
+
+    Ok(trimmed.to_string())
+}
+
 fn execute_command(cmd: &str) -> Result<String> {
     #[cfg(unix)]
     let output = Command::new("sh")
@@ -40,6 +64,39 @@ fn execute_command(cmd: &str) -> Result<String> {
         .arg("/C")
         .arg(cmd)
         .output()
+        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::Auth(format!(
+            "Auth command '{cmd}' failed (exit code {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        return Err(AppError::Auth(format!("Auth command '{cmd}' returned empty output")));
+    }
+    Ok(stdout)
+}
+
+async fn execute_command_async(cmd: &str) -> Result<String> {
+    #[cfg(unix)]
+    let output = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .await
+        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
+
+    #[cfg(not(unix))]
+    let output = tokio::process::Command::new("cmd")
+        .arg("/C")
+        .arg(cmd)
+        .output()
+        .await
         .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
 
     if !output.status.success() {

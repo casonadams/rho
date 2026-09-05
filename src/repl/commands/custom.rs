@@ -10,7 +10,7 @@ pub async fn handle_custom(
     if let Some(skill_name) = custom.strip_prefix("skill:") {
         let skills = rho_harness_core::skills::resolved_skills_with_home(cwd.as_deref(), ctx.home_dir);
         if let Some(matched) = skills.iter().find(|s| s.metadata.name == skill_name)
-            && let Ok(content) = std::fs::read_to_string(&matched.metadata.location)
+            && let Ok(content) = tokio::fs::read_to_string(&matched.metadata.location).await
         {
             ctx.renderer.print_notice(&format!(
                 "\n[skill: {} ({})]\n{content}\n",

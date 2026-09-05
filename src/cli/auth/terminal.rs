@@ -1,36 +1,29 @@
 use crate::error::{AppError, Result};
-use std::process::Command;
 
-pub fn open_url_in_browser(url: &str) -> std::io::Result<()> {
+pub async fn open_url_in_browser_async(url: &str) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {
-        Command::new("open").arg(url).spawn()?;
+        tokio::process::Command::new("open").arg(url).spawn()?;
     }
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open").arg(url).spawn()?;
+        tokio::process::Command::new("xdg-open").arg(url).spawn()?;
     }
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut cmd = tokio::process::Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Start-Process -FilePath $env:RHO_AUTH_URL",
+        ])
+        .env("RHO_AUTH_URL", url);
 
-        let launched = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "Start-Process -FilePath $env:RHO_AUTH_URL",
-            ])
-            .env("RHO_AUTH_URL", url)
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn();
-
-        if launched.is_err() {
-            Command::new("cmd")
-                .args(["/C", "start", "", url.replace('&', "^&").as_str()])
-                .creation_flags(CREATE_NO_WINDOW)
-                .spawn()?;
+        if cmd.spawn().is_err() {
+            let mut fallback = tokio::process::Command::new("cmd");
+            fallback.args(["/C", "start", "", url.replace('&', "^&").as_str()]);
+            fallback.spawn()?;
         }
     }
     Ok(())

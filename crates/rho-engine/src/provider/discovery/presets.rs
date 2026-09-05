@@ -386,7 +386,7 @@ pub fn ollama_cloud_preset_models() -> Vec<DiscoveredModel> {
     ]
 }
 
-pub(crate) fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
+pub fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
     match provider {
         "chatgpt" => chatgpt_codex_models(),
         "claude" => claude_preset_models(),
@@ -401,6 +401,13 @@ pub(crate) fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
         "xai" => xai_preset_models(),
         "cohere" => cohere_preset_models(),
         "ollama-cloud" => ollama_cloud_preset_models(),
+        "ollama" | "local" => vec![DiscoveredModel {
+            context_tokens: Some(131072),
+            id: "llama3.2".to_string(),
+            name: "Llama 3.2".to_string(),
+            provider: "local".to_string(),
+            description: "128k ctx · fast".to_string(),
+        }],
         _ => vec![DiscoveredModel {
             context_tokens: None,
             id: format!("{provider}-default"),

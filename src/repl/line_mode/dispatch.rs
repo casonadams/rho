@@ -29,10 +29,16 @@ pub async fn handle_command_result(
             new_model,
             new_provider,
         } => {
-            session.config.model = new_model;
-            if let Some(provider) = new_provider {
-                session.config.provider = provider;
+            session.config.model = new_model.clone();
+            if let Some(ref provider) = new_provider {
+                session.config.provider = provider.clone();
             }
+            let _ = rho_harness_core::state::AppState::set_last_model_async(
+                &session.config.config_dir,
+                &new_model,
+                new_provider.as_deref(),
+            )
+            .await;
             *engine = engine
                 .rebuild(session.config.clone(), session.auth_store.clone())
                 .await?;

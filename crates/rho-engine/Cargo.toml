@@ -11,8 +11,8 @@ repository.workspace = true
 rho-harness-core.workspace = true
 async-trait.workspace = true
 futures.workspace = true
-rig = { version = "0.42", features = ["test-utils"] }
-rig-memory = "0.42"
+rig = { workspace = true, features = ["test-utils"] }
+rig-memory.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 schemars = "1.0"
@@ -24,7 +24,8 @@ anyhow = "1.0"
 image.workspace = true
 sha2 = "0.10"
 base64 = "0.22"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "form", "json", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json", "stream"] }
+rustls.workspace = true
 url = "2.5"
 percent-encoding = "2.3"
 rand = "0.8"
@@ -45,7 +46,7 @@ memchr = "2"
 libc = "0.2"
 
 [dev-dependencies]
-rig = { version = "0.42", features = ["test-utils"] }
+rig = { workspace = true, features = ["test-utils"] }
 tempfile = "3.17"
 
 [target.'cfg(unix)'.dev-dependencies]

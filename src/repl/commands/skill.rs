@@ -3,7 +3,7 @@ use rho_harness_core::error::Result;
 use std::fmt::Write as _;
 use std::io::IsTerminal as _;
 
-pub fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
+pub async fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     let cwd = std::env::current_dir().ok();
     let skills = rho_harness_core::skills::resolved_skills_with_home(cwd.as_deref(), ctx.home_dir);
 
@@ -29,10 +29,14 @@ pub fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result
             .iter()
             .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
             .collect();
-        inquire::Select::new("Select a skill to inspect:", choices)
-            .prompt()
-            .ok()
-            .and_then(|choice| choice.split_whitespace().next().map(str::to_string))
+        tokio::task::spawn_blocking(move || {
+            inquire::Select::new("Select a skill to inspect:", choices)
+                .prompt()
+                .ok()
+                .and_then(|choice| choice.split_whitespace().next().map(str::to_string))
+        })
+        .await
+        .unwrap_or(None)
     } else {
         None
     };
@@ -40,7 +44,7 @@ pub fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result
     match selected_name {
         Some(name) => match skills.iter().find(|skill| skill.metadata.name == name) {
             Some(matched) => {
-                if let Ok(content) = std::fs::read_to_string(&matched.metadata.location) {
+                if let Ok(content) = tokio::fs::read_to_string(&matched.metadata.location).await {
                     ctx.renderer.print_notice(&format!(
                         "\n[skill: {} ({})]\n{content}\n",
                         matched.metadata.name, matched.origin

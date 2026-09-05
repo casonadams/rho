@@ -1,4 +1,4 @@
-use super::terminal::{open_url_in_browser, prompt_password, prompt_text};
+use super::terminal::{open_url_in_browser_async, prompt_password, prompt_text};
 use crate::error::{AppError, Result};
 use async_trait::async_trait;
 use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption};
@@ -11,7 +11,7 @@ impl OAuthLoginCallbacks for TerminalOAuthCallbacks {
         let msg = instructions.unwrap_or("Authenticate in your browser:");
         println!("\n  \x1b[1m{msg}\x1b[0m");
         println!("  URL: \x1b[4;34m{url}\x1b[0m\n");
-        let _ = open_url_in_browser(url);
+        let _ = open_url_in_browser_async(url).await;
         Ok(())
     }
 
@@ -24,16 +24,21 @@ impl OAuthLoginCallbacks for TerminalOAuthCallbacks {
             "  \x1b[1mThen open:\x1b[0m \x1b[4;34m{}\x1b[0m\n",
             info.verification_uri
         );
-        let _ = open_url_in_browser(info.verification_uri);
+        let _ = open_url_in_browser_async(info.verification_uri).await;
         Ok(())
     }
 
     async fn on_prompt(&self, message: &str, secret: bool) -> Result<String> {
-        if secret {
-            prompt_password(message)
-        } else {
-            prompt_text(message)
-        }
+        let msg = message.to_string();
+        tokio::task::spawn_blocking(move || {
+            if secret {
+                prompt_password(&msg)
+            } else {
+                prompt_text(&msg)
+            }
+        })
+        .await
+        .map_err(|e| AppError::Other(e.into()))?
     }
 
     async fn on_select(&self, message: &str, options: &[SelectOption]) -> Result<Option<String>> {
@@ -49,9 +54,14 @@ impl OAuthLoginCallbacks for TerminalOAuthCallbacks {
                     }
                 })
                 .collect();
-            let selection = inquire::Select::new(message, labels)
-                .prompt()
-                .map_err(|_| AppError::Cancelled("Selection cancelled".to_string()))?;
+            let msg = message.to_string();
+            let selection = tokio::task::spawn_blocking(move || {
+                inquire::Select::new(&msg, labels)
+                    .prompt()
+                    .map_err(|_| AppError::Cancelled("Selection cancelled".to_string()))
+            })
+            .await
+            .map_err(|e| AppError::Other(e.into()))??;
             for (idx, opt) in options.iter().enumerate() {
                 if selection.starts_with(&opt.label) || selection.contains(&opt.label) {
                     return Ok(Some(options[idx].id.clone()));

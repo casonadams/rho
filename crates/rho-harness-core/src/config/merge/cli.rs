@@ -7,6 +7,7 @@ pub(crate) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     };
     if let Some(ref m) = c.model {
         config.model = m.clone();
+        config.model_from_state = false;
     }
     if let Some(ref p) = c.provider {
         config.provider = p.clone();

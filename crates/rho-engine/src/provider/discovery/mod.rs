@@ -11,8 +11,8 @@ pub use antigravity::sort_models_newest_first;
 pub use fetch::ollama_context_from_info;
 pub use presets::{
     anthropic_preset_models, antigravity_preset_models, chatgpt_codex_models, claude_preset_models,
-    cohere_preset_models, copilot_models, deepseek_preset_models, format_context_tokens, gemini_preset_models,
-    groq_preset_models, mistral_preset_models, ollama_cloud_preset_models, openai_preset_models,
+    cohere_preset_models, copilot_models, deepseek_preset_models, default_presets_for, format_context_tokens,
+    gemini_preset_models, groq_preset_models, mistral_preset_models, ollama_cloud_preset_models, openai_preset_models,
     openrouter_preset_models, xai_preset_models,
 };
 

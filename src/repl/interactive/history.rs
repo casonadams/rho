@@ -27,6 +27,12 @@ impl InteractiveHistory {
         })
     }
 
+    pub async fn with_file_async(capacity: usize, path: PathBuf) -> reedline::Result<Self> {
+        tokio::task::spawn_blocking(move || Self::with_file(capacity, path))
+            .await
+            .map_err(|e| std::io::Error::other(e.to_string()))?
+    }
+
     pub fn record(&mut self, value: &str) -> reedline::Result<()> {
         self.reset_navigation();
         if value.is_empty() || self.capacity == 0 || self.entries.last().is_some_and(|entry| entry == value) {

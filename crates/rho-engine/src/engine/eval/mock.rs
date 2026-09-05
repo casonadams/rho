@@ -64,7 +64,6 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         .iter()
         .map(|tool| tool.name().to_string())
         .collect();
-    let base_tools = config.built_in_tools.clone().unwrap_or_default();
     AgentEngine {
         config: app_config,
         session_manager,
@@ -77,10 +76,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
-        base_tools,
-        base_dir: std::path::PathBuf::from("."),
         model: Some(ModelHandle::new(model)),
-        mcp_loader: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     }
 }
 

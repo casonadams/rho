@@ -34,7 +34,6 @@ impl AgentEngine {
         request: TurnRequest<'_>,
         presenter: std::sync::Arc<dyn Presenter>,
     ) -> Result<TurnOutput> {
-        self.ensure_tools_loaded().await?;
         let augmented_prompt = request.prompt.to_string();
         let context = self.project_context().await?;
         self.session_manager

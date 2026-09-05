@@ -82,6 +82,55 @@ impl Workspace {
     pub fn list_files(&self, max_files: usize) -> Vec<String> {
         list_relative_files(&self.root, max_files)
     }
+
+    pub async fn list_files_async(&self, max_files: usize) -> Vec<String> {
+        list_relative_files_async(&self.root, max_files).await
+    }
+}
+
+pub async fn list_relative_files_async(root: &Path, max_files: usize) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut dirs_to_visit = vec![root.to_path_buf()];
+
+    while let Some(current_dir) = dirs_to_visit.pop() {
+        let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let name_str = file_name.to_string_lossy();
+
+            if name_str.starts_with('.')
+                || name_str == "target"
+                || name_str == "node_modules"
+                || name_str == "dist"
+                || name_str == "build"
+            {
+                continue;
+            }
+
+            if let Ok(metadata) = entry.metadata().await {
+                if metadata.is_dir() {
+                    dirs_to_visit.push(path);
+                } else if metadata.is_file()
+                    && let Ok(rel) = path.strip_prefix(root)
+                {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    files.push(rel_str);
+                    if files.len() >= max_files {
+                        break;
+                    }
+                }
+            }
+        }
+        if files.len() >= max_files {
+            break;
+        }
+    }
+
+    files.sort();
+    files
 }
 
 pub fn list_relative_files(root: &Path, max_files: usize) -> Vec<String> {

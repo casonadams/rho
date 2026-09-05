@@ -13,6 +13,7 @@ where
         && !val.trim().is_empty()
     {
         config.model = val.trim().to_string();
+        config.model_from_state = false;
     }
     if let Some(val) = get("AI_PROVIDER")
         && !val.trim().is_empty()

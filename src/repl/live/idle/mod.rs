@@ -109,7 +109,7 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
                         }
                     }
                     InputAction::ExternalEditor => {
-                        open_external_editor(controller, input)?;
+                        open_external_editor(controller, input).await?;
                         batch.flush(controller, true)?;
                     }
                     InputAction::DequeueQueued => {

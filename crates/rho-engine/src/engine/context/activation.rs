@@ -4,6 +4,26 @@ use std::path::{Path, PathBuf};
 pub const MAX_DYNAMIC_INSTRUCTION_FILES: usize = 10;
 pub const MAX_DYNAMIC_INSTRUCTION_BYTES: usize = 64 * 1024;
 
+pub async fn activate_path_instructions_async(ctx: &mut ProjectContext, path: &Path) {
+    if ctx.no_context_files
+        || ctx.dynamic_instructions_count >= MAX_DYNAMIC_INSTRUCTION_FILES
+        || ctx.dynamic_instructions_bytes >= MAX_DYNAMIC_INSTRUCTION_BYTES
+    {
+        return;
+    }
+    let path = path.to_path_buf();
+    let mut cloned_ctx = ctx.clone();
+    let updated = tokio::task::spawn_blocking(move || {
+        activate_path_instructions(&mut cloned_ctx, &path);
+        cloned_ctx
+    })
+    .await
+    .ok();
+    if let Some(res) = updated {
+        *ctx = res;
+    }
+}
+
 pub fn activate_path_instructions(ctx: &mut ProjectContext, path: &Path) {
     if ctx.no_context_files {
         return;

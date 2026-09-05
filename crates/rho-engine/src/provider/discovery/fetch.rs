@@ -12,6 +12,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    crate::install_crypto_provider();
     reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(10))
@@ -20,6 +21,7 @@ static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
 });
 
 static OLLAMA_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    crate::install_crypto_provider();
     reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .no_proxy()

@@ -108,7 +108,7 @@ impl SlashCommandHandler {
             },
             "model" => model::handle_model(ctx, &parts),
             "theme" => theme::handle_theme(ctx, &parts),
-            "skill" | "skills" => skill::handle_skill(ctx, &parts),
+            "skill" | "skills" => skill::handle_skill(ctx, &parts).await,
             "plugin" | "plugins" => Ok(plugin::handle_plugins(ctx)),
             "login" => Ok(Some(CommandResult::Login {
                 provider: parts.get(1).map(|value| (*value).to_string()),

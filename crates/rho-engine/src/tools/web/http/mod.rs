@@ -28,6 +28,7 @@ async fn read_limited(response: reqwest::Response, max_bytes: usize) -> std::res
 }
 
 static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    crate::install_crypto_provider();
     Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(15))
@@ -47,6 +48,7 @@ static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 });
 
 static PRIVATE_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    crate::install_crypto_provider();
     Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(15))

@@ -31,22 +31,22 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         description: format!("{active_ctx_str} · active"),
     });
 
-    // 2. Local models (always available locally without API keys)
-    if let Some(cached_local) = model_store
+    // 2. Local models
+    let local_models = model_store
         .get_models("local")
         .or_else(|| model_store.get_models("ollama"))
-    {
-        for m in cached_local {
-            if !models
-                .iter()
-                .any(|existing| existing.id == m.id && existing.provider == m.provider)
-            {
-                models.push(ModelItem {
-                    id: m.id.clone(),
-                    provider: m.provider.clone(),
-                    description: m.description.clone(),
-                });
-            }
+        .cloned()
+        .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for("local"));
+    for m in local_models {
+        if !models
+            .iter()
+            .any(|existing| existing.id == m.id && existing.provider == m.provider)
+        {
+            models.push(ModelItem {
+                id: m.id.clone(),
+                provider: m.provider.clone(),
+                description: m.description.clone(),
+            });
         }
     }
 
@@ -64,18 +64,20 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
         if prov == "local" || prov == "ollama" {
             continue; // Already handled above
         }
-        if let Some(cached) = model_store.get_models(prov) {
-            for m in cached {
-                if !models
-                    .iter()
-                    .any(|existing| existing.id == m.id && existing.provider == m.provider)
-                {
-                    models.push(ModelItem {
-                        id: m.id.clone(),
-                        provider: m.provider.clone(),
-                        description: m.description.clone(),
-                    });
-                }
+        let prov_models = model_store
+            .get_models(prov)
+            .cloned()
+            .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(prov));
+        for m in prov_models {
+            if !models
+                .iter()
+                .any(|existing| existing.id == m.id && existing.provider == m.provider)
+            {
+                models.push(ModelItem {
+                    id: m.id.clone(),
+                    provider: m.provider.clone(),
+                    description: m.description.clone(),
+                });
             }
         }
     }

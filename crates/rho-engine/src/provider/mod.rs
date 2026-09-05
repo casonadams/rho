@@ -26,6 +26,7 @@ pub struct ModelRequest<'a> {
 }
 
 static SHARED_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+    crate::install_crypto_provider();
     reqwest::Client::builder()
         .no_proxy()
         .build()
@@ -100,6 +101,7 @@ impl ProviderFactory {
     }
 
     pub fn create_model_for(request: ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
+        crate::install_crypto_provider();
         let provider = request.provider;
         let model = request.model;
         if provider == ProviderId::Local {

@@ -37,6 +37,8 @@ pub struct Config {
     pub append_system_prompt: Option<String>,
     #[serde(default)]
     pub no_context_files: bool,
+    #[serde(default)]
+    pub model_from_state: bool,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
@@ -75,6 +77,7 @@ impl Default for Config {
             system_prompt: None,
             append_system_prompt: None,
             no_context_files: false,
+            model_from_state: false,
             plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),

@@ -6,7 +6,6 @@ use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::time::Instant;
 
 fn with_dummy_provider_key() {
     unsafe {
@@ -21,21 +20,19 @@ fn temp_workspace() -> PathBuf {
 }
 
 #[tokio::test]
-async fn test_mcp_lazy_loading_non_blocking_startup_and_deferred_resolution() {
+async fn test_mcp_eager_loading_attaches_tools_before_first_turn() {
     with_dummy_provider_key();
     let workspace = temp_workspace();
-    let server_script = workspace.join("delayed_mcp_server.sh");
+    let server_script = workspace.join("fast_mcp_server.sh");
 
-    // Mock MCP server that sleeps 6s before responding to initialize
     let script_content = r#"#!/bin/sh
-sleep 6.0
 while IFS= read -r line; do
     if echo "$line" | grep -q '"method":"initialize"'; then
         id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"delayed-fs\",\"version\":\"1.0\"}}}"
+        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"fast-fs\",\"version\":\"1.0\"}}}"
     elif echo "$line" | grep -q '"method":"tools/list"'; then
         id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"delayed_read\",\"description\":\"Read delayed\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}}"
+        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"fast_read\",\"description\":\"Read fast\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}}"
     fi
 done
 "#;
@@ -45,7 +42,7 @@ done
 
     let mut mcp_servers = BTreeMap::new();
     mcp_servers.insert(
-        "delayed".to_string(),
+        "fast".to_string(),
         McpServerConfig {
             command: server_script.to_str().unwrap().to_string(),
             args: Vec::new(),
@@ -66,53 +63,29 @@ done
     };
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
 
-    // 1. Measure startup time: must return well before the 6s server delay
-    let start = Instant::now();
+    // 1. Build engine eagerly
     let engine = AgentEngineBuilder::new(config, auth_store)
         .base_dir(workspace.clone())
         .build()
         .await
         .unwrap();
-    let startup_elapsed = start.elapsed();
 
-    // Startup must finish well before the 6s delay so that a build blocking
-    // on MCP startup fails this assert.
+    // 2. Immediately after build, both built-in and MCP tools must be ready
+    let tools = engine.tool_names();
     assert!(
-        startup_elapsed.as_millis() < 4500,
-        "Startup took {:?}, which indicates blocking on MCP server startup",
-        startup_elapsed
-    );
-
-    // 2. Immediately after startup, only built-in tools should be registered
-    let initial_tools = engine.tool_names();
-    assert!(
-        initial_tools.contains(&"read".to_string()),
+        tools.contains(&"read".to_string()),
         "built-in 'read' tool should be present immediately"
     );
     assert!(
-        !initial_tools.contains(&"delayed_delayed_read".to_string()),
-        "delayed MCP tool should not yet be in active tools list before resolution"
+        tools.contains(&"fast_fast_read".to_string()),
+        "MCP tool should be attached eagerly on engine build, got: {tools:?}"
     );
-
-    // 3. Deferred resolution: ensuring tools loaded resolves the background task
-    engine.ensure_tools_loaded().await.unwrap();
-    let resolved_tools = engine.tool_names();
-    assert!(
-        resolved_tools.contains(&"delayed_delayed_read".to_string()),
-        "delayed MCP tool should be attached after ensure_tools_loaded, got: {resolved_tools:?}"
-    );
-
-    // 4. Subsequent calls to ensure_tools_loaded are no-ops; the generous
-    // bound tolerates scheduler jitter under parallel test load.
-    let second_start = Instant::now();
-    engine.ensure_tools_loaded().await.unwrap();
-    assert!(second_start.elapsed().as_millis() < 500);
 
     let _ = std::fs::remove_dir_all(&workspace);
 }
 
 #[tokio::test]
-async fn test_mcp_lazy_loading_resilient_to_server_failure() {
+async fn test_mcp_eager_loading_resilient_to_server_failure() {
     let workspace = temp_workspace();
 
     let mut mcp_servers = BTreeMap::new();
@@ -144,14 +117,7 @@ async fn test_mcp_lazy_loading_resilient_to_server_failure() {
         .await
         .unwrap();
 
-    // Resolving failed servers must not fail the engine
-    let res = engine.ensure_tools_loaded().await;
-    assert!(
-        res.is_ok(),
-        "failed server should not cause ensure_tools_loaded error: {res:?}"
-    );
-
-    // Built-in tools must remain intact
+    // Built-in tools must remain intact even if MCP server failed
     let tools = engine.tool_names();
     assert!(tools.contains(&"read".to_string()));
     assert!(tools.contains(&"bash".to_string()));

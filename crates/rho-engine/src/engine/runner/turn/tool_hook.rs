@@ -136,7 +136,8 @@ impl TurnToolExecutionHook {
         {
             let mut guard = ctx_cache.lock().await;
             if let Some((_, ctx)) = guard.as_mut() {
-                ctx.activate_path_instructions(std::path::Path::new(path_str));
+                ctx.activate_path_instructions_async(std::path::Path::new(path_str))
+                    .await;
             }
         }
     }

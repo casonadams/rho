@@ -14,6 +14,7 @@ pub const USER_AGENT: &str = "claude-cli/2.1.62";
 pub const ANTHROPIC_BETA: &str = "claude-code-20250219,oauth-2025-04-20";
 
 static CLAUDE_AUTH_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    crate::install_crypto_provider();
     reqwest::Client::builder()
         .no_proxy()
         .timeout(TOKEN_TIMEOUT)

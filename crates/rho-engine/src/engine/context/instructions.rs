@@ -39,6 +39,27 @@ pub fn discover_instructions_with_seen(
     (files, seen)
 }
 
+pub async fn discover_instructions_with_seen_async(
+    base: &Path,
+    dirs: ContextDirs<'_>,
+) -> (Vec<(String, String)>, HashSet<PathBuf>) {
+    let base_owned = base.to_path_buf();
+    let home_owned = dirs.home_dir.map(Path::to_path_buf);
+    let no_context = dirs.no_context_files;
+    tokio::task::spawn_blocking(move || {
+        discover_instructions_with_seen(
+            &base_owned,
+            ContextDirs {
+                home_dir: home_owned.as_deref(),
+                no_context_files: no_context,
+                ..Default::default()
+            },
+        )
+    })
+    .await
+    .unwrap_or_else(|_| (Vec::new(), HashSet::new()))
+}
+
 pub fn discover_ancestry_instructions(base: &Path, repo_root: Option<&Path>) -> Vec<(String, String)> {
     let mut files = Vec::new();
     let mut seen = HashSet::new();

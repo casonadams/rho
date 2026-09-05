@@ -318,3 +318,31 @@ async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn model_from_state_prevents_silent_fallback_to_configured_provider() {
+    let (config, dir) = test_config("no_fallback_state");
+    let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    auth_store.set_key("deepseek", "dummy-deepseek-key").unwrap();
+
+    // When model_from_state is true, failure to create the model must return an error
+    // rather than silently falling back to a configured provider.
+    let config = Config {
+        provider: "nonexistent-provider".to_string(),
+        model: "nonexistent-model".to_string(),
+        model_from_state: true,
+        ..config
+    };
+
+    let result = builder::AgentEngineBuilder::new(config, auth_store)
+        .base_dir(dir.clone())
+        .build()
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Must not fall back to deepseek when model_from_state is true"
+    );
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
