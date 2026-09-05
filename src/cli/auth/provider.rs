@@ -48,7 +48,7 @@ pub fn prompt_select_auth_method() -> Result<AuthMethod> {
     {
         let options = vec![
             "API key (Anthropic, OpenAI, Gemini, etc.)",
-            "OAuth / Subscription (ChatGPT, Copilot, Antigravity, OpenRouter)",
+            "OAuth / Subscription (ChatGPT, Claude, Copilot, Antigravity, OpenRouter)",
         ];
         let selection = inquire::Select::new("Select authentication method:", options)
             .prompt()

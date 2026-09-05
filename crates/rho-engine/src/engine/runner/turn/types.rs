@@ -46,6 +46,7 @@ pub struct TurnRequest<'a> {
     pub prompt: &'a str,
     pub cancellation: Option<&'a CancellationSignal>,
     pub steering: Option<std::sync::Arc<dyn SteeringQueueProvider>>,
+    pub model_switch: Option<std::sync::Arc<SharedModelSwitch>>,
 }
 
 impl<'a> TurnRequest<'a> {
@@ -54,6 +55,7 @@ impl<'a> TurnRequest<'a> {
             prompt,
             cancellation: None,
             steering: None,
+            model_switch: None,
         }
     }
 
@@ -65,6 +67,82 @@ impl<'a> TurnRequest<'a> {
     pub fn with_steering(mut self, steering: std::sync::Arc<dyn SteeringQueueProvider>) -> Self {
         self.steering = Some(steering);
         self
+    }
+
+    pub fn with_model_switch(mut self, model_switch: std::sync::Arc<SharedModelSwitch>) -> Self {
+        self.model_switch = Some(model_switch);
+        self
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct SharedModelSwitch {
+    inner: std::sync::Arc<std::sync::RwLock<Option<ActiveModelSwitch>>>,
+}
+
+impl std::fmt::Debug for SharedModelSwitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SharedModelSwitch")
+            .field("current_model", &self.current_model())
+            .field("current_provider", &self.current_provider())
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+pub struct ActiveModelSwitch {
+    pub model: String,
+    pub provider: String,
+    pub handle: rig::agent::ModelHandle,
+}
+
+impl ActiveModelSwitch {
+    pub fn new(model: impl Into<String>, provider: impl Into<String>, handle: rig::agent::ModelHandle) -> Self {
+        Self {
+            model: model.into(),
+            provider: provider.into(),
+            handle,
+        }
+    }
+}
+
+impl SharedModelSwitch {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn switch_to(&self, switch: ActiveModelSwitch) {
+        if let Ok(mut lock) = self.inner.write() {
+            *lock = Some(switch);
+        }
+    }
+
+    pub fn get_handle(&self) -> Option<rig::agent::ModelHandle> {
+        self.inner
+            .read()
+            .ok()
+            .and_then(|lock| lock.as_ref().map(|s| s.handle.clone()))
+    }
+
+    pub fn current_model(&self) -> Option<String> {
+        self.inner
+            .read()
+            .ok()
+            .and_then(|lock| lock.as_ref().map(|s| s.model.clone()))
+    }
+
+    pub fn current_provider(&self) -> Option<String> {
+        self.inner
+            .read()
+            .ok()
+            .and_then(|lock| lock.as_ref().map(|s| s.provider.clone()))
+    }
+
+    pub fn take_switched(&self) -> Option<(String, String)> {
+        self.inner
+            .read()
+            .ok()
+            .and_then(|lock| lock.as_ref().map(|s| (s.model.clone(), s.provider.clone())))
     }
 }
 

@@ -221,3 +221,53 @@ fn antigravity_collapse_sorts_newest_first() {
         ]
     );
 }
+
+#[test]
+fn claude_provider_builds_model_handle() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+    auth_store
+        .set_credential(
+            "claude",
+            rho_harness_core::auth::StoredCredential::OAuth {
+                access_token: "test-access-token".into(),
+                refresh_token: Some("test-refresh-token".into()),
+                expires_at_ms: Some((chrono::Utc::now().timestamp() + 3600) * 1000),
+                account_id: None,
+                account_email: None,
+            },
+        )
+        .unwrap();
+
+    let request = ModelRequest {
+        provider: ProviderId::ClaudeCode,
+        model: "claude-sonnet-4-5",
+        thinking_level: Some("high"),
+        shared_auth: None,
+    };
+    let handle = ProviderFactory::create_model_for(request, &auth_store).unwrap();
+    assert_eq!(handle.label(), Some("claude"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn claude_provider_fails_without_credentials() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+
+    let request = ModelRequest {
+        provider: ProviderId::ClaudeCode,
+        model: "claude-sonnet-4-5",
+        thinking_level: None,
+        shared_auth: None,
+    };
+    let result = ProviderFactory::create_model_for(request, &auth_store);
+    assert!(result.is_err());
+    let err = result.err().unwrap().to_string();
+    assert!(err.contains("Missing API key for provider 'claude'") || err.contains("Run 'rho login claude'"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

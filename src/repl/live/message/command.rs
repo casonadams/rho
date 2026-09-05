@@ -121,8 +121,8 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             drain_ui_events(io.controller, io.events, &mut None)?;
             ctx.session.renderer.print_user_block(&text);
             run_active_turn(
+                ctx.session,
                 ctx.engine,
-                &ctx.session.renderer,
                 ActiveTurn {
                     io,
                     editor,
@@ -130,6 +130,7 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
                 },
             )
             .await?;
+            ctx.session.sync_engine_model(ctx.engine).await;
             ctx.engine.refresh_quota().await;
             return Ok(false);
         }

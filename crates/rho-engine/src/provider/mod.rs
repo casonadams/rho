@@ -236,9 +236,12 @@ impl ProviderFactory {
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
             ProviderId::ClaudeCode => {
-                return Err(AppError::Provider(
-                    "Claude OAuth client will be available in Slice 3".to_string(),
-                ));
+                let store = request
+                    .shared_auth
+                    .unwrap_or_else(|| std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone())));
+                let client = crate::claude::ClaudeClient::with_auth_store(store, model)
+                    .with_thinking_level(request.thinking_level);
+                crate::claude::into_handle(client)
             }
             ProviderId::Local => unreachable!(),
         };

@@ -1,11 +1,11 @@
 pub mod steering;
 
 use crate::engine::runner::sink::{TerminalApprovalSink, ToolFinishDetails};
-use crate::engine::runner::turn::types::SteeringQueueProvider;
+use crate::engine::runner::turn::types::{SharedModelSwitch, SteeringQueueProvider};
 use crate::provider::supports_tool_result_images;
 use rig::agent::hook::{
-    AgentHook, CompletionCall, CompletionCallAction, HookContext, ToolCall, ToolCallAction, ToolResultAction,
-    ToolResultEvent,
+    AgentHook, CompletionCall, CompletionCallAction, HookContext, ModelSelection, ModelSelectionAction, ToolCall,
+    ToolCallAction, ToolResultAction, ToolResultEvent,
 };
 use rig::completion::message::{Image, MimeType, ToolResultContent};
 use rig::tool::ToolOutput;
@@ -23,6 +23,7 @@ pub struct TurnToolExecutionHook {
     provider: String,
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     steered: AtomicBool,
+    model_switch: Option<Arc<SharedModelSwitch>>,
 }
 
 impl TurnToolExecutionHook {
@@ -36,7 +37,13 @@ impl TurnToolExecutionHook {
             provider: provider.to_string(),
             steering,
             steered: AtomicBool::new(false),
+            model_switch: None,
         }
+    }
+
+    pub fn with_model_switch(mut self, model_switch: Option<Arc<SharedModelSwitch>>) -> Self {
+        self.model_switch = model_switch;
+        self
     }
 
     pub fn is_steered(&self) -> bool {
@@ -49,6 +56,15 @@ impl TurnToolExecutionHook {
 }
 
 impl AgentHook for TurnToolExecutionHook {
+    fn on_model_select(&self, _ctx: &HookContext, _event: ModelSelection<'_>) -> ModelSelectionAction {
+        if let Some(switcher) = &self.model_switch
+            && let Some(handle) = switcher.get_handle()
+        {
+            return ModelSelectionAction::select(handle);
+        }
+        ModelSelectionAction::Continue
+    }
+
     async fn on_completion_call(&self, _ctx: &HookContext, _event: CompletionCall<'_>) -> CompletionCallAction {
         self.set_steered(false);
         CompletionCallAction::continue_run()
@@ -73,7 +89,12 @@ impl AgentHook for TurnToolExecutionHook {
 
     async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
         let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
-        let (action, output) = gated_result(event.presentation, &self.provider);
+        let provider = self
+            .model_switch
+            .as_ref()
+            .and_then(|s| s.current_provider())
+            .unwrap_or_else(|| self.provider.clone());
+        let (action, output) = gated_result(event.presentation, &provider);
         let is_error = !event.raw_result.is_success();
         self.sink.tool_finished(ToolFinishDetails {
             name: event.tool_name,

@@ -70,6 +70,16 @@ impl ReplSession {
         Ok(rebuilt)
     }
 
+    pub(crate) async fn sync_engine_model(&self, engine: &mut AgentEngine) {
+        if (self.config.model != engine.config.model
+            || self.config.provider != engine.config.provider
+            || self.config.thinking_level != engine.config.thinking_level)
+            && let Ok(rebuilt) = engine.rebuild(self.config.clone(), self.auth_store.clone()).await
+        {
+            *engine = rebuilt;
+        }
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         let stdin_is_tty = std::io::stdin().is_tty();
         let stdout_is_tty = std::io::stdout().is_tty();

@@ -4,7 +4,6 @@ use super::super::batch::LiveBatch;
 use super::super::navigation::{apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard};
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
-use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InputAction, QueueKind, TerminalBackend, TerminalController, UiEffect, map_key};
 
 pub(super) enum TurnKeyResult {
@@ -17,16 +16,35 @@ pub(super) struct TurnInputContext<'a, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
     pub history: &'a mut InteractiveHistory,
     pub completions: &'a CompletionSet,
-    pub renderer: &'a TerminalRenderer,
     pub batch: &'a mut LiveBatch,
     pub steering: &'a crate::repl::coordinator::SharedSteeringQueue,
+    pub session: &'a mut crate::repl::ReplSession,
+    pub model_switch: &'a std::sync::Arc<rho_engine::engine::runner::SharedModelSwitch>,
+    pub shared_auth: Option<std::sync::Arc<tokio::sync::Mutex<crate::auth::AuthStore>>>,
 }
 
-pub(super) fn handle_turn_key<B: TerminalBackend>(
+pub(super) async fn handle_turn_key<B: TerminalBackend>(
     key: KeyEvent,
     ctx: &mut TurnInputContext<'_, B>,
 ) -> Result<TurnKeyResult> {
     match map_key(key) {
+        InputAction::ModelSelect => {
+            super::super::modal::open_model_selector(ctx.session, ctx.controller);
+            ctx.batch.flush(ctx.controller, true)?;
+            Ok(TurnKeyResult::Handled)
+        }
+        InputAction::ModelCycleForward => {
+            super::model_switch::cycle_turn_model(ctx, 1).await?;
+            Ok(TurnKeyResult::Handled)
+        }
+        InputAction::ModelCycleBackward => {
+            super::model_switch::cycle_turn_model(ctx, -1).await?;
+            Ok(TurnKeyResult::Handled)
+        }
+        InputAction::ThinkingCycle => {
+            super::model_switch::cycle_turn_thinking(ctx).await?;
+            Ok(TurnKeyResult::Handled)
+        }
         InputAction::Edit(action) => {
             let effect = ctx.controller.state_mut().apply(action);
             if let UiEffect::Queued(ref msg) = effect {
@@ -61,7 +79,7 @@ pub(super) fn handle_turn_key<B: TerminalBackend>(
         }
         InputAction::ToggleExpandTools => {
             let expanded = ctx.controller.toggle_tools_expanded()?;
-            ctx.renderer.print_status(&format!(
+            ctx.session.renderer.print_status(&format!(
                 "Tool output: {}",
                 if expanded { "expanded" } else { "collapsed" }
             ));
@@ -69,12 +87,13 @@ pub(super) fn handle_turn_key<B: TerminalBackend>(
         }
         InputAction::ThinkingToggle => {
             let hide = ctx.controller.toggle_thinking()?;
-            ctx.renderer
+            ctx.session
+                .renderer
                 .print_status(&format!("Thinking blocks: {}", if hide { "hidden" } else { "visible" }));
             Ok(TurnKeyResult::Handled)
         }
         InputAction::ClipboardPasteImage => {
-            paste_clipboard(ctx.renderer, ctx.controller);
+            paste_clipboard(&ctx.session.renderer, ctx.controller);
             ctx.batch.flush(ctx.controller, true)?;
             Ok(TurnKeyResult::Handled)
         }

@@ -2,6 +2,7 @@ pub use crate::repeat;
 pub use crate::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
 pub use tracking::{SessionUsageTotals, SpeedTracker};
 pub mod builder;
+pub use builder::{AgentEngineBuilder, create_engine_model};
 pub mod compactor;
 pub mod context;
 pub mod metrics;
@@ -54,6 +55,15 @@ impl AgentEngine {
 
     pub fn tool_names(&self) -> Vec<String> {
         self.tool_names.read().unwrap().clone()
+    }
+
+    pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {
+        Arc::clone(&self.auth_store)
+    }
+
+    pub async fn build_model_handle(&self, config: &Config) -> Result<rig::agent::ModelHandle> {
+        let auth_store = self.auth_store.lock().await;
+        builder::create_engine_model(config, &auth_store, Some(self.auth_store.clone()))
     }
 
     pub async fn ensure_tools_loaded(&self) -> Result<()> {

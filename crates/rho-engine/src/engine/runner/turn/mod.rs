@@ -4,8 +4,8 @@ mod tool_hook;
 pub mod types;
 
 pub use types::{
-    CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, SteeringQueueProvider, TurnOutput,
-    TurnRequest, UsageDetails,
+    ActiveModelSwitch, CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus,
+    SharedModelSwitch, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails,
 };
 
 use crate::engine::AgentEngine;
@@ -114,11 +114,10 @@ impl AgentEngine {
             for p in &self.plugins {
                 p.register_hooks(&mut hook_stack);
             }
-            hook_stack.push(TurnToolExecutionHook::new(
-                sink.clone(),
-                &self.config.provider,
-                request.steering.clone(),
-            ));
+            hook_stack.push(
+                TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
+                    .with_model_switch(request.model_switch.clone()),
+            );
 
             let agent_guard = self.agent.read().await;
             let runner = build_runner(&agent_guard, &current_prompt)
@@ -216,9 +215,13 @@ impl AgentEngine {
                                     if model_call_start.is_none() {
                                         model_call_start = Some(Instant::now());
                                     }
+                                    let active_model = request
+                                        .model_switch
+                                        .as_ref()
+                                        .and_then(|s| s.current_model())
+                                        .unwrap_or_else(|| self.config.model.clone());
                                     let delta_tokens =
-                                        rho_harness_core::tokens::estimate_text_tokens(&text, &self.config.model)
-                                            as u64;
+                                        rho_harness_core::tokens::estimate_text_tokens(&text, &active_model) as u64;
                                     self.usage.record_streaming_chunk(delta_tokens);
                                     sink.emit_text(&text);
                                 }
@@ -226,9 +229,13 @@ impl AgentEngine {
                                     if model_call_start.is_none() {
                                         model_call_start = Some(Instant::now());
                                     }
+                                    let active_model = request
+                                        .model_switch
+                                        .as_ref()
+                                        .and_then(|s| s.current_model())
+                                        .unwrap_or_else(|| self.config.model.clone());
                                     let delta_tokens =
-                                        rho_harness_core::tokens::estimate_text_tokens(&text, &self.config.model)
-                                            as u64;
+                                        rho_harness_core::tokens::estimate_text_tokens(&text, &active_model) as u64;
                                     self.usage.record_streaming_chunk(delta_tokens);
                                     sink.emit_reasoning(&text);
                                 }

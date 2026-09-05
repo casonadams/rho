@@ -1,10 +1,12 @@
 pub(crate) mod footer;
 mod input;
+mod model_switch;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use footer::sync_turn_footer;
 use input::{TurnInputContext, TurnKeyResult, handle_turn_key, reconcile_consumed_steering};
+pub(crate) use model_switch::{TurnModelSwitchInput, apply_turn_model_switch};
 
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
 use super::modal::handle_modal_key;
@@ -14,14 +16,13 @@ use crate::engine::AgentEngine;
 use crate::engine::runner::{CancellationSignal, TurnRequest};
 use crate::error::Result;
 use crate::repl::coordinator::SharedSteeringQueue;
-use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, QueueKind, UiAction};
 use crossterm::event::Event;
 use std::sync::Arc;
 
 pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
+    session: &mut crate::repl::ReplSession,
     engine: &AgentEngine,
-    renderer: &TerminalRenderer,
     turn: ActiveTurn<'_, B>,
 ) -> Result<()> {
     let ActiveTurn {
@@ -36,15 +37,17 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
 
     let cancellation = Arc::new(CancellationSignal::default());
     let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
+    let model_switch = Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
     let request = TurnRequest::new(prompt)
         .with_cancellation(&cancellation)
-        .with_steering(steering.clone());
+        .with_steering(steering.clone())
+        .with_model_switch(model_switch.clone());
     let mut batch = LiveBatch::new();
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut spinner_tick = 0_usize;
     sync_turn_footer(controller, engine);
-    let mut run = std::pin::pin!(engine.run_turn(request, std::sync::Arc::new(renderer.clone())));
+    let mut run = std::pin::pin!(engine.run_turn(request, std::sync::Arc::new(session.renderer.clone())));
 
     loop {
         tokio::select! {
@@ -89,46 +92,66 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                 if key.kind == crossterm::event::KeyEventKind::Release {
                     continue;
                 }
-                if !matches!(
-                    handle_modal_key(controller, key, &mut batch.modal)?,
-                    super::modal::ModalKeyResult::NotHandled
-                ) {
-                    continue;
-                }
-                let mut ctx = TurnInputContext {
-                    controller,
-                    history,
-                    completions,
-                    renderer,
-                    batch: &mut batch,
-                    steering: &steering,
-                };
-                match handle_turn_key(key, &mut ctx)? {
-                    TurnKeyResult::Cancelled => {
-                        cancellation.cancel();
-                        steering.clear();
-                        reconcile_consumed_steering(controller, &steering);
-                        controller.state_mut().retain_queued(|msg| msg.kind != QueueKind::Steering);
-                        batch.flush(controller, false)?;
-                        engine.record_cancellation("operator interrupt").await?;
-                        restore_queued_messages(controller);
-                        renderer.print_notice("\nCanceled.\n");
-                        batch.drain_events(controller, ui_events)?;
-                        batch.flush(controller, false)?;
-                        return Ok(());
+                let modal_res = handle_modal_key(controller, key, &mut batch.modal)?;
+                match modal_res {
+                    super::modal::ModalKeyResult::NotHandled => {
+                        let mut ctx = TurnInputContext {
+                            controller,
+                            history,
+                            completions,
+                            batch: &mut batch,
+                            steering: &steering,
+                            session,
+                            model_switch: &model_switch,
+                            shared_auth: Some(engine.shared_auth_store()),
+                        };
+                        match handle_turn_key(key, &mut ctx).await? {
+                            TurnKeyResult::Cancelled => {
+                                cancellation.cancel();
+                                steering.clear();
+                                reconcile_consumed_steering(controller, &steering);
+                                controller.state_mut().retain_queued(|msg| msg.kind != QueueKind::Steering);
+                                batch.flush(controller, false)?;
+                                engine.record_cancellation("operator interrupt").await?;
+                                restore_queued_messages(controller);
+                                session.renderer.print_notice("\nCanceled.\n");
+                                batch.drain_events(controller, ui_events)?;
+                                batch.flush(controller, false)?;
+                                return Ok(());
+                            }
+                            TurnKeyResult::Handled | TurnKeyResult::Ignored => {}
+                        }
                     }
-                    TurnKeyResult::Handled | TurnKeyResult::Ignored => {}
+                    super::modal::ModalKeyResult::ModelSelected {
+                        model,
+                        provider,
+                        save_as_default,
+                    } => {
+                        apply_turn_model_switch(TurnModelSwitchInput {
+                            model: &model,
+                            provider: &provider,
+                            save_as_default,
+                            config: &mut session.config,
+                            auth_store: &session.auth_store,
+                            renderer: &session.renderer,
+                            controller,
+                            model_switch: &model_switch,
+                            batch: &mut batch,
+                            shared_auth: Some(engine.shared_auth_store()),
+                        })?;
+                    }
+                    _ => {}
                 }
             }
             result = &mut run => {
                 reconcile_consumed_steering(controller, &steering);
-                renderer.flush();
+                session.renderer.flush();
                 sync_turn_footer(controller, engine);
                 batch.drain_events(controller, ui_events)?;
                 batch.flush(controller, false)?;
                 if let Err(error) = result {
                     restore_queued_messages(controller);
-                    renderer.print_notice(&format!("\nError: {error}\n"));
+                    session.renderer.print_notice(&format!("\nError: {error}\n"));
                     sync_turn_footer(controller, engine);
                     batch.drain_events(controller, ui_events)?;
                     batch.flush(controller, false)?;

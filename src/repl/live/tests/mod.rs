@@ -1,6 +1,7 @@
 mod bash;
 mod bash_stream;
 mod batch;
+mod claude_modal;
 mod common;
 mod footer;
 mod history;

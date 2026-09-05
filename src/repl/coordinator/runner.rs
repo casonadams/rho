@@ -33,11 +33,9 @@ impl ActivePromptRunner for ReplAgentRunner<'_> {
     async fn run_prompt(&self, prompt: &QueuedMessage) -> Result<(), Self::Error> {
         self.engine
             .run_turn(
-                TurnRequest {
-                    prompt: &prompt.text,
-                    cancellation: Some(&self.cancellation),
-                    steering: Some(std::sync::Arc::new(self.steering.clone())),
-                },
+                TurnRequest::new(&prompt.text)
+                    .with_cancellation(&self.cancellation)
+                    .with_steering(std::sync::Arc::new(self.steering.clone())),
                 std::sync::Arc::new(self.renderer.clone()),
             )
             .await

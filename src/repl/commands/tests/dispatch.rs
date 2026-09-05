@@ -43,6 +43,15 @@ async fn login_is_dispatched_without_collecting_credentials() {
             provider: Some(provider)
         }) if provider == "antigravity"
     ));
+    let result_claude = SlashCommandHandler::handle("/login claude", &mut context)
+        .await
+        .unwrap();
+    assert!(matches!(
+        result_claude,
+        Some(CommandResult::Login {
+            provider: Some(provider)
+        }) if provider == "claude"
+    ));
 }
 
 #[tokio::test]

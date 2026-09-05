@@ -11,6 +11,6 @@ pub use sink::{
     TurnArtifacts,
 };
 pub use turn::{
-    CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus, SteeringQueueProvider, TurnOutput,
-    TurnRequest, UsageDetails,
+    ActiveModelSwitch, CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus,
+    SharedModelSwitch, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails,
 };

@@ -112,7 +112,7 @@ impl AgentEngineBuilder {
         let model = if let Some(m) = self.model {
             m
         } else {
-            match create_engine_model(&config, &auth_store, shared_auth.clone()) {
+            match create_engine_model(&config, &auth_store, Some(shared_auth.clone())) {
                 Ok(m) => m,
                 Err(e) => {
                     if is_unmodified_default {
@@ -123,7 +123,7 @@ impl AgentEngineBuilder {
                             let mut trial_config = config.clone();
                             trial_config.provider = p.clone();
                             trial_config.model = default_model.to_string();
-                            if let Ok(m) = create_engine_model(&trial_config, &auth_store, shared_auth.clone()) {
+                            if let Ok(m) = create_engine_model(&trial_config, &auth_store, Some(shared_auth.clone())) {
                                 config = trial_config;
                                 fallback = Some(m);
                                 break;
@@ -139,7 +139,7 @@ impl AgentEngineBuilder {
                                 ..config.clone()
                             },
                             &auth_store,
-                            shared_auth.clone(),
+                            Some(shared_auth.clone()),
                         ) {
                             config.provider = "local".to_string();
                             config.model = "llama3.2".to_string();
@@ -215,10 +215,10 @@ impl AgentEngineBuilder {
     }
 }
 
-fn create_engine_model(
+pub fn create_engine_model(
     config: &Config,
     auth_store: &AuthStore,
-    shared_auth: Arc<tokio::sync::Mutex<AuthStore>>,
+    shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
 ) -> Result<ModelHandle> {
     let name = config.provider.trim();
     if let Ok(provider_id) = ProviderId::from_str(name) {
@@ -227,7 +227,7 @@ fn create_engine_model(
                 provider: provider_id,
                 model: &config.model,
                 thinking_level: config.thinking_level.as_deref(),
-                shared_auth: Some(shared_auth),
+                shared_auth,
             },
             auth_store,
         );

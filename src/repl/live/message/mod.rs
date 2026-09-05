@@ -47,8 +47,8 @@ impl ReplSession {
 
         self.renderer.print_user_block(&effective);
         run_active_turn(
+            self,
             engine,
-            &self.renderer,
             ActiveTurn {
                 io: live.io,
                 editor: live.editor,
@@ -56,6 +56,7 @@ impl ReplSession {
             },
         )
         .await?;
+        self.sync_engine_model(engine).await;
         engine.refresh_quota().await;
         Ok(false)
     }
