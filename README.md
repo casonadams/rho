@@ -96,7 +96,7 @@ flows narrow or split them into multiple fences.
 
 ## Core Built-in Tools
 
-`rho` includes 8 native, robust built-in tools:
+`rho` includes 9 native, robust built-in tools:
 
 - `read`: Read file contents with line numbering, offset, and limit safeguards.
 - `write`: Create or overwrite files (automatically creates parent directories).
@@ -106,6 +106,8 @@ flows narrow or split them into multiple fences.
   regex; gitignore-aware and bounded.
 - `rg`: Search file contents by pattern with line-oriented results;
   gitignore-aware, skips binary and oversized files, and bounds output.
+- `outline`: Extract syntax-aware symbol outlines (functions, methods, classes,
+  structs, traits) using Tree-sitter without implementation bodies.
 - `web_search`: Search the web and return structured summaries and URLs.
 - `web_fetch`: Fetch and extract clean readable text or markdown from URLs.
 
@@ -243,7 +245,7 @@ The workspace is structured into four clean, focused crates:
 - **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `web_search`,
+  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `outline`, `web_search`,
   `web_fetch`), and standard MCP client.
 - **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
   lifecycle hooks.
