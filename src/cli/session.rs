@@ -8,8 +8,11 @@ use std::path::PathBuf;
 
 pub fn resolve_resume_target(cli: &Cli, config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
     if cli.resume_picker {
+        let registry = crate::ui::theme::ThemeRegistry::new(Some(&config.config_dir));
+        let theme = registry.get(&config.theme).cloned().unwrap_or_default();
         Ok(crate::ui::interactive::session_picker::prompt_session_picker(
             &config.sessions_dir,
+            &theme,
         )?)
     } else if cli.r#continue {
         let cwd = std::env::current_dir()?;
