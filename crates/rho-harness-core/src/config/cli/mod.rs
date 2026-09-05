@@ -86,9 +86,9 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum Commands {
-    /// Verify an API key or explicitly start ChatGPT/Copilot subscription OAuth
+    /// Verify an API key or explicitly start subscription OAuth
     Login {
-        /// Provider name (e.g. anthropic, openai, openrouter, chatgpt, copilot)
+        /// Provider name (e.g. anthropic, openai, openrouter, chatgpt, copilot, claude, antigravity)
         provider: Option<String>,
     },
     /// Log out from an AI provider
