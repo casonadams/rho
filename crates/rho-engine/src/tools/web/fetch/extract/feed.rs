@@ -51,7 +51,9 @@ fn extract_sitemap_urls(xml_str: &str) -> String {
                 in_loc = false;
             }
             Event::Text(e) if in_loc => {
-                if let Ok(txt) = e.unescape() {
+                if let Ok(decoded) = e.decode()
+                    && let Ok(txt) = quick_xml::escape::unescape(&decoded)
+                {
                     urls.push(txt.to_string());
                 }
             }
