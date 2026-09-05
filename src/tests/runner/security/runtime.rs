@@ -29,7 +29,7 @@ async fn normalized_usage_is_exposed_when_available() {
     assert!(output.metrics.usage_available);
     assert_eq!(output.metrics.usage.unwrap().cached_input_tokens, Some(3));
     assert_eq!(output.metrics.usage.unwrap().reasoning_tokens, Some(2));
-    assert_eq!(engine.context_usage_display(), "15/200k (0%)");
+    assert_eq!(engine.context_usage_display(), "15/128k (0%)");
 }
 
 #[tokio::test]

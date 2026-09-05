@@ -49,8 +49,8 @@ impl Default for Config {
     fn default() -> Self {
         let base_dir = default_config_dir();
         Self {
-            model: "claude-3-7-sonnet-20250219".to_string(),
-            provider: "anthropic".to_string(),
+            model: "llama3.2".to_string(),
+            provider: "local".to_string(),
             max_output_tokens: None,
             max_turns: DEFAULT_MAX_TURNS,
             context_limit: None,

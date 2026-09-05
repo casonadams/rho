@@ -38,5 +38,6 @@ pub use state::{
     RunningTool, UiAction, UiEffect,
 };
 pub use transcript::{
-    ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_welcome_content, render_transcript_item,
+    ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_welcome_content, render_tool_block,
+    render_transcript_item,
 };

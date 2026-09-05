@@ -99,6 +99,7 @@ impl AgentEngine {
             .build()
             .await?;
         rebuilt.ensure_tools_loaded().await?;
+        rebuilt.refresh_quota().await;
         Ok(rebuilt)
     }
 

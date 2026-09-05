@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use super::FooterState;
 
-pub fn format_top_line(footer: &FooterState, width: usize) -> String {
+pub fn format_top_line(footer: &FooterState, width: usize, system_message: Option<&str>) -> String {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from);
@@ -37,14 +37,14 @@ pub fn format_top_line(footer: &FooterState, width: usize) -> String {
         pwd.push_str(&format!(" • {name}"));
     }
 
-    let status = footer
-        .quota
-        .as_deref()
-        .filter(|s| !s.is_empty())
-        .or_else(|| footer.extra_status.as_deref().filter(|s| !s.is_empty()));
+    let status = system_message
+        .filter(|s| !s.trim().is_empty())
+        .or(footer.quota.as_deref().filter(|s| !s.is_empty()))
+        .or(footer.extra_status.as_deref().filter(|s| !s.is_empty()))
+        .map(sanitize_status_text);
 
     match status {
-        Some(text) => fit_right_aligned(&pwd, &sanitize_status_text(text), width),
+        Some(text) => fit_right_aligned(&pwd, &text, width),
         None => truncate_with_ellipsis(&pwd, width),
     }
 }
@@ -134,6 +134,9 @@ pub fn format_stats_line(footer: &FooterState, width: usize) -> String {
     fit_right_aligned(&left, &right, width)
 }
 
-pub fn format_footer_lines(footer: &FooterState, width: usize) -> Vec<String> {
-    vec![format_top_line(footer, width), format_stats_line(footer, width)]
+pub fn format_footer_lines(footer: &FooterState, width: usize, system_message: Option<&str>) -> Vec<String> {
+    vec![
+        format_top_line(footer, width, system_message),
+        format_stats_line(footer, width),
+    ]
 }

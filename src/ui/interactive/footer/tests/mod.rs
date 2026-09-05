@@ -1,3 +1,5 @@
+mod ephemeral;
+
 use super::*;
 use crate::ui::interactive::Activity;
 use std::path::Path;
@@ -56,7 +58,7 @@ fn top_line_contains_cwd_branch_session_and_quota() {
         quota: Some("80% (3h22m)".into()),
         ..FooterState::default()
     };
-    let line = format_top_line(&footer, 80);
+    let line = format_top_line(&footer, 80, None);
     assert!(line.contains("(main)"));
     assert!(line.contains("• auth-feature"));
     assert!(line.ends_with("80% (3h22m)"));
@@ -127,7 +129,7 @@ fn format_footer_lines_emits_two_lines() {
         cwd: Some("/work".into()),
         ..FooterState::default()
     };
-    let lines = format_footer_lines(&footer, 80);
+    let lines = format_footer_lines(&footer, 80, None);
     assert_eq!(lines.len(), 2);
     assert!(lines[0].contains("/work"));
     assert!(lines[1].contains("test-model"));

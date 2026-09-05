@@ -1,3 +1,5 @@
+mod commit;
+
 use super::fake::{FakeTerminal, Operation};
 use crate::ui::interactive::controller::TerminalController;
 use crate::ui::interactive::{InteractiveState, ToolItem, ToolStartRequest, TranscriptItem};

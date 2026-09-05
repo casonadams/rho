@@ -6,7 +6,7 @@ use crate::ui::render::{
 
 use super::types::{ToolItem, TranscriptRenderInput};
 
-pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
+pub fn render_tool_block(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
     let theme = input.theme;
     let width = input.width;
     let tools_expanded = input.tools_expanded;
@@ -124,8 +124,12 @@ pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>
         content.push_str(&format!("{dim}Took {}{dim:#}", format_duration_ms(duration_ms)));
     }
 
-    let block = BlockFormat::new(background, width)
+    BlockFormat::new(background, width)
         .with_vertical_padding()
-        .render_styled(&content);
+        .render_styled(&content)
+}
+
+pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
+    let block = render_tool_block(tool, input);
     format!("\n{block}")
 }

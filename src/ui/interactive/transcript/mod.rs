@@ -6,6 +6,7 @@ pub mod welcome;
 #[cfg(test)]
 mod tests;
 
+pub use tool::render_tool_block;
 pub use types::{
     OSC133_ZONE_END, OSC133_ZONE_FINAL, OSC133_ZONE_START, ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem,
 };

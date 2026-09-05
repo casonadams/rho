@@ -79,6 +79,12 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn push_transcript_item(&mut self, item: TranscriptItem) -> io::Result<bool> {
+        if let TranscriptItem::Tool(ref tool) = item
+            && self.state.active_tool().is_some()
+        {
+            self.commit_active_tool(tool.clone())?;
+            return Ok(true);
+        }
         if matches!(item, TranscriptItem::Tool(_)) {
             self.clear_active_tool();
         }

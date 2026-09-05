@@ -1,8 +1,6 @@
 pub(crate) struct NormalBudgetInput {
     pub terminal_height: usize,
     pub raw_widgets_count: usize,
-    pub has_working: bool,
-    pub raw_system_count: usize,
     pub raw_queued_count: usize,
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
@@ -10,13 +8,11 @@ pub(crate) struct NormalBudgetInput {
 }
 
 pub(crate) struct NormalLayoutBudget {
-    pub show_spacer: bool,
+    pub show_activity_row: bool,
     pub show_top_div: bool,
     pub show_bot_div: bool,
     pub footer_count: usize,
     pub widget_count: usize,
-    pub working_count: usize,
-    pub system_count: usize,
     pub queued_count: usize,
     pub editor_max_lines: usize,
     pub autocomplete_max_lines: usize,
@@ -25,7 +21,7 @@ pub(crate) struct NormalLayoutBudget {
 pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBudget {
     let budget = input.terminal_height.max(1);
 
-    let (show_spacer, show_top_div, show_bot_div, footer_count) = match budget {
+    let (show_activity_row, show_top_div, show_bot_div, footer_count) = match budget {
         0..=1 => (false, false, false, 0),
         2 => (false, true, false, 0),
         3 => (false, true, true, 0),
@@ -35,20 +31,13 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     };
 
     let min_editor = 1;
-    let reserved_chrome =
-        usize::from(show_spacer) + usize::from(show_top_div) + usize::from(show_bot_div) + footer_count + min_editor;
+    let reserved_chrome = usize::from(show_activity_row)
+        + usize::from(show_top_div)
+        + usize::from(show_bot_div)
+        + footer_count
+        + min_editor;
 
     let mut surplus = budget.saturating_sub(reserved_chrome);
-
-    let working_count = if input.has_working && surplus > 0 {
-        surplus -= 1;
-        1
-    } else {
-        0
-    };
-
-    let system_count = input.raw_system_count.min(surplus);
-    surplus -= system_count;
 
     let queued_count = input.raw_queued_count.min(surplus);
     surplus -= queued_count;
@@ -88,13 +77,11 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     };
 
     NormalLayoutBudget {
-        show_spacer,
+        show_activity_row,
         show_top_div,
         show_bot_div,
         footer_count,
         widget_count,
-        working_count,
-        system_count,
         queued_count,
         editor_max_lines,
         autocomplete_max_lines,

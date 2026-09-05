@@ -68,7 +68,7 @@ fn queued_messages_render_above_the_working_line() {
     assert!(layout.queued_lines[0].contains("Steering: first steer"));
     assert!(layout.queued_lines[1].contains("Follow-up: next follow"));
     assert!(layout.queued_lines[2].contains("Alt+↑"));
-    assert_eq!(layout.height(), 10);
+    assert_eq!(layout.height(), 9);
 }
 
 #[test]

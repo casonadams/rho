@@ -10,8 +10,6 @@ pub mod text;
 pub mod types;
 pub mod widget;
 
-#[cfg(test)]
-pub use chrome::system_lines_text;
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
@@ -46,7 +44,6 @@ fn render_modal_layout(modal: &crate::ui::interactive::ModalState, input: &Layou
         cursor_row,
         queued_lines: Vec::new(),
         widget_lines: Vec::new(),
-        system_lines: Vec::new(),
         working_line: String::new(),
         top_divider: String::new(),
         editor_lines: modal_lines,

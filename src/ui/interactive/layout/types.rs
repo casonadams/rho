@@ -15,7 +15,6 @@ pub struct InteractiveLayout {
     pub cursor_row: usize,
     pub queued_lines: Vec<String>,
     pub widget_lines: Vec<String>,
-    pub system_lines: Vec<String>,
     pub working_line: String,
     pub top_divider: String,
     pub editor_lines: Vec<String>,

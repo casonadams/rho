@@ -1,6 +1,6 @@
 use super::autocomplete::render_autocomplete_dropdown;
 use super::budget::{NormalBudgetInput, compute_normal_budget};
-use super::chrome::{queued_lines_text, system_lines_text, thinking_divider_style, top_divider, working_line_text};
+use super::chrome::{queued_lines_text, thinking_divider_style, top_divider, working_line_text};
 use super::editor::{window_editor, wrap_editor};
 use super::types::{InteractiveLayout, LayoutInput};
 
@@ -11,7 +11,6 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     let working_line = working_line_text(input.footer, input.spinner_frame, width);
     let widget_lines = input.widget_lines;
     let queued_lines = queued_lines_text(input.queued_messages, width);
-    let system_lines = system_lines_text(input.system_message, width);
 
     let (all_ed_lines, full_cursor) = wrap_editor(input.editor, width);
     let ac_desired = if let Some(ac) = input.autocomplete {
@@ -23,13 +22,11 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     } else {
         0
     };
-    let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width);
+    let ft_lines = crate::ui::interactive::footer::format_footer_lines(input.footer, width, input.system_message);
 
     let budget = compute_normal_budget(&NormalBudgetInput {
         terminal_height: input.terminal_height,
         raw_widgets_count: widget_lines.len(),
-        has_working: !working_line.is_empty(),
-        raw_system_count: system_lines.len(),
         raw_queued_count: queued_lines.len(),
         total_editor_lines: all_ed_lines.len(),
         autocomplete_desired: ac_desired,
@@ -45,9 +42,6 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         lines.extend(visible_widgets.clone());
     }
 
-    if budget.show_spacer {
-        lines.push(String::new());
-    }
     let visible_queued = if budget.queued_count > 0 {
         let count = budget.queued_count.min(queued_lines.len());
         queued_lines[..count].to_vec()
@@ -56,15 +50,7 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     };
     lines.extend(visible_queued.clone());
 
-    let visible_system = if budget.system_count > 0 {
-        let count = budget.system_count.min(system_lines.len());
-        system_lines[..count].to_vec()
-    } else {
-        Vec::new()
-    };
-    lines.extend(visible_system.clone());
-
-    let visible_working = if budget.working_count > 0 && !working_line.is_empty() {
+    let visible_working = if budget.show_activity_row {
         lines.push(working_line.clone());
         working_line
     } else {
@@ -128,7 +114,6 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         cursor_row,
         queued_lines: visible_queued,
         widget_lines: visible_widgets,
-        system_lines: visible_system,
         working_line: visible_working,
         top_divider: top_div,
         editor_lines: ed_lines,

@@ -85,13 +85,10 @@ impl LiveBatch {
             .transcript_items
             .iter()
             .any(|item| matches!(item, crate::ui::interactive::TranscriptItem::Tool(_)));
-        if drained.tool_end || has_tool_transcript {
-            controller.clear_active_tool();
-            if drained.tool_end && drained.transcript_items.is_empty() {
-                controller.end_tool()?;
-                changed = true;
-            }
-        } else if let Some(running) = drained.running_tool {
+        if drained.tool_end && !has_tool_transcript {
+            controller.end_tool()?;
+            changed = true;
+        } else if !has_tool_transcript && let Some(running) = drained.running_tool {
             controller.state_mut().footer_mut().running_tool = running;
             changed = true;
         }

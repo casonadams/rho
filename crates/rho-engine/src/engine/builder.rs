@@ -99,7 +99,7 @@ impl AgentEngineBuilder {
 
         let mut config = self.config;
         let mut auth_store = self.auth_store;
-        let is_unmodified_default = config.provider == "anthropic" && config.model == "claude-3-7-sonnet-20250219";
+        let is_unmodified_default = config.provider == "local" && config.model == "llama3.2";
 
         // Auto-refresh expired OAuth tokens before building the model client
         // (get_key refreshes + persists when the stored token is stale).
