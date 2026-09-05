@@ -36,6 +36,10 @@ impl PluginSpec {
             return Err(PluginSpecError::Empty);
         }
 
+        if trimmed.starts_with("git@") {
+            return Err(PluginSpecError::UnsupportedHost(trimmed.to_string()));
+        }
+
         let (raw_target, tag) = match trimmed.split_once('@') {
             Some((b, t)) => {
                 let tag_trimmed = t.trim();
@@ -99,7 +103,7 @@ fn parse_github_url(url_without_scheme: &str, full: &str) -> Result<(String, Str
         return Err(PluginSpecError::InvalidUrl(full.to_string()));
     }
     let owner = parts[1].to_string();
-    let repo = parts[2].trim_end_matches(".git").to_string();
+    let repo = parts[2].strip_suffix(".git").unwrap_or(parts[2]).to_string();
     if owner.is_empty() || repo.is_empty() {
         return Err(PluginSpecError::InvalidUrl(full.to_string()));
     }
@@ -107,12 +111,16 @@ fn parse_github_url(url_without_scheme: &str, full: &str) -> Result<(String, Str
 }
 
 fn parse_github_slug(slug: &str) -> Result<(String, String), PluginSpecError> {
-    let parts: Vec<&str> = slug.split('/').collect();
+    let trimmed = slug.trim_end_matches('/');
+    let parts: Vec<&str> = trimmed.split('/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         return Err(PluginSpecError::InvalidSlug(slug.to_string()));
     }
     let owner = parts[0].to_string();
-    let repo = parts[1].trim_end_matches(".git").to_string();
+    let repo = parts[1].strip_suffix(".git").unwrap_or(parts[1]).to_string();
+    if repo.is_empty() {
+        return Err(PluginSpecError::InvalidSlug(slug.to_string()));
+    }
     Ok((owner, repo))
 }
 

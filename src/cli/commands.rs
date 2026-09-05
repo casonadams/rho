@@ -55,15 +55,10 @@ async fn handle_config(
         }
         (None, None) => {
             println!("Config location: {}", config.config_dir.display());
+            println!("Model: {}", config.model);
             match ProviderId::from_str(&config.provider) {
-                Ok(provider) => {
-                    println!("Model: {}", config.model);
-                    println!("Provider: {provider} ({})", provider.auth_mode_label());
-                }
-                Err(_) => {
-                    println!("Model: {}", config.model);
-                    println!("Provider: {} (custom)", config.provider);
-                }
+                Ok(provider) => println!("Provider: {provider} ({})", provider.auth_mode_label()),
+                Err(_) => println!("Provider: {} (custom)", config.provider),
             }
             println!("Max turns: {}", config.max_turns);
             println!("Context window messages: {}", config.context_window_messages);
@@ -145,10 +140,7 @@ fn handle_plugin(action: Option<PluginCommands>, config: &Config) {
         PluginCommands::Update { target: _ } => {
             println!("Plugin updating will be available in the next release");
         }
-        PluginCommands::Remove {
-            name: _,
-            keep_binary: _,
-        } => {
+        PluginCommands::Remove { .. } => {
             println!("To remove an MCP server or plugin, remove it from config.toml");
         }
     }

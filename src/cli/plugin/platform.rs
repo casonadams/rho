@@ -81,32 +81,32 @@ pub fn match_platform_asset<'a>(platform: &Platform, assets: &'a [String]) -> Re
 }
 
 fn is_non_binary_asset(name: &str) -> bool {
-    const EXCLUDED: &[&str] = &[
-        ".sha256",
-        ".sha512",
-        ".sha1",
-        ".md5",
-        ".sig",
-        ".asc",
-        ".txt",
-        "checksum",
-        "sha256sum",
-        "source",
+    const EXCLUDED_EXTENSIONS: &[&str] = &[
+        ".sha256", ".sha512", ".sha1", ".md5", ".sig", ".asc", ".txt", ".deb", ".rpm", ".pkg", ".dmg", ".msi",
     ];
     let lower = name.to_ascii_lowercase();
-    EXCLUDED.iter().any(|&pat| lower.contains(pat))
+    if EXCLUDED_EXTENSIONS.iter().any(|&ext| lower.ends_with(ext)) {
+        return true;
+    }
+    lower == "checksums"
+        || lower.starts_with("checksums.")
+        || lower.starts_with("sha256sum")
+        || lower.starts_with("sha512sum")
+        || lower == "source.tar.gz"
+        || lower == "source.zip"
 }
 
 fn score_asset(name: &str, platform: &Platform) -> Option<i32> {
     let lower = name.to_ascii_lowercase();
-    if lower.contains(platform.target_triple()) {
-        return Some(100);
-    }
-    if !matches_os(&lower, platform.os) || !matches_arch(&lower, platform.arch) {
-        return None;
-    }
-    let mut score = 50;
-    if lower.ends_with(".tar.gz") || lower.ends_with(".zip") || lower.ends_with(".tar.xz") {
+    let mut score = if lower.contains(platform.target_triple()) {
+        100
+    } else {
+        if !matches_os(&lower, platform.os) || !matches_arch(&lower, platform.arch) {
+            return None;
+        }
+        50
+    };
+    if lower.ends_with(".tar.gz") || lower.ends_with(".zip") || lower.ends_with(".tar.xz") || lower.ends_with(".exe") {
         score += 20;
     }
     if platform.os == Os::Linux && lower.contains("gnu") {
@@ -116,23 +116,13 @@ fn score_asset(name: &str, platform: &Platform) -> Option<i32> {
 }
 
 fn matches_os(lower: &str, os: Os) -> bool {
+    let has_darwin = lower.contains("apple-darwin") || lower.contains("darwin") || lower.contains("macos");
+    let has_linux = lower.contains("unknown-linux") || lower.contains("linux");
+    let has_windows = lower.contains("windows") || lower.contains("win64") || lower.ends_with(".exe");
     match os {
-        Os::Macos => {
-            (lower.contains("apple-darwin") || lower.contains("darwin") || lower.contains("macos"))
-                && !lower.contains("linux")
-                && !lower.contains("windows")
-        }
-        Os::Linux => {
-            (lower.contains("unknown-linux") || lower.contains("linux"))
-                && !lower.contains("darwin")
-                && !lower.contains("macos")
-                && !lower.contains("windows")
-        }
-        Os::Windows => {
-            (lower.contains("windows") || lower.contains("win64") || lower.ends_with(".exe"))
-                && !lower.contains("darwin")
-                && !lower.contains("linux")
-        }
+        Os::Macos => has_darwin && !has_linux && !has_windows,
+        Os::Linux => has_linux && !has_darwin && !has_windows,
+        Os::Windows => has_windows && !has_darwin && !has_linux,
     }
 }
 

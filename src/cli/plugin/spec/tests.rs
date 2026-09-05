@@ -1,6 +1,39 @@
 use super::*;
 
 #[test]
+fn test_parse_acceptance_criteria_examples() {
+    let spec = PluginSpec::parse("foo").unwrap();
+    assert_eq!(spec.name, "rho-plugin-foo");
+    assert_eq!(spec.owner, DEFAULT_GITHUB_ORG);
+    assert_eq!(spec.repo, "rho-plugin-foo");
+    assert_eq!(spec.tag, None);
+
+    let spec = PluginSpec::parse("foo@1.0.0").unwrap();
+    assert_eq!(spec.name, "rho-plugin-foo");
+    assert_eq!(spec.owner, DEFAULT_GITHUB_ORG);
+    assert_eq!(spec.repo, "rho-plugin-foo");
+    assert_eq!(spec.tag.as_deref(), Some("1.0.0"));
+
+    let spec = PluginSpec::parse("org/repo").unwrap();
+    assert_eq!(spec.name, "repo");
+    assert_eq!(spec.owner, "org");
+    assert_eq!(spec.repo, "repo");
+    assert_eq!(spec.tag, None);
+
+    let spec = PluginSpec::parse("org/repo@v1.0.0").unwrap();
+    assert_eq!(spec.name, "repo");
+    assert_eq!(spec.owner, "org");
+    assert_eq!(spec.repo, "repo");
+    assert_eq!(spec.tag.as_deref(), Some("v1.0.0"));
+
+    let spec = PluginSpec::parse("https://github.com/org/repo").unwrap();
+    assert_eq!(spec.name, "repo");
+    assert_eq!(spec.owner, "org");
+    assert_eq!(spec.repo, "repo");
+    assert_eq!(spec.tag, None);
+}
+
+#[test]
 fn test_parse_bare_short_name() {
     let spec = PluginSpec::parse("permission").unwrap();
     assert_eq!(spec.name, "rho-plugin-permission");
@@ -47,6 +80,12 @@ fn test_parse_github_slug() {
     assert_eq!(spec.owner, "custom-org");
     assert_eq!(spec.repo, "custom-plugin");
     assert_eq!(spec.tag, Some("2.0.0".to_string()));
+
+    let spec = PluginSpec::parse("custom-org/custom-plugin/").unwrap();
+    assert_eq!(spec.name, "custom-plugin");
+    assert_eq!(spec.owner, "custom-org");
+    assert_eq!(spec.repo, "custom-plugin");
+    assert_eq!(spec.tag, None);
 }
 
 #[test]
@@ -88,6 +127,10 @@ fn test_parse_invalid_inputs() {
     assert!(matches!(
         PluginSpec::parse("invalid name with spaces"),
         Err(PluginSpecError::InvalidName(_))
+    ));
+    assert!(matches!(
+        PluginSpec::parse("git@github.com:org/repo.git"),
+        Err(PluginSpecError::UnsupportedHost(_))
     ));
 }
 
