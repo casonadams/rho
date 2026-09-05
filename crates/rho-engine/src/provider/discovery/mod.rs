@@ -95,7 +95,7 @@ pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthSto
         ProviderId::Cohere => Ok(cohere_preset_models()),
         ProviderId::OllamaCloud => {
             if let Some(key) = auth_store.get_key_sync("ollama-cloud")? {
-                fetch::discover_openai_compatible("ollama-cloud", "https://ollama.com/v1", &key).await
+                fetch::discover_ollama_cloud_models(&key).await
             } else {
                 Ok(ollama_cloud_preset_models())
             }

@@ -1,7 +1,7 @@
 use super::DiscoveredModel;
 use super::antigravity::{antigravity_display_name, model_recency_key, sort_models_newest_first};
 use super::fetch::ollama_context_from_info;
-use super::presets::{default_presets_for, format_context_tokens};
+use super::presets::{default_presets_for, format_context_tokens, ollama_cloud_preset_models};
 
 #[test]
 fn test_model_recency_key_parsing() {
@@ -69,6 +69,17 @@ fn test_format_context_tokens_megabytes_and_kilobytes() {
     assert_eq!(format_context_tokens(2_000_000), "2M ctx");
     assert_eq!(format_context_tokens(200_000), "200k ctx");
     assert_eq!(format_context_tokens(128_000), "128k ctx");
+}
+
+#[test]
+fn ollama_cloud_presets_carry_real_context_lengths() {
+    let models = ollama_cloud_preset_models();
+    assert!(
+        models
+            .iter()
+            .any(|m| m.id == "glm-5.3-flash" && m.context_tokens == Some(1_048_576))
+    );
+    assert!(models.iter().all(|m| m.context_tokens.is_some()));
 }
 
 #[test]

@@ -70,6 +70,14 @@ async fn test_context_overflow_auto_recovery_succeeds_on_retry() {
     let notices = presenter.notices.lock().unwrap().clone();
     assert!(notices.iter().any(|n| n.contains("Context overflow detected")));
     assert!(notices.iter().any(|n| n.contains("Compacted context")));
+    assert!(
+        presenter
+            .spinner_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|m| m == "Compacting...")
+    );
 }
 
 #[tokio::test]

@@ -156,12 +156,14 @@ impl AgentEngineBuilder {
 
         let context_limit = match config.context_limit {
             Some(limit) => Some(limit),
-            None if config.provider == "local" => {
+            None if matches!(config.provider.as_str(), "local" | "ollama" | "ollama-cloud") => {
                 let store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
-                store
-                    .get_models("local")
-                    .and_then(|models| models.iter().find(|m| m.id == config.model))
-                    .and_then(|m| m.context_tokens)
+                let keys: &[&str] = if config.provider == "ollama-cloud" {
+                    &["ollama-cloud"]
+                } else {
+                    &["local", "ollama"]
+                };
+                store.context_tokens(keys, &config.model)
             }
             None => None,
         };

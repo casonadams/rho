@@ -216,9 +216,36 @@ impl AgentEngine {
 
     pub async fn refresh_quota(&self) {
         let provider = self.config.provider.trim();
-        if !provider.eq_ignore_ascii_case("antigravity") && !provider.eq_ignore_ascii_case("google-antigravity") {
+        if provider.eq_ignore_ascii_case("ollama-cloud") {
+            self.refresh_ollama_quota().await;
+        } else if provider.eq_ignore_ascii_case("antigravity") || provider.eq_ignore_ascii_case("google-antigravity") {
+            self.refresh_antigravity_quota().await;
+        }
+    }
+
+    async fn refresh_ollama_quota(&self) {
+        if !self.quota.should_fetch() {
             return;
         }
+        let key = self
+            .auth_store
+            .lock()
+            .await
+            .get_key("ollama-cloud")
+            .await
+            .ok()
+            .flatten();
+        let Some(key) = key else {
+            self.quota.record_failure();
+            return;
+        };
+        match crate::ollama::fetch_quota(&key).await {
+            Some(display) => self.quota.record_success(display),
+            None => self.quota.record_failure(),
+        }
+    }
+
+    async fn refresh_antigravity_quota(&self) {
         if !self.quota.should_fetch() {
             return;
         }

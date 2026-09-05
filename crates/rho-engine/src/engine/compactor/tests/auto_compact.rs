@@ -69,6 +69,14 @@ async fn test_proactive_auto_compaction_before_turn() {
     assert_eq!(output.final_text, "turn response");
     let notices = presenter.notices.lock().unwrap().clone();
     assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
+    assert!(
+        presenter
+            .spinner_messages
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|m| m == "Compacting...")
+    );
 
     let tree = engine.session_manager.load_tree().await.unwrap();
     let leaf_id = tree.active_leaf_id.as_ref().unwrap();

@@ -50,6 +50,15 @@ impl ModelStore {
         self.models.keys()
     }
 
+    /// Context window recorded for a model in the first matching catalog.
+    pub fn context_tokens(&self, catalog_keys: &[&str], model: &str) -> Option<usize> {
+        catalog_keys.iter().find_map(|key| {
+            self.get_models(key)
+                .and_then(|models| models.iter().find(|m| m.id == model))
+                .and_then(|m| m.context_tokens)
+        })
+    }
+
     pub fn set_models(&mut self, provider: &str, models: Vec<DiscoveredModel>) -> Result<()> {
         self.models.insert(provider.to_string(), models);
         self.updated_at_ms = chrono::Utc::now().timestamp_millis();

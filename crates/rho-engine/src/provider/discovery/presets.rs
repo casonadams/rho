@@ -344,16 +344,16 @@ pub fn cohere_preset_models() -> Vec<DiscoveredModel> {
 pub fn ollama_cloud_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
-            context_tokens: None,
+            context_tokens: Some(1_048_576),
             id: "glm-5.3-flash".into(),
             name: "GLM 5.3 Flash".into(),
             provider: "ollama-cloud".into(),
-            description: "128k ctx · fast".into(),
+            description: "1M ctx · fast".into(),
         },
         DiscoveredModel {
-            context_tokens: None,
-            id: "llama-3.3-70b".into(),
-            name: "Llama 3.3 70B".into(),
+            context_tokens: Some(131_072),
+            id: "gpt-oss:120b".into(),
+            name: "GPT OSS 120B".into(),
             provider: "ollama-cloud".into(),
             description: "128k ctx · general".into(),
         },

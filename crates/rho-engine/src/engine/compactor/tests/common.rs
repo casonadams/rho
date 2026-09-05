@@ -9,6 +9,7 @@ use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
 #[derive(Default)]
 pub struct CapturingPresenter {
     pub notices: Mutex<Vec<String>>,
+    pub spinner_messages: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -27,7 +28,8 @@ impl Presenter for CapturingPresenter {
     fn has_interactive_ui(&self) -> bool {
         false
     }
-    fn start_spinner(&self, _message: &str) -> ActivityToken {
+    fn start_spinner(&self, message: &str) -> ActivityToken {
+        self.spinner_messages.lock().unwrap().push(message.to_string());
         ActivityToken::default()
     }
     fn start_tool_spinner(&self, _name: &str, _arguments: &serde_json::Value) -> ActivityToken {

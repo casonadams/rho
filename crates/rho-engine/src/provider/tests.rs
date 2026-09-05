@@ -157,6 +157,34 @@ fn ollama_context_length_is_read_from_model_info() {
 }
 
 #[test]
+fn model_store_resolves_context_tokens_across_catalog_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_store_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut store = ModelStore::load(dir.join("models-store.json"));
+    store
+        .set_models(
+            "ollama-cloud",
+            vec![crate::provider::discovery::DiscoveredModel {
+                id: "glm-5.3-flash".into(),
+                name: "GLM 5.3 Flash".into(),
+                provider: "ollama-cloud".into(),
+                description: "1M ctx".into(),
+                context_tokens: Some(1_048_576),
+            }],
+        )
+        .unwrap();
+
+    let store = ModelStore::load(dir.join("models-store.json"));
+    assert_eq!(
+        store.context_tokens(&["ollama-cloud"], "glm-5.3-flash"),
+        Some(1_048_576)
+    );
+    assert_eq!(store.context_tokens(&["ollama-cloud"], "unknown"), None);
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn antigravity_collapse_sorts_newest_first() {
     let live_ids: Vec<String> = vec![
         "gemini-2.5-flash".into(),

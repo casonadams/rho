@@ -49,13 +49,17 @@ impl AgentEngine {
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
         let mut checkpoint = self.session_manager.load_checkpoint().await?;
 
-        let context_window = rho_harness_core::tokens::context_window_size(&self.config.model);
+        let context_window = self
+            .context_limit()
+            .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&self.config.model));
         let mut history_tokens =
             rho_harness_core::tokens::calculate_context_tokens(&visible_history, None, &self.config.model).total_tokens;
 
         if rho_harness_core::tokens::should_compact(history_tokens, context_window, self.config.reserve_tokens) {
+            let compaction_spinner = presenter.start_spinner("Compacting...");
             match self.compact_session(None).await {
                 Ok(stats) => {
+                    compaction_spinner.finish_and_clear();
                     presenter.print_notice(&format!(
                         "[Auto-compacted context: {} -> {} tokens (saved {})]",
                         stats.tokens_before, stats.tokens_after, stats.saved_tokens
@@ -70,6 +74,7 @@ impl AgentEngine {
                             .total_tokens;
                 }
                 Err(err) => {
+                    compaction_spinner.finish_and_clear();
                     eprintln!("Warning: Proactive auto-compaction failed: {err}");
                 }
             }
@@ -145,8 +150,10 @@ impl AgentEngine {
                         if !overflow_recovered && crate::engine::compactor::is_context_overflow_error(&error) {
                             overflow_recovered = true;
                             presenter.print_notice("[Context overflow detected: auto-compacting and retrying turn...]");
+                            let compaction_spinner = presenter.start_spinner("Compacting...");
                             match self.compact_session(None).await {
                                 Ok(stats) => {
+                                    compaction_spinner.finish_and_clear();
                                     presenter.print_notice(&format!(
                                         "[Compacted context: {} -> {} tokens (saved {})]",
                                         stats.tokens_before, stats.tokens_after, stats.saved_tokens
@@ -167,6 +174,7 @@ impl AgentEngine {
                                     break;
                                 }
                                 Err(compact_err) => {
+                                    compaction_spinner.finish_and_clear();
                                     eprintln!("Warning: Auto-compaction after context overflow failed: {compact_err}");
                                 }
                             }

@@ -260,3 +260,61 @@ async fn refresh_quota_non_antigravity_is_noop() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// The offline mock engine proves the no-key path never touches the network.
+#[tokio::test]
+async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
+    let (config, dir) = test_config("quota_ollama_nokey");
+    let config = Config {
+        provider: "ollama-cloud".to_string(),
+        ..config
+    };
+    let engine = crate::engine::eval::mock::mock_engine(
+        rig::test_utils::MockCompletionModel::default(),
+        crate::engine::eval::mock::MockEngineConfig {
+            base_dir: &dir,
+            app_config: config,
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+
+    engine.refresh_quota().await;
+    assert_eq!(engine.quota_display(), None);
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
+    let (config, dir) = test_config("ctx_ollama_cloud");
+    let mut store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+    store
+        .set_models(
+            "ollama-cloud",
+            vec![crate::provider::discovery::DiscoveredModel {
+                id: "glm-5.3-flash".into(),
+                name: "GLM 5.3 Flash".into(),
+                provider: "ollama-cloud".into(),
+                description: "1M ctx".into(),
+                context_tokens: Some(1_048_576),
+            }],
+        )
+        .unwrap();
+    let config = Config {
+        provider: "ollama-cloud".to_string(),
+        model: "glm-5.3-flash".to_string(),
+        ..config
+    };
+    let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    auth_store.set_key("ollama-cloud", "test-key-not-real").unwrap();
+    let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store)
+        .base_dir(dir.clone())
+        .build()
+        .await
+        .unwrap();
+
+    assert_eq!(engine.context_limit(), Some(1_048_576));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

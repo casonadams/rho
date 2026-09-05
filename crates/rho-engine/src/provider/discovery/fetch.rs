@@ -64,23 +64,64 @@ pub(crate) async fn discover_openai_compatible(
 
 pub(crate) async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
-    let endpoint = format!("{}/api/tags", host.trim_end_matches('/'));
+    let spec = OllamaCatalog {
+        client: &OLLAMA_CLIENT,
+        host: &host,
+        auth: None,
+        provider: "local",
+        fallback_description: "local model",
+    };
+    discover_ollama_catalog(spec).await
+}
 
-    if let Ok(resp) = OLLAMA_CLIENT.get(&endpoint).send().await
+/// ollama.com is a remote Ollama host, so the native `/api/tags` + `/api/show`
+/// endpoints report the cloud catalog and each model's real context length.
+pub(crate) async fn discover_ollama_cloud_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
+    let spec = OllamaCatalog {
+        client: &HTTP_CLIENT,
+        host: crate::ollama::CLOUD_HOST,
+        auth: Some(api_key),
+        provider: "ollama-cloud",
+        fallback_description: "cloud model",
+    };
+    let models = discover_ollama_catalog(spec).await?;
+    if models.is_empty() {
+        return Ok(super::presets::ollama_cloud_preset_models());
+    }
+    Ok(models)
+}
+
+struct OllamaCatalog<'a> {
+    client: &'a reqwest::Client,
+    host: &'a str,
+    auth: Option<&'a str>,
+    provider: &'a str,
+    fallback_description: &'a str,
+}
+
+async fn discover_ollama_catalog(spec: OllamaCatalog<'_>) -> Result<Vec<DiscoveredModel>> {
+    let host = spec.host.trim_end_matches('/');
+    let endpoint = format!("{host}/api/tags");
+    let mut req = spec.client.get(&endpoint);
+    if let Some(key) = spec.auth {
+        req = req.header("Authorization", format!("Bearer {}", key.trim()));
+    }
+
+    if let Ok(resp) = req.send().await
         && resp.status().is_success()
         && let Ok(body) = resp.json::<OllamaTagsResponse>().await
     {
         let mut models = Vec::new();
         for item in body.models {
             let id = item.name;
-            let context_tokens = ollama_context_length(&OLLAMA_CLIENT, host.trim_end_matches('/'), &id).await;
+            let context_tokens = ollama_context_length(spec.client, host, &id).await;
             let description = context_tokens
                 .map(format_context_tokens)
-                .unwrap_or_else(|| "local model".to_string());
+                .unwrap_or_else(|| spec.fallback_description.to_string());
             models.push(DiscoveredModel {
                 name: id.clone(),
                 id,
-                provider: "local".to_string(),
+                provider: spec.provider.to_string(),
                 description,
                 context_tokens,
             });
