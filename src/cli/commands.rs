@@ -25,16 +25,16 @@ pub async fn handle_command(
             handle_models(config);
         }
         Commands::Install { target, force } => {
-            handle_plugin(Some(PluginCommands::Install { target, force }), config);
+            handle_plugin(Some(PluginCommands::Install { target, force }), config).await?;
         }
         Commands::Update { target } => {
-            handle_plugin(Some(PluginCommands::Update { target }), config);
+            handle_plugin(Some(PluginCommands::Update { target }), config).await?;
         }
         Commands::Remove { name, keep_binary } => {
-            handle_plugin(Some(PluginCommands::Remove { name, keep_binary }), config);
+            handle_plugin(Some(PluginCommands::Remove { name, keep_binary }), config).await?;
         }
         Commands::Plugin { action } => {
-            handle_plugin(action, config);
+            handle_plugin(action, config).await?;
         }
     }
     Ok(())
@@ -109,28 +109,16 @@ fn handle_models(config: &Config) {
     }
 }
 
-fn handle_plugin(action: Option<PluginCommands>, config: &Config) {
+async fn handle_plugin(action: Option<PluginCommands>, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     match action.unwrap_or(PluginCommands::List) {
-        PluginCommands::List | PluginCommands::Inspect { .. } => {
-            println!("Configured MCP Servers & Plugins:");
-            if config.mcp.servers.is_empty() && config.plugins.is_empty() {
-                println!("  (none configured)");
-            } else {
-                for (name, server) in &config.mcp.servers {
-                    println!(
-                        "  - [mcp] {name}: command='{}' enabled={}",
-                        server.command, server.enabled
-                    );
-                }
-                for (name, plugin) in &config.plugins {
-                    let target = plugin
-                        .command
-                        .as_deref()
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| plugin.path.display().to_string());
-                    println!("  - [plugin] {name}: target='{target}' enabled={}", plugin.enabled);
-                }
-            }
+        PluginCommands::List => {
+            super::plugin::listing::handle_list(config)?;
+        }
+        PluginCommands::Remove { name, keep_binary } => {
+            super::plugin::remove::handle_remove(config, &name, keep_binary).await?;
+        }
+        PluginCommands::Inspect { capability } => {
+            super::plugin::listing::handle_inspect(config, capability.as_deref());
         }
         PluginCommands::Install { target, force: _ } => {
             println!(
@@ -140,8 +128,6 @@ fn handle_plugin(action: Option<PluginCommands>, config: &Config) {
         PluginCommands::Update { target: _ } => {
             println!("Plugin updating will be available in the next release");
         }
-        PluginCommands::Remove { .. } => {
-            println!("To remove an MCP server or plugin, remove it from config.toml");
-        }
     }
+    Ok(())
 }
