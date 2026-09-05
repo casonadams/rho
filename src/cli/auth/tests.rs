@@ -18,7 +18,7 @@ fn oauth_provider_options_are_filtered_and_concise() {
     let options = oauth_provider_options();
 
     let ids: Vec<&str> = options.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, vec!["antigravity", "chatgpt", "copilot", "openrouter"]);
+    assert_eq!(ids, vec!["antigravity", "chatgpt", "claude", "copilot", "openrouter"]);
     let mut sorted_ids = ids.clone();
     sorted_ids.sort();
     assert_eq!(ids, sorted_ids, "OAuth provider options must be sorted alphabetically");
@@ -57,6 +57,7 @@ fn api_key_provider_options_are_filtered_and_concise() {
     assert!(!options.iter().any(|(id, _)| id == "chatgpt"));
     assert!(!options.iter().any(|(id, _)| id == "copilot"));
     assert!(!options.iter().any(|(id, _)| id == "antigravity"));
+    assert!(!options.iter().any(|(id, _)| id == "claude"));
 
     assert!(options.iter().any(|(id, _)| id == "openrouter"));
     assert!(options.iter().any(|(id, _)| id == "custom-llm"));

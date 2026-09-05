@@ -85,6 +85,11 @@ fn handle_models(config: &Config) {
                         println!("  - {} ({})", model.id, model.description);
                     }
                 }
+                ProviderId::ClaudeCode => {
+                    for model in rho_engine::provider::discovery::claude_preset_models() {
+                        println!("  - {} ({})", model.id, model.description);
+                    }
+                }
                 ProviderId::DeepSeek => {
                     println!("  - deepseek-chat\n  - deepseek-reasoner");
                 }

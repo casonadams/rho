@@ -13,7 +13,11 @@ use std::str::FromStr;
 pub fn supports_tool_result_images(provider: &str) -> bool {
     matches!(
         ProviderId::from_str(provider),
-        Ok(ProviderId::Anthropic | ProviderId::Gemini | ProviderId::ChatGpt | ProviderId::Antigravity)
+        Ok(ProviderId::Anthropic
+            | ProviderId::Gemini
+            | ProviderId::ChatGpt
+            | ProviderId::Antigravity
+            | ProviderId::ClaudeCode,)
     )
 }
 

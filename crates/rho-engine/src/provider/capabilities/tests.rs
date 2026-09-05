@@ -9,6 +9,8 @@ fn providers_that_serialize_tool_result_images() {
         "chatgpt",
         "antigravity",
         "google-antigravity",
+        "claude",
+        "claude-code",
     ] {
         assert!(
             supports_tool_result_images(provider),

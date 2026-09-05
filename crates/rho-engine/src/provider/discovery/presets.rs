@@ -341,6 +341,32 @@ pub fn cohere_preset_models() -> Vec<DiscoveredModel> {
     }]
 }
 
+pub fn claude_preset_models() -> Vec<DiscoveredModel> {
+    vec![
+        DiscoveredModel {
+            context_tokens: Some(1_000_000),
+            id: "claude-sonnet-4-5".into(),
+            name: "Claude Sonnet 4.5".into(),
+            provider: "claude".into(),
+            description: "1M ctx · reasoning".into(),
+        },
+        DiscoveredModel {
+            context_tokens: Some(1_000_000),
+            id: "claude-opus-4-6".into(),
+            name: "Claude Opus 4.6".into(),
+            provider: "claude".into(),
+            description: "1M ctx · deep reasoning".into(),
+        },
+        DiscoveredModel {
+            context_tokens: Some(200_000),
+            id: "claude-haiku-4-5".into(),
+            name: "Claude Haiku 4.5".into(),
+            provider: "claude".into(),
+            description: "200k ctx · fast".into(),
+        },
+    ]
+}
+
 pub fn ollama_cloud_preset_models() -> Vec<DiscoveredModel> {
     vec![
         DiscoveredModel {
@@ -363,6 +389,7 @@ pub fn ollama_cloud_preset_models() -> Vec<DiscoveredModel> {
 pub(crate) fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
     match provider {
         "chatgpt" => chatgpt_codex_models(),
+        "claude" => claude_preset_models(),
         "openai" => openai_preset_models(),
         "anthropic" => anthropic_preset_models(),
         "gemini" => gemini_preset_models(),

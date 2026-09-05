@@ -23,6 +23,6 @@ Environment Variables:
 Authentication:
   OAuth or API key: openrouter
   API key: anthropic, openai, deepseek, gemini, groq, xai, mistral, cohere, ollama-cloud
-  Subscription OAuth: chatgpt, copilot, antigravity (explicit login required via 'rho login <provider>')
+  Subscription OAuth: chatgpt, copilot, antigravity, claude (explicit login required via 'rho login <provider>')
   Local: local (no login required; customize with OLLAMA_HOST)
   Custom: Any OpenAI-compatible endpoint configured in config.toml under [providers.<name>]";

@@ -235,6 +235,11 @@ impl ProviderFactory {
                     .map_err(|e| AppError::Provider(format!("Failed to initialize Ollama Cloud client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
+            ProviderId::ClaudeCode => {
+                return Err(AppError::Provider(
+                    "Claude OAuth client will be available in Slice 3".to_string(),
+                ));
+            }
             ProviderId::Local => unreachable!(),
         };
 

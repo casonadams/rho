@@ -26,6 +26,7 @@ fn provider_login_name(id: ProviderId) -> &'static str {
         ProviderId::ChatGpt => "ChatGPT",
         ProviderId::Copilot => "GitHub Copilot",
         ProviderId::Antigravity => "Google Antigravity",
+        ProviderId::ClaudeCode => "Claude (Subscription)",
         ProviderId::OpenRouter => "OpenRouter",
         _ => id.as_str(),
     }
@@ -69,7 +70,7 @@ pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store:
             }
             Some(AuthMethod::ApiKey) => {}
             None => match id {
-                ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity => {
+                ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity | ProviderId::ClaudeCode => {
                     return perform_oauth_and_save(id, config, auth_store).await;
                 }
                 ProviderId::OpenRouter => {

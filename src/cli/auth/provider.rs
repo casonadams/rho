@@ -13,6 +13,7 @@ pub fn oauth_provider_options() -> Vec<(&'static str, &'static str)> {
     vec![
         ("antigravity", "Google Cloud Code Assist"),
         ("chatgpt", "ChatGPT Plus/Pro subscription"),
+        ("claude", "Claude Pro/Max subscription"),
         ("copilot", "GitHub Copilot subscription"),
         ("openrouter", "OpenRouter account (OAuth PKCE)"),
     ]

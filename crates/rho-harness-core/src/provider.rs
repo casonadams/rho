@@ -11,6 +11,7 @@ pub enum ProviderId {
     ChatGpt,
     Copilot,
     Antigravity,
+    ClaudeCode,
     DeepSeek,
     Gemini,
     Groq,
@@ -31,10 +32,11 @@ pub enum CredentialStrategy {
 }
 
 impl ProviderId {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::ChatGpt,
         Self::Copilot,
         Self::Antigravity,
+        Self::ClaudeCode,
         Self::OpenRouter,
         Self::Anthropic,
         Self::OpenAi,
@@ -48,7 +50,13 @@ impl ProviderId {
         Self::Local,
     ];
 
-    pub const OAUTH_PROVIDERS: [Self; 4] = [Self::ChatGpt, Self::Copilot, Self::Antigravity, Self::OpenRouter];
+    pub const OAUTH_PROVIDERS: [Self; 5] = [
+        Self::ChatGpt,
+        Self::Copilot,
+        Self::Antigravity,
+        Self::ClaudeCode,
+        Self::OpenRouter,
+    ];
 
     pub const API_KEY_PROVIDERS: [Self; 10] = [
         Self::Anthropic,
@@ -78,6 +86,7 @@ impl ProviderId {
             Self::ChatGpt => "chatgpt",
             Self::Copilot => "copilot",
             Self::Antigravity => "antigravity",
+            Self::ClaudeCode => "claude",
             Self::DeepSeek => "deepseek",
             Self::Gemini => "gemini",
             Self::Groq => "groq",
@@ -92,7 +101,9 @@ impl ProviderId {
 
     pub fn credential_strategy(self) -> CredentialStrategy {
         match self {
-            Self::ChatGpt | Self::Copilot | Self::Antigravity => CredentialStrategy::SubscriptionOAuth,
+            Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::ClaudeCode => {
+                CredentialStrategy::SubscriptionOAuth
+            }
             Self::OpenRouter => CredentialStrategy::OAuthOrApiKey,
             Self::Local => CredentialStrategy::Local,
             _ => CredentialStrategy::ApiKey,
@@ -120,7 +131,7 @@ impl ProviderId {
             Self::Mistral => Some("MISTRAL_API_KEY"),
             Self::Cohere => Some("COHERE_API_KEY"),
             Self::OllamaCloud => Some("OLLAMA_API_KEY"),
-            Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::Local => None,
+            Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::ClaudeCode | Self::Local => None,
         }
     }
 }
@@ -141,6 +152,7 @@ impl FromStr for ProviderId {
             "chatgpt" => Ok(Self::ChatGpt),
             "copilot" => Ok(Self::Copilot),
             "antigravity" | "google-antigravity" => Ok(Self::Antigravity),
+            "claude" | "claude-code" | "claude-oauth" => Ok(Self::ClaudeCode),
             "deepseek" => Ok(Self::DeepSeek),
             "gemini" | "google" => Ok(Self::Gemini),
             "groq" => Ok(Self::Groq),

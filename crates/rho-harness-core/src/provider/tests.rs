@@ -8,6 +8,7 @@ fn oauth_providers_list_is_exact() {
             ProviderId::ChatGpt,
             ProviderId::Copilot,
             ProviderId::Antigravity,
+            ProviderId::ClaudeCode,
             ProviderId::OpenRouter,
         ]
     );
@@ -34,6 +35,7 @@ fn api_key_providers_list_excludes_local_and_pure_oauth() {
     assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::ChatGpt));
     assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::Copilot));
     assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::Antigravity));
+    assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::ClaudeCode));
 }
 
 #[test]
@@ -43,7 +45,12 @@ fn supports_oauth_and_api_key_capabilities() {
     assert!(ProviderId::OpenRouter.supports_api_key());
 
     // Pure OAuth providers
-    for provider in [ProviderId::ChatGpt, ProviderId::Copilot, ProviderId::Antigravity] {
+    for provider in [
+        ProviderId::ChatGpt,
+        ProviderId::Copilot,
+        ProviderId::Antigravity,
+        ProviderId::ClaudeCode,
+    ] {
         assert!(provider.supports_oauth(), "{provider} should support OAuth");
         assert!(!provider.supports_api_key(), "{provider} should not support API key");
     }
@@ -83,6 +90,12 @@ fn credential_strategies_and_labels() {
     );
     assert_eq!(ProviderId::ChatGpt.auth_mode_label(), "subscription OAuth");
 
+    assert_eq!(
+        ProviderId::ClaudeCode.credential_strategy(),
+        CredentialStrategy::SubscriptionOAuth
+    );
+    assert_eq!(ProviderId::ClaudeCode.auth_mode_label(), "subscription OAuth");
+
     assert_eq!(ProviderId::Anthropic.credential_strategy(), CredentialStrategy::ApiKey);
     assert_eq!(ProviderId::Anthropic.auth_mode_label(), "API key");
 
@@ -95,12 +108,13 @@ fn api_key_environment_variables() {
     assert_eq!(ProviderId::OpenRouter.api_key_env(), Some("OPENROUTER_API_KEY"));
     assert_eq!(ProviderId::Anthropic.api_key_env(), Some("ANTHROPIC_API_KEY"));
     assert_eq!(ProviderId::ChatGpt.api_key_env(), None);
+    assert_eq!(ProviderId::ClaudeCode.api_key_env(), None);
     assert_eq!(ProviderId::Local.api_key_env(), None);
 }
 
 #[test]
 fn all_variants_are_unique_and_represented() {
-    assert_eq!(ProviderId::ALL.len(), 14);
+    assert_eq!(ProviderId::ALL.len(), 15);
     for provider in ProviderId::ALL {
         let parsed = ProviderId::from_str(provider.as_str()).expect("canonical string must parse");
         assert_eq!(parsed, provider);
@@ -114,6 +128,9 @@ fn from_str_aliases_and_case_insensitivity() {
         ProviderId::from_str("google-antigravity").unwrap(),
         ProviderId::Antigravity
     );
+    assert_eq!(ProviderId::from_str("claude").unwrap(), ProviderId::ClaudeCode);
+    assert_eq!(ProviderId::from_str("claude-code").unwrap(), ProviderId::ClaudeCode);
+    assert_eq!(ProviderId::from_str("claude-oauth").unwrap(), ProviderId::ClaudeCode);
     assert_eq!(ProviderId::from_str("google").unwrap(), ProviderId::Gemini);
     assert_eq!(ProviderId::from_str("ollama").unwrap(), ProviderId::Local);
     assert_eq!(ProviderId::from_str("ollamacloud").unwrap(), ProviderId::OllamaCloud);
