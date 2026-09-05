@@ -55,7 +55,11 @@ pub fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usiz
     let accent = "\x1b[36m";
     let reset = "\x1b[0m";
     let dim = "\x1b[2m";
-    let full = format!("{accent}{spinner}{reset} {dim}Working...{reset}");
+    let label = match activity {
+        Activity::Compacting => "Compacting...",
+        _ => "Working...",
+    };
+    let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
     truncate_to_width(&full, width)
 }
 

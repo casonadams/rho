@@ -27,6 +27,8 @@ impl TerminalRenderer {
         if let Some(ui) = &self.ui {
             let activity = if message.starts_with("thinking") {
                 Activity::Thinking
+            } else if message.starts_with("compacting") {
+                Activity::Compacting
             } else {
                 Activity::Working
             };

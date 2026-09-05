@@ -18,6 +18,7 @@ pub enum Activity {
     #[default]
     Idle,
     Thinking,
+    Compacting,
     Working,
 }
 
@@ -26,6 +27,7 @@ impl Activity {
         match self {
             Self::Idle => "idle",
             Self::Thinking => "thinking",
+            Self::Compacting => "compacting",
             Self::Working => "working",
         }
     }
