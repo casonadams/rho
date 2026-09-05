@@ -211,6 +211,35 @@ as standard tools.
 
 ---
 
+## Built-in Permissions
+
+`rho` includes an in-process safety and permission system enabled by default.
+Baseline inspection commands (`git status`, `git diff`, `ls`, etc.) and workspace
+file access execute silently without prompting.
+
+Potentially destructive operations (`rm -rf`, network commands) and file accesses
+outside the workspace trigger interactive approval modals with options to:
+
+- **Allow**: Execute once.
+- **Edit**: Modify the command or arguments before execution.
+- **Always allow**: Persist an allow rule to `.rho/permission.toml` (or global `~/.config/rho/permission.toml`).
+- **Deny with reason**: Reject the action with user feedback.
+
+In headless mode, permission-gated actions fail closed automatically.
+
+To disable permissions for a session or run, pass `--no-permission` on the CLI or configure:
+
+```toml
+# In ~/.config/rho/config.toml or .rho/config.toml
+[permission]
+enabled = false
+```
+
+If an external permission plugin (`rho-plugin-permission`) is configured and enabled,
+the built-in hook automatically yields to the external plugin.
+
+---
+
 ## Plugins & Lifecycle Hooks
 
 Plugins hook into Rig's agent lifecycle (`tool_call`, `tool_result`,
@@ -245,7 +274,7 @@ The workspace is structured into four clean, focused crates:
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
   tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `outline`, `web_search`,
-  `web_fetch`), and standard MCP client.
+  `web_fetch`), standard MCP client, and in-process permission system.
 - **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
   lifecycle hooks.
 - **`rho`**: Binary CLI entrypoint, interactive TUI editor, slash commands, and

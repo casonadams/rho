@@ -1,6 +1,9 @@
 mod baseline;
 mod bash;
 mod eval;
+mod external;
+mod hook;
 mod matcher;
+mod mock;
 mod path;
 mod policy;

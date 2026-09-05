@@ -113,6 +113,14 @@ impl AgentEngine {
             for p in &self.plugins {
                 p.register_hooks(&mut hook_stack);
             }
+            if self.config.permission.enabled
+                && !crate::permission::has_external_permission_plugin(&self.config.plugins)
+            {
+                hook_stack.push(crate::permission::PermissionHook::new(
+                    std::env::current_dir().ok(),
+                    presenter.clone(),
+                ));
+            }
             hook_stack.push(
                 TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
                     .with_model_switch(request.model_switch.clone())

@@ -44,7 +44,13 @@ pub fn project_config_path(cwd: Option<&Path>) -> Option<PathBuf> {
 }
 
 pub fn target_config_path(cwd: Option<&Path>) -> Option<PathBuf> {
-    project_config_path(cwd).or_else(config_path)
+    if let Some(path) = project_config_path(cwd) {
+        return Some(path);
+    }
+    if let Some(cwd) = cwd {
+        return Some(cwd.join(".rho/permission.toml"));
+    }
+    config_path()
 }
 
 pub fn load_policy(cwd: Option<&Path>) -> (Policy, bool) {
@@ -61,6 +67,9 @@ pub fn load_policy(cwd: Option<&Path>) -> (Policy, bool) {
 }
 
 pub fn save_allow_rule(path: &Path, tool: &str, pattern: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     let raw = std::fs::read_to_string(path).unwrap_or_default();
     let mut doc = raw
         .parse::<toml_edit::DocumentMut>()
