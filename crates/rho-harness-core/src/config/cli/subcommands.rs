@@ -35,7 +35,7 @@ pub enum Commands {
         target: Option<String>,
     },
     /// Remove a configured plugin
-    #[command(visible_alias = "uninstall")]
+    #[command(visible_aliases = ["uninstall", "rm"])]
     Remove {
         /// Configured plugin name
         name: String,

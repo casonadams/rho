@@ -55,18 +55,23 @@ impl PluginSpec {
             return Err(PluginSpecError::Empty);
         }
 
-        let (owner, repo) = if raw_target.starts_with("http://") {
+        let (owner, repo, url_tag) = if raw_target.starts_with("http://") {
             return Err(PluginSpecError::InsecureHttp(raw_target.to_string()));
         } else if let Some(url_str) = raw_target.strip_prefix("https://") {
             parse_github_url(url_str, raw_target)?
+        } else if raw_target.starts_with("github.com/") {
+            parse_github_url(raw_target, raw_target)?
         } else if raw_target.contains("://") {
             return Err(PluginSpecError::UnsupportedHost(raw_target.to_string()));
         } else if raw_target.contains('/') {
-            parse_github_slug(raw_target)?
+            let (o, r) = parse_github_slug(raw_target)?;
+            (o, r, None)
         } else {
-            parse_bare_name(raw_target)?
+            let (o, r) = parse_bare_name(raw_target)?;
+            (o, r, None)
         };
 
+        let tag = tag.or(url_tag);
         let executable_name = repo.clone();
         let name = repo;
 
@@ -105,20 +110,22 @@ impl std::fmt::Display for PluginSpec {
     }
 }
 
-fn parse_github_url(url_without_scheme: &str, full: &str) -> Result<(String, String), PluginSpecError> {
+fn parse_github_url(url_without_scheme: &str, full: &str) -> Result<(String, String, Option<String>), PluginSpecError> {
     let parts: Vec<&str> = url_without_scheme.split('/').filter(|p| !p.is_empty()).collect();
     if parts.is_empty() || parts[0] != "github.com" {
         return Err(PluginSpecError::UnsupportedHost(full.to_string()));
     }
-    if parts.len() != 3 {
-        return Err(PluginSpecError::InvalidUrl(full.to_string()));
-    }
+    let tag = match parts.as_slice() {
+        [_, _, _, "releases", "tag", t] | [_, _, _, "tree", t] => Some((*t).to_string()),
+        [_, _, _] => None,
+        _ => return Err(PluginSpecError::InvalidUrl(full.to_string())),
+    };
     let owner = parts[1].to_string();
     let repo = parts[2].strip_suffix(".git").unwrap_or(parts[2]).to_string();
     if owner.is_empty() || repo.is_empty() {
         return Err(PluginSpecError::InvalidUrl(full.to_string()));
     }
-    Ok((owner, repo))
+    Ok((owner, repo, tag))
 }
 
 fn parse_github_slug(slug: &str) -> Result<(String, String), PluginSpecError> {

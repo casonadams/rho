@@ -107,6 +107,24 @@ fn test_parse_github_url() {
     assert_eq!(spec.owner, "org");
     assert_eq!(spec.repo, "repo");
     assert_eq!(spec.tag, Some("v1.0.0".to_string()));
+
+    let spec = PluginSpec::parse("https://github.com/org/repo/releases/tag/v1.2.3").unwrap();
+    assert_eq!(spec.name, "repo");
+    assert_eq!(spec.owner, "org");
+    assert_eq!(spec.repo, "repo");
+    assert_eq!(spec.tag, Some("v1.2.3".to_string()));
+
+    let spec = PluginSpec::parse("https://github.com/org/repo/tree/v2.0.0").unwrap();
+    assert_eq!(spec.name, "repo");
+    assert_eq!(spec.owner, "org");
+    assert_eq!(spec.repo, "repo");
+    assert_eq!(spec.tag, Some("v2.0.0".to_string()));
+
+    let spec = PluginSpec::parse("github.com/casonadams/rho-plugin-git").unwrap();
+    assert_eq!(spec.name, "rho-plugin-git");
+    assert_eq!(spec.owner, "casonadams");
+    assert_eq!(spec.repo, "rho-plugin-git");
+    assert_eq!(spec.tag, None);
 }
 
 #[test]

@@ -195,6 +195,15 @@ fn test_cli_parsing_top_level_package_commands() {
             keep_binary: false,
         })
     );
+
+    let cli = Cli::try_parse_from(["rho", "rm", "git"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Remove {
+            name: "git".to_string(),
+            keep_binary: false,
+        })
+    );
 }
 
 #[test]
