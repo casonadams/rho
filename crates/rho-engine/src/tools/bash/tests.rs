@@ -246,3 +246,18 @@ async fn test_bash_sets_noninteractive_env_safeguards() {
     assert!(!res.is_error);
     assert!(res.content.contains("CI=true;GIT=0;PAGER=cat"));
 }
+
+#[tokio::test]
+async fn test_bash_sanitizes_cargo_environment_variables() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "echo \"PKG=$CARGO_PKG_NAME;DIR=$CARGO_MANIFEST_DIR;OUT=$OUT_DIR\"".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(res.content.contains("PKG=;DIR=;OUT="));
+}

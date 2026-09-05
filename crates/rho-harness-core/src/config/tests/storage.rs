@@ -70,8 +70,11 @@ fn plugin_entries_round_trip_and_are_removed_atomically() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn test_config_file_model_takes_precedence_over_state_model() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_precedence_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -125,6 +128,7 @@ fn test_config_file_model_takes_precedence_over_state_model() {
 
 #[test]
 fn test_state_model_used_when_no_config_file_model() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_state_fallback_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -148,6 +152,7 @@ fn test_state_model_used_when_no_config_file_model() {
 
 #[tokio::test]
 async fn test_save_default_model_persists_both_fields() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_save_default_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 

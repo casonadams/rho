@@ -122,6 +122,50 @@ debug = 1
 [profile.dev.package."*"]
 opt-level = 2
 
+[profile.dev.package.ring]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rig-core]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rig-agent]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rig]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rig-memory]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rustls]
+opt-level = 0
+debug = false
+
+[profile.dev.package.reqwest]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rustls-webpki]
+opt-level = 0
+debug = false
+
+[profile.dev.package.tokio-rustls]
+opt-level = 0
+debug = false
+
+[profile.dev.package.hyper-rustls]
+opt-level = 0
+debug = false
+
+[profile.dev.package.rustls-platform-verifier]
+opt-level = 0
+debug = false
+
 [profile.release]
 opt-level = 3
 lto = "thin"

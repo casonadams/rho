@@ -14,6 +14,7 @@ pub fn resolve_shell_command(command: &str) -> Command {
         };
         let mut cmd = Command::new(shell);
         cmd.arg("-c").arg(command);
+        sanitize_cargo_env(&mut cmd);
         cmd
     }
 
@@ -30,21 +31,32 @@ pub fn resolve_shell_command(command: &str) -> Command {
                     .filter(|p| Path::new(p).exists())
             });
 
-        if let Some(bash) = git_bash {
-            let mut cmd = Command::new(bash);
-            cmd.arg("-c").arg(command);
-            cmd
+        let mut cmd = if let Some(bash) = git_bash {
+            let mut c = Command::new(bash);
+            c.arg("-c").arg(command);
+            c
         } else {
-            let mut cmd = Command::new("cmd.exe");
-            cmd.arg("/C").arg(command);
-            cmd
-        }
+            let mut c = Command::new("cmd.exe");
+            c.arg("/C").arg(command);
+            c
+        };
+        sanitize_cargo_env(&mut cmd);
+        cmd
     }
 
     #[cfg(not(any(unix, windows)))]
     {
         let mut cmd = Command::new("sh");
         cmd.arg("-c").arg(command);
+        sanitize_cargo_env(&mut cmd);
         cmd
+    }
+}
+
+fn sanitize_cargo_env(cmd: &mut Command) {
+    for (key, _) in std::env::vars() {
+        if key.starts_with("CARGO_PKG_") || key.starts_with("CARGO_MANIFEST_") || key == "OUT_DIR" {
+            cmd.env_remove(&key);
+        }
     }
 }
