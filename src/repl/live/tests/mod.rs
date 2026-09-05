@@ -8,6 +8,7 @@ mod footer;
 mod history;
 mod idle_shortcuts;
 mod modals;
+mod selection_lifecycle;
 mod session_modal;
 mod suspend;
 mod tree_modal;

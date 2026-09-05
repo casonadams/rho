@@ -129,6 +129,10 @@ impl InteractiveState {
         self.modals.last_mut().map(|frame| &mut frame.modal)
     }
 
+    pub fn active_modal_saved_editor(&self) -> Option<&EditorState> {
+        self.modals.last().map(|frame| &frame.saved_editor)
+    }
+
     pub fn select_previous_modal_option(&mut self) {
         if let Some(modal) = self.modals.last_mut().map(|frame| &mut frame.modal) {
             modal.select_previous();

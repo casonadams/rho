@@ -82,6 +82,11 @@ pub fn handle_tree_key<B: TerminalBackend>(
             controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            controller.state_mut().pop_modal();
+            controller.redraw()?;
+            Ok(ModalKeyResult::Handled)
+        }
         _ => Ok(ModalKeyResult::Handled),
     }
 }

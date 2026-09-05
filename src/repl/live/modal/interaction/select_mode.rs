@@ -35,11 +35,38 @@ pub(super) fn handle_select_mode_key<B: TerminalBackend>(
                 let _ = pending.responder.respond(InteractionResponse::Cancelled);
             }
         }
+        KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            if let Some(modal) = controller.state_mut().active_modal_mut()
+                && !modal.filter_query.is_empty()
+            {
+                modal.set_filter("");
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
+            controller.state_mut().pop_modal();
+            if let Some(pending) = pending.take() {
+                let _ = pending.responder.respond(InteractionResponse::Cancelled);
+            }
+        }
+        KeyCode::Backspace => {
+            if let Some(modal) = controller.state_mut().active_modal_mut()
+                && modal.is_searchable
+            {
+                let mut query = modal.filter_query.clone();
+                query.pop();
+                modal.set_filter(&query);
+            }
+        }
         KeyCode::Enter => handle_select_enter(controller, pending),
         _ => {
-            if let InputAction::Edit(UiAction::Insert(c)) = map_key(key) {
-                let allow_custom = controller.state().active_modal().is_some_and(|m| m.allow_custom);
-                if allow_custom && let Some(modal) = controller.state_mut().active_modal_mut() {
+            if let InputAction::Edit(UiAction::Insert(c)) = map_key(key)
+                && let Some(modal) = controller.state_mut().active_modal_mut()
+            {
+                if modal.is_searchable {
+                    let mut query = modal.filter_query.clone();
+                    query.push(c);
+                    modal.set_filter(&query);
+                } else if modal.allow_custom {
                     let prompt = prompt_label_for(&modal.title);
                     modal.enter_input_mode(prompt);
                     modal.input.insert(c);

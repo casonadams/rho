@@ -148,8 +148,13 @@ impl<B: TerminalBackend> TerminalController<B> {
             Vec::new()
         };
 
+        let editor = self
+            .state
+            .active_modal_saved_editor()
+            .unwrap_or_else(|| self.state.editor());
+
         layout(LayoutInput {
-            editor: self.state.editor(),
+            editor,
             modal: self.state.active_modal(),
             autocomplete: Some(&self.state.autocomplete),
             footer: self.state.footer(),

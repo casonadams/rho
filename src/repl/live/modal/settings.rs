@@ -65,6 +65,11 @@ pub fn handle_settings_key<B: TerminalBackend>(
             controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
+        KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            controller.state_mut().pop_modal();
+            controller.redraw()?;
+            Ok(ModalKeyResult::Handled)
+        }
         _ => Ok(ModalKeyResult::Handled),
     }
 }
