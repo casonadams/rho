@@ -76,6 +76,7 @@ pub fn handle_theme_key<B: TerminalBackend>(
         KeyCode::Enter => {
             if let Some(theme) = extract_selected_theme(controller) {
                 controller.state_mut().pop_modal();
+                controller.redraw()?;
                 return Ok(ModalKeyResult::ThemeSelected { theme });
             }
             controller.state_mut().pop_modal();

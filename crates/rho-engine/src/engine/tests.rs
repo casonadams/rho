@@ -346,3 +346,35 @@ async fn model_from_state_prevents_silent_fallback_to_configured_provider() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn switch_model_updates_model_and_preserves_tools() {
+    with_dummy_provider_key();
+    let (config, dir) = test_config("switch_model");
+    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    let base_dir = std::env::temp_dir();
+    let tools = crate::tools::build_builtin_tools(&base_dir, &config).unwrap();
+    let initial_tools_count = tools.len();
+
+    let mut engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .base_dir(base_dir.clone())
+        .tools(tools)
+        .build()
+        .await
+        .unwrap();
+
+    assert_eq!(engine.config.model, config.model);
+    assert_eq!(engine.tool_names().len(), initial_tools_count);
+
+    engine
+        .switch_model("claude-3-5-haiku-20241022", "anthropic")
+        .await
+        .unwrap();
+
+    assert_eq!(engine.config.model, "claude-3-5-haiku-20241022");
+    assert_eq!(engine.config.provider, "anthropic");
+    assert_eq!(engine.tool_names().len(), initial_tools_count);
+    assert_eq!(engine.context_limit(), Some(200_000));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

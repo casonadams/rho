@@ -7,14 +7,14 @@ use crate::repl::ReplSession;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
-pub(super) struct ModalActionContext<'a, 'b, 'c, B: TerminalBackend> {
+pub(crate) struct ModalActionContext<'a, 'b, 'c, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
     pub history: &'a mut InteractiveHistory,
     pub session: &'b mut ReplSession,
     pub engine: &'c mut AgentEngine,
 }
 
-pub(super) async fn apply_modal_key_result<B: TerminalBackend>(
+pub(crate) async fn apply_modal_key_result<B: TerminalBackend>(
     res: ModalKeyResult,
     ctx: ModalActionContext<'_, '_, '_, B>,
     batch: &mut LiveBatch,
@@ -55,12 +55,10 @@ pub(super) async fn apply_modal_key_result<B: TerminalBackend>(
                     .renderer
                     .print_status(&format!("Model: {model} ({provider})"));
             }
-            if let Ok(rebuilt) = ctx
-                .engine
-                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-                .await
-            {
-                *ctx.engine = rebuilt;
+            if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
+                ctx.session
+                    .renderer
+                    .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
             }
             update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
             batch.flush(ctx.controller, true)?;

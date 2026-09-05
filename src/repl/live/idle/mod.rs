@@ -1,5 +1,5 @@
 mod editor;
-mod modal_action;
+pub(crate) mod modal_action;
 mod shortcut;
 
 use editor::open_external_editor;

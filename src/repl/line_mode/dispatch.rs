@@ -39,9 +39,12 @@ pub async fn handle_command_result(
                 new_provider.as_deref(),
             )
             .await;
-            *engine = engine
-                .rebuild(session.config.clone(), session.auth_store.clone())
-                .await?;
+            let provider = session.config.provider.clone();
+            if let Err(err) = engine.switch_model(&new_model, &provider).await {
+                session
+                    .renderer
+                    .print_notice(&format!("  Warning: Could not switch model: {err}\n"));
+            }
             Ok(DispatchOutcome::Continue)
         }
         CommandResult::Login { provider } => {

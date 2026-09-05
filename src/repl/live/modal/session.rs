@@ -59,9 +59,11 @@ pub fn handle_session_key<B: TerminalBackend>(
                 let desc = opt.description.clone().unwrap_or_default();
                 let session_id = desc.split('\t').next().unwrap_or(&desc).trim().to_string();
                 controller.state_mut().pop_modal();
+                controller.redraw()?;
                 return Ok(ModalKeyResult::SessionSelected { session_id });
             }
             controller.state_mut().pop_modal();
+            controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Esc => {

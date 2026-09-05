@@ -121,6 +121,10 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(true)
     }
 
+    pub fn rendered(&self) -> Option<&InteractiveLayout> {
+        self.rendered.as_ref()
+    }
+
     pub fn advance_spinner(&mut self) {
         self.spinner_frame = self.spinner_frame.wrapping_add(1);
     }

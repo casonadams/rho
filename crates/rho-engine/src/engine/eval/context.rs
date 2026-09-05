@@ -79,6 +79,7 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
     let engine = AgentEngine {
         config,
         session_manager: store,
+        tools: Vec::new(),
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(Vec::new())),
         plugins: Vec::new(),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),

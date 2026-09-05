@@ -50,6 +50,7 @@ pub fn handle_model_key<B: TerminalBackend>(
     if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
         if let Some((model, provider)) = extract_selected_model(controller) {
             controller.state_mut().pop_modal();
+            controller.redraw()?;
             return Ok(ModalKeyResult::ModelSelected {
                 model,
                 provider,
@@ -57,6 +58,7 @@ pub fn handle_model_key<B: TerminalBackend>(
             });
         }
         controller.state_mut().pop_modal();
+        controller.redraw()?;
         return Ok(ModalKeyResult::Handled);
     }
 
@@ -74,6 +76,7 @@ pub fn handle_model_key<B: TerminalBackend>(
         KeyCode::Enter => {
             if let Some((model, provider)) = extract_selected_model(controller) {
                 controller.state_mut().pop_modal();
+                controller.redraw()?;
                 return Ok(ModalKeyResult::ModelSelected {
                     model,
                     provider,
@@ -81,6 +84,7 @@ pub fn handle_model_key<B: TerminalBackend>(
                 });
             }
             controller.state_mut().pop_modal();
+            controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Esc => {

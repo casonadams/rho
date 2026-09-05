@@ -53,10 +53,11 @@ pub async fn cycle_thinking_level<B: TerminalBackend>(
     )
     .await;
 
-    // Providers route on the thinking level (Antigravity runtime variants), so
-    // rebuild the engine like a model switch does.
-    if let Ok(rebuilt) = engine.rebuild(session.config.clone(), session.auth_store.clone()).await {
-        *engine = rebuilt;
+    engine.config.thinking_level = session.config.thinking_level.clone();
+    if let Err(err) = engine.update_model().await {
+        session
+            .renderer
+            .print_notice(&format!("\nWarning: Could not update thinking level: {err}\n"));
     }
 
     update_footer(controller.state_mut(), session, engine);
@@ -99,12 +100,10 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     )
     .await;
 
-    if let Ok(rebuilt) = ctx
-        .engine
-        .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-        .await
-    {
-        *ctx.engine = rebuilt;
+    if let Err(err) = ctx.engine.switch_model(&item.id, &item.provider).await {
+        ctx.session
+            .renderer
+            .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
     }
 
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);

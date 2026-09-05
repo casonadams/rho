@@ -91,10 +91,12 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
                 new_provider.as_deref(),
             )
             .await;
-            *ctx.engine = ctx
-                .engine
-                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-                .await?;
+            let provider = ctx.session.config.provider.clone();
+            if let Err(err) = ctx.engine.switch_model(&new_model, &provider).await {
+                ctx.session
+                    .renderer
+                    .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
+            }
         }
         CommandResult::Reload => {
             *ctx.engine = ctx.session.reload_engine(ctx.engine).await?;

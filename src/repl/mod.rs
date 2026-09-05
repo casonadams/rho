@@ -71,12 +71,14 @@ impl ReplSession {
     }
 
     pub(crate) async fn sync_engine_model(&self, engine: &mut AgentEngine) {
-        if (self.config.model != engine.config.model
+        if self.config.model != engine.config.model
             || self.config.provider != engine.config.provider
-            || self.config.thinking_level != engine.config.thinking_level)
-            && let Ok(rebuilt) = engine.rebuild(self.config.clone(), self.auth_store.clone()).await
+            || self.config.thinking_level != engine.config.thinking_level
         {
-            *engine = rebuilt;
+            engine.config.model = self.config.model.clone();
+            engine.config.provider = self.config.provider.clone();
+            engine.config.thinking_level = self.config.thinking_level.clone();
+            let _ = engine.update_model().await;
         }
     }
 

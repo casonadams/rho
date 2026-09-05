@@ -41,6 +41,11 @@ fn model_selector_modal_filtering_and_selection() {
         _ => panic!("expected ModelSelected result"),
     }
     assert!(controller.state().active_modal().is_none());
+    assert!(
+        controller
+            .rendered()
+            .is_some_and(|r| !r.lines.iter().any(|l| l.contains("Select Model")))
+    );
 }
 
 #[test]
@@ -160,4 +165,58 @@ fn modal_key_handler_ignores_key_release_events() {
     assert_eq!(res, super::super::modal::ModalKeyResult::Handled);
     assert!(controller.state().active_modal().is_some());
     assert!(!controller.state().hide_thinking());
+}
+
+#[tokio::test]
+async fn model_selector_selection_applies_model_switch_without_rebuild() {
+    unsafe {
+        std::env::set_var("ANTHROPIC_API_KEY", "test-key-not-real");
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        model: "claude-3-5-sonnet-20241022".to_string(),
+        provider: "anthropic".to_string(),
+        config_dir: temp.path().to_path_buf(),
+        ..Default::default()
+    };
+    let auth_store = crate::auth::AuthStore::default();
+    let mut session = crate::repl::ReplSession::new(config.clone(), auth_store.clone(), None);
+    let mut engine = rho_engine::engine::AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .build()
+        .await
+        .unwrap();
+
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut history =
+        crate::repl::interactive::InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+    let mut batch = crate::repl::live::batch::LiveBatch::new();
+
+    super::super::modal::open_model_selector(&session, &mut controller);
+    assert!(controller.state().active_modal().is_some());
+
+    let enter_key =
+        crossterm::event::KeyEvent::new(crossterm::event::KeyCode::Enter, crossterm::event::KeyModifiers::NONE);
+    let modal_res = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert!(matches!(
+        modal_res,
+        super::super::modal::ModalKeyResult::ModelSelected { .. }
+    ));
+    assert!(controller.state().active_modal().is_none());
+
+    let outcome = crate::repl::live::idle::modal_action::apply_modal_key_result(
+        modal_res,
+        crate::repl::live::idle::modal_action::ModalActionContext {
+            controller: &mut controller,
+            history: &mut history,
+            session: &mut session,
+            engine: &mut engine,
+        },
+        &mut batch,
+    )
+    .await
+    .unwrap();
+
+    assert!(outcome);
+    assert_eq!(session.config.model, engine.config.model);
+    assert_eq!(controller.state().footer().model, engine.config.model);
 }

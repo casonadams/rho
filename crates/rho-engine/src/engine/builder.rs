@@ -191,13 +191,14 @@ impl AgentEngineBuilder {
             CodingRuntime {
                 base_dir: &base_dir,
                 memory: session_manager.clone(),
-                built_in_tools: Some(tools),
+                built_in_tools: Some(tools.clone()),
             },
         )?;
 
         Ok(AgentEngine {
             config: config.clone(),
             session_manager,
+            tools,
             tool_names: Arc::new(std::sync::RwLock::new(tool_names)),
             plugins: self.plugins,
             agent: Arc::new(tokio::sync::RwLock::new(agent)),

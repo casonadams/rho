@@ -67,6 +67,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
     AgentEngine {
         config: app_config,
         session_manager,
+        tools: config.built_in_tools.clone().unwrap_or_default(),
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(tool_names)),
         plugins: Vec::new(),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),

@@ -70,9 +70,11 @@ pub fn handle_tree_key<B: TerminalBackend>(
                 let desc = opt.description.clone().unwrap_or_default();
                 let node_id = desc.split_whitespace().last().unwrap_or(&desc).to_string();
                 controller.state_mut().pop_modal();
+                controller.redraw()?;
                 return Ok(ModalKeyResult::TreeNodeSelected { node_id });
             }
             controller.state_mut().pop_modal();
+            controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Esc => {
