@@ -106,6 +106,12 @@ pub(super) async fn handle_turn_key<B: TerminalBackend>(
             }
             Ok(TurnKeyResult::Handled)
         }
+        InputAction::Clear => {
+            ctx.controller.state_mut().autocomplete.close();
+            ctx.controller.state_mut().editor_mut().set_text("");
+            ctx.batch.flush(ctx.controller, true)?;
+            Ok(TurnKeyResult::Handled)
+        }
         InputAction::Cancel => Ok(TurnKeyResult::Cancelled),
         _ => Ok(TurnKeyResult::Ignored),
     }

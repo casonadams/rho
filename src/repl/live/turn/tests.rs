@@ -202,6 +202,40 @@ async fn test_turn_input_escape_cancels() {
 }
 
 #[tokio::test]
+async fn test_turn_input_ctrl_c_clears_input_without_cancelling() {
+    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().editor_mut().set_text("partial input to discard");
+    let history_dir = tempfile::tempdir().unwrap();
+    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
+    let completions = CompletionSet::from_sources(Default::default());
+    let mut batch = super::LiveBatch::new();
+    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
+    let mut session = crate::repl::ReplSession::new(
+        rho_harness_core::config::Config::default(),
+        crate::auth::AuthStore::default(),
+        None,
+    );
+    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
+
+    let mut ctx = TurnInputContext {
+        controller: &mut controller,
+        history: &mut history,
+        completions: &completions,
+        batch: &mut batch,
+        steering: &steering,
+        session: &mut session,
+        model_switch: &model_switch,
+        shared_auth: None,
+    };
+
+    let result = handle_turn_key(key_event(KeyCode::Char('c'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert_eq!(controller.state().editor().text(), "");
+}
+
+#[tokio::test]
 async fn test_turn_input_ctrl_l_opens_model_selector() {
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
     let history_dir = tempfile::tempdir().unwrap();

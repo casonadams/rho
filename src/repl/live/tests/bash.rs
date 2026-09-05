@@ -49,6 +49,32 @@ async fn test_user_bash_runner_cancellation_preempts_and_terminates() {
 }
 
 #[tokio::test]
+async fn test_user_bash_runner_ctrl_c_does_not_cancel() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (_events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
+    let ctrl_c_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('c'),
+        crossterm::event::KeyModifiers::CONTROL,
+    ));
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![ctrl_c_event]);
+
+    let renderer = crate::ui::TerminalRenderer::default();
+    let mut live_io = super::super::LiveIo {
+        controller: &mut controller,
+        events: &mut events_rx,
+        input: &mut input_reader,
+    };
+
+    let res = super::super::bash_runner::run_user_bash("echo 'still running'", &renderer, &mut live_io)
+        .await
+        .unwrap();
+
+    assert!(!res.is_cancelled);
+    assert!(!res.is_error);
+    assert!(res.output.contains("still running"));
+}
+
+#[tokio::test]
 async fn test_user_bash_runner_large_output_spools_to_disk() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let (_events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel();
