@@ -149,6 +149,16 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let raw_url = args.get("url").and_then(|u| u.as_str()).unwrap_or("");
             to_relative_path(raw_url)
         }
+        "outline" => {
+            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+            let rel = to_relative_path(path);
+            let quoted_path = quote_cli_arg(&rel);
+            if let Some(query) = args.get("query").and_then(|q| q.as_str()).filter(|q| !q.is_empty()) {
+                format!("{quoted_path} (query: {query:?})")
+            } else {
+                quoted_path
+            }
+        }
         "grep" | "rg" => {
             let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
             let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");

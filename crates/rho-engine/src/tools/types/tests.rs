@@ -2,7 +2,7 @@ use super::*;
 use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
-use crate::tools::{BashTool, EditTool, FdTool, ReadTool, WriteTool};
+use crate::tools::{BashTool, EditTool, FdTool, OutlineTool, ReadTool, WriteTool};
 use rig::tool::{ToolContext, ToolErrorKind, ToolSet};
 
 fn tool_set() -> ToolSet {
@@ -14,6 +14,7 @@ fn tool_set() -> ToolSet {
     tools.add_tool(EditTool::new(&base));
     tools.add_tool(BashTool::new(&base));
     tools.add_tool(FdTool::new(&base));
+    tools.add_tool(OutlineTool::new(&base));
     tools.add_tool(WebSearchTool::new(
         http.clone(),
         SearchRateLimiter::new(0),
@@ -85,6 +86,7 @@ fn rig_schemas_are_generated_from_typed_arguments() {
         ("write", &["content", "path"][..]),
         ("edit", &["edits", "path"][..]),
         ("bash", &["command"][..]),
+        ("outline", &["path"][..]),
         ("web_search", &["query"][..]),
         ("web_fetch", &["url"][..]),
     ];
@@ -105,11 +107,20 @@ fn rig_schemas_are_generated_from_typed_arguments() {
 #[tokio::test]
 async fn rig_dispatch_rejects_malformed_arguments_for_every_tool() {
     let tools = tool_set();
-    for name in ["read", "write", "edit", "bash", "fd", "web_search", "web_fetch"] {
+    for name in [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "fd",
+        "outline",
+        "web_search",
+        "web_fetch",
+    ] {
         let result = tools.execute(name, "not json", &mut ToolContext::new()).await;
         assert!(result.is_error_kind(ToolErrorKind::InvalidArgs), "{name}: {result:?}");
     }
-    for name in ["read", "write", "edit", "bash", "web_search", "web_fetch"] {
+    for name in ["read", "write", "edit", "bash", "outline", "web_search", "web_fetch"] {
         let result = tools.execute(name, "{}", &mut ToolContext::new()).await;
         assert!(result.is_error_kind(ToolErrorKind::InvalidArgs), "{name}: {result:?}");
     }

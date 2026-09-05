@@ -42,7 +42,7 @@ pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
 
     for tool in &welcome.tools {
         match tool.as_str() {
-            "fd" | "read" | "rg" | "write" | "edit" | "bash" => {
+            "fd" | "read" | "rg" | "outline" | "write" | "edit" | "bash" => {
                 if !builtins.contains(&tool.as_str()) {
                     builtins.push(tool.as_str());
                 }

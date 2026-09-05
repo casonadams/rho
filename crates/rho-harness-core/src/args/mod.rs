@@ -3,6 +3,7 @@
 pub mod bash;
 pub mod edit;
 pub mod fd;
+pub mod outline;
 pub mod read;
 pub mod rg;
 pub mod web_fetch;
@@ -12,6 +13,7 @@ pub mod write;
 pub use bash::BashArgs;
 pub use edit::{EditArgs, EditReplacement};
 pub use fd::{FdArgs, FdSort};
+pub use outline::OutlineArgs;
 pub use read::ReadArgs;
 pub use rg::RgArgs;
 pub use web_fetch::WebFetchArgs;

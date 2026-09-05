@@ -1,7 +1,8 @@
 use crate::tools::builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS};
 
 pub use crate::tools::builtin_tools::{
-    PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_OUTLINE, PROMPT_READ, PROMPT_RG, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH,
+    PROMPT_WRITE,
 };
 
 pub type ToolCapability = BuiltinToolKind;
@@ -38,7 +39,17 @@ mod tests {
 
     #[test]
     fn descriptors_cover_every_registered_tool() {
-        for name in ["read", "write", "edit", "bash", "fd", "rg", "web_search", "web_fetch"] {
+        for name in [
+            "read",
+            "write",
+            "edit",
+            "bash",
+            "fd",
+            "rg",
+            "outline",
+            "web_search",
+            "web_fetch",
+        ] {
             let desc = ToolRegistry::descriptor(name).unwrap();
             assert!(!desc.description.is_empty());
             assert!(!desc.prompt.is_empty());

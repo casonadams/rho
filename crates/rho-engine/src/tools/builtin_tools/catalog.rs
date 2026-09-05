@@ -1,6 +1,7 @@
 use crate::tools::bash::BashArgs;
 use crate::tools::edit::EditArgs;
 use crate::tools::fd::FdArgs;
+use crate::tools::outline::OutlineArgs;
 use crate::tools::read::ReadArgs;
 use crate::tools::rg::RgArgs;
 use crate::tools::types::generated_schema;
@@ -52,6 +53,17 @@ Usage:
 - Results are capped at limit (default 200, max 1000) with a 5,000-match collection ceiling; output is byte-capped at 50KB.
 - Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
+
+pub static PROMPT_OUTLINE: &str = "\
+Extract syntax-aware symbol outlines (functions, methods, classes, structs, traits) without implementation bodies.
+
+Usage:
+- Use outline to inspect file structure, signatures, and symbol definitions before reading entire files.
+- Supports Rust (.rs), TypeScript/TSX (.ts, .tsx), JavaScript/JSX (.js, .jsx), Python (.py), and Go (.go).
+- path can be a single file to outline or a directory to search.
+- Use query (case-insensitive substring) to find specific symbol definitions across files.
+- Use kind ('function', 'method', 'struct', 'class', 'interface', 'trait', 'enum', 'type') to filter by symbol type.
+- Use depth (default 2, max 5) to control symbol hierarchy nesting depth.";
 
 pub static PROMPT_BASH: &str = "\
 Execute bash commands in the current working directory.
@@ -176,6 +188,18 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
             "Narrow with path or type when a pattern matches too much",
         ],
         schema: generated_schema::<RgArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "outline",
+        capability: BuiltinToolKind::ReadOnly,
+        description: "Extract syntax-aware symbol outlines (functions, methods, classes, structs, traits) without implementation bodies.",
+        prompt: PROMPT_OUTLINE,
+        prompt_snippet: Some("Extract syntax-aware symbol outlines (functions, methods, classes, structs, traits)"),
+        prompt_guidelines: &[
+            "Use outline to inspect file structure, signatures, and symbol definitions before reading entire files",
+            "Use query and kind filters to locate specific declarations across directory trees",
+        ],
+        schema: generated_schema::<OutlineArgs>,
     },
     BuiltinToolDeclaration {
         name: "web_search",

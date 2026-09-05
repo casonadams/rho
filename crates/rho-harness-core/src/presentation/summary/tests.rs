@@ -76,6 +76,18 @@ fn format_tool_args_summary_rg() {
 }
 
 #[test]
+fn format_tool_args_summary_outline() {
+    let simple = serde_json::json!({ "path": "src/main.rs" });
+    assert_eq!(format_tool_args_summary("outline", &simple), "src/main.rs");
+
+    let with_query = serde_json::json!({ "path": "src", "query": "AgentEngine" });
+    assert_eq!(
+        format_tool_args_summary("outline", &with_query),
+        "src (query: \"AgentEngine\")"
+    );
+}
+
+#[test]
 fn test_quote_cli_arg() {
     assert_eq!(quote_cli_arg(""), "''");
     assert_eq!(quote_cli_arg("foo"), "foo");
