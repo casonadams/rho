@@ -99,6 +99,9 @@ async fn test_refresh_oauth_token_missing_refresh_token() {
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("has expired and has no refresh token"));
+
+    let result_claude = refresh_oauth_token(ProviderId::ClaudeCode, &cred).await;
+    assert!(result_claude.is_err());
 }
 
 #[tokio::test]

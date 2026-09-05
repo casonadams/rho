@@ -1,6 +1,7 @@
 //! Authentication and credential subsystem: PKCE, OAuth flows, and secure store.
 
 pub mod antigravity;
+pub mod claude;
 pub(crate) mod http;
 pub mod loopback;
 pub mod oauth;

@@ -25,6 +25,7 @@ pub async fn perform_oauth_login(
         ProviderId::Copilot => copilot::perform_copilot_device_flow(callbacks).await,
         ProviderId::OpenRouter => openrouter::perform_openrouter_pkce(callbacks).await,
         ProviderId::Antigravity => super::antigravity::perform_login(callbacks).await,
+        ProviderId::ClaudeCode => super::claude::perform_login(callbacks).await,
         _ => Err(AppError::Auth(format!(
             "OAuth login is not supported for provider '{provider}'"
         ))),
@@ -41,6 +42,7 @@ pub async fn refresh_oauth_token(provider: ProviderId, credential: &StoredCreden
             ProviderId::ChatGpt => chatgpt::refresh_openai_token(refresh).await,
             ProviderId::Copilot => copilot::refresh_copilot_token(refresh).await,
             ProviderId::Antigravity => super::antigravity::refresh_credential(credential).await,
+            ProviderId::ClaudeCode => super::claude::refresh_credential(credential).await,
             _ => Ok(credential.clone()),
         },
         StoredCredential::OAuth { .. } => Err(AppError::Auth(format!(
