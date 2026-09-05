@@ -31,8 +31,9 @@ fuzzy-matcher = "0.3.7"
 rho-harness-core = { version = "0.2.3", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.2.3", path = "crates/rho-engine" }
 rho-plugin-sdk = { version = "0.2.3", path = "crates/rho-plugin-sdk" }
-rig = { version = "0.42", default-features = false, features = ["agent", "derive"] }
+rig = { version = "0.42", default-features = false, features = ["agent", "derive", "test-utils"] }
 rig-memory = "0.42"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [package]
@@ -76,7 +77,7 @@ futures.workspace = true
 async-trait.workspace = true
 
 # AI & LLM Engine
-rig = { workspace = true, features = ["test-utils"] }
+rig.workspace = true
 rig-memory.workspace = true
 schemars = "1.0"
 serde.workspace = true
@@ -110,8 +111,8 @@ dirs = "6.0"
 libc = "0.2"
 
 [dev-dependencies]
-rig = { workspace = true, features = ["test-utils"] }
-reqwest = { version = "0.13", default-features = false }
+rig.workspace = true
+reqwest.workspace = true
 tempfile = "3.17"
 
 [profile.dev]
