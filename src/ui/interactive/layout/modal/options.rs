@@ -12,15 +12,13 @@ pub(super) fn format_option_line(opt: &ModalOption, fmt: OptionFormat<'_>) -> St
     let tool_ok = fmt.theme.tool_ok;
     let dimmed = fmt.theme.dimmed;
     let bold = anstyle::Style::new().bold();
-    let prefix = if fmt.is_selected {
-        format!("{highlight}▸{highlight:#} ")
+    let (prefix, label) = if fmt.is_selected {
+        (
+            format!("{highlight}▸{highlight:#} "),
+            format!("{bold}{}{bold:#}", opt.label),
+        )
     } else {
-        "  ".to_string()
-    };
-    let label = if fmt.is_selected {
-        format!("{bold}{}{bold:#}", opt.label)
-    } else {
-        opt.label.clone()
+        ("  ".to_string(), opt.label.clone())
     };
     let Some(desc) = &opt.description else {
         return format!("{prefix}{label}");

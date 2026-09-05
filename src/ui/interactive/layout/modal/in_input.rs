@@ -106,10 +106,11 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
         let prefix = format!("  {highlight}{bold}{prompt_label}:{bold:#}{highlight:#} ");
         let input_text = modal.input.text();
         let cursor_byte = modal.input.cursor().min(input_text.len());
+        let col =
+            (visible_width(&format!("  {prompt_label}: ")) + visible_width(&input_text[..cursor_byte])).min(width);
         cursor = CursorPosition {
             row: lines.len(),
-            column: (visible_width(&format!("  {prompt_label}: ")) + visible_width(&input_text[..cursor_byte]))
-                .min(width),
+            column: col,
         };
         cursor_visible = true;
         lines.push(format!("{prefix}{input_text}"));
