@@ -87,8 +87,11 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         lines.push(top_div.clone());
     }
 
+    let default_theme = crate::ui::theme::Theme::default();
+    let active_theme = input.theme.unwrap_or(&default_theme);
+
     let ac_lines = if let Some(ac) = input.autocomplete {
-        render_autocomplete_dropdown(ac, width, budget.autocomplete_max_lines)
+        render_autocomplete_dropdown(ac, (width, budget.autocomplete_max_lines), active_theme)
     } else {
         Vec::new()
     };
@@ -109,8 +112,6 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     }
 
     let visible_ft_lines = ft_lines[..ft_lines.len().min(budget.footer_count)].to_vec();
-    let default_theme = crate::ui::theme::Theme::default();
-    let active_theme = input.theme.unwrap_or(&default_theme);
     let footer_style = active_theme.dimmed;
     for fl in &visible_ft_lines {
         lines.push(format!("{footer_style}{fl}{footer_style:#}"));
@@ -121,6 +122,7 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
 
     InteractiveLayout {
         lines,
+        bg: String::new(),
         cursor: ed_cursor,
         cursor_visible: true,
         cursor_row,

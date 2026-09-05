@@ -60,7 +60,7 @@ fn footer_carries_no_spinner_or_activity_label_when_busy() {
     let ops = operations.borrow();
     assert!(
         ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("model") && text.contains("\u{1b}[2m")))
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("model") && text.contains("\u{1b}[90m")))
     );
     assert!(
         !ops.iter()

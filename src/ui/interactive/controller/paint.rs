@@ -1,7 +1,15 @@
 use std::io;
 
+use super::ansi::{CSI_BEGIN_SYNC_UPDATE, CSI_END_SYNC_UPDATE};
 use super::backend::TerminalBackend;
 use crate::ui::interactive::InteractiveLayout;
+
+fn clear_line<B: TerminalBackend>(backend: &mut B, bg: &str) -> io::Result<()> {
+    if !bg.is_empty() {
+        backend.write_text(bg)?;
+    }
+    backend.clear_line()
+}
 
 pub fn write_live_region<B: TerminalBackend>(backend: &mut B, rendered: &InteractiveLayout) -> io::Result<()> {
     let total = rendered.lines.len();
@@ -19,7 +27,11 @@ pub fn write_live_region<B: TerminalBackend>(backend: &mut B, rendered: &Interac
     backend.move_to_column(rendered.cursor.column)
 }
 
-pub fn erase_live_region<B: TerminalBackend>(backend: &mut B, rendered: Option<&InteractiveLayout>) -> io::Result<()> {
+pub fn erase_live_region<B: TerminalBackend>(
+    backend: &mut B,
+    rendered: Option<&InteractiveLayout>,
+    bg: &str,
+) -> io::Result<()> {
     let Some(rendered) = rendered else {
         return Ok(());
     };
@@ -32,7 +44,7 @@ pub fn erase_live_region<B: TerminalBackend>(backend: &mut B, rendered: Option<&
             backend.move_down(rows_down)?;
         }
         for row in (0..height).rev() {
-            backend.clear_line()?;
+            clear_line(backend, bg)?;
             if row > 0 {
                 backend.move_up(1)?;
             }
@@ -52,6 +64,7 @@ pub fn render_live_diff<B: TerminalBackend>(
     let target_cursor_row = next.cursor_row();
     let target_cursor_col = next.cursor.column;
 
+    backend.write_text(CSI_BEGIN_SYNC_UPDATE)?;
     backend.hide_cursor()?;
 
     if let Some(prev) = prev {
@@ -72,7 +85,7 @@ pub fn render_live_diff<B: TerminalBackend>(
                     backend.write_text("\r\n")?;
                 }
             }
-            backend.clear_line()?;
+            clear_line(backend, &next.bg)?;
             backend.write_text(line)?;
         }
 
@@ -80,7 +93,7 @@ pub fn render_live_diff<B: TerminalBackend>(
             for _ in new_height..prev_height {
                 backend.move_to_column(0)?;
                 backend.move_down(1)?;
-                backend.clear_line()?;
+                clear_line(backend, &next.bg)?;
             }
         }
         let base_height = prev_height.max(new_height);
@@ -110,5 +123,6 @@ pub fn render_live_diff<B: TerminalBackend>(
     } else {
         backend.hide_cursor()?;
     }
+    backend.write_text(CSI_END_SYNC_UPDATE)?;
     backend.flush()
 }

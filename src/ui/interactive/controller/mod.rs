@@ -72,11 +72,20 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
+        self.backend.write_text(ansi::CSI_BEGIN_SYNC_UPDATE)?;
         self.backend.hide_cursor()?;
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
+        paint::erase_live_region(
+            &mut self.backend,
+            self.rendered.as_ref(),
+            &crate::ui::interactive::region::bg_code(&self.theme),
+        )?;
         self.rendered = None;
         self.output.restore_cursor(&mut self.backend, self.width)?;
-        let output = terminal_newlines(output);
+        let output = terminal_newlines(&crate::ui::interactive::region::paint_region(
+            output,
+            &self.theme,
+            self.width,
+        ));
         self.backend.write_text(&output)?;
         self.output.update(&output);
         if self.output.is_open() {
@@ -90,6 +99,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             self.backend.hide_cursor()?;
         }
         self.rendered = Some(rendered);
+        self.backend.write_text(ansi::CSI_END_SYNC_UPDATE)?;
         self.backend.flush()
     }
 

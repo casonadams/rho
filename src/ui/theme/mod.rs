@@ -7,18 +7,17 @@ pub mod registry;
 mod tests;
 
 pub use builtin::{BuiltinTheme, builtin_themes};
-pub use color::parse_color;
 pub use definition::ThemeDef;
 pub use registry::{ThemeMetadata, ThemeRegistry};
 
-use anstyle::{AnsiColor, Color, Effects, Style};
+use anstyle::{AnsiColor, Color, Style};
 
 #[derive(Debug, Clone)]
 pub struct Theme {
     pub name: String,
     pub is_light: bool,
-    pub terminal_bg: Option<String>,
-    pub terminal_fg: Option<String>,
+    pub background: Option<Color>,
+    pub foreground: Option<Color>,
     pub prompt: Style,
     pub assistant: Style,
     pub thinking: Style,
@@ -40,7 +39,7 @@ pub struct Theme {
 
 impl Theme {
     pub fn is_ansi(&self) -> bool {
-        self.name == "default" || self.name == "ansi"
+        self.background.is_none() && self.foreground.is_none()
     }
 
     pub fn is_light(&self) -> bool {
@@ -65,11 +64,11 @@ impl Default for Theme {
         Self {
             name: "default".to_string(),
             is_light: false,
-            terminal_bg: None,
-            terminal_fg: None,
+            background: None,
+            foreground: None,
             prompt: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
             assistant: Style::new(),
-            thinking: Style::new().effects(Effects::DIMMED),
+            thinking: Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))),
             tool_header: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue))),
             tool_ok: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green))),
             tool_err: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Red))),
@@ -77,8 +76,8 @@ impl Default for Theme {
             code_inline: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
             heading_h1: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Cyan))),
             heading_h2: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue))),
-            heading_h3: Style::new().effects(Effects::DIMMED),
-            dimmed: Style::new().effects(Effects::DIMMED),
+            heading_h3: Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))),
+            dimmed: Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))),
             warning: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Yellow))),
             skill_tag: Style::new().fg_color(Some(Color::Ansi(AnsiColor::Magenta))).bold(),
             user_message_bg: background(AnsiColor::Black),

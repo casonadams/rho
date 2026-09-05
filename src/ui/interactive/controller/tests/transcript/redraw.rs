@@ -16,7 +16,7 @@ fn full_redraw_rerenders_all_transcript_items_on_resize() {
     assert!(controller.refresh_size().unwrap());
 
     let ops = operations.borrow();
-    assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[3J".into())));
+    assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[3J\x1b[0m".into())));
     assert!(
         ops.iter()
             .any(|op| matches!(op, Operation::Write(text) if text.contains("hello world message")))
@@ -44,7 +44,7 @@ fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
         .expect("CSI 2026h must be emitted");
     let clear_pos = ops
         .iter()
-        .position(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[3J"))
+        .position(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[3J\x1b[0m"))
         .expect("screen clear must be emitted");
     let sync_end_pos = ops
         .iter()
@@ -112,9 +112,23 @@ fn set_theme_invalidates_cache_and_repaints_with_new_theme() {
 
     assert_eq!(controller.theme().name, "nord");
     let ops = operations.borrow();
-    assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[3J".into())));
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[2J\x1b[H\x1b[3J"))),
+        "screen clear must be emitted"
+    );
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.starts_with("\x1b[48;2;46;52;64m\x1b[2J"))),
+        "the screen clear must erase with the theme background"
+    );
     assert!(
         ops.iter()
             .any(|op| matches!(op, Operation::Write(text) if text.contains("theme test message")))
+    );
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b]"))),
+        "theme switching must never touch the terminal emulator's global colors"
     );
 }

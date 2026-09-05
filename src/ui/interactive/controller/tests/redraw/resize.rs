@@ -61,7 +61,11 @@ fn tick_redraws_the_live_region() {
             .iter()
             .any(|op| matches!(op, Operation::Write(text) if text.contains("────────")))
     );
-    assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
+    assert!(operations.ends_with(&[
+        Operation::Show,
+        Operation::Write("\x1b[?2026l".into()),
+        Operation::Flush,
+    ]));
 }
 
 #[test]
@@ -90,7 +94,11 @@ fn resize_vertical_only_rerenders_and_updates_height() {
 
     let operations = operations.borrow();
     assert!(operations.contains(&Operation::Clear));
-    assert!(operations.ends_with(&[Operation::Show, Operation::Flush]));
+    assert!(operations.ends_with(&[
+        Operation::Show,
+        Operation::Write("\x1b[?2026l".into()),
+        Operation::Flush,
+    ]));
 }
 
 #[test]

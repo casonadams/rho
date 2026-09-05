@@ -3,7 +3,12 @@ use unicode_width::UnicodeWidthStr;
 
 pub(crate) const MAX_VISIBLE_ITEMS: usize = 7;
 
-pub(crate) fn render_autocomplete_dropdown(state: &AutocompleteState, width: usize, max_lines: usize) -> Vec<String> {
+pub(crate) fn render_autocomplete_dropdown(
+    state: &AutocompleteState,
+    bounds: (usize, usize),
+    theme: &crate::ui::theme::Theme,
+) -> Vec<String> {
+    let (width, max_lines) = bounds;
     if !state.visible || state.items.is_empty() || width < 15 || max_lines < 2 {
         return Vec::new();
     }
@@ -40,7 +45,7 @@ pub(crate) fn render_autocomplete_dropdown(state: &AutocompleteState, width: usi
         let line = if val_width + 3 < inner_width && !desc_str.is_empty() {
             let available_desc_width = inner_width.saturating_sub(val_width + 2);
             let truncated_desc = truncate_width(desc_str, available_desc_width);
-            let desc_styled = format!("\x1b[2m{}\x1b[0m", truncated_desc);
+            let desc_styled = format!("{}{}{:#}", theme.dimmed, truncated_desc, theme.dimmed);
             let padding =
                 " ".repeat(inner_width.saturating_sub(val_width + 2 + UnicodeWidthStr::width(truncated_desc.as_str())));
             format!(" {prefix}{val_styled}  {desc_styled}{padding}")

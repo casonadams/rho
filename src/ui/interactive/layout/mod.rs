@@ -20,11 +20,16 @@ use modal::render_modal_overlay;
 use normal::render_normal_layout;
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
-    if let Some(modal) = input.modal {
+    let mut rendered = if let Some(modal) = input.modal {
         render_modal_layout(modal, &input)
     } else {
         render_normal_layout(input)
-    }
+    };
+    let default_theme = crate::ui::theme::Theme::default();
+    let theme = input.theme.unwrap_or(&default_theme);
+    rendered.lines = crate::ui::interactive::region::paint_lines(&rendered.lines, theme, input.terminal_width);
+    rendered.bg = crate::ui::interactive::region::bg_code(theme);
+    rendered
 }
 
 fn render_modal_layout(modal: &crate::ui::interactive::ModalState, input: &LayoutInput<'_>) -> InteractiveLayout {
@@ -35,6 +40,7 @@ fn render_modal_layout(modal: &crate::ui::interactive::ModalState, input: &Layou
 
     InteractiveLayout {
         lines: modal_lines.clone(),
+        bg: String::new(),
         cursor: modal_cursor,
         cursor_visible: modal_cursor_visible,
         cursor_row,

@@ -31,16 +31,6 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn set_theme(&mut self, theme: crate::ui::theme::Theme) -> io::Result<()> {
-        if theme.is_ansi() {
-            let _ = self.backend.write_text("\x1b]111\x1b\\\x1b]110\x1b\\");
-        } else {
-            if let Some(bg) = &theme.terminal_bg {
-                let _ = self.backend.write_text(&format!("\x1b]11;{bg}\x1b\\"));
-            }
-            if let Some(fg) = &theme.terminal_fg {
-                let _ = self.backend.write_text(&format!("\x1b]10;{fg}\x1b\\"));
-            }
-        }
         self.theme = theme;
         self.cache.clear();
         self.full_redraw()
@@ -114,13 +104,14 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn full_redraw(&mut self) -> io::Result<()> {
+        let bg = crate::ui::interactive::region::bg_code(&self.theme);
         self.backend.hide_cursor()?;
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
+        paint::erase_live_region(&mut self.backend, self.rendered.as_ref(), &bg)?;
         self.rendered = None;
         self.backend.write_text(CSI_BEGIN_SYNC_UPDATE)?;
 
         let redraw_result = (|| -> io::Result<()> {
-            self.backend.write_text("\x1b[2J\x1b[H\x1b[3J")?;
+            self.backend.write_text(&format!("{bg}\x1b[2J\x1b[H\x1b[3J\x1b[0m"))?;
             self.output.clear();
 
             let (tools_expanded, hide_thinking) = (self.state.tools_expanded(), self.state.hide_thinking());
@@ -138,7 +129,11 @@ impl<B: TerminalBackend> TerminalController<B> {
                     },
                 );
                 if !rendered.is_empty() {
-                    let formatted = terminal_newlines(rendered);
+                    let formatted = terminal_newlines(&crate::ui::interactive::region::paint_region(
+                        rendered,
+                        &self.theme,
+                        self.width,
+                    ));
                     self.output.update(&formatted);
                     redraw_buffer.push_str(&formatted);
                     if self.output.is_open() {

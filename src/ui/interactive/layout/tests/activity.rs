@@ -61,6 +61,35 @@ fn thinking_activity_also_renders_the_working_line() {
 }
 
 #[test]
+fn compacting_activity_renders_compacting_label() {
+    let default_editor = EditorState::default();
+    let footer = FooterState {
+        activity: Activity::Compacting,
+        model: "model".into(),
+        context: None,
+        quota: None,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+    });
+
+    assert!(layout.working_line.contains('\u{280b}'));
+    assert!(layout.working_line.contains("Compacting..."));
+    assert!(!layout.working_line.contains("Working..."));
+}
+
+#[test]
 fn idle_activity_renders_no_working_line() {
     let default_editor = EditorState::default();
     let footer = FooterState {

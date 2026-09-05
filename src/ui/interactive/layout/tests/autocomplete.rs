@@ -32,7 +32,7 @@ fn test_render_autocomplete_dropdown() {
     ];
     state.open(items);
 
-    let lines = render_autocomplete_dropdown(&state, 60, MAX_VISIBLE_ITEMS);
+    let lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 2);
     assert!(lines[0].contains("/model"));
     assert!(lines[0].contains("Switch model"));
@@ -49,7 +49,7 @@ fn descriptions_share_the_footer_dim_style() {
         replacement: Range { start: 0, end: 1 },
     }]);
 
-    let lines = render_autocomplete_dropdown(&state, 60, MAX_VISIBLE_ITEMS);
+    let lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
     assert!(lines[0].contains(&footer_dim), "{}", lines[0]);
     assert!(!lines[0].contains("\x1b[2;90m"), "{}", lines[0]);
 }
@@ -59,8 +59,8 @@ fn autocomplete_suppressed_when_fewer_than_two_rows_available() {
     let mut state = AutocompleteState::default();
     state.open(make_items(5));
 
-    assert!(render_autocomplete_dropdown(&state, 60, 1).is_empty());
-    assert!(render_autocomplete_dropdown(&state, 60, 0).is_empty());
+    assert!(render_autocomplete_dropdown(&state, (60, 1), &crate::ui::theme::Theme::default()).is_empty());
+    assert!(render_autocomplete_dropdown(&state, (60, 0), &crate::ui::theme::Theme::default()).is_empty());
 }
 
 #[test]
@@ -68,7 +68,7 @@ fn autocomplete_scales_down_to_max_lines() {
     let mut state = AutocompleteState::default();
     state.open(make_items(10));
 
-    let lines = render_autocomplete_dropdown(&state, 60, 3);
+    let lines = render_autocomplete_dropdown(&state, (60, 3), &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 3);
 }
 
@@ -78,17 +78,17 @@ fn autocomplete_window_keeps_selection_in_view_when_scaled() {
     state.open(make_items(10));
 
     state.selected = 0;
-    let lines = render_autocomplete_dropdown(&state, 60, 4);
+    let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines[0].contains("/item0"));
 
     state.selected = 5;
-    let lines = render_autocomplete_dropdown(&state, 60, 4);
+    let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().any(|l| l.contains("/item5")));
 
     state.selected = 9;
-    let lines = render_autocomplete_dropdown(&state, 60, 4);
+    let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().any(|l| l.contains("/item9")));
 }

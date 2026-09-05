@@ -9,6 +9,7 @@ pub struct CursorPosition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InteractiveLayout {
     pub lines: Vec<String>,
+    pub bg: String,
     pub cursor: CursorPosition,
     pub cursor_visible: bool,
     pub cursor_row: usize,

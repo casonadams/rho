@@ -13,6 +13,22 @@ fn block_backgrounds_use_only_terminal_ansi_colors() {
 }
 
 #[test]
+fn default_theme_uses_only_ansi_colors() {
+    let theme = Theme::default();
+    assert!(theme.is_ansi());
+    assert!(matches!(theme.prompt.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_header.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_ok.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_err.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.highlight.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.warning.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.skill_tag.get_fg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.user_message_bg.get_bg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_success_bg.get_bg_color(), Some(Color::Ansi(_))));
+    assert!(matches!(theme.tool_error_bg.get_bg_color(), Some(Color::Ansi(_))));
+}
+
+#[test]
 fn hex_color_parsing_valid_and_invalid() {
     assert_eq!(parse_color("#88c0d0"), Some(Color::Rgb(RgbColor(0x88, 0xc0, 0xd0))));
     assert_eq!(parse_color("#f0a"), Some(Color::Rgb(RgbColor(0xff, 0x00, 0xaa))));
@@ -30,15 +46,29 @@ fn named_ansi_color_parsing() {
 }
 
 #[test]
-fn theme_def_partial_override_falls_back_to_default() {
+fn theme_def_partial_palette_maps_available_roles() {
     let def = ThemeDef {
-        prompt: Some("#88c0d0".into()),
+        background: Some("#1e1e2e".into()),
+        foreground: Some("#cdd6f4".into()),
+        green: Some("#a6e3a1".into()),
+        red: Some("#f38ba8".into()),
         ..Default::default()
     };
     let theme = def.into_theme("custom");
     assert_eq!(theme.name, "custom");
-    assert_eq!(theme.prompt.render().to_string(), "\x1b[38;2;136;192;208m");
-    assert_eq!(theme.tool_ok.render().to_string(), "\x1b[32m");
+    assert!(!theme.is_ansi());
+    assert_eq!(theme.tool_ok.render().to_string(), "\x1b[38;2;166;227;161m");
+    assert_eq!(theme.tool_err.render().to_string(), "\x1b[38;2;243;139;168m");
+    assert_eq!(
+        theme.user_message_bg.render().to_string(),
+        "\x1b[40m",
+        "block backgrounds use the color0 surface, falling back to ANSI black"
+    );
+    assert_eq!(
+        theme.prompt.render().to_string(),
+        Theme::default().prompt.render().to_string(),
+        "unmapped roles keep the default ANSI styling"
+    );
 }
 
 #[test]
@@ -66,24 +96,6 @@ fn all_10_builtin_themes_load_and_have_metadata() {
 }
 
 #[test]
-fn default_theme_uses_only_ansi_colors() {
-    let theme = Theme::default();
-    assert!(theme.is_ansi());
-    assert_eq!(theme.terminal_bg, None);
-    assert_eq!(theme.terminal_fg, None);
-    assert!(matches!(theme.prompt.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_header.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_ok.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_err.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.highlight.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.warning.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.skill_tag.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.user_message_bg.get_bg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_success_bg.get_bg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_error_bg.get_bg_color(), Some(Color::Ansi(_))));
-}
-
-#[test]
 fn built_in_themes_use_only_hex_rgb_colors() {
     let registry = ThemeRegistry::default();
     for meta in registry.list() {
@@ -92,93 +104,36 @@ fn built_in_themes_use_only_hex_rgb_colors() {
         }
         let theme = registry.get(&meta.name).unwrap();
         assert!(!theme.is_ansi(), "theme {} should not be ANSI", meta.name);
-        assert!(theme.terminal_bg.is_some(), "{}: terminal_bg", meta.name);
-        assert!(theme.terminal_fg.is_some(), "{}: terminal_fg", meta.name);
-        assert!(
-            matches!(theme.prompt.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: prompt",
-            meta.name
-        );
-        assert!(
-            matches!(theme.assistant.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: assistant",
-            meta.name
-        );
-        assert!(
-            matches!(theme.thinking.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: thinking",
-            meta.name
-        );
-        assert!(
-            matches!(theme.tool_header.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: tool_header",
-            meta.name
-        );
-        assert!(
-            matches!(theme.tool_ok.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: tool_ok",
-            meta.name
-        );
-        assert!(
-            matches!(theme.tool_err.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: tool_err",
-            meta.name
-        );
-        assert!(
-            matches!(theme.highlight.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: highlight",
-            meta.name
-        );
-        assert!(
-            matches!(theme.code_inline.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: code_inline",
-            meta.name
-        );
-        assert!(
-            matches!(theme.heading_h1.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: heading_h1",
-            meta.name
-        );
-        assert!(
-            matches!(theme.heading_h2.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: heading_h2",
-            meta.name
-        );
-        assert!(
-            matches!(theme.heading_h3.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: heading_h3",
-            meta.name
-        );
-        assert!(
-            matches!(theme.dimmed.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: dimmed",
-            meta.name
-        );
-        assert!(
-            matches!(theme.warning.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: warning",
-            meta.name
-        );
-        assert!(
-            matches!(theme.skill_tag.get_fg_color(), Some(Color::Rgb(_))),
-            "{}: skill_tag",
-            meta.name
-        );
-        assert!(
-            matches!(theme.user_message_bg.get_bg_color(), Some(Color::Rgb(_))),
-            "{}: user_message_bg",
-            meta.name
-        );
-        assert!(
-            matches!(theme.tool_success_bg.get_bg_color(), Some(Color::Rgb(_))),
-            "{}: tool_success_bg",
-            meta.name
-        );
-        assert!(
-            matches!(theme.tool_error_bg.get_bg_color(), Some(Color::Rgb(_))),
-            "{}: tool_error_bg",
-            meta.name
-        );
+        for (label, style) in [
+            ("prompt", theme.prompt),
+            ("thinking", theme.thinking),
+            ("tool_header", theme.tool_header),
+            ("tool_ok", theme.tool_ok),
+            ("tool_err", theme.tool_err),
+            ("highlight", theme.highlight),
+            ("code_inline", theme.code_inline),
+            ("heading_h3", theme.heading_h3),
+            ("dimmed", theme.dimmed),
+            ("warning", theme.warning),
+            ("skill_tag", theme.skill_tag),
+        ] {
+            assert!(
+                matches!(style.get_fg_color(), Some(Color::Rgb(_))),
+                "{}: {label}",
+                meta.name
+            );
+        }
+        for (label, style) in [
+            ("user_message_bg", theme.user_message_bg),
+            ("tool_success_bg", theme.tool_success_bg),
+            ("tool_error_bg", theme.tool_error_bg),
+        ] {
+            assert!(
+                matches!(style.get_bg_color(), Some(Color::Rgb(_))),
+                "{}: {label}",
+                meta.name
+            );
+        }
     }
 }
 
@@ -205,8 +160,27 @@ fn registry_loads_custom_themes_from_directory() {
 name = "my-custom"
 description = "My test custom theme"
 is_light = false
-prompt = "#ff00ff"
-highlight = "#00ffff"
+
+background = "#1a1b26"
+foreground = "#c0caf5"
+
+black = "#15161e"
+red = "#f7768e"
+green = "#9ece6a"
+yellow = "#e0af68"
+blue = "#7aa2f7"
+magenta = "#bb9af7"
+cyan = "#7dcfff"
+white = "#a9b1d6"
+
+bright_black = "#414868"
+bright_red = "#f7768e"
+bright_green = "#9ece6a"
+bright_yellow = "#e0af68"
+bright_blue = "#7aa2f7"
+bright_magenta = "#bb9af7"
+bright_cyan = "#2ac3de"
+bright_white = "#c0caf5"
 "##;
     std::fs::write(themes_dir.join("my-custom.toml"), theme_content).unwrap();
 
@@ -217,7 +191,8 @@ highlight = "#00ffff"
     assert!(meta.is_custom);
 
     let theme = registry.get("my-custom").unwrap();
-    assert_eq!(theme.prompt.render().to_string(), "\x1b[38;2;255;0;255m");
+    assert_eq!(theme.tool_ok.render().to_string(), "\x1b[38;2;158;206;106m");
+    assert_eq!(theme.user_message_bg.render().to_string(), "\x1b[48;2;21;22;30m");
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }

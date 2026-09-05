@@ -6,6 +6,7 @@ pub mod key_parser;
 pub mod keybinding_loader;
 pub mod keymap;
 mod layout;
+mod region;
 pub mod session_picker;
 #[cfg(test)]
 mod shift_tab_tests;

@@ -48,7 +48,11 @@ fn suspend_and_resume_restore_terminal_modes_around_legacy_prompts() {
     operations.borrow_mut().clear();
     controller.resume().unwrap();
     assert_eq!(operations.borrow().first(), Some(&Operation::Raw(true)));
-    assert!(operations.borrow().ends_with(&[Operation::Show, Operation::Flush]));
+    assert!(operations.borrow().ends_with(&[
+        Operation::Show,
+        Operation::Write("\x1b[?2026l".into()),
+        Operation::Flush,
+    ]));
 }
 
 #[test]
