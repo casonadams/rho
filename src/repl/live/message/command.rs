@@ -85,12 +85,6 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             if let Some(provider) = new_provider.as_ref() {
                 ctx.session.config.provider = provider.clone();
             }
-            let _ = rho_harness_core::state::AppState::set_last_model_async(
-                &ctx.session.config.config_dir,
-                &new_model,
-                new_provider.as_deref(),
-            )
-            .await;
             let provider = ctx.session.config.provider.clone();
             if let Err(err) = ctx.engine.switch_model(&new_model, &provider).await {
                 ctx.session

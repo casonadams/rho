@@ -40,7 +40,6 @@ pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(input: TurnModel
 
     config.model = model.to_string();
     config.provider = provider.to_string();
-    let _ = rho_harness_core::state::AppState::set_last_model_async(&config.config_dir, model, Some(provider)).await;
     if save_as_default {
         config.set_default_model(model, provider);
         let _ = rho_harness_core::config::Config::save_default_model_async(&config.config_dir, model, provider).await;
@@ -114,12 +113,6 @@ pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputC
     } else {
         Some(next_level.to_string())
     };
-
-    let _ = rho_harness_core::state::AppState::set_last_thinking_level_async(
-        &ctx.session.config.config_dir,
-        ctx.session.config.thinking_level.as_deref(),
-    )
-    .await;
 
     let model = ctx.session.config.model.clone();
     let provider = ctx.session.config.provider.clone();

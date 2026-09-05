@@ -33,12 +33,6 @@ pub async fn handle_command_result(
             if let Some(ref provider) = new_provider {
                 session.config.provider = provider.clone();
             }
-            let _ = rho_harness_core::state::AppState::set_last_model_async(
-                &session.config.config_dir,
-                &new_model,
-                new_provider.as_deref(),
-            )
-            .await;
             let provider = session.config.provider.clone();
             if let Err(err) = engine.switch_model(&new_model, &provider).await {
                 session

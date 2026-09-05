@@ -28,12 +28,6 @@ pub(crate) async fn apply_modal_key_result<B: TerminalBackend>(
         } => {
             ctx.session.config.model = model.clone();
             ctx.session.config.provider = provider.clone();
-            let _ = rho_harness_core::state::AppState::set_last_model_async(
-                &ctx.session.config.config_dir,
-                &model,
-                Some(&provider),
-            )
-            .await;
             if save_as_default {
                 ctx.session.config.set_default_model(&model, &provider);
                 let _ = rho_harness_core::config::Config::save_default_model_async(

@@ -10,6 +10,5 @@ pub mod queue;
 pub mod rpc;
 pub mod session;
 pub mod skills;
-pub mod state;
 pub mod tokens;
 pub mod workspace;

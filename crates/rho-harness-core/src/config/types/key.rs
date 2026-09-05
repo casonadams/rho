@@ -30,9 +30,9 @@ impl FromStr for ConfigKey {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "model" => Ok(Self::Model),
-            "provider" => Ok(Self::Provider),
-            "thinking_level" => Ok(Self::ThinkingLevel),
+            "model" | "default_model" => Ok(Self::Model),
+            "provider" | "default_provider" => Ok(Self::Provider),
+            "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Ok(Self::ThinkingLevel),
             "theme" => Ok(Self::Theme),
             "max_output_tokens" => Ok(Self::MaxOutputTokens),
             "max_turns" => Ok(Self::MaxTurns),

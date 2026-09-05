@@ -38,8 +38,6 @@ pub struct Config {
     #[serde(default)]
     pub no_context_files: bool,
     #[serde(default)]
-    pub model_from_state: bool,
-    #[serde(default)]
     pub default_model: Option<String>,
     #[serde(default)]
     pub default_provider: Option<String>,
@@ -81,7 +79,6 @@ impl Default for Config {
             system_prompt: None,
             append_system_prompt: None,
             no_context_files: false,
-            model_from_state: false,
             default_model: None,
             default_provider: None,
             plugins: BTreeMap::new(),
@@ -100,6 +97,5 @@ impl Config {
         self.provider = provider.to_string();
         self.default_model = Some(model.to_string());
         self.default_provider = Some(provider.to_string());
-        self.model_from_state = false;
     }
 }

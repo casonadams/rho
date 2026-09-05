@@ -4,7 +4,6 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rho_engine::provider::discovery::presets::anthropic_preset_models;
 use rho_engine::provider::store::ModelStore;
 use rho_harness_core::config::Config;
-use rho_harness_core::state::AppState;
 
 #[test]
 fn model_selector_marks_default_model_separately_from_active() {
@@ -80,33 +79,25 @@ fn ctrl_s_key_saves_selected_model_as_default() {
 }
 
 #[tokio::test]
-async fn state_model_takes_precedence_over_saved_default_model() {
+async fn saved_default_model_is_loaded_on_startup() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path().to_path_buf();
 
-    // 1. Save default model to config.toml
     Config::save_default_model_async(&dir, "claude-3-7-sonnet-20250219", "anthropic")
         .await
         .unwrap();
 
-    // 2. Simulate subsequent in-session model switch to a different model in state.json
-    AppState::set_last_model_async(&dir, "gpt-4o", Some("openai"))
-        .await
-        .unwrap();
-
-    // 3. Load config: must load the model from state.json, not the default model from config.toml
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
     }
     let loaded = Config::load(None).unwrap();
     assert_eq!(
-        loaded.model, "gpt-4o",
-        "Config::load must use the model from state.json"
+        loaded.model, "claude-3-7-sonnet-20250219",
+        "Config::load must use the model from config.toml"
     );
-    assert_eq!(loaded.provider, "openai");
+    assert_eq!(loaded.provider, "anthropic");
     assert_eq!(loaded.default_model.as_deref(), Some("claude-3-7-sonnet-20250219"));
     assert_eq!(loaded.default_provider.as_deref(), Some("anthropic"));
-    assert!(loaded.model_from_state);
 
     unsafe {
         std::env::remove_var("RHO_HOME");

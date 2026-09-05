@@ -156,13 +156,12 @@ readable artifact) work in the interactive REPL.
 
 ## Configuration & Skills (`~/.config/rho/`)
 
-Global settings, credentials, and state cache live under `~/.config/rho`
+Global settings and credentials live under `~/.config/rho`
 (override via `RHO_HOME`):
 
 ```text
 ~/.config/rho/
 ├── auth.json              # Stored API keys and OAuth tokens
-├── state.json             # Cached last-used model & thinking level
 └── config.toml            # Application settings
 ```
 

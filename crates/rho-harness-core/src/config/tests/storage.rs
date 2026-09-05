@@ -1,13 +1,16 @@
 use super::super::{Config, FileConfig, PluginConfig};
 
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
-fn test_state_file_loads_last_model_and_thinking_level() {
+fn test_config_file_loads_model_provider_and_thinking_level() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("rho_cfg_load_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    crate::state::AppState::set_last_model(&dir, "gemini-2.0-flash", Some("gemini")).unwrap();
-    crate::state::AppState::set_last_thinking_level(&dir, Some("high")).unwrap();
+    Config::set_file_value(&dir, "model", "gemini-2.0-flash").unwrap();
+    Config::set_file_value(&dir, "provider", "gemini").unwrap();
+    Config::set_file_value(&dir, "thinking_level", "high").unwrap();
 
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
@@ -17,7 +20,38 @@ fn test_state_file_loads_last_model_and_thinking_level() {
     assert_eq!(config.model, "gemini-2.0-flash");
     assert_eq!(config.provider, "gemini");
     assert_eq!(config.thinking_level.as_deref(), Some("high"));
-    assert!(config.model_from_state);
+    assert_eq!(config.default_model.as_deref(), Some("gemini-2.0-flash"));
+    assert_eq!(config.default_provider.as_deref(), Some("gemini"));
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_config_file_aliases_load_correctly() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = std::env::temp_dir().join(format!("rho_cfg_alias_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let toml = r#"
+default_model = "claude-3-7-sonnet-20250219"
+default_provider = "anthropic"
+default_thinking = "medium"
+"#;
+    std::fs::write(dir.join("config.toml"), toml).unwrap();
+
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+
+    assert_eq!(config.model, "claude-3-7-sonnet-20250219");
+    assert_eq!(config.provider, "anthropic");
+    assert_eq!(config.thinking_level.as_deref(), Some("medium"));
+    assert_eq!(config.default_model.as_deref(), Some("claude-3-7-sonnet-20250219"));
+    assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
 
     unsafe {
         std::env::remove_var("RHO_HOME");
@@ -64,33 +98,22 @@ fn plugin_entries_round_trip_and_are_removed_atomically() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 #[test]
-fn test_state_model_takes_precedence_over_config_file() {
+fn test_cli_overrides_config_file() {
     let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_precedence_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    // 1. Write model to config.toml (default saved model)
     Config::set_file_value(&dir, "model", "config-model").unwrap();
     Config::set_file_value(&dir, "provider", "openai").unwrap();
 
-    // 2. Write last used model to state.json
-    crate::state::AppState::set_last_model(&dir, "state-model", Some("gemini")).unwrap();
-
-    // 3. Load config pointing to dir: state.json model must take precedence
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
     }
     let config = Config::load(None).unwrap();
-    assert_eq!(config.model, "state-model");
-    assert_eq!(config.provider, "gemini");
-    assert_eq!(config.default_model.as_deref(), Some("config-model"));
-    assert_eq!(config.default_provider.as_deref(), Some("openai"));
-    assert!(config.model_from_state);
+    assert_eq!(config.model, "config-model");
+    assert_eq!(config.provider, "openai");
 
-    // 4. Explicit CLI flag overrides config file and state.json
     let cli = crate::config::cli::Cli {
         prompt: None,
         model: Some("cli-model".to_string()),
@@ -112,31 +135,6 @@ fn test_state_model_takes_precedence_over_config_file() {
     };
     let cli_config = Config::load(Some(&cli)).unwrap();
     assert_eq!(cli_config.model, "cli-model");
-    assert!(!cli_config.model_from_state);
-
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn test_state_model_used_when_no_config_file_model() {
-    let _guard = ENV_LOCK.lock().unwrap();
-    let dir = std::env::temp_dir().join(format!("rho_state_fallback_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-
-    // 1. Write last used model to state.json without any model in config.toml
-    crate::state::AppState::set_last_model(&dir, "state-model", Some("gemini")).unwrap();
-
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
-    let config = Config::load(None).unwrap();
-    assert_eq!(config.model, "state-model");
-    assert_eq!(config.provider, "gemini");
-    assert!(config.model_from_state);
-    assert_eq!(config.default_model, None);
 
     unsafe {
         std::env::remove_var("RHO_HOME");
@@ -162,7 +160,6 @@ async fn test_save_default_model_persists_both_fields() {
     assert_eq!(config.provider, "saved-provider");
     assert_eq!(config.default_model.as_deref(), Some("saved-model"));
     assert_eq!(config.default_provider.as_deref(), Some("saved-provider"));
-    assert!(!config.model_from_state);
 
     unsafe {
         std::env::remove_var("RHO_HOME");
@@ -170,14 +167,15 @@ async fn test_save_default_model_persists_both_fields() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[test]
-fn test_state_thinking_level_takes_precedence_over_config_file() {
+#[tokio::test]
+async fn test_save_default_thinking_level_persists() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let dir = std::env::temp_dir().join(format!("rho_thinking_prec_{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("rho_save_thinking_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    Config::set_file_value(&dir, "thinking_level", "low").unwrap();
-    crate::state::AppState::set_last_thinking_level(&dir, Some("high")).unwrap();
+    Config::save_default_thinking_level_async(&dir, Some("high"))
+        .await
+        .unwrap();
 
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
@@ -192,33 +190,12 @@ fn test_state_thinking_level_takes_precedence_over_config_file() {
 }
 
 #[test]
-fn test_state_thinking_off_clears_config_file_thinking() {
+fn test_config_file_model_infers_provider_when_unspecified() {
     let _guard = ENV_LOCK.lock().unwrap();
-    let dir = std::env::temp_dir().join(format!("rho_thinking_off_{}", uuid::Uuid::new_v4()));
+    let dir = std::env::temp_dir().join(format!("rho_infer_cfg_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    Config::set_file_value(&dir, "thinking_level", "high").unwrap();
-    crate::state::AppState::set_last_thinking_level(&dir, None).unwrap();
-
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
-    let config = Config::load(None).unwrap();
-    assert_eq!(config.thinking_level, None);
-
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn test_state_model_infers_provider_when_unspecified() {
-    let _guard = ENV_LOCK.lock().unwrap();
-    let dir = std::env::temp_dir().join(format!("rho_infer_state_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-
-    crate::state::AppState::set_last_model(&dir, "gemini-2.0-flash", None).unwrap();
+    Config::set_file_value(&dir, "model", "gemini-2.0-flash").unwrap();
 
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
@@ -226,7 +203,6 @@ fn test_state_model_infers_provider_when_unspecified() {
     let config = Config::load(None).unwrap();
     assert_eq!(config.model, "gemini-2.0-flash");
     assert_eq!(config.provider, "gemini");
-    assert!(config.model_from_state);
 
     unsafe {
         std::env::remove_var("RHO_HOME");

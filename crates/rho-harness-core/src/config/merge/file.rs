@@ -6,7 +6,6 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(m) = file.model {
         config.model = m.clone();
         config.default_model = Some(m);
-        config.model_from_state = false;
     }
     if let Some(p) = file.provider {
         config.provider = p.clone();
@@ -75,7 +74,7 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
         config.follow_up_mode = f;
     }
     if let Some(t) = file.thinking_level {
-        config.thinking_level = Some(t);
+        config.thinking_level = if t == "off" { None } else { Some(t) };
     }
     if let Some(theme) = file.theme {
         config.theme = theme;

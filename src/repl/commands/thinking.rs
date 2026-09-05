@@ -5,10 +5,6 @@ pub fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Res
     if parts.len() > 1 {
         let level = parts[1].to_lowercase();
         ctx.config.thinking_level = if level == "off" { None } else { Some(level.clone()) };
-        let _ = rho_harness_core::state::AppState::set_last_thinking_level(
-            ctx.config.config_dir.as_path(),
-            ctx.config.thinking_level.as_deref(),
-        );
         ctx.renderer.print_status(&format!("Thinking level: {level}"));
     } else {
         let levels: Vec<String> = crate::repl::interactive::completion::THINKING_LEVELS
@@ -22,10 +18,6 @@ pub fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Res
             } else {
                 Some(selected_level.to_string())
             };
-            let _ = rho_harness_core::state::AppState::set_last_thinking_level(
-                ctx.config.config_dir.as_path(),
-                ctx.config.thinking_level.as_deref(),
-            );
             ctx.renderer.print_status(&format!("Thinking level: {selected_level}"));
         }
     }

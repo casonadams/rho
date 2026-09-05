@@ -10,11 +10,7 @@ pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
-    let default_model = session
-        .config
-        .default_model
-        .as_deref()
-        .or_else(|| (!session.config.model_from_state).then_some(session.config.model.as_str()));
+    let default_model = session.config.default_model.as_deref();
 
     for (i, item) in discovered.iter().enumerate() {
         let is_active = item.id == session.config.model;

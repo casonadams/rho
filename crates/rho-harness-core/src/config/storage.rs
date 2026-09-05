@@ -27,6 +27,13 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_default_thinking_level_async(config_dir: &Path, thinking_level: Option<&str>) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        file_config.thinking_level = thinking_level.map(ToString::to_string);
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub fn add_plugin(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
         validate_plugin_args(name, &plugin)?;
         let path = config_dir.join("config.toml");
@@ -102,7 +109,9 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::ThinkingLevel => file_config.thinking_level = Some(value.to_string()),
+        ConfigKey::ThinkingLevel => {
+            file_config.thinking_level = if value == "off" { None } else { Some(value.to_string()) };
+        }
         ConfigKey::Theme => file_config.theme = Some(value.to_string()),
     }
     Ok(())

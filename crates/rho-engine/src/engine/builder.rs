@@ -102,14 +102,10 @@ impl AgentEngineBuilder {
 
         let mut config = self.config;
         let mut auth_store = self.auth_store;
-        let is_unmodified_default = config.default_model.is_none()
-            && !config.model_from_state
-            && config.provider == "local"
-            && config.model == "llama3.2";
-        let is_provider_without_model = config.default_model.is_none()
-            && !config.model_from_state
-            && config.provider != "local"
-            && config.model == "llama3.2";
+        let is_unmodified_default =
+            config.default_model.is_none() && config.provider == "local" && config.model == "llama3.2";
+        let is_provider_without_model =
+            config.default_model.is_none() && config.provider != "local" && config.model == "llama3.2";
 
         // Auto-refresh expired OAuth tokens before building the model client
         // (get_key refreshes + persists when the stored token is stale).
@@ -262,6 +258,7 @@ fn default_model_for_provider(provider: &str) -> &'static str {
         "cohere" => "command-r-plus",
         "ollama" | "local" => "llama3.2",
         "ollama-cloud" => "glm-5.3-flash",
+        "antigravity" | "google-antigravity" => "gemini-2.5-flash",
         _ => "claude-3-7-sonnet-20250219",
     }
 }

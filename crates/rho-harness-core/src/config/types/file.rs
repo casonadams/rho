@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct FileConfig {
+    #[serde(default, alias = "default_model")]
     pub model: Option<String>,
+    #[serde(default, alias = "default_provider")]
     pub provider: Option<String>,
     pub max_output_tokens: Option<u64>,
     pub max_turns: Option<usize>,
@@ -24,6 +26,12 @@ pub(crate) struct FileConfig {
     pub show_label: Option<bool>,
     pub steering_mode: Option<crate::queue::QueueMode>,
     pub follow_up_mode: Option<crate::queue::QueueMode>,
+    #[serde(
+        default,
+        alias = "thinking",
+        alias = "default_thinking",
+        alias = "default_thinking_level"
+    )]
     pub thinking_level: Option<String>,
     pub theme: Option<String>,
     pub context_injection_max_tokens: Option<usize>,

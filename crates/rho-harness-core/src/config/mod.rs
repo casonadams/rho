@@ -41,24 +41,6 @@ impl Config {
             }
         }
 
-        let state_file = config.config_dir.join("state.json");
-        if state_file.exists() {
-            let state = crate::state::AppState::load(&config.config_dir);
-            if let Some(m) = state.last_model {
-                config.model = m;
-                config.model_from_state = true;
-                if state.last_provider.is_none()
-                    && let Some(inferred) = crate::provider::infer_provider_for_model(&config.model)
-                {
-                    config.provider = inferred.to_string();
-                }
-            }
-            if let Some(p) = state.last_provider {
-                config.provider = p;
-            }
-            config.thinking_level = state.last_thinking_level.filter(|t| t != "off");
-        }
-
         merge::apply_env_overrides(&mut config)?;
         merge::apply_cli_overrides(&mut config, cli);
         config.validate()?;
