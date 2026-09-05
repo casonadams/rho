@@ -13,11 +13,20 @@ const CONTAINER_KINDS: &[&str] = &[
     "trait_item",
     "class_declaration",
     "class_definition",
+    "class_specifier",
+    "struct_declaration",
+    "record_declaration",
     "interface_declaration",
+    "trait_declaration",
+    "namespace_definition",
+    "namespace_declaration",
     "function_item",
     "function_definition",
     "function_declaration",
     "method_definition",
+    "method_declaration",
+    "class",
+    "module",
 ];
 
 pub fn parse_symbols(source: &str, language: SupportedLanguage) -> Result<Vec<SymbolEntry>, OutlineParseError> {
@@ -80,6 +89,10 @@ pub fn compute_depth(node: Node) -> usize {
     let mut depth = 0;
     let mut curr = node.parent();
     while let Some(parent) = curr {
+        if parent.kind() == "module" && parent.parent().is_none() {
+            curr = parent.parent();
+            continue;
+        }
         if CONTAINER_KINDS.contains(&parent.kind()) {
             depth += 1;
         }

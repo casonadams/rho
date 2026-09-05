@@ -304,6 +304,214 @@ fn test_symbol_kind_filter_matching() {
 }
 
 #[test]
+fn test_parse_java_symbols() {
+    let source = r#"
+public class UserService implements IUserService {
+    public UserService() {}
+
+    public User getUser(String id) {
+        return null;
+    }
+}
+
+public interface IUserService {}
+public record UserRecord(String id) {}
+public enum Status { ACTIVE }
+"#;
+
+    let entries = parse_symbols(source, SupportedLanguage::Java).expect("parse java");
+    assert!(entries.iter().any(|e| e.name == "UserService"
+        && e.kind == SymbolKind::Class
+        && e.signature == "public class UserService implements IUserService"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "UserService"
+        && e.kind == SymbolKind::Method
+        && e.signature == "public UserService()"
+        && e.depth == 1));
+    assert!(entries.iter().any(|e| e.name == "getUser"
+        && e.kind == SymbolKind::Method
+        && e.signature == "public User getUser(String id)"
+        && e.depth == 1));
+    assert!(entries.iter().any(|e| e.name == "IUserService"
+        && e.kind == SymbolKind::Interface
+        && e.signature == "public interface IUserService"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "UserRecord"
+        && e.kind == SymbolKind::Class
+        && e.signature == "public record UserRecord(String id)"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "Status"
+        && e.kind == SymbolKind::Enum
+        && e.signature == "public enum Status"
+        && e.depth == 0));
+}
+
+#[test]
+fn test_parse_c_symbols() {
+    let source = r#"
+struct Point {
+    int x;
+    int y;
+};
+
+typedef int UserID;
+
+int add(int a, int b) {
+    return a + b;
+}
+"#;
+
+    let entries = parse_symbols(source, SupportedLanguage::C).expect("parse c");
+    assert!(
+        entries.iter().any(|e| e.name == "Point"
+            && e.kind == SymbolKind::Struct
+            && e.signature == "struct Point"
+            && e.depth == 0)
+    );
+    assert!(entries.iter().any(|e| e.name == "UserID"
+        && e.kind == SymbolKind::Type
+        && e.signature == "typedef int UserID"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "add"
+        && e.kind == SymbolKind::Function
+        && e.signature == "int add(int a, int b)"
+        && e.depth == 0));
+}
+
+#[test]
+fn test_parse_cpp_symbols() {
+    let source = r#"
+namespace engine {
+    class Renderer {
+    public:
+        void render() {}
+    };
+
+    int calculate(int x) {
+        return x * 2;
+    }
+}
+"#;
+
+    let entries = parse_symbols(source, SupportedLanguage::Cpp).expect("parse cpp");
+    assert!(entries.iter().any(|e| e.name == "Renderer"
+        && e.kind == SymbolKind::Class
+        && e.signature == "class Renderer"
+        && e.depth == 1));
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.name == "render" && e.kind == SymbolKind::Function
+                || e.kind == SymbolKind::Method && e.signature == "void render()" && e.depth == 2)
+    );
+    assert!(entries.iter().any(|e| e.name == "calculate"
+        && e.kind == SymbolKind::Function
+        && e.signature == "int calculate(int x)"
+        && e.depth == 1));
+}
+
+#[test]
+fn test_parse_csharp_symbols() {
+    let source = r#"
+public class Service : IService {
+    public Service() {}
+
+    public void Execute() {}
+}
+
+public interface IService {}
+public struct Point { public int X; }
+public enum Priority { Low, High }
+"#;
+
+    let entries = parse_symbols(source, SupportedLanguage::CSharp).expect("parse csharp");
+    assert!(entries.iter().any(|e| e.name == "Service"
+        && e.kind == SymbolKind::Class
+        && e.signature == "public class Service : IService"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "Execute"
+        && e.kind == SymbolKind::Method
+        && e.signature == "public void Execute()"
+        && e.depth == 1));
+    assert!(entries.iter().any(|e| e.name == "IService"
+        && e.kind == SymbolKind::Interface
+        && e.signature == "public interface IService"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "Point"
+        && e.kind == SymbolKind::Struct
+        && e.signature == "public struct Point"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "Priority"
+        && e.kind == SymbolKind::Enum
+        && e.signature == "public enum Priority"
+        && e.depth == 0));
+}
+
+#[test]
+fn test_parse_ruby_symbols() {
+    let source = r#"
+module Utils
+  class Greeter
+    def hello(name)
+      puts "hello #{name}"
+    end
+  end
+end
+"#;
+
+    let entries = parse_symbols(source, SupportedLanguage::Ruby).expect("parse ruby");
+    assert!(
+        entries
+            .iter()
+            .any(|e| e.name == "Utils" && e.signature == "module Utils" && e.depth == 0)
+    );
+    assert!(
+        entries.iter().any(|e| e.name == "Greeter"
+            && e.kind == SymbolKind::Class
+            && e.signature == "class Greeter"
+            && e.depth == 1)
+    );
+    assert!(entries.iter().any(|e| e.name == "hello"
+        && e.kind == SymbolKind::Method
+        && e.signature == "def hello(name)"
+        && e.depth == 2));
+}
+
+#[test]
+fn test_parse_php_symbols() {
+    let source = r#"
+<?php
+interface Logger {
+    public function log(string $msg);
+}
+
+class AppService implements Logger {
+    public function log(string $msg) {}
+}
+
+function global_helper(): void {}
+"#;
+
+    let entries = parse_symbols(source, SupportedLanguage::Php).expect("parse php");
+    assert!(entries.iter().any(|e| e.name == "Logger"
+        && e.kind == SymbolKind::Interface
+        && e.signature == "interface Logger"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "AppService"
+        && e.kind == SymbolKind::Class
+        && e.signature == "class AppService implements Logger"
+        && e.depth == 0));
+    assert!(entries.iter().any(|e| e.name == "log"
+        && e.kind == SymbolKind::Method
+        && e.signature == "public function log(string $msg)"
+        && e.depth == 1));
+    assert!(entries.iter().any(|e| e.name == "global_helper"
+        && e.kind == SymbolKind::Function
+        && e.signature == "function global_helper(): void"
+        && e.depth == 0));
+}
+
+#[test]
 fn test_empty_source_returns_empty_vec() {
     let entries = parse_symbols("", SupportedLanguage::Rust).expect("parse empty");
     assert!(entries.is_empty());

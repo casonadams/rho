@@ -14,6 +14,14 @@ fn test_detect_supported_languages() {
         ("script.py", Some(SupportedLanguage::Python)),
         ("types.pyi", Some(SupportedLanguage::Python)),
         ("main.go", Some(SupportedLanguage::Go)),
+        ("App.java", Some(SupportedLanguage::Java)),
+        ("main.c", Some(SupportedLanguage::C)),
+        ("header.h", Some(SupportedLanguage::C)),
+        ("engine.cpp", Some(SupportedLanguage::Cpp)),
+        ("header.hpp", Some(SupportedLanguage::Cpp)),
+        ("Program.cs", Some(SupportedLanguage::CSharp)),
+        ("app.rb", Some(SupportedLanguage::Ruby)),
+        ("index.php", Some(SupportedLanguage::Php)),
     ];
 
     for (path_str, expected) in cases {
@@ -67,6 +75,24 @@ fn test_parser_creation_and_snippet_parsing() {
         (
             SupportedLanguage::Go,
             "package main\n\nfunc Total(items []int) int {\n\treturn 0\n}",
+        ),
+        (
+            SupportedLanguage::Java,
+            "public class Main { public static void main(String[] args) {} }",
+        ),
+        (SupportedLanguage::C, "int calculate(int x) { return x * 2; }"),
+        (SupportedLanguage::Cpp, "class Engine { public: void run(); };"),
+        (
+            SupportedLanguage::CSharp,
+            "public class Program { public static void Main() {} }",
+        ),
+        (
+            SupportedLanguage::Ruby,
+            "class Greeter\n  def hello\n    puts 'hi'\n  end\nend",
+        ),
+        (
+            SupportedLanguage::Php,
+            "<?php\nclass Controller { public function index() {} }",
         ),
     ];
 

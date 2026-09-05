@@ -10,6 +10,12 @@ fn test_queries_compile_for_all_languages() {
         SupportedLanguage::JavaScript,
         SupportedLanguage::Python,
         SupportedLanguage::Go,
+        SupportedLanguage::Java,
+        SupportedLanguage::C,
+        SupportedLanguage::Cpp,
+        SupportedLanguage::CSharp,
+        SupportedLanguage::Ruby,
+        SupportedLanguage::Php,
     ];
 
     for lang in languages {

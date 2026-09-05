@@ -3,12 +3,19 @@ use tree_sitter::Node;
 const BODY_KINDS: &[&str] = &[
     "block",
     "statement_block",
+    "compound_statement",
     "field_declaration_list",
     "enum_variant_list",
     "declaration_list",
     "class_body",
     "interface_body",
+    "record_body",
+    "constructor_body",
+    "body_statement",
     "enum_body",
+    "enumerator_list",
+    "enum_member_declaration_list",
+    "enum_declaration_list",
     "object_type",
 ];
 

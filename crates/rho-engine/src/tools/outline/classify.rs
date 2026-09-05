@@ -13,20 +13,18 @@ pub fn classify_kind_and_name(candidate: SymbolCandidate<'_>, source: &str) -> (
         return (SymbolKind::Impl, extract_impl_name(candidate.decl, source));
     }
 
-    let raw_name = candidate
+    let name = candidate
         .name_node
-        .and_then(|n| n.utf8_text(source.as_bytes()).ok())
-        .unwrap_or("");
-    let name = if raw_name.is_empty() {
-        candidate
-            .decl
-            .child_by_field_name("name")
-            .and_then(|n| n.utf8_text(source.as_bytes()).ok())
-            .unwrap_or("<anonymous>")
-            .to_string()
-    } else {
-        raw_name.to_string()
-    };
+        .map(|n| extract_identifier_name(n, source))
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            candidate
+                .decl
+                .child_by_field_name("name")
+                .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "<anonymous>".to_string());
 
     match candidate.tag {
         "function" => {
@@ -57,6 +55,23 @@ pub fn classify_kind_and_name(candidate: SymbolCandidate<'_>, source: &str) -> (
     }
 }
 
+fn extract_identifier_name(node: Node, source: &str) -> String {
+    if node.kind() == "function_declarator" || node.kind() == "pointer_declarator" {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if (child.kind() == "identifier" || child.kind() == "field_identifier")
+                && let Ok(text) = child.utf8_text(source.as_bytes())
+            {
+                return text.to_string();
+            }
+            if child.kind() == "function_declarator" || child.kind() == "pointer_declarator" {
+                return extract_identifier_name(child, source);
+            }
+        }
+    }
+    node.utf8_text(source.as_bytes()).unwrap_or("").to_string()
+}
+
 fn extract_impl_name(node: Node, source: &str) -> String {
     if let Some(text) = node
         .child_by_field_name("type")
@@ -78,8 +93,13 @@ fn extract_impl_name(node: Node, source: &str) -> String {
 fn is_method(node: Node) -> bool {
     let mut curr = node.parent();
     while let Some(parent) = curr {
+        if parent.kind() == "module" && parent.parent().is_none() {
+            curr = parent.parent();
+            continue;
+        }
         match parent.kind() {
-            "impl_item" | "trait_item" | "class_declaration" | "class_definition" => {
+            "impl_item" | "trait_item" | "class_declaration" | "class_definition" | "class_specifier"
+            | "record_declaration" | "class" | "module" => {
                 return true;
             }
             "function_item" | "function_definition" | "function_declaration" => {

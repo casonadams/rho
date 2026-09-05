@@ -59,7 +59,7 @@ Extract syntax-aware symbol outlines (functions, methods, classes, structs, trai
 
 Usage:
 - Use outline to inspect file structure, signatures, and symbol definitions before reading entire files.
-- Supports Rust (.rs), TypeScript/TSX (.ts, .tsx), JavaScript/JSX (.js, .jsx), Python (.py), and Go (.go).
+- Supports Rust (.rs), TypeScript/TSX (.ts, .tsx), JavaScript/JSX (.js, .jsx), Python (.py), Go (.go), Java (.java), C (.c, .h), C++ (.cpp, .hpp), C# (.cs), Ruby (.rb), and PHP (.php).
 - path can be a single file to outline or a directory to search.
 - Use query (case-insensitive substring) to find specific symbol definitions across files.
 - Use kind ('function', 'method', 'struct', 'class', 'interface', 'trait', 'enum', 'type') to filter by symbol type.
