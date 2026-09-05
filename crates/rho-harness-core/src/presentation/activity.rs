@@ -13,10 +13,20 @@ pub struct ActivityToken {
 
 impl ActivityToken {
     pub fn finish_and_clear(self) {
-        if let Ok(mut slot) = self.finisher.try_lock()
-            && let Some(finish) = slot.take()
-        {
+        let finish = self.finisher.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(finish) = finish {
             finish();
+        }
+    }
+}
+
+impl Drop for ActivityToken {
+    fn drop(&mut self) {
+        if Arc::strong_count(&self.finisher) == 1 {
+            let finish = self.finisher.lock().ok().and_then(|mut slot| slot.take());
+            if let Some(finish) = finish {
+                finish();
+            }
         }
     }
 }
@@ -30,3 +40,6 @@ where
         finisher: Arc::new(Mutex::new(Some(Box::new(finisher)))),
     }
 }
+
+#[cfg(test)]
+mod tests;
