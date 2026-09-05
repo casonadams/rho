@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.0](https://github.com/casonadams/rho/compare/v0.2.3...v0.3.0) (2026-09-05)
+
+
+### Features
+
+* **async:** convert auth, context, and repl routines to non-blocking I/O ([d4a247c](https://github.com/casonadams/rho/commit/d4a247cb82cd8299935a8a2d08d2a5301e67f561))
+* **async:** eliminate blocking I/O across tools, sessions, storage, and repl ([4653957](https://github.com/casonadams/rho/commit/46539573a2582e5931550ca1eb9345d08e9e15ba))
+* **context:** enforce workspace confinement and git protection on file transclusion ([37668d1](https://github.com/casonadams/rho/commit/37668d1262dbd38990eb184a105e04c5005941ee))
+* **outline:** add tree-sitter grammars and language detection ([c645832](https://github.com/casonadams/rho/commit/c64583275b4c3356d4e08d9f6f6833a75fe6fc6b))
+* **outline:** expand language support to Java, C, C++, C#, Ruby, and PHP ([dae2473](https://github.com/casonadams/rho/commit/dae247367cedd97e8749bf3a062c1c6df0d0f090))
+* **outline:** implement AST symbol queries and signature extraction ([c522aff](https://github.com/casonadams/rho/commit/c522aff34efce9f1948b367c43f79e09b447a4c3))
+* **outline:** implement outline formatting and directory symbol search ([7d1507f](https://github.com/casonadams/rho/commit/7d1507fc0ecb420de687e8f8c5699d321227ef36))
+* **outline:** register outline tool in engine, catalog, and system prompt ([09fe8db](https://github.com/casonadams/rho/commit/09fe8db1adf832a015f5304906b6abd56dcb5aa8))
+
+
+### Bug Fixes
+
+* **config:** ensure saved default model takes precedence over state cache ([d19001f](https://github.com/casonadams/rho/commit/d19001f002d0c136036258cffff7be9f3e3c7b73))
+* **config:** prioritize state cache over defaults on startup ([2d32482](https://github.com/casonadams/rho/commit/2d32482a3d0b6daec8d6da4fc0658c4adeb6a2a9))
+
+
+### Performance Improvements
+
+* **build:** optimize dev and release profiles for speed and binary size ([b237927](https://github.com/casonadams/rho/commit/b23792785a0dc04e003d75422de7e6e6748ef108))
+* **build:** prevent ring rebuilds and optimize dev profile compile times ([33a24bb](https://github.com/casonadams/rho/commit/33a24bbb0b8b32ecdf2b366392fd24b4b0f079f6))
+* **engine:** switch models in place without full engine rebuild ([d305e9a](https://github.com/casonadams/rho/commit/d305e9a3564c2498876b5bcf7751c8ce660e0b05))
+
 ## [0.2.3](https://github.com/casonadams/rho/compare/v0.2.2...v0.2.3) (2026-09-05)
 
 
