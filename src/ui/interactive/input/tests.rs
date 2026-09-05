@@ -58,7 +58,7 @@ fn editor_navigation_and_control_keys_are_mapped() {
         (key(KeyCode::Tab, KeyModifiers::NONE), InputAction::Complete),
         (key(KeyCode::Esc, KeyModifiers::NONE), InputAction::Cancel),
         (key(KeyCode::Char('d'), KeyModifiers::CONTROL), InputAction::EndOfInput),
-        (key(KeyCode::Char('c'), KeyModifiers::CONTROL), InputAction::Cancel),
+        (key(KeyCode::Char('c'), KeyModifiers::CONTROL), InputAction::Clear),
         (key(KeyCode::Char('l'), KeyModifiers::CONTROL), InputAction::ModelSelect),
         (
             key(KeyCode::Char('p'), KeyModifiers::CONTROL),

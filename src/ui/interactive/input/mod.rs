@@ -15,6 +15,7 @@ pub enum InputAction {
     HistoryNext,
     Complete,
     Cancel,
+    Clear,
     EndOfInput,
     ToggleExpandTools,
     DequeueQueued,
@@ -45,7 +46,8 @@ pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> Input
 
     if let Some(action) = bindings.get_action(&event) {
         return match action {
-            KeyAction::AppInterrupt | KeyAction::AppClear => InputAction::Cancel,
+            KeyAction::AppInterrupt => InputAction::Cancel,
+            KeyAction::AppClear => InputAction::Clear,
             KeyAction::AppExit => InputAction::EndOfInput,
             KeyAction::AppSuspend => InputAction::Suspend,
             KeyAction::AppEditorExternal => InputAction::ExternalEditor,

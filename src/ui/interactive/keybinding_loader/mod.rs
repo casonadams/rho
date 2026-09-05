@@ -48,7 +48,7 @@ pub fn default_keybindings() -> KeybindingMap {
         ("tui.select.up", &["up"]),
         ("tui.select.down", &["down"]),
         ("tui.select.confirm", &["enter"]),
-        ("tui.select.cancel", &["escape", "ctrl+c"]),
+        ("tui.select.cancel", &["escape"]),
     ];
 
     for (id, keys) in defaults {
