@@ -403,3 +403,49 @@ async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
             .is_empty()
     );
 }
+
+#[tokio::test]
+async fn test_turn_with_active_modal_advances_spinner() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        config_dir: temp.path().to_path_buf(),
+        ..Default::default()
+    };
+    let auth_store = crate::auth::AuthStore::default();
+    let mut session = crate::repl::ReplSession::new(config.clone(), auth_store.clone(), None);
+    let engine = crate::platform::agent_engine(config, auth_store, None).await.unwrap();
+
+    let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
+    session.renderer = TerminalRenderer::with_ui(ui);
+
+    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().footer_mut().activity = Activity::Working;
+    let modal = crate::ui::interactive::ModalState::new("Select Model", "", vec![]);
+    controller.state_mut().push_modal(modal);
+
+    let cancel_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel_event]);
+
+    let history_dir = tempfile::tempdir().unwrap();
+    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
+    let completions = CompletionSet::from_sources(Default::default());
+
+    let turn = crate::repl::live::ActiveTurn {
+        io: crate::repl::live::LiveIo {
+            controller: &mut controller,
+            events: &mut ui_events,
+            input: &mut input_reader,
+        },
+        editor: crate::repl::live::EditorResources {
+            history: &mut history,
+            completions: &completions,
+        },
+        prompt: "test",
+    };
+
+    super::run_active_turn(&mut session, &engine, turn).await.unwrap();
+    assert!(controller.state().active_modal().is_none());
+}

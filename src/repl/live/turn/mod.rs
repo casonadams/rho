@@ -54,10 +54,6 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
             biased;
             _ = frame.tick() => {
                 let steering_reconciled = reconcile_consumed_steering(controller, &steering);
-                if controller.state().active_modal().is_some() {
-                    batch.flush(controller, false)?;
-                    continue;
-                }
                 spinner_tick += 1;
                 let spinner_advanced = if spinner_tick >= SPINNER_FRAME_INTERVALS {
                     spinner_tick = 0;
