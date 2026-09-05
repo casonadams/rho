@@ -14,6 +14,7 @@ fn test_default_config() {
     assert!(!cfg.allow_private_network);
     assert_eq!(cfg.session_retention_days, Some(5));
     assert!(cfg.plugins.is_empty());
+    assert!(cfg.permission.enabled);
 }
 
 #[test]
@@ -78,6 +79,7 @@ fn test_precedence_is_defaults_file_environment_then_cli() {
         system_prompt: None,
         append_system_prompt: None,
         no_context_files: false,
+        no_permission: false,
         command: None,
     };
     merge::apply_cli_overrides(&mut config, Some(&cli));
@@ -130,4 +132,13 @@ fn test_cli_context_flag_overrides() {
     assert_eq!(config.system_prompt.as_deref(), Some("custom system prompt"));
     assert_eq!(config.append_system_prompt.as_deref(), Some("additional instructions"));
     assert!(config.no_context_files);
+}
+
+#[test]
+fn test_cli_permission_flag_override() {
+    let mut config = Config::default();
+    assert!(config.permission.enabled);
+    let cli = cli::Cli::try_parse_from(["rho", "--no-permission"]).unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+    assert!(!config.permission.enabled);
 }

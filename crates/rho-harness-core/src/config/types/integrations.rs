@@ -50,6 +50,18 @@ impl Default for PluginConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for PermissionConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct McpConfig {
     #[serde(default = "default_true")]

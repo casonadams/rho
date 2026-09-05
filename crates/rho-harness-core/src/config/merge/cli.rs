@@ -29,4 +29,7 @@ pub(crate) fn apply_cli_overrides(config: &mut Config, cli: Option<&Cli>) {
     if c.no_context_files {
         config.no_context_files = true;
     }
+    if c.no_permission {
+        config.permission.enabled = false;
+    }
 }

@@ -1,4 +1,4 @@
-use super::integrations::{McpConfig, PluginConfig, ProviderConfig};
+use super::integrations::{McpConfig, PermissionConfig, PluginConfig, ProviderConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -43,4 +43,6 @@ pub(crate) struct FileConfig {
     pub providers: BTreeMap<String, ProviderConfig>,
     #[serde(default)]
     pub mcp: Option<McpConfig>,
+    #[serde(default)]
+    pub permission: Option<PermissionConfig>,
 }

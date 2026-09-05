@@ -1,4 +1,4 @@
-use super::super::{Config, FileConfig};
+use super::super::{Config, FileConfig, PermissionConfig};
 
 #[test]
 fn parses_cargo_style_plugins_and_mcp_config() {
@@ -80,4 +80,35 @@ base_url = "http://127.0.0.1:8080/v1"
         ..Default::default()
     };
     config.validate().unwrap();
+}
+
+#[test]
+fn parses_permission_config() {
+    let toml_disabled = r#"
+[permission]
+enabled = false
+"#;
+    let file: FileConfig = toml::from_str(toml_disabled).unwrap();
+    assert_eq!(file.permission, Some(PermissionConfig { enabled: false }));
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert!(!config.permission.enabled);
+
+    let toml_empty = r#"
+[permission]
+"#;
+    let file: FileConfig = toml::from_str(toml_empty).unwrap();
+    assert_eq!(file.permission, Some(PermissionConfig { enabled: true }));
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert!(config.permission.enabled);
+
+    let toml_omitted = r#"
+model = "claude"
+"#;
+    let file: FileConfig = toml::from_str(toml_omitted).unwrap();
+    assert_eq!(file.permission, None);
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert!(config.permission.enabled);
 }

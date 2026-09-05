@@ -82,6 +82,10 @@ pub struct Cli {
     #[arg(long = "no-context-files", visible_alias = "nc", default_value_t = false)]
     pub no_context_files: bool,
 
+    /// Disable tool permission gating
+    #[arg(long = "no-permission", default_value_t = false)]
+    pub no_permission: bool,
+
     /// Subcommand to execute
     #[command(subcommand)]
     pub command: Option<Commands>,

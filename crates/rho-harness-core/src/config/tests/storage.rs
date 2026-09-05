@@ -131,6 +131,7 @@ fn test_cli_overrides_config_file() {
         system_prompt: None,
         append_system_prompt: None,
         no_context_files: false,
+        no_permission: false,
         command: None,
     };
     let cli_config = Config::load(Some(&cli)).unwrap();

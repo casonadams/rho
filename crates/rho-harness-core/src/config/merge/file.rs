@@ -88,6 +88,9 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(mcp) = file.mcp {
         config.mcp = mcp;
     }
+    if let Some(permission) = file.permission {
+        config.permission = permission;
+    }
     config.plugins = file.plugins;
     config.providers = file.providers;
 }

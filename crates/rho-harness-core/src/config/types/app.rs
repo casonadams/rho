@@ -1,4 +1,4 @@
-use super::integrations::{McpConfig, PluginConfig, ProviderConfig};
+use super::integrations::{McpConfig, PermissionConfig, PluginConfig, ProviderConfig};
 use super::paths::default_config_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -46,6 +46,7 @@ pub struct Config {
     pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
+    pub permission: PermissionConfig,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub auth_file: PathBuf,
@@ -87,6 +88,7 @@ impl Default for Config {
             plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
+            permission: PermissionConfig::default(),
             sessions_dir: base_dir.join("sessions"),
             auth_file: base_dir.join("auth.json"),
             config_dir: base_dir,

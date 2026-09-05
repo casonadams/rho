@@ -222,14 +222,17 @@ fn test_cli_flags() {
         "--append-system-prompt",
         "append instructions",
         "--no-context-files",
+        "--no-permission",
     ])
     .unwrap();
     assert_eq!(cli.system_prompt.as_deref(), Some("custom system prompt"));
     assert_eq!(cli.append_system_prompt.as_deref(), Some("append instructions"));
     assert!(cli.no_context_files);
+    assert!(cli.no_permission);
 
     let cli_alias = Cli::try_parse_from(["rho", "--nc"]).unwrap();
     assert!(cli_alias.no_context_files);
+    assert!(!cli_alias.no_permission);
 }
 
 #[test]

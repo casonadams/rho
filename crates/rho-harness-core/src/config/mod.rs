@@ -8,8 +8,8 @@ mod validate;
 mod tests;
 
 pub use types::{
-    Config, DEFAULT_MAX_TURNS, McpConfig, McpServerConfig, PluginConfig, ProviderConfig, default_config_dir,
-    dirs_fallback,
+    Config, DEFAULT_MAX_TURNS, McpConfig, McpServerConfig, PermissionConfig, PluginConfig, ProviderConfig,
+    default_config_dir, dirs_fallback,
 };
 
 use crate::error::{AppError, Result};
