@@ -32,9 +32,9 @@ pub(super) fn format_option_line(opt: &ModalOption, fmt: OptionFormat<'_>) -> St
             format!(" {dimmed}[{prov}]{dimmed:#}")
         };
         let def = if def.is_empty() {
-            ""
+            String::new()
         } else {
-            " \x1b[2m· default\x1b[0m"
+            format!(" {dimmed}· default{dimmed:#}")
         };
         let check = if active.is_empty() {
             String::new()
@@ -50,36 +50,32 @@ pub(super) fn format_option_line(opt: &ModalOption, fmt: OptionFormat<'_>) -> St
 pub(crate) fn modal_hint(modal: &ModalState) -> &'static str {
     match &modal.mode {
         crate::ui::interactive::ModalMode::Select if modal.title == "Select Model" => {
-            "\x1b[2mEnter to select • Ctrl+S to set as default • Esc to cancel\x1b[0m"
+            "Enter to select • Ctrl+S to set as default • Esc to cancel"
         }
         crate::ui::interactive::ModalMode::Select if modal.title == "Select Theme" => {
-            "\x1b[2m↑/↓ preview • Enter select • Esc cancel\x1b[0m"
+            "↑/↓ preview • Enter select • Esc cancel"
         }
         crate::ui::interactive::ModalMode::Select if modal.title == "Conversation Tree" => {
-            "\x1b[2m↑/↓ select • Enter navigate • Shift+L label • Esc cancel\x1b[0m"
+            "↑/↓ select • Enter navigate • Shift+L label • Esc cancel"
         }
         crate::ui::interactive::ModalMode::Select if modal.title == "Settings" => {
-            "\x1b[2m↑/↓ select • Enter toggle • Esc close\x1b[0m"
+            "↑/↓ select • Enter toggle • Esc close"
         }
         crate::ui::interactive::ModalMode::Select if modal.title == "Resume Session" => {
-            "\x1b[2m↑/↓ select • Enter resume • Ctrl+D delete • Esc cancel\x1b[0m"
+            "↑/↓ select • Enter resume • Ctrl+D delete • Esc cancel"
         }
-        crate::ui::interactive::ModalMode::Select if modal.is_searchable => {
-            "\x1b[2mEnter to select • Esc to cancel\x1b[0m"
-        }
+        crate::ui::interactive::ModalMode::Select if modal.is_searchable => "Enter to select • Esc to cancel",
         crate::ui::interactive::ModalMode::Select
             if modal.title.contains("Permission") || modal.title.contains("Approve") =>
         {
-            "\x1b[2m↑/↓ select • Enter confirm • Esc deny\x1b[0m"
+            "↑/↓ select • Enter confirm • Esc deny"
         }
         crate::ui::interactive::ModalMode::Select if modal.allow_custom => {
-            "\x1b[2m↑/↓ select • Enter confirm • Esc cancel • or type custom\x1b[0m"
+            "↑/↓ select • Enter confirm • Esc cancel • or type custom"
         }
-        crate::ui::interactive::ModalMode::Select => "\x1b[2m↑/↓ select • Enter confirm • Esc cancel\x1b[0m",
-        crate::ui::interactive::ModalMode::Input { .. } if modal.options.is_empty() => {
-            "\x1b[2mEnter submit • Esc cancel\x1b[0m"
-        }
-        crate::ui::interactive::ModalMode::Input { .. } => "\x1b[2mEnter submit • Esc back\x1b[0m",
+        crate::ui::interactive::ModalMode::Select => "↑/↓ select • Enter confirm • Esc cancel",
+        crate::ui::interactive::ModalMode::Input { .. } if modal.options.is_empty() => "Enter submit • Esc cancel",
+        crate::ui::interactive::ModalMode::Input { .. } => "Enter submit • Esc back",
     }
 }
 
@@ -91,13 +87,14 @@ pub(super) struct ModalOptionsLayout<'a> {
 
 pub(super) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayout<'_>) -> Vec<String> {
     let mut lines = Vec::new();
+    let dimmed = layout.theme.dimmed;
     if modal.options.is_empty() {
         let msg = if modal.is_searchable {
             "No matching models found"
         } else {
             "No matching options found"
         };
-        lines.push(format!("    \x1b[2m{msg}\x1b[0m"));
+        lines.push(format!("    {dimmed}{msg}{dimmed:#}"));
         return lines;
     }
 
@@ -132,7 +129,7 @@ pub(super) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayou
     }
 
     if show_pagination || start > 0 {
-        lines.push(format!("    \x1b[2m({}/{})\x1b[0m", modal.selected + 1, total));
+        lines.push(format!("    {dimmed}({}/{}){dimmed:#}", modal.selected + 1, total));
     }
 
     if modal.title == "Select Model"
@@ -142,7 +139,10 @@ pub(super) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayou
         && !extra.is_empty()
     {
         lines.push(String::new());
-        lines.push(format!("  \x1b[2mModel Name: {} ({extra})\x1b[0m", selected_opt.label));
+        lines.push(format!(
+            "  {dimmed}Model Name: {} ({extra}){dimmed:#}",
+            selected_opt.label
+        ));
     }
 
     lines.truncate(layout.max_visible);
