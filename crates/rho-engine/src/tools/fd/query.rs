@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) struct FdQuery {
     pub workspace_root: PathBuf,
     pub search_root: PathBuf,
+    pub search_path_display: Option<String>,
     pub regex: Option<Regex>,
     pub types: Option<Types>,
     pub include_hidden: bool,
@@ -30,6 +31,7 @@ impl FdQuery {
         let FdQuery {
             workspace_root,
             search_root,
+            search_path_display,
             regex,
             types,
             include_hidden,
@@ -48,15 +50,31 @@ impl FdQuery {
 
         let collected: Mutex<Vec<FdEntry>> = Mutex::new(Vec::new());
         let hit_ceiling = AtomicBool::new(false);
+        let search_path_display = &search_path_display;
+        let search_root = search_root.as_path();
+        let workspace_root = workspace_root.as_path();
+        let regex = &regex;
+        let types = &types;
         builder.build_parallel().run(|| {
             Box::new(|entry| {
                 let Ok(entry) = entry else {
                     return WalkState::Continue;
                 };
-                let Ok(relative) = entry.path().strip_prefix(&workspace_root) else {
-                    return WalkState::Continue;
+                let relative = if let Ok(rel) = entry.path().strip_prefix(workspace_root) {
+                    rel.to_string_lossy().replace('\\', "/")
+                } else if let Ok(rel) = entry.path().strip_prefix(search_root) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    let base = search_path_display.as_deref().unwrap_or("");
+                    if rel_str.is_empty() {
+                        base.to_string()
+                    } else if base.is_empty() || base.ends_with('/') {
+                        format!("{base}{rel_str}")
+                    } else {
+                        format!("{base}/{rel_str}")
+                    }
+                } else {
+                    entry.path().to_string_lossy().replace('\\', "/")
                 };
-                let relative = relative.to_string_lossy().replace('\\', "/");
                 if relative.is_empty() || regex.as_ref().is_some_and(|r| !r.is_match(&relative)) {
                     return WalkState::Continue;
                 }

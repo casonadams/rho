@@ -17,6 +17,7 @@ pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
 pub struct RgQuery {
     pub workspace_root: PathBuf,
     pub search_root: PathBuf,
+    pub search_path_display: Option<String>,
     pub matcher: RegexMatcher,
     pub types: Option<Types>,
     pub include_hidden: bool,
@@ -27,6 +28,7 @@ impl RgQuery {
         let RgQuery {
             workspace_root,
             search_root,
+            search_path_display,
             matcher,
             types,
             include_hidden,
@@ -46,7 +48,9 @@ impl RgQuery {
             // each visitor so the boxed closure stays self-contained.
             let matches = &matches;
             let matcher = &matcher;
-            let workspace_root = &workspace_root;
+            let workspace_root = workspace_root.as_path();
+            let search_root = search_root.as_path();
+            let search_path_display = &search_path_display;
             Box::new(move |entry| {
                 let Ok(entry) = entry else {
                     return WalkState::Continue;
@@ -59,10 +63,21 @@ impl RgQuery {
                 if file_type.is_dir() || file_type.is_symlink() {
                     return WalkState::Continue;
                 }
-                let Ok(relative) = entry.path().strip_prefix(workspace_root) else {
-                    return WalkState::Continue;
+                let relative = if let Ok(rel) = entry.path().strip_prefix(workspace_root) {
+                    rel.to_string_lossy().replace('\\', "/")
+                } else if let Ok(rel) = entry.path().strip_prefix(search_root) {
+                    let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    let base = search_path_display.as_deref().unwrap_or("");
+                    if rel_str.is_empty() {
+                        base.to_string()
+                    } else if base.is_empty() || base.ends_with('/') {
+                        format!("{base}{rel_str}")
+                    } else {
+                        format!("{base}/{rel_str}")
+                    }
+                } else {
+                    entry.path().to_string_lossy().replace('\\', "/")
                 };
-                let relative = relative.to_string_lossy().replace('\\', "/");
                 if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
                     return WalkState::Quit;
                 }

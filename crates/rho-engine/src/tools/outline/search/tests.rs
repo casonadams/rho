@@ -194,20 +194,24 @@ fn test_outline_no_matches_found() {
 }
 
 #[test]
-fn test_outline_path_outside_workspace_errors() {
+fn test_outline_path_outside_workspace_succeeds() {
     let temp = tempdir().unwrap();
     let ws = Workspace::new(temp.path());
+
+    let outside = tempdir().unwrap();
+    let file = outside.path().join("test.rs");
+    std::fs::write(&file, "fn external_func() {}").unwrap();
 
     let res = search_outline(
         &ws,
         OutlineSearchOptions {
-            path: "/etc/passwd",
+            path: file.to_str().unwrap(),
             query: None,
             kind: None,
             depth: None,
         },
     );
 
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("outside the workspace"));
+    assert!(res.is_ok());
+    assert!(res.unwrap().content.contains("external_func"));
 }

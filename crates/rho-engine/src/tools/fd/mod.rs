@@ -63,6 +63,7 @@ impl FdTool {
         let query = FdQuery {
             workspace_root: workspace.root().to_path_buf(),
             search_root,
+            search_path_display: args.path.clone(),
             regex,
             types,
             include_hidden: args.hidden.unwrap_or(false),

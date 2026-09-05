@@ -38,6 +38,12 @@ impl Workspace {
         if clean.is_empty() {
             return None;
         }
+        if clean == "~" {
+            return std::env::var("HOME").ok().map(PathBuf::from);
+        }
+        if let Some(rest) = clean.strip_prefix("~/") {
+            return std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(rest));
+        }
         let path = Path::new(clean);
         Some(if path.is_absolute() {
             path.to_path_buf()

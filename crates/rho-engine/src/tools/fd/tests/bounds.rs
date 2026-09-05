@@ -76,11 +76,15 @@ async fn invalid_regex_names_the_pattern() {
 }
 
 #[tokio::test]
-async fn path_outside_the_workspace_errors() {
+async fn path_outside_workspace_is_searched_successfully() {
     let dir = fixture();
-    let result = find(&dir, ".", |args| args.path = Some("../elsewhere".to_string())).await;
-    assert!(result.is_error);
-    assert!(result.content.contains("outside the workspace"));
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("external.txt"), "external").unwrap();
+
+    let outside_path = outside.path().to_str().unwrap().to_string();
+    let result = find(&dir, "external", |args| args.path = Some(outside_path)).await;
+    assert!(!result.is_error);
+    assert!(result.content.contains("external.txt"));
 }
 
 #[tokio::test]

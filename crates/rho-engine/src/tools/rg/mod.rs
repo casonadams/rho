@@ -51,6 +51,7 @@ impl RgTool {
         let query = RgQuery {
             workspace_root: workspace.root().to_path_buf(),
             search_root,
+            search_path_display: args.path.clone(),
             matcher,
             types,
             include_hidden: args.hidden.unwrap_or(false),

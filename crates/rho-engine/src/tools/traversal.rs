@@ -43,15 +43,12 @@ pub fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, Stri
         .map_err(|_| format!("unknown type {file_type:?}; use a default type name such as 'rust', 'js', or 'py'"))
 }
 
-/// Resolves the optional `path` argument to an absolute search root inside the
-/// workspace, rejecting paths that escape it or do not exist.
+/// Resolves the optional `path` argument to an absolute search root,
+/// rejecting paths that do not exist.
 pub fn search_root(workspace: &Workspace, path: Option<&str>) -> Result<PathBuf, String> {
     let Some(raw) = path.map(str::trim).filter(|raw| !raw.is_empty()) else {
         return Ok(workspace.root().to_path_buf());
     };
-    if !workspace.is_within(raw) {
-        return Err(format!("path {raw:?} is outside the workspace"));
-    }
     match workspace.resolve(raw) {
         Some(root) if root.exists() => Ok(root),
         _ => Err(format!("path not found: {raw}")),
