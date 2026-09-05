@@ -5,8 +5,10 @@ use crate::ui::interactive::{Activity, InteractiveState, TerminalBackend, Termin
 pub const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine: &AgentEngine) {
+    state.set_active_tool(None);
     let footer = state.footer_mut();
     footer.activity = Activity::Idle;
+    footer.running_tool = None;
     footer.model = session.config.model.clone();
     footer.thinking_level = session.config.thinking_level.clone();
 
