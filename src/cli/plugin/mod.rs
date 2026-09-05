@@ -7,7 +7,10 @@ pub mod listing;
 pub mod paths;
 pub mod platform;
 pub mod remove;
+pub mod self_update;
 pub mod spec;
+pub mod update;
+pub mod version;
 
 pub use archive::{ArchiveError, extract_binary};
 pub use atomic::write_binary_atomically;
@@ -25,4 +28,7 @@ pub use platform::{Arch, Os, Platform, PlatformMatchError, match_platform_asset}
 pub use remove::{
     PluginRemovalResult, RemovalArtifactStatus, RemovePluginContext, handle_remove, remove_plugin, resolve_plugin_key,
 };
+pub use self_update::{SelfUpdateContext, SelfUpdateStatus, handle_self_update, self_update};
 pub use spec::{DEFAULT_GITHUB_ORG, PluginSpec, PluginSpecError};
+pub use update::{PluginUpdateItem, PluginUpdateStatus, handle_update_all, handle_update_plugin, update_single_plugin};
+pub use version::{SimpleVersion, is_update_available};

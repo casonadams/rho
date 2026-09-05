@@ -142,3 +142,53 @@ async fn test_handle_command_plugin_install_duplicate_error() {
     .await;
     assert!(res.is_err());
 }
+
+#[tokio::test]
+async fn test_handle_command_update_plugin_missing() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::Commands;
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        ..Default::default()
+    };
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let res = handle_command(
+        Commands::Update {
+            target: Some("nonexistent".to_string()),
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_err());
+}
+
+#[tokio::test]
+async fn test_handle_command_update_all_empty() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::{Commands, PluginCommands};
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        ..Default::default()
+    };
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let res = handle_command(
+        Commands::Plugin {
+            action: Some(PluginCommands::Update { target: None }),
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_ok());
+}

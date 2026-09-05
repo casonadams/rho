@@ -27,9 +27,17 @@ pub async fn handle_command(
         Commands::Install { target, force } => {
             handle_plugin(Some(PluginCommands::Install { target, force }), config).await?;
         }
-        Commands::Update { target } => {
-            handle_plugin(Some(PluginCommands::Update { target }), config).await?;
-        }
+        Commands::Update { target } => match target.as_deref() {
+            None => {
+                super::plugin::self_update::handle_self_update(config).await?;
+            }
+            Some("all") => {
+                super::plugin::update::handle_update_all(config).await?;
+            }
+            Some(plugin) => {
+                super::plugin::update::handle_update_plugin(config, plugin).await?;
+            }
+        },
         Commands::Remove { name, keep_binary } => {
             handle_plugin(Some(PluginCommands::Remove { name, keep_binary }), config).await?;
         }
@@ -123,9 +131,14 @@ async fn handle_plugin(action: Option<PluginCommands>, config: &Config) -> Resul
         PluginCommands::Install { target, force } => {
             super::plugin::install::handle_install(config, &target, force).await?;
         }
-        PluginCommands::Update { target: _ } => {
-            println!("Plugin updating will be available in the next release");
-        }
+        PluginCommands::Update { target } => match target.as_deref() {
+            None | Some("all") => {
+                super::plugin::update::handle_update_all(config).await?;
+            }
+            Some(plugin) => {
+                super::plugin::update::handle_update_plugin(config, plugin).await?;
+            }
+        },
     }
     Ok(())
 }
