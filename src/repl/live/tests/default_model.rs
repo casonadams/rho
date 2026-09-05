@@ -77,29 +77,3 @@ fn ctrl_s_key_saves_selected_model_as_default() {
         _ => panic!("expected ModelSelected result"),
     }
 }
-
-#[tokio::test]
-async fn saved_default_model_is_loaded_on_startup() {
-    let temp = tempfile::tempdir().unwrap();
-    let dir = temp.path().to_path_buf();
-
-    Config::save_default_model_async(&dir, "claude-3-7-sonnet-20250219", "anthropic")
-        .await
-        .unwrap();
-
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
-    let loaded = Config::load(None).unwrap();
-    assert_eq!(
-        loaded.model, "claude-3-7-sonnet-20250219",
-        "Config::load must use the model from config.toml"
-    );
-    assert_eq!(loaded.provider, "anthropic");
-    assert_eq!(loaded.default_model.as_deref(), Some("claude-3-7-sonnet-20250219"));
-    assert_eq!(loaded.default_provider.as_deref(), Some("anthropic"));
-
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
-}

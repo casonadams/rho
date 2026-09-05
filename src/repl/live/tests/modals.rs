@@ -3,8 +3,21 @@ use crate::ui::interactive::{InteractiveState, TerminalController};
 
 #[test]
 fn model_selector_modal_filtering_and_selection() {
-    let config = rho_harness_core::config::Config::default();
-    let auth_store = crate::auth::AuthStore::load(&config.auth_file).unwrap_or_default();
+    let temp = tempfile::tempdir().unwrap();
+    let config_dir = temp.path().to_path_buf();
+    let mut model_store = rho_engine::provider::store::ModelStore::load(config_dir.join("models-store.json"));
+    model_store
+        .set_models(
+            "anthropic",
+            rho_engine::provider::discovery::presets::anthropic_preset_models(),
+        )
+        .unwrap();
+
+    let config = rho_harness_core::config::Config {
+        config_dir,
+        ..Default::default()
+    };
+    let auth_store = crate::auth::AuthStore::default();
     let session = crate::repl::ReplSession::new(config, auth_store, None);
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
 
