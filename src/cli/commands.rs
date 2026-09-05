@@ -120,10 +120,8 @@ async fn handle_plugin(action: Option<PluginCommands>, config: &Config) -> Resul
         PluginCommands::Inspect { capability } => {
             super::plugin::listing::handle_inspect(config, capability.as_deref());
         }
-        PluginCommands::Install { target, force: _ } => {
-            println!(
-                "To configure an MCP server or plugin, add it to config.toml under [mcp.servers.{target}] or [plugins.{target}]"
-            );
+        PluginCommands::Install { target, force } => {
+            super::plugin::install::handle_install(config, &target, force).await?;
         }
         PluginCommands::Update { target: _ } => {
             println!("Plugin updating will be available in the next release");

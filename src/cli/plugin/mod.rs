@@ -1,11 +1,19 @@
+pub mod archive;
+pub mod atomic;
 pub mod dedup;
+pub mod github;
+pub mod install;
 pub mod listing;
 pub mod paths;
 pub mod platform;
 pub mod remove;
 pub mod spec;
 
+pub use archive::{ArchiveError, extract_binary};
+pub use atomic::write_binary_atomically;
 pub use dedup::{DuplicatePluginError, PluginCandidate, validate_no_duplicates};
+pub use github::{GitHubClient, GitHubError, Release, ReleaseAsset};
+pub use install::{InstallError, InstallPluginContext, InstallResult, handle_install, install_plugin};
 pub use listing::{
     PluginListingItem, collect_plugin_listings, format_plugin_table, handle_inspect, handle_list, inspect_plugin,
 };

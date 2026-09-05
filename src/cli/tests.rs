@@ -68,3 +68,77 @@ async fn test_handle_command_remove_missing() {
     .await;
     assert!(res.is_err());
 }
+
+#[tokio::test]
+async fn test_handle_command_install_duplicate_error() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::Commands;
+    use rho_harness_core::config::PluginConfig;
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let mut plugins = std::collections::BTreeMap::new();
+    plugins.insert(
+        "rho-plugin-dup".to_string(),
+        PluginConfig {
+            command: Some("rho-plugin-dup".to_string()),
+            ..Default::default()
+        },
+    );
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        plugins,
+        ..Default::default()
+    };
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let res = handle_command(
+        Commands::Install {
+            target: "dup".to_string(),
+            force: false,
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_err());
+}
+
+#[tokio::test]
+async fn test_handle_command_plugin_install_duplicate_error() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::{Commands, PluginCommands};
+    use rho_harness_core::config::PluginConfig;
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let mut plugins = std::collections::BTreeMap::new();
+    plugins.insert(
+        "rho-plugin-dup".to_string(),
+        PluginConfig {
+            command: Some("rho-plugin-dup".to_string()),
+            ..Default::default()
+        },
+    );
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        plugins,
+        ..Default::default()
+    };
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let res = handle_command(
+        Commands::Plugin {
+            action: Some(PluginCommands::Install {
+                target: "dup".to_string(),
+                force: false,
+            }),
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_err());
+}
