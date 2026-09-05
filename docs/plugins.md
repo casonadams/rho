@@ -74,7 +74,79 @@ args = []
 
 ---
 
-## 3. Daemon Protocol (JSON-RPC 2.0 over Stdio)
+## 3. Plugin Package & Artifact Management
+
+`rho` provides automated package management to install, inspect, update, and remove plugin binaries directly from GitHub Releases without requiring a local Rust toolchain or `cargo` CLI:
+
+### A. Installing Plugins
+
+Install prebuilt release binaries into `~/.cargo/bin` and register them in `~/.config/rho/config.toml`:
+
+```bash
+# Bare plugin name (resolves to casonadams/rho-plugin-<name>)
+rho install permission
+
+# Pinned release version or tag
+rho install permission@v0.3.0
+
+# GitHub repository slug
+rho install casonadams/rho-plugin-permission
+
+# Full HTTPS GitHub URL
+rho install https://github.com/casonadams/rho-plugin-permission
+
+# Overwrite existing configuration or binary
+rho install permission --force
+```
+
+*(Visible alias: `rho plugin install <target>`)*
+
+### B. Listing & Inspecting Plugins
+
+Audit all configured plugins, resolved binary locations, artifact health (`Installed (active)` vs `Missing`), and management origin:
+
+```bash
+rho plugin ls
+# or:
+rho plugin list
+```
+
+### C. Updating Plugins & Self-Update
+
+Keep `rho` and installed plugins up to date with precompiled releases:
+
+```bash
+# Self-update rho to the latest GitHub release
+rho update
+
+# Update all configured plugins
+rho update all
+
+# Update a specific plugin
+rho update permission
+```
+
+*(Visible alias: `rho plugin update [target]`)*
+
+### D. Removing Plugins
+
+Remove plugin configuration and safely delete the executable from `~/.cargo/bin`:
+
+```bash
+# Remove plugin and delete ~/.cargo/bin binary
+rho remove permission
+
+# Remove plugin from config.toml but retain the binary on disk
+rho remove permission --keep-binary
+```
+
+*(Visible aliases: `rho uninstall <name>`, `rho plugin remove <name>`, `rho plugin rm <name>`)*
+
+> **Safety boundary**: Binary deletion is strictly confined to `~/.cargo/bin/<executable>`. Binaries located outside this directory (such as system tools or local scripts) are never unlinked.
+
+---
+
+## 4. Daemon Protocol (JSON-RPC 2.0 over Stdio)
 
 External plugins run as persistent processes communicating via standard JSON-RPC
 2.0 over standard I/O (stdin/stdout).
@@ -113,7 +185,7 @@ action:
 
 ---
 
-## 4. Host Services API (`Plugin -> Host Requests`)
+## 5. Host Services API (`Plugin -> Host Requests`)
 
 While evaluating an event, a plugin can request host services (such as UI
 modals) via bidirectional JSON-RPC:
@@ -189,7 +261,7 @@ automatically._
 
 ---
 
-## 5. Building Plugins with `rho-plugin-sdk` (Rust)
+## 6. Building Plugins with `rho-plugin-sdk` (Rust)
 
 For Rust developers, the official
 [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk) eliminates all
@@ -238,7 +310,7 @@ async fn main() {
 
 ---
 
-## 6. Examples in Other Languages
+## 7. Examples in Other Languages
 
 Check [`examples/plugins/`](../examples/plugins/):
 

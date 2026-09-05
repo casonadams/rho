@@ -25,4 +25,10 @@ Authentication:
   API key: anthropic, openai, deepseek, gemini, groq, xai, mistral, cohere, ollama-cloud
   Subscription OAuth: chatgpt, copilot, antigravity, claude (explicit login required via 'rho login <provider>')
   Local: local (no login required; customize with OLLAMA_HOST)
-  Custom: Any OpenAI-compatible endpoint configured in config.toml under [providers.<name>]";
+  Custom: Any OpenAI-compatible endpoint configured in config.toml under [providers.<name>]
+
+Plugin & Package Management:
+  Install: rho install <target> (or 'rho plugin install <target>')
+  Update: rho update [target] (omit for self-update, 'all' for all plugins)
+  List: rho plugin ls (or 'rho plugin list')
+  Remove: rho remove <name> (or 'rho plugin remove <name>')";
