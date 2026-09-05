@@ -56,7 +56,23 @@ pub fn validate_no_duplicates(
             });
         }
 
+        let candidate_path_str = candidate.path.to_str();
+        let existing_path_str = existing_cfg.path.to_str();
         let existing_file_name = existing_cfg.path.file_name().and_then(|f| f.to_str());
+
+        if candidate_has_path && existing_cfg.command.as_deref() == candidate_path_str {
+            return Err(DuplicatePluginError::Command {
+                existing_plugin: existing_name.clone(),
+                command: candidate.command.clone(),
+            });
+        }
+
+        if existing_has_path && existing_path_str == Some(&candidate.command) {
+            return Err(DuplicatePluginError::Command {
+                existing_plugin: existing_name.clone(),
+                command: candidate.command.clone(),
+            });
+        }
         if existing_has_path && existing_file_name == Some(&candidate.command) {
             return Err(DuplicatePluginError::Command {
                 existing_plugin: existing_name.clone(),

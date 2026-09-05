@@ -68,27 +68,11 @@ pub enum PlatformMatchError {
 }
 
 pub fn match_platform_asset<'a>(platform: &Platform, assets: &'a [String]) -> Result<&'a str, PlatformMatchError> {
-    let mut best_match: Option<(&'a str, i32)> = None;
-
-    for asset in assets {
-        if is_non_binary_asset(asset) {
-            continue;
-        }
-
-        if let Some(score) = score_asset(asset, platform) {
-            match best_match {
-                Some((_, best_score)) if score > best_score => {
-                    best_match = Some((asset.as_str(), score));
-                }
-                None => {
-                    best_match = Some((asset.as_str(), score));
-                }
-                _ => {}
-            }
-        }
-    }
-
-    best_match
+    assets
+        .iter()
+        .filter(|a| !is_non_binary_asset(a))
+        .filter_map(|a| score_asset(a, platform).map(|s| (a.as_str(), s)))
+        .max_by_key(|(_, score)| *score)
         .map(|(name, _)| name)
         .ok_or_else(|| PlatformMatchError::NoMatchingAsset {
             target_triple: platform.target_triple().to_string(),

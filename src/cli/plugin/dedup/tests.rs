@@ -151,3 +151,46 @@ fn test_dedup_path_collision_with_other_plugin() {
         })
     );
 }
+
+#[test]
+fn test_dedup_cross_path_command_collisions() {
+    let mut plugins = BTreeMap::new();
+    plugins.insert("tool-one".to_string(), make_plugin(None, "/usr/local/bin/my-tool"));
+
+    let candidate_cmd_matches_filename = PluginCandidate {
+        name: "tool-two".to_string(),
+        command: "my-tool".to_string(),
+        path: PathBuf::new(),
+        force: false,
+    };
+    assert!(matches!(
+        validate_no_duplicates(&plugins, &candidate_cmd_matches_filename),
+        Err(DuplicatePluginError::Command { .. })
+    ));
+
+    let mut plugins2 = BTreeMap::new();
+    plugins2.insert("tool-three".to_string(), make_plugin(Some("runner"), ""));
+    let candidate_path_matches_cmd = PluginCandidate {
+        name: "tool-four".to_string(),
+        command: "other".to_string(),
+        path: PathBuf::from("/opt/bin/runner"),
+        force: false,
+    };
+    assert!(matches!(
+        validate_no_duplicates(&plugins2, &candidate_path_matches_cmd),
+        Err(DuplicatePluginError::Command { .. })
+    ));
+
+    let mut plugins3 = BTreeMap::new();
+    plugins3.insert("tool-five".to_string(), make_plugin(Some("/exact/path/runner"), ""));
+    let candidate_exact_path = PluginCandidate {
+        name: "tool-six".to_string(),
+        command: "other".to_string(),
+        path: PathBuf::from("/exact/path/runner"),
+        force: false,
+    };
+    assert!(matches!(
+        validate_no_duplicates(&plugins3, &candidate_exact_path),
+        Err(DuplicatePluginError::Command { .. })
+    ));
+}
