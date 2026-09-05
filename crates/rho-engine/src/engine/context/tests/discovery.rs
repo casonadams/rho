@@ -177,3 +177,146 @@ async fn test_instruction_deduplication_via_symlink() {
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
+
+#[tokio::test]
+async fn test_project_context_discovery_with_transclusion() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_trans_test_{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+
+    let docs_dir = temp_dir.join("docs");
+    tokio::fs::create_dir_all(&docs_dir).await.unwrap();
+    tokio::fs::write(docs_dir.join("standards.md"), "Inlined development standards.\n")
+        .await
+        .unwrap();
+
+    tokio::fs::write(
+        temp_dir.join("AGENTS.md"),
+        "# Root Rules\n@docs/standards.md\nAlways test.\n",
+    )
+    .await
+    .unwrap();
+
+    let ctx = ProjectContext::discover(&temp_dir, None).await;
+    assert_eq!(ctx.instruction_files.len(), 1);
+    assert!(ctx.instruction_files[0].1.contains("Inlined development standards."));
+    assert!(ctx.instruction_files[0].1.contains("Always test."));
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}
+
+#[tokio::test]
+async fn test_repository_ancestry_walk_up_ordering() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_ancestry_test_{}", uuid::Uuid::new_v4()));
+    let repo_root = temp_dir.join("repo");
+    let crates_dir = repo_root.join("crates");
+    let engine_dir = crates_dir.join("engine");
+
+    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
+    tokio::fs::create_dir_all(&engine_dir).await.unwrap();
+
+    tokio::fs::write(repo_root.join("AGENTS.md"), "# 1. Root Workspace Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(crates_dir.join("AGENTS.md"), "# 2. Crates Intermediate Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(engine_dir.join("AGENTS.md"), "# 3. Engine Subtree Rules\n")
+        .await
+        .unwrap();
+
+    let ctx = ProjectContext::discover_with_dirs(&engine_dir, ContextDirs::default()).await;
+
+    assert_eq!(ctx.instruction_files.len(), 3);
+    assert_eq!(ctx.instruction_files[0].1, "# 1. Root Workspace Rules");
+    assert_eq!(ctx.instruction_files[1].1, "# 2. Crates Intermediate Rules");
+    assert_eq!(ctx.instruction_files[2].1, "# 3. Engine Subtree Rules");
+
+    let prompt = ctx.build_system_prompt();
+    let idx1 = prompt.find("# 1. Root Workspace Rules").unwrap();
+    let idx2 = prompt.find("# 2. Crates Intermediate Rules").unwrap();
+    let idx3 = prompt.find("# 3. Engine Subtree Rules").unwrap();
+    assert!(idx1 < idx2);
+    assert!(idx2 < idx3);
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}
+
+#[tokio::test]
+async fn test_find_repo_root_and_ancestry_helpers() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_repo_root_test_{}", uuid::Uuid::new_v4()));
+    let repo_root = temp_dir.join("repo");
+    let sub_dir = repo_root.join("a").join("b").join("c");
+    let non_repo = temp_dir.join("other");
+
+    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
+    tokio::fs::create_dir_all(&sub_dir).await.unwrap();
+    tokio::fs::create_dir_all(&non_repo).await.unwrap();
+
+    assert_eq!(find_repo_root(&sub_dir), Some(repo_root.clone()));
+    assert_eq!(find_repo_root(&repo_root), Some(repo_root.clone()));
+    assert!(find_repo_root(&non_repo).is_none());
+
+    tokio::fs::write(repo_root.join("AGENTS.md"), "# Repo Root\n")
+        .await
+        .unwrap();
+    tokio::fs::write(sub_dir.join("AGENTS.md"), "# Sub Leaf\n")
+        .await
+        .unwrap();
+
+    let discovered = discover_ancestry_instructions(&sub_dir, Some(&repo_root));
+    assert_eq!(discovered.len(), 2);
+    assert_eq!(discovered[0].1, "# Repo Root");
+    assert_eq!(discovered[1].1, "# Sub Leaf");
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}
+
+#[tokio::test]
+async fn test_ancestry_walk_up_with_global_and_transclusion() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_global_trans_ancestry_{}", uuid::Uuid::new_v4()));
+    let home_dir = temp_dir.join("home");
+    let repo_root = temp_dir.join("repo");
+    let leaf_dir = repo_root.join("crates").join("engine");
+    let docs_dir = repo_root.join("docs");
+
+    tokio::fs::create_dir_all(home_dir.join(".agents")).await.unwrap();
+    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
+    tokio::fs::create_dir_all(&leaf_dir).await.unwrap();
+    tokio::fs::create_dir_all(&docs_dir).await.unwrap();
+
+    tokio::fs::write(home_dir.join(".agents").join("AGENTS.md"), "# Global Rules\n")
+        .await
+        .unwrap();
+    tokio::fs::write(docs_dir.join("standards.md"), "Inlined engineering standards.\n")
+        .await
+        .unwrap();
+    tokio::fs::write(repo_root.join("AGENTS.md"), "# Root Rules\n@docs/standards.md\n")
+        .await
+        .unwrap();
+    tokio::fs::write(leaf_dir.join("AGENTS.md"), "# Leaf Engine Rules\n")
+        .await
+        .unwrap();
+
+    let ctx = ProjectContext::discover_with_dirs(
+        &leaf_dir,
+        ContextDirs {
+            home_dir: Some(&home_dir),
+            ..Default::default()
+        },
+    )
+    .await;
+
+    assert_eq!(ctx.instruction_files.len(), 3);
+    assert_eq!(ctx.instruction_files[0].1, "# Global Rules");
+    assert!(ctx.instruction_files[1].1.contains("Inlined engineering standards."));
+    assert_eq!(ctx.instruction_files[2].1, "# Leaf Engine Rules");
+
+    let prompt = ctx.build_system_prompt();
+    let idx_global = prompt.find("# Global Rules").unwrap();
+    let idx_standards = prompt.find("Inlined engineering standards.").unwrap();
+    let idx_leaf = prompt.find("# Leaf Engine Rules").unwrap();
+    assert!(idx_global < idx_standards);
+    assert!(idx_standards < idx_leaf);
+
+    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+}

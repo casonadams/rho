@@ -60,4 +60,10 @@ impl Config {
         std::fs::create_dir_all(&self.sessions_dir)?;
         Ok(())
     }
+
+    pub async fn ensure_dirs_async(&self) -> Result<()> {
+        tokio::fs::create_dir_all(&self.config_dir).await?;
+        tokio::fs::create_dir_all(&self.sessions_dir).await?;
+        Ok(())
+    }
 }

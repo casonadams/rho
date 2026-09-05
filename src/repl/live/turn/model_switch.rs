@@ -24,7 +24,7 @@ pub(crate) struct TurnModelSwitchInput<'a, 'b, B: TerminalBackend> {
     pub shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
 }
 
-pub(crate) fn apply_turn_model_switch<B: TerminalBackend>(input: TurnModelSwitchInput<'_, '_, B>) -> Result<()> {
+pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(input: TurnModelSwitchInput<'_, '_, B>) -> Result<()> {
     let TurnModelSwitchInput {
         model,
         provider,
@@ -40,10 +40,10 @@ pub(crate) fn apply_turn_model_switch<B: TerminalBackend>(input: TurnModelSwitch
 
     config.model = model.to_string();
     config.provider = provider.to_string();
-    let _ = rho_harness_core::state::AppState::set_last_model(&config.config_dir, model, Some(provider));
+    let _ = rho_harness_core::state::AppState::set_last_model_async(&config.config_dir, model, Some(provider)).await;
     if save_as_default {
-        let _ = rho_harness_core::config::Config::set_file_value(&config.config_dir, "model", model);
-        let _ = rho_harness_core::config::Config::set_file_value(&config.config_dir, "provider", provider);
+        let _ = rho_harness_core::config::Config::set_file_value_async(&config.config_dir, "model", model).await;
+        let _ = rho_harness_core::config::Config::set_file_value_async(&config.config_dir, "provider", provider).await;
         renderer.print_status(&format!("Default model: {model} ({provider})"));
     } else {
         renderer.print_status(&format!("Model: {model} ({provider})"));
@@ -96,6 +96,7 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
         batch: ctx.batch,
         shared_auth: ctx.shared_auth.clone(),
     })
+    .await
 }
 
 pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {
@@ -114,10 +115,11 @@ pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputC
         Some(next_level.to_string())
     };
 
-    let _ = rho_harness_core::state::AppState::set_last_thinking_level(
+    let _ = rho_harness_core::state::AppState::set_last_thinking_level_async(
         &ctx.session.config.config_dir,
         ctx.session.config.thinking_level.as_deref(),
-    );
+    )
+    .await;
 
     let model = ctx.session.config.model.clone();
     let provider = ctx.session.config.provider.clone();
@@ -132,7 +134,8 @@ pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputC
         model_switch: ctx.model_switch,
         batch: ctx.batch,
         shared_auth: ctx.shared_auth.clone(),
-    })?;
+    })
+    .await?;
 
     ctx.controller.state_mut().footer_mut().thinking_level = ctx.session.config.thinking_level.clone();
     ctx.session.renderer.print_status(&format!(

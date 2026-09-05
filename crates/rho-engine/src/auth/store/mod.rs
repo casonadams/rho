@@ -26,6 +26,12 @@ impl AuthStore {
         Ok(Self { file_path, credentials })
     }
 
+    pub async fn load_async(path: impl AsRef<Path>) -> Result<Self> {
+        let file_path = path.as_ref().to_path_buf();
+        let credentials = io::load_credentials_async(&file_path).await?;
+        Ok(Self { file_path, credentials })
+    }
+
     pub fn get_key_sync(&self, provider: &str) -> Result<Option<String>> {
         if let Some(cred) = self.credentials.get(provider) {
             return match cred {
@@ -49,7 +55,7 @@ impl AuthStore {
                     {
                         let access = refreshed.raw_secret().to_string();
                         self.credentials.insert(provider.to_string(), refreshed);
-                        let _ = self.save();
+                        let _ = self.save_async().await;
                         return Ok(Some(access));
                     }
                     Ok(Some(cred.raw_secret().to_string()))
@@ -69,7 +75,7 @@ impl AuthStore {
                     let refreshed = refresh_oauth_token(provider_id, cred).await?;
                     let access = refreshed.raw_secret().to_string();
                     self.credentials.insert(provider.to_string(), refreshed);
-                    self.save()?;
+                    self.save_async().await?;
                     return Ok(Some(access));
                 }
                 StoredCredential::ApiKey { key, .. } => return resolve_secret_value(key).map(Some),
@@ -87,17 +93,40 @@ impl AuthStore {
         self.save()
     }
 
+    pub async fn set_credential_async(&mut self, provider: &str, cred: StoredCredential) -> Result<()> {
+        self.credentials.insert(provider.to_string(), cred);
+        self.save_async().await
+    }
+
     pub fn set_key(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
         self.set_credential(provider, StoredCredential::api_key(key.into()))
+    }
+
+    pub async fn set_key_async(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
+        self.set_credential_async(provider, StoredCredential::api_key(key.into()))
+            .await
     }
 
     pub fn set_api_key(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
         self.set_key(provider, key)
     }
 
+    pub async fn set_api_key_async(&mut self, provider: &str, key: impl Into<String>) -> Result<()> {
+        self.set_key_async(provider, key).await
+    }
+
     pub fn remove_key(&mut self, provider: &str) -> Result<()> {
         self.credentials.remove(provider);
         self.save()
+    }
+
+    pub async fn remove_key_async(&mut self, provider: &str) -> Result<()> {
+        self.credentials.remove(provider);
+        self.save_async().await
+    }
+
+    pub async fn save_async(&self) -> Result<()> {
+        io::save_credentials_async(&self.file_path, &self.credentials).await
     }
 
     pub fn list_configured_providers(&self) -> Vec<String> {

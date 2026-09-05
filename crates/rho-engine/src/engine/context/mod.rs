@@ -1,14 +1,21 @@
 use rho_harness_core::skills::SkillMetadata;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+pub mod activation;
 mod instructions;
 mod prompt;
 #[cfg(test)]
 mod tests;
+pub mod transclusion;
 
-pub use instructions::ContextDirs;
+pub use activation::{MAX_DYNAMIC_INSTRUCTION_BYTES, MAX_DYNAMIC_INSTRUCTION_FILES};
+pub use instructions::{
+    ContextDirs, discover_ancestry_instructions, discover_instructions, discover_instructions_with_seen, find_repo_root,
+};
 pub use prompt::escape_xml;
 pub use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
+pub use transclusion::expand_transclusions;
 
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
@@ -19,6 +26,10 @@ pub struct ProjectContext {
     pub git_status: Option<String>,
     pub os_info: String,
     pub date_str: String,
+    pub seen_instruction_files: HashSet<PathBuf>,
+    pub no_context_files: bool,
+    pub dynamic_instructions_count: usize,
+    pub dynamic_instructions_bytes: usize,
 }
 
 impl ProjectContext {
@@ -52,7 +63,7 @@ impl ProjectContext {
 
     pub async fn discover_with_dirs(dir: impl AsRef<Path>, dirs: ContextDirs<'_>) -> Self {
         let base = dir.as_ref();
-        let instruction_files = instructions::discover_instructions(base, dirs);
+        let (instruction_files, seen_instruction_files) = instructions::discover_instructions_with_seen(base, dirs);
 
         let paths = rho_harness_core::skills::SkillResolutionPaths {
             project_dir: Some(base),
@@ -87,7 +98,15 @@ impl ProjectContext {
             git_status,
             os_info,
             date_str,
+            seen_instruction_files,
+            no_context_files: dirs.no_context_files,
+            dynamic_instructions_count: 0,
+            dynamic_instructions_bytes: 0,
         }
+    }
+
+    pub fn activate_path_instructions(&mut self, path: &Path) {
+        activation::activate_path_instructions(self, path);
     }
 
     /// Re-read only the per-turn volatile fields; files and skill metadata are

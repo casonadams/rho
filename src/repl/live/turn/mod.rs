@@ -138,7 +138,8 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                             model_switch: &model_switch,
                             batch: &mut batch,
                             shared_auth: Some(engine.shared_auth_store()),
-                        })?;
+                        })
+                        .await?;
                     }
                     _ => {}
                 }

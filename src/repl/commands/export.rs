@@ -40,9 +40,9 @@ pub async fn handle_export(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) ->
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| ctx.config.sessions_dir.join(format!("{session_id}.{extension}")));
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        tokio::fs::create_dir_all(parent).await?;
     }
-    std::fs::write(&path, content)?;
+    tokio::fs::write(&path, content).await?;
     ctx.renderer
         .print_notice(&format!("  [Exported session to {}]\n", path.display()));
     Ok(Some(CommandResult::Continue))

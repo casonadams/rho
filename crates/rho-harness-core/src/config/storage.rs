@@ -7,62 +7,32 @@ use super::types::{ConfigKey, FileConfig, PluginConfig};
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
         let path = config_dir.join("config.toml");
-        let mut file_config = if path.exists() {
-            let content = std::fs::read_to_string(&path)
-                .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-            toml::from_str::<FileConfig>(&content)
-                .map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))?
-        } else {
-            FileConfig::default()
-        };
-
-        let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
-        match key {
-            ConfigKey::Model => file_config.model = Some(value.to_string()),
-            ConfigKey::Provider => file_config.provider = Some(value.to_string()),
-            ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::ContextWindowMessages => {
-                file_config.context_window_messages = Some(parse_positive(key.as_str(), value)?)
-            }
-            ConfigKey::CompactionMaxBytes => {
-                file_config.compaction_max_bytes = Some(parse_positive(key.as_str(), value)?)
-            }
-            ConfigKey::SearchMinIntervalMs => {
-                file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?)
-            }
-            ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::AllowPrivateNetwork => {
-                file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?)
-            }
-            ConfigKey::Region => file_config.region = Some(value.to_string()),
-            ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
-            ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
-            ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
-            ConfigKey::ThinkingLevel => file_config.thinking_level = Some(value.to_string()),
-            ConfigKey::Theme => file_config.theme = Some(value.to_string()),
-        }
-
+        let mut file_config = read_file_config(&path)?;
+        apply_config_key(&mut file_config, key, value)?;
         write_file_config(&path, &file_config)
     }
 
+    pub async fn set_file_value_async(config_dir: &Path, key: &str, value: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        apply_config_key(&mut file_config, key, value)?;
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub fn add_plugin(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
-        if name.trim().is_empty() {
-            return Err(AppError::Config("plugin name must not be empty".to_string()));
-        }
-        if plugin.path.as_os_str().is_empty() && plugin.command.is_none() {
-            return Err(AppError::Config("plugin path or command must not be empty".to_string()));
-        }
+        validate_plugin_args(name, &plugin)?;
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config(&path)?;
         file_config.plugins.insert(name.to_string(), plugin);
         write_file_config(&path, &file_config)
+    }
+
+    pub async fn add_plugin_async(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
+        validate_plugin_args(name, &plugin)?;
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        file_config.plugins.insert(name.to_string(), plugin);
+        write_file_config_async(&path, &file_config).await
     }
 
     pub fn remove_plugin(config_dir: &Path, name: &str) -> Result<PluginConfig> {
@@ -75,6 +45,59 @@ impl super::Config {
         write_file_config(&path, &file_config)?;
         Ok(plugin)
     }
+
+    pub async fn remove_plugin_async(config_dir: &Path, name: &str) -> Result<PluginConfig> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let plugin = file_config
+            .plugins
+            .remove(name)
+            .ok_or_else(|| AppError::Config(format!("plugin '{name}' is not configured")))?;
+        write_file_config_async(&path, &file_config).await?;
+        Ok(plugin)
+    }
+}
+
+fn validate_plugin_args(name: &str, plugin: &PluginConfig) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(AppError::Config("plugin name must not be empty".to_string()));
+    }
+    if plugin.path.as_os_str().is_empty() && plugin.command.is_none() {
+        return Err(AppError::Config("plugin path or command must not be empty".to_string()));
+    }
+    Ok(())
+}
+
+fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
+    let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
+    match key {
+        ConfigKey::Model => file_config.model = Some(value.to_string()),
+        ConfigKey::Provider => file_config.provider = Some(value.to_string()),
+        ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::ContextWindowMessages => {
+            file_config.context_window_messages = Some(parse_positive(key.as_str(), value)?)
+        }
+        ConfigKey::CompactionMaxBytes => file_config.compaction_max_bytes = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::SearchMinIntervalMs => {
+            file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?)
+        }
+        ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?),
+        ConfigKey::Region => file_config.region = Some(value.to_string()),
+        ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
+        ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
+        ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::ThinkingLevel => file_config.thinking_level = Some(value.to_string()),
+        ConfigKey::Theme => file_config.theme = Some(value.to_string()),
+    }
+    Ok(())
 }
 
 fn read_file_config(path: &Path) -> Result<FileConfig> {
@@ -82,6 +105,16 @@ fn read_file_config(path: &Path) -> Result<FileConfig> {
         return Ok(FileConfig::default());
     }
     let content = std::fs::read_to_string(path)
+        .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
+    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+}
+
+async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
+    if !tokio::fs::try_exists(path).await.unwrap_or(false) {
+        return Ok(FileConfig::default());
+    }
+    let content = tokio::fs::read_to_string(path)
+        .await
         .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
     toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
 }
@@ -96,6 +129,21 @@ fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {
     std::fs::write(&temporary, serialized)?;
     if let Err(error) = std::fs::rename(&temporary, path) {
         let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let serialized = toml::to_string_pretty(file_config)
+        .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
+    let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
+    tokio::fs::write(&temporary, serialized).await?;
+    if let Err(error) = tokio::fs::rename(&temporary, path).await {
+        let _ = tokio::fs::remove_file(&temporary).await;
         return Err(error.into());
     }
     Ok(())

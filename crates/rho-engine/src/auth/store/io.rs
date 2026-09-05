@@ -21,9 +21,22 @@ pub(super) fn load_credentials(path: &Path) -> Result<HashMap<String, StoredCred
     }
     let content =
         std::fs::read_to_string(path).map_err(|e| AppError::Auth(format!("Failed to read auth file: {e}")))?;
-
     let raw_map: HashMap<String, RawStoredEntry> = serde_json::from_str(&content).unwrap_or_default();
+    Ok(parse_credentials_map(raw_map))
+}
 
+pub(super) async fn load_credentials_async(path: &Path) -> Result<HashMap<String, StoredCredential>> {
+    if !tokio::fs::try_exists(path).await.unwrap_or(false) {
+        return Ok(HashMap::new());
+    }
+    let content = tokio::fs::read_to_string(path)
+        .await
+        .map_err(|e| AppError::Auth(format!("Failed to read auth file: {e}")))?;
+    let raw_map: HashMap<String, RawStoredEntry> = serde_json::from_str(&content).unwrap_or_default();
+    Ok(parse_credentials_map(raw_map))
+}
+
+fn parse_credentials_map(raw_map: HashMap<String, RawStoredEntry>) -> HashMap<String, StoredCredential> {
     let mut credentials = HashMap::new();
     for (k, entry) in raw_map {
         match entry {
@@ -45,8 +58,7 @@ pub(super) fn load_credentials(path: &Path) -> Result<HashMap<String, StoredCred
             }
         }
     }
-
-    Ok(credentials)
+    credentials
 }
 
 pub(super) fn save_credentials(path: &Path, credentials: &HashMap<String, StoredCredential>) -> Result<()> {
@@ -74,5 +86,23 @@ pub(super) fn save_credentials(path: &Path, credentials: &HashMap<String, Stored
         file.write_all(json.as_bytes())?;
     }
 
+    Ok(())
+}
+
+pub(super) async fn save_credentials_async(path: &Path, credentials: &HashMap<String, StoredCredential>) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
+    let json = serde_json::to_string_pretty(credentials)
+        .map_err(|e| AppError::Auth(format!("Failed to serialize auth store: {e}")))?;
+
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).await?;
+    tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await?;
     Ok(())
 }

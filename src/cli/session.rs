@@ -31,11 +31,12 @@ pub async fn export_session(
         Some(id) => id,
         None => {
             let cwd = std::env::current_dir()?;
-            SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?
+            SessionManager::last_session_for_cwd_async(&config.sessions_dir, &cwd)
+                .await?
                 .ok_or_else(|| AppError::Session("no session found to export".to_string()))?
         }
     };
-    let session_manager = SessionManager::new(&config.sessions_dir, Some(&resume_target_id))?;
+    let session_manager = SessionManager::new_async(&config.sessions_dir, Some(&resume_target_id)).await?;
     let tree = session_manager.load_tree().await?;
     let path = PathBuf::from(export_path);
     let content = if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
@@ -44,9 +45,9 @@ pub async fn export_session(
         rho_harness_core::session::export::render_markdown(&tree, &resume_target_id)
     };
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        tokio::fs::create_dir_all(parent).await?;
     }
-    std::fs::write(&path, content)?;
+    tokio::fs::write(&path, content).await?;
     println!("Exported session {} to {}", resume_target_id, path.display());
     Ok(())
 }

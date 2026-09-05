@@ -34,8 +34,9 @@ pub(super) fn tokenize(text: &str) -> Vec<&str> {
     while let Some((idx, c)) = chars.next() {
         if let Some(&(_, next_c)) = chars.peek() {
             if char_category(c) != char_category(next_c) {
-                tokens.push(&text[start..=idx]);
-                start = idx + c.len_utf8();
+                let end = idx + c.len_utf8();
+                tokens.push(&text[start..end]);
+                start = end;
             }
         } else {
             tokens.push(&text[start..]);

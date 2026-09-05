@@ -61,7 +61,13 @@ pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Res
             quota,
         });
 
-        let sig = line_editor.read_line(&prompt);
+        let (editor, sig) = tokio::task::spawn_blocking(move || {
+            let sig = line_editor.read_line(&prompt);
+            (line_editor, sig)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Line editor task failed: {e}"))?;
+        line_editor = editor;
         match sig {
             Ok(Signal::Success(buffer)) => {
                 let input = buffer.trim();

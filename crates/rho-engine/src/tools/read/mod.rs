@@ -35,7 +35,7 @@ impl ReadTool {
         };
         let base = workspace.root();
 
-        if !path.exists() {
+        if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
             return Ok(ToolResult::error(format!(
                 "File not found: {} (in working directory: {})",
                 clean_path,

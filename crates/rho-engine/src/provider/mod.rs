@@ -25,6 +25,13 @@ pub struct ModelRequest<'a> {
     pub shared_auth: Option<std::sync::Arc<tokio::sync::Mutex<AuthStore>>>,
 }
 
+static SHARED_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+    reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .expect("Failed to build shared HTTP client")
+});
+
 pub struct ProviderFactory;
 
 impl ProviderFactory {
@@ -68,6 +75,7 @@ impl ProviderFactory {
         })?;
 
         let client = rig::providers::openai::Client::builder()
+            .http_client(SHARED_HTTP_CLIENT.clone())
             .api_key(key)
             .base_url(&spec.base_url)
             .build()
@@ -97,6 +105,7 @@ impl ProviderFactory {
         if provider == ProviderId::Local {
             let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
             let client = rig::providers::ollama::Client::builder()
+                .http_client(SHARED_HTTP_CLIENT.clone())
                 .api_key("")
                 .base_url(&host)
                 .build()
@@ -120,7 +129,10 @@ impl ProviderFactory {
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
             ProviderId::OpenAi => {
-                let client = rig::providers::openai::Client::new(key)
+                let client = rig::providers::openai::Client::builder()
+                    .http_client(SHARED_HTTP_CLIENT.clone())
+                    .api_key(key)
+                    .build()
                     .map_err(|e| AppError::Provider(format!("Failed to initialize OpenAI client: {e}")))?;
                 ModelHandle::named(provider.as_str(), client.completion_model(model))
             }
@@ -229,6 +241,7 @@ impl ProviderFactory {
             }
             ProviderId::OllamaCloud => {
                 let client = rig::providers::openai::Client::builder()
+                    .http_client(SHARED_HTTP_CLIENT.clone())
                     .api_key(key)
                     .base_url("https://ollama.com/v1")
                     .build()

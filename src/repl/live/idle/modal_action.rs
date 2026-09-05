@@ -28,19 +28,25 @@ pub(super) async fn apply_modal_key_result<B: TerminalBackend>(
         } => {
             ctx.session.config.model = model.clone();
             ctx.session.config.provider = provider.clone();
-            let _ = rho_harness_core::state::AppState::set_last_model(
+            let _ = rho_harness_core::state::AppState::set_last_model_async(
                 &ctx.session.config.config_dir,
                 &model,
                 Some(&provider),
-            );
+            )
+            .await;
             if save_as_default {
-                let _ =
-                    rho_harness_core::config::Config::set_file_value(&ctx.session.config.config_dir, "model", &model);
-                let _ = rho_harness_core::config::Config::set_file_value(
+                let _ = rho_harness_core::config::Config::set_file_value_async(
+                    &ctx.session.config.config_dir,
+                    "model",
+                    &model,
+                )
+                .await;
+                let _ = rho_harness_core::config::Config::set_file_value_async(
                     &ctx.session.config.config_dir,
                     "provider",
                     &provider,
-                );
+                )
+                .await;
                 ctx.session
                     .renderer
                     .print_status(&format!("Default model: {model} ({provider})"));
@@ -113,7 +119,8 @@ pub(super) async fn apply_modal_key_result<B: TerminalBackend>(
             Ok(true)
         }
         ModalKeyResult::SessionDeleted { session_id } => {
-            let _ = rho_harness_core::session::delete_session(&ctx.session.config.sessions_dir, &session_id);
+            let _ =
+                rho_harness_core::session::delete_session_async(&ctx.session.config.sessions_dir, &session_id).await;
             ctx.session
                 .renderer
                 .print_status(&format!("Deleted session {session_id}"));
@@ -126,8 +133,12 @@ pub(super) async fn apply_modal_key_result<B: TerminalBackend>(
                 ctx.session.config.theme = theme.clone();
                 ctx.session.renderer.theme = resolved.clone();
                 let _ = ctx.controller.set_theme(resolved);
-                let _ =
-                    rho_harness_core::config::Config::set_file_value(&ctx.session.config.config_dir, "theme", &theme);
+                let _ = rho_harness_core::config::Config::set_file_value_async(
+                    &ctx.session.config.config_dir,
+                    "theme",
+                    &theme,
+                )
+                .await;
                 ctx.session.renderer.print_status(&format!("Theme: {theme}"));
             }
             ctx.controller.redraw()?;

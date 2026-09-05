@@ -28,9 +28,9 @@ pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let cli = <Cli as clap::Parser>::parse();
     let config = Config::load(Some(&cli))?;
     let cli_for_repl = cli.clone();
-    config.ensure_dirs()?;
+    config.ensure_dirs_async().await?;
 
-    let mut auth_store = AuthStore::load(&config.auth_file)?;
+    let mut auth_store = AuthStore::load_async(&config.auth_file).await?;
 
     if let Some(cmd) = cli.command {
         return commands::handle_command(cmd, &config, &mut auth_store).await;

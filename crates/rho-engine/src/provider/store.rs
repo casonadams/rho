@@ -41,6 +41,30 @@ impl ModelStore {
         }
     }
 
+    pub async fn load_async(path: impl AsRef<Path>) -> Self {
+        let path = path.as_ref();
+        if !tokio::fs::try_exists(path).await.unwrap_or(false) {
+            return Self {
+                file_path: path.to_path_buf(),
+                updated_at_ms: 0,
+                models: HashMap::new(),
+            };
+        }
+
+        if let Ok(content) = tokio::fs::read_to_string(path).await
+            && let Ok(mut store) = serde_json::from_str::<Self>(&content)
+        {
+            store.file_path = path.to_path_buf();
+            return store;
+        }
+
+        Self {
+            file_path: path.to_path_buf(),
+            updated_at_ms: 0,
+            models: HashMap::new(),
+        }
+    }
+
     pub fn get_models(&self, provider: &str) -> Option<&Vec<DiscoveredModel>> {
         self.models.get(provider)
     }
@@ -63,6 +87,12 @@ impl ModelStore {
         self.models.insert(provider.to_string(), models);
         self.updated_at_ms = chrono::Utc::now().timestamp_millis();
         self.save()
+    }
+
+    pub async fn set_models_async(&mut self, provider: &str, models: Vec<DiscoveredModel>) -> Result<()> {
+        self.models.insert(provider.to_string(), models);
+        self.updated_at_ms = chrono::Utc::now().timestamp_millis();
+        self.save_async().await
     }
 
     pub fn save(&self) -> Result<()> {
@@ -94,6 +124,24 @@ impl ModelStore {
             file.write_all(json.as_bytes())?;
         }
 
+        Ok(())
+    }
+
+    pub async fn save_async(&self) -> Result<()> {
+        if let Some(parent) = self.file_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        let json = serde_json::to_string_pretty(self)
+            .map_err(|e| AppError::Other(anyhow::anyhow!("Failed to serialize model store: {e}")))?;
+
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            options.mode(0o600);
+        }
+        let mut file = options.open(&self.file_path).await?;
+        tokio::io::AsyncWriteExt::write_all(&mut file, json.as_bytes()).await?;
         Ok(())
     }
 }

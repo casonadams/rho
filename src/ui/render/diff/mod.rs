@@ -4,6 +4,9 @@ mod line;
 mod token;
 mod word;
 
+#[cfg(test)]
+mod tests;
+
 pub use line::find_edit_line_number;
 pub use word::{render_single_line_word_diff, replace_tabs};
 

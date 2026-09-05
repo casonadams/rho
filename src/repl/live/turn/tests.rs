@@ -259,7 +259,7 @@ async fn test_apply_turn_model_switch_updates_model_switch_and_footer() {
         shared_auth: None,
     };
 
-    super::apply_turn_model_switch(input).unwrap();
+    super::apply_turn_model_switch(input).await.unwrap();
 
     assert_eq!(config.model, "llama3.2");
     assert_eq!(config.provider, "local");

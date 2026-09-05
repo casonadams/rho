@@ -135,3 +135,24 @@ pub fn save_image_to_temp_png(img: &ClipboardImage) -> Result<std::path::PathBuf
     )?;
     Ok(path)
 }
+
+pub async fn save_image_to_temp_png_async(img: &ClipboardImage) -> Result<std::path::PathBuf> {
+    let bytes = img.bytes.clone();
+    let width = img.width as u32;
+    let height = img.height as u32;
+    tokio::task::spawn_blocking(move || {
+        let file_name = format!("rho-clipboard-{}.png", uuid::Uuid::new_v4());
+        let path = std::env::temp_dir().join(file_name);
+        image::save_buffer_with_format(
+            &path,
+            &bytes,
+            width,
+            height,
+            image::ExtendedColorType::Rgba8,
+            image::ImageFormat::Png,
+        )?;
+        Ok(path)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Image save task failed: {e}"))?
+}

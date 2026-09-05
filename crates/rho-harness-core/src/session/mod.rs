@@ -25,13 +25,17 @@ pub use compaction::{
     compaction_summary_message, compose_compaction_summary, extract_file_ops, generate_fallback_summary,
     merge_split_turn_summary, render_file_lists_xml, serialize_conversation,
 };
-pub use cwd::{last_session_for_cwd, record_session_for_cwd};
+pub use cwd::{last_session_for_cwd, last_session_for_cwd_async, record_session_for_cwd, record_session_for_cwd_async};
 pub use format::{SessionEvent, SessionEventKind, SessionHeader, SessionRecord, StoreState};
-pub(crate) use format::{create_session_file, load_file};
+pub(crate) use format::{create_session_file, create_session_file_async, load_file, load_file_async};
 pub(crate) use fs::{
-    new_session_id, session_error, set_private_directory_permissions, set_private_file_permissions, validate_session_id,
+    new_session_id, session_error, set_private_directory_permissions, set_private_directory_permissions_async,
+    set_private_file_permissions, set_private_file_permissions_async, validate_session_id,
 };
-pub use summary::{SessionSummary, delete_session, list_session_summaries, list_sessions};
+pub use summary::{
+    SessionSummary, delete_session, delete_session_async, list_session_summaries, list_session_summaries_async,
+    list_sessions, list_sessions_async,
+};
 pub use tree::{SessionTree, TreeNodeData, TreeNodeKind};
 pub use turns::ConversationTurn;
 use validation::CanonicalHistory;
@@ -63,6 +67,10 @@ impl std::fmt::Debug for SessionManager {
 impl SessionManager {
     pub fn new(sessions_dir: &Path, resume_id: Option<&str>) -> Result<Self> {
         Self::new_with_secrets(sessions_dir, resume_id, Vec::new())
+    }
+
+    pub async fn new_async(sessions_dir: &Path, resume_id: Option<&str>) -> Result<Self> {
+        Self::new_with_secrets_async(sessions_dir, resume_id, Vec::new()).await
     }
 
     pub fn new_with_secrets(sessions_dir: &Path, resume_id: Option<&str>, secrets: Vec<String>) -> Result<Self> {
@@ -101,12 +109,60 @@ impl SessionManager {
         })
     }
 
+    pub async fn new_with_secrets_async(
+        sessions_dir: &Path,
+        resume_id: Option<&str>,
+        secrets: Vec<String>,
+    ) -> Result<Self> {
+        tokio::fs::create_dir_all(sessions_dir).await?;
+        set_private_directory_permissions_async(sessions_dir).await?;
+        let session_id = resume_id.map_or_else(new_session_id, str::to_string);
+        validate_session_id(&session_id)?;
+        let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
+        let state = match resume_id {
+            Some(_) => {
+                set_private_file_permissions_async(&file_path).await?;
+                load_file_async(&file_path, &session_id).await?
+            }
+            None => {
+                create_session_file_async(&file_path, &session_id).await?;
+                StoreState {
+                    next_sequence: 1,
+                    messages: Vec::new(),
+                    checkpoint: None,
+                    events: Vec::new(),
+                    tree: SessionTree::new(),
+                    integrity: CanonicalHistory::new(),
+                }
+            }
+        };
+        let secrets = Arc::new(SecretGuard::new(secrets));
+        if let Ok(cwd) = std::env::current_dir() {
+            let _ = Self::record_session_for_cwd_async(sessions_dir, &cwd, &session_id).await;
+        }
+        Ok(Self {
+            session_id,
+            file_path,
+            state: Arc::new(tokio::sync::Mutex::new(state)),
+            secrets,
+            memory_error: Arc::new(Mutex::new(None)),
+        })
+    }
+
     pub fn record_session_for_cwd(sessions_dir: &Path, cwd: &Path, session_id: &str) -> Result<()> {
         cwd::record_session_for_cwd(sessions_dir, cwd, session_id)
     }
 
+    pub async fn record_session_for_cwd_async(sessions_dir: &Path, cwd: &Path, session_id: &str) -> Result<()> {
+        cwd::record_session_for_cwd_async(sessions_dir, cwd, session_id).await
+    }
+
     pub fn last_session_for_cwd(sessions_dir: &Path, cwd: &Path) -> Result<Option<String>> {
         cwd::last_session_for_cwd(sessions_dir, cwd)
+    }
+
+    pub async fn last_session_for_cwd_async(sessions_dir: &Path, cwd: &Path) -> Result<Option<String>> {
+        cwd::last_session_for_cwd_async(sessions_dir, cwd).await
     }
 
     pub fn take_memory_error(&self) -> Option<String> {
@@ -118,6 +174,11 @@ impl SessionManager {
         self.secrets.add(secrets, &persisted)
     }
 
+    pub async fn add_secrets_async(&self, secrets: impl IntoIterator<Item = String>) -> Result<()> {
+        let persisted = tokio::fs::read_to_string(&self.file_path).await?;
+        self.secrets.add(secrets, &persisted)
+    }
+
     pub fn redact_credentials(&self, value: &str) -> String {
         self.secrets.redact(value)
     }
@@ -126,12 +187,24 @@ impl SessionManager {
         summary::list_sessions(sessions_dir)
     }
 
+    pub async fn list_sessions_async(sessions_dir: &Path) -> Result<Vec<String>> {
+        summary::list_sessions_async(sessions_dir).await
+    }
+
     pub fn list_session_summaries(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
         summary::list_session_summaries(sessions_dir)
     }
 
+    pub async fn list_session_summaries_async(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
+        summary::list_session_summaries_async(sessions_dir).await
+    }
+
     pub fn delete_session(sessions_dir: &Path, session_id: &str) -> Result<()> {
         summary::delete_session(sessions_dir, session_id)
+    }
+
+    pub async fn delete_session_async(sessions_dir: &Path, session_id: &str) -> Result<()> {
+        summary::delete_session_async(sessions_dir, session_id).await
     }
 
     pub(crate) fn reject_secrets<T: Serialize>(&self, value: &T) -> Result<()> {

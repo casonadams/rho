@@ -140,6 +140,13 @@ impl AgentEngine {
             .unwrap_or_default()
     }
 
+    pub async fn activate_path_instructions(&self, path: &std::path::Path) {
+        let mut cache = self.project_context.lock().await;
+        if let Some((_, cached)) = cache.as_mut() {
+            cached.activate_path_instructions(path);
+        }
+    }
+
     pub fn context_usage_percent(&self) -> Option<usize> {
         let usage = self.usage.latest()?;
         if !usage.has_values() {

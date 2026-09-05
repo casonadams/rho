@@ -47,10 +47,11 @@ pub async fn cycle_thinking_level<B: TerminalBackend>(
         Some(next_level.to_string())
     };
 
-    let _ = rho_harness_core::state::AppState::set_last_thinking_level(
+    let _ = rho_harness_core::state::AppState::set_last_thinking_level_async(
         &session.config.config_dir,
         session.config.thinking_level.as_deref(),
-    );
+    )
+    .await;
 
     // Providers route on the thinking level (Antigravity runtime variants), so
     // rebuild the engine like a model switch does.
@@ -91,11 +92,12 @@ pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_,
     ctx.session.config.model = item.id.clone();
     ctx.session.config.provider = item.provider.clone();
 
-    let _ = rho_harness_core::state::AppState::set_last_model(
+    let _ = rho_harness_core::state::AppState::set_last_model_async(
         &ctx.session.config.config_dir,
         &item.id,
         Some(&item.provider),
-    );
+    )
+    .await;
 
     if let Ok(rebuilt) = ctx
         .engine

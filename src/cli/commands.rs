@@ -19,7 +19,7 @@ pub async fn handle_command(
             super::auth::logout_provider(provider.as_deref(), config, auth_store)?;
         }
         Commands::Config { key, value } => {
-            handle_config(key, value, config)?;
+            handle_config(key, value, config).await?;
         }
         Commands::Models => {
             handle_models(config);
@@ -31,14 +31,14 @@ pub async fn handle_command(
     Ok(())
 }
 
-fn handle_config(
+async fn handle_config(
     key: Option<String>,
     value: Option<String>,
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match (key, value) {
         (Some(k), Some(v)) => {
-            Config::set_file_value(&config.config_dir, &k, &v)?;
+            Config::set_file_value_async(&config.config_dir, &k, &v).await?;
             println!("Set {k} = {v} in {}", config.config_dir.join("config.toml").display());
         }
         (Some(_), None) | (None, Some(_)) => {

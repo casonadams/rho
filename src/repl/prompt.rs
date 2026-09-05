@@ -1,6 +1,7 @@
 use reedline::{Prompt, PromptEditMode, PromptHistorySearch};
 use std::borrow::Cow;
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SimplePrompt;
 
 impl Prompt for SimplePrompt {

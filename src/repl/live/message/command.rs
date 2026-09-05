@@ -64,8 +64,12 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
                 ctx.session.config.theme = theme.clone();
                 ctx.session.renderer.theme = resolved.clone();
                 let _ = io.controller.set_theme(resolved);
-                let _ =
-                    rho_harness_core::config::Config::set_file_value(&ctx.session.config.config_dir, "theme", &theme);
+                let _ = rho_harness_core::config::Config::set_file_value_async(
+                    &ctx.session.config.config_dir,
+                    "theme",
+                    &theme,
+                )
+                .await;
                 ctx.session.renderer.print_status(&format!("Theme: {theme}"));
             }
         }
@@ -81,11 +85,12 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             if let Some(provider) = new_provider.as_ref() {
                 ctx.session.config.provider = provider.clone();
             }
-            let _ = rho_harness_core::state::AppState::set_last_model(
+            let _ = rho_harness_core::state::AppState::set_last_model_async(
                 &ctx.session.config.config_dir,
                 &new_model,
                 new_provider.as_deref(),
-            );
+            )
+            .await;
             *ctx.engine = ctx
                 .engine
                 .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())

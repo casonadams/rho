@@ -120,7 +120,7 @@ impl SessionManager {
             tree.active_leaf_id.clone()
         };
 
-        let forked = SessionManager::new(sessions_dir, None)?;
+        let forked = SessionManager::new_async(sessions_dir, None).await?;
         if let Some(target_id) = target_node_id {
             let ancestors = tree.ancestor_nodes(&target_id);
             for node in ancestors {

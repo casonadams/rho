@@ -116,7 +116,8 @@ impl AgentEngine {
             }
             hook_stack.push(
                 TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
-                    .with_model_switch(request.model_switch.clone()),
+                    .with_model_switch(request.model_switch.clone())
+                    .with_project_context(self.project_context.clone()),
             );
 
             let agent_guard = self.agent.read().await;

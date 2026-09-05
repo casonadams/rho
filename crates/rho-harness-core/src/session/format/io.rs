@@ -32,6 +32,27 @@ pub fn create_session_file(path: &Path, session_id: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn create_session_file_async(path: &Path, session_id: &str) -> Result<()> {
+    let header = SessionHeader {
+        record_type: HeaderRecordType::Header,
+        version: SESSION_VERSION,
+        session_id: session_id.to_string(),
+        created_at: Utc::now(),
+    };
+    let mut line = serde_json::to_vec(&header).map_err(|_| session_error("session header serialization failed"))?;
+    line.push(b'\n');
+    let mut options = tokio::fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path).await?;
+    file.write_all(&line).await?;
+    file.sync_data().await?;
+    Ok(())
+}
+
 async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
     let mut line = serde_json::to_vec(record).map_err(|_| session_error("session record serialization failed"))?;
     line.push(b'\n');
@@ -66,7 +87,22 @@ pub fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
         }
         Err(error) => return Err(error.into()),
     };
-    let committed = committed_lines(&bytes)?;
+    parse_committed_bytes(&bytes, expected_id)
+}
+
+pub async fn load_file_async(path: &Path, expected_id: &str) -> Result<StoreState> {
+    let bytes = match tokio::fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(session_error(format!("unknown session id: {expected_id}")));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    parse_committed_bytes(&bytes, expected_id)
+}
+
+fn parse_committed_bytes(bytes: &[u8], expected_id: &str) -> Result<StoreState> {
+    let committed = committed_lines(bytes)?;
     let Some(first) = committed.first() else {
         return Err(session_error("session is missing the mandatory version header"));
     };

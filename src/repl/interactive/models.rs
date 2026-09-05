@@ -115,11 +115,11 @@ pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
     let custom_providers = config.providers.clone();
 
     tokio::spawn(async move {
-        let mut store = ModelStore::load(config_dir.join("models-store.json"));
+        let mut store = ModelStore::load_async(config_dir.join("models-store.json")).await;
 
         // Always discover local models
         if let Ok(discovered) = discover_provider_models(ProviderId::Local, &auth_store_clone).await {
-            let _ = store.set_models("local", discovered);
+            let _ = store.set_models_async("local", discovered).await;
         }
 
         // Discover configured authenticated providers
@@ -130,7 +130,7 @@ pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
             if let Ok(id) = ProviderId::from_str(&prov_str)
                 && let Ok(discovered) = discover_provider_models(id, &auth_store_clone).await
             {
-                let _ = store.set_models(&prov_str, discovered);
+                let _ = store.set_models_async(&prov_str, discovered).await;
             }
         }
 
@@ -141,7 +141,7 @@ pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
                 rho_engine::provider::discovery::discover_custom_provider_models(&name, &spec.base_url, key.as_deref())
                     .await
             {
-                let _ = store.set_models(&name, discovered);
+                let _ = store.set_models_async(&name, discovered).await;
             }
         }
     });

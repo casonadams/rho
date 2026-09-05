@@ -11,12 +11,32 @@ pub(crate) fn set_private_directory_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
+pub(crate) async fn set_private_directory_permissions_async(_path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o700)).await?;
+    }
+    Ok(())
+}
+
 pub(crate) fn set_private_file_permissions(_path: &Path) -> Result<()> {
     #[cfg(unix)]
     {
         if _path.exists() {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o600))?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn set_private_file_permissions_async(_path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        if tokio::fs::try_exists(_path).await.unwrap_or(false) {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o600)).await?;
         }
     }
     Ok(())

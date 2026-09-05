@@ -50,15 +50,18 @@ impl EditTool {
         }
         let base = workspace.root();
 
-        if !path.exists() {
-            return Ok(ToolResult::error(format!(
-                "File not found for edit: {} (in working directory: {})",
-                clean_path,
-                base.display()
-            )));
-        }
+        let metadata = match tokio::fs::metadata(&path).await {
+            Ok(m) => m,
+            Err(_) => {
+                return Ok(ToolResult::error(format!(
+                    "File not found for edit: {} (in working directory: {})",
+                    clean_path,
+                    base.display()
+                )));
+            }
+        };
 
-        if path.is_dir() {
+        if metadata.is_dir() {
             return Ok(ToolResult::error(format!(
                 "Cannot edit {clean_path}: target path is a directory"
             )));

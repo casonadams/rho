@@ -26,11 +26,31 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    pub async fn load_async(config_dir: &Path) -> Self {
+        let state_file = config_dir.join("state.json");
+        if !tokio::fs::try_exists(&state_file).await.unwrap_or(false) {
+            return Self::default();
+        }
+        tokio::fs::read_to_string(&state_file)
+            .await
+            .ok()
+            .and_then(|content| serde_json::from_str(&content).ok())
+            .unwrap_or_default()
+    }
+
     pub fn save(&self, config_dir: &Path) -> Result<()> {
         std::fs::create_dir_all(config_dir)?;
         let state_file = config_dir.join("state.json");
         let content = serde_json::to_string_pretty(self).map_err(|e| AppError::Config(e.to_string()))?;
         std::fs::write(&state_file, content)?;
+        Ok(())
+    }
+
+    pub async fn save_async(&self, config_dir: &Path) -> Result<()> {
+        tokio::fs::create_dir_all(config_dir).await?;
+        let state_file = config_dir.join("state.json");
+        let content = serde_json::to_string_pretty(self).map_err(|e| AppError::Config(e.to_string()))?;
+        tokio::fs::write(&state_file, content).await?;
         Ok(())
     }
 
@@ -43,10 +63,25 @@ impl AppState {
         state.save(config_dir)
     }
 
+    pub async fn set_last_model_async(config_dir: &Path, model: &str, provider: Option<&str>) -> Result<()> {
+        let mut state = Self::load_async(config_dir).await;
+        state.last_model = Some(model.to_string());
+        if let Some(p) = provider {
+            state.last_provider = Some(p.to_string());
+        }
+        state.save_async(config_dir).await
+    }
+
     pub fn set_last_thinking_level(config_dir: &Path, thinking_level: Option<&str>) -> Result<()> {
         let mut state = Self::load(config_dir);
         state.last_thinking_level = thinking_level.map(ToString::to_string);
         state.save(config_dir)
+    }
+
+    pub async fn set_last_thinking_level_async(config_dir: &Path, thinking_level: Option<&str>) -> Result<()> {
+        let mut state = Self::load_async(config_dir).await;
+        state.last_thinking_level = thinking_level.map(ToString::to_string);
+        state.save_async(config_dir).await
     }
 }
 

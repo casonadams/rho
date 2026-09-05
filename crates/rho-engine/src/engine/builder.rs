@@ -90,11 +90,14 @@ impl AgentEngineBuilder {
         let base_dir = self.base_dir.unwrap_or(std::env::current_dir()?);
         let session_manager = match self.session_manager {
             Some(session) => session,
-            None => SessionManager::new_with_secrets(
-                &self.config.sessions_dir,
-                self.resume_id.as_deref(),
-                self.auth_store.secret_values(),
-            )?,
+            None => {
+                SessionManager::new_with_secrets_async(
+                    &self.config.sessions_dir,
+                    self.resume_id.as_deref(),
+                    self.auth_store.secret_values(),
+                )
+                .await?
+            }
         };
 
         let mut config = self.config;

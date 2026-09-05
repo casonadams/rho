@@ -92,8 +92,8 @@ fn model_selector_displays_claude_tag_and_selects_claude_model() {
     }
 }
 
-#[test]
-fn turn_model_switch_applies_claude_model_and_creates_handle() {
+#[tokio::test]
+async fn turn_model_switch_applies_claude_model_and_creates_handle() {
     let (_dir, session) = setup_claude_session();
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let mut batch = crate::repl::live::batch::LiveBatch::new();
@@ -114,7 +114,7 @@ fn turn_model_switch_applies_claude_model_and_creates_handle() {
         shared_auth: None,
     };
 
-    apply_turn_model_switch(input).unwrap();
+    apply_turn_model_switch(input).await.unwrap();
 
     assert_eq!(config.model, "claude-opus-4-6");
     assert_eq!(config.provider, "claude");

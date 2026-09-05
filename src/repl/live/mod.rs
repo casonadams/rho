@@ -49,7 +49,10 @@ impl ReplSession {
             let _ = controller.set_theme(initial_theme);
         }
         let mut input = TerminalInputReader::spawn()?;
-        let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
+        let skills =
+            tokio::task::spawn_blocking(|| crate::skills::resolved_skills(std::env::current_dir().ok().as_deref()))
+                .await
+                .unwrap_or_default();
         let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
         let tools = engine.tool_names();
         let mut plugins = self.config.plugins.keys().cloned().collect::<Vec<_>>();
@@ -74,13 +77,18 @@ impl ReplSession {
 
         let mut history = InteractiveHistory::with_file(1000, self.config.config_dir.join("history.txt"))
             .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?;
-        let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
-            Some(&self.config.config_dir),
-            std::env::current_dir().ok().as_deref(),
-        )
-        .into_iter()
-        .map(|t| t.metadata.name)
-        .collect::<Vec<_>>();
+        let config_dir = self.config.config_dir.clone();
+        let prompt_templates = tokio::task::spawn_blocking(move || {
+            rho_harness_core::prompts::discover_prompt_templates(
+                Some(&config_dir),
+                std::env::current_dir().ok().as_deref(),
+            )
+            .into_iter()
+            .map(|t| t.metadata.name)
+            .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
         crate::repl::interactive::spawn_background_model_refresh(&self.config, &self.auth_store);
         let models = crate::repl::interactive::discover_models(&self.config, &self.auth_store);
         let custom_providers = self.config.providers.keys().cloned().collect();

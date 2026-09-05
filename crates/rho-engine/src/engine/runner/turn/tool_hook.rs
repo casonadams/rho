@@ -14,6 +14,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub use steering::{STEERING_SKIP_REASON, attach_steering_to_output, format_steering_messages};
 
+type ProjectContextCache =
+    Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, crate::engine::context::ProjectContext)>>>;
+
 /// Renders the sink display and decides the model-visible action for every
 /// tool result. Image blocks are kept only for providers whose rig adapter
 /// serializes them; for everyone else they are replaced with an omission note
@@ -24,6 +27,7 @@ pub struct TurnToolExecutionHook {
     steering: Option<Arc<dyn SteeringQueueProvider>>,
     steered: AtomicBool,
     model_switch: Option<Arc<SharedModelSwitch>>,
+    project_context: Option<ProjectContextCache>,
 }
 
 impl TurnToolExecutionHook {
@@ -38,11 +42,17 @@ impl TurnToolExecutionHook {
             steering,
             steered: AtomicBool::new(false),
             model_switch: None,
+            project_context: None,
         }
     }
 
     pub fn with_model_switch(mut self, model_switch: Option<Arc<SharedModelSwitch>>) -> Self {
         self.model_switch = model_switch;
+        self
+    }
+
+    pub fn with_project_context(mut self, project_context: ProjectContextCache) -> Self {
+        self.project_context = Some(project_context);
         self
     }
 
@@ -84,11 +94,13 @@ impl AgentHook for TurnToolExecutionHook {
         }
         let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
         self.sink.tool_start(event.tool_name, &arguments);
+        self.activate_path_from_arguments(&arguments).await;
         ToolCallAction::run()
     }
 
     async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
         let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
+        self.activate_path_from_arguments(&arguments).await;
         let provider = self
             .model_switch
             .as_ref()
@@ -115,6 +127,29 @@ impl AgentHook for TurnToolExecutionHook {
 
         action
     }
+}
+
+impl TurnToolExecutionHook {
+    async fn activate_path_from_arguments(&self, arguments: &serde_json::Value) {
+        if let Some(path_str) = extract_path_argument(arguments)
+            && let Some(ctx_cache) = &self.project_context
+        {
+            let mut guard = ctx_cache.lock().await;
+            if let Some((_, ctx)) = guard.as_mut() {
+                ctx.activate_path_instructions(std::path::Path::new(path_str));
+            }
+        }
+    }
+}
+
+pub fn extract_path_argument(arguments: &serde_json::Value) -> Option<&str> {
+    arguments
+        .get("path")
+        .or_else(|| arguments.get("file_path"))
+        .or_else(|| arguments.get("filePath"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().trim_matches('"').trim_matches('\''))
+        .filter(|s| !s.is_empty())
 }
 
 /// The model-visible action and transcript text for a tool result.

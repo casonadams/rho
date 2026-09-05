@@ -45,7 +45,8 @@ impl WriteTool {
                 "Write target is outside the permitted workspace: {clean_path}"
             )));
         }
-        if path.is_dir() {
+        let is_dir = tokio::fs::metadata(&path).await.map(|m| m.is_dir()).unwrap_or(false);
+        if is_dir {
             return Ok(ToolResult::error(format!(
                 "Cannot write to {clean_path}: target path is a directory"
             )));
