@@ -81,6 +81,13 @@ pub fn handle_session_key<B: TerminalBackend>(
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(modal) = controller.state_mut().active_modal_mut()
+                && !modal.filter_query.is_empty()
+            {
+                modal.set_filter("");
+                controller.redraw()?;
+                return Ok(ModalKeyResult::Handled);
+            }
             controller.state_mut().pop_modal();
             controller.redraw()?;
             Ok(ModalKeyResult::Handled)

@@ -6,6 +6,7 @@ mod common;
 mod default_model;
 mod footer;
 mod history;
+mod idle_shortcuts;
 mod modals;
 mod session_modal;
 mod suspend;

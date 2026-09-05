@@ -43,13 +43,19 @@ pub(super) fn handle_input_mode_key<B: TerminalBackend>(
                 let _ = pending.responder.respond(response);
             }
         }
-        _ => {
-            if let InputAction::Edit(action) = map_key(key)
-                && let Some(modal) = controller.state_mut().active_modal_mut()
-            {
-                apply_input_edit(&mut modal.input, action);
+        _ => match map_key(key) {
+            InputAction::Clear => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    modal.input.set_text("");
+                }
             }
-        }
+            InputAction::Edit(action) => {
+                if let Some(modal) = controller.state_mut().active_modal_mut() {
+                    apply_input_edit(&mut modal.input, action);
+                }
+            }
+            _ => {}
+        },
     }
     controller.redraw()?;
     Ok(ModalKeyResult::Handled)

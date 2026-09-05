@@ -1,6 +1,6 @@
 mod editor;
 pub(crate) mod modal_action;
-mod shortcut;
+pub(crate) mod shortcut;
 
 use editor::open_external_editor;
 use modal_action::{ModalActionContext, apply_modal_key_result};

@@ -10,19 +10,24 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{InputAction, TerminalBackend, TerminalController};
 
-pub(super) struct IdleShortcutContext<'a, 'b, 'c, B: TerminalBackend> {
+pub(crate) struct IdleShortcutContext<'a, 'b, 'c, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
     pub session: &'b mut ReplSession,
     pub engine: &'c mut AgentEngine,
     pub last_escape_time: &'a mut Option<Instant>,
 }
 
-pub(super) async fn handle_shortcut_action<B: TerminalBackend>(
+pub(crate) async fn handle_shortcut_action<B: TerminalBackend>(
     action: InputAction,
     ctx: IdleShortcutContext<'_, '_, '_, B>,
     batch: &mut LiveBatch,
 ) -> Result<()> {
     match action {
+        InputAction::Clear => {
+            ctx.controller.state_mut().autocomplete.close();
+            ctx.controller.state_mut().editor_mut().set_text("");
+            ctx.controller.redraw()?;
+        }
         InputAction::Cancel => {
             let was_empty = ctx.controller.state().editor().text().is_empty();
             ctx.controller.state_mut().autocomplete.close();

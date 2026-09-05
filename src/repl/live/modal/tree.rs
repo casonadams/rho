@@ -117,10 +117,18 @@ fn handle_tree_input_key<B: TerminalBackend>(
             Ok(ModalKeyResult::Handled)
         }
         _ => {
-            if let InputAction::Edit(action) = map_key(key)
-                && let Some(modal) = controller.state_mut().active_modal_mut()
-            {
-                apply_input_edit(&mut modal.input, action);
+            match map_key(key) {
+                InputAction::Clear => {
+                    if let Some(modal) = controller.state_mut().active_modal_mut() {
+                        modal.input.set_text("");
+                    }
+                }
+                InputAction::Edit(action) => {
+                    if let Some(modal) = controller.state_mut().active_modal_mut() {
+                        apply_input_edit(&mut modal.input, action);
+                    }
+                }
+                _ => {}
             }
             controller.redraw()?;
             Ok(ModalKeyResult::Handled)

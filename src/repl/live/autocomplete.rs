@@ -91,7 +91,7 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
             controller.state_mut().autocomplete.close();
             AutocompleteKeyResult::Handled
         }
-        (KeyCode::Esc, KeyModifiers::NONE) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+        (KeyCode::Esc, KeyModifiers::NONE) => {
             state.autocomplete.close();
             AutocompleteKeyResult::Handled
         }

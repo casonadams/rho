@@ -108,6 +108,13 @@ pub fn handle_theme_key<B: TerminalBackend>(
             Ok(ModalKeyResult::Handled)
         }
         KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            if let Some(modal) = controller.state_mut().active_modal_mut()
+                && !modal.filter_query.is_empty()
+            {
+                modal.set_filter("");
+                apply_preview_theme(controller)?;
+                return Ok(ModalKeyResult::Handled);
+            }
             let initial_theme = controller
                 .state()
                 .active_modal()
