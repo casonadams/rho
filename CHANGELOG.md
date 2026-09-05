@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.3](https://github.com/casonadams/rho/compare/v0.2.2...v0.2.3) (2026-09-05)
+
+
+### Features
+
+* **auth:** add Claude OAuth PKCE login and local credential importer ([b82c4fa](https://github.com/casonadams/rho/commit/b82c4faff7547a2698c7e410e3f7380f71386f49))
+* **claude:** complete engine wiring, CLI login, and live verification ([bebf794](https://github.com/casonadams/rho/commit/bebf794d05692a33deb6a43242bba7ccab520346))
+* **claude:** implement native streaming Messages client and dynamic refresh adapter ([9fd2a8d](https://github.com/casonadams/rho/commit/9fd2a8d33cee9c87ceca39ecc89066680b76bc20))
+* **engine:** support switching models during active agent execution ([c146506](https://github.com/casonadams/rho/commit/c1465066be8bb4d1b72167449950a1cae5a39582))
+* **presentation:** format fd and rg summaries as directly runnable CLI commands ([cf6aeb3](https://github.com/casonadams/rho/commit/cf6aeb3111e78c42755ddb9d621ce6166383a7ec))
+* **provider:** add Claude OAuth provider identity and presets ([3706349](https://github.com/casonadams/rho/commit/37063492405cc151a8cf63c7b020dad5a5044927))
+
+
+### Bug Fixes
+
+* **repl:** keep /skills picker out of the interactive UI ([5019a45](https://github.com/casonadams/rho/commit/5019a4515111dd34bd3c9bf0e7d199142def1ead))
+* **ui:** eliminate interactive layout bounce during model changes and tool turns ([783bbe3](https://github.com/casonadams/rho/commit/783bbe345a9378ffca1ccffefccd942bce6c0dce))
+* **ui:** preserve blank line separation above committed tool blocks ([c0560ae](https://github.com/casonadams/rho/commit/c0560ae2d3308dd642d383151f7148f089c15735))
+* **ui:** preserve dedicated line break above activity spinner without layout bounce ([222dddc](https://github.com/casonadams/rho/commit/222dddcb30d581056f8c854fe8f8ef4d9e09b3cd))
+
 ## [0.2.2](https://github.com/casonadams/rho/compare/v0.2.1...v0.2.2) (2026-09-05)
 
 
