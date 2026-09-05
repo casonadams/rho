@@ -2,8 +2,11 @@ use std::collections::HashSet;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+mod confinement;
 #[cfg(test)]
 mod tests;
+
+pub use confinement::is_confined_target;
 
 pub const MAX_TRANSCLUSION_DEPTH: usize = 3;
 pub const MAX_TRANSCLUSION_BYTES: usize = 64 * 1024;
@@ -85,6 +88,10 @@ fn resolve_and_inline(target_str: &str, base_dir: &Path, scope: &mut Transclusio
 
     if !canonical.is_file() {
         return format!("<!-- Transclusion failed: file not found: {target_str} -->");
+    }
+
+    if !is_confined_target(&canonical, base_dir) {
+        return format!("<!-- Transclusion failed: path not permitted: {target_str} -->");
     }
 
     if !scope.visited.insert(canonical.clone()) {

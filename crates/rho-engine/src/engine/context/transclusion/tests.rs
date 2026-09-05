@@ -106,3 +106,31 @@ fn test_large_file_truncation() {
     assert!(expanded.contains("<!-- Transclusion truncated at 64 KB: large.txt -->"));
     assert_eq!(expanded.lines().next().unwrap().len(), MAX_TRANSCLUSION_BYTES);
 }
+
+#[test]
+fn test_transclusion_outside_workspace_and_home_rejected() {
+    let workspace = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let secret = external.path().join("secret.txt");
+    fs::write(&secret, "sensitive data").unwrap();
+
+    let secret_path = secret.display().to_string();
+    let content = format!("@{}", secret_path);
+    let expanded = expand_transclusions(&content, workspace.path());
+    assert!(expanded.contains(&format!(
+        "<!-- Transclusion failed: path not permitted: {secret_path} -->"
+    )));
+}
+
+#[test]
+fn test_transclusion_git_internal_rejected() {
+    let workspace = tempfile::tempdir().unwrap();
+    let git_dir = workspace.path().join(".git");
+    fs::create_dir_all(&git_dir).unwrap();
+    let config = git_dir.join("config");
+    fs::write(&config, "[core]\nrepositoryformatversion = 0").unwrap();
+
+    let content = "@.git/config";
+    let expanded = expand_transclusions(content, workspace.path());
+    assert!(expanded.contains("<!-- Transclusion failed: path not permitted: .git/config -->"));
+}
