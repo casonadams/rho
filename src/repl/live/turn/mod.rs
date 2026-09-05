@@ -47,7 +47,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut spinner_tick = 0_usize;
     sync_turn_footer(controller, engine);
-    let mut run = std::pin::pin!(engine.run_turn(request, std::sync::Arc::new(session.renderer.clone())));
+    let mut run = Box::pin(engine.run_turn(request, std::sync::Arc::new(session.renderer.clone())));
 
     loop {
         tokio::select! {
@@ -107,15 +107,20 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                         };
                         match handle_turn_key(key, &mut ctx).await? {
                             TurnKeyResult::Cancelled => {
+                                drop(run);
                                 cancellation.cancel();
                                 steering.clear();
                                 reconcile_consumed_steering(controller, &steering);
                                 controller.state_mut().retain_queued(|msg| msg.kind != QueueKind::Steering);
-                                batch.flush(controller, false)?;
+                                reset_controller_idle(controller);
+                                session.renderer.flush();
+                                batch.drain_events(controller, ui_events)?;
+                                reset_controller_idle(controller);
                                 engine.record_cancellation("operator interrupt").await?;
                                 restore_queued_messages(controller);
                                 session.renderer.print_notice("\nCanceled.\n");
                                 batch.drain_events(controller, ui_events)?;
+                                reset_controller_idle(controller);
                                 batch.flush(controller, false)?;
                                 return Ok(());
                             }
@@ -151,10 +156,12 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
                 batch.drain_events(controller, ui_events)?;
                 batch.flush(controller, false)?;
                 if let Err(error) = result {
+                    reset_controller_idle(controller);
                     restore_queued_messages(controller);
                     session.renderer.print_notice(&format!("\nError: {error}\n"));
                     sync_turn_footer(controller, engine);
                     batch.drain_events(controller, ui_events)?;
+                    reset_controller_idle(controller);
                     batch.flush(controller, false)?;
                 }
                 return Ok(());
@@ -176,4 +183,12 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
             }
         }
     }
+}
+
+fn reset_controller_idle<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut crate::ui::interactive::TerminalController<B>,
+) {
+    controller.clear_active_tool();
+    controller.state_mut().footer_mut().activity = Activity::Idle;
+    controller.state_mut().footer_mut().running_tool = None;
 }

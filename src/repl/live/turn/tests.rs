@@ -2,7 +2,9 @@ use super::input::{TurnInputContext, TurnKeyResult, handle_turn_key, reconcile_c
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{InteractiveState, QueueKind, QueuedMessage, TerminalBackend, TerminalController};
+use crate::ui::interactive::{
+    Activity, InteractiveState, QueueKind, QueuedMessage, RunningTool, TerminalBackend, TerminalController,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use std::io;
 
@@ -337,4 +339,67 @@ async fn test_turn_input_cycle_model_shortcut() {
         .await
         .unwrap();
     assert!(matches!(result, TurnKeyResult::Handled));
+}
+
+#[tokio::test]
+async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
+    let temp = tempfile::tempdir().unwrap();
+    let config = rho_harness_core::config::Config {
+        provider: "local".to_string(),
+        model: "llama3.2".to_string(),
+        sessions_dir: temp.path().join("sessions"),
+        ..Default::default()
+    };
+    let auth_store = crate::auth::AuthStore::default();
+    let engine = crate::engine::builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .build()
+        .await
+        .unwrap();
+    let mut session = crate::repl::ReplSession::new(config, auth_store, None);
+
+    let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
+    session.renderer = TerminalRenderer::with_ui(ui);
+
+    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().footer_mut().activity = Activity::Working;
+    controller.state_mut().footer_mut().running_tool = Some("bash".to_string());
+    controller
+        .state_mut()
+        .set_active_tool(Some(RunningTool::new("bash".to_string(), "sleep 30".to_string(), None)));
+
+    let cancel_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel_event]);
+
+    let history_dir = tempfile::tempdir().unwrap();
+    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
+    let completions = CompletionSet::from_sources(Default::default());
+
+    let turn = crate::repl::live::ActiveTurn {
+        io: crate::repl::live::LiveIo {
+            controller: &mut controller,
+            events: &mut ui_events,
+            input: &mut input_reader,
+        },
+        editor: crate::repl::live::EditorResources {
+            history: &mut history,
+            completions: &completions,
+        },
+        prompt: "sleep 30",
+    };
+
+    super::run_active_turn(&mut session, &engine, turn).await.unwrap();
+
+    assert_eq!(controller.state().footer().activity, Activity::Idle);
+    assert_eq!(controller.state().footer().running_tool, None);
+    assert!(controller.state().active_tool().is_none());
+    assert!(
+        controller
+            .rendered()
+            .map(|r| r.working_line.as_str())
+            .unwrap_or("")
+            .is_empty()
+    );
 }
