@@ -24,6 +24,11 @@ impl MarkdownRenderer {
         Self::default()
     }
 
+    /// Terminal width available to rendered blocks; `0` leaves content unclipped.
+    pub fn set_width(&mut self, width: usize) {
+        self.mermaid.set_width(width);
+    }
+
     pub fn render_token(&mut self, token: &str, theme: &Theme) -> String {
         let mut out = String::new();
         let mut remaining = token;

@@ -52,7 +52,7 @@ pub fn render_inline_elements(text: &str, theme: &Theme) -> String {
     out
 }
 
-pub fn render_mermaid_block(source: &str, theme: &Theme) -> String {
+pub fn render_mermaid_block(source: &str, theme: &Theme, width: usize) -> String {
     let header = theme.tool_header;
     let dim = theme.dimmed;
 
@@ -60,14 +60,24 @@ pub fn render_mermaid_block(source: &str, theme: &Theme) -> String {
     match meraid::render(source, meraid::ThemeType::default()) {
         Ok(rendered) => {
             for line in rendered.lines() {
-                out.push_str(&format!("{line}\n"));
+                out.push_str(&clipped(line, width));
+                out.push('\n');
             }
         }
         Err(_) => {
             for line in source.lines() {
-                out.push_str(&format!("{dim}│{dim:#} {line}\n"));
+                out.push_str(&format!("{dim}│{dim:#} {}", clipped(line, width.saturating_sub(2))));
+                out.push('\n');
             }
         }
     }
     out
+}
+
+fn clipped(line: &str, width: usize) -> String {
+    if width == 0 {
+        line.to_string()
+    } else {
+        crate::ui::interactive::footer::truncate_to_width(line, width)
+    }
 }

@@ -13,6 +13,42 @@ fn test_mermaid_rendering() {
 }
 
 #[test]
+fn mermaid_lines_clip_to_renderer_width() {
+    let theme = Theme::default();
+    let source = "graph LR\n  A[Build] --> B[Test] --> C[Package] --> D[Deploy Stage] --> E[Deploy Prod]";
+    let unclipped = crate::ui::markdown::render_mermaid_block(source, &theme, 0);
+    let widest = unclipped
+        .lines()
+        .map(crate::ui::interactive::footer::visible_width)
+        .max()
+        .unwrap_or(0);
+    assert!(widest > 80, "probe diagram must exceed the clip width: {widest}");
+
+    let clipped = crate::ui::markdown::render_mermaid_block(source, &theme, 60);
+    for line in clipped.lines() {
+        assert!(
+            crate::ui::interactive::footer::visible_width(line) <= 60,
+            "line too wide: {line:?}"
+        );
+    }
+    assert!(clipped.contains("┌"));
+}
+
+#[test]
+fn mermaid_parse_fallback_lines_clip_too() {
+    let theme = Theme::default();
+    let long_source = "sequenceDiagram\n  ".to_string() + &"x".repeat(120);
+    let out = crate::ui::markdown::render_mermaid_block(&long_source, &theme, 40);
+    for line in out.lines() {
+        assert!(
+            crate::ui::interactive::footer::visible_width(line) <= 40,
+            "fallback line too wide: {line:?}"
+        );
+    }
+    assert!(out.contains("│"));
+}
+
+#[test]
 fn test_code_block_has_no_background_color_patches() {
     let theme = Theme::default();
     let highlighted = highlight_code_line("let x = 42;", Some("rust"), &theme);

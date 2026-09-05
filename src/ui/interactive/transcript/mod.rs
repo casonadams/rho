@@ -20,6 +20,7 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
         TranscriptItem::UserMessage(text) => skill::render_user_message(text, &input),
         TranscriptItem::AssistantText(text) => {
             let mut md = crate::ui::markdown::MarkdownRenderer::default();
+            md.set_width(input.width);
             let rendered = md.render_token(text, input.theme);
             let flushed = md.flush(input.theme);
             let full = format!("{rendered}{flushed}");
