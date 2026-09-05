@@ -19,6 +19,10 @@ fn resolves_relative_and_absolute_paths_from_fixed_root() {
     let workspace = Workspace::new(&root);
     assert_eq!(workspace.resolve("src/lib.rs"), Some(canonical_root.join("src/lib.rs")));
     assert_eq!(workspace.resolve(" "), None);
+    if let Ok(home) = std::env::var("HOME") {
+        assert_eq!(workspace.resolve("~"), Some(PathBuf::from(&home)));
+        assert_eq!(workspace.resolve("~/test"), Some(PathBuf::from(&home).join("test")));
+    }
     std::fs::remove_dir_all(root).unwrap();
 }
 
