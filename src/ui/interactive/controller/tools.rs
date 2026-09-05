@@ -67,7 +67,8 @@ impl<B: TerminalBackend> TerminalController<B> {
             hide_thinking,
         };
         let block = render_tool_block(&tool, &input);
-        let card_lines: Vec<String> = block.lines().map(String::from).collect();
+        let mut card_lines = vec![String::new()];
+        card_lines.extend(block.lines().map(String::from));
 
         let queue_slice: Vec<crate::ui::interactive::QueuedMessage> = self.state.queue().iter().cloned().collect();
         let completed_layout = crate::ui::interactive::layout(crate::ui::interactive::LayoutInput {

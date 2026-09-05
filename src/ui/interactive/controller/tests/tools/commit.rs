@@ -117,3 +117,40 @@ fn fast_tool_without_active_card_uses_standard_push_path() {
             .any(|op| matches!(op, Operation::Write(text) if text.contains("read")))
     );
 }
+
+#[test]
+fn committed_tool_preserves_blank_line_separation_from_preceding_block() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+    controller
+        .push_transcript_item(TranscriptItem::UserMessage("run tests".into()))
+        .unwrap();
+
+    controller
+        .start_tool(ToolStartRequest {
+            name: "bash".into(),
+            args_summary: "cargo test".into(),
+            preview: None,
+        })
+        .unwrap();
+    operations.borrow_mut().clear();
+
+    controller
+        .push_transcript_item(TranscriptItem::Tool(ToolItem {
+            name: "bash".into(),
+            arguments: serde_json::json!({"command": "cargo test"}),
+            is_error: false,
+            output: "ok".into(),
+            output_summary: "ok".into(),
+            duration_ms: Some(15),
+        }))
+        .unwrap();
+
+    let ops = operations.borrow();
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.is_empty())),
+        "committed tool card must keep a leading empty line separating from previous block"
+    );
+}
