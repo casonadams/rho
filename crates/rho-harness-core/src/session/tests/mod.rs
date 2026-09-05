@@ -1,6 +1,7 @@
 mod checkpoint;
 mod compaction_tree;
 mod memory;
+mod prune;
 mod storage;
 mod tree;
 

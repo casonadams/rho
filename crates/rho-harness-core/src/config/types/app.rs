@@ -41,6 +41,8 @@ pub struct Config {
     pub default_model: Option<String>,
     #[serde(default)]
     pub default_provider: Option<String>,
+    #[serde(default)]
+    pub session_retention_days: Option<u32>,
     pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
@@ -81,6 +83,7 @@ impl Default for Config {
             no_context_files: false,
             default_model: None,
             default_provider: None,
+            session_retention_days: Some(5),
             plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),

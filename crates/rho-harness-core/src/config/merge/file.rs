@@ -82,6 +82,9 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(tokens) = file.context_injection_max_tokens {
         config.context_injection_max_tokens = tokens;
     }
+    if let Some(days) = file.session_retention_days {
+        config.session_retention_days = if days == 0 { None } else { Some(days) };
+    }
     if let Some(mcp) = file.mcp {
         config.mcp = mcp;
     }

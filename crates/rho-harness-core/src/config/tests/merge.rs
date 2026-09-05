@@ -12,6 +12,7 @@ fn test_default_config() {
     assert_eq!(cfg.context_window_messages, 24);
     assert_eq!(cfg.compaction_max_bytes, 8192);
     assert!(!cfg.allow_private_network);
+    assert_eq!(cfg.session_retention_days, Some(5));
     assert!(cfg.plugins.is_empty());
 }
 
@@ -27,10 +28,12 @@ fn test_file_merge() {
         context_window_messages: Some(16),
         compaction_max_bytes: Some(4096),
         search_min_interval_ms: Some(3000),
+        session_retention_days: Some(10),
         ..Default::default()
     };
     merge::merge_file(&mut cfg, file_cfg);
     assert_eq!(cfg.model, "gpt-4o");
+    assert_eq!(cfg.session_retention_days, Some(10));
     assert_eq!(cfg.provider, "openai");
     assert_eq!(cfg.max_output_tokens, Some(8192));
     assert_eq!(cfg.max_turns, 10);

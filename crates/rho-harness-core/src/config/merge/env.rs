@@ -58,6 +58,13 @@ where
     if let Some(val) = get("AI_THINKING_LEVEL") {
         config.thinking_level = if val == "off" { None } else { Some(val) };
     }
+    if let Some(val) = get("AI_SESSION_RETENTION_DAYS").or_else(|| get("RHO_SESSION_RETENTION_DAYS")) {
+        config.session_retention_days = if val == "off" || val == "0" {
+            None
+        } else {
+            Some(parse_positive("AI_SESSION_RETENTION_DAYS", &val)?)
+        };
+    }
     Ok(())
 }
 

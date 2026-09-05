@@ -35,6 +35,8 @@ pub(crate) struct FileConfig {
     pub thinking_level: Option<String>,
     pub theme: Option<String>,
     pub context_injection_max_tokens: Option<usize>,
+    #[serde(default, alias = "retention_days")]
+    pub session_retention_days: Option<u32>,
     #[serde(default)]
     pub plugins: BTreeMap<String, PluginConfig>,
     #[serde(default)]

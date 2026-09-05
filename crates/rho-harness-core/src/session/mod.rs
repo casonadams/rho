@@ -8,6 +8,7 @@ pub mod export;
 pub mod format;
 mod fs;
 mod memory;
+pub mod prune;
 mod secrets;
 pub mod summary;
 #[cfg(test)]
@@ -32,6 +33,7 @@ pub(crate) use fs::{
     new_session_id, session_error, set_private_directory_permissions, set_private_directory_permissions_async,
     set_private_file_permissions, set_private_file_permissions_async, validate_session_id,
 };
+pub use prune::{prune_expired_sessions, prune_expired_sessions_async};
 pub use summary::{
     SessionSummary, delete_session, delete_session_async, list_session_summaries, list_session_summaries_async,
     list_sessions, list_sessions_async,
@@ -197,6 +199,24 @@ impl SessionManager {
 
     pub async fn list_session_summaries_async(sessions_dir: &Path) -> Result<Vec<SessionSummary>> {
         summary::list_session_summaries_async(sessions_dir).await
+    }
+
+    pub fn auto_prune(&self, retention_days: u32) -> Result<usize> {
+        let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
+        prune_expired_sessions(sessions_dir, &self.session_id, retention_days)
+    }
+
+    pub async fn auto_prune_async(&self, retention_days: u32) -> Result<usize> {
+        let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
+        prune_expired_sessions_async(sessions_dir, &self.session_id, retention_days).await
+    }
+
+    pub fn spawn_auto_prune(&self, retention_days: u32) {
+        let active_id = self.session_id.clone();
+        let sessions_dir = self.file_path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
+        tokio::spawn(async move {
+            let _ = prune_expired_sessions_async(&sessions_dir, &active_id, retention_days).await;
+        });
     }
 
     pub fn delete_session(sessions_dir: &Path, session_id: &str) -> Result<()> {

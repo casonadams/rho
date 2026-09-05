@@ -99,6 +99,11 @@ impl AgentEngineBuilder {
                 .await?
             }
         };
+        if let Some(days) = self.config.session_retention_days
+            && days > 0
+        {
+            session_manager.spawn_auto_prune(days);
+        }
 
         let mut config = self.config;
         let mut auth_store = self.auth_store;

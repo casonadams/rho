@@ -113,6 +113,13 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
             file_config.thinking_level = if value == "off" { None } else { Some(value.to_string()) };
         }
         ConfigKey::Theme => file_config.theme = Some(value.to_string()),
+        ConfigKey::SessionRetentionDays => {
+            file_config.session_retention_days = if value == "off" || value == "0" {
+                Some(0)
+            } else {
+                Some(parse_positive(key.as_str(), value)?)
+            };
+        }
     }
     Ok(())
 }
