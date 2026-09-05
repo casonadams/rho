@@ -174,3 +174,31 @@ fn test_matches_windows_exe_binary() {
     let matched = match_platform_asset(&platform, &assets).unwrap();
     assert_eq!(matched, "rho-plugin-git-x86_64-pc-windows-msvc.exe");
 }
+
+#[test]
+fn test_matches_macos_universal_binary_when_exact_unavailable() {
+    let platform = Platform {
+        os: Os::Macos,
+        arch: Arch::Aarch64,
+    };
+    let assets = vec![
+        "plugin-universal-apple-darwin.tar.gz".to_string(),
+        "plugin-x86_64-unknown-linux-gnu.tar.gz".to_string(),
+    ];
+    let matched = match_platform_asset(&platform, &assets).unwrap();
+    assert_eq!(matched, "plugin-universal-apple-darwin.tar.gz");
+
+    let platform_x86 = Platform {
+        os: Os::Macos,
+        arch: Arch::X86_64,
+    };
+    let matched_x86 = match_platform_asset(&platform_x86, &assets).unwrap();
+    assert_eq!(matched_x86, "plugin-universal-apple-darwin.tar.gz");
+
+    let assets_with_exact = vec![
+        "plugin-universal-apple-darwin.tar.gz".to_string(),
+        "plugin-aarch64-apple-darwin.tar.gz".to_string(),
+    ];
+    let matched_exact = match_platform_asset(&platform, &assets_with_exact).unwrap();
+    assert_eq!(matched_exact, "plugin-aarch64-apple-darwin.tar.gz");
+}

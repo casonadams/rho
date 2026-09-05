@@ -99,6 +99,9 @@ fn test_parse_github_url() {
     let spec = PluginSpec::parse("https://github.com/casonadams/rho-plugin-permission.git").unwrap();
     assert_eq!(spec.repo, "rho-plugin-permission");
 
+    let spec = PluginSpec::parse("https://github.com/casonadams/rho-plugin-permission/").unwrap();
+    assert_eq!(spec.repo, "rho-plugin-permission");
+
     let spec = PluginSpec::parse("https://github.com/org/repo@v1.0.0").unwrap();
     assert_eq!(spec.name, "repo");
     assert_eq!(spec.owner, "org");
@@ -132,11 +135,27 @@ fn test_parse_invalid_inputs() {
         PluginSpec::parse("git@github.com:org/repo.git"),
         Err(PluginSpecError::UnsupportedHost(_))
     ));
+    assert!(matches!(
+        PluginSpec::parse("ftp://github.com/org/repo"),
+        Err(PluginSpecError::UnsupportedHost(_))
+    ));
+    assert!(matches!(
+        PluginSpec::parse("https://github.com/org/repo/extra/path"),
+        Err(PluginSpecError::InvalidUrl(_))
+    ));
+    assert!(matches!(
+        PluginSpec::parse("rho-plugin-"),
+        Err(PluginSpecError::InvalidName(_))
+    ));
 }
 
 #[test]
-fn test_from_str_trait() {
+fn test_from_str_and_display() {
     let spec: PluginSpec = "permission@0.1.0".parse().unwrap();
     assert_eq!(spec.name, "rho-plugin-permission");
     assert_eq!(spec.tag.as_deref(), Some("0.1.0"));
+    assert_eq!(format!("{spec}"), "casonadams/rho-plugin-permission@0.1.0");
+
+    let spec_no_tag: PluginSpec = "org/my-plugin".parse().unwrap();
+    assert_eq!(format!("{spec_no_tag}"), "org/my-plugin");
 }

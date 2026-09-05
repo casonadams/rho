@@ -101,10 +101,14 @@ fn score_asset(name: &str, platform: &Platform) -> Option<i32> {
     let mut score = if lower.contains(platform.target_triple()) {
         100
     } else {
-        if !matches_os(&lower, platform.os) || !matches_arch(&lower, platform.arch) {
+        if !matches_os(&lower, platform.os) || !matches_arch(&lower, platform.os, platform.arch) {
             return None;
         }
-        50
+        if platform.os == Os::Macos && (lower.contains("universal") || lower.contains("all")) {
+            40
+        } else {
+            50
+        }
     };
     if lower.ends_with(".tar.gz") || lower.ends_with(".zip") || lower.ends_with(".tar.xz") || lower.ends_with(".exe") {
         score += 20;
@@ -126,7 +130,10 @@ fn matches_os(lower: &str, os: Os) -> bool {
     }
 }
 
-fn matches_arch(lower: &str, arch: Arch) -> bool {
+fn matches_arch(lower: &str, os: Os, arch: Arch) -> bool {
+    if os == Os::Macos && (lower.contains("universal") || lower.contains("all")) {
+        return true;
+    }
     match arch {
         Arch::Aarch64 => (lower.contains("aarch64") || lower.contains("arm64")) && !lower.contains("x86_64"),
         Arch::X86_64 => {

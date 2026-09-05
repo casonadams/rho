@@ -59,6 +59,8 @@ impl PluginSpec {
             return Err(PluginSpecError::InsecureHttp(raw_target.to_string()));
         } else if let Some(url_str) = raw_target.strip_prefix("https://") {
             parse_github_url(url_str, raw_target)?
+        } else if raw_target.contains("://") {
+            return Err(PluginSpecError::UnsupportedHost(raw_target.to_string()));
         } else if raw_target.contains('/') {
             parse_github_slug(raw_target)?
         } else {
@@ -66,12 +68,12 @@ impl PluginSpec {
         };
 
         let executable_name = repo.clone();
-        let name = repo.clone();
+        let name = repo;
 
         Ok(Self {
             name,
             owner,
-            repo,
+            repo: executable_name.clone(),
             tag,
             executable_name,
         })
@@ -94,12 +96,21 @@ impl FromStr for PluginSpec {
     }
 }
 
+impl std::fmt::Display for PluginSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.tag {
+            Some(tag) => write!(f, "{}/{}@{tag}", self.owner, self.repo),
+            None => write!(f, "{}/{}", self.owner, self.repo),
+        }
+    }
+}
+
 fn parse_github_url(url_without_scheme: &str, full: &str) -> Result<(String, String), PluginSpecError> {
     let parts: Vec<&str> = url_without_scheme.split('/').filter(|p| !p.is_empty()).collect();
     if parts.is_empty() || parts[0] != "github.com" {
         return Err(PluginSpecError::UnsupportedHost(full.to_string()));
     }
-    if parts.len() < 3 {
+    if parts.len() != 3 {
         return Err(PluginSpecError::InvalidUrl(full.to_string()));
     }
     let owner = parts[1].to_string();
@@ -125,7 +136,7 @@ fn parse_github_slug(slug: &str) -> Result<(String, String), PluginSpecError> {
 }
 
 fn parse_bare_name(name: &str) -> Result<(String, String), PluginSpecError> {
-    if name.chars().any(|c| c.is_whitespace() || c == '/' || c == ':') {
+    if name.is_empty() || name == "rho-plugin-" || name.chars().any(|c| c.is_whitespace() || c == '/' || c == ':') {
         return Err(PluginSpecError::InvalidName(name.to_string()));
     }
     let repo = if name.starts_with("rho-plugin-") {
