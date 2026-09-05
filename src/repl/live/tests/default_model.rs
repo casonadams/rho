@@ -80,7 +80,7 @@ fn ctrl_s_key_saves_selected_model_as_default() {
 }
 
 #[tokio::test]
-async fn saved_default_model_takes_precedence_over_last_used_state_model() {
+async fn state_model_takes_precedence_over_saved_default_model() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path().to_path_buf();
 
@@ -94,19 +94,19 @@ async fn saved_default_model_takes_precedence_over_last_used_state_model() {
         .await
         .unwrap();
 
-    // 3. Load config: must load the saved default model from config.toml, NOT gpt-4o from state
+    // 3. Load config: must load the model from state.json, not the default model from config.toml
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
     }
     let loaded = Config::load(None).unwrap();
     assert_eq!(
-        loaded.model, "claude-3-7-sonnet-20250219",
-        "Config::load must default to the saved default model"
+        loaded.model, "gpt-4o",
+        "Config::load must use the model from state.json"
     );
-    assert_eq!(loaded.provider, "anthropic");
+    assert_eq!(loaded.provider, "openai");
     assert_eq!(loaded.default_model.as_deref(), Some("claude-3-7-sonnet-20250219"));
     assert_eq!(loaded.default_provider.as_deref(), Some("anthropic"));
-    assert!(!loaded.model_from_state);
+    assert!(loaded.model_from_state);
 
     unsafe {
         std::env::remove_var("RHO_HOME");

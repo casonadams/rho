@@ -2,32 +2,26 @@ use super::super::{Config, FileConfig, PluginConfig};
 
 #[test]
 fn test_state_file_loads_last_model_and_thinking_level() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
     crate::state::AppState::set_last_model(&dir, "gemini-2.0-flash", Some("gemini")).unwrap();
     crate::state::AppState::set_last_thinking_level(&dir, Some("high")).unwrap();
 
-    let mut config = Config {
-        config_dir: dir.clone(),
-        ..Default::default()
-    };
-
-    let state = crate::state::AppState::load(&config.config_dir);
-    if let Some(m) = state.last_model {
-        config.model = m;
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
     }
-    if let Some(p) = state.last_provider {
-        config.provider = p;
-    }
-    if let Some(t) = state.last_thinking_level {
-        config.thinking_level = Some(t);
-    }
+    let config = Config::load(None).unwrap();
 
     assert_eq!(config.model, "gemini-2.0-flash");
     assert_eq!(config.provider, "gemini");
     assert_eq!(config.thinking_level.as_deref(), Some("high"));
+    assert!(config.model_from_state);
 
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -73,7 +67,7 @@ fn plugin_entries_round_trip_and_are_removed_atomically() {
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
-fn test_config_file_model_takes_precedence_over_state_model() {
+fn test_state_model_takes_precedence_over_config_file() {
     let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_precedence_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -85,18 +79,18 @@ fn test_config_file_model_takes_precedence_over_state_model() {
     // 2. Write last used model to state.json
     crate::state::AppState::set_last_model(&dir, "state-model", Some("gemini")).unwrap();
 
-    // 3. Load config pointing to dir: saved default model must take precedence
+    // 3. Load config pointing to dir: state.json model must take precedence
     unsafe {
         std::env::set_var("RHO_HOME", dir.to_str().unwrap());
     }
     let config = Config::load(None).unwrap();
-    assert_eq!(config.model, "config-model");
-    assert_eq!(config.provider, "openai");
+    assert_eq!(config.model, "state-model");
+    assert_eq!(config.provider, "gemini");
     assert_eq!(config.default_model.as_deref(), Some("config-model"));
     assert_eq!(config.default_provider.as_deref(), Some("openai"));
-    assert!(!config.model_from_state);
+    assert!(config.model_from_state);
 
-    // 4. Explicit CLI flag overrides config file
+    // 4. Explicit CLI flag overrides config file and state.json
     let cli = crate::config::cli::Cli {
         prompt: None,
         model: Some("cli-model".to_string()),
@@ -169,6 +163,70 @@ async fn test_save_default_model_persists_both_fields() {
     assert_eq!(config.default_model.as_deref(), Some("saved-model"));
     assert_eq!(config.default_provider.as_deref(), Some("saved-provider"));
     assert!(!config.model_from_state);
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_state_thinking_level_takes_precedence_over_config_file() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = std::env::temp_dir().join(format!("rho_thinking_prec_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "thinking_level", "low").unwrap();
+    crate::state::AppState::set_last_thinking_level(&dir, Some("high")).unwrap();
+
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+    assert_eq!(config.thinking_level.as_deref(), Some("high"));
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_state_thinking_off_clears_config_file_thinking() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = std::env::temp_dir().join(format!("rho_thinking_off_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "thinking_level", "high").unwrap();
+    crate::state::AppState::set_last_thinking_level(&dir, None).unwrap();
+
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+    assert_eq!(config.thinking_level, None);
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_state_model_infers_provider_when_unspecified() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = std::env::temp_dir().join(format!("rho_infer_state_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    crate::state::AppState::set_last_model(&dir, "gemini-2.0-flash", None).unwrap();
+
+    unsafe {
+        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+    }
+    let config = Config::load(None).unwrap();
+    assert_eq!(config.model, "gemini-2.0-flash");
+    assert_eq!(config.provider, "gemini");
+    assert!(config.model_from_state);
 
     unsafe {
         std::env::remove_var("RHO_HOME");

@@ -16,8 +16,10 @@ pub fn discover_prompt_templates(config_dir: Option<&Path>, cwd: Option<&Path>) 
     }
 
     if let Some(cwd) = cwd {
-        let project_dot_rho = cwd.join(".rho").join("prompts");
-        load_templates_from_dir(&project_dot_rho, "project", &mut resolved);
+        if cwd != crate::config::default_config_dir() && cwd != crate::config::dirs_fallback() {
+            let project_dot_rho = cwd.join(".rho").join("prompts");
+            load_templates_from_dir(&project_dot_rho, "project", &mut resolved);
+        }
 
         let project_prompts = cwd.join("prompts");
         load_templates_from_dir(&project_prompts, "project", &mut resolved);
@@ -35,8 +37,10 @@ pub async fn discover_prompt_templates_async(config_dir: Option<&Path>, cwd: Opt
     }
 
     if let Some(cwd) = cwd {
-        let project_dot_rho = cwd.join(".rho/prompts");
-        load_templates_from_dir_async(&project_dot_rho, "project", &mut resolved).await;
+        if cwd != crate::config::default_config_dir() && cwd != crate::config::dirs_fallback() {
+            let project_dot_rho = cwd.join(".rho/prompts");
+            load_templates_from_dir_async(&project_dot_rho, "project", &mut resolved).await;
+        }
 
         let project_prompts = cwd.join("prompts");
         load_templates_from_dir_async(&project_prompts, "project", &mut resolved).await;

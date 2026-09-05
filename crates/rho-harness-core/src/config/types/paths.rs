@@ -11,7 +11,7 @@ pub fn default_config_dir() -> PathBuf {
     home.join(".config").join("rho")
 }
 
-fn dirs_fallback() -> PathBuf {
+pub fn dirs_fallback() -> PathBuf {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .map(PathBuf::from)

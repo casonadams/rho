@@ -9,6 +9,7 @@ mod tests;
 
 pub use types::{
     Config, DEFAULT_MAX_TURNS, McpConfig, McpServerConfig, PluginConfig, ProviderConfig, default_config_dir,
+    dirs_fallback,
 };
 
 use crate::error::{AppError, Result};
@@ -19,18 +20,6 @@ impl Config {
         let _ = dotenvy::dotenv();
         let mut config = Config::default();
 
-        let state = crate::state::AppState::load(&config.config_dir);
-        if let Some(m) = state.last_model {
-            config.model = m;
-            config.model_from_state = true;
-        }
-        if let Some(p) = state.last_provider {
-            config.provider = p;
-        }
-        if let Some(t) = state.last_thinking_level {
-            config.thinking_level = Some(t);
-        }
-
         let config_file = config.config_dir.join("config.toml");
         if config_file.exists() {
             let content = std::fs::read_to_string(&config_file)
@@ -40,7 +29,9 @@ impl Config {
             merge::merge_file(&mut config, file_cfg);
         }
 
-        if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(cwd) = std::env::current_dir()
+            && cwd != types::dirs_fallback()
+        {
             let project_config_file = cwd.join(".rho").join("config.toml");
             if project_config_file.exists()
                 && let Ok(content) = std::fs::read_to_string(&project_config_file)
@@ -48,6 +39,24 @@ impl Config {
             {
                 merge::merge_file(&mut config, project_file_cfg);
             }
+        }
+
+        let state_file = config.config_dir.join("state.json");
+        if state_file.exists() {
+            let state = crate::state::AppState::load(&config.config_dir);
+            if let Some(m) = state.last_model {
+                config.model = m;
+                config.model_from_state = true;
+                if state.last_provider.is_none()
+                    && let Some(inferred) = crate::provider::infer_provider_for_model(&config.model)
+                {
+                    config.provider = inferred.to_string();
+                }
+            }
+            if let Some(p) = state.last_provider {
+                config.provider = p;
+            }
+            config.thinking_level = state.last_thinking_level.filter(|t| t != "off");
         }
 
         merge::apply_env_overrides(&mut config)?;

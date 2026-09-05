@@ -85,5 +85,5 @@ async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
     unsafe {
         std::env::remove_var("RHO_HOME");
     }
-    std::fs::remove_dir_all(home).unwrap();
+    let _ = std::fs::remove_dir_all(home);
 }

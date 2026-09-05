@@ -4,11 +4,16 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppState {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "model", skip_serializing_if = "Option::is_none")]
     pub last_model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, alias = "provider", skip_serializing_if = "Option::is_none")]
     pub last_provider: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        alias = "thinking_level",
+        alias = "thinking",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub last_thinking_level: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom: Option<serde_json::Value>,
@@ -59,6 +64,8 @@ impl AppState {
         state.last_model = Some(model.to_string());
         if let Some(p) = provider {
             state.last_provider = Some(p.to_string());
+        } else if let Some(inferred) = crate::provider::infer_provider_for_model(model) {
+            state.last_provider = Some(inferred.to_string());
         }
         state.save(config_dir)
     }
@@ -68,6 +75,8 @@ impl AppState {
         state.last_model = Some(model.to_string());
         if let Some(p) = provider {
             state.last_provider = Some(p.to_string());
+        } else if let Some(inferred) = crate::provider::infer_provider_for_model(model) {
+            state.last_provider = Some(inferred.to_string());
         }
         state.save_async(config_dir).await
     }
@@ -108,6 +117,13 @@ mod tests {
         assert_eq!(loaded.last_model.as_deref(), Some("gemini-2.0-flash"));
         assert_eq!(loaded.last_provider.as_deref(), Some("gemini"));
         assert_eq!(loaded.last_thinking_level.as_deref(), Some("high"));
+
+        let aliased: AppState =
+            serde_json::from_str(r#"{"model":"gpt-4o","provider":"openai","thinking":"medium"}"#).unwrap();
+        assert_eq!(aliased.last_model.as_deref(), Some("gpt-4o"));
+        assert_eq!(aliased.last_provider.as_deref(), Some("openai"));
+        assert_eq!(aliased.last_thinking_level.as_deref(), Some("medium"));
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

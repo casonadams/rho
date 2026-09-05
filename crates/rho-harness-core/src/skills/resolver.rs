@@ -31,8 +31,10 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
         scan_directory(&home_path.join(".agents/skills"), SkillOrigin::User, &mut resolved);
     }
     if let Some(project_dir) = paths.project_dir {
-        scan_directory(&project_dir.join(".agents/skills"), SkillOrigin::Project, &mut resolved);
-        scan_directory(&project_dir.join(".rho/skills"), SkillOrigin::Project, &mut resolved);
+        if paths.home_dir != Some(project_dir) {
+            scan_directory(&project_dir.join(".agents/skills"), SkillOrigin::Project, &mut resolved);
+            scan_directory(&project_dir.join(".rho/skills"), SkillOrigin::Project, &mut resolved);
+        }
         scan_directory(&project_dir.join("skills"), SkillOrigin::Project, &mut resolved);
     }
     resolved.sort_by(|left, right| left.metadata.name.cmp(&right.metadata.name));
