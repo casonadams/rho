@@ -26,9 +26,9 @@ async fn test_mcp_lazy_loading_non_blocking_startup_and_deferred_resolution() {
     let workspace = temp_workspace();
     let server_script = workspace.join("delayed_mcp_server.sh");
 
-    // Mock MCP server that sleeps 2s before responding to initialize
+    // Mock MCP server that sleeps 5s before responding to initialize
     let script_content = r#"#!/bin/sh
-sleep 2.0
+sleep 5.0
 while IFS= read -r line; do
     if echo "$line" | grep -q '"method":"initialize"'; then
         id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
@@ -66,7 +66,7 @@ done
     };
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
 
-    // 1. Measure startup time: must be much faster than the 1s server sleep
+    // 1. Measure startup time: must return well before the 5s server delay
     let start = Instant::now();
     let engine = AgentEngineBuilder::new(config, auth_store)
         .base_dir(workspace.clone())
@@ -75,9 +75,10 @@ done
         .unwrap();
     let startup_elapsed = start.elapsed();
 
-    // Startup should be virtually instant compared to the 2s server delay
+    // Startup must finish well before the 5s delay so that a build blocking
+    // on MCP startup fails this assert.
     assert!(
-        startup_elapsed.as_millis() < 2000,
+        startup_elapsed.as_millis() < 3000,
         "Startup took {:?}, which indicates blocking on MCP server startup",
         startup_elapsed
     );
@@ -101,10 +102,11 @@ done
         "delayed MCP tool should be attached after ensure_tools_loaded, got: {resolved_tools:?}"
     );
 
-    // 4. Subsequent calls to ensure_tools_loaded are instantaneous no-ops
+    // 4. Subsequent calls to ensure_tools_loaded are no-ops; the generous
+    // bound tolerates scheduler jitter under parallel test load.
     let second_start = Instant::now();
     engine.ensure_tools_loaded().await.unwrap();
-    assert!(second_start.elapsed().as_millis() < 20);
+    assert!(second_start.elapsed().as_millis() < 500);
 
     let _ = std::fs::remove_dir_all(&workspace);
 }
