@@ -1,4 +1,4 @@
-mod cli;
+pub mod cli;
 
 #[cfg(all(test, feature = "ui"))]
 #[path = "tests/runner/mod.rs"]

@@ -29,24 +29,61 @@ fn test_cli_parsing_plugin_subcommands() {
         })
     );
 
+    let cli = Cli::try_parse_from(["rho", "plugin", "ls"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Plugin {
+            action: Some(PluginCommands::List)
+        })
+    );
+
     let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-git"]).unwrap();
     assert_eq!(
         cli.command,
         Some(Commands::Plugin {
             action: Some(PluginCommands::Install {
-                package: "rho-plugin-git".to_string(),
-                replaces: Vec::new()
+                target: "rho-plugin-git".to_string(),
+                force: false,
             })
         })
     );
 
-    let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", "--replace", "tool:bash"]).unwrap();
+    let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", "--replace"]).unwrap();
     assert_eq!(
         cli.command,
         Some(Commands::Plugin {
             action: Some(PluginCommands::Install {
-                package: "rho-plugin-shell".to_string(),
-                replaces: vec!["tool:bash".to_string()]
+                target: "rho-plugin-shell".to_string(),
+                force: true,
+            })
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", "--force"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Plugin {
+            action: Some(PluginCommands::Install {
+                target: "rho-plugin-shell".to_string(),
+                force: true,
+            })
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "plugin", "update"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Plugin {
+            action: Some(PluginCommands::Update { target: None })
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "plugin", "update", "git"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Plugin {
+            action: Some(PluginCommands::Update {
+                target: Some("git".to_string())
             })
         })
     );
@@ -56,7 +93,19 @@ fn test_cli_parsing_plugin_subcommands() {
         cli.command,
         Some(Commands::Plugin {
             action: Some(PluginCommands::Remove {
-                name: "git".to_string()
+                name: "git".to_string(),
+                keep_binary: false,
+            })
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "plugin", "rm", "git", "--keep-binary"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Plugin {
+            action: Some(PluginCommands::Remove {
+                name: "git".to_string(),
+                keep_binary: true,
             })
         })
     );
@@ -68,6 +117,82 @@ fn test_cli_parsing_plugin_subcommands() {
             action: Some(PluginCommands::Inspect {
                 capability: Some("tool:bash".to_string())
             })
+        })
+    );
+}
+
+#[test]
+fn test_cli_parsing_top_level_package_commands() {
+    let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Install {
+            target: "rho-plugin-git".to_string(),
+            force: false,
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git", "--force"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Install {
+            target: "rho-plugin-git".to_string(),
+            force: true,
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git", "--replace"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Install {
+            target: "rho-plugin-git".to_string(),
+            force: true,
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "update"]).unwrap();
+    assert_eq!(cli.command, Some(Commands::Update { target: None }));
+
+    let cli = Cli::try_parse_from(["rho", "update", "all"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Update {
+            target: Some("all".to_string())
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "update", "permission"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Update {
+            target: Some("permission".to_string())
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "remove", "git"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Remove {
+            name: "git".to_string(),
+            keep_binary: false,
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "remove", "git", "--keep-binary"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Remove {
+            name: "git".to_string(),
+            keep_binary: true,
+        })
+    );
+
+    let cli = Cli::try_parse_from(["rho", "uninstall", "git"]).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Remove {
+            name: "git".to_string(),
+            keep_binary: false,
         })
     );
 }

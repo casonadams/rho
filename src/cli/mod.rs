@@ -1,5 +1,6 @@
 pub mod auth;
 mod commands;
+pub mod plugin;
 pub mod rpc;
 mod runner;
 mod session;

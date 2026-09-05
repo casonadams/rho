@@ -24,6 +24,15 @@ pub async fn handle_command(
         Commands::Models => {
             handle_models(config);
         }
+        Commands::Install { target, force } => {
+            handle_plugin(Some(PluginCommands::Install { target, force }), config);
+        }
+        Commands::Update { target } => {
+            handle_plugin(Some(PluginCommands::Update { target }), config);
+        }
+        Commands::Remove { name, keep_binary } => {
+            handle_plugin(Some(PluginCommands::Remove { name, keep_binary }), config);
+        }
         Commands::Plugin { action } => {
             handle_plugin(action, config);
         }
@@ -128,12 +137,18 @@ fn handle_plugin(action: Option<PluginCommands>, config: &Config) {
                 }
             }
         }
-        PluginCommands::Install { package, .. } => {
+        PluginCommands::Install { target, force: _ } => {
             println!(
-                "To configure an MCP server or plugin, add it to config.toml under [mcp.servers.{package}] or [plugins.{package}]"
+                "To configure an MCP server or plugin, add it to config.toml under [mcp.servers.{target}] or [plugins.{target}]"
             );
         }
-        PluginCommands::Remove { name: _ } => {
+        PluginCommands::Update { target: _ } => {
+            println!("Plugin updating will be available in the next release");
+        }
+        PluginCommands::Remove {
+            name: _,
+            keep_binary: _,
+        } => {
             println!("To remove an MCP server or plugin, remove it from config.toml");
         }
     }

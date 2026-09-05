@@ -1,10 +1,13 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 pub mod help;
 #[cfg(test)]
 mod pi_alignment_tests;
+mod subcommands;
 #[cfg(test)]
 mod tests;
+
+pub use subcommands::{Commands, PluginCommands};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -82,56 +85,4 @@ pub struct Cli {
     /// Subcommand to execute
     #[command(subcommand)]
     pub command: Option<Commands>,
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
-pub enum Commands {
-    /// Verify an API key or explicitly start subscription OAuth
-    Login {
-        /// Provider name (e.g. anthropic, openai, openrouter, chatgpt, copilot, claude, antigravity)
-        provider: Option<String>,
-    },
-    /// Log out from an AI provider
-    Logout {
-        /// Provider name
-        provider: Option<String>,
-    },
-    /// Display or edit configuration
-    Config {
-        /// Config key to inspect or set
-        key: Option<String>,
-        /// New value for key
-        value: Option<String>,
-    },
-    /// List live provider models when supported, otherwise curated examples
-    Models,
-    /// Manage extensions and plugins
-    Plugin {
-        #[command(subcommand)]
-        action: Option<PluginCommands>,
-    },
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
-pub enum PluginCommands {
-    /// List installed and discovered plugins
-    List,
-    /// Install and validate a plugin via Cargo
-    Install {
-        /// Crates.io package name to install
-        package: String,
-        /// Explicitly authorize replacement of a capability identifier
-        #[arg(long = "replace")]
-        replaces: Vec<String>,
-    },
-    /// Remove a configured plugin and uninstall its Cargo package when applicable
-    Remove {
-        /// Configured plugin name
-        name: String,
-    },
-    /// Inspect active capability implementations and origins
-    Inspect {
-        /// Optional capability identifier, such as tool:bash
-        capability: Option<String>,
-    },
 }
