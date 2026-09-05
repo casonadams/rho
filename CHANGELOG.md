@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.4.0](https://github.com/casonadams/rho/compare/v0.3.0...v0.4.0) (2026-09-05)
+
+
+### Features
+
+* **cli:** add plugin package grammar and domain models for slice 1 ([dd95761](https://github.com/casonadams/rho/commit/dd95761f1d823adfbada89d279312f1e7cd0f558))
+* **cli:** add universal macos binary fallback and display trait for plugin spec ([fed6b97](https://github.com/casonadams/rho/commit/fed6b97809879b19701cd61efe2098598c97284f))
+* **cli:** complete slice 1 plugin grammar aliases and release tag spec parsing ([a134fb9](https://github.com/casonadams/rho/commit/a134fb9c33fa2c6fd71f7f2badf48737fddc95fa))
+* **cli:** complete slice 1 plugin spec parser and asset matching edge cases ([645904f](https://github.com/casonadams/rho/commit/645904f5b785690e16123ca1de2fdee8309fe80d))
+* **cli:** implement plugin listing and safe artifact removal for slice 2 ([e64637c](https://github.com/casonadams/rho/commit/e64637c155f8ab03d2e8ebf2dcde3d5ec1ad20b4))
+* **cli:** implement release fetching, archive extraction, and installation for slice 3 ([de8f94b](https://github.com/casonadams/rho/commit/de8f94bb09b0e10292cee5d53e2cf1ddf87d399a))
+* **cli:** implement self-update and plugin updates for slice 4 ([2b593ac](https://github.com/casonadams/rho/commit/2b593ac8247cb7a42d5a0ea880f17c8933fbbdb5))
+* **cli:** refine plugin deduplication cross-checks and platform matching ([7355a7a](https://github.com/casonadams/rho/commit/7355a7ac17eee23528cb0448722f7a0d0a6b4a82))
+* **config:** add permission configuration schema and cli flag ([d7c7ae1](https://github.com/casonadams/rho/commit/d7c7ae1702e1ada7379830207c6951dadc0507b4))
+* **permission:** add permission domain engine and policy loader ([89ef26f](https://github.com/casonadams/rho/commit/89ef26f09f063f755976b7599c11bea581af6aef))
+* **permission:** integrate in-process permission hook and prompt handling ([68ba7c3](https://github.com/casonadams/rho/commit/68ba7c37d242fb61ac2bf691265fb243b4af7ef6))
+* **repl:** clear editor and modal inputs on ctrl-c in idle state ([86703ac](https://github.com/casonadams/rho/commit/86703ace04b6e1488aa07a2f23c20f0942b753c3))
+* **repl:** clear editor input on ctrl-c during turns and tool runs ([4c580fa](https://github.com/casonadams/rho/commit/4c580faf8d24f77cc6a47c80b6bd23b9f2240a6e))
+* **repl:** unify selection filtering and transitions with draft preservation ([806d670](https://github.com/casonadams/rho/commit/806d67013a079972e8ab79228c395f323bd799ab))
+* **session:** auto-prune sessions older than retention days ([3f0f553](https://github.com/casonadams/rho/commit/3f0f5532ed210e40848303d3581278020201a669))
+* **tools:** allow fd, rg, and outline to search paths outside workspace ([6a0b35a](https://github.com/casonadams/rho/commit/6a0b35aca7052c5fd89aee4f6b0318b594c6014c))
+* **ui:** render selections inside input box with docked draft ([8881001](https://github.com/casonadams/rho/commit/8881001560d54467691aef9fa065f0839231be1b))
+* **ui:** separate ctrl-c clear action from escape cancellation ([277f69f](https://github.com/casonadams/rho/commit/277f69f75679fb2af58827596d70beb8aa1880fd))
+
+
+### Bug Fixes
+
+* **ci:** pass --allow-dirty to cargo publish and sync Cargo.lock ([81c6922](https://github.com/casonadams/rho/commit/81c6922fc534f541268466358b63f6ecc19948c6))
+* **config:** eliminate state cache and make config.toml the sole source of truth ([8f9acc9](https://github.com/casonadams/rho/commit/8f9acc9aa1046f91f6c711ce26d269f4b0be11d5))
+* **harness-core:** implement RAII drop cleanup for ActivityToken ([3d6b39a](https://github.com/casonadams/rho/commit/3d6b39adc1987d4ec33b284189674c86b30eaab8))
+* **repl:** clear active tool and reset idle footer on turn cancellation ([02556cb](https://github.com/casonadams/rho/commit/02556cb2dcfa78894eabd8143201e89afc1701e0))
+* **repl:** preserve activity spinner animation while modal is active ([a48c040](https://github.com/casonadams/rho/commit/a48c040cfab80b4c4cea397e8b9191999d3321cd))
+* **repl:** reset running tool and active tool in idle update_footer ([eaeafac](https://github.com/casonadams/rho/commit/eaeafac0a2d764884fa31766c57c3addb1070431))
+* **ui:** use footer dimmed color for modal bottom hint and options ([918f559](https://github.com/casonadams/rho/commit/918f559d890ab8823e20f16056608ca505ad571d))
+
 ## [0.3.0](https://github.com/casonadams/rho/compare/v0.2.3...v0.3.0) (2026-09-05)
 
 
