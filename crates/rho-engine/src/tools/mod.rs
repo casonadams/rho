@@ -3,6 +3,7 @@ pub mod bash;
 pub mod builtin_tools;
 pub mod edit;
 pub mod fd;
+pub mod outline;
 pub mod read;
 pub mod registry;
 pub mod rg;
