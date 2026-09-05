@@ -153,16 +153,33 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
             let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let rel = to_relative_path(path);
-            format!("/{pattern}/ in {rel}")
+            let quoted_pat = quote_cli_arg(pattern);
+            if rel == "." || rel.is_empty() {
+                quoted_pat
+            } else {
+                let quoted_path = quote_cli_arg(&rel);
+                format!("{quoted_pat} {quoted_path}")
+            }
         }
         "fd" => {
             let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
             let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
             let rel = to_relative_path(path);
-            if pattern.is_empty() {
-                rel
-            } else {
-                format!("{pattern} in {rel}")
+            let has_path = rel != "." && !rel.is_empty();
+            let has_pattern = !pattern.is_empty();
+
+            match (has_pattern, has_path) {
+                (true, true) => {
+                    let quoted_pat = quote_cli_arg(pattern);
+                    let quoted_path = quote_cli_arg(&rel);
+                    format!("{quoted_pat} {quoted_path}")
+                }
+                (true, false) => quote_cli_arg(pattern),
+                (false, true) => {
+                    let quoted_path = quote_cli_arg(&rel);
+                    format!(". {quoted_path}")
+                }
+                (false, false) => ".".to_string(),
             }
         }
         "ls" => {
@@ -170,6 +187,20 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
             to_relative_path(path)
         }
         _ => "".to_string(),
+    }
+}
+
+pub fn quote_cli_arg(arg: &str) -> String {
+    if arg.is_empty() {
+        return "''".to_string();
+    }
+    let is_safe = arg
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '/' | '.' | ':' | '@' | '+'));
+    if is_safe {
+        arg.to_string()
+    } else {
+        format!("'{}'", arg.replace('\'', r"'\''"))
     }
 }
 

@@ -48,11 +48,38 @@ fn format_tool_args_summary_bash_multibyte_truncation() {
 #[test]
 fn format_tool_args_summary_fd() {
     let with_pattern = serde_json::json!({ "pattern": "widget", "path": "src" });
-    assert_eq!(format_tool_args_summary("fd", &with_pattern), "widget in src");
+    assert_eq!(format_tool_args_summary("fd", &with_pattern), "widget src");
+
+    let with_spaced_pattern = serde_json::json!({ "pattern": "my widget", "path": "src" });
+    assert_eq!(format_tool_args_summary("fd", &with_spaced_pattern), "'my widget' src");
 
     let without_pattern = serde_json::json!({ "path": "src" });
-    assert_eq!(format_tool_args_summary("fd", &without_pattern), "src");
+    assert_eq!(format_tool_args_summary("fd", &without_pattern), ". src");
 
     let default_root = serde_json::json!({});
     assert_eq!(format_tool_args_summary("fd", &default_root), ".");
+}
+
+#[test]
+fn format_tool_args_summary_rg() {
+    let simple = serde_json::json!({ "pattern": "foo", "path": "src" });
+    assert_eq!(format_tool_args_summary("rg", &simple), "foo src");
+
+    let root_path = serde_json::json!({ "pattern": "foo", "path": "." });
+    assert_eq!(format_tool_args_summary("rg", &root_path), "foo");
+
+    let spaced = serde_json::json!({ "pattern": "hello world", "path": "src" });
+    assert_eq!(format_tool_args_summary("rg", &spaced), "'hello world' src");
+
+    let regex_chars = serde_json::json!({ "pattern": "fn.*run_turn", "path": "." });
+    assert_eq!(format_tool_args_summary("rg", &regex_chars), "'fn.*run_turn'");
+}
+
+#[test]
+fn test_quote_cli_arg() {
+    assert_eq!(quote_cli_arg(""), "''");
+    assert_eq!(quote_cli_arg("foo"), "foo");
+    assert_eq!(quote_cli_arg("foo-bar_1.2"), "foo-bar_1.2");
+    assert_eq!(quote_cli_arg("foo bar"), "'foo bar'");
+    assert_eq!(quote_cli_arg("don't"), "'don'\\''t'");
 }
