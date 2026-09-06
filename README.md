@@ -1,12 +1,16 @@
 # rho
 
-`rho` is a fast, clean, minimal coding-agent CLI built in Rust on Rig 0.42.
+`rho` is a fast, clean, minimal coding-agent CLI built in Rust on [Rig 0.42](https://github.com/0xPlaygrounds/rig).
+
+---
 
 ## Installation
 
 ```sh
 cargo install rho
 ```
+
+---
 
 ## Quick Start
 
@@ -17,275 +21,69 @@ rho
 # Run one-shot prompt
 rho -p "summarize this repository"
 
-# Select model & provider
-rho --provider gemini --model gemini-3.8-flash
-rho --provider openai --model gpt-4o
+# Select provider and model
+rho --provider gemini --model gemini-2.5-flash
+rho --provider anthropic --model claude-3-7-sonnet-latest
 
-# Resume existing session
+# Resume a previous session
 rho --resume <SESSION_ID>
+# Or browse recent sessions interactively
+rho --resume-picker
 ```
 
 ---
 
-## Interactive Editor and Footer
+## Built-in Tools
 
-When both stdin and stdout are terminals, `rho` runs an interactive editor with
-a two-line status footer pinned to the bottom of the terminal screen:
+`rho` includes 8 fast, native tools designed for coding agents:
 
-```text
-agent output remains above in normal scrollback
-─────────────────────────────────────────────────────────
-Write a message here; wrapped lines and explicit
-newlines grow the editor upward.
-─────────────────────────────────────────────────────────
-~/src/github.com/casonadams/rho (main)
-↑6.9k ↓514 5.4%/128k @14t/s       qwen3.8:27b-mlx • high
-```
-
-The **top line** shows the working directory, git branch, and session name. The
-**stats line** shows tokens sent (`↑`) and received (`↓`), cache reads/writes
-(`R`/`W`), spend (`$`), context usage (`%/window`), and generation speed
-(`@t/s`) as they become available, with the active model and thinking level
-right-aligned. The activity spinner animates in-place on the working line while
-the model is thinking or executing tools, keeping the footer stable and
-preventing terminal jitter.
-
-| Control       | Behavior                                                                     |
-| ------------- | ---------------------------------------------------------------------------- |
-| `Enter`       | Submit prompt.                                                               |
-| `Shift+Enter` | Insert a newline without submitting.                                         |
-| `Ctrl+J`      | Insert a newline, including in terminals that encode it as a raw line feed.  |
-| `Ctrl+O`      | Toggle expanding or collapsing tool output in the transcript.                |
-| `Alt+Enter`   | Submit with follow-up queueing.                                              |
-| `Escape`      | Clear an idle draft, or cancel active execution and restore queued messages. |
-
-Messages submitted while the agent is running enter a FIFO queue and execute in
-order once the active turn settles.
+- **`read`**: Read file contents with line numbering, offset, and limit safeguards. Supports image sniffing and downscaling.
+- **`write`**: Create or overwrite files, automatically creating missing parent directories.
+- **`edit`**: Apply targeted, exact text replacements to files.
+- **`bash`**: Execute shell commands with process group cleanup, timeout protection, and binary sanitization.
+- **`fd`**: Fast, gitignore-aware workspace file discovery with smart-case regex matching.
+- **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary files, and bounds output.
+- **`web_search`**: Search the web and retrieve structured summaries and URLs.
+- **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds from web URLs.
 
 ---
 
-## Theming
+## Feature Highlights & Documentation
 
-Run `/theme` inside the REPL for an interactive selector with live preview; the
-choice is saved to `config.toml` immediately. rho ships 10 built-in themes (9
-dark, plus `catppuccin-latte` for light terminals). Custom themes live in
-`~/.config/rho/themes/*.toml` and may define `background`, `foreground`, and the
-16 palette colors (`color0`-`color15`); rho maps them onto its UI roles, with
-block surfaces coming from the `color0` slot.
+Comprehensive guides are organized in [`docs/`](docs/):
 
-### Use the `default` theme with walh-shell
+- **[Providers, Configuration & Skills](docs/configuration.md)**
+  - Authentication for 14+ providers (ChatGPT, Claude, Copilot, Antigravity, Anthropic, Gemini, DeepSeek, Local Ollama, and more).
+  - Custom OpenAI-compatible endpoints with private network protection.
+  - Hierarchical instruction loading (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`).
+  - Declarative parameter-guided skills (`SKILL.md`).
 
-The `default` theme is special: instead of hardcoding hex colors it emits plain
-16-color ANSI codes, so everything rho draws follows your terminal's own
-palette. [walh-shell](https://github.com/casonadams/walh-shell) recolors that
-palette live in your shell - with `default`, rho renders in exactly the same
-colors as your prompt, tooling, and block surfaces (ANSI black is walh-shell's
-derived surface tint). This is the recommended pairing.
+- **[Interactive UI & Theming](docs/ui.md)**
+  - Dynamic upward-expanding multiline editor with stable screen scrollback.
+  - Live two-line footer telemetry: token count, context percentage, speed, cost, and active model.
+  - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background turns.
+  - 10 built-in color themes, live selector (`/theme`), and dynamic [walh-shell](https://github.com/casonadams/walh-shell) ANSI syncing.
+  - Fenced Mermaid diagram rendering.
 
-### Mermaid diagrams and themes
+- **[Permissions & Safety](docs/permissions.md)**
+  - In-process safety layer separating baseline safe inspection from mutating commands.
+  - Interactive approval modals: **Allow**, **Edit** (with multiline arrow navigation), **Always** (with pattern matching), and **Deny** (with feedback).
+  - Fail-closed execution in headless automation.
 
-Mermaid fences render as monochrome text - the diagram renderer emits no color
-codes of its own. With the `default` theme the diagram simply picks up your
-terminal palette; with any other theme it is drawn in that theme's foreground
-color on its background, so diagrams do not get accent colors and can look flat
-compared to the rest of the UI. Diagrams wider than the terminal are clipped to
-the width (box alignment is preserved, but the right edge is cut off), so keep
-flows narrow or split them into multiple fences.
-
----
-
-## Core Built-in Tools
-
-`rho` includes 9 native, robust built-in tools:
-
-- `read`: Read file contents with line numbering, offset, and limit safeguards.
-- `write`: Create or overwrite files (automatically creates parent directories).
-- `edit`: Make precise file edits with exact text replacement.
-- `bash`: Execute shell commands in the current working directory.
-- `fd`: Find files and directories by workspace-relative path with a smart-case
-  regex; gitignore-aware and bounded.
-- `rg`: Search file contents by pattern with line-oriented results;
-  gitignore-aware, skips binary and oversized files, and bounds output.
-- `web_search`: Search the web and return structured summaries and URLs.
-- `web_fetch`: Fetch and extract clean readable text or markdown from URLs.
-
----
-
-## Providers & Authentication
-
-| Provider       | Auth Type          | Environment Variable / Login                     |
-| -------------- | ------------------ | ------------------------------------------------ |
-| `chatgpt`      | Subscription OAuth | `rho login chatgpt` (OAuth PKCE)                 |
-| `copilot`      | Subscription OAuth | `rho login copilot` (GitHub device login)        |
-| `antigravity`  | Google OAuth       | `rho login antigravity` (OAuth PKCE)             |
-| `openrouter`   | OAuth / API Key    | `OPENROUTER_API_KEY` or `rho login openrouter`   |
-| `anthropic`    | API Key            | `ANTHROPIC_API_KEY` or `rho login anthropic`     |
-| `openai`       | API Key            | `OPENAI_API_KEY` or `rho login openai`           |
-| `deepseek`     | API Key            | `DEEPSEEK_API_KEY` or `rho login deepseek`       |
-| `gemini`       | API Key            | `GEMINI_API_KEY` or `rho login gemini`           |
-| `groq`         | API Key            | `GROQ_API_KEY` or `rho login groq`               |
-| `xai`          | API Key            | `XAI_API_KEY` or `rho login xai`                 |
-| `mistral`      | API Key            | `MISTRAL_API_KEY` or `rho login mistral`         |
-| `cohere`       | API Key            | `COHERE_API_KEY` or `rho login cohere`           |
-| `ollama-cloud` | API Key            | `OLLAMA_API_KEY` or `rho login ollama-cloud`     |
-| `local`        | Local Service      | `OLLAMA_HOST` (default `http://localhost:11434`) |
-
-### Custom OpenAI-compatible providers
-
-Any OpenAI-compatible endpoint can be added at runtime via config — no rebuild.
-In `~/.config/rho/config.toml` (or project `.rho/config.toml`):
-
-```toml
-[providers.acme]
-base_url = "https://api.acme.dev/v1"   # your keys are sent here
-key_env = "ACME_API_KEY"               # optional; falls back to ACME_API_KEY env or `rho login acme`
-```
-
-Then select it with `/model acme:<model>`. Names of built-in providers are
-reserved. For security, `base_url` must use `http`/`https` and private or
-loopback addresses are rejected unless `allow_private_network = true` in
-config.toml.
-
-Slash commands `/reload` (re-read config, skills, and MCP tools without losing
-session history) and `/export [html|md] [path]` (write the active branch as a
-readable artifact) work in the interactive REPL.
-
----
-
-## Configuration & Skills (`~/.config/rho/`)
-
-Global settings and credentials live under `~/.config/rho`
-(override via `RHO_HOME`):
-
-```text
-~/.config/rho/
-├── auth.json              # Stored API keys and OAuth tokens
-└── config.toml            # Application settings
-```
-
-- **Instructions**: Discovers instructions hierarchically from global to
-  project:
-  1. Global user `~/.agents/AGENTS.md`
-  2. Project base `.agents/AGENTS.md`
-  3. Workspace `./AGENTS.md`, `./CLAUDE.md`, or `./.cursorrules`
-- **Skills**: Declarative `SKILL.md` workflows resolved with precedence:
-  1. Project `.agents/skills/`, `.rho/skills/`, or `./skills/` (highest
-     precedence, overrides user skills)
-  2. User `~/.agents/skills/`
-
-  Skills can be written as single flat markdown files (`skills/my-skill.md`) or
-  structured directories (`skills/my-skill/SKILL.md` with optional supporting
-  scripts/examples). Metadata (name, description, argument hints) is declared in
-  YAML frontmatter. Invoke any skill in the REPL using `/skill:<name>` (e.g.
-  `/skill:simplify src/api`); completion offers skill names after typing
-  `/skill `.
-
----
-
-## Model Context Protocol (MCP) Extensions
-
-Extend `rho` with standard **MCP tool servers**:
-
-```toml
-# In ~/.config/rho/config.toml or .rho/config.toml
-[mcp]
-enabled = true
-
-[mcp.servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
-enabled = true
-
-[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
-enabled = true
-```
-
-Tools exposed by MCP servers are automatically namespaced
-(`filesystem_read_file`, `github_create_issue`, etc.) and presented to the model
-as standard tools.
-
----
-
-## Built-in Permissions
-
-`rho` includes an in-process safety and permission system enabled by default.
-Baseline inspection commands (`git status`, `git diff`, `ls`, etc.) and workspace
-file access execute silently without prompting.
-
-Potentially destructive operations (`rm -rf`, network commands) and file accesses
-outside the workspace trigger interactive approval modals with options to:
-
-- **Allow**: Execute once.
-- **Edit**: Modify the command or arguments before execution.
-- **Always allow**: Persist an allow rule to `.rho/permission.toml` (or global `~/.config/rho/permission.toml`).
-- **Deny with reason**: Reject the action with user feedback.
-
-In headless mode, permission-gated actions fail closed automatically.
-
-To disable permissions for a session or run, pass `--no-permission` on the CLI or configure:
-
-```toml
-# In ~/.config/rho/config.toml or .rho/config.toml
-[permission]
-enabled = false
-```
-
-If an external permission plugin (`rho-plugin-permission`) is configured and enabled,
-the built-in hook automatically yields to the external plugin.
-
----
-
-## Plugins & Lifecycle Hooks
-
-Plugins hook into Rig's agent lifecycle (`tool_call`, `tool_result`,
-`invalid_tool_call`, `completion_call`) to observe, steer, or augment execution:
-
-```toml
-# In ~/.config/rho/config.toml or .rho/config.toml
-[plugins.permission]
-enabled = true
-command = "rho-plugin-permission"
-```
-
-- **[rho-plugin-permission](https://github.com/casonadams/rho-plugin-permission)**:
-  Rule-based allow/deny checks in `~/.config/rho/permission.toml` plus
-  interactive terminal approval modals.
-- **Polyglot Daemons**: Write plugins in Rust, Python, Node.js, or Go via
-  standard JSON-RPC 2.0 over standard I/O.
-- **Official Rust SDK**: Build plugins in Rust with
-  [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk).
-
-Full hook protocol, Host UI services, and language examples are documented in
-**[docs/plugins.md](docs/plugins.md)** and
-**[examples/plugins/](examples/plugins/)**.
-
----
-
-## Architecture
-
-The workspace is structured into four clean, focused crates:
-
-- **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
-  token estimation, and presentation types.
-- **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `web_search`,
-  `web_fetch`), standard MCP client, and in-process permission system.
-- **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
-  lifecycle hooks.
-- **`rho`**: Binary CLI entrypoint, interactive TUI editor, slash commands, and
-  terminal rendering engine.
+- **[MCP Servers & Lifecycle Plugins](docs/plugins.md)**
+  - Standard Model Context Protocol (MCP) server integration for external tools.
+  - JSON-RPC stdio daemon plugin architecture for custom lifecycle steering and guardrails.
+  - Native Rust plugin development via [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk).
+  - Built-in plugin package management (`rho install`, `rho update`, `rho remove`).
 
 ---
 
 ## Development
 
-Run tests, formatting, and lint checks across the workspace:
+Run the test suite, linter, and format checks:
 
 ```sh
 cargo test --workspace
 make clippy
-cargo fmt --check
+cargo fmt --all -- --check
 ```
