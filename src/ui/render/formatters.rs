@@ -35,25 +35,31 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
     Some(out)
 }
 
-pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expanded: bool) -> Option<String> {
-    let content = args.get("content")?.as_str()?;
-    if content.trim().is_empty() {
-        return None;
-    }
-    let d = theme.dimmed;
-    let lang = super::preview::detect_language_from_args(args);
+fn format_preview_lines(lines: &[&str], (lang, gutter_width): (Option<&str>, usize), theme: &Theme) -> String {
     let mut out = String::new();
-    let lines: Vec<&str> = content.lines().collect();
-    let total = lines.len();
-    let max = if expanded { total } else { 8.min(total) };
-    let gutter_width = max.to_string().len().max(3);
-    for (idx, line) in lines[..max].iter().enumerate() {
+    let d = theme.dimmed;
+    for (idx, line) in lines.iter().enumerate() {
         let line_num = idx + 1;
         let no_tabs = line.replace('\t', "   ");
         let highlighted = crate::ui::markdown::highlight_code_line(&no_tabs, lang, theme);
         out.push_str(&format!("{d}{line_num:>gutter_width$} │ {d:#}{highlighted}\n"));
     }
+    out
+}
+
+pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expanded: bool) -> Option<String> {
+    let content = args.get("content")?.as_str()?;
+    if content.trim().is_empty() {
+        return None;
+    }
+    let lang = super::preview::detect_language_from_args(args);
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len();
+    let max = if expanded { total } else { 8.min(total) };
+    let gutter_width = max.to_string().len().max(3);
+    let mut out = format_preview_lines(&lines[..max], (lang, gutter_width), theme);
     if !expanded && total > 8 {
+        let d = theme.dimmed;
         out.push_str(&format!("{d}... ({} more lines, {total} total){d:#}\n", total - 8));
     }
     Some(out)

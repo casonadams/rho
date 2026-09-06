@@ -45,11 +45,9 @@ pub(super) fn tokenize(text: &str) -> Vec<&str> {
     tokens
 }
 
-pub(super) fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
-    let n = old_tokens.len();
-    let m = new_tokens.len();
+fn build_lcs_table(old_tokens: &[&str], new_tokens: &[&str]) -> Vec<Vec<usize>> {
+    let (n, m) = (old_tokens.len(), new_tokens.len());
     let mut table = vec![vec![0_usize; m + 1]; n + 1];
-
     for i in 0..n {
         for j in 0..m {
             if old_tokens[i] == new_tokens[j] {
@@ -59,25 +57,34 @@ pub(super) fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a s
             }
         }
     }
+    table
+}
 
-    let mut i = n;
-    let mut j = m;
-    let mut diff = Vec::new();
-
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && old_tokens[i - 1] == new_tokens[j - 1] {
-            diff.push(DiffToken::Same(old_tokens[i - 1]));
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || table[i][j - 1] >= table[i - 1][j]) {
-            diff.push(DiffToken::Added(new_tokens[j - 1]));
-            j -= 1;
-        } else if i > 0 && (j == 0 || table[i][j - 1] < table[i - 1][j]) {
-            diff.push(DiffToken::Removed(old_tokens[i - 1]));
-            i -= 1;
-        }
+fn backtrack_token_step<'a>(
+    (old_tokens, new_tokens): (&[&'a str], &[&'a str]),
+    table: &[Vec<usize>],
+    (i, j): (&mut usize, &mut usize),
+) -> DiffToken<'a> {
+    if *i > 0 && *j > 0 && old_tokens[*i - 1] == new_tokens[*j - 1] {
+        *i -= 1;
+        *j -= 1;
+        DiffToken::Same(old_tokens[*i])
+    } else if *j > 0 && (*i == 0 || table[*i][*j - 1] >= table[*i - 1][*j]) {
+        *j -= 1;
+        DiffToken::Added(new_tokens[*j])
+    } else {
+        *i -= 1;
+        DiffToken::Removed(old_tokens[*i])
     }
+}
 
+pub(super) fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
+    let table = build_lcs_table(old_tokens, new_tokens);
+    let (mut i, mut j) = (old_tokens.len(), new_tokens.len());
+    let mut diff = Vec::new();
+    while i > 0 || j > 0 {
+        diff.push(backtrack_token_step((old_tokens, new_tokens), &table, (&mut i, &mut j)));
+    }
     diff.reverse();
     diff
 }

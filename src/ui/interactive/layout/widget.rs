@@ -12,74 +12,84 @@ pub struct RunningToolWidgetInput<'a> {
     pub tools_expanded: bool,
 }
 
+fn normalize_tool_name(name: &str) -> &str {
+    match name {
+        "search" | "websearch" => "web_search",
+        "fetch" | "webfetch" => "web_fetch",
+        other => other,
+    }
+}
+
+fn format_elapsed(duration: std::time::Duration) -> String {
+    if duration.as_secs() > 0 {
+        format!("{:.1}s", duration.as_secs_f64())
+    } else {
+        format!("{}ms", duration.as_millis())
+    }
+}
+
+fn slice_tail_lines(raw: &str, limit: usize) -> (&str, usize) {
+    let total = raw.bytes().filter(|&b| b == b'\n').count() + 1;
+    if total > limit
+        && let Some((idx, _)) = raw.rmatch_indices('\n').nth(limit - 1)
+    {
+        (&raw[idx + 1..], total - limit)
+    } else {
+        (raw, 0)
+    }
+}
+
+fn format_collapsed_output(raw_output: &str, width: usize, dim: anstyle::Style) -> String {
+    const PRE_SLICE_LINE_LIMIT: usize = 50;
+    let (tail_text, earlier_skipped) = slice_tail_lines(raw_output, PRE_SLICE_LINE_LIMIT);
+    let truncated = truncate_to_visual_lines(tail_text, 5, width.saturating_sub(4).max(1));
+    let total_skipped = earlier_skipped + truncated.skipped_count;
+    let mut out = String::new();
+    if total_skipped > 0 {
+        out.push_str(&format!("{dim}... ({total_skipped} earlier lines){dim:#}\n"));
+    }
+    out.push_str(&truncated.visual_lines.join("\n"));
+    out
+}
+
+fn append_tool_output(content: &mut String, raw_output: &str, (expanded, width, dim): (bool, usize, anstyle::Style)) {
+    if raw_output.is_empty() {
+        return;
+    }
+    content.push_str("\n\n");
+    if expanded {
+        content.push_str(raw_output);
+    } else {
+        content.push_str(&format_collapsed_output(raw_output, width, dim));
+    }
+}
+
 pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
     if input.tool.preview.is_none() && input.tool.output.is_empty() && input.tool.name != "bash" {
         return Vec::new();
     }
-
     let width = input.width.max(20);
     let title = tool_title_style(false);
-    let accent = input.theme.highlight;
-    let dim = input.theme.dimmed;
-
-    let display_name = match input.tool.name.as_str() {
-        "search" | "websearch" => "web_search",
-        "fetch" | "webfetch" => "web_fetch",
-        other => other,
-    };
+    let (accent, dim) = (input.theme.highlight, input.theme.dimmed);
+    let display_name = normalize_tool_name(&input.tool.name);
 
     let mut content = format!(
         "{title}{display_name}{title:#} {accent}{}{accent:#}",
         input.tool.args_summary
     );
-
     if let Some(preview) = &input.tool.preview {
         content.push_str("\n\n");
         content.push_str(preview);
     }
-
-    // Tabs count as zero width here but expand to tab stops on screen,
-    // desyncing block background fill and wrap math.
     let raw_output = input.tool.output.trim_end().replace('\t', "   ");
-    if !raw_output.is_empty() {
-        content.push_str("\n\n");
-        if input.tools_expanded {
-            content.push_str(&raw_output);
-        } else {
-            const PRE_SLICE_LINE_LIMIT: usize = 50;
-            let total_lines = raw_output.bytes().filter(|&b| b == b'\n').count() + 1;
-            let (tail_text, earlier_skipped) = if total_lines > PRE_SLICE_LINE_LIMIT {
-                if let Some((idx, _)) = raw_output.rmatch_indices('\n').nth(PRE_SLICE_LINE_LIMIT - 1) {
-                    (&raw_output[idx + 1..], total_lines - PRE_SLICE_LINE_LIMIT)
-                } else {
-                    (raw_output.as_str(), 0)
-                }
-            } else {
-                (raw_output.as_str(), 0)
-            };
-
-            let truncated = truncate_to_visual_lines(tail_text, 5, width.saturating_sub(4).max(1));
-            let total_skipped = earlier_skipped + truncated.skipped_count;
-            if total_skipped > 0 {
-                content.push_str(&format!("{dim}... ({total_skipped} earlier lines){dim:#}\n"));
-            }
-            content.push_str(&truncated.visual_lines.join("\n"));
-        }
-    }
-
-    let elapsed = input.tool.elapsed();
-    let elapsed_str = if elapsed.as_secs() > 0 {
-        format!("{:.1}s", elapsed.as_secs_f64())
-    } else {
-        format!("{}ms", elapsed.as_millis())
-    };
-    content.push_str(&format!("\n\n{dim}Elapsed {elapsed_str}{dim:#}"));
+    append_tool_output(&mut content, &raw_output, (input.tools_expanded, width, dim));
+    content.push_str(&format!(
+        "\n\n{dim}Elapsed {}{dim:#}",
+        format_elapsed(input.tool.elapsed())
+    ));
 
     let block = BlockFormat::new(input.theme.tool_success_bg, width)
         .with_vertical_padding()
         .render_styled(&content);
-
-    let mut lines = vec![String::new()];
-    lines.extend(block.lines().map(|s| s.to_string()));
-    lines
+    block.lines().map(String::from).collect()
 }

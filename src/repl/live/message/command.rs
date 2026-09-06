@@ -1,11 +1,12 @@
 use super::super::batch::drain_ui_events;
 use super::super::turn::run_active_turn;
-use super::super::{ActiveTurn, LiveIo, LiveMessage};
+use super::super::{ActiveTurn, EditorResources, LiveIo, LiveMessage};
 use super::session_cmd::{SessionCommandIo, handle_session_command};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::CommandResult;
+use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::TerminalBackend;
 
 pub(super) struct LiveCommandContext<'a, 'b> {
@@ -23,15 +24,9 @@ async fn handle_theme_changed(
         ctx.session.config.theme = theme.to_string();
         ctx.session.renderer.theme = resolved.clone();
         let _ = io_controller.set_theme(resolved);
-        let _ = rho_harness_core::config::Config::set_file_value_async(
-            &ctx.session.config.config_dir,
-            "theme",
-            theme,
-        )
-        .await;
-        ctx.session
-            .renderer
-            .print_status(&format!("Theme: {theme}"));
+        let _ = rho_harness_core::config::Config::set_file_value_async(&ctx.session.config.config_dir, "theme", theme)
+            .await;
+        ctx.session.renderer.print_status(&format!("Theme: {theme}"));
     }
 }
 
@@ -90,9 +85,9 @@ async fn handle_compact<B: TerminalBackend>(
     }
 }
 
-
 async fn clear_engine_context(ctx: &mut LiveCommandContext<'_, '_>) -> Result<()> {
-    *ctx.engine = crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;
+    *ctx.engine =
+        crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;
     Ok(())
 }
 
@@ -127,9 +122,7 @@ async fn handle_engine_command<B: TerminalBackend>(
     result: &CommandResult,
 ) -> Result<bool> {
     match result {
-        CommandResult::OpenModelSelector
-        | CommandResult::OpenSettingsSelector
-        | CommandResult::OpenThemeSelector => {
+        CommandResult::OpenModelSelector | CommandResult::OpenSettingsSelector | CommandResult::OpenThemeSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
         CommandResult::ThemeChanged { theme } => handle_theme_changed(ctx, io.controller, theme).await,
@@ -139,6 +132,20 @@ async fn handle_engine_command<B: TerminalBackend>(
     Ok(true)
 }
 
+fn build_session_io<'a, 'b, B: TerminalBackend>(
+    io: &'a mut LiveIo<'b, B>,
+    history: &'a mut InteractiveHistory,
+) -> SessionCommandIo<'a, B> {
+    SessionCommandIo {
+        controller: io.controller,
+        history,
+        input: io.input,
+    }
+}
+
+fn flush_after_command<B: TerminalBackend>(io: &mut LiveIo<'_, B>) -> Result<()> {
+    drain_ui_events(io.controller, io.events, &mut None)
+}
 pub(super) async fn handle_live_command<B: TerminalBackend>(
     mut ctx: LiveCommandContext<'_, '_>,
     live: LiveMessage<'_, B>,
@@ -150,30 +157,35 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
         message: _,
     } = live;
 
-    let session_io = SessionCommandIo {
-        controller: io.controller,
-        history: editor.history,
-        input: io.input,
-    };
+    let session_io = build_session_io(&mut io, editor.history);
     if handle_session_command(&mut ctx, session_io, result.clone()).await? {
-        drain_ui_events(io.controller, io.events, &mut None)?;
+        flush_after_command(&mut io)?;
         return Ok(false);
     }
     if super::auth_cmd::handle_auth_command(&mut ctx, &mut io, &result).await? {
-        drain_ui_events(io.controller, io.events, &mut None)?;
+        flush_after_command(&mut io)?;
         return Ok(false);
     }
     if handle_engine_command(&mut ctx, &mut io, &result).await? {
-        drain_ui_events(io.controller, io.events, &mut None)?;
+        flush_after_command(&mut io)?;
         return Ok(false);
     }
+    run_live_command_tail((ctx, io, editor, result)).await
+}
+
+async fn run_live_command_tail<B: TerminalBackend>(
+    (ctx, mut io, editor, result): (
+        LiveCommandContext<'_, '_>,
+        LiveIo<'_, B>,
+        EditorResources<'_>,
+        CommandResult,
+    ),
+) -> Result<bool> {
     match result {
-        CommandResult::Exit => return Ok(true),
+        CommandResult::Exit => Ok(true),
         CommandResult::ExpandedPrompt { text } => {
-            ctx.session
-                .renderer
-                .print_notice("  [Expanded template]\n");
-            drain_ui_events(io.controller, io.events, &mut None)?;
+            ctx.session.renderer.print_notice("  [Expanded template]\n");
+            flush_after_command(&mut io)?;
             ctx.session.renderer.print_user_block(&text);
             run_active_turn(
                 ctx.session,
@@ -187,10 +199,8 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             .await?;
             ctx.session.sync_engine_model(ctx.engine).await;
             ctx.engine.refresh_quota().await;
-            return Ok(false);
+            Ok(false)
         }
-        _ => {}
+        _ => flush_after_command(&mut io).map(|_| false),
     }
-    drain_ui_events(io.controller, io.events, &mut None)?;
-    Ok(false)
 }

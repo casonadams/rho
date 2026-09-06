@@ -33,16 +33,20 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) system_message_expires_at: Option<std::time::Instant>,
 }
 
+fn init_terminal<B: TerminalBackend>(backend: &mut B) -> io::Result<(usize, usize)> {
+    backend.set_raw_mode(true)?;
+    match backend.size() {
+        Ok((w, h)) => Ok((usize::from(w), usize::from(h))),
+        Err(err) => {
+            let _ = backend.set_raw_mode(false);
+            Err(err)
+        }
+    }
+}
+
 impl<B: TerminalBackend> TerminalController<B> {
     pub fn new(mut backend: B, state: InteractiveState) -> io::Result<Self> {
-        backend.set_raw_mode(true)?;
-        let (width, height) = match backend.size() {
-            Ok((w, h)) => (usize::from(w), usize::from(h)),
-            Err(error) => {
-                let _ = backend.set_raw_mode(false);
-                return Err(error);
-            }
-        };
+        let (width, height) = init_terminal(&mut backend)?;
         let mut controller = Self {
             backend,
             state,
@@ -71,7 +75,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
-    pub fn write_output(&mut self, output: &str) -> io::Result<()> {
+    fn prepare_output_write(&mut self) -> io::Result<()> {
         self.backend.write_text(ansi::CSI_BEGIN_SYNC_UPDATE)?;
         self.backend.hide_cursor()?;
         paint::erase_live_region(
@@ -80,17 +84,10 @@ impl<B: TerminalBackend> TerminalController<B> {
             &crate::ui::interactive::region::bg_code(&self.theme),
         )?;
         self.rendered = None;
-        self.output.restore_cursor(&mut self.backend, self.width)?;
-        let output = terminal_newlines(&crate::ui::interactive::region::paint_region(
-            output,
-            &self.theme,
-            self.width,
-        ));
-        self.backend.write_text(&output)?;
-        self.output.update(&output);
-        if self.output.is_open() {
-            self.backend.write_text("\r\n")?;
-        }
+        self.output.restore_cursor(&mut self.backend, self.width)
+    }
+
+    fn finish_output_write(&mut self) -> io::Result<()> {
         let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
         if rendered.cursor_visible {
@@ -101,6 +98,21 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.rendered = Some(rendered);
         self.backend.write_text(ansi::CSI_END_SYNC_UPDATE)?;
         self.backend.flush()
+    }
+
+    pub fn write_output(&mut self, output: &str) -> io::Result<()> {
+        self.prepare_output_write()?;
+        let output = terminal_newlines(&crate::ui::interactive::region::paint_region(
+            output,
+            &self.theme,
+            self.width,
+        ));
+        self.backend.write_text(&output)?;
+        self.output.update(&output);
+        if self.output.is_open() {
+            self.backend.write_text("\r\n")?;
+        }
+        self.finish_output_write()
     }
 
     pub fn refresh_size(&mut self) -> io::Result<bool> {
@@ -135,19 +147,20 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.redraw()
     }
 
-    pub(super) fn current_layout(&self) -> InteractiveLayout {
-        let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
-        let widget_lines = if let Some(tool) = self.state.active_tool() {
+    fn active_widget_lines(&self) -> Vec<String> {
+        self.state.active_tool().map_or_else(Vec::new, |tool| {
             super::layout::render_running_tool_widget(super::layout::RunningToolWidgetInput {
                 tool,
                 theme: &self.theme,
                 width: self.width,
                 tools_expanded: self.state.tools_expanded(),
             })
-        } else {
-            Vec::new()
-        };
+        })
+    }
 
+    pub(super) fn current_layout(&self) -> InteractiveLayout {
+        let queue_slice: Vec<super::QueuedMessage> = self.state.queue().iter().cloned().collect();
+        let widget_lines = self.active_widget_lines();
         let editor = self
             .state
             .active_modal_saved_editor()

@@ -8,21 +8,17 @@ pub fn tool_title_style(is_error: bool) -> anstyle::Style {
     }
 }
 
-pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
-    if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
-        return match format.to_ascii_lowercase().as_str() {
-            "pdf" => "pdf",
-            "json" => "json",
-            "csv" => "csv",
-            "xml" => "xml",
-            _ => "text",
-        };
+fn kind_from_format(format: &str) -> &'static str {
+    match format.to_ascii_lowercase().as_str() {
+        "pdf" => "pdf",
+        "json" => "json",
+        "csv" => "csv",
+        "xml" => "xml",
+        _ => "text",
     }
-    let url = arguments
-        .get("url")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
+}
+
+fn kind_from_url(url: &str) -> &'static str {
     if url.ends_with(".pdf") {
         "pdf"
     } else if url.ends_with(".json") {
@@ -34,6 +30,18 @@ pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
     } else {
         "text"
     }
+}
+
+pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
+    if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
+        return kind_from_format(format);
+    }
+    let url = arguments
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    kind_from_url(&url)
 }
 
 pub fn detect_language_from_args(args: &serde_json::Value) -> Option<&str> {

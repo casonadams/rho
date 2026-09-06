@@ -1,32 +1,35 @@
 use super::types::TranscriptRenderInput;
 use crate::ui::block::BlockFormat;
 
-pub fn render_user_message(text: &str, input: &TranscriptRenderInput<'_>) -> String {
-    let theme = input.theme;
-    let width = input.width;
-    let tools_expanded = input.tools_expanded;
-
-    if let Some((skill_name, skill_content, user_msg)) = parse_skill_block(text) {
-        let skill_tag = theme.skill_tag;
-        let skill_block_text = if tools_expanded {
-            format!("{skill_tag}[skill]{skill_tag:#} **{skill_name}**\n\n{skill_content}")
-        } else {
-            format!("{skill_tag}[skill]{skill_tag:#} {skill_name}")
-        };
-        let skill_formatted = BlockFormat::new(theme.tool_success_bg, width)
-            .with_vertical_padding()
-            .render_styled(&skill_block_text);
-        let user_trimmed = user_msg.trim();
-        if user_trimmed.is_empty() {
-            format!("\n{skill_formatted}")
-        } else {
-            let user_formatted = BlockFormat::new(theme.user_message_bg, width)
-                .with_vertical_padding()
-                .render_plain(user_trimmed);
-            format!("\n{skill_formatted}\n{user_formatted}")
-        }
+fn render_parsed_skill(
+    (skill_name, skill_content, user_msg): (&str, &str, &str),
+    input: &TranscriptRenderInput<'_>,
+) -> String {
+    let skill_tag = input.theme.skill_tag;
+    let skill_block_text = if input.tools_expanded {
+        format!("{skill_tag}[skill]{skill_tag:#} **{skill_name}**\n\n{skill_content}")
     } else {
-        let block = BlockFormat::new(theme.user_message_bg, width)
+        format!("{skill_tag}[skill]{skill_tag:#} {skill_name}")
+    };
+    let skill_formatted = BlockFormat::new(input.theme.tool_success_bg, input.width)
+        .with_vertical_padding()
+        .render_styled(&skill_block_text);
+    let user_trimmed = user_msg.trim();
+    if user_trimmed.is_empty() {
+        format!("\n{skill_formatted}")
+    } else {
+        let user_formatted = BlockFormat::new(input.theme.user_message_bg, input.width)
+            .with_vertical_padding()
+            .render_plain(user_trimmed);
+        format!("\n{skill_formatted}\n{user_formatted}")
+    }
+}
+
+pub fn render_user_message(text: &str, input: &TranscriptRenderInput<'_>) -> String {
+    if let Some((skill_name, skill_content, user_msg)) = parse_skill_block(text) {
+        render_parsed_skill((&skill_name, &skill_content, &user_msg), input)
+    } else {
+        let block = BlockFormat::new(input.theme.user_message_bg, input.width)
             .with_vertical_padding()
             .render_plain(text);
         format!("\n{block}")

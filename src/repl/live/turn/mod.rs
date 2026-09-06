@@ -1,190 +1,157 @@
+mod cancel;
+mod event;
 pub(crate) mod footer;
 mod input;
 mod model_switch;
+mod runner;
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
+
+#[cfg(test)]
+pub(crate) use super::batch::LiveBatch;
 pub(crate) use footer::sync_turn_footer;
-use input::{TurnInputContext, TurnKeyResult, handle_turn_key, reconcile_consumed_steering};
+#[cfg(test)]
 pub(crate) use model_switch::{TurnModelSwitchInput, apply_turn_model_switch};
 
-use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
-use super::modal::handle_modal_key;
-use super::navigation::restore_queued_messages;
-use super::{ActiveTurn, EditorResources, LiveIo};
+use super::ActiveTurn;
+use super::batch::OUTPUT_FRAME_INTERVAL;
+use super::types::TerminalInputReader;
 use crate::engine::AgentEngine;
-use crate::engine::runner::{CancellationSignal, TurnRequest};
+use crate::engine::runner::{CancellationSignal, TurnOutput, TurnRequest};
 use crate::error::Result;
 use crate::repl::coordinator::SharedSteeringQueue;
-use crate::ui::interactive::{Activity, QueueKind, UiAction};
-use crossterm::event::Event;
-use std::sync::Arc;
+use crate::ui::interactive::TerminalBackend;
+
+use cancel::finish_active_turn;
+use event::{TurnInputResources, dispatch_turn_input};
+use runner::TurnLoop;
+
+struct TurnContext<'a, B: TerminalBackend> {
+    loop_ctx: TurnLoop<'a, B>,
+    input_reader: &'a mut TerminalInputReader,
+    resources: TurnInputResources<'a>,
+}
+
+enum TurnEvent {
+    Tick,
+    Input(Option<std::io::Result<crossterm::event::Event>>),
+    Ui(Option<crate::ui::interactive::UiEvent>),
+}
+
+fn build_turn_context<'a, B: TerminalBackend>(
+    (session, engine): (&'a mut crate::repl::ReplSession, &'a AgentEngine),
+    turn: &'a mut ActiveTurn<'_, B>,
+    cancellation: &'a Arc<CancellationSignal>,
+) -> (TurnContext<'a, B>, TurnRequest<'a>) {
+    let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
+    let model_switch = Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
+    let prompt = std::mem::take(&mut turn.prompt);
+    let request = TurnRequest::new(prompt)
+        .with_cancellation(cancellation)
+        .with_steering(steering.clone())
+        .with_model_switch(model_switch.clone());
+    let loop_ctx = TurnLoop::new((session, engine), turn.io.controller, (steering, model_switch));
+    let resources = TurnInputResources {
+        history: turn.editor.history,
+        completions: turn.editor.completions,
+        ui_events: turn.io.events,
+        cancellation,
+    };
+    (
+        TurnContext {
+            loop_ctx,
+            input_reader: turn.io.input,
+            resources,
+        },
+        request,
+    )
+}
+
+async fn handle_input_res<B: TerminalBackend>(
+    ctx: &mut TurnContext<'_, B>,
+    res: Option<std::io::Result<crossterm::event::Event>>,
+) -> Result<bool> {
+    let Some(event_res) = res else { return Ok(false) };
+    let event = match event_res {
+        Ok(e) => e,
+        Err(err) => {
+            ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, false)?;
+            return Err(err.into());
+        }
+    };
+    dispatch_turn_input(&mut ctx.loop_ctx, &mut ctx.resources, event).await
+}
+
+async fn wait_io(
+    input: &mut TerminalInputReader,
+    ui: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+) -> TurnEvent {
+    tokio::select! {
+        res = input.recv() => TurnEvent::Input(res),
+        ev = ui.recv() => TurnEvent::Ui(ev),
+    }
+}
+
+async fn next_turn_event(
+    frame: &mut tokio::time::Interval,
+    input: &mut TerminalInputReader,
+    ui: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+) -> TurnEvent {
+    tokio::select! {
+        _ = frame.tick() => TurnEvent::Tick,
+        ev = wait_io(input, ui) => ev,
+    }
+}
+
+async fn handle_turn_event<B: TerminalBackend>(ctx: &mut TurnContext<'_, B>, ev: TurnEvent) -> Result<bool> {
+    match ev {
+        TurnEvent::Tick => {
+            ctx.loop_ctx.on_tick()?;
+            Ok(false)
+        }
+        TurnEvent::Input(res) => handle_input_res(ctx, res).await,
+        TurnEvent::Ui(Some(ev)) => {
+            ctx.loop_ctx.batch.push_event(ctx.loop_ctx.controller, ev)?;
+            ctx.loop_ctx.drain_ui_batch(ctx.resources.ui_events)?;
+            Ok(false)
+        }
+        TurnEvent::Ui(None) => Ok(false),
+    }
+}
+
+use futures::future::{Either, select};
+
+async fn step_turn_select<B: TerminalBackend>(
+    ctx: &mut TurnContext<'_, B>,
+    run: &mut (dyn std::future::Future<Output = Result<TurnOutput>> + Send + std::marker::Unpin),
+    frame: &mut tokio::time::Interval,
+) -> Result<bool> {
+    let outcome = {
+        let ev_fut = std::pin::pin!(next_turn_event(frame, ctx.input_reader, ctx.resources.ui_events));
+        match select(run, ev_fut).await {
+            Either::Left((res, _)) => Either::Left(res),
+            Either::Right((ev, _)) => Either::Right(ev),
+        }
+    };
+    match outcome {
+        Either::Left(res) => finish_active_turn(&mut ctx.loop_ctx, ctx.resources.ui_events, res).map(|_| true),
+        Either::Right(ev) => handle_turn_event(ctx, ev).await,
+    }
+}
 
 pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     session: &mut crate::repl::ReplSession,
     engine: &AgentEngine,
-    turn: ActiveTurn<'_, B>,
+    mut turn: ActiveTurn<'_, B>,
 ) -> Result<()> {
-    let ActiveTurn {
-        io: LiveIo {
-            controller,
-            events: ui_events,
-            input: input_reader,
-        },
-        editor: EditorResources { history, completions },
-        prompt,
-    } = turn;
-
+    let renderer = std::sync::Arc::new(session.renderer.clone());
     let cancellation = Arc::new(CancellationSignal::default());
-    let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
-    let model_switch = Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-    let request = TurnRequest::new(prompt)
-        .with_cancellation(&cancellation)
-        .with_steering(steering.clone())
-        .with_model_switch(model_switch.clone());
-    let mut batch = LiveBatch::new();
+    let (mut ctx, request) = build_turn_context((session, engine), &mut turn, &cancellation);
+    let mut run = Box::pin(engine.run_turn(request, renderer));
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut spinner_tick = 0_usize;
-    sync_turn_footer(controller, engine);
-    let mut run = Box::pin(engine.run_turn(request, std::sync::Arc::new(session.renderer.clone())));
-
-    loop {
-        tokio::select! {
-            biased;
-            _ = frame.tick() => {
-                let steering_reconciled = reconcile_consumed_steering(controller, &steering);
-                spinner_tick += 1;
-                let spinner_advanced = if spinner_tick >= SPINNER_FRAME_INTERVALS {
-                    spinner_tick = 0;
-                    controller.advance_spinner();
-                    !matches!(controller.state().footer().activity, Activity::Idle)
-                } else {
-                    false
-                };
-                let expired = controller.check_system_message_expiration();
-                let footer_changed = sync_turn_footer(controller, engine);
-                batch.flush(controller, spinner_advanced || footer_changed || expired || steering_reconciled)?;
-            }
-            event = input_reader.recv() => {
-                let event = match event {
-                    Some(Ok(event)) => event,
-                    Some(Err(error)) => {
-                        batch.flush(controller, false)?;
-                        return Err(error.into());
-                    }
-                    None => continue,
-                };
-                if matches!(event, Event::Resize(_, _)) {
-                    controller.refresh_size()?;
-                    continue;
-                }
-                if let Event::Paste(text) = event {
-                    controller.state_mut().apply(UiAction::Paste(text));
-                    batch.flush(controller, true)?;
-                    continue;
-                }
-                let Event::Key(key) = event else { continue };
-                if key.kind == crossterm::event::KeyEventKind::Release {
-                    continue;
-                }
-                let modal_res = handle_modal_key(controller, key, &mut batch.modal)?;
-                match modal_res {
-                    super::modal::ModalKeyResult::NotHandled => {
-                        let mut ctx = TurnInputContext {
-                            controller,
-                            history,
-                            completions,
-                            batch: &mut batch,
-                            steering: &steering,
-                            session,
-                            model_switch: &model_switch,
-                            shared_auth: Some(engine.shared_auth_store()),
-                        };
-                        match handle_turn_key(key, &mut ctx).await? {
-                            TurnKeyResult::Cancelled => {
-                                drop(run);
-                                cancellation.cancel();
-                                steering.clear();
-                                reconcile_consumed_steering(controller, &steering);
-                                controller.state_mut().retain_queued(|msg| msg.kind != QueueKind::Steering);
-                                reset_controller_idle(controller);
-                                session.renderer.flush();
-                                batch.drain_events(controller, ui_events)?;
-                                reset_controller_idle(controller);
-                                engine.record_cancellation("operator interrupt").await?;
-                                restore_queued_messages(controller);
-                                session.renderer.print_notice("\nCanceled.\n");
-                                batch.drain_events(controller, ui_events)?;
-                                reset_controller_idle(controller);
-                                batch.flush(controller, false)?;
-                                return Ok(());
-                            }
-                            TurnKeyResult::Handled | TurnKeyResult::Ignored => {}
-                        }
-                    }
-                    super::modal::ModalKeyResult::ModelSelected {
-                        model,
-                        provider,
-                        save_as_default,
-                    } => {
-                        apply_turn_model_switch(TurnModelSwitchInput {
-                            model: &model,
-                            provider: &provider,
-                            save_as_default,
-                            config: &mut session.config,
-                            auth_store: &session.auth_store,
-                            renderer: &session.renderer,
-                            controller,
-                            model_switch: &model_switch,
-                            batch: &mut batch,
-                            shared_auth: Some(engine.shared_auth_store()),
-                        })
-                        .await?;
-                    }
-                    _ => {}
-                }
-            }
-            result = &mut run => {
-                reconcile_consumed_steering(controller, &steering);
-                session.renderer.flush();
-                sync_turn_footer(controller, engine);
-                batch.drain_events(controller, ui_events)?;
-                batch.flush(controller, false)?;
-                if let Err(error) = result {
-                    reset_controller_idle(controller);
-                    restore_queued_messages(controller);
-                    session.renderer.print_notice(&format!("\nError: {error}\n"));
-                    sync_turn_footer(controller, engine);
-                    batch.drain_events(controller, ui_events)?;
-                    reset_controller_idle(controller);
-                    batch.flush(controller, false)?;
-                }
-                return Ok(());
-            }
-            event = ui_events.recv() => {
-                if let Some(event) = event {
-                    let steering_reconciled = reconcile_consumed_steering(controller, &steering);
-                    let mut needs_flush = batch.push_event(controller, event)?;
-                    while let Ok(next) = ui_events.try_recv() {
-                        if batch.push_event(controller, next)? {
-                            needs_flush = true;
-                        }
-                    }
-                    let footer_changed = sync_turn_footer(controller, engine);
-                    if needs_flush || footer_changed || steering_reconciled {
-                        batch.flush(controller, footer_changed || steering_reconciled)?;
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn reset_controller_idle<B: crate::ui::interactive::TerminalBackend>(
-    controller: &mut crate::ui::interactive::TerminalController<B>,
-) {
-    controller.clear_active_tool();
-    controller.state_mut().footer_mut().activity = Activity::Idle;
-    controller.state_mut().footer_mut().running_tool = None;
+    while !step_turn_select(&mut ctx, &mut run, &mut frame).await? {}
+    Ok(())
 }

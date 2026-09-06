@@ -1,23 +1,32 @@
 use super::options::{ModalOptionsLayout, render_modal_options};
+use crate::ui::interactive::layout::editor::{window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::{truncate_to_width, visible_width, wrap_to_width};
 use crate::ui::interactive::{CursorPosition, ModalMode, ModalState};
 
+fn options_desired_lines(modal: &ModalState) -> usize {
+    if matches!(modal.mode, ModalMode::Input { .. }) {
+        0
+    } else if modal.options.is_empty() {
+        usize::from(modal.is_searchable)
+    } else {
+        modal.options.len().min(12)
+    }
+}
+
 pub fn in_input_modal_desired_lines(modal: &ModalState, draft_text: &str, inner_width: usize) -> usize {
     let search = usize::from(modal.is_searchable);
-    let input = usize::from(matches!(modal.mode, ModalMode::Input { .. }));
+    let input = if matches!(modal.mode, ModalMode::Input { .. }) {
+        wrap_to_width(modal.input.text(), inner_width).len().max(1)
+    } else {
+        0
+    };
     let draft = usize::from(!draft_text.trim().is_empty());
     let body = if modal.body.trim().is_empty() {
         0
     } else {
         wrap_to_width(&modal.body, inner_width).len().min(8)
     };
-    let options = if matches!(modal.mode, ModalMode::Input { .. }) {
-        0
-    } else if modal.options.is_empty() {
-        usize::from(modal.is_searchable)
-    } else {
-        modal.options.len().min(12)
-    };
+    let options = options_desired_lines(modal);
     (search + input + draft + body + options).max(1)
 }
 
@@ -28,34 +37,10 @@ pub struct InInputModalInput<'a> {
     pub theme: &'a crate::ui::theme::Theme,
 }
 
-pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, CursorPosition, bool) {
-    let InInputModalInput {
-        modal,
-        draft_text,
-        bounds,
-        theme,
-    } = input;
-    let (width, max_lines) = bounds;
-    let width = width.max(1);
-    let inner_width = width.saturating_sub(4).max(1);
-    if max_lines == 0 {
-        return (Vec::new(), CursorPosition { row: 0, column: 0 }, false);
-    }
-
-    let is_input_mode = matches!(modal.mode, ModalMode::Input { .. });
-    let has_search = modal.is_searchable && !is_input_mode;
-    let has_draft = !draft_text.trim().is_empty() && max_lines >= 2;
-
-    let fixed_count = usize::from(has_search) + usize::from(is_input_mode) + usize::from(has_draft);
-    let space_for_content = max_lines.saturating_sub(fixed_count);
-
-    let (body_space, options_space) = if is_input_mode {
+fn calculate_content_space(modal: &ModalState, space_for_content: usize) -> (usize, usize) {
+    if matches!(modal.mode, ModalMode::Input { .. }) || modal.options.is_empty() {
         (space_for_content, 0)
-    } else if modal.body.trim().is_empty() {
-        (0, space_for_content)
-    } else if modal.options.is_empty() {
-        (space_for_content, 0)
-    } else if space_for_content <= 2 {
+    } else if modal.body.trim().is_empty() || space_for_content <= 2 {
         (0, space_for_content)
     } else {
         let opt_desired = modal
@@ -64,67 +49,126 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
             .min(5)
             .min(space_for_content.saturating_sub(1))
             .max(1);
-        let b_space = space_for_content.saturating_sub(opt_desired);
-        (b_space, opt_desired)
+        (space_for_content.saturating_sub(opt_desired), opt_desired)
+    }
+}
+
+fn push_search_row(modal: &ModalState, width: usize, lines: &mut Vec<String>) -> (CursorPosition, bool) {
+    let cursor = CursorPosition {
+        row: lines.len(),
+        column: (visible_width("  > ") + visible_width(&modal.filter_query)).min(width),
     };
+    lines.push(format!("  \x1b[1m>\x1b[0m {}", modal.filter_query));
+    (cursor, true)
+}
 
-    let body_lines = render_in_input_body(&modal.body, inner_width, body_space);
+fn push_modal_input_prompt(
+    modal: &ModalState,
+    theme: &crate::ui::theme::Theme,
+    (width, max_input_lines, lines): (usize, usize, &mut Vec<String>),
+) -> Option<(CursorPosition, bool)> {
+    let ModalMode::Input { prompt_label } = &modal.mode else {
+        return None;
+    };
+    let highlight = theme.highlight;
+    let bold = anstyle::Style::new().bold();
+    let prefix = format!("  {highlight}{bold}{prompt_label}:{bold:#}{highlight:#} ");
+    let prefix_width = visible_width(&format!("  {prompt_label}: "));
+    let cont_prefix = " ".repeat(prefix_width);
+    let edit_width = width.saturating_sub(prefix_width).max(1);
 
-    let options_lines = if options_space > 0 {
-        render_modal_options(
-            modal,
+    let (wrapped, cursor_pos) = wrap_editor(&modal.input, edit_width);
+    let (windowed, cur) = window_editor(wrapped, cursor_pos, max_input_lines.max(1));
+    let base_row = lines.len();
+
+    for (idx, line) in windowed.into_iter().enumerate() {
+        if idx == 0 {
+            lines.push(format!("{prefix}{line}"));
+        } else {
+            lines.push(format!("{cont_prefix}{line}"));
+        }
+    }
+    let cursor = CursorPosition {
+        row: base_row + cur.row,
+        column: (prefix_width + cur.column).min(width),
+    };
+    Some((cursor, true))
+}
+
+fn format_draft_line(draft_text: &str, inner_width: usize, theme: &crate::ui::theme::Theme) -> String {
+    let single_line = draft_text.trim().replace('\n', " ");
+    let max_preview = inner_width.saturating_sub(25).max(5);
+    let preview = truncate_to_width(&single_line, max_preview);
+    let dimmed = theme.dimmed;
+    format!("  {dimmed}Draft: \"{preview}\" (restores on close){dimmed:#}")
+}
+
+fn collect_modal_content(
+    input: &InInputModalInput<'_>,
+    (inner_width, body_space, opt_space): (usize, usize, usize),
+    has_draft: bool,
+) -> Vec<String> {
+    let mut lines = render_in_input_body(&input.modal.body, inner_width, body_space);
+    if opt_space > 0 {
+        lines.extend(render_modal_options(
+            input.modal,
             ModalOptionsLayout {
                 inner_width,
-                max_visible: options_space,
-                theme,
+                max_visible: opt_space,
+                theme: input.theme,
             },
-        )
+        ));
+    }
+    if has_draft {
+        lines.push(format_draft_line(input.draft_text, inner_width, input.theme));
+    }
+    lines
+}
+
+fn modal_in_input_spaces(
+    modal: &ModalState,
+    draft_text: &str,
+    (max_lines, inner_width): (usize, usize),
+) -> (usize, usize, usize, bool) {
+    let has_draft = !draft_text.trim().is_empty() && max_lines >= 2;
+    let has_search = modal.is_searchable && !matches!(modal.mode, ModalMode::Input { .. });
+    let is_input = matches!(modal.mode, ModalMode::Input { .. });
+    let input_lines = if is_input {
+        wrap_to_width(modal.input.text(), inner_width)
+            .len()
+            .max(1)
+            .min(max_lines.saturating_sub(2).max(1))
     } else {
-        Vec::new()
+        0
     };
+    let fixed = usize::from(has_search) + input_lines + usize::from(has_draft);
+    let (b_space, opt_space) = calculate_content_space(modal, max_lines.saturating_sub(fixed));
+    (b_space, opt_space, input_lines, has_draft)
+}
+
+pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, CursorPosition, bool) {
+    let (width, max_lines) = (input.bounds.0.max(1), input.bounds.1);
+    if max_lines == 0 {
+        return (Vec::new(), CursorPosition { row: 0, column: 0 }, false);
+    }
+    let inner_width = width.saturating_sub(4).max(1);
+    let (b_space, opt_space, input_lines, has_draft) =
+        modal_in_input_spaces(input.modal, input.draft_text, (max_lines, inner_width));
 
     let mut lines = Vec::new();
-    let mut cursor = CursorPosition { row: 0, column: 0 };
-    let mut cursor_visible = false;
-
-    if has_search {
-        let search_prefix = "  \x1b[1m>\x1b[0m ";
-        cursor = CursorPosition {
-            row: lines.len(),
-            column: (visible_width("  > ") + visible_width(&modal.filter_query)).min(width),
-        };
-        cursor_visible = true;
-        lines.push(format!("{search_prefix}{}", modal.filter_query));
+    let mut cursor = (CursorPosition { row: 0, column: 0 }, false);
+    if input.modal.is_searchable && !matches!(input.modal.mode, ModalMode::Input { .. }) {
+        cursor = push_search_row(input.modal, width, &mut lines);
     }
-
-    lines.extend(body_lines);
-    lines.extend(options_lines);
-
-    if let ModalMode::Input { prompt_label } = &modal.mode {
-        let highlight = theme.highlight;
-        let bold = anstyle::Style::new().bold();
-        let prefix = format!("  {highlight}{bold}{prompt_label}:{bold:#}{highlight:#} ");
-        let input_text = modal.input.text();
-        let cursor_byte = modal.input.cursor().min(input_text.len());
-        let col =
-            (visible_width(&format!("  {prompt_label}: ")) + visible_width(&input_text[..cursor_byte])).min(width);
-        cursor = CursorPosition {
-            row: lines.len(),
-            column: col,
-        };
-        cursor_visible = true;
-        lines.push(format!("{prefix}{input_text}"));
+    lines.extend(collect_modal_content(
+        &input,
+        (inner_width, b_space, opt_space),
+        has_draft,
+    ));
+    if let Some(c) = push_modal_input_prompt(input.modal, input.theme, (width, input_lines, &mut lines)) {
+        cursor = c;
     }
-
-    if has_draft {
-        let single_line = draft_text.trim().replace('\n', " ");
-        let max_preview = inner_width.saturating_sub(25).max(5);
-        let preview = truncate_to_width(&single_line, max_preview);
-        let dimmed = theme.dimmed;
-        lines.push(format!("  {dimmed}Draft: \"{preview}\" (restores on close){dimmed:#}"));
-    }
-
-    (lines, cursor, cursor_visible)
+    (lines, cursor.0, cursor.1)
 }
 
 fn render_in_input_body(body: &str, inner_width: usize, space: usize) -> Vec<String> {

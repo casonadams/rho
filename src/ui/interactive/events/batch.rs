@@ -121,6 +121,7 @@ impl PendingUiBatch {
                 self.extra_status = Some(s);
                 BatchDecision::Pending
             }
+            event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
             other => self.push_flushing(other),
         }
     }

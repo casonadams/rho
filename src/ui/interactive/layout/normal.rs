@@ -1,19 +1,11 @@
 use super::autocomplete::render_autocomplete_dropdown;
-use super::budget::{NormalBudgetInput, compute_normal_budget};
+use super::budget::{NormalBudgetInput, NormalLayoutBudget, compute_normal_budget};
 use super::chrome::{modal_top_divider, queued_lines_text, thinking_divider_style, top_divider, working_line_text};
 use super::editor::{window_editor, wrap_editor};
-use super::types::{InteractiveLayout, LayoutInput};
+use super::types::{CursorPosition, InteractiveLayout, LayoutInput};
 
-pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout {
-    let width = input.terminal_width.max(1);
-    let mut lines = Vec::new();
-
-    let working_line = working_line_text(input.footer, input.spinner_frame, width);
-    let widget_lines = input.widget_lines;
-    let queued_lines = queued_lines_text(input.queued_messages, width);
-
-    let (all_ed_lines, full_cursor) = wrap_editor(input.editor, width);
-    let ac_desired = if input.modal.is_none()
+fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
+    if input.modal.is_none()
         && let Some(ac) = input.autocomplete
         && ac.visible
         && !ac.items.is_empty()
@@ -22,133 +14,244 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         ac.items.len().min(super::autocomplete::MAX_VISIBLE_ITEMS)
     } else {
         0
-    };
-
-    let total_editor_lines = if let Some(modal) = input.modal {
-        super::modal::in_input_modal_desired_lines(modal, input.editor.text(), width.saturating_sub(4).max(1))
-    } else {
-        all_ed_lines.len()
-    };
-    let ft_lines = if let Some(modal) = input.modal {
-        vec![super::modal::modal_hint(modal).to_string()]
-    } else {
-        crate::ui::interactive::footer::format_footer_lines(input.footer, width, input.system_message)
-    };
-
-    let budget = compute_normal_budget(&NormalBudgetInput {
-        terminal_height: input.terminal_height,
-        raw_widgets_count: widget_lines.len(),
-        raw_queued_count: queued_lines.len(),
-        total_editor_lines,
-        autocomplete_desired: ac_desired,
-        raw_footer_count: ft_lines.len(),
-    });
-
-    let visible_widgets = if widget_lines.len() > budget.widget_count {
-        widget_lines[widget_lines.len() - budget.widget_count..].to_vec()
-    } else {
-        widget_lines.to_vec()
-    };
-    if !visible_widgets.is_empty() {
-        lines.extend(visible_widgets.clone());
     }
+}
 
-    if budget.show_spacer {
-        lines.push(String::new());
-    }
-
-    let visible_queued = if budget.queued_count > 0 {
-        let count = budget.queued_count.min(queued_lines.len());
-        queued_lines[..count].to_vec()
-    } else {
-        Vec::new()
-    };
-    lines.extend(visible_queued.clone());
-
-    let visible_working = if budget.show_activity_row {
-        lines.push(working_line.clone());
-        working_line
-    } else {
-        String::new()
-    };
-
-    let (style, reset) = if input.modal.is_some() {
+fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str) {
+    if input.modal.is_some() {
         ("\x1b[1;36m", "\x1b[0m")
     } else if input.editor.text().trim_start().starts_with('!') {
         ("\x1b[33m", "\x1b[0m")
     } else {
         thinking_divider_style(input.footer.thinking_level.as_deref())
-    };
-    let label = if input.footer.show_label {
-        concat!("rho ", env!("CARGO_PKG_VERSION"))
-    } else {
-        ""
-    };
-    let top_div = match input.modal {
-        Some(modal) => modal_top_divider(width, &modal.title, (style, reset)),
-        None => top_divider(width, label, (style, reset)),
-    };
-    if budget.show_top_div {
-        lines.push(top_div.clone());
     }
+}
 
-    let default_theme = crate::ui::theme::Theme::default();
-    let active_theme = input.theme.unwrap_or(&default_theme);
+fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: (&str, &str)) -> String {
+    match input.modal {
+        Some(modal) => modal_top_divider(width, &modal.title, style),
+        None => {
+            let label = if input.footer.show_label {
+                concat!("rho ", env!("CARGO_PKG_VERSION"))
+            } else {
+                ""
+            };
+            top_divider(width, label, style)
+        }
+    }
+}
 
-    let (ed_lines, ed_cursor, ed_cursor_visible) = if let Some(modal) = input.modal {
-        super::modal::render_in_input_modal(super::modal::InInputModalInput {
+fn render_editor_area(
+    input: &LayoutInput<'_>,
+    (all_ed_lines, full_cursor): (Vec<String>, CursorPosition),
+    (width, ed_budget, ac_budget, theme): (usize, usize, usize, &crate::ui::theme::Theme),
+) -> (Vec<String>, CursorPosition, bool) {
+    if let Some(modal) = input.modal {
+        return super::modal::render_in_input_modal(super::modal::InInputModalInput {
             modal,
             draft_text: input.editor.text(),
-            bounds: (width, budget.editor_max_lines),
-            theme: active_theme,
-        })
+            bounds: (width, ed_budget),
+            theme,
+        });
+    }
+    let ac_lines = input.autocomplete.map_or_else(Vec::new, |ac| {
+        render_autocomplete_dropdown(ac, (width, ac_budget), theme)
+    });
+    let unused_ac = ac_budget.saturating_sub(ac_lines.len());
+    let ed_max = ed_budget + unused_ac.min(all_ed_lines.len().saturating_sub(ed_budget));
+    let (mut ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
+    if !ac_lines.is_empty() {
+        ed_lines.extend(ac_lines);
+    }
+    (ed_lines, ed_cursor, true)
+}
+
+struct LayoutPieces {
+    working: String,
+    queued: Vec<String>,
+    ed_wrapped: (Vec<String>, CursorPosition),
+    ft_lines: Vec<String>,
+    budget: NormalLayoutBudget,
+}
+
+fn estimate_layout_demands(input: &LayoutInput<'_>, width: usize, ed_len: usize) -> (usize, Vec<String>) {
+    let total_ed_lines = input.modal.map_or(ed_len, |m| {
+        super::modal::in_input_modal_desired_lines(m, input.editor.text(), width.saturating_sub(4).max(1))
+    });
+    let ft_lines = input.modal.map_or_else(
+        || crate::ui::interactive::footer::format_footer_lines(input.footer, width, input.system_message),
+        |m| vec![super::modal::modal_hint(m).to_string()],
+    );
+    (total_ed_lines, ft_lines)
+}
+
+fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces {
+    let working = working_line_text(input.footer, input.spinner_frame, width);
+    let queued = queued_lines_text(input.queued_messages, width);
+    let ed_wrapped = wrap_editor(input.editor, width);
+    let ac_desired = desired_autocomplete_count(input, width);
+    let (total_editor_lines, ft_lines) = estimate_layout_demands(input, width, ed_wrapped.0.len());
+    let budget = compute_normal_budget(&NormalBudgetInput {
+        terminal_height: input.terminal_height,
+        raw_widgets_count: input.widget_lines.len(),
+        raw_queued_count: queued.len(),
+        total_editor_lines,
+        autocomplete_desired: ac_desired,
+        raw_footer_count: ft_lines.len(),
+    });
+    LayoutPieces {
+        working,
+        queued,
+        ed_wrapped,
+        ft_lines,
+        budget,
+    }
+}
+
+fn visible_widgets_and_queued(
+    widget_lines: &[String],
+    queued_lines: &[String],
+    budget: &NormalLayoutBudget,
+) -> (Vec<String>, Vec<String>) {
+    let vis_widgets = if widget_lines.len() > budget.widget_count {
+        widget_lines[widget_lines.len() - budget.widget_count..].to_vec()
     } else {
-        let ac_lines = if let Some(ac) = input.autocomplete {
-            render_autocomplete_dropdown(ac, (width, budget.autocomplete_max_lines), active_theme)
-        } else {
-            Vec::new()
-        };
-
-        let unused_ac = budget.autocomplete_max_lines.saturating_sub(ac_lines.len());
-        let ed_max =
-            budget.editor_max_lines + unused_ac.min(all_ed_lines.len().saturating_sub(budget.editor_max_lines));
-        let (mut ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
-        if !ac_lines.is_empty() {
-            ed_lines.extend(ac_lines);
-        }
-        (ed_lines, ed_cursor, true)
+        widget_lines.to_vec()
     };
+    let vis_queued = if budget.queued_count > 0 {
+        queued_lines[..budget.queued_count.min(queued_lines.len())].to_vec()
+    } else {
+        Vec::new()
+    };
+    (vis_widgets, vis_queued)
+}
 
-    let editor_start_row = lines.len();
-    lines.extend(ed_lines.clone());
-
-    let bot_div = format!("{style}{}{reset}", "─".repeat(width));
-    if budget.show_bot_div {
-        lines.push(bot_div.clone());
+fn push_pre_editor_lines(
+    lines: &mut Vec<String>,
+    budget: &NormalLayoutBudget,
+    (widgets, queued, working): (&[String], &[String], &str),
+) {
+    if !widgets.is_empty() {
+        lines.extend_from_slice(widgets);
     }
-
-    let visible_ft_lines = ft_lines[..ft_lines.len().min(budget.footer_count)].to_vec();
-    let footer_style = active_theme.dimmed;
-    for fl in &visible_ft_lines {
-        lines.push(format!("{footer_style}{fl}{footer_style:#}"));
+    if budget.show_spacer {
+        lines.push(String::new());
     }
+    if !queued.is_empty() {
+        lines.extend_from_slice(queued);
+    }
+    if budget.show_activity_row {
+        lines.push(working.to_string());
+    }
+}
 
-    let footer = visible_ft_lines.join("\n");
-    let cursor_row = editor_start_row + ed_cursor.row;
+fn push_footer_lines(
+    lines: &mut Vec<String>,
+    (ft_lines, budget_count): (&[String], usize),
+    style: anstyle::Style,
+) -> Vec<String> {
+    let visible = ft_lines[..ft_lines.len().min(budget_count)].to_vec();
+    for fl in &visible {
+        lines.push(format!("{style}{fl}{style:#}"));
+    }
+    visible
+}
 
+type AssembleMeta = (
+    Vec<String>,
+    Vec<String>,
+    String,
+    String,
+    Vec<String>,
+    String,
+    Vec<String>,
+);
+
+fn assemble_layout(
+    lines: Vec<String>,
+    (cursor, cursor_visible, start_row): (CursorPosition, bool, usize),
+    (queued_lines, widget_lines, working_line, top_divider, editor_lines, bottom_divider, footer_lines): AssembleMeta,
+) -> InteractiveLayout {
+    let footer = footer_lines.join("\n");
     InteractiveLayout {
         lines,
         bg: String::new(),
-        cursor: ed_cursor,
-        cursor_visible: ed_cursor_visible,
-        cursor_row,
-        queued_lines: visible_queued,
-        widget_lines: visible_widgets,
-        working_line: visible_working,
-        top_divider: top_div,
-        editor_lines: ed_lines,
-        bottom_divider: bot_div,
-        footer_lines: visible_ft_lines,
+        cursor,
+        cursor_visible,
+        cursor_row: start_row + cursor.row,
+        queued_lines,
+        widget_lines,
+        working_line,
+        top_divider,
+        editor_lines,
+        bottom_divider,
+        footer_lines,
         footer,
     }
+}
+
+fn resolve_chrome_dividers(input: &LayoutInput<'_>, width: usize) -> (String, String) {
+    let (style, reset) = resolve_divider_style(input);
+    let top = resolve_top_divider(input, width, (style, reset));
+    let bot = format!("{style}{}{reset}", "─".repeat(width));
+    (top, bot)
+}
+
+fn init_layout_lines(
+    budget: &NormalLayoutBudget,
+    (widgets, queued, working): (&[String], &[String], &str),
+    top_div: &str,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    push_pre_editor_lines(&mut lines, budget, (widgets, queued, working));
+    if budget.show_top_div {
+        lines.push(top_div.to_string());
+    }
+    lines
+}
+
+fn render_editor_and_bottom(
+    (input, ed_wrapped): (&LayoutInput<'_>, (Vec<String>, CursorPosition)),
+    (width, budget, theme, bot_div): (usize, &NormalLayoutBudget, &crate::ui::theme::Theme, &str),
+    lines: &mut Vec<String>,
+) -> ((CursorPosition, bool, usize), Vec<String>) {
+    let editor_start_row = lines.len();
+    let (ed_lines, ed_cursor, ed_vis) = render_editor_area(
+        input,
+        ed_wrapped,
+        (width, budget.editor_max_lines, budget.autocomplete_max_lines, theme),
+    );
+    lines.extend(ed_lines.clone());
+    if budget.show_bot_div {
+        lines.push(bot_div.to_string());
+    }
+    ((ed_cursor, ed_vis, editor_start_row), ed_lines)
+}
+
+pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout {
+    let width = input.terminal_width.max(1);
+    let pieces = prepare_layout_pieces(&input, width);
+    let (top_div, bot_div) = resolve_chrome_dividers(&input, width);
+    let default_theme = crate::ui::theme::Theme::default();
+    let theme = input.theme.unwrap_or(&default_theme);
+    let (vis_w, vis_q) = visible_widgets_and_queued(input.widget_lines, &pieces.queued, &pieces.budget);
+
+    let mut lines = init_layout_lines(&pieces.budget, (&vis_w, &vis_q, &pieces.working), &top_div);
+    let (cursor_info, ed_lines) = render_editor_and_bottom(
+        (&input, pieces.ed_wrapped),
+        (width, &pieces.budget, theme, &bot_div),
+        &mut lines,
+    );
+    let vis_ft = push_footer_lines(&mut lines, (&pieces.ft_lines, pieces.budget.footer_count), theme.dimmed);
+    let working = if pieces.budget.show_activity_row {
+        pieces.working
+    } else {
+        String::new()
+    };
+
+    assemble_layout(
+        lines,
+        cursor_info,
+        (vis_q, vis_w, working, top_div, ed_lines, bot_div, vis_ft),
+    )
 }

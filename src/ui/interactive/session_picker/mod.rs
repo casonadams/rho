@@ -70,6 +70,24 @@ impl std::fmt::Debug for PickerAction {
     }
 }
 
+fn handle_filter_key(modal: &mut ModalState, key: &KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Backspace => {
+            let mut query = modal.filter_query.clone();
+            query.pop();
+            modal.set_filter(&query);
+            true
+        }
+        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            let mut query = modal.filter_query.clone();
+            query.push(c);
+            modal.set_filter(&query);
+            true
+        }
+        _ => false,
+    }
+}
+
 fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
     match key.code {
         KeyCode::Up | KeyCode::BackTab => {
@@ -89,19 +107,10 @@ fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
         }
         KeyCode::Esc => PickerAction::Cancel,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => PickerAction::Cancel,
-        KeyCode::Backspace => {
-            let mut query = modal.filter_query.clone();
-            query.pop();
-            modal.set_filter(&query);
+        _ => {
+            handle_filter_key(modal, key);
             PickerAction::Repaint
         }
-        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            let mut query = modal.filter_query.clone();
-            query.push(c);
-            modal.set_filter(&query);
-            PickerAction::Repaint
-        }
-        _ => PickerAction::Repaint,
     }
 }
 

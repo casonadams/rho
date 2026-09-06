@@ -24,43 +24,70 @@ pub(crate) struct TurnModelSwitchInput<'a, 'b, B: TerminalBackend> {
     pub shared_auth: Option<Arc<tokio::sync::Mutex<AuthStore>>>,
 }
 
-pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(input: TurnModelSwitchInput<'_, '_, B>) -> Result<()> {
-    let TurnModelSwitchInput {
-        model,
-        provider,
-        save_as_default,
-        config,
-        auth_store,
-        renderer,
-        controller,
-        model_switch,
-        batch,
-        shared_auth,
-    } = input;
+async fn save_and_report_default(input: (&mut Config, &TerminalRenderer), (model, provider): (&str, &str)) {
+    let (config, renderer) = input;
+    config.set_default_model(model, provider);
+    let _ = rho_harness_core::config::Config::save_default_model_async(&config.config_dir, model, provider).await;
+    renderer.print_status(&format!("Default model: {model} ({provider})"));
+}
 
-    config.model = model.to_string();
-    config.provider = provider.to_string();
+async fn update_config_model(
+    input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>,
+    (model, provider, save_as_default): (&str, &str, bool),
+) {
+    input.config.model = model.to_string();
+    input.config.provider = provider.to_string();
     if save_as_default {
-        config.set_default_model(model, provider);
-        let _ = rho_harness_core::config::Config::save_default_model_async(&config.config_dir, model, provider).await;
-        renderer.print_status(&format!("Default model: {model} ({provider})"));
+        save_and_report_default((input.config, input.renderer), (model, provider)).await;
     } else {
-        renderer.print_status(&format!("Model: {model} ({provider})"));
+        input.renderer.print_status(&format!("Model: {model} ({provider})"));
     }
+}
 
-    match create_engine_model(config, auth_store, shared_auth) {
+async fn switch_engine_handle(
+    input: &mut TurnModelSwitchInput<'_, '_, impl TerminalBackend>,
+    (model, provider): (&str, &str),
+) {
+    match create_engine_model(input.config, input.auth_store, input.shared_auth.clone()) {
         Ok(handle) => {
-            model_switch.switch_to(ActiveModelSwitch::new(model, provider, handle));
-            controller.set_system_message(format!("[Next step will use model: {model} ({provider})]"));
+            input
+                .model_switch
+                .switch_to(ActiveModelSwitch::new(model, provider, handle));
+            input
+                .controller
+                .set_system_message(format!("[Next step will use model: {model} ({provider})]"));
         }
         Err(err) => {
-            renderer.print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
+            input
+                .renderer
+                .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
         }
     }
+}
 
-    controller.state_mut().footer_mut().model = model.to_string();
-    batch.flush(controller, true)?;
+pub(crate) async fn apply_turn_model_switch<B: TerminalBackend>(
+    mut input: TurnModelSwitchInput<'_, '_, B>,
+) -> Result<()> {
+    let (model, provider, save_as_default) = (
+        input.model.to_string(),
+        input.provider.to_string(),
+        input.save_as_default,
+    );
+    update_config_model(&mut input, (&model, &provider, save_as_default)).await;
+    switch_engine_handle(&mut input, (&model, &provider)).await;
+    input.controller.state_mut().footer_mut().model = model;
+    input.batch.flush(input.controller, true)?;
     Ok(())
+}
+
+fn next_cyclic_index(current_idx: usize, len: usize, direction: i32) -> usize {
+    if direction >= 0 {
+        (current_idx + 1) % len
+    } else if current_idx == 0 {
+        len - 1
+    } else {
+        current_idx - 1
+    }
 }
 
 pub(super) async fn cycle_turn_model<B: TerminalBackend>(
@@ -73,16 +100,8 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
     }
     let current_model = &ctx.session.config.model;
     let current_idx = models.iter().position(|m| &m.id == current_model).unwrap_or(0);
+    let item = &models[next_cyclic_index(current_idx, models.len(), direction)];
 
-    let next_idx = if direction >= 0 {
-        (current_idx + 1) % models.len()
-    } else if current_idx == 0 {
-        models.len() - 1
-    } else {
-        current_idx - 1
-    };
-
-    let item = &models[next_idx];
     apply_turn_model_switch(TurnModelSwitchInput {
         model: &item.id,
         provider: &item.provider,
@@ -98,22 +117,21 @@ pub(super) async fn cycle_turn_model<B: TerminalBackend>(
     .await
 }
 
-pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {
+fn next_thinking_level(current: &str) -> Option<String> {
     let levels = crate::repl::live::navigation::THINKING_LEVELS;
-    let current = ctx.session.config.thinking_level.as_deref().unwrap_or("off");
     let current_idx = levels
         .iter()
         .position(|&l| l.eq_ignore_ascii_case(current))
         .unwrap_or(0);
-    let next_idx = (current_idx + 1) % levels.len();
-    let next_level = levels[next_idx];
+    let next_level = levels[(current_idx + 1) % levels.len()];
+    (next_level != "off").then(|| next_level.to_string())
+}
 
-    ctx.session.config.thinking_level = if next_level == "off" {
-        None
-    } else {
-        Some(next_level.to_string())
-    };
-
+async fn apply_thinking_cycle<B: TerminalBackend>(
+    ctx: &mut TurnInputContext<'_, B>,
+    next_level: Option<String>,
+) -> Result<()> {
+    ctx.session.config.thinking_level = next_level;
     let model = ctx.session.config.model.clone();
     let provider = ctx.session.config.provider.clone();
     apply_turn_model_switch(TurnModelSwitchInput {
@@ -135,6 +153,11 @@ pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputC
         "Thinking: {}",
         ctx.session.config.thinking_level.as_deref().unwrap_or("off")
     ));
-    ctx.batch.flush(ctx.controller, true)?;
-    Ok(())
+    ctx.batch.flush(ctx.controller, true)
+}
+
+pub(super) async fn cycle_turn_thinking<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>) -> Result<()> {
+    let current = ctx.session.config.thinking_level.as_deref().unwrap_or("off");
+    let next_level = next_thinking_level(current);
+    apply_thinking_cycle(ctx, next_level).await
 }

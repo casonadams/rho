@@ -4,6 +4,7 @@ mod batch;
 mod claude_modal;
 mod common;
 mod default_model;
+mod exit;
 mod footer;
 mod history;
 mod idle_shortcuts;

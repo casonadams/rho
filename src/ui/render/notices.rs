@@ -1,6 +1,7 @@
 use super::formatters::format_session_status;
 use super::renderer::TerminalRenderer;
 use crate::ui::block::{BlockFormat, terminal_width};
+use crate::ui::theme::Theme;
 use rho_harness_core::presentation::summary::to_relative_path;
 use rho_harness_core::presentation::{BlockDisplay, SessionStatus, WelcomeDisplay};
 
@@ -9,6 +10,25 @@ pub struct CacheMissNotice {
     pub missed_tokens: u64,
     pub cost: Option<f64>,
     pub idle_minutes: Option<u64>,
+}
+
+fn resolve_block_bg(theme: &Theme, style: &str) -> anstyle::Style {
+    match style {
+        "error" => theme.tool_error_bg,
+        "warning" => {
+            if let Some(fg) = theme.warning.get_fg_color() {
+                anstyle::Style::new()
+                    .bg_color(Some(fg))
+                    .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black)))
+            } else {
+                anstyle::Style::new()
+                    .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
+                    .fg_color(Some(anstyle::AnsiColor::Black.into()))
+            }
+        }
+        "success" => theme.tool_success_bg,
+        _ => theme.user_message_bg,
+    }
 }
 
 impl TerminalRenderer {
@@ -49,22 +69,7 @@ impl TerminalRenderer {
     }
 
     pub fn print_block(&self, display: &BlockDisplay) {
-        let bg = match display.style.as_str() {
-            "error" => self.theme.tool_error_bg,
-            "warning" => {
-                if let Some(fg) = self.theme.warning.get_fg_color() {
-                    anstyle::Style::new()
-                        .bg_color(Some(fg))
-                        .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black)))
-                } else {
-                    anstyle::Style::new()
-                        .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
-                        .fg_color(Some(anstyle::AnsiColor::Black.into()))
-                }
-            }
-            "success" => self.theme.tool_success_bg,
-            _ => self.theme.user_message_bg,
-        };
+        let bg = resolve_block_bg(&self.theme, &display.style);
         let formatted_title = if display.title.is_empty() {
             String::new()
         } else {

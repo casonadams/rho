@@ -40,59 +40,67 @@ struct TreeDisplayBuilder<'a> {
     entries: Vec<TreeEntryDisplay>,
 }
 
+fn user_preview(node: &TreeNodeData) -> String {
+    let text = node
+        .messages
+        .iter()
+        .find_map(|m| match m {
+            rig::message::Message::User { content } => content.first().map(|c| match c {
+                rig::message::UserContent::Text(t) => t.text.clone(),
+                _ => format!("{:?}", c),
+            }),
+            _ => None,
+        })
+        .unwrap_or_default();
+    format!("User: \"{}\"", truncate_preview(&text, 45))
+}
+
+fn assistant_preview(node: &TreeNodeData) -> String {
+    let text = node
+        .messages
+        .iter()
+        .find_map(|m| match m {
+            rig::message::Message::Assistant { content, .. } => content.first().map(|c| match c {
+                rig::message::AssistantContent::Text(t) => t.text.clone(),
+                _ => format!("{:?}", c),
+            }),
+            _ => None,
+        })
+        .unwrap_or_default();
+    format!("Assistant: \"{}\"", truncate_preview(&text, 45))
+}
+
+fn summary_preview(node: &TreeNodeData) -> String {
+    let text = node
+        .messages
+        .first()
+        .map(|m| match m {
+            rig::message::Message::Assistant { content, .. } => content
+                .first()
+                .map(|c| match c {
+                    rig::message::AssistantContent::Text(t) => t.text.clone(),
+                    _ => format!("{:?}", c),
+                })
+                .unwrap_or_default(),
+            _ => format!("{:?}", m),
+        })
+        .unwrap_or_default();
+    format!("Summary: \"{}\"", truncate_preview(&text, 45))
+}
+
+fn node_preview(node: &TreeNodeData) -> String {
+    match &node.kind {
+        TreeNodeKind::UserTurn => user_preview(node),
+        TreeNodeKind::AssistantTurn => assistant_preview(node),
+        TreeNodeKind::BranchSummary => summary_preview(node),
+        TreeNodeKind::Compaction => "Compaction Checkpoint".to_string(),
+        TreeNodeKind::Custom => "Custom".to_string(),
+    }
+}
+
 impl<'a> TreeDisplayBuilder<'a> {
     fn visit(&mut self, node: &TreeNodeData, ctx: NodeRenderContext) {
         let is_active = self.tree.active_leaf_id.as_deref() == Some(&node.id);
-        let preview = match &node.kind {
-            TreeNodeKind::UserTurn => {
-                let text = node
-                    .messages
-                    .iter()
-                    .find_map(|m| match m {
-                        rig::message::Message::User { content } => content.first().map(|c| match c {
-                            rig::message::UserContent::Text(t) => t.text.clone(),
-                            _ => format!("{:?}", c),
-                        }),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                format!("User: \"{}\"", truncate_preview(&text, 45))
-            }
-            TreeNodeKind::AssistantTurn => {
-                let text = node
-                    .messages
-                    .iter()
-                    .find_map(|m| match m {
-                        rig::message::Message::Assistant { content, .. } => content.first().map(|c| match c {
-                            rig::message::AssistantContent::Text(t) => t.text.clone(),
-                            _ => format!("{:?}", c),
-                        }),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                format!("Assistant: \"{}\"", truncate_preview(&text, 45))
-            }
-            TreeNodeKind::BranchSummary => {
-                let text = node
-                    .messages
-                    .first()
-                    .map(|m| match m {
-                        rig::message::Message::Assistant { content, .. } => content
-                            .first()
-                            .map(|c| match c {
-                                rig::message::AssistantContent::Text(t) => t.text.clone(),
-                                _ => format!("{:?}", c),
-                            })
-                            .unwrap_or_default(),
-                        _ => format!("{:?}", m),
-                    })
-                    .unwrap_or_default();
-                format!("Summary: \"{}\"", truncate_preview(&text, 45))
-            }
-            TreeNodeKind::Compaction => "Compaction Checkpoint".to_string(),
-            TreeNodeKind::Custom => "Custom".to_string(),
-        };
-
         self.entries.push(TreeEntryDisplay {
             id: node.id.clone(),
             parent_id: node.parent_id.clone(),
@@ -101,14 +109,17 @@ impl<'a> TreeDisplayBuilder<'a> {
             is_active,
             label: node.label.clone(),
             kind: node.kind.clone(),
-            preview,
+            preview: node_preview(node),
         });
+        self.visit_children(&node.id, ctx.depth);
+    }
 
-        let children = self.tree.children_of(Some(&node.id));
+    fn visit_children(&mut self, node_id: &str, depth: usize) {
+        let children = self.tree.children_of(Some(node_id));
         let child_count = children.len();
         for (idx, child) in children.iter().enumerate() {
             let child_ctx = NodeRenderContext {
-                depth: ctx.depth + 1,
+                depth: depth + 1,
                 is_last: idx + 1 == child_count,
             };
             self.visit(child, child_ctx);

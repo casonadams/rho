@@ -14,34 +14,36 @@ pub use welcome::format_welcome_content;
 
 use crate::ui::render::format_thinking_block;
 
+fn render_assistant_text(text: &str, (width, theme): (usize, &crate::ui::theme::Theme)) -> String {
+    let mut md = crate::ui::markdown::MarkdownRenderer::default();
+    md.set_width(width);
+    let full = format!("{}{}", md.render_token(text, theme), md.flush(theme));
+    if full.trim().is_empty() {
+        String::new()
+    } else {
+        format!("{OSC133_ZONE_START}\n{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
+    }
+}
+
+fn render_thinking_text(text: &str, (hide_thinking, theme): (bool, &crate::ui::theme::Theme)) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else if hide_thinking {
+        let dim = theme.dimmed;
+        format!("\n{dim}Thinking...{dim:#}\n")
+    } else {
+        format_thinking_block(trimmed, theme)
+    }
+}
+
 pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
     input.width = input.width.max(20);
     match input.item {
         TranscriptItem::Welcome(welcome) => format_welcome_content(welcome, input.theme),
         TranscriptItem::UserMessage(text) => skill::render_user_message(text, &input),
-        TranscriptItem::AssistantText(text) => {
-            let mut md = crate::ui::markdown::MarkdownRenderer::default();
-            md.set_width(input.width);
-            let rendered = md.render_token(text, input.theme);
-            let flushed = md.flush(input.theme);
-            let full = format!("{rendered}{flushed}");
-            if full.trim().is_empty() {
-                String::new()
-            } else {
-                format!("{OSC133_ZONE_START}\n{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
-            }
-        }
-        TranscriptItem::Thinking(text) => {
-            let trimmed = text.trim();
-            if trimmed.is_empty() {
-                String::new()
-            } else if input.hide_thinking {
-                let dim = input.theme.dimmed;
-                format!("\n{dim}Thinking...{dim:#}\n")
-            } else {
-                format_thinking_block(trimmed, input.theme)
-            }
-        }
+        TranscriptItem::AssistantText(text) => render_assistant_text(text, (input.width, input.theme)),
+        TranscriptItem::Thinking(text) => render_thinking_text(text, (input.hide_thinking, input.theme)),
         TranscriptItem::Tool(tool) => tool::render_tool_transcript(tool, &input),
         TranscriptItem::Notice(text) => text.clone(),
     }

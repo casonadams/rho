@@ -2,6 +2,17 @@ use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::keymap::KeyChord;
 
+fn apply_modifier(modifiers: &mut KeyModifiers, lower: &str) {
+    let flag = match lower {
+        "ctrl" | "control" => KeyModifiers::CONTROL,
+        "alt" | "opt" | "option" => KeyModifiers::ALT,
+        "shift" => KeyModifiers::SHIFT,
+        "super" | "cmd" | "command" => KeyModifiers::SUPER,
+        _ => KeyModifiers::NONE,
+    };
+    *modifiers |= flag;
+}
+
 pub fn parse_key_chord(raw: &str) -> Option<KeyChord> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -22,55 +33,50 @@ pub fn parse_key_chord(raw: &str) -> Option<KeyChord> {
             key_part = part;
             break;
         }
-        match lower.as_str() {
-            "ctrl" | "control" => modifiers |= KeyModifiers::CONTROL,
-            "alt" | "opt" | "option" => modifiers |= KeyModifiers::ALT,
-            "shift" => modifiers |= KeyModifiers::SHIFT,
-            "super" | "cmd" | "command" => modifiers |= KeyModifiers::SUPER,
-            _ => {
-                key_part = part;
-            }
-        }
+        apply_modifier(&mut modifiers, &lower);
     }
 
     let code = parse_key_code(key_part)?;
     Some(KeyChord::new(code, modifiers))
 }
 
+const SINGLE_CHAR_KEYS: &[(&str, KeyCode)] = &[
+    ("enter", KeyCode::Enter),
+    ("return", KeyCode::Enter),
+    ("esc", KeyCode::Esc),
+    ("escape", KeyCode::Esc),
+    ("backspace", KeyCode::Backspace),
+    ("tab", KeyCode::Tab),
+    ("backtab", KeyCode::BackTab),
+    ("delete", KeyCode::Delete),
+    ("del", KeyCode::Delete),
+    ("insert", KeyCode::Insert),
+    ("ins", KeyCode::Insert),
+    ("up", KeyCode::Up),
+    ("down", KeyCode::Down),
+    ("left", KeyCode::Left),
+    ("right", KeyCode::Right),
+    ("home", KeyCode::Home),
+    ("end", KeyCode::End),
+    ("pageup", KeyCode::PageUp),
+    ("pagedown", KeyCode::PageDown),
+    ("space", KeyCode::Char(' ')),
+];
+
 fn parse_key_code(raw: &str) -> Option<KeyCode> {
     let lower = raw.to_ascii_lowercase();
-    match lower.as_str() {
-        "enter" | "return" => Some(KeyCode::Enter),
-        "esc" | "escape" => Some(KeyCode::Esc),
-        "backspace" => Some(KeyCode::Backspace),
-        "tab" => Some(KeyCode::Tab),
-        "backtab" => Some(KeyCode::BackTab),
-        "delete" | "del" => Some(KeyCode::Delete),
-        "insert" | "ins" => Some(KeyCode::Insert),
-        "up" => Some(KeyCode::Up),
-        "down" => Some(KeyCode::Down),
-        "left" => Some(KeyCode::Left),
-        "right" => Some(KeyCode::Right),
-        "home" => Some(KeyCode::Home),
-        "end" => Some(KeyCode::End),
-        "pageup" => Some(KeyCode::PageUp),
-        "pagedown" => Some(KeyCode::PageDown),
-        "space" => Some(KeyCode::Char(' ')),
-        "f1" => Some(KeyCode::F(1)),
-        "f2" => Some(KeyCode::F(2)),
-        "f3" => Some(KeyCode::F(3)),
-        "f4" => Some(KeyCode::F(4)),
-        "f5" => Some(KeyCode::F(5)),
-        "f6" => Some(KeyCode::F(6)),
-        "f7" => Some(KeyCode::F(7)),
-        "f8" => Some(KeyCode::F(8)),
-        "f9" => Some(KeyCode::F(9)),
-        "f10" => Some(KeyCode::F(10)),
-        "f11" => Some(KeyCode::F(11)),
-        "f12" => Some(KeyCode::F(12)),
-        c if c.chars().count() == 1 => Some(KeyCode::Char(c.chars().next().unwrap())),
-        _ => None,
+    if let Some((_, code)) = SINGLE_CHAR_KEYS.iter().find(|(name, _)| *name == lower) {
+        return Some(*code);
     }
+    if let Some(n) = lower.strip_prefix('f').and_then(|n| n.parse::<u8>().ok())
+        && (1..=12).contains(&n)
+    {
+        return Some(KeyCode::F(n));
+    }
+    if lower.chars().count() == 1 {
+        return Some(KeyCode::Char(lower.chars().next().unwrap()));
+    }
+    None
 }
 
 #[cfg(test)]

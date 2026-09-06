@@ -12,39 +12,85 @@ use syntect::parsing::SyntaxSet;
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 static THEME_SET: LazyLock<ThemeSet> = LazyLock::new(ThemeSet::load_defaults);
 
-pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> String {
+fn resolve_highlighter<'a>(lang: Option<&str>, is_light: bool) -> HighlightLines<'a> {
     let ss = &*SYNTAX_SET;
     let ts = &*THEME_SET;
     let syntax = lang
         .and_then(|l| ss.find_syntax_by_token(l).or_else(|| ss.find_syntax_by_extension(l)))
         .unwrap_or_else(|| ss.find_syntax_plain_text());
-    let syn_theme = if theme.is_light() {
+    let syn_theme = if is_light {
         &ts.themes["base16-ocean.light"]
     } else {
         &ts.themes["base16-ocean.dark"]
     };
-    let mut highlighter = HighlightLines::new(syntax, syn_theme);
-    if let Ok(ranges) = highlighter.highlight_line(line, ss) {
-        let mut out = String::new();
-        for (style, text) in ranges {
-            if theme.is_ansi() {
-                let ansi = syntect_color_to_ansi16(style.foreground);
-                out.push_str(ansi);
-            } else {
-                use std::fmt::Write as _;
-                let _ = write!(
-                    out,
-                    "\x1b[38;2;{};{};{}m",
-                    style.foreground.r, style.foreground.g, style.foreground.b
-                );
-            }
-            out.push_str(text);
+    HighlightLines::new(syntax, syn_theme)
+}
+
+fn format_highlighted_ranges(ranges: &[(syntect::highlighting::Style, &str)], is_ansi: bool) -> String {
+    let mut out = String::new();
+    for (style, text) in ranges {
+        if is_ansi {
+            out.push_str(syntect_color_to_ansi16(style.foreground));
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(
+                out,
+                "\x1b[38;2;{};{};{}m",
+                style.foreground.r, style.foreground.g, style.foreground.b
+            );
         }
-        out.push_str("\x1b[0m");
-        out
+        out.push_str(text);
+    }
+    out.push_str("\x1b[0m");
+    out
+}
+
+pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> String {
+    let mut highlighter = resolve_highlighter(lang, theme.is_light());
+    if let Ok(ranges) = highlighter.highlight_line(line, &SYNTAX_SET) {
+        format_highlighted_ranges(&ranges, theme.is_ansi())
     } else {
         let d = theme.dimmed;
         format!("{d}{line}{d:#}")
+    }
+}
+
+fn grayscale_ansi(lightness: u16) -> &'static str {
+    match lightness {
+        0..=80 => "\x1b[30m",
+        81..=200 => "\x1b[90m",
+        201..=400 => "\x1b[37m",
+        _ => "\x1b[97m",
+    }
+}
+
+fn yellow_or_magenta((g, b): (u8, u8), is_bright: bool) -> Option<&'static str> {
+    if g.saturating_sub(b) > 30 {
+        Some(if is_bright { "\x1b[93m" } else { "\x1b[33m" })
+    } else if b.saturating_sub(g) > 30 {
+        Some(if is_bright { "\x1b[95m" } else { "\x1b[35m" })
+    } else {
+        None
+    }
+}
+
+fn red_dominant_ansi(pair: (u8, u8), is_bright: bool) -> &'static str {
+    if let Some(ansi) = yellow_or_magenta(pair, is_bright) {
+        ansi
+    } else if is_bright {
+        "\x1b[91m"
+    } else {
+        "\x1b[31m"
+    }
+}
+
+fn green_dominant_ansi((r, b): (u8, u8), is_bright: bool) -> &'static str {
+    if b > r && (b - r) > 30 {
+        if is_bright { "\x1b[96m" } else { "\x1b[36m" }
+    } else if is_bright {
+        "\x1b[92m"
+    } else {
+        "\x1b[32m"
     }
 }
 
@@ -52,39 +98,17 @@ fn syntect_color_to_ansi16(color: syntect::highlighting::Color) -> &'static str 
     let (r, g, b) = (color.r, color.g, color.b);
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
-
-    if max.saturating_sub(min) < 20 {
-        return if max < 140 { "\x1b[90m" } else { "\x1b[37m" };
+    let lightness = u16::from(max) + u16::from(min);
+    if max - min < 20 {
+        return grayscale_ansi(lightness);
     }
-
+    let is_bright = lightness > 256;
     if r >= g && r >= b {
-        dominant_red_ansi(g, b)
+        red_dominant_ansi((g, b), is_bright)
     } else if g >= r && g >= b {
-        dominant_green_ansi(b)
-    } else {
-        dominant_blue_ansi(r, g)
-    }
-}
-
-fn dominant_red_ansi(g: u8, b: u8) -> &'static str {
-    if g > 130 {
-        "\x1b[33m"
-    } else if b > 130 {
-        "\x1b[35m"
-    } else {
-        "\x1b[31m"
-    }
-}
-
-fn dominant_green_ansi(b: u8) -> &'static str {
-    if b > 130 { "\x1b[36m" } else { "\x1b[32m" }
-}
-
-fn dominant_blue_ansi(r: u8, g: u8) -> &'static str {
-    if r > 130 {
-        "\x1b[35m"
-    } else if g > 130 {
-        "\x1b[36m"
+        green_dominant_ansi((r, b), is_bright)
+    } else if is_bright {
+        "\x1b[94m"
     } else {
         "\x1b[34m"
     }

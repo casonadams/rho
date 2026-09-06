@@ -132,6 +132,12 @@ async fn handle_misc_action<B: crate::ui::interactive::TerminalBackend>(
     Ok(())
 }
 
+enum IdleInputResult {
+    Message(QueuedMessage),
+    Exit,
+    None,
+}
+
 async fn handle_plain_action<B: crate::ui::interactive::TerminalBackend>(
     controller: &mut TerminalController<B>,
     (action, batch, resources, input): (
@@ -140,25 +146,28 @@ async fn handle_plain_action<B: crate::ui::interactive::TerminalBackend>(
         &mut EditorResources<'_>,
         &mut super::TerminalInputReader,
     ),
-) -> Result<Option<QueuedMessage>> {
+) -> Result<IdleInputResult> {
     match action {
-        InputAction::Edit(edit) => handle_edit_action(controller, (batch, edit.clone(), resources.completions)),
+        InputAction::Edit(edit) => {
+            let res = handle_edit_action(controller, (batch, edit.clone(), resources.completions))?;
+            Ok(res.map_or(IdleInputResult::None, IdleInputResult::Message))
+        }
         InputAction::HistoryPrevious | InputAction::HistoryNext => {
             handle_history_nav(
                 controller,
                 (matches!(action, InputAction::HistoryNext), batch, resources.history),
             )?;
-            Ok(None)
+            Ok(IdleInputResult::None)
         }
         InputAction::Complete | InputAction::ExternalEditor | InputAction::DequeueQueued => {
             handle_misc_action(controller, (action, batch, resources, input)).await?;
-            Ok(None)
+            Ok(IdleInputResult::None)
         }
         InputAction::EndOfInput if controller.state().editor().is_empty() => {
             batch.flush(controller, false)?;
-            Ok(None)
+            Ok(IdleInputResult::Exit)
         }
-        _ => Ok(None),
+        _ => Ok(IdleInputResult::None),
     }
 }
 
@@ -171,29 +180,27 @@ async fn handle_plain_or_shortcut<B: crate::ui::interactive::TerminalBackend>(
         &mut super::TerminalInputReader,
         &mut KeyRest<'_, '_, '_>,
     ),
-) -> Result<Option<QueuedMessage>> {
-    if let Some(msg) = handle_plain_action(controller, (action, batch, resources, input)).await? {
-        return Ok(Some(msg));
+) -> Result<IdleInputResult> {
+    match handle_plain_action(controller, (action, batch, resources, input)).await? {
+        IdleInputResult::None => {}
+        other => return Ok(other),
     }
     let (session, engine, last_escape_time) = rest;
-    match action {
-        InputAction::EndOfInput | InputAction::Ignore => {}
-        shortcut_action => {
-            handle_shortcut_action(
-                shortcut_action.clone(),
-                IdleShortcutContext {
-                    controller,
-                    session,
-                    engine,
-                    last_escape_time,
-                },
-                batch,
-            )
-            .await?;
-            batch.flush(controller, true)?;
-        }
+    if !matches!(action, InputAction::EndOfInput | InputAction::Ignore) {
+        handle_shortcut_action(
+            action.clone(),
+            IdleShortcutContext {
+                controller,
+                session,
+                engine,
+                last_escape_time,
+            },
+            batch,
+        )
+        .await?;
+        batch.flush(controller, true)?;
     }
-    Ok(None)
+    Ok(IdleInputResult::None)
 }
 
 enum KeyPhase {
@@ -240,9 +247,9 @@ async fn process_key_event<B: crate::ui::interactive::TerminalBackend>(
         &mut super::TerminalInputReader,
         &mut KeyRest<'_, '_, '_>,
     ),
-) -> Result<Option<QueuedMessage>> {
+) -> Result<IdleInputResult> {
     if let KeyPhase::Handled = try_modal_key(controller, (key, batch, resources, &mut *rest)).await? {
-        return Ok(None);
+        return Ok(IdleInputResult::None);
     }
     let action = map_key(key);
     handle_plain_or_shortcut(controller, (&action, batch, resources, input, &mut *rest)).await
@@ -257,15 +264,17 @@ async fn process_raw_input<B: crate::ui::interactive::TerminalBackend>(
         &mut super::TerminalInputReader,
         &mut KeyRest<'_, '_, '_>,
     ),
-) -> Result<Option<QueuedMessage>> {
+) -> Result<IdleInputResult> {
     match classify_event(event) {
         RawInput::Resize => {
             controller.refresh_size()?;
-            Ok(None)
+            Ok(IdleInputResult::None)
         }
-        RawInput::Paste(text) => handle_paste(controller, (batch, text, resources.completions)).map(|_| None),
+        RawInput::Paste(text) => {
+            handle_paste(controller, (batch, text, resources.completions)).map(|_| IdleInputResult::None)
+        }
         RawInput::Key(key) => process_key_event(controller, (key, batch, resources, input, rest)).await,
-        RawInput::Skip => Ok(None),
+        RawInput::Skip => Ok(IdleInputResult::None),
     }
 }
 
@@ -334,13 +343,34 @@ async fn handle_input_source<B: crate::ui::interactive::TerminalBackend>(
         &mut super::TerminalInputReader,
         &mut KeyRest<'_, '_, '_>,
     ),
-) -> Result<Option<QueuedMessage>> {
+) -> Result<IdleInputResult> {
     let Some(event) = event else {
         batch.flush(controller, false)?;
         return Err(anyhow::anyhow!("Terminal input reader stopped").into());
     };
     let event = event?;
     process_raw_input(controller, (event, batch, resources, input, rest)).await
+}
+
+async fn drive_idle_loop<B: crate::ui::interactive::TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    (ui_events, input): (&mut UiEventReceiver, &mut super::TerminalInputReader),
+    (resources, rest): (&mut EditorResources<'_>, &mut KeyRest<'_, '_, '_>),
+) -> Result<Option<QueuedMessage>> {
+    let mut ui = IdleUi::new();
+    loop {
+        match next_idle_step(&mut ui.frame, input, ui_events).await {
+            IdleSource::Tick(tick) => handle_tick(controller, (&mut ui.batch, tick)).await?,
+            IdleSource::Input(event) => {
+                let args = (event, &mut ui.batch, &mut *resources, &mut *input, &mut *rest);
+                match handle_input_source(controller, args).await? {
+                    IdleInputResult::Message(msg) => return Ok(Some(msg)),
+                    IdleInputResult::Exit => return Ok(None),
+                    IdleInputResult::None => {}
+                }
+            }
+        }
+    }
 }
 
 pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
@@ -357,17 +387,5 @@ pub(crate) async fn read_idle_input<B: crate::ui::interactive::TerminalBackend>(
         completions: ctx.editor.completions,
     };
     let mut rest: KeyRest = (&mut *ctx.session, &mut *ctx.engine, &mut last_escape_time);
-    let mut ui = IdleUi::new();
-
-    loop {
-        match next_idle_step(&mut ui.frame, &mut *input, ui_events).await {
-            IdleSource::Tick(tick) => handle_tick(controller, (&mut ui.batch, tick)).await?,
-            IdleSource::Input(event) => {
-                let args = (event, &mut ui.batch, &mut resources, &mut *input, &mut rest);
-                if let Some(msg) = handle_input_source(controller, args).await? {
-                    return Ok(Some(msg));
-                }
-            }
-        }
-    }
+    drive_idle_loop(controller, (ui_events, input), (&mut resources, &mut rest)).await
 }

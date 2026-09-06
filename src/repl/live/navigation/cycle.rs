@@ -69,23 +69,26 @@ pub struct ModelCycleContext<'a, 'b, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
 }
 
+fn next_model_index(current_idx: usize, len: usize, direction: i32) -> usize {
+    if direction >= 0 {
+        (current_idx + 1) % len
+    } else if current_idx == 0 {
+        len - 1
+    } else {
+        current_idx - 1
+    }
+}
+
 pub async fn cycle_model<B: TerminalBackend>(ctx: &mut ModelCycleContext<'_, '_, B>, direction: i32) {
     let models = crate::repl::interactive::discover_models(&ctx.session.config, &ctx.session.auth_store);
     if models.is_empty() {
         return;
     }
-    let current_model = &ctx.session.config.model;
-    let current_idx = models.iter().position(|m| &m.id == current_model).unwrap_or(0);
-
-    let next_idx = if direction >= 0 {
-        (current_idx + 1) % models.len()
-    } else if current_idx == 0 {
-        models.len() - 1
-    } else {
-        current_idx - 1
-    };
-
-    let item = &models[next_idx];
+    let current_idx = models
+        .iter()
+        .position(|m| m.id == ctx.session.config.model)
+        .unwrap_or(0);
+    let item = &models[next_model_index(current_idx, models.len(), direction)];
     ctx.session.config.model = item.id.clone();
     ctx.session.config.provider = item.provider.clone();
 

@@ -7,31 +7,59 @@ pub(super) fn editor_boundaries(text: &str) -> impl Iterator<Item = usize> + '_ 
     )
 }
 
-pub(super) fn editor_cursor_position(text: &str, cursor: usize, terminal_width: usize) -> (usize, usize) {
-    let mut row = 0;
-    let mut column = 0;
-    for (byte_index, character) in text.char_indices() {
+#[derive(Default)]
+struct CursorWalk {
+    row: usize,
+    column: usize,
+    cursor: usize,
+    terminal_width: usize,
+}
+
+impl CursorWalk {
+    fn new(cursor: usize, terminal_width: usize) -> Self {
+        Self {
+            cursor,
+            terminal_width,
+            ..Default::default()
+        }
+    }
+
+    fn step(&mut self, byte_index: usize, character: char) -> Option<(usize, usize)> {
         if character == '\n' {
-            if byte_index == cursor {
-                return (row, column);
+            if byte_index == self.cursor {
+                return Some((self.row, self.column));
             }
-            row += 1;
-            column = 0;
-            continue;
+            self.row += 1;
+            self.column = 0;
+            return None;
         }
-        let character_width = character.width().unwrap_or(0);
-        if column > 0 && column + character_width > terminal_width {
-            row += 1;
-            column = 0;
+        if wraps_to_next_row(self.column, character, self.terminal_width) {
+            self.row += 1;
+            self.column = 0;
         }
-        if byte_index == cursor {
-            return (row, column);
+        if byte_index == self.cursor {
+            return Some((self.row, self.column));
         }
-        column += character_width;
+        self.column += character.width().unwrap_or(0);
+        None
     }
-    if column == terminal_width {
-        row += 1;
-        column = 0;
+}
+
+fn wraps_to_next_row(column: usize, character: char, terminal_width: usize) -> bool {
+    let character_width = character.width().unwrap_or(0);
+    column > 0 && column + character_width > terminal_width
+}
+
+pub(super) fn editor_cursor_position(text: &str, cursor: usize, terminal_width: usize) -> (usize, usize) {
+    let mut walk = CursorWalk::new(cursor, terminal_width.max(1));
+    for (byte_index, character) in text.char_indices() {
+        if let Some(position) = walk.step(byte_index, character) {
+            return position;
+        }
     }
-    (row, column)
+    if walk.column == walk.terminal_width {
+        walk.row += 1;
+        walk.column = 0;
+    }
+    (walk.row, walk.column)
 }

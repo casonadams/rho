@@ -35,6 +35,75 @@ pub fn visible_width(content: &str) -> usize {
     UnicodeWidthStr::width(clean.as_ref())
 }
 
+struct LineWrapper<'a> {
+    line: &'a str,
+    offset: usize,
+    max_width: usize,
+    current: String,
+    current_width: usize,
+    active_ansi: String,
+}
+
+impl<'a> LineWrapper<'a> {
+    fn new(line: &'a str, max_width: usize) -> Self {
+        Self {
+            line,
+            offset: 0,
+            max_width,
+            current: String::new(),
+            current_width: 0,
+            active_ansi: String::new(),
+        }
+    }
+
+    fn try_consume_ansi(&mut self) -> bool {
+        if self.line[self.offset..].starts_with('\x1b')
+            && let Some(end) = self.line[self.offset..].find('m')
+        {
+            let seq = &self.line[self.offset..=self.offset + end];
+            self.current.push_str(seq);
+            if seq == "\x1b[0m" {
+                self.active_ansi.clear();
+            } else {
+                self.active_ansi.push_str(seq);
+            }
+            self.offset += end + 1;
+            return true;
+        }
+        false
+    }
+
+    fn push_wrapped_char(&mut self, output: &mut Vec<String>, c: char) {
+        let char_w = UnicodeWidthChar::width(c).unwrap_or(0);
+        if self.current_width > 0 && self.current_width + char_w > self.max_width {
+            if !self.active_ansi.is_empty() {
+                self.current.push_str("\x1b[0m");
+            }
+            output.push(std::mem::take(&mut self.current));
+            if !self.active_ansi.is_empty() {
+                self.current.push_str(&self.active_ansi);
+            }
+            self.current_width = 0;
+        }
+        self.current.push(c);
+        self.current_width += char_w;
+        self.offset += c.len_utf8();
+    }
+
+    fn wrap(mut self, output: &mut Vec<String>) {
+        while self.offset < self.line.len() {
+            if self.try_consume_ansi() {
+                continue;
+            }
+            let Some(c) = self.line[self.offset..].chars().next() else {
+                break;
+            };
+            self.push_wrapped_char(output, c);
+        }
+        output.push(self.current);
+    }
+}
+
 pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
     let max_width = max_width.max(1);
     let mut output = Vec::new();
@@ -43,44 +112,7 @@ pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
             output.push(String::new());
             continue;
         }
-        let mut current = String::new();
-        let mut current_width = 0;
-        let mut offset = 0;
-        let mut active_ansi = String::new();
-
-        while offset < line.len() {
-            if line[offset..].starts_with('\x1b')
-                && let Some(end) = line[offset..].find('m')
-            {
-                let seq = &line[offset..=offset + end];
-                current.push_str(seq);
-                if seq == "\x1b[0m" {
-                    active_ansi.clear();
-                } else {
-                    active_ansi.push_str(seq);
-                }
-                offset += end + 1;
-                continue;
-            }
-            let Some(c) = line[offset..].chars().next() else {
-                break;
-            };
-            let char_w = UnicodeWidthChar::width(c).unwrap_or(0);
-            if current_width > 0 && current_width + char_w > max_width {
-                if !active_ansi.is_empty() {
-                    current.push_str("\x1b[0m");
-                }
-                output.push(std::mem::take(&mut current));
-                if !active_ansi.is_empty() {
-                    current.push_str(&active_ansi);
-                }
-                current_width = 0;
-            }
-            current.push(c);
-            current_width += char_w;
-            offset += c.len_utf8();
-        }
-        output.push(current);
+        LineWrapper::new(line, max_width).wrap(&mut output);
     }
     if output.is_empty() {
         output.push(String::new());

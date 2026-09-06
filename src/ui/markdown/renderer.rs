@@ -104,48 +104,61 @@ impl MarkdownRenderer {
         }
     }
 
-    fn process_line(&mut self, line: &str, theme: &Theme) -> String {
+    fn try_buffer_block(&mut self, line: &str, theme: &Theme) -> Option<String> {
         let trimmed = line.trim();
-
         if let Some(opt_rendered) = self.mermaid.try_render_fence(trimmed, theme) {
             let mut out = String::new();
             if let Some(rendered) = opt_rendered {
                 self.spacing.append_block(&mut out, &rendered);
             }
-            return out;
+            return Some(out);
         }
         if self.mermaid.in_block() {
             self.mermaid.push_line(line);
-            return String::new();
+            return Some(String::new());
         }
         if is_table_line(trimmed) {
             self.table_lines.push(line.to_string());
-            return String::new();
+            return Some(String::new());
+        }
+        None
+    }
+
+    fn process_empty_line(&mut self, out: &mut String, (line, theme): (&str, &Theme)) {
+        if self.code_fence.in_code_block {
+            self.spacing.prepare_content(out);
+            out.push_str(&highlight_code_line(line, self.code_fence.code_lang.as_deref(), theme));
+            out.push('\n');
+            self.spacing.note_content();
+        } else {
+            self.spacing.handle_empty_line(out);
+        }
+    }
+
+    fn process_content_line(&mut self, out: &mut String, (line, theme): (&str, &Theme)) {
+        if needs_preceding_blank_line(line.trim(), self.code_fence.in_code_block) {
+            self.spacing.ensure_preceding_blank(out);
+        }
+        self.spacing.prepare_content(out);
+        out.push_str(&render_line(line, &mut self.code_fence, theme));
+        out.push('\n');
+        self.spacing.note_content();
+    }
+
+    fn process_line(&mut self, line: &str, theme: &Theme) -> String {
+        if let Some(buffered) = self.try_buffer_block(line, theme) {
+            return buffered;
         }
 
         let mut out = String::new();
         self.flush_buffered_blocks(&mut out, theme);
 
-        if trimmed.is_empty() {
-            if self.code_fence.in_code_block {
-                self.spacing.prepare_content(&mut out);
-                out.push_str(&highlight_code_line(line, self.code_fence.code_lang.as_deref(), theme));
-                out.push('\n');
-                self.spacing.note_content();
-            } else {
-                self.spacing.handle_empty_line(&mut out);
-            }
-            return out;
+        if line.trim().is_empty() {
+            self.process_empty_line(&mut out, (line, theme));
+        } else {
+            self.process_content_line(&mut out, (line, theme));
         }
 
-        if needs_preceding_blank_line(trimmed, self.code_fence.in_code_block) {
-            self.spacing.ensure_preceding_blank(&mut out);
-        }
-
-        self.spacing.prepare_content(&mut out);
-        out.push_str(&render_line(line, &mut self.code_fence, theme));
-        out.push('\n');
-        self.spacing.note_content();
         out
     }
 

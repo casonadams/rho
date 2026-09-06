@@ -5,35 +5,43 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::ModalKeyResult;
 
+fn is_default_model(session: &ReplSession, model_id: &str, provider: &str) -> bool {
+    session.config.default_model.as_deref().is_some_and(|dm| {
+        model_id == dm
+            && session
+                .config
+                .default_provider
+                .as_deref()
+                .is_none_or(|dp| provider == dp)
+    })
+}
+
+fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::ModelItem) -> ModalOption {
+    let active_mark = if item.id == session.config.model { "✓" } else { "" };
+    let default_mark = if is_default_model(session, &item.id, &item.provider) {
+        "default"
+    } else {
+        ""
+    };
+    ModalOption::new(
+        item.id.clone(),
+        Some(format!(
+            "{}\t{}\t{}\t{}",
+            item.provider, active_mark, default_mark, item.description
+        )),
+    )
+}
+
 pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
     let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
-    let default_model = session.config.default_model.as_deref();
-
     for (i, item) in discovered.iter().enumerate() {
-        let is_active = item.id == session.config.model;
-        if is_active {
+        if item.id == session.config.model {
             initial_selection = i;
         }
-        let is_default = default_model.is_some_and(|dm| {
-            item.id == dm
-                && session
-                    .config
-                    .default_provider
-                    .as_deref()
-                    .is_none_or(|dp| item.provider == dp)
-        });
-        let active_mark = if is_active { "✓" } else { "" };
-        let default_mark = if is_default { "default" } else { "" };
-        options.push(ModalOption::new(
-            item.id.clone(),
-            Some(format!(
-                "{}\t{}\t{}\t{}",
-                item.provider, active_mark, default_mark, item.description
-            )),
-        ));
+        options.push(build_model_option(session, item));
     }
 
     let mut modal = ModalState::new("Select Model", "", options).with_search(true);
@@ -53,85 +61,94 @@ fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>
     Some((selected_model, provider))
 }
 
+fn pop_and_select<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    save_as_default: bool,
+) -> Result<ModalKeyResult> {
+    let selected = extract_selected_model(controller);
+    controller.state_mut().pop_modal();
+    controller.redraw()?;
+    Ok(match selected {
+        Some((model, provider)) => ModalKeyResult::ModelSelected {
+            model,
+            provider,
+            save_as_default,
+        },
+        None => ModalKeyResult::Handled,
+    })
+}
+
+fn apply_model_filter<B: TerminalBackend>(controller: &mut TerminalController<B>, character: Option<char>) {
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        let mut query = modal.filter_query.clone();
+        if let Some(c) = character {
+            query.push(c);
+        } else {
+            query.pop();
+        }
+        modal.set_filter(&query);
+    }
+    controller.redraw().ok();
+}
+
+fn is_plain_char(key: &KeyEvent) -> bool {
+    !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+}
+
+fn clear_filter_action<B: TerminalBackend>(controller: &mut TerminalController<B>) -> bool {
+    let has_filter = controller
+        .state()
+        .active_modal()
+        .is_some_and(|m| !m.filter_query.is_empty());
+    if has_filter {
+        if let Some(modal) = controller.state_mut().active_modal_mut() {
+            modal.set_filter("");
+        }
+        controller.redraw().ok();
+        return true;
+    }
+    controller.state_mut().pop_modal();
+    controller.redraw().ok();
+    false
+}
+
+fn handle_model_nav<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: &KeyEvent,
+) -> Result<ModalKeyResult> {
+    match key.code {
+        KeyCode::Up | KeyCode::BackTab => {
+            controller.state_mut().select_previous_modal_option();
+            controller.redraw()?;
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            controller.state_mut().select_next_modal_option();
+            controller.redraw()?;
+        }
+        KeyCode::Backspace => apply_model_filter(controller, None),
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            let _ = clear_filter_action(controller);
+        }
+        KeyCode::Char(c) if is_plain_char(key) => apply_model_filter(controller, Some(c)),
+        _ => {}
+    }
+    Ok(ModalKeyResult::Handled)
+}
+
 pub fn handle_model_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
     if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        if let Some((model, provider)) = extract_selected_model(controller) {
-            controller.state_mut().pop_modal();
-            controller.redraw()?;
-            return Ok(ModalKeyResult::ModelSelected {
-                model,
-                provider,
-                save_as_default: true,
-            });
-        }
-        controller.state_mut().pop_modal();
-        controller.redraw()?;
-        return Ok(ModalKeyResult::Handled);
+        return pop_and_select(controller, true);
     }
-
     match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Enter => {
-            if let Some((model, provider)) = extract_selected_model(controller) {
-                controller.state_mut().pop_modal();
-                controller.redraw()?;
-                return Ok(ModalKeyResult::ModelSelected {
-                    model,
-                    provider,
-                    save_as_default: false,
-                });
-            }
-            controller.state_mut().pop_modal();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
+        KeyCode::Enter => pop_and_select(controller, false),
         KeyCode::Esc => {
             controller.state_mut().pop_modal();
             controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
-        KeyCode::Backspace => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                let mut query = modal.filter_query.clone();
-                query.pop();
-                modal.set_filter(&query);
-            }
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if let Some(modal) = controller.state_mut().active_modal_mut()
-                && !modal.filter_query.is_empty()
-            {
-                modal.set_filter("");
-                controller.redraw()?;
-                return Ok(ModalKeyResult::Handled);
-            }
-            controller.state_mut().pop_modal();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                let mut query = modal.filter_query.clone();
-                query.push(c);
-                modal.set_filter(&query);
-            }
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => Ok(ModalKeyResult::Handled),
+        _ => handle_model_nav(controller, &key),
     }
 }

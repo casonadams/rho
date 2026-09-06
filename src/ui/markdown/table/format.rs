@@ -21,6 +21,25 @@ impl TableFormat<'_> {
         format!("{dim}{border}{dim:#}")
     }
 
+    fn render_row_subline(&self, wrapped: &[Vec<String>], (line_idx, header): (usize, bool)) -> String {
+        let border = self.theme.dimmed;
+        let bold = anstyle::Style::new().bold();
+        let mut out = format!("{border}│{border:#} ");
+        for (col, width) in self.widths.iter().enumerate() {
+            let cell = wrapped[col].get(line_idx).map(String::as_str).unwrap_or("");
+            let styled = if header {
+                format!("{bold}{cell}{bold:#}")
+            } else {
+                cell.to_string()
+            };
+            let pad = " ".repeat(width.saturating_sub(UnicodeWidthStr::width(cell)));
+            let sep = if col + 1 < self.widths.len() { " " } else { "" };
+            out.push_str(&format!("{styled}{pad} {border}│{border:#}{sep}"));
+        }
+        out.push('\n');
+        out
+    }
+
     pub fn row(&self, row: &[String], header: bool) -> String {
         let wrapped: Vec<Vec<String>> = self
             .widths
@@ -29,23 +48,9 @@ impl TableFormat<'_> {
             .map(|(i, w)| wrap_cell(row.get(i).map(String::as_str).unwrap_or(""), *w))
             .collect();
         let height = wrapped.iter().map(Vec::len).max().unwrap_or(1);
-        let border = self.theme.dimmed;
-        let bold = anstyle::Style::new().bold();
         let mut output = String::new();
         for line_idx in 0..height {
-            output.push_str(&format!("{border}│{border:#} "));
-            for (col, width) in self.widths.iter().enumerate() {
-                let cell = wrapped[col].get(line_idx).map(String::as_str).unwrap_or("");
-                let styled = if header {
-                    format!("{bold}{cell}{bold:#}")
-                } else {
-                    cell.to_string()
-                };
-                let pad = " ".repeat(width.saturating_sub(UnicodeWidthStr::width(cell)));
-                let sep = if col + 1 < self.widths.len() { " " } else { "" };
-                output.push_str(&format!("{styled}{pad} {border}│{border:#}{sep}"));
-            }
-            output.push('\n');
+            output.push_str(&self.render_row_subline(&wrapped, (line_idx, header)));
         }
         output
     }

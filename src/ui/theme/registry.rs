@@ -24,11 +24,7 @@ impl Default for ThemeRegistry {
 }
 
 impl ThemeRegistry {
-    pub fn new(config_dir: Option<&Path>) -> Self {
-        let mut registry = Self {
-            themes: BTreeMap::new(),
-        };
-
+    fn insert_builtins(&mut self) {
         for builtin in builtin_themes() {
             let theme = builtin.to_theme();
             let meta = ThemeMetadata {
@@ -37,69 +33,64 @@ impl ThemeRegistry {
                 is_light: builtin.is_light,
                 is_custom: false,
             };
-            registry.themes.insert(builtin.name.to_string(), (meta, theme));
+            self.themes.insert(builtin.name.to_string(), (meta, theme));
         }
+        self.alias_theme("default", "ansi");
+        self.alias_theme("catppuccin", "catppuccin-mocha");
+    }
 
-        if let Some((default_meta, default_theme)) = registry.themes.get("default").cloned() {
-            let mut ansi_meta = default_meta;
-            ansi_meta.name = "ansi".to_string();
-            registry.themes.insert("ansi".to_string(), (ansi_meta, default_theme));
+    fn alias_theme(&mut self, source: &str, target: &str) {
+        if let Some((mut meta, theme)) = self.themes.get(source).cloned() {
+            meta.name = target.to_string();
+            self.themes.insert(target.to_string(), (meta, theme));
         }
+    }
 
-        if let Some((cat_meta, cat_theme)) = registry.themes.get("catppuccin").cloned() {
-            let mut mocha_meta = cat_meta;
-            mocha_meta.name = "catppuccin-mocha".to_string();
-            registry
-                .themes
-                .insert("catppuccin-mocha".to_string(), (mocha_meta, cat_theme));
-        }
-
+    pub fn new(config_dir: Option<&Path>) -> Self {
+        let mut registry = Self {
+            themes: BTreeMap::new(),
+        };
+        registry.insert_builtins();
         if let Some(dir) = config_dir {
             registry.load_custom_themes(&dir.join("themes"));
         }
-
         registry
+    }
+
+    fn try_load_theme_file(&mut self, path: &Path) {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+            return;
+        }
+        let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            return;
+        };
+        let Ok(content) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let Ok(def) = toml::from_str::<ThemeDef>(&content) else {
+            return;
+        };
+        let name = def.name.clone().unwrap_or_else(|| file_stem.to_string());
+        let description = def
+            .description
+            .clone()
+            .unwrap_or_else(|| format!("Custom theme ({file_stem})"));
+        let meta = ThemeMetadata {
+            name: name.clone(),
+            description,
+            is_light: def.is_light,
+            is_custom: true,
+        };
+        let theme = def.into_theme(&name);
+        self.themes.insert(name, (meta, theme));
     }
 
     fn load_custom_themes(&mut self, themes_dir: &Path) {
         let Ok(entries) = std::fs::read_dir(themes_dir) else {
             return;
         };
-
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
-                continue;
-            }
-
-            let Some(file_stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-
-            let Ok(content) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-
-            let Ok(def) = toml::from_str::<ThemeDef>(&content) else {
-                continue;
-            };
-
-            let name = def.name.clone().unwrap_or_else(|| file_stem.to_string());
-            let description = def
-                .description
-                .clone()
-                .unwrap_or_else(|| format!("Custom theme ({file_stem})"));
-            let is_light = def.is_light;
-            let theme = def.into_theme(&name);
-
-            let meta = ThemeMetadata {
-                name: name.clone(),
-                description,
-                is_light,
-                is_custom: true,
-            };
-
-            self.themes.insert(name, (meta, theme));
+            self.try_load_theme_file(&entry.path());
         }
     }
 
@@ -114,10 +105,14 @@ impl ThemeRegistry {
     }
 
     pub fn list(&self) -> Vec<&ThemeMetadata> {
-        let mut list = Vec::new();
-        let mut seen = std::collections::HashSet::new();
+        let mut list = self.builtin_order();
+        let seen: std::collections::HashSet<String> = list.iter().map(|meta| meta.name.clone()).collect();
+        self.push_custom_themes(&mut list, &seen);
+        list
+    }
 
-        for name in [
+    fn builtin_order(&self) -> Vec<&ThemeMetadata> {
+        const ORDERED_BUILTINS: [&str; 10] = [
             "default",
             "catppuccin",
             "nord",
@@ -128,21 +123,20 @@ impl ThemeRegistry {
             "one-dark",
             "solarized-dark",
             "catppuccin-latte",
-        ] {
-            if let Some((meta, _)) = self.themes.get(name) {
-                list.push(meta);
-                seen.insert(name.to_string());
-            }
-        }
+        ];
+        ORDERED_BUILTINS
+            .iter()
+            .filter_map(|name| self.themes.get(*name))
+            .map(|(meta, _)| meta)
+            .collect()
+    }
 
+    fn push_custom_themes<'a>(&'a self, list: &mut Vec<&'a ThemeMetadata>, seen: &std::collections::HashSet<String>) {
         for (name, (meta, _)) in &self.themes {
-            if !seen.contains(name) && name != "ansi" && name != "catppuccin-mocha" {
+            if !seen.contains(name.as_str()) && name != "ansi" && name != "catppuccin-mocha" {
                 list.push(meta);
-                seen.insert(name.clone());
             }
         }
-
-        list
     }
 
     pub fn contains(&self, name: &str) -> bool {

@@ -196,3 +196,62 @@ fn test_tree_and_settings_ctrl_c_dismiss_restores_draft() {
     assert!(controller.state().active_modal().is_none());
     assert_eq!(controller.state().editor().text(), "my unsent prompt");
 }
+
+#[test]
+fn test_interaction_custom_input_shift_enter_inserts_newline() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (responder_tx, mut responder_rx) = oneshot::channel();
+    let prompt = InteractionPrompt {
+        title: "Permission Required".to_string(),
+        body: "Tool: bash\nInput: echo line1".to_string(),
+        options: vec![InteractionOption {
+            label: "Edit".to_string(),
+            description: None,
+            input: Some(InteractionInput {
+                label: "command".to_string(),
+                value: Some("echo line1".to_string()),
+            }),
+        }],
+        initial_selection: 0,
+        allow_custom: false,
+        initial_text: None,
+    };
+    let mut pending = None;
+    super::super::modal::install_interaction(
+        &mut controller,
+        UiEvent::Interaction {
+            prompt,
+            responder: InteractionResponder {
+                responder: responder_tx,
+            },
+        },
+        &mut pending,
+    );
+
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
+    assert!(matches!(
+        controller.state().active_modal().unwrap().mode,
+        ModalMode::Input { .. }
+    ));
+
+    let shift_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+    let _ = super::super::modal::handle_modal_key(&mut controller, shift_enter, &mut pending).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().input.text(), "echo line1\n");
+
+    let key_2 = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key_2, &mut pending).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().input.text(), "echo line1\n2");
+
+    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
+    assert!(controller.state().active_modal().is_none());
+
+    let response = responder_rx.try_recv().unwrap();
+    match response {
+        InteractionResponse::SelectedWithInput { index, text } => {
+            assert_eq!(index, 0);
+            assert_eq!(text, "echo line1\n2");
+        }
+        other => panic!("expected SelectedWithInput, got {other:?}"),
+    }
+}

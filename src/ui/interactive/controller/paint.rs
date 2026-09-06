@@ -54,75 +54,97 @@ pub fn erase_live_region<B: TerminalBackend>(
     Ok(())
 }
 
+fn paint_diff_lines<B: TerminalBackend>(
+    backend: &mut B,
+    (lines, prev_height): (&[String], usize),
+    bg: &str,
+) -> io::Result<()> {
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            if i < prev_height {
+                backend.move_to_column(0)?;
+                backend.move_down(1)?;
+            } else {
+                backend.write_text("\r\n")?;
+            }
+        }
+        clear_line(backend, bg)?;
+        backend.write_text(line)?;
+    }
+    Ok(())
+}
+
+fn clear_excess_lines<B: TerminalBackend>(
+    backend: &mut B,
+    (prev_height, new_height): (usize, usize),
+    bg: &str,
+) -> io::Result<()> {
+    for _ in new_height..prev_height {
+        backend.move_to_column(0)?;
+        backend.move_down(1)?;
+        clear_line(backend, bg)?;
+    }
+    Ok(())
+}
+
+fn move_cursor_to_target<B: TerminalBackend>(
+    backend: &mut B,
+    base_height: usize,
+    layout: &InteractiveLayout,
+) -> io::Result<()> {
+    let rows_up = base_height.saturating_sub(1).saturating_sub(layout.cursor_row());
+    if rows_up > 0 {
+        backend.move_to_column(0)?;
+        backend.move_up(rows_up)?;
+    }
+    backend.move_to_column(layout.cursor.column)
+}
+
+fn render_diff_with_prev<B: TerminalBackend>(
+    backend: &mut B,
+    prev: &InteractiveLayout,
+    next: &InteractiveLayout,
+) -> io::Result<()> {
+    if prev.cursor_row() > 0 {
+        backend.move_up(prev.cursor_row())?;
+    }
+    backend.move_to_column(0)?;
+    paint_diff_lines(backend, (&next.lines, prev.height()), &next.bg)?;
+    clear_excess_lines(backend, (prev.height(), next.lines.len()), &next.bg)?;
+    move_cursor_to_target(backend, prev.height().max(next.lines.len()), next)
+}
+
+fn render_initial_layout<B: TerminalBackend>(backend: &mut B, next: &InteractiveLayout) -> io::Result<()> {
+    for (i, line) in next.lines.iter().enumerate() {
+        if i > 0 {
+            backend.write_text("\r\n")?;
+        }
+        backend.write_text(line)?;
+    }
+    move_cursor_to_target(backend, next.lines.len(), next)
+}
+
+fn apply_cursor_visibility<B: TerminalBackend>(backend: &mut B, visible: bool) -> io::Result<()> {
+    if visible {
+        backend.show_cursor()
+    } else {
+        backend.hide_cursor()
+    }
+}
+
 pub fn render_live_diff<B: TerminalBackend>(
     backend: &mut B,
     prev: Option<&InteractiveLayout>,
     next: &InteractiveLayout,
 ) -> io::Result<()> {
-    let next_lines = &next.lines;
-    let new_height = next_lines.len();
-    let target_cursor_row = next.cursor_row();
-    let target_cursor_col = next.cursor.column;
-
     backend.write_text(CSI_BEGIN_SYNC_UPDATE)?;
     backend.hide_cursor()?;
-
     if let Some(prev) = prev {
-        let prev_height = prev.height();
-        let prev_cursor_row = prev.cursor_row();
-
-        if prev_cursor_row > 0 {
-            backend.move_up(prev_cursor_row)?;
-        }
-        backend.move_to_column(0)?;
-
-        for (i, line) in next_lines.iter().enumerate() {
-            if i > 0 {
-                if i < prev_height {
-                    backend.move_to_column(0)?;
-                    backend.move_down(1)?;
-                } else {
-                    backend.write_text("\r\n")?;
-                }
-            }
-            clear_line(backend, &next.bg)?;
-            backend.write_text(line)?;
-        }
-
-        if prev_height > new_height {
-            for _ in new_height..prev_height {
-                backend.move_to_column(0)?;
-                backend.move_down(1)?;
-                clear_line(backend, &next.bg)?;
-            }
-        }
-        let base_height = prev_height.max(new_height);
-        let rows_up = (base_height.saturating_sub(1)).saturating_sub(target_cursor_row);
-        if rows_up > 0 {
-            backend.move_to_column(0)?;
-            backend.move_up(rows_up)?;
-        }
-        backend.move_to_column(target_cursor_col)?;
+        render_diff_with_prev(backend, prev, next)?;
     } else {
-        for (i, line) in next_lines.iter().enumerate() {
-            if i > 0 {
-                backend.write_text("\r\n")?;
-            }
-            backend.write_text(line)?;
-        }
-        let rows_up = (new_height.saturating_sub(1)).saturating_sub(target_cursor_row);
-        if rows_up > 0 {
-            backend.move_to_column(0)?;
-            backend.move_up(rows_up)?;
-        }
-        backend.move_to_column(target_cursor_col)?;
+        render_initial_layout(backend, next)?;
     }
-
-    if next.cursor_visible {
-        backend.show_cursor()?;
-    } else {
-        backend.hide_cursor()?;
-    }
+    apply_cursor_visibility(backend, next.cursor_visible)?;
     backend.write_text(CSI_END_SYNC_UPDATE)?;
     backend.flush()
 }

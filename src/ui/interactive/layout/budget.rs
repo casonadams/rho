@@ -1,10 +1,10 @@
 pub(crate) struct NormalBudgetInput {
     pub terminal_height: usize,
-    pub raw_widgets_count: usize,
     pub raw_queued_count: usize,
+    pub raw_widgets_count: usize,
+    pub raw_footer_count: usize,
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
-    pub raw_footer_count: usize,
 }
 
 pub(crate) struct NormalLayoutBudget {
@@ -19,66 +19,69 @@ pub(crate) struct NormalLayoutBudget {
     pub autocomplete_max_lines: usize,
 }
 
-pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBudget {
-    let budget = input.terminal_height.max(1);
-
-    let (show_spacer, show_activity_row, show_top_div, show_bot_div, footer_count) = match budget {
+fn compute_chrome(budget: usize, raw_footer_count: usize) -> (bool, bool, bool, bool, usize) {
+    match budget {
         0..=1 => (false, false, false, false, 0),
         2 => (false, false, true, false, 0),
         3 => (false, false, true, true, 0),
-        4 => (false, false, true, true, input.raw_footer_count.min(1)),
-        5 => (false, false, true, true, input.raw_footer_count.min(2)),
-        6 => (false, true, true, true, input.raw_footer_count.min(2)),
-        _ => (true, true, true, true, input.raw_footer_count.min(2)),
-    };
+        4 => (false, false, true, true, raw_footer_count.min(1)),
+        5 => (false, false, true, true, raw_footer_count.min(2)),
+        6 => (false, true, true, true, raw_footer_count.min(2)),
+        _ => (true, true, true, true, raw_footer_count.min(2)),
+    }
+}
 
-    let min_editor = 1;
-    let reserved_chrome = usize::from(show_spacer)
+fn allocate_widgets(raw_widgets: usize, surplus: &mut usize, (extra_ed, ac_desired): (usize, usize)) -> usize {
+    if raw_widgets == 0 {
+        return 0;
+    }
+    let ac_min = if ac_desired >= 2 { 2 } else { 0 };
+    let needed = extra_ed + ac_min;
+    let grant = if *surplus >= needed {
+        raw_widgets.min(*surplus - needed)
+    } else {
+        (*surplus / 3).min(raw_widgets)
+    };
+    *surplus -= grant;
+    grant
+}
+
+fn allocate_editor_and_autocomplete(surplus: usize, (extra_ed, ac_desired): (usize, usize)) -> (usize, usize) {
+    if ac_desired >= 2 && surplus >= 2 {
+        if extra_ed == 0 {
+            (ac_desired.min(surplus), 1)
+        } else {
+            let half = surplus / 2;
+            let ac_grant = ac_desired.min(half.max(2)).min(surplus);
+            let ed_grant = 1 + surplus.saturating_sub(ac_grant).min(extra_ed);
+            (ac_grant, ed_grant)
+        }
+    } else {
+        (0, 1 + surplus.min(extra_ed))
+    }
+}
+
+fn calculate_surplus(budget: usize, chrome: (bool, bool, bool, bool, usize), queued_raw: usize) -> (usize, usize) {
+    let (show_spacer, show_activity_row, show_top_div, show_bot_div, footer_count) = chrome;
+    let reserved = usize::from(show_spacer)
         + usize::from(show_activity_row)
         + usize::from(show_top_div)
         + usize::from(show_bot_div)
         + footer_count
-        + min_editor;
+        + 1;
+    let surplus = budget.saturating_sub(reserved);
+    let queued = queued_raw.min(surplus);
+    (surplus - queued, queued)
+}
 
-    let mut surplus = budget.saturating_sub(reserved_chrome);
-
-    let queued_count = input.raw_queued_count.min(surplus);
-    surplus -= queued_count;
-
-    let extra_ed_desired = input.total_editor_lines.saturating_sub(1);
-    let ac_desired = input.autocomplete_desired;
-
-    let widget_count = if input.raw_widgets_count > 0 {
-        let needed_by_input = extra_ed_desired + if ac_desired >= 2 { 2 } else { 0 };
-        if surplus >= needed_by_input {
-            let available_for_widgets = surplus - needed_by_input;
-            let grant = input.raw_widgets_count.min(available_for_widgets);
-            surplus -= grant;
-            grant
-        } else {
-            let max_w = (surplus / 3).min(input.raw_widgets_count);
-            surplus -= max_w;
-            max_w
-        }
-    } else {
-        0
-    };
-
-    let (autocomplete_max_lines, editor_max_lines) = if ac_desired >= 2 && surplus >= 2 {
-        if extra_ed_desired == 0 {
-            let ac_grant = ac_desired.min(surplus);
-            (ac_grant, 1)
-        } else {
-            let half = surplus / 2;
-            let ac_grant = ac_desired.min(half.max(2)).min(surplus);
-            let ed_grant = 1 + surplus.saturating_sub(ac_grant).min(extra_ed_desired);
-            (ac_grant, ed_grant)
-        }
-    } else {
-        let ed_grant = 1 + surplus.min(extra_ed_desired);
-        (0, ed_grant)
-    };
-
+pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBudget {
+    let budget = input.terminal_height.max(1);
+    let chrome = compute_chrome(budget, input.raw_footer_count);
+    let (mut surplus, queued_count) = calculate_surplus(budget, chrome, input.raw_queued_count);
+    let demands = (input.total_editor_lines.saturating_sub(1), input.autocomplete_desired);
+    let widget_count = allocate_widgets(input.raw_widgets_count, &mut surplus, demands);
+    let (autocomplete_max_lines, editor_max_lines) = allocate_editor_and_autocomplete(surplus, demands);
+    let (show_spacer, show_activity_row, show_top_div, show_bot_div, footer_count) = chrome;
     NormalLayoutBudget {
         show_spacer,
         show_activity_row,

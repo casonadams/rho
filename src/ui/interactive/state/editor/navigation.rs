@@ -2,6 +2,42 @@ use super::EditorState;
 use super::geometry::{editor_boundaries, editor_cursor_position};
 use crate::ui::interactive::state::paste::{find_marker_covering, find_marker_ending_at, find_marker_starting_at};
 
+type CharIndicesItr<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
+
+fn skip_whitespace_back(slice: &str) -> std::iter::Peekable<std::iter::Rev<std::str::CharIndices<'_>>> {
+    let mut chars = slice.char_indices().rev().peekable();
+    while let Some((_, c)) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    chars
+}
+
+fn skip_whitespace_fwd(slice: &str) -> CharIndicesItr<'_> {
+    let mut chars = slice.char_indices().peekable();
+    while let Some((_, c)) = chars.peek() {
+        if c.is_whitespace() {
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    chars
+}
+
+fn char_class(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+fn snap_to_marker_end(text: &str, cursor: &mut usize, start: bool) {
+    if let Some(marker) = find_marker_covering(text, *cursor) {
+        *cursor = if start { marker.start } else { marker.end };
+    }
+}
+
 impl EditorState {
     pub fn move_left(&mut self) {
         if let Some(marker) = find_marker_ending_at(&self.text, self.cursor) {
@@ -27,21 +63,14 @@ impl EditorState {
 
     pub fn move_word_left(&mut self) {
         let slice = &self.text[..self.cursor];
-        let mut chars = slice.char_indices().rev().peekable();
-        while let Some((_, c)) = chars.peek() {
-            if c.is_whitespace() {
-                chars.next();
-            } else {
-                break;
-            }
-        }
+        let mut chars = skip_whitespace_back(slice);
         let mut new_cursor = 0;
         let mut is_alphanumeric = None;
         while let Some((idx, c)) = chars.peek() {
             if c.is_whitespace() {
                 break;
             }
-            let is_an = c.is_alphanumeric() || *c == '_';
+            let is_an = char_class(*c);
             if let Some(prev) = is_alphanumeric {
                 if prev != is_an {
                     break;
@@ -53,22 +82,13 @@ impl EditorState {
             chars.next();
         }
         self.cursor = new_cursor;
-        if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
-            self.cursor = marker.start;
-        }
+        snap_to_marker_end(&self.text, &mut self.cursor, true);
         self.preferred_column = None;
     }
 
     pub fn move_word_right(&mut self) {
         let slice = &self.text[self.cursor..];
-        let mut chars = slice.char_indices().peekable();
-        while let Some((_, c)) = chars.peek() {
-            if c.is_whitespace() {
-                chars.next();
-            } else {
-                break;
-            }
-        }
+        let mut chars = skip_whitespace_fwd(slice);
         let mut is_alphanumeric = None;
         let mut offset = slice.len();
         while let Some((idx, c)) = chars.peek() {
@@ -76,7 +96,7 @@ impl EditorState {
                 offset = *idx;
                 break;
             }
-            let is_an = c.is_alphanumeric() || *c == '_';
+            let is_an = char_class(*c);
             if let Some(prev) = is_alphanumeric {
                 if prev != is_an {
                     offset = *idx;
@@ -88,9 +108,7 @@ impl EditorState {
             chars.next();
         }
         self.cursor += offset;
-        if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
-            self.cursor = marker.end;
-        }
+        snap_to_marker_end(&self.text, &mut self.cursor, false);
         self.preferred_column = None;
     }
 

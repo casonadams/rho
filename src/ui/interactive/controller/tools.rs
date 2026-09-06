@@ -3,7 +3,8 @@ use std::io;
 use super::TerminalController;
 use super::backend::TerminalBackend;
 use crate::ui::interactive::{
-    Activity, RunningTool, ToolItem, ToolStartRequest, TranscriptItem, TranscriptRenderInput, render_tool_block,
+    Activity, InteractiveLayout, RunningTool, ToolItem, ToolStartRequest, TranscriptItem, TranscriptRenderInput,
+    render_tool_block,
 };
 
 impl<B: TerminalBackend> TerminalController<B> {
@@ -55,47 +56,48 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
-    pub fn commit_active_tool(&mut self, tool: ToolItem) -> io::Result<()> {
-        let tools_expanded = self.state.tools_expanded();
-        let hide_thinking = self.state.hide_thinking();
-        let item = TranscriptItem::Tool(tool.clone());
+    fn render_tool_lines(&self, tool: &ToolItem) -> (String, Vec<String>) {
         let input = TranscriptRenderInput {
-            item: &item,
+            item: &TranscriptItem::Tool(tool.clone()),
             theme: &self.theme,
             width: self.width,
-            tools_expanded,
-            hide_thinking,
+            tools_expanded: self.state.tools_expanded(),
+            hide_thinking: self.state.hide_thinking(),
         };
-        let block = render_tool_block(&tool, &input);
+        let block = render_tool_block(tool, &input);
         let mut card_lines = vec![String::new()];
         card_lines.extend(block.lines().map(String::from));
+        (block, card_lines)
+    }
 
-        let queue_slice: Vec<crate::ui::interactive::QueuedMessage> = self.state.queue().iter().cloned().collect();
-        let completed_layout = crate::ui::interactive::layout(crate::ui::interactive::LayoutInput {
+    fn tool_layout(&self, card_lines: &[String]) -> InteractiveLayout {
+        let queue: Vec<crate::ui::interactive::QueuedMessage> = self.state.queue().iter().cloned().collect();
+        crate::ui::interactive::layout(crate::ui::interactive::LayoutInput {
             editor: self.state.editor(),
             modal: self.state.active_modal(),
             autocomplete: Some(&self.state.autocomplete),
             footer: self.state.footer(),
             system_message: self.state.system_message(),
-            queued_messages: &queue_slice,
-            widget_lines: &card_lines,
+            queued_messages: &queue,
+            widget_lines: card_lines,
             terminal_width: self.width,
             terminal_height: self.height,
             spinner_frame: self.spinner_frame,
             theme: Some(&self.theme),
-        });
+        })
+    }
 
-        super::paint::render_live_diff(&mut self.backend, self.rendered.as_ref(), &completed_layout)?;
-
-        let rendered_transcript = format!("\n{block}");
+    fn record_completed_tool(&mut self, tool: ToolItem, block: &str) {
+        let item = TranscriptItem::Tool(tool);
+        let rendered = format!("\n{block}");
         self.cache.push(
-            super::cache::target_slot(&item, tools_expanded, hide_thinking),
-            &rendered_transcript,
+            super::cache::target_slot(&item, self.state.tools_expanded(), self.state.hide_thinking()),
+            &rendered,
         );
         self.transcript.push(item);
 
         let formatted = super::ansi::terminal_newlines(&crate::ui::interactive::region::paint_region(
-            &rendered_transcript,
+            &rendered,
             &self.theme,
             self.width,
         ));
@@ -103,10 +105,14 @@ impl<B: TerminalBackend> TerminalController<B> {
         if self.output.is_open() {
             self.output.update("\n");
         }
+    }
 
-        self.state.set_active_tool(None);
-        self.state.footer_mut().running_tool = None;
-
+    pub fn commit_active_tool(&mut self, tool: ToolItem) -> io::Result<()> {
+        let (block, card_lines) = self.render_tool_lines(&tool);
+        let completed_layout = self.tool_layout(&card_lines);
+        super::paint::render_live_diff(&mut self.backend, self.rendered.as_ref(), &completed_layout)?;
+        self.record_completed_tool(tool, &block);
+        self.clear_active_tool();
         self.rendered = Some(self.current_layout());
         self.backend.flush()
     }

@@ -48,12 +48,19 @@ pub enum ModalKeyResult {
 pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {
     match action {
         UiAction::Insert(c) => input.insert(c),
+        UiAction::InsertNewline => input.insert_newline(),
         UiAction::Backspace => input.backspace(),
         UiAction::Delete => input.delete(),
         UiAction::MoveLeft => input.move_left(),
         UiAction::MoveRight => input.move_right(),
+        UiAction::MoveWordLeft => input.move_word_left(),
+        UiAction::MoveWordRight => input.move_word_right(),
         UiAction::MoveToStart => input.move_to_start(),
         UiAction::MoveToEnd => input.move_to_end(),
+        UiAction::DeleteWordBackward => input.delete_word_backward(),
+        UiAction::DeleteWordForward => input.delete_word_forward(),
+        UiAction::Yank => input.yank(),
+        UiAction::Undo => input.undo(),
         _ => {}
     }
 }
