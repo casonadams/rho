@@ -1,5 +1,5 @@
 use super::entry::{LineMatch, RG_COLLECTION_CEILING, format_results};
-use crate::tools::traversal::walker_builder;
+use crate::tools::traversal::{DEFAULT_TRAVERSAL_TIMEOUT_SECS, should_quit_traversal, walker_builder};
 use crate::tools::truncate::truncate_line;
 use crate::tools::types::ToolResult;
 use grep_regex::RegexMatcher;
@@ -9,8 +9,9 @@ use grep_searcher::sinks::UTF8;
 use ignore::WalkState;
 use ignore::types::Types;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::PoisonError;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 pub const MAX_RG_FILE_BYTES: u64 = 1_000_000;
 
@@ -21,6 +22,8 @@ pub struct RgQuery {
     pub matcher: RegexMatcher,
     pub types: Option<Types>,
     pub include_hidden: bool,
+    pub timeout: Option<Duration>,
+    pub cancellation: Option<Arc<AtomicBool>>,
 }
 
 fn resolve_rg_relative_path(
@@ -82,31 +85,58 @@ fn search_file(
     }
 }
 
+#[derive(Clone, Copy)]
+struct RgWalkContext<'a> {
+    roots: (&'a Path, &'a Path, Option<&'a str>),
+    matches: &'a Mutex<Vec<LineMatch>>,
+}
+
+fn process_rg_walk_entry(
+    entry: Result<ignore::DirEntry, ignore::Error>,
+    (searcher, matcher): (&mut grep_searcher::Searcher, &RegexMatcher),
+    ctx: &RgWalkContext<'_>,
+) -> WalkState {
+    let Ok(entry) = entry else { return WalkState::Continue };
+    if !should_search_entry(&entry) {
+        return WalkState::Continue;
+    }
+    if ctx.matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
+        return WalkState::Quit;
+    }
+    let relative = resolve_rg_relative_path(entry.path(), (ctx.roots.0, ctx.roots.1), ctx.roots.2);
+    search_file((searcher, matcher), (entry.path(), &relative), ctx.matches);
+    if ctx.matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
+        WalkState::Quit
+    } else {
+        WalkState::Continue
+    }
+}
+
 impl RgQuery {
-    fn run_traversal(&self, builder: ignore::WalkBuilder, matches: &Mutex<Vec<LineMatch>>) {
+    fn run_traversal(&self, builder: ignore::WalkBuilder, (matches, timed_out): (&Mutex<Vec<LineMatch>>, &AtomicBool)) {
         let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
-        let matcher = &self.matcher;
-        let search_path_display = self.search_path_display.as_deref();
+        let (matcher, display) = (&self.matcher, self.search_path_display.as_deref());
+        let cancellation = self.cancellation.as_deref();
+        let timeout = self
+            .timeout
+            .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS));
+        let start = Instant::now();
+
+        let ctx = RgWalkContext {
+            roots: (w_root, s_root, display),
+            matches,
+        };
+
         builder.build_parallel().run(|| {
             let mut searcher = SearcherBuilder::new()
                 .line_number(true)
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
             Box::new(move |entry| {
-                let Ok(entry) = entry else { return WalkState::Continue };
-                if !should_search_entry(&entry) {
-                    return WalkState::Continue;
-                }
-                if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
+                if should_quit_traversal(cancellation, timed_out, (start, timeout)) {
                     return WalkState::Quit;
                 }
-                let relative = resolve_rg_relative_path(entry.path(), (w_root, s_root), search_path_display);
-                search_file((&mut searcher, matcher), (entry.path(), &relative), matches);
-                if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
-                    WalkState::Quit
-                } else {
-                    WalkState::Continue
-                }
+                process_rg_walk_entry(entry, (&mut searcher, matcher), &ctx)
             })
         });
     }
@@ -117,8 +147,16 @@ impl RgQuery {
             builder.types(types.clone());
         }
 
+        let timed_out = AtomicBool::new(false);
         let matches = Mutex::new(Vec::new());
-        self.run_traversal(builder, &matches);
+        self.run_traversal(builder, (&matches, &timed_out));
+        if timed_out.load(Ordering::Relaxed) {
+            let secs = self
+                .timeout
+                .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS))
+                .as_secs();
+            return ToolResult::error(format!("Search timed out after {secs}s"));
+        }
         let list = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
         format_results(list, limit)
     }

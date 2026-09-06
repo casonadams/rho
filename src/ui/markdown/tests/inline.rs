@@ -43,3 +43,12 @@ fn test_math_and_wildcard_asterisks_not_corrupted() {
     assert!(res.contains("*.rs"));
     assert!(!res.contains("\x1b[3m"));
 }
+
+#[test]
+fn html_comment_and_inline_tags_preserved() {
+    let theme = Theme::default();
+    let res = render_inline_elements("<!-- AGENT_RUN_COMPLETE -->", &theme);
+    assert!(res.contains("<!-- AGENT_RUN_COMPLETE -->"));
+    let res_tag = render_inline_elements("<custom-tag>data</custom-tag>", &theme);
+    assert!(res_tag.contains("<custom-tag>") && res_tag.contains("data") && res_tag.contains("</custom-tag>"));
+}

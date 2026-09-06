@@ -39,7 +39,7 @@ Find files and directories by workspace-relative path pattern.
 Usage:
 - pattern is an optional smart-case regex (case-insensitive unless it contains an uppercase character) matched against workspace-relative paths; if omitted, all entries in the search root match.
 - Files and directories both match; results are sorted lexicographically by default and capped at limit (default 200, max 1000) with a 20,000-entry collection ceiling; output is byte-capped at 50KB.
-- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
+- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
 - Use type (e.g. 'rust', 'py') to filter by file type and depth (1-10) for a bounded overview, e.g. depth 2 for top-level layout.
 - Set stats: true to include line counts and byte sizes; use min_lines or max_lines to filter by line count (e.g. min_lines: 150 to identify oversized files), and sort ('lines', 'size', or 'path') to order results.";
 
@@ -50,7 +50,7 @@ Usage:
 - pattern is a smart-case regex (case-insensitive unless it contains an uppercase character) matched against file contents.
 - Returns path:line: text lines sorted by path then line number; match lines are truncated at 500 characters.
 - Results are capped at limit (default 200, max 1000) with a 5,000-match collection ceiling; output is byte-capped at 50KB.
-- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include both.
+- Ignore rules (.gitignore, .ignore) and hidden entries are respected by default; set hidden: true to include hidden dotfiles.
 - Binary files and files over 1 MB are skipped; use type (e.g. 'rust', 'py') to filter by file type.";
 
 pub static PROMPT_BASH: &str = "\

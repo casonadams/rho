@@ -39,6 +39,10 @@ fn push_inline_event(out: &mut String, event: Event, theme: &Theme) {
         Event::Code(c) => out.push_str(&format!("{}{c}{:#}", theme.code_inline, theme.code_inline)),
         Event::SoftBreak => out.push(' '),
         Event::HardBreak => out.push('\n'),
+        Event::Html(h) | Event::InlineHtml(h) => {
+            let dim = theme.dimmed;
+            out.push_str(&format!("{dim}{h}{dim:#}"));
+        }
         _ => {}
     }
 }

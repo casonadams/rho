@@ -74,10 +74,10 @@ async fn gitignore_rules_are_respected_by_default() {
 }
 
 #[tokio::test]
-async fn hidden_flag_includes_hidden_and_ignored_entries() {
+async fn hidden_flag_includes_hidden_files_while_respecting_gitignore() {
     let dir = fixture();
     let ignored = find(&dir, "notes", |args| args.hidden = Some(true)).await;
-    assert_eq!(ignored.content, "notes.txt");
+    assert_eq!(ignored.content, "No files found matching pattern");
 
     let dotfile = find(&dir, "hidden", |args| args.hidden = Some(true)).await;
     assert_eq!(dotfile.content, ".hidden_file");

@@ -145,3 +145,40 @@ fn schema_exposes_renamed_type_property() {
     assert!(schema["properties"].get("file_type").is_none());
     assert!(schema["properties"].get("pattern").is_some());
 }
+
+#[tokio::test]
+async fn rg_cancellation_halts_traversal_immediately() {
+    let dir = fixture();
+    let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let query = super::super::RgQuery {
+        workspace_root: dir.path().to_path_buf(),
+        search_root: dir.path().to_path_buf(),
+        search_path_display: None,
+        matcher: grep_regex::RegexMatcher::new("pub").unwrap(),
+        types: None,
+        include_hidden: false,
+        timeout: None,
+        cancellation: Some(cancellation),
+    };
+    let result = query.run(10);
+    assert!(!result.is_error);
+    assert_eq!(result.content, "No matches found");
+}
+
+#[tokio::test]
+async fn rg_timeout_returns_timeout_error() {
+    let dir = fixture();
+    let query = super::super::RgQuery {
+        workspace_root: dir.path().to_path_buf(),
+        search_root: dir.path().to_path_buf(),
+        search_path_display: None,
+        matcher: grep_regex::RegexMatcher::new("pub").unwrap(),
+        types: None,
+        include_hidden: false,
+        timeout: Some(std::time::Duration::from_millis(0)),
+        cancellation: None,
+    };
+    let result = query.run(10);
+    assert!(result.is_error);
+    assert!(result.content.contains("Search timed out"));
+}

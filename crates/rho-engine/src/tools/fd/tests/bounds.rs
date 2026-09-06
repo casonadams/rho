@@ -117,3 +117,52 @@ fn schema_exposes_renamed_type_property() {
         "pattern should be optional in schema"
     );
 }
+
+#[tokio::test]
+async fn fd_cancellation_halts_traversal_immediately() {
+    let dir = fixture();
+    let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let query = super::query::FdQuery {
+        workspace_root: dir.path().to_path_buf(),
+        search_root: dir.path().to_path_buf(),
+        search_path_display: None,
+        regex: None,
+        types: None,
+        include_hidden: false,
+        depth: None,
+        stats_needed: false,
+        min_lines: None,
+        max_lines: None,
+        sort: None,
+        show_stats: false,
+        timeout: None,
+        cancellation: Some(cancellation),
+    };
+    let result = query.run(10);
+    assert!(!result.is_error);
+    assert_eq!(result.content, "No files found matching pattern");
+}
+
+#[tokio::test]
+async fn fd_timeout_returns_timeout_error() {
+    let dir = fixture();
+    let query = super::query::FdQuery {
+        workspace_root: dir.path().to_path_buf(),
+        search_root: dir.path().to_path_buf(),
+        search_path_display: None,
+        regex: None,
+        types: None,
+        include_hidden: false,
+        depth: None,
+        stats_needed: false,
+        min_lines: None,
+        max_lines: None,
+        sort: None,
+        show_stats: false,
+        timeout: Some(std::time::Duration::from_millis(0)),
+        cancellation: None,
+    };
+    let result = query.run(10);
+    assert!(result.is_error);
+    assert!(result.content.contains("Search timed out"));
+}

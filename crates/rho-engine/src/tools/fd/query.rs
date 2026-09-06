@@ -1,15 +1,15 @@
 use super::entry::{FD_COLLECTION_CEILING, FdEntry, FdFormat, format_results, sort_entries};
 use super::stats::{FileStats, count_file_stats};
-use crate::tools::traversal::walker_builder;
+use crate::tools::traversal::{DEFAULT_TRAVERSAL_TIMEOUT_SECS, should_quit_traversal, walker_builder};
 use crate::tools::types::ToolResult;
 use ignore::WalkState;
 use ignore::types::Types;
 use regex::Regex;
 use rho_harness_core::args::FdSort;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 pub(super) struct FdQuery {
     pub workspace_root: PathBuf,
@@ -24,6 +24,8 @@ pub(super) struct FdQuery {
     pub max_lines: Option<usize>,
     pub sort: Option<FdSort>,
     pub show_stats: bool,
+    pub timeout: Option<Duration>,
+    pub cancellation: Option<Arc<AtomicBool>>,
 }
 
 fn resolve_entry_relative_path(
@@ -123,13 +125,22 @@ impl FdQuery {
     fn run_traversal(
         &self,
         builder: ignore::WalkBuilder,
-        (collected, hit_ceiling): (&Mutex<Vec<FdEntry>>, &AtomicBool),
+        (collected, hit_ceiling, timed_out): (&Mutex<Vec<FdEntry>>, &AtomicBool, &AtomicBool),
     ) {
         let (s_root, w_root) = (self.search_root.as_path(), self.workspace_root.as_path());
         let (reg, ty) = (self.regex.as_ref(), self.types.as_ref());
         let display = self.search_path_display.as_deref();
+        let cancellation = self.cancellation.as_deref();
+        let timeout = self
+            .timeout
+            .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS));
+        let start = Instant::now();
+
         builder.build_parallel().run(|| {
             Box::new(|entry| {
+                if should_quit_traversal(cancellation, timed_out, (start, timeout)) {
+                    return WalkState::Quit;
+                }
                 let Ok(entry) = entry else { return WalkState::Continue };
                 let filters = (reg, ty, display, self.min_lines, self.max_lines, self.stats_needed);
                 let Some(fd_entry) = process_walk_entry(entry, (w_root, s_root), filters) else {
@@ -146,19 +157,37 @@ impl FdQuery {
             self.types.as_ref(),
             self.include_hidden,
         );
-        let collected: Mutex<Vec<FdEntry>> = Mutex::new(Vec::new());
-        let hit_ceiling = AtomicBool::new(false);
-        self.run_traversal(builder, (&collected, &hit_ceiling));
+        let (collected, hit_ceiling, timed_out) =
+            (Mutex::new(Vec::new()), AtomicBool::new(false), AtomicBool::new(false));
+        self.run_traversal(builder, (&collected, &hit_ceiling, &timed_out));
 
-        let mut entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
-        sort_entries(&mut entries, self.sort);
-        format_results(
+        if timed_out.load(Ordering::Relaxed) {
+            let secs = self
+                .timeout
+                .unwrap_or(Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS))
+                .as_secs();
+            return ToolResult::error(format!("Search timed out after {secs}s"));
+        }
+
+        let entries = collected.into_inner().unwrap_or_else(PoisonError::into_inner);
+        finalize_fd_results(
             entries,
-            FdFormat {
-                hit_ceiling: hit_ceiling.load(Ordering::Relaxed),
-                limit,
-                show_stats: self.show_stats,
-            },
+            (self.sort, self.show_stats, limit, hit_ceiling.load(Ordering::Relaxed)),
         )
     }
+}
+
+fn finalize_fd_results(
+    mut entries: Vec<FdEntry>,
+    (sort, show_stats, limit, hit_ceiling): (Option<FdSort>, bool, usize, bool),
+) -> ToolResult {
+    sort_entries(&mut entries, sort);
+    format_results(
+        entries,
+        FdFormat {
+            hit_ceiling,
+            limit,
+            show_stats,
+        },
+    )
 }

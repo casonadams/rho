@@ -4,28 +4,53 @@ use ignore::WalkBuilder;
 use ignore::types::{Types, TypesBuilder};
 use rho_harness_core::workspace::Workspace;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+pub const DEFAULT_TRAVERSAL_TIMEOUT_SECS: u64 = 30;
+
+pub struct CancelOnDrop(pub Arc<AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn should_quit_traversal(
+    cancellation: Option<&AtomicBool>,
+    timed_out: &AtomicBool,
+    (start, timeout): (Instant, Duration),
+) -> bool {
+    if let Some(c) = cancellation
+        && c.load(Ordering::Relaxed)
+    {
+        return true;
+    }
+    if timed_out.load(Ordering::Relaxed) {
+        return true;
+    }
+    if start.elapsed() >= timeout {
+        timed_out.store(true, Ordering::Relaxed);
+        return true;
+    }
+    false
+}
 
 /// Builds a workspace-scoped walker: ignore rules (.gitignore, .ignore, the
 /// global gitignore, .git/info/exclude) and hidden entries are respected
 /// unless `include_hidden`, and symlinks are never followed.
 pub fn walker_builder(search_root: &Path, include_hidden: bool) -> WalkBuilder {
     let mut builder = WalkBuilder::new(search_root);
-    builder.hidden(!include_hidden).follow_links(false);
-    if include_hidden {
-        builder
-            .ignore(false)
-            .git_ignore(false)
-            .git_global(false)
-            .git_exclude(false)
-            .parents(false);
-    } else {
-        builder
-            .ignore(true)
-            .git_ignore(true)
-            .git_global(true)
-            .git_exclude(true)
-            .parents(true);
-    }
+    builder
+        .hidden(!include_hidden)
+        .follow_links(false)
+        .ignore(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .parents(true);
     builder
 }
 

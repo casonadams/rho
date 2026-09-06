@@ -88,10 +88,10 @@ async fn gitignore_rules_are_respected_by_default() {
 }
 
 #[tokio::test]
-async fn hidden_flag_includes_hidden_and_ignored_entries() {
+async fn hidden_flag_includes_hidden_files_while_respecting_gitignore() {
     let dir = fixture();
     let ignored = search(&dir, "secret", |args| args.hidden = Some(true)).await;
-    assert_eq!(ignored.content, "notes.txt:1: secret notes");
+    assert_eq!(ignored.content, "No matches found");
 
     let dotfile = search(&dir, "hidden todo", |args| args.hidden = Some(true)).await;
     assert_eq!(dotfile.content, ".hidden_file:1: hidden todo");

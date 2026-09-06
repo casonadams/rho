@@ -7,13 +7,16 @@ pub use entry::{LineMatch, RG_COLLECTION_CEILING, format_results, render};
 pub use query::{MAX_RG_FILE_BYTES, RgQuery};
 pub use rho_harness_core::args::RgArgs;
 
-use crate::tools::traversal::{build_type_matcher, search_root};
+use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 pub const DEFAULT_RG_LIMIT: usize = 200;
 pub const MAX_RG_LIMIT: usize = 1000;
@@ -50,18 +53,49 @@ impl RgTool {
             Err(e) => return Ok(e),
         };
         let limit = args.limit.unwrap_or(DEFAULT_RG_LIMIT).clamp(1, MAX_RG_LIMIT);
-        let query = RgQuery {
-            workspace_root: self.base_dir.clone(),
-            search_root,
-            search_path_display: args.path,
-            matcher,
-            types,
-            include_hidden: args.hidden.unwrap_or(false),
-        };
-        match tokio::task::spawn_blocking(move || query.run(limit)).await {
-            Ok(result) => Ok(result),
-            Err(error) => Err(AppError::Tool(format!("rg search task failed: {error}"))),
-        }
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let cancel_guard = CancelOnDrop(cancellation.clone());
+        let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
+        let query = build_rg_query(
+            (&self.base_dir, args),
+            (matcher, types, search_root),
+            (timeout, cancellation),
+        );
+        let handle = tokio::task::spawn_blocking(move || query.run(limit));
+        let res = await_rg_task(handle, timeout).await;
+        drop(cancel_guard);
+        res
+    }
+}
+
+fn build_rg_query(
+    (base_dir, args): (&Path, RgArgs),
+    (matcher, types, search_root): (RegexMatcher, Option<ignore::types::Types>, PathBuf),
+    (timeout, cancellation): (Duration, Arc<AtomicBool>),
+) -> RgQuery {
+    RgQuery {
+        workspace_root: base_dir.to_path_buf(),
+        search_root,
+        search_path_display: args.path,
+        matcher,
+        types,
+        include_hidden: args.hidden.unwrap_or(false),
+        timeout: Some(timeout),
+        cancellation: Some(cancellation),
+    }
+}
+
+async fn await_rg_task(
+    handle: tokio::task::JoinHandle<ToolResult>,
+    timeout_dur: Duration,
+) -> Result<ToolResult, AppError> {
+    match tokio::time::timeout(timeout_dur + Duration::from_secs(1), handle).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(AppError::Tool(format!("rg search task failed: {error}"))),
+        Err(_) => Ok(ToolResult::error(format!(
+            "Search timed out after {}s",
+            timeout_dur.as_secs()
+        ))),
     }
 }
 

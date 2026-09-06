@@ -11,8 +11,11 @@ use rho_harness_core::error::AppError;
 use rho_harness_core::workspace::Workspace;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
-use crate::tools::traversal::{build_type_matcher, search_root};
+use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, build_type_matcher, search_root};
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use regex::Regex;
 
@@ -58,6 +61,34 @@ fn build_fd_query(
         max_lines: args.max_lines,
         sort: args.sort,
         show_stats,
+        timeout: None,
+        cancellation: None,
+    }
+}
+
+fn validate_fd_params(
+    base_dir: &Path,
+    args: &FdArgs,
+) -> std::result::Result<(Option<Regex>, Option<ignore::types::Types>, PathBuf), ToolResult> {
+    let pattern = args.pattern.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let regex = build_fd_regex(pattern)?;
+    let types = build_type_matcher(args.file_type.as_deref()).map_err(ToolResult::error)?;
+    let workspace = Workspace::new(base_dir);
+    let search_root = search_root(&workspace, args.path.as_deref()).map_err(ToolResult::error)?;
+    Ok((regex, types, search_root))
+}
+
+async fn await_fd_task(
+    handle: tokio::task::JoinHandle<ToolResult>,
+    timeout_dur: Duration,
+) -> Result<ToolResult, AppError> {
+    match tokio::time::timeout(timeout_dur + Duration::from_secs(1), handle).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(AppError::Tool(format!("fd traversal task failed: {error}"))),
+        Err(_) => Ok(ToolResult::error(format!(
+            "Search timed out after {}s",
+            timeout_dur.as_secs()
+        ))),
     }
 }
 
@@ -69,27 +100,23 @@ impl FdTool {
     }
 
     pub async fn execute(&self, args: FdArgs) -> Result<ToolResult, AppError> {
-        let pattern = args.pattern.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        let regex = match build_fd_regex(pattern) {
-            Ok(r) => r,
+        let (regex, types, search_root) = match validate_fd_params(&self.base_dir, &args) {
+            Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        let types = match build_type_matcher(args.file_type.as_deref()) {
-            Ok(t) => t,
-            Err(e) => return Ok(ToolResult::error(e)),
-        };
-        let workspace = Workspace::new(&self.base_dir);
-        let search_root = match search_root(&workspace, args.path.as_deref()) {
-            Ok(r) => r,
-            Err(e) => return Ok(ToolResult::error(e)),
-        };
         let limit = args.limit.unwrap_or(DEFAULT_FD_LIMIT).clamp(1, MAX_FD_LIMIT);
-        let query = build_fd_query(&workspace, args, (regex, types, search_root));
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let cancel_guard = CancelOnDrop(cancellation.clone());
+        let timeout = Duration::from_secs(DEFAULT_TRAVERSAL_TIMEOUT_SECS);
+        let workspace = Workspace::new(&self.base_dir);
+        let mut query = build_fd_query(&workspace, args, (regex, types, search_root));
+        query.timeout = Some(timeout);
+        query.cancellation = Some(cancellation);
 
-        match tokio::task::spawn_blocking(move || query.run(limit)).await {
-            Ok(result) => Ok(result),
-            Err(error) => Err(AppError::Tool(format!("fd traversal task failed: {error}"))),
-        }
+        let handle = tokio::task::spawn_blocking(move || query.run(limit));
+        let res = await_fd_task(handle, timeout).await;
+        drop(cancel_guard);
+        res
     }
 }
 
