@@ -87,6 +87,10 @@ fn handle_tree_select_key<B: TerminalBackend>(
             controller.state_mut().select_previous_modal_option();
             controller.redraw()?;
         }
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            controller.state_mut().select_previous_modal_option();
+            controller.redraw()?;
+        }
         KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
             controller.state_mut().select_next_modal_option();
             controller.redraw()?;

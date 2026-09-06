@@ -148,6 +148,26 @@ fn test_autocomplete_ctrl_navigation() {
 }
 
 #[test]
+fn test_autocomplete_shift_tab_key() {
+    let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skill ", &completions);
+    let shift_tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT);
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, shift_tab);
+    assert!(matches!(res, AutocompleteKeyResult::Handled));
+    assert_eq!(controller.state().autocomplete.selected, 2);
+}
+
+#[test]
+fn test_autocomplete_backtab_key() {
+    let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skill ", &completions);
+    let backtab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE);
+    let res = handle_autocomplete_key_generic(&mut controller, &completions, backtab);
+    assert!(matches!(res, AutocompleteKeyResult::Handled));
+    assert_eq!(controller.state().autocomplete.selected, 2);
+}
+
+#[test]
 fn test_autocomplete_ignores_key_release_events() {
     let completions = sample_skill_completions(&[("lean", "Lean"), ("spec", "Spec")]);
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();

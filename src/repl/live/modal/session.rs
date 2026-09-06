@@ -117,28 +117,36 @@ fn handle_session_nav<B: TerminalBackend>(
     }
 }
 
+fn handle_session_enter<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
+    let Some(session_id) = selected_session_id(controller) else {
+        return pop_and_redraw(controller);
+    };
+    pop_and_redraw(controller)?;
+    Ok(ModalKeyResult::SessionSelected { session_id })
+}
+
+fn select_session_nav<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    prev: bool,
+) -> Result<ModalKeyResult> {
+    if prev {
+        controller.state_mut().select_previous_modal_option();
+    } else {
+        controller.state_mut().select_next_modal_option();
+    }
+    controller.redraw()?;
+    Ok(ModalKeyResult::Handled)
+}
+
 pub fn handle_session_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
     match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Enter => {
-            let Some(session_id) = selected_session_id(controller) else {
-                return pop_and_redraw(controller);
-            };
-            pop_and_redraw(controller)?;
-            Ok(ModalKeyResult::SessionSelected { session_id })
-        }
+        KeyCode::Up | KeyCode::BackTab => select_session_nav(controller, true),
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => select_session_nav(controller, true),
+        KeyCode::Down | KeyCode::Tab => select_session_nav(controller, false),
+        KeyCode::Enter => handle_session_enter(controller),
         KeyCode::Esc => pop_and_redraw(controller),
         _ => handle_session_nav(controller, &key),
     }

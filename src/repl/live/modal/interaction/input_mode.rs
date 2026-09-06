@@ -80,9 +80,11 @@ fn handle_plain_key<B: TerminalBackend>(controller: &mut TerminalController<B>, 
 
 fn is_newline_key(key: &KeyEvent) -> bool {
     (key.code == KeyCode::Enter
-        && key
-            .modifiers
-            .intersects(crossterm::event::KeyModifiers::SHIFT | crossterm::event::KeyModifiers::ALT))
+        && key.modifiers.intersects(
+            crossterm::event::KeyModifiers::SHIFT
+                | crossterm::event::KeyModifiers::ALT
+                | crossterm::event::KeyModifiers::CONTROL,
+        ))
         || (key.code == KeyCode::Char('j') && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL))
 }
 

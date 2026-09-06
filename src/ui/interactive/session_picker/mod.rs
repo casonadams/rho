@@ -88,23 +88,29 @@ fn handle_filter_key(modal: &mut ModalState, key: &KeyEvent) -> bool {
     }
 }
 
+fn picker_enter(modal: &ModalState) -> PickerAction {
+    let session_id = modal
+        .selected_option()
+        .and_then(|o| o.description.clone())
+        .unwrap_or_default();
+    PickerAction::Select(session_id)
+}
+
+fn picker_step(modal: &mut ModalState, prev: bool) -> PickerAction {
+    if prev {
+        modal.select_previous();
+    } else {
+        modal.select_next();
+    }
+    PickerAction::Repaint
+}
+
 fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
     match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
-            modal.select_previous();
-            PickerAction::Repaint
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            modal.select_next();
-            PickerAction::Repaint
-        }
-        KeyCode::Enter => {
-            let session_id = modal
-                .selected_option()
-                .and_then(|o| o.description.clone())
-                .unwrap_or_default();
-            PickerAction::Select(session_id)
-        }
+        KeyCode::Up | KeyCode::BackTab => picker_step(modal, true),
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => picker_step(modal, true),
+        KeyCode::Down | KeyCode::Tab => picker_step(modal, false),
+        KeyCode::Enter => picker_enter(modal),
         KeyCode::Esc => PickerAction::Cancel,
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => PickerAction::Cancel,
         _ => {

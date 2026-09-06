@@ -143,6 +143,9 @@ pub fn handle_theme_key<B: TerminalBackend>(
 ) -> Result<ModalKeyResult> {
     match key.code {
         KeyCode::Up | KeyCode::BackTab => select_adjacent_theme(controller, false)?,
+        KeyCode::Tab if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
+            select_adjacent_theme(controller, false)?;
+        }
         KeyCode::Down | KeyCode::Tab => select_adjacent_theme(controller, true)?,
         KeyCode::Enter => return handle_theme_enter(controller),
         KeyCode::Esc => restore_initial_theme(controller)?,

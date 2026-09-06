@@ -33,12 +33,11 @@ impl NavFixture {
     }
 
     fn send(&mut self, code: KeyCode) {
-        let _ = super::super::modal::handle_modal_key(
-            &mut self.controller,
-            KeyEvent::new(code, KeyModifiers::NONE),
-            &mut self.pending,
-        )
-        .unwrap();
+        self.send_key(KeyEvent::new(code, KeyModifiers::NONE));
+    }
+
+    fn send_key(&mut self, key: KeyEvent) {
+        let _ = super::super::modal::handle_modal_key(&mut self.controller, key, &mut self.pending).unwrap();
     }
 }
 
@@ -153,4 +152,22 @@ fn test_input_mode_isolation_types_characters_without_scrolling() {
         fix.controller.state().active_modal().unwrap().mode,
         ModalMode::Select
     ));
+}
+
+#[test]
+fn test_modal_tab_navigation() {
+    let mut fix = NavFixture::new(OptionLayout::Vertical);
+    fix.send(KeyCode::Tab);
+    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 1);
+    fix.send_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::SHIFT));
+    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 0);
+}
+
+#[test]
+fn test_modal_backtab_navigation() {
+    let mut fix = NavFixture::new(OptionLayout::Vertical);
+    fix.send(KeyCode::Tab);
+    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 1);
+    fix.send_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+    assert_eq!(fix.controller.state().active_modal().unwrap().selected, 0);
 }

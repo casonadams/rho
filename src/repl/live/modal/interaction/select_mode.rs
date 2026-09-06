@@ -170,6 +170,9 @@ pub(super) fn handle_select_mode_key<B: TerminalBackend>(
     match key.code {
         KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => handle_arrow_key(controller, key.code),
         KeyCode::BackTab => controller.state_mut().select_previous_modal_option(),
+        KeyCode::Tab if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
+            controller.state_mut().select_previous_modal_option();
+        }
         KeyCode::Tab => controller.state_mut().select_next_modal_option(),
         KeyCode::Char('h') | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('l') => {
             handle_char_key(controller, key);

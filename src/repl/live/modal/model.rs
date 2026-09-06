@@ -121,6 +121,10 @@ fn handle_model_nav<B: TerminalBackend>(
             controller.state_mut().select_previous_modal_option();
             controller.redraw()?;
         }
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            controller.state_mut().select_previous_modal_option();
+            controller.redraw()?;
+        }
         KeyCode::Down | KeyCode::Tab => {
             controller.state_mut().select_next_modal_option();
             controller.redraw()?;

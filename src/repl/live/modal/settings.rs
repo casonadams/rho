@@ -63,6 +63,9 @@ fn handle_settings_nav<B: TerminalBackend>(controller: &mut TerminalController<B
         KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
             controller.state_mut().select_previous_modal_option();
         }
+        KeyCode::Tab if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
+            controller.state_mut().select_previous_modal_option();
+        }
         KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
             controller.state_mut().select_next_modal_option();
         }

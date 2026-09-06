@@ -52,9 +52,10 @@ enum NavDirection {
 
 fn handle_navigation_key(code: KeyCode, modifiers: KeyModifiers) -> Option<NavDirection> {
     match (code, modifiers) {
-        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
-            Some(NavDirection::Prev)
-        }
+        (KeyCode::Up, KeyModifiers::NONE)
+        | (KeyCode::Char('p'), KeyModifiers::CONTROL)
+        | (KeyCode::BackTab, _)
+        | (KeyCode::Tab, KeyModifiers::SHIFT) => Some(NavDirection::Prev),
         (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(NavDirection::Next),
         _ => None,
     }
