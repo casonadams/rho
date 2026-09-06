@@ -3,14 +3,13 @@ pub mod catalog;
 mod tests;
 
 pub use catalog::{
-    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_OUTLINE,
-    PROMPT_READ, PROMPT_RG, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG,
+    PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
 use crate::tools::bash::{BashArgs, BashTool};
 use crate::tools::edit::{EditArgs, EditTool};
 use crate::tools::fd::FdTool;
-use crate::tools::outline::OutlineTool;
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::rg::RgTool;
 use crate::tools::types::{ToolResult, generated_schema, into_dynamic_result};
@@ -18,7 +17,7 @@ use crate::tools::web::{
     FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
 };
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_harness_core::args::{FdArgs, OutlineArgs, RgArgs, WebFetchArgs, WebSearchArgs};
+use rho_harness_core::args::{FdArgs, RgArgs, WebFetchArgs, WebSearchArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rig::tool::DynamicTool;
@@ -151,24 +150,6 @@ fn build_rg_dynamic_tool(rg_tool: Arc<RgTool>) -> DynamicTool {
     )
 }
 
-fn build_outline_dynamic_tool(outline_tool: Arc<OutlineTool>) -> DynamicTool {
-    DynamicTool::new(
-        "outline",
-        "Extract syntax-aware symbol outlines (functions, methods, classes, structs, traits) without implementation bodies.",
-        generated_schema::<OutlineArgs>(),
-        move |_ctx, args| {
-            let outline_tool = Arc::clone(&outline_tool);
-            Box::pin(async move {
-                let args: OutlineArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(outline_tool.execute(args).await)
-            })
-        },
-    )
-}
-
 fn build_search_dynamic_tool(s: WebSearchTool) -> DynamicTool {
     DynamicTool::new(
         "web_search",
@@ -245,7 +226,6 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         build_bash_dynamic_tool(Arc::new(BashTool::new(base_dir))),
         build_fd_dynamic_tool(Arc::new(FdTool::new(base_dir))),
         build_rg_dynamic_tool(Arc::new(RgTool::new(base_dir))),
-        build_outline_dynamic_tool(Arc::new(OutlineTool::new(base_dir))),
         search,
         fetch,
     ])

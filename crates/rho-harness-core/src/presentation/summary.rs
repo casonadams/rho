@@ -176,17 +176,6 @@ fn format_fd_summary(args: &serde_json::Value) -> String {
     }
 }
 
-fn format_outline_summary(args: &serde_json::Value) -> String {
-    let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
-    let rel = to_relative_path(path);
-    let quoted_path = quote_cli_arg(&rel);
-    if let Some(query) = args.get("query").and_then(|q| q.as_str()).filter(|q| !q.is_empty()) {
-        format!("{quoted_path} (query: {query:?})")
-    } else {
-        quoted_path
-    }
-}
-
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => format_read_summary(args),
@@ -194,7 +183,6 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "bash" => format_bash_summary(args),
         "web_search" => format!("\"{}\"", args.get("query").and_then(|q| q.as_str()).unwrap_or("")),
         "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
-        "outline" => format_outline_summary(args),
         "grep" | "rg" | "fd" => format_search_summary(name, args),
         "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
         _ => "".to_string(),

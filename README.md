@@ -106,8 +106,6 @@ flows narrow or split them into multiple fences.
   regex; gitignore-aware and bounded.
 - `rg`: Search file contents by pattern with line-oriented results;
   gitignore-aware, skips binary and oversized files, and bounds output.
-- `outline`: Extract syntax-aware symbol outlines (functions, methods, classes,
-  structs, traits) using Tree-sitter without implementation bodies.
 - `web_search`: Search the web and return structured summaries and URLs.
 - `web_fetch`: Fetch and extract clean readable text or markdown from URLs.
 
@@ -273,7 +271,7 @@ The workspace is structured into four clean, focused crates:
 - **`rho-harness-core`**: Core domain logic, session DAG storage, configuration,
   token estimation, and presentation types.
 - **`rho-engine`**: Native `rig.rs` agent runtime, provider factory, built-in
-  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `outline`, `web_search`,
+  tools (`read`, `write`, `edit`, `bash`, `fd`, `rg`, `web_search`,
   `web_fetch`), standard MCP client, and in-process permission system.
 - **`rho-plugin-sdk`**: Lightweight SDK for building Rig-native plugins and
   lifecycle hooks.
