@@ -2,9 +2,6 @@ use crate::permission::policy::{Policy, build_policy, load_policy, parse_scope_f
 use crate::permission::{Decision, EvalRequest, decide_tool_call};
 use serde_json::json;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("rho-perm-policy-test-{}-{name}", uuid::Uuid::new_v4()));
@@ -211,7 +208,7 @@ fn setup_hierarchical_dirs() -> (PathBuf, PathBuf) {
 }
 
 fn load_test_policy_with_env(global_dir: &std::path::Path, project_dir: &std::path::Path) -> Policy {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = super::ENV_LOCK.blocking_lock();
     unsafe {
         std::env::set_var("RHO_HOME", global_dir);
     }

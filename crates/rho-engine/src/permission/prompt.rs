@@ -12,30 +12,47 @@ fn make_option(label: &str, desc: &str, input: Option<InteractionInput>) -> Inte
     }
 }
 
-fn build_permission_options(input_display: String, drafts: &[RuleDraft]) -> Vec<InteractionOption> {
-    let always_desc = drafts
+fn make_input(label: &str, value: Option<String>) -> Option<InteractionInput> {
+    Some(InteractionInput {
+        label: label.to_string(),
+        value,
+    })
+}
+
+fn always_allow_spec(tool: &str, input_display: &str, drafts: &[RuleDraft]) -> (String, String) {
+    let pattern = drafts
+        .first()
+        .map(|d| d.pattern.clone())
+        .unwrap_or_else(|| super::suggest::suggested_rule(tool, input_display));
+    let desc = drafts
         .first()
         .map(|d| format!("Save rule: [{}] \"{}\" = \"allow\"", d.surface, d.pattern))
-        .unwrap_or_else(|| "Save allow rule to permission.toml".to_string());
+        .unwrap_or_else(|| {
+            format!(
+                "Save rule: [{}] \"{pattern}\" = \"allow\"",
+                super::suggest::canonical_tool(tool)
+            )
+        });
+    (pattern, desc)
+}
+
+struct PermissionPromptParams<'a> {
+    tool: &'a str,
+    formatted: String,
+    drafts: &'a [RuleDraft],
+}
+
+fn build_permission_options(p: PermissionPromptParams<'_>, input_display: &str) -> Vec<InteractionOption> {
+    let (pattern, desc) = always_allow_spec(p.tool, input_display, p.drafts);
     vec![
         make_option("Allow", "Run this tool call once", None),
         make_option(
             "Edit",
             "Edit tool arguments before running",
-            Some(InteractionInput {
-                label: "args".to_string(),
-                value: Some(input_display),
-            }),
+            make_input("args", Some(p.formatted)),
         ),
-        make_option("Always", &always_desc, None),
-        make_option(
-            "Deny",
-            "Deny tool execution",
-            Some(InteractionInput {
-                label: "reason".to_string(),
-                value: None,
-            }),
-        ),
+        make_option("Always", &desc, make_input("pattern", Some(pattern))),
+        make_option("Deny", "Deny tool execution", make_input("reason", None)),
     ]
 }
 
@@ -44,13 +61,18 @@ pub fn build_permission_prompt(tool: &str, args: &Value, drafts: &[RuleDraft]) -
     let formatted_input = if tool == "bash" {
         super::bash::format_command_lines(&input_display)
     } else {
-        input_display
+        input_display.clone()
     };
     let body = format!("Tool: {tool}\nInput: {formatted_input}");
+    let params = PermissionPromptParams {
+        tool,
+        formatted: formatted_input,
+        drafts,
+    };
     InteractionPrompt {
         title: "Permission Required".to_string(),
         body,
-        options: build_permission_options(formatted_input, drafts),
+        options: build_permission_options(params, &input_display),
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,

@@ -97,6 +97,27 @@ fn test_permission_prompt_edit_flow_with_multiline_input() {
     assert_edit_response(driver.rx.try_recv().unwrap());
 }
 
+fn assert_always_response(res: InteractionResponse) {
+    match res {
+        InteractionResponse::SelectedWithInput { index, text } => {
+            assert_eq!(index, 2);
+            assert!(text.contains("echo line_1"));
+        }
+        other => panic!("expected SelectedWithInput, got {other:?}"),
+    }
+}
+
+fn assert_always_modal_input(driver: &PermDriver) {
+    let modal = driver.controller.state().active_modal().unwrap();
+    assert_eq!(
+        modal.mode,
+        crate::ui::interactive::ModalMode::Input {
+            prompt_label: "pattern".into()
+        }
+    );
+    assert!(modal.input.text().contains("echo line_1"));
+}
+
 #[test]
 fn test_permission_prompt_always_flow() {
     let mut driver = PermDriver::new(sample_multiline_prompt());
@@ -105,8 +126,28 @@ fn test_permission_prompt_always_flow() {
     assert_eq!(driver.controller.state().active_modal().unwrap().selected, 2);
 
     driver.send(KeyCode::Enter);
+    assert_always_modal_input(&driver);
+
+    driver.send(KeyCode::Enter);
     assert!(driver.controller.state().active_modal().is_none());
-    assert_eq!(driver.rx.try_recv().unwrap(), InteractionResponse::Selected(2));
+    assert_always_response(driver.rx.try_recv().unwrap());
+}
+
+#[test]
+fn test_permission_prompt_always_flow_escape_returns_to_select() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+    assert!(driver.controller.state().active_modal().unwrap().mode != crate::ui::interactive::ModalMode::Select);
+
+    driver.send(KeyCode::Esc);
+    assert_eq!(
+        driver.controller.state().active_modal().unwrap().mode,
+        crate::ui::interactive::ModalMode::Select
+    );
+    assert_eq!(driver.controller.state().active_modal().unwrap().selected, 2);
+    assert!(driver.rx.try_recv().is_err());
 }
 
 #[test]

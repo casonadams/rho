@@ -48,8 +48,12 @@ impl PermissionHook {
             Some(InteractionResponse::SelectedWithInput { index: 1, text }) => {
                 ToolCallAction::rewrite(rewrite_tool_args(req.args, &text))
             }
-            Some(InteractionResponse::Selected(2)) | Some(InteractionResponse::SelectedWithInput { index: 2, .. }) => {
-                self.apply_always_allow(req, drafts).await;
+            Some(InteractionResponse::Selected(2)) => {
+                self.apply_always_allow((req, drafts), None).await;
+                ToolCallAction::run()
+            }
+            Some(InteractionResponse::SelectedWithInput { index: 2, text }) => {
+                self.apply_always_allow((req, drafts), Some(&text)).await;
                 ToolCallAction::run()
             }
             Some(InteractionResponse::SelectedWithInput { index: 3, text })
@@ -71,22 +75,36 @@ impl PermissionHook {
         self.map_interaction_action(response, (req, drafts)).await
     }
 
-    async fn apply_always_allow(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) {
-        let target_path = target_config_path(req.working_dir);
-        if let Some(target) = target_path {
-            if !drafts.is_empty() {
-                for draft in drafts {
-                    let _ = save_allow_rule(&target, &draft.surface, &draft.pattern);
-                }
+    async fn apply_always_allow(&self, (req, drafts): (EvalRequest<'_>, &[RuleDraft]), custom_pattern: Option<&str>) {
+        if let Some(target) = target_config_path(req.working_dir) {
+            if let Some(pattern) = custom_pattern.map(str::trim).filter(|p| !p.is_empty()) {
+                save_custom_pattern(&target, (req.tool, drafts), pattern);
             } else {
-                let input = match_input(req.args);
-                let rule = suggested_rule(req.tool, &input);
-                let _ = save_allow_rule(&target, canonical_tool(req.tool), &rule);
+                save_drafts_or_fallback(&target, (req.tool, req.args), drafts);
             }
         }
         let (new_policy, _) = load_policy(req.working_dir);
         let mut guard = self.policy.write().await;
         *guard = new_policy;
+    }
+}
+
+fn save_custom_pattern(target: &std::path::Path, (tool, drafts): (&str, &[RuleDraft]), pattern: &str) {
+    let surface = drafts
+        .first()
+        .map(|d| d.surface.as_str())
+        .unwrap_or_else(|| canonical_tool(tool));
+    let _ = save_allow_rule(target, surface, pattern);
+}
+
+fn save_drafts_or_fallback(target: &std::path::Path, (tool, args): (&str, &Value), drafts: &[RuleDraft]) {
+    if drafts.is_empty() {
+        let rule = suggested_rule(tool, &match_input(args));
+        let _ = save_allow_rule(target, canonical_tool(tool), &rule);
+    } else {
+        for draft in drafts {
+            let _ = save_allow_rule(target, &draft.surface, &draft.pattern);
+        }
     }
 }
 

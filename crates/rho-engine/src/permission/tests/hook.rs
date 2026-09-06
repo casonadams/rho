@@ -10,8 +10,6 @@ use crate::permission::hook::PermissionHook;
 use crate::permission::policy::{build_policy, parse_scope_from_str};
 use crate::tools::BashTool;
 
-static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 #[tokio::test]
 async fn test_allowed_call_runs_silently() {
     let dir = tempdir().unwrap();
@@ -144,9 +142,19 @@ fn assert_permission_persisted(path: &std::path::Path, content: &str) {
     assert!(std::fs::read_to_string(&perm_file).unwrap().contains(content));
 }
 
+async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, (cmd, turns): (&str, usize)) -> String {
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call("1", "bash", json!({"command": cmd})),
+        MockTurn::tool_call("2", "bash", json!({"command": cmd})),
+        MockTurn::text("completed"),
+    ]);
+    let agent = AgentBuilder::new(model).tool(BashTool::new(dir)).add_hook(hook).build();
+    agent.runner("persist").max_turns(turns).run().await.unwrap().output
+}
+
 #[tokio::test]
 async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
-    let _guard = ENV_LOCK.lock().await;
+    let _guard = super::ENV_LOCK.lock().await;
     let global_dir = tempdir().unwrap();
     unsafe {
         std::env::set_var("RHO_HOME", global_dir.path());
@@ -155,19 +163,35 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
     let project_dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
     let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
-    let model = MockCompletionModel::new([
-        MockTurn::tool_call("1", "bash", json!({"command": "touch persist_test"})),
-        MockTurn::tool_call("2", "bash", json!({"command": "touch persist_test"})),
-        MockTurn::text("completed"),
-    ]);
-
-    let agent = AgentBuilder::new(model)
-        .tool(BashTool::new(project_dir.path()))
-        .add_hook(hook)
-        .build();
-    let response = agent.runner("persist").max_turns(3).run().await.unwrap();
-    assert_eq!(response.output, "completed");
+    let output = run_mock_agent_tool(project_dir.path(), hook, ("touch persist_test", 3)).await;
+    assert_eq!(output, "completed");
     assert_permission_persisted(global_dir.path(), "touch persist_test");
+
+    unsafe {
+        std::env::remove_var("RHO_HOME");
+    }
+}
+
+#[tokio::test]
+async fn test_ask_interactive_always_allow_custom_pattern_persists() {
+    let _guard = super::ENV_LOCK.lock().await;
+    let global_dir = tempdir().unwrap();
+    unsafe {
+        std::env::set_var("RHO_HOME", global_dir.path());
+    }
+
+    let project_dir = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(
+        true,
+        Some(InteractionResponse::SelectedWithInput {
+            index: 2,
+            text: "touch custom_*".to_string(),
+        }),
+    ));
+    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
+    let output = run_mock_agent_tool(project_dir.path(), hook, ("touch custom_foo", 3)).await;
+    assert_eq!(output, "completed");
+    assert_permission_persisted(global_dir.path(), "touch custom_*");
 
     unsafe {
         std::env::remove_var("RHO_HOME");
