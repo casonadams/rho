@@ -4,7 +4,9 @@ use rho_harness_core::session::compaction::{
     extract_file_ops, render_file_lists_xml,
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
-use rho_harness_core::tokens::{calculate_context_tokens, find_node_token_cut_point, is_tool_result_message};
+use rho_harness_core::tokens::{
+    calculate_context_tokens, find_node_token_cut_point, is_tool_result_message, message_position_at,
+};
 use rig::message::Message;
 
 use super::llm::LlmCompactor;
@@ -77,11 +79,10 @@ fn calculate_effective_cut(
     active_nodes: &[&TreeNodeData],
     all_msgs: &[Message],
     (keep_tokens, model): (usize, &str),
-) -> (CompactionCut, Option<String>) {
+) -> CompactionCut {
     let raw = find_node_token_cut_point(active_nodes, keep_tokens, model);
     if raw.cut_index != 0 || active_nodes.len() <= 1 {
-        let kept_id = raw.first_kept_node_id.clone();
-        return (raw, kept_id);
+        return raw;
     }
     let last_node = active_nodes.last().unwrap();
     let last_start = all_msgs.len().saturating_sub(last_node.messages.len());
@@ -89,14 +90,15 @@ fn calculate_effective_cut(
     while adjusted_idx > 0 && is_tool_result_message(&all_msgs[adjusted_idx]) {
         adjusted_idx -= 1;
     }
-    (
-        CompactionCut {
-            cut_index: adjusted_idx,
-            is_split_turn: false,
-            first_kept_node_id: Some(last_node.id.clone()),
-        },
-        Some(last_node.id.clone()),
-    )
+    let (node_id, msg_idx) = message_position_at(active_nodes, adjusted_idx)
+        .map(|(id, idx)| (Some(id), Some(idx)))
+        .unwrap_or_else(|| (Some(last_node.id.clone()), Some(0)));
+    CompactionCut {
+        cut_index: adjusted_idx,
+        is_split_turn: false,
+        first_kept_node_id: node_id,
+        first_kept_message_index: msg_idx,
+    }
 }
 
 fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str) -> usize {
@@ -104,6 +106,16 @@ fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str) 
     let mut kept_with_summary = vec![summary_msg];
     kept_with_summary.extend_from_slice(kept);
     calculate_context_tokens(&kept_with_summary, None, model).total_tokens
+}
+
+fn filter_conversation_nodes<'a>(nodes: &[&'a TreeNodeData]) -> (Vec<&'a TreeNodeData>, Vec<Message>) {
+    let conv: Vec<&'a TreeNodeData> = nodes
+        .iter()
+        .copied()
+        .filter(|n| n.kind != TreeNodeKind::Compaction)
+        .collect();
+    let msgs = conv.iter().flat_map(|n| n.messages.clone()).collect();
+    (conv, msgs)
 }
 
 impl AgentEngine {
@@ -125,10 +137,10 @@ impl AgentEngine {
         instructions: Option<&str>,
     ) -> Result<CompactionStats> {
         let (prior_sum, prior_det, active_nodes) = resolve_prior_compaction(ancestor_nodes);
+        let (conv_nodes, all_msgs) = filter_conversation_nodes(active_nodes);
         let tokens_before = calculate_context_tokens(&tree.active_messages(), None, &self.config.model).total_tokens;
-        let all_msgs: Vec<Message> = active_nodes.iter().flat_map(|n| n.messages.clone()).collect();
-        let (cut, kept_id) = calculate_effective_cut(
-            active_nodes,
+        let cut = calculate_effective_cut(
+            &conv_nodes,
             &all_msgs,
             (self.config.keep_recent_tokens, &self.config.model),
         );
@@ -144,7 +156,7 @@ impl AgentEngine {
                 prior_details: prior_det.as_ref(),
                 instructions,
             },
-            (tokens_before, kept_id),
+            (tokens_before, cut.first_kept_node_id, cut.first_kept_message_index),
         )
         .await
     }
@@ -169,12 +181,19 @@ impl AgentEngine {
 
     async fn persist_compaction(
         &self,
-        (summary, file_details, kept_id, instructions): (&str, &CompactionDetails, Option<String>, Option<&str>),
+        (summary, file_details, kept_id, kept_msg_idx, instructions): (
+            &str,
+            &CompactionDetails,
+            Option<String>,
+            Option<usize>,
+            Option<&str>,
+        ),
         (tokens_before, tokens_after): (usize, usize),
     ) -> Result<()> {
         let metadata = CompactionMetadata {
             summary: summary.to_string(),
             first_kept_node_id: kept_id,
+            first_kept_message_index: kept_msg_idx,
             tokens_before,
             tokens_after,
             read_files: file_details.read_files.clone(),
@@ -192,7 +211,7 @@ impl AgentEngine {
     async fn finalize_compaction(
         &self,
         plan: FinalizeCompactionPlan<'_>,
-        (tokens_before, kept_id): (usize, Option<String>),
+        (tokens_before, kept_id, kept_msg_idx): (usize, Option<String>, Option<usize>),
     ) -> Result<CompactionStats> {
         let (to_sum, kept) = (&plan.messages[..plan.cut_index], &plan.messages[plan.cut_index..]);
         let md_summary = self
@@ -205,7 +224,7 @@ impl AgentEngine {
         let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.config.model);
         let saved_tokens = tokens_before.saturating_sub(tokens_after);
         self.persist_compaction(
-            (&final_summary, &file_details, kept_id, plan.instructions),
+            (&final_summary, &file_details, kept_id, kept_msg_idx, plan.instructions),
             (tokens_before, tokens_after),
         )
         .await?;

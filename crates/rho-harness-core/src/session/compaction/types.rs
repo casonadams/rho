@@ -6,6 +6,8 @@ pub struct CompactionMetadata {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_kept_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_kept_message_index: Option<usize>,
     #[serde(default)]
     pub tokens_before: usize,
     #[serde(default)]
@@ -40,6 +42,8 @@ pub struct CompactionCut {
     pub cut_index: usize,
     pub is_split_turn: bool,
     pub first_kept_node_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_kept_message_index: Option<usize>,
 }
 
 pub fn compaction_summary_message(summary: &str) -> Message {

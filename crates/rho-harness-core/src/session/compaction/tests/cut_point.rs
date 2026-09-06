@@ -58,8 +58,7 @@ fn test_find_token_cut_point_split_turn_detection() {
     assert!(cut_split.is_split_turn);
 }
 
-#[test]
-fn test_find_node_token_cut_point() {
+fn sample_cut_nodes() -> (TreeNodeData, TreeNodeData) {
     let now = chrono::Utc::now();
     let node1 = TreeNodeData {
         id: "node-1".to_string(),
@@ -79,11 +78,33 @@ fn test_find_node_token_cut_point() {
         label: None,
         metadata: None,
     };
+    (node1, node2)
+}
 
+#[test]
+fn test_find_node_token_cut_point() {
+    let (node1, node2) = sample_cut_nodes();
     let nodes = vec![&node1, &node2];
     let cut = find_node_token_cut_point(&nodes, 10, "gpt-4");
     assert!(cut.cut_index <= 3);
     assert!(cut.first_kept_node_id.is_some());
+    assert!(cut.first_kept_message_index.is_some());
     let kept_id = cut.first_kept_node_id.unwrap();
     assert!(kept_id == "node-1" || kept_id == "node-2");
+}
+
+#[test]
+fn test_message_position_at() {
+    let (node1, node2) = sample_cut_nodes();
+    let nodes = vec![&node1, &node2];
+    let expected = [
+        (0, Some(("node-1".to_string(), 0))),
+        (1, Some(("node-1".to_string(), 1))),
+        (2, Some(("node-2".to_string(), 0))),
+        (3, Some(("node-2".to_string(), 1))),
+        (4, None),
+    ];
+    for (idx, exp) in expected {
+        assert_eq!(crate::tokens::message_position_at(&nodes, idx), exp);
+    }
 }

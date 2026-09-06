@@ -115,3 +115,48 @@ async fn test_compact_session_empty_or_single_node() {
     let stats2 = engine.compact_session(None).await.unwrap();
     assert_eq!(stats2.saved_tokens, 0);
 }
+
+fn split_turn_fixture() -> Vec<Message> {
+    vec![
+        Message::user("Preamble prompt"),
+        Message::assistant("Early reply"),
+        Message::user("Tool result 1"),
+        Message::assistant("Mid reply with many tokens to force cut point selection"),
+        Message::user("Tool result 2"),
+        Message::assistant("Final suffix reply"),
+    ]
+}
+
+fn assert_preamble_omitted(messages: &[Message]) {
+    assert!(matches!(&messages[0], Message::System { .. }));
+    assert!(!messages.iter().any(|m| match m {
+        Message::User { content } => content.iter().any(|c| match c {
+            rig::message::UserContent::Text(t) => t.text.contains("Preamble prompt"),
+            _ => false,
+        }),
+        _ => false,
+    }));
+}
+
+#[tokio::test]
+async fn test_compact_session_split_turn_prunes_prefix_messages() {
+    let mock = MockCompletionModel::text("## Goal\nComplete huge operation");
+    let engine = test_engine("split_turn", Some(mock)).await;
+    let sid = engine.session_manager.session_id.clone();
+    ConversationMemory::append(&engine.session_manager, &sid, split_turn_fixture())
+        .await
+        .unwrap();
+
+    let stats = engine.compact_session(None).await.unwrap();
+    assert!(stats.tokens_before > 0);
+
+    let tree = engine.session_manager.load_tree().await.unwrap();
+    let leaf_id = tree.active_leaf_id.as_ref().unwrap();
+    let comp_node = tree
+        .ancestor_nodes(leaf_id)
+        .into_iter()
+        .find(|n| n.kind == TreeNodeKind::Compaction)
+        .unwrap();
+    assert!(comp_node.compaction_metadata().unwrap().first_kept_node_id.is_some());
+    assert_preamble_omitted(&tree.active_messages());
+}

@@ -49,6 +49,7 @@ pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, mod
             cut_index: 0,
             is_split_turn: false,
             first_kept_node_id: None,
+            first_kept_message_index: None,
         };
     }
 
@@ -60,19 +61,19 @@ pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, mod
         cut_index: cut_idx,
         is_split_turn,
         first_kept_node_id: None,
+        first_kept_message_index: None,
     }
 }
 
-fn flatten_node_messages(nodes: &[&TreeNodeData]) -> (Vec<Message>, Vec<String>) {
-    let mut messages = Vec::new();
-    let mut node_ids = Vec::new();
+pub fn message_position_at(nodes: &[&TreeNodeData], cut_index: usize) -> Option<(String, usize)> {
+    let mut accumulated = 0;
     for node in nodes {
-        for msg in &node.messages {
-            messages.push(msg.clone());
-            node_ids.push(node.id.clone());
+        if cut_index < accumulated + node.messages.len() {
+            return Some((node.id.clone(), cut_index - accumulated));
         }
+        accumulated += node.messages.len();
     }
-    (messages, node_ids)
+    None
 }
 
 pub fn find_node_token_cut_point(nodes: &[&TreeNodeData], keep_recent_tokens: usize, model: &str) -> CompactionCut {
@@ -81,13 +82,17 @@ pub fn find_node_token_cut_point(nodes: &[&TreeNodeData], keep_recent_tokens: us
             cut_index: 0,
             is_split_turn: false,
             first_kept_node_id: None,
+            first_kept_message_index: None,
         };
     }
 
-    let (messages, message_node_ids) = flatten_node_messages(nodes);
+    let messages: Vec<Message> = nodes.iter().flat_map(|n| n.messages.clone()).collect();
     let mut cut = find_token_cut_point(&messages, keep_recent_tokens, model);
-    if cut.cut_index < message_node_ids.len() {
-        cut.first_kept_node_id = Some(message_node_ids[cut.cut_index].clone());
+    if cut.cut_index < messages.len()
+        && let Some((node_id, msg_idx)) = message_position_at(nodes, cut.cut_index)
+    {
+        cut.first_kept_node_id = Some(node_id);
+        cut.first_kept_message_index = Some(msg_idx);
     }
     cut
 }

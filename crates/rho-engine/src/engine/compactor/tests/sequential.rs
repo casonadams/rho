@@ -5,7 +5,7 @@ use rig::memory::ConversationMemory;
 use rig::message::{
     AssistantContent, Message, Text, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
-use rig::test_utils::MockCompletionModel;
+use rig::test_utils::{MockCompletionModel, MockTurn};
 
 use crate::auth::AuthStore;
 use crate::engine::AgentEngine;
@@ -69,31 +69,51 @@ async fn assert_two_compactions(sm: &rho_harness_core::session::SessionManager) 
     assert_eq!(count, 2);
 }
 
+fn assert_files_tracked(summary: &str) {
+    for f in ["file1.txt", "file2.txt", "file3.txt", "file4.txt"] {
+        assert!(summary.contains(f));
+    }
+}
+
+fn assert_no_system_messages_in_prompts(requests: &[rig::completion::CompletionRequest]) {
+    assert!(requests.len() >= 2);
+    for req in &requests[1..] {
+        assert!(!format!("{req:?}").contains("[System]: ## Goal"));
+    }
+}
+
+fn sequential_mock() -> MockCompletionModel {
+    MockCompletionModel::new([
+        MockTurn::text("## Goal\nFirst compaction"),
+        MockTurn::text("## Goal\nPrefix 1"),
+        MockTurn::text("## Goal\nSecond compaction"),
+        MockTurn::text("## Goal\nPrefix 2"),
+    ])
+}
+
 #[tokio::test]
 async fn test_sequential_compactions_accumulate_files() {
-    let mock = MockCompletionModel::text("## Goal\nProgress summary");
-    let engine = test_engine("seq", Some(mock)).await;
-    let session_id = engine.session_manager.session_id.clone();
+    let mock = sequential_mock();
+    let engine = test_engine("seq", Some(mock.clone())).await;
+    let sid = engine.session_manager.session_id.clone();
 
     append_file_turns(
         &engine.session_manager,
-        &session_id,
+        &sid,
         &[("c1", "read", "file1.txt"), ("c2", "write", "file2.txt")],
     )
     .await;
-    let stats1 = engine.compact_session(None).await.unwrap();
-    assert!(stats1.summary.contains("file1.txt") && stats1.summary.contains("file2.txt"));
+    let s1 = engine.compact_session(None).await.unwrap();
+    assert!(s1.summary.contains("file1.txt") && s1.summary.contains("file2.txt"));
 
     append_file_turns(
         &engine.session_manager,
-        &session_id,
+        &sid,
         &[("c3", "edit", "file3.txt"), ("c4", "read", "file4.txt")],
     )
     .await;
-    let stats2 = engine.compact_session(None).await.unwrap();
-    for f in ["file1.txt", "file2.txt", "file3.txt", "file4.txt"] {
-        assert!(stats2.summary.contains(f));
-    }
-
+    let s2 = engine.compact_session(None).await.unwrap();
+    assert_files_tracked(&s2.summary);
     assert_two_compactions(&engine.session_manager).await;
+    assert_no_system_messages_in_prompts(&mock.requests());
 }

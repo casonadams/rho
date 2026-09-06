@@ -86,10 +86,33 @@ fn find_kept_start_idx(
         .unwrap_or(default_idx)
 }
 
-fn collect_post_compaction_messages(nodes: &[&TreeNodeData], mut messages: Vec<Message>) -> Vec<Message> {
+fn find_kept_message_offset(compaction_node: &TreeNodeData, meta: Option<&CompactionMetadata>) -> usize {
+    meta.and_then(|m| m.first_kept_message_index)
+        .or_else(|| {
+            compaction_node
+                .metadata
+                .as_ref()
+                .and_then(|v| v.get("first_kept_message_index").and_then(|idx| idx.as_u64()))
+                .map(|idx| idx as usize)
+        })
+        .unwrap_or(0)
+}
+
+fn collect_post_compaction_messages(
+    nodes: &[&TreeNodeData],
+    mut messages: Vec<Message>,
+    first_node_msg_offset: usize,
+) -> Vec<Message> {
+    let mut is_first = true;
     for node in nodes {
         if node.kind != TreeNodeKind::Compaction {
-            messages.extend(node.messages.clone());
+            let offset = if is_first {
+                first_node_msg_offset.min(node.messages.len())
+            } else {
+                0
+            };
+            messages.extend(node.messages[offset..].iter().cloned());
+            is_first = false;
         }
     }
     messages
@@ -171,7 +194,8 @@ impl SessionTree {
         let metadata = compaction_node.compaction_metadata();
         let summary_message = extract_compaction_summary(compaction_node, metadata.as_ref());
         let start_idx = find_kept_start_idx((&nodes, compaction_node), metadata.as_ref(), comp_idx + 1);
-        collect_post_compaction_messages(&nodes[start_idx..], summary_message)
+        let msg_offset = find_kept_message_offset(compaction_node, metadata.as_ref());
+        collect_post_compaction_messages(&nodes[start_idx..], summary_message, msg_offset)
     }
 
     pub fn active_messages(&self) -> Vec<Message> {

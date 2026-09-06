@@ -18,6 +18,7 @@ fn sample_metadata(summary: &str, kept: Option<String>) -> CompactionMetadata {
     CompactionMetadata {
         summary: summary.to_string(),
         first_kept_node_id: kept,
+        first_kept_message_index: None,
         tokens_before: 120,
         tokens_after: 50,
         read_files: vec!["src/main.rs".to_string()],
@@ -193,6 +194,7 @@ fn sample_roundtrip_metadata() -> CompactionMetadata {
     CompactionMetadata {
         summary: "Detailed summary".to_string(),
         first_kept_node_id: Some("node-abc".to_string()),
+        first_kept_message_index: None,
         tokens_before: 1234,
         tokens_after: 567,
         read_files: vec!["foo.rs".to_string(), "bar.rs".to_string()],
@@ -233,4 +235,36 @@ fn compaction_metadata_non_compaction_node() {
         metadata: None,
     };
     assert!(non_compaction_node.compaction_metadata().is_none());
+}
+
+#[tokio::test]
+async fn split_turn_compaction_omits_prefix_messages() {
+    let dir = temp_dir();
+    let session = SessionManager::new(&dir, None).unwrap();
+    let sid = session.session_id.clone();
+
+    session
+        .append_messages(
+            &sid,
+            vec![
+                Message::user("turn 0 prompt"),
+                Message::assistant("turn 0 prefix work"),
+                Message::user("turn 0 tool result"),
+                Message::assistant("turn 0 suffix answer"),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let node_id = session.load_tree().await.unwrap().active_leaf_id.unwrap();
+    let mut meta = sample_metadata("Split turn summary", Some(node_id));
+    meta.first_kept_message_index = Some(2);
+
+    session.append_compaction("Split turn summary", meta).await.unwrap();
+
+    let active = session.load_tree().await.unwrap().active_messages();
+    assert_eq!(active.len(), 3);
+    assert_eq!(active[0], compaction_summary_message("Split turn summary"));
+    assert_eq!(active[1], Message::user("turn 0 tool result"));
+    assert_eq!(active[2], Message::assistant("turn 0 suffix answer"));
 }
