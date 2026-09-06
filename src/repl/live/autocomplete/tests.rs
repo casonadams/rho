@@ -112,6 +112,42 @@ fn test_autocomplete_pi_contract_subcommand() {
 }
 
 #[test]
+fn test_autocomplete_arrow_down_navigation() {
+    let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skill ", &completions);
+    press_key(&mut controller, &completions, KeyCode::Down);
+    assert_eq!(controller.state().autocomplete.selected, 1);
+    press_key(&mut controller, &completions, KeyCode::Down);
+    assert_eq!(controller.state().autocomplete.selected, 2);
+    press_key(&mut controller, &completions, KeyCode::Down);
+    assert_eq!(controller.state().autocomplete.selected, 0);
+}
+
+#[test]
+fn test_autocomplete_arrow_up_navigation() {
+    let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skill ", &completions);
+    press_key(&mut controller, &completions, KeyCode::Up);
+    assert_eq!(controller.state().autocomplete.selected, 2);
+    press_key(&mut controller, &completions, KeyCode::Up);
+    assert_eq!(controller.state().autocomplete.selected, 1);
+    press_key(&mut controller, &completions, KeyCode::Up);
+    assert_eq!(controller.state().autocomplete.selected, 0);
+}
+
+#[test]
+fn test_autocomplete_ctrl_navigation() {
+    let completions = sample_skill_completions(&[("lean", "Lean"), ("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skill ", &completions);
+    let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
+    handle_autocomplete_key_generic(&mut controller, &completions, ctrl_n);
+    assert_eq!(controller.state().autocomplete.selected, 1);
+    let ctrl_p = KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL);
+    handle_autocomplete_key_generic(&mut controller, &completions, ctrl_p);
+    assert_eq!(controller.state().autocomplete.selected, 0);
+}
+
+#[test]
 fn test_autocomplete_ignores_key_release_events() {
     let completions = sample_skill_completions(&[("lean", "Lean"), ("spec", "Spec")]);
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();

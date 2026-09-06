@@ -45,12 +45,17 @@ fn handle_accept_key<B: TerminalBackend>(
     AutocompleteKeyResult::Handled
 }
 
-fn handle_navigation_key(code: KeyCode, modifiers: KeyModifiers) -> Option<bool> {
+enum NavDirection {
+    Prev,
+    Next,
+}
+
+fn handle_navigation_key(code: KeyCode, modifiers: KeyModifiers) -> Option<NavDirection> {
     match (code, modifiers) {
         (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
-            Some(true)
+            Some(NavDirection::Prev)
         }
-        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(true),
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(NavDirection::Next),
         _ => None,
     }
 }
@@ -60,12 +65,11 @@ fn dispatch_autocomplete_key<B: TerminalBackend>(
     completions: &CompletionSet,
     (code, modifiers): (KeyCode, KeyModifiers),
 ) -> AutocompleteKeyResult {
-    if let Some(is_prev) = handle_navigation_key(code, modifiers) {
+    if let Some(dir) = handle_navigation_key(code, modifiers) {
         let state = controller.state_mut();
-        if is_prev {
-            state.autocomplete.select_prev();
-        } else {
-            state.autocomplete.select_next();
+        match dir {
+            NavDirection::Prev => state.autocomplete.select_prev(),
+            NavDirection::Next => state.autocomplete.select_next(),
         }
         return AutocompleteKeyResult::Handled;
     }
