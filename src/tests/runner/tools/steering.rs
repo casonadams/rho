@@ -6,6 +6,28 @@ use rig::completion::Usage;
 use rig::message::{AssistantContent, Message, UserContent};
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 
+async fn assert_steering_event_order(sm: &crate::session::SessionManager) {
+    let events = sm.load_events().await.unwrap();
+    let tool_res = events
+        .iter()
+        .position(|e| e.kind == crate::session::SessionEventKind::ToolResult)
+        .unwrap();
+    let active_res = events
+        .iter()
+        .position(|e| {
+            e.kind == crate::session::SessionEventKind::AssistantResponse
+                && e.payload["content"] == "active run complete"
+        })
+        .unwrap();
+    let queued_user = events
+        .iter()
+        .position(|e| {
+            e.kind == crate::session::SessionEventKind::UserMessage && e.payload["prompt"] == "queued steering"
+        })
+        .unwrap();
+    assert!(tool_res < active_res && active_res < queued_user);
+}
+
 #[tokio::test]
 async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
     assert_eq!(QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary::ActiveRunCompleted);
@@ -29,31 +51,37 @@ async fn queued_steering_is_delivered_after_the_active_tool_run_completes() {
         .await
         .unwrap();
 
-    let events = engine.session_manager.load_events().await.unwrap();
-    let tool_result = events
-        .iter()
-        .position(|event| event.kind == crate::session::SessionEventKind::ToolResult)
-        .unwrap();
-    let active_response = events
-        .iter()
-        .position(|event| {
-            event.kind == crate::session::SessionEventKind::AssistantResponse
-                && event.payload["content"] == "active run complete"
-        })
-        .unwrap();
-    let queued_user = events
-        .iter()
-        .position(|event| {
-            event.kind == crate::session::SessionEventKind::UserMessage && event.payload["prompt"] == "queued steering"
-        })
-        .unwrap();
-    assert!(tool_result < active_response);
-    assert!(active_response < queued_user);
+    assert_steering_event_order(&engine.session_manager).await;
+    let encoded = serde_json::to_string(&model.requests()[2].chat_history).unwrap();
+    assert!(encoded.contains("active run complete") && encoded.contains("queued steering"));
+}
 
-    let queued_request = &model.requests()[2].chat_history;
-    let encoded = serde_json::to_string(queued_request).unwrap();
-    assert!(encoded.contains("active run complete"));
-    assert!(encoded.contains("queued steering"));
+fn count_calls_and_results(history: &[Message]) -> (usize, usize) {
+    let calls = history
+        .iter()
+        .filter_map(|m| match m {
+            Message::Assistant { content, .. } => Some(
+                content
+                    .iter()
+                    .filter(|c| matches!(c, AssistantContent::ToolCall(_)))
+                    .count(),
+            ),
+            _ => None,
+        })
+        .sum();
+    let results = history
+        .iter()
+        .filter_map(|m| match m {
+            Message::User { content } => Some(
+                content
+                    .iter()
+                    .filter(|c| matches!(c, UserContent::ToolResult(_)))
+                    .count(),
+            ),
+            _ => None,
+        })
+        .sum();
+    (calls, results)
 }
 
 #[tokio::test]
@@ -72,34 +100,7 @@ async fn one_tool_round_preserves_canonical_call_and_one_result() {
         .unwrap();
 
     assert_eq!(output.tool_calls_count, 1);
-    let req = &model.requests()[1];
-    let assistant_calls = req
-        .chat_history
-        .iter()
-        .filter_map(|message| match message {
-            Message::Assistant { content, .. } => Some(
-                content
-                    .iter()
-                    .filter(|content| matches!(content, AssistantContent::ToolCall(_)))
-                    .count(),
-            ),
-            _ => None,
-        })
-        .sum::<usize>();
-    let results = req
-        .chat_history
-        .iter()
-        .filter_map(|message| match message {
-            Message::User { content } => Some(
-                content
-                    .iter()
-                    .filter(|content| matches!(content, UserContent::ToolResult(_)))
-                    .count(),
-            ),
-            _ => None,
-        })
-        .sum::<usize>();
-    assert_eq!((assistant_calls, results), (1, 1));
+    assert_eq!(count_calls_and_results(&model.requests()[1].chat_history), (1, 1));
 }
 
 #[tokio::test]

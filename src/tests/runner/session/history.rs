@@ -61,6 +61,18 @@ async fn process_style_reopen_resumes_canonical_history_once() {
     assert_eq!(encoded.matches("persisted answer").count(), 1);
 }
 
+async fn seed_rebuild_engine(config: Config) -> (crate::engine::AgentEngine, String) {
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("stored answer"), final_event(Usage::new())]]);
+    let engine = test_engine(model, config);
+    engine
+        .run_turn(request("stored prompt"), presenter(&TerminalRenderer::default()))
+        .await
+        .unwrap();
+    let id = engine.session_manager.session_id.clone();
+    (engine, id)
+}
+
 #[tokio::test]
 async fn model_rebuild_preserves_compatible_history_without_duplication() {
     let config = Config {
@@ -68,14 +80,7 @@ async fn model_rebuild_preserves_compatible_history_without_duplication() {
         model: "first-local-model".to_string(),
         ..Config::default()
     };
-    let model =
-        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("stored answer"), final_event(Usage::new())]]);
-    let engine = test_engine(model, config.clone());
-    engine
-        .run_turn(request("stored prompt"), presenter(&TerminalRenderer::default()))
-        .await
-        .unwrap();
-    let id = engine.session_manager.session_id.clone();
+    let (engine, id) = seed_rebuild_engine(config.clone()).await;
     let rebuilt = engine
         .rebuild(
             Config {

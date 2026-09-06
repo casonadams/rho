@@ -95,60 +95,55 @@ fn test_resolve_executable() {
     assert_eq!(args_cmd, vec!["-c", "exit 0"]);
 }
 
-#[tokio::test]
-async fn test_daemon_process_bidirectional_rpc_and_hook() {
-    let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/tool_call"*)
-      echo '{"jsonrpc":"2.0","id":999,"method":"host/ui/confirm","params":{"title":"Confirm","message":"Allow bash?"}}'
-      ;;
-    *"\"confirmed\":true"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"continue"}}'
-      ;;
-    *"\"confirmed\":false"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"skip","reason":"User denied"}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_script(dir.path(), "daemon_plugin.sh", script);
+struct DaemonFixtureArgs<'a> {
+    dir: &'a Path,
+    name: &'a str,
+    script: &'a str,
+    interaction: Option<InteractionResponse>,
+    subscriptions: &'a [&'a str],
+}
 
-    let presenter = Arc::new(MockPresenter::new(
-        true,
-        Some(InteractionResponse::Selected(0)), // Approved
-    ));
+async fn spawn_test_daemon(args: DaemonFixtureArgs<'_>) -> DaemonHook {
+    let script_path = create_script(args.dir, args.name, args.script);
+    let presenter = Arc::new(MockPresenter::new(true, args.interaction));
     let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
     let config = PluginConfig {
         path: script_path,
         enabled: true,
         ..PluginConfig::default()
     };
-
     let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "test-daemon",
+        name: args.name,
         config: &config,
-        working_dir: dir.path(),
+        working_dir: args.dir,
         dispatcher,
     })
     .await
     .expect("spawn daemon")
-    .with_subscriptions(["tool_call"]);
+    .with_subscriptions(args.subscriptions.iter().copied());
+    DaemonHook::from_daemons(vec![Arc::new(daemon)])
+}
 
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
-
+#[tokio::test]
+async fn test_daemon_process_bidirectional_rpc_and_hook() {
+    let dir = tempdir().unwrap();
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/tool_call\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":999,\"method\":\"host/ui/confirm\",\"params\":{\"title\":\"Confirm\",\"message\":\"Allow bash?\"}}' ;; *\"\\\"confirmed\\\":true\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"continue\"}}' ;; *\"\\\"confirmed\\\":false\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"skip\",\"reason\":\"User denied\"}}' ;; esac; done\n";
+    let hook = spawn_test_daemon(DaemonFixtureArgs {
+        dir: dir.path(),
+        name: "daemon_plugin.sh",
+        script,
+        interaction: Some(InteractionResponse::Selected(0)),
+        subscriptions: &["tool_call"],
+    })
+    .await;
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": "echo 1"})),
         MockTurn::text("done"),
     ]);
-
-    let agent = AgentBuilder::new(model.clone())
+    let agent = AgentBuilder::new(model)
         .tool(crate::tools::BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-
     let response = agent.runner("test").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "done");
 }
@@ -156,98 +151,48 @@ done
 #[tokio::test]
 async fn test_daemon_tool_call_skipped_when_denied() {
     let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/tool_call"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"skip","reason":"Dangerous operation blocked"}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_script(dir.path(), "deny_daemon.sh", script);
-    let presenter = Arc::new(MockPresenter::new(true, None));
-    let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
-    let config = PluginConfig {
-        path: script_path,
-        enabled: true,
-        ..PluginConfig::default()
-    };
-
-    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "deny-daemon",
-        config: &config,
-        working_dir: dir.path(),
-        dispatcher,
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/tool_call\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"skip\",\"reason\":\"Dangerous operation blocked\"}}' ;; esac; done\n";
+    let hook = spawn_test_daemon(DaemonFixtureArgs {
+        dir: dir.path(),
+        name: "deny_daemon.sh",
+        script,
+        interaction: None,
+        subscriptions: &["tool_call"],
     })
-    .await
-    .expect("spawn daemon")
-    .with_subscriptions(["tool_call"]);
-
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
-
+    .await;
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": "rm -rf /"})),
         MockTurn::text("aborted"),
     ]);
-
     let agent = AgentBuilder::new(model.clone())
         .tool(crate::tools::BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-
     let response = agent.runner("test").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "aborted");
-
-    let history = format!("{:?}", model.requests()[1].chat_history);
-    assert!(history.contains("Dangerous operation blocked"));
+    assert!(format!("{:?}", model.requests()[1].chat_history).contains("Dangerous operation blocked"));
 }
 
 #[tokio::test]
 async fn test_daemon_invalid_tool_repair() {
     let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/invalid_tool_call"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"repair","tool_name":"bash"}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_script(dir.path(), "repair_daemon.sh", script);
-    let presenter = Arc::new(MockPresenter::new(true, None));
-    let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
-    let config = PluginConfig {
-        path: script_path,
-        enabled: true,
-        ..PluginConfig::default()
-    };
-
-    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "repair-daemon",
-        config: &config,
-        working_dir: dir.path(),
-        dispatcher,
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/invalid_tool_call\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"repair\",\"tool_name\":\"bash\"}}' ;; esac; done\n";
+    let hook = spawn_test_daemon(DaemonFixtureArgs {
+        dir: dir.path(),
+        name: "repair_daemon.sh",
+        script,
+        interaction: None,
+        subscriptions: &["invalid_tool_call"],
     })
-    .await
-    .expect("spawn daemon")
-    .with_subscriptions(["invalid_tool_call"]);
-
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
-
+    .await;
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "unknown_sh", json!({"command": "echo repaired"})),
         MockTurn::text("success"),
     ]);
-
-    let agent = AgentBuilder::new(model.clone())
+    let agent = AgentBuilder::new(model)
         .tool(crate::tools::BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-
     let response = agent.runner("test").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "success");
 }

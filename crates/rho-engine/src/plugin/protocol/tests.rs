@@ -23,9 +23,8 @@ fn json_rpc_request_response_serde() {
     assert_eq!(err_res, err_de);
 }
 
-#[test]
-fn plugin_events_serde_roundtrip() {
-    let events = vec![
+fn sample_completion_and_tool_events() -> Vec<PluginEvent> {
+    vec![
         PluginEvent::CompletionCall {
             turn: 1,
             prompt: json!({"role": "user", "content": "hi"}),
@@ -45,29 +44,52 @@ fn plugin_events_serde_roundtrip() {
             output: "file.txt".to_string(),
             is_error: false,
         },
-        PluginEvent::InvalidToolCall {
-            tool_name: "shell".to_string(),
-            args: json!({"command": "ls"}),
-            available_tools: vec!["bash".to_string()],
-        },
-        PluginEvent::TextDelta {
-            delta: "hello ".to_string(),
-        },
-        PluginEvent::ReasoningDelta {
-            delta: "thinking...".to_string(),
-        },
-    ];
+    ]
+}
 
-    for event in events {
+fn sample_plugin_events() -> Vec<PluginEvent> {
+    let mut events = sample_completion_and_tool_events();
+    events.push(PluginEvent::InvalidToolCall {
+        tool_name: "shell".to_string(),
+        args: json!({"command": "ls"}),
+        available_tools: vec!["bash".to_string()],
+    });
+    events.push(PluginEvent::TextDelta {
+        delta: "hello ".to_string(),
+    });
+    events.push(PluginEvent::ReasoningDelta {
+        delta: "thinking...".to_string(),
+    });
+    events
+}
+
+#[test]
+fn plugin_events_serde_roundtrip() {
+    for event in sample_plugin_events() {
         let serialized = serde_json::to_string(&event).expect("serialize event");
         let deserialized: PluginEvent = serde_json::from_str(&serialized).expect("deserialize event");
         assert_eq!(event, deserialized);
     }
 }
 
-#[test]
-fn plugin_flow_serde_roundtrip() {
-    let flows = vec![
+fn sample_override_payload() -> RequestPatchPayload {
+    RequestPatchPayload {
+        preamble: Some("system".to_string()),
+        temperature: Some(0.5),
+        max_tokens: Some(100),
+        active_tools: Some(vec!["bash".to_string()]),
+        tool_choice: None,
+        additional_params: Some(json!({"top_p": 0.9})),
+        extra_context: Some(vec![DocumentPayload {
+            id: "doc1".to_string(),
+            text: "content".to_string(),
+        }]),
+        history: None,
+    }
+}
+
+fn sample_plugin_flows() -> Vec<PluginFlow> {
+    vec![
         PluginFlow::Continue,
         PluginFlow::Skip {
             reason: "denied".to_string(),
@@ -79,19 +101,7 @@ fn plugin_flow_serde_roundtrip() {
             result: "sanitized".to_string(),
         },
         PluginFlow::OverrideRequest {
-            request: RequestPatchPayload {
-                preamble: Some("system".to_string()),
-                temperature: Some(0.5),
-                max_tokens: Some(100),
-                active_tools: Some(vec!["bash".to_string()]),
-                tool_choice: None,
-                additional_params: Some(json!({"top_p": 0.9})),
-                extra_context: Some(vec![DocumentPayload {
-                    id: "doc1".to_string(),
-                    text: "content".to_string(),
-                }]),
-                history: None,
-            },
+            request: sample_override_payload(),
         },
         PluginFlow::Repair {
             tool_name: "bash".to_string(),
@@ -100,11 +110,14 @@ fn plugin_flow_serde_roundtrip() {
             feedback: "try again".to_string(),
         },
         PluginFlow::Terminate {
-            reason: "aborted".to_string(),
+            reason: "stop".to_string(),
         },
-    ];
+    ]
+}
 
-    for flow in flows {
+#[test]
+fn plugin_flow_serde_roundtrip() {
+    for flow in sample_plugin_flows() {
         let serialized = serde_json::to_string(&flow).expect("serialize flow");
         let deserialized: PluginFlow = serde_json::from_str(&serialized).expect("deserialize flow");
         assert_eq!(flow, deserialized);
@@ -151,35 +164,46 @@ fn tool_result_action_conversions() {
 }
 
 #[test]
-fn invalid_tool_call_action_conversions() {
-    assert_eq!(
-        flow_to_invalid_tool_call_action(PluginFlow::Continue),
-        InvalidToolCallAction::Fail
-    );
-    assert_eq!(
-        flow_to_invalid_tool_call_action(PluginFlow::Repair {
-            tool_name: "bash".into()
-        }),
-        InvalidToolCallAction::Repair {
-            tool_name: "bash".into()
-        }
-    );
-    assert_eq!(
-        flow_to_invalid_tool_call_action(PluginFlow::Retry { feedback: "fix".into() }),
-        InvalidToolCallAction::Retry { feedback: "fix".into() }
-    );
-    assert_eq!(
-        flow_to_invalid_tool_call_action(PluginFlow::Skip { reason: "skip".into() }),
-        InvalidToolCallAction::Skip { reason: "skip".into() }
-    );
-    assert_eq!(
-        flow_to_invalid_tool_call_action(PluginFlow::Terminate { reason: "stop".into() }),
-        InvalidToolCallAction::Stop { reason: "stop".into() }
-    );
+fn invalid_tool_call_action_conversions_repair_retry() {
+    let cases = [
+        (PluginFlow::Continue, InvalidToolCallAction::Fail),
+        (
+            PluginFlow::Repair {
+                tool_name: "bash".into(),
+            },
+            InvalidToolCallAction::Repair {
+                tool_name: "bash".into(),
+            },
+        ),
+        (
+            PluginFlow::Retry { feedback: "fix".into() },
+            InvalidToolCallAction::Retry { feedback: "fix".into() },
+        ),
+    ];
+    for (flow, expected) in cases {
+        assert_eq!(flow_to_invalid_tool_call_action(flow), expected);
+    }
 }
 
 #[test]
-fn completion_call_and_observation_conversions() {
+fn invalid_tool_call_action_conversions_skip_terminate() {
+    let cases = [
+        (
+            PluginFlow::Skip { reason: "skip".into() },
+            InvalidToolCallAction::Skip { reason: "skip".into() },
+        ),
+        (
+            PluginFlow::Terminate { reason: "stop".into() },
+            InvalidToolCallAction::Stop { reason: "stop".into() },
+        ),
+    ];
+    for (flow, expected) in cases {
+        assert_eq!(flow_to_invalid_tool_call_action(flow), expected);
+    }
+}
+
+#[test]
+fn completion_call_action_continue_and_stop() {
     assert_eq!(
         flow_to_completion_call_action(PluginFlow::Continue),
         CompletionCallAction::continue_run()
@@ -188,7 +212,10 @@ fn completion_call_and_observation_conversions() {
         flow_to_completion_call_action(PluginFlow::Terminate { reason: "stop".into() }),
         CompletionCallAction::stop("stop")
     );
+}
 
+#[test]
+fn completion_call_action_patch() {
     let patch_flow = PluginFlow::OverrideRequest {
         request: RequestPatchPayload {
             preamble: Some("hello".into()),
@@ -201,16 +228,18 @@ fn completion_call_and_observation_conversions() {
             history: None,
         },
     };
-    match flow_to_completion_call_action(patch_flow) {
-        CompletionCallAction::Patch(patch) => {
-            assert_eq!(patch.preamble, Some("hello".into()));
-            assert_eq!(patch.temperature, Some(0.2));
-            assert_eq!(patch.max_tokens, Some(50));
-            assert_eq!(patch.active_tools, Some(vec!["bash".into()]));
-        }
-        _ => panic!("Expected CompletionCallAction::Patch"),
-    }
+    let CompletionCallAction::Patch(patch) = flow_to_completion_call_action(patch_flow) else {
+        panic!("Expected CompletionCallAction::Patch");
+    };
+    let actual = (patch.preamble, patch.temperature, patch.max_tokens, patch.active_tools);
+    assert_eq!(
+        actual,
+        (Some("hello".into()), Some(0.2), Some(50), Some(vec!["bash".into()]))
+    );
+}
 
+#[test]
+fn observation_action_conversions() {
     assert_eq!(
         flow_to_observation_action(PluginFlow::Continue),
         ObservationAction::continue_run()

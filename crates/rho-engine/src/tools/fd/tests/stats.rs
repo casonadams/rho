@@ -79,28 +79,16 @@ async fn sort_by_size_orders_descending() {
 #[test]
 fn test_count_file_stats_semantics() {
     let temp = TempDir::new().unwrap();
-
-    let empty = temp.path().join("empty.txt");
-    std::fs::write(&empty, "").unwrap();
-    let stats = count_file_stats(&empty).unwrap();
-    assert_eq!(stats.lines, 0);
-    assert_eq!(stats.bytes, 0);
-
-    let one_no_nl = temp.path().join("one_no_nl.txt");
-    std::fs::write(&one_no_nl, "hello").unwrap();
-    let stats = count_file_stats(&one_no_nl).unwrap();
-    assert_eq!(stats.lines, 1);
-    assert_eq!(stats.bytes, 5);
-
-    let one_with_nl = temp.path().join("one_with_nl.txt");
-    std::fs::write(&one_with_nl, "hello\n").unwrap();
-    let stats = count_file_stats(&one_with_nl).unwrap();
-    assert_eq!(stats.lines, 1);
-    assert_eq!(stats.bytes, 6);
-
-    let two_no_nl = temp.path().join("two_no_nl.txt");
-    std::fs::write(&two_no_nl, "hello\nworld").unwrap();
-    let stats = count_file_stats(&two_no_nl).unwrap();
-    assert_eq!(stats.lines, 2);
-    assert_eq!(stats.bytes, 11);
+    let cases = [
+        ("empty.txt", "", 0, 0),
+        ("one_no_nl.txt", "hello", 1, 5),
+        ("one_with_nl.txt", "hello\n", 1, 6),
+        ("two_no_nl.txt", "hello\nworld", 2, 11),
+    ];
+    for (name, content, lines, bytes) in cases {
+        let path = temp.path().join(name);
+        std::fs::write(&path, content).unwrap();
+        let stats = count_file_stats(&path).unwrap();
+        assert_eq!((stats.lines, stats.bytes), (lines, bytes));
+    }
 }

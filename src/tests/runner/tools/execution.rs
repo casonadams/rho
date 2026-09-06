@@ -12,10 +12,8 @@ use rig::completion::Usage;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 
 #[cfg(unix)]
-#[tokio::test]
-async fn mutating_tools_execute_sequentially() {
-    let marker = std::env::temp_dir().join(format!("sequential_marker_{}", uuid::Uuid::new_v4()));
-    let model = MockCompletionModel::from_stream_turns([
+fn sequential_mutation_model(marker: &std::path::Path) -> MockCompletionModel {
+    MockCompletionModel::from_stream_turns([
         vec![
             MockStreamEvent::tool_call(
                 "call-1",
@@ -30,7 +28,14 @@ async fn mutating_tools_execute_sequentially() {
             final_event(Usage::new()),
         ],
         vec![MockStreamEvent::text("done"), final_event(Usage::new())],
-    ]);
+    ])
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn mutating_tools_execute_sequentially() {
+    let marker = std::env::temp_dir().join(format!("sequential_marker_{}", uuid::Uuid::new_v4()));
+    let model = sequential_mutation_model(&marker);
     let config = Config {
         permission: crate::config::PermissionConfig { enabled: false },
         ..Config::default()
@@ -46,15 +51,38 @@ async fn mutating_tools_execute_sequentially() {
 }
 
 #[cfg(unix)]
+async fn assert_cancellation_events(sm: &SessionManager) {
+    let events = sm.load_events().await.unwrap();
+    assert!(
+        !events
+            .iter()
+            .any(|e| e.kind == crate::session::SessionEventKind::ToolResult)
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e.kind == crate::session::SessionEventKind::Cancellation)
+    );
+    let summary = events
+        .iter()
+        .find(|e| e.kind == crate::session::SessionEventKind::RunSummary)
+        .unwrap();
+    assert_eq!(summary.payload["terminal_status"], "cancelled");
+}
+
+async fn assert_reopened_session_empty(sm: &SessionManager) {
+    assert!(sm.load_messages().await.unwrap().is_empty());
+    let reopened = SessionManager::new(sm.file_path.parent().unwrap(), Some(&sm.session_id)).unwrap();
+    assert!(reopened.load_messages().await.unwrap().is_empty());
+}
+
+#[cfg(unix)]
 #[tokio::test]
 async fn cancelled_tool_run_persists_no_incomplete_result() {
     let marker = std::env::temp_dir().join(format!("cancel_marker_{}", uuid::Uuid::new_v4()));
+    let cmd = format!("sleep 2; touch {}", marker.display());
     let model = MockCompletionModel::from_stream_turns([[
-        MockStreamEvent::tool_call(
-            "call-1",
-            "bash",
-            serde_json::json!({"command": format!("sleep 2; touch {}", marker.display())}),
-        ),
+        MockStreamEvent::tool_call("call-1", "bash", serde_json::json!({"command": cmd})),
         final_event(Usage::new()),
     ]]);
     let config = Config {
@@ -72,27 +100,6 @@ async fn cancelled_tool_run_persists_no_incomplete_result() {
     assert!(result.is_err());
     engine.record_cancellation("test interrupt").await.unwrap();
     assert!(!marker.exists());
-    let events = engine.session_manager.load_events().await.unwrap();
-    assert!(
-        !events
-            .iter()
-            .any(|event| event.kind == crate::session::SessionEventKind::ToolResult)
-    );
-    assert!(
-        events
-            .iter()
-            .any(|event| event.kind == crate::session::SessionEventKind::Cancellation)
-    );
-    let summary = events
-        .iter()
-        .find(|event| event.kind == crate::session::SessionEventKind::RunSummary)
-        .unwrap();
-    assert_eq!(summary.payload["terminal_status"], "cancelled");
-    assert!(engine.session_manager.load_messages().await.unwrap().is_empty());
-    let reopened = SessionManager::new(
-        engine.session_manager.file_path.parent().unwrap(),
-        Some(&engine.session_manager.session_id),
-    )
-    .unwrap();
-    assert!(reopened.load_messages().await.unwrap().is_empty());
+    assert_cancellation_events(&engine.session_manager).await;
+    assert_reopened_session_empty(&engine.session_manager).await;
 }

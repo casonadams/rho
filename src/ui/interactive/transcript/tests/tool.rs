@@ -26,6 +26,12 @@ fn render_transcript_tool_collapsed_shows_preview() {
     assert!(rendered.contains("Took 150ms"));
 }
 
+fn assert_lines_within_width(rendered: &str, max_width: usize) {
+    for line in rendered.lines() {
+        assert!(crate::ui::block::visible_width(line) <= max_width);
+    }
+}
+
 #[test]
 fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
     let theme = Theme::default();
@@ -46,13 +52,9 @@ fn render_transcript_tool_output_replaces_tabs_so_block_widths_hold() {
         hide_thinking: false,
     });
 
-    assert!(!rendered.contains('\t'), "tabs must not reach the terminal");
-    for line in rendered.lines() {
-        let visible = crate::ui::block::visible_width(line);
-        assert!(visible <= 80, "line renders {visible} cols, wider than block");
-    }
-    assert!(rendered.contains("127.0.0.1"));
-    assert!(rendered.contains("localhost"));
+    assert!(!rendered.contains('\t'));
+    assert_lines_within_width(&rendered, 80);
+    assert!(rendered.contains("127.0.0.1") && rendered.contains("localhost"));
 }
 
 #[test]

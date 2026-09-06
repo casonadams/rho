@@ -138,6 +138,12 @@ async fn test_ask_interactive_edit_action() {
     assert!(history.contains("edited"));
 }
 
+fn assert_permission_persisted(path: &std::path::Path, content: &str) {
+    let perm_file = path.join("permission.toml");
+    assert!(perm_file.exists());
+    assert!(std::fs::read_to_string(&perm_file).unwrap().contains(content));
+}
+
 #[tokio::test]
 async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
     let _guard = ENV_LOCK.lock().await;
@@ -148,8 +154,7 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
 
     let project_dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
-    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter.clone());
-
+    let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": "touch persist_test"})),
         MockTurn::tool_call("2", "bash", json!({"command": "touch persist_test"})),
@@ -160,14 +165,9 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
         .tool(BashTool::new(project_dir.path()))
         .add_hook(hook)
         .build();
-
     let response = agent.runner("persist").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "completed");
-
-    let perm_file = global_dir.path().join("permission.toml");
-    assert!(perm_file.exists());
-    let content = std::fs::read_to_string(&perm_file).unwrap();
-    assert!(content.contains("touch persist_test"));
+    assert_permission_persisted(global_dir.path(), "touch persist_test");
 
     unsafe {
         std::env::remove_var("RHO_HOME");
@@ -175,7 +175,7 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
 }
 
 #[tokio::test]
-async fn test_ask_interactive_deny_with_reason_and_cancel() {
+async fn test_ask_interactive_deny_with_reason() {
     let dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(
         true,
@@ -185,33 +185,35 @@ async fn test_ask_interactive_deny_with_reason_and_cancel() {
         }),
     ));
     let policy = build_policy(None, None);
-    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy.clone());
-
+    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": "touch denied.txt"})),
         MockTurn::text("stopped"),
     ]);
-
     let agent = AgentBuilder::new(model.clone())
         .tool(BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-
     let _ = agent.runner("touch").max_turns(2).run().await.unwrap();
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("Operation denied by user: not safe"));
+}
 
-    let cancel_presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
-    let cancel_hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), cancel_presenter, policy);
-    let cancel_model = MockCompletionModel::new([
+#[tokio::test]
+async fn test_ask_interactive_cancel() {
+    let dir = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
+    let policy = build_policy(None, None);
+    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter, policy);
+    let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": "touch cancel.txt"})),
         MockTurn::text("stopped"),
     ]);
-    let cancel_agent = AgentBuilder::new(cancel_model.clone())
+    let agent = AgentBuilder::new(model.clone())
         .tool(BashTool::new(dir.path()))
-        .add_hook(cancel_hook)
+        .add_hook(hook)
         .build();
-    let _ = cancel_agent.runner("touch").max_turns(2).run().await.unwrap();
-    let cancel_history = format!("{:?}", cancel_model.requests()[1].chat_history);
-    assert!(cancel_history.contains("Operation denied by user."));
+    let _ = agent.runner("touch").max_turns(2).run().await.unwrap();
+    let history = format!("{:?}", model.requests()[1].chat_history);
+    assert!(history.contains("Operation denied by user."));
 }

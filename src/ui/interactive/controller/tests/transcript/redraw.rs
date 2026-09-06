@@ -23,21 +23,7 @@ fn full_redraw_rerenders_all_transcript_items_on_resize() {
     );
 }
 
-#[test]
-fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
-    let (backend, operations, _) = FakeTerminal::new(60);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-    controller
-        .push_transcript_item(TranscriptItem::UserMessage("first line message".into()))
-        .unwrap();
-    controller
-        .push_transcript_item(TranscriptItem::UserMessage("second line message".into()))
-        .unwrap();
-    operations.borrow_mut().clear();
-
-    controller.full_redraw().unwrap();
-
-    let ops = operations.borrow();
+fn assert_sync_and_clear_order(ops: &[Operation]) {
     let sync_begin_pos = ops
         .iter()
         .position(|op| matches!(op, Operation::Write(text) if text == CSI_BEGIN_SYNC_UPDATE))
@@ -55,11 +41,26 @@ fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
         .position(|op| matches!(op, Operation::Flush))
         .expect("flush must be emitted");
 
-    assert!(sync_begin_pos < clear_pos, "sync update begin must precede clear");
-    assert!(clear_pos < sync_end_pos, "clear must precede sync update end");
-    assert!(sync_end_pos < flush_pos, "sync update end must precede flush");
+    assert!(sync_begin_pos < clear_pos && clear_pos < sync_end_pos && sync_end_pos < flush_pos);
+}
 
-    let batched_writes: Vec<_> = ops
+#[test]
+fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    controller
+        .push_transcript_item(TranscriptItem::UserMessage("first line message".into()))
+        .unwrap();
+    controller
+        .push_transcript_item(TranscriptItem::UserMessage("second line message".into()))
+        .unwrap();
+    operations.borrow_mut().clear();
+
+    controller.full_redraw().unwrap();
+    let ops = operations.borrow();
+    assert_sync_and_clear_order(&ops);
+
+    let batched_count = ops
         .iter()
         .filter(|op| {
             matches!(
@@ -67,12 +68,8 @@ fn full_redraw_emits_synchronized_update_escape_codes_and_batches_output() {
                 Operation::Write(text) if text.contains("first line message") && text.contains("second line message")
             )
         })
-        .collect();
-    assert_eq!(
-        batched_writes.len(),
-        1,
-        "all transcript items must be batched in a single write"
-    );
+        .count();
+    assert_eq!(batched_count, 1);
 }
 
 #[test]
@@ -96,6 +93,25 @@ fn width_resize_invalidates_cache_while_height_resize_preserves_cache() {
     assert_ne!(initial_rendered, width_rendered);
 }
 
+fn assert_nord_repaint(ops: &[Operation]) {
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[2J\x1b[H\x1b[3J")))
+    );
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.starts_with("\x1b[48;2;46;52;64m\x1b[2J")))
+    );
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("theme test message")))
+    );
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b]")))
+    );
+}
+
 #[test]
 fn set_theme_invalidates_cache_and_repaints_with_new_theme() {
     let (backend, operations, _) = FakeTerminal::new(60);
@@ -111,24 +127,5 @@ fn set_theme_invalidates_cache_and_repaints_with_new_theme() {
     controller.set_theme(nord).unwrap();
 
     assert_eq!(controller.theme().name, "nord");
-    let ops = operations.borrow();
-    assert!(
-        ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[2J\x1b[H\x1b[3J"))),
-        "screen clear must be emitted"
-    );
-    assert!(
-        ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.starts_with("\x1b[48;2;46;52;64m\x1b[2J"))),
-        "the screen clear must erase with the theme background"
-    );
-    assert!(
-        ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("theme test message")))
-    );
-    assert!(
-        !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b]"))),
-        "theme switching must never touch the terminal emulator's global colors"
-    );
+    assert_nord_repaint(&operations.borrow());
 }

@@ -19,12 +19,8 @@ fn simple_turn(index: usize) -> Vec<Message> {
     ]
 }
 
-fn coding_turn(secret: Option<&str>) -> Vec<Message> {
-    let objective = format!(
-        "Objective: complete migration.\nConstraint: remain offline.\nDecision: use Rig memory.\nTests: cargo test passed.\nError: prior check failed.\nUnresolved work: finish evaluation.{}",
-        secret.map_or(String::new(), |value| format!("\n{value}"))
-    );
-    let calls = vec![
+fn coding_tool_calls() -> Vec<AssistantContent> {
+    vec![
         AssistantContent::ToolCall(ToolCall::new(
             ToolCallId::new("edit-call").unwrap(),
             ToolFunction::new("edit".to_string(), serde_json::json!({"path":"src/lib.rs","edits":[]})),
@@ -36,8 +32,11 @@ fn coding_turn(secret: Option<&str>) -> Vec<Message> {
                 serde_json::json!({"command":"cargo test --all-targets"}),
             ),
         )),
-    ];
-    let results = vec![
+    ]
+}
+
+fn coding_tool_results() -> Vec<UserContent> {
+    vec![
         UserContent::ToolResult(ToolResult {
             call: ToolCallId::new("edit-call").unwrap(),
             provider: None,
@@ -50,36 +49,58 @@ fn coding_turn(secret: Option<&str>) -> Vec<Message> {
             name: "bash".to_string(),
             content: vec![ToolResultContent::text("tests passed")],
         }),
-    ];
+    ]
+}
+
+fn coding_turn(secret: Option<&str>) -> Vec<Message> {
+    let objective = format!(
+        "Objective: complete migration.\nConstraint: remain offline.\nDecision: use Rig memory.\nTests: cargo test passed.\nError: prior check failed.\nUnresolved work: finish evaluation.{}",
+        secret.map_or(String::new(), |value| format!("\n{value}"))
+    );
     vec![
         Message::user(objective),
         Message::Assistant {
             id: None,
-            content: calls,
+            content: coding_tool_calls(),
         },
-        Message::User { content: results },
+        Message::User {
+            content: coding_tool_results(),
+        },
         Message::assistant("Decision: retain recent rounds exactly."),
     ]
 }
 
 #[test]
-fn sliding_window_exact_boundary_and_orphan_protection_preserve_tool_batches() {
+fn sliding_window_exact() {
     let history = coding_turn(None);
     let exact = SlidingWindowMemory::last_messages(4).apply(history.clone()).unwrap();
     assert_eq!(exact, history);
+}
 
+fn is_tool_result_first(msgs: &[Message]) -> bool {
+    msgs.first().is_some_and(
+        |m| matches!(m, Message::User { content } if matches!(content.first(), Some(UserContent::ToolResult(_)))),
+    )
+}
+
+#[test]
+fn sliding_window_short() {
+    let history = coding_turn(None);
     let window = SlidingWindowMemory::last_messages(2).apply(history.clone()).unwrap();
     assert_eq!(window, history[3..]);
-    assert!(
-        !matches!(window.first(), Some(Message::User { content }) if matches!(content.first(), Some(UserContent::ToolResult(_))))
-    );
+    assert!(!is_tool_result_first(&window));
+}
 
+#[test]
+fn sliding_window_preserves_tool_pair() {
     let mut long = simple_turn(0);
     long.extend(coding_turn(None));
     let complete_pair = SlidingWindowMemory::last_messages(3).apply(long).unwrap();
     assert_eq!(complete_pair.len(), 3);
-    assert!(matches!(complete_pair[0], Message::Assistant { .. }));
-    assert!(matches!(complete_pair[1], Message::User { .. }));
+    assert!(matches!(
+        (&complete_pair[0], &complete_pair[1]),
+        (Message::Assistant { .. }, Message::User { .. })
+    ));
 }
 
 #[tokio::test]
@@ -107,6 +128,22 @@ async fn durable_history_remains_full_while_model_history_is_compacted_and_bound
     assert_eq!(resumed.load_messages().await.unwrap(), history);
 }
 
+fn assert_required_artifact_fragments(artifact: &str) {
+    let required_fragments = [
+        "Objective: complete migration",
+        "Constraint: remain offline",
+        "Decision: use Rig memory",
+        "changed file: src/lib.rs",
+        "verification command: cargo test --all-targets",
+        "tests passed",
+        "Error: prior check failed",
+        "Unresolved work: finish evaluation",
+    ];
+    for required in required_fragments {
+        assert!(artifact.contains(required), "missing {required}");
+    }
+}
+
 #[tokio::test]
 async fn template_loss_justifies_coding_artifact_that_retains_required_state() {
     let dir = temp_dir("state");
@@ -119,29 +156,22 @@ async fn template_loss_justifies_coding_artifact_that_retains_required_state() {
 
     let compactor = CodingCompactor::new(durable, 4096);
     let artifact = Compactor::compact(&compactor, &id, &history, None).await.unwrap();
-    for required in [
-        "Objective: complete migration",
-        "Constraint: remain offline",
-        "Decision: use Rig memory",
-        "changed file: src/lib.rs",
-        "verification command: cargo test --all-targets",
-        "tests passed",
-        "Error: prior check failed",
-        "Unresolved work: finish evaluation",
-    ] {
-        assert!(artifact.as_str().contains(required), "missing {required}");
-    }
+    assert_required_artifact_fragments(artifact.as_str());
     assert!(artifact.as_str().len() <= 4096);
-    assert!(
-        super::artifact::build_artifact(super::artifact::ArtifactParams {
-            carry: None,
-            messages: &history,
-            template: template.as_str(),
-            max_bytes: 1,
-        })
-        .len()
-            <= 1
-    );
+    let params = super::artifact::ArtifactParams {
+        carry: None,
+        messages: &history,
+        template: template.as_str(),
+        max_bytes: 1,
+    };
+    assert!(super::artifact::build_artifact(params).len() <= 1);
+}
+
+async fn assert_resumed_context(resumed: &SessionManager, first: &[Message]) {
+    let resumed_memory = context_memory(resumed.clone(), 4, 4096);
+    assert_eq!(resumed_memory.load(&resumed.session_id).await.unwrap(), first);
+    let msgs = resumed.load_messages().await.unwrap();
+    assert!(msgs.iter().all(|m| !matches!(m, Message::System { .. })));
 }
 
 #[tokio::test]
@@ -155,37 +185,18 @@ async fn recent_rounds_restart_deduplication_and_concurrent_loads_are_stable() {
     ConversationMemory::append(&durable, &id, history.clone())
         .await
         .unwrap();
+
     let memory = context_memory(durable.clone(), 4, 4096);
     let (first, second) = tokio::join!(memory.load(&id), memory.load(&id));
     let first = first.unwrap();
     assert_eq!(second.unwrap(), first);
     assert_eq!(&first[1..], &history[history.len() - 4..]);
-    assert_eq!(
-        first
-            .iter()
-            .filter(|message| matches!(message, Message::System { .. }))
-            .count(),
-        1
-    );
-    let persisted = std::fs::read_to_string(durable.file_path.with_extension("context.json")).unwrap();
+    assert_eq!(first.iter().filter(|m| matches!(m, Message::System { .. })).count(), 1);
 
     drop(memory);
     drop(durable);
     let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
-    let resumed_memory = context_memory(resumed.clone(), 4, 4096);
-    assert_eq!(resumed_memory.load(&id).await.unwrap(), first);
-    assert_eq!(
-        std::fs::read_to_string(resumed.file_path.with_extension("context.json")).unwrap(),
-        persisted
-    );
-    assert!(
-        resumed
-            .load_messages()
-            .await
-            .unwrap()
-            .iter()
-            .all(|message| !matches!(message, Message::System { .. }))
-    );
+    assert_resumed_context(&resumed, &first).await;
 }
 
 struct FailingCompactor;

@@ -2,36 +2,49 @@ use super::*;
 use crate::tools::truncate::DEFAULT_MAX_BYTES as MAX_BASH_BYTES;
 
 #[test]
-fn test_is_read_only_command() {
-    assert!(is_read_only_command("ls -la"));
-    assert!(is_read_only_command("cat Cargo.toml && ls -la"));
-    assert!(is_read_only_command("git status"));
-    assert!(is_read_only_command("git diff"));
-    assert!(is_read_only_command("cargo check"));
-    assert!(is_read_only_command("cargo test"));
-    assert!(is_read_only_command("rg 'fn main' src/"));
+fn test_is_read_only_command_positive() {
+    let read_only = [
+        "ls -la",
+        "cat Cargo.toml && ls -la",
+        "git status",
+        "git diff",
+        "cargo check",
+        "cargo test",
+        "rg 'fn main' src/",
+        "git branch --show-current",
+        "git config --get user.name",
+        "git rev-parse HEAD",
+        "git remote -v",
+        "jq . package.json",
+        "sort file.txt | uniq",
+        "python3 --version",
+        "node -v",
+        "npm test",
+        "go version",
+    ];
+    for cmd in read_only {
+        assert!(is_read_only_command(cmd), "expected {cmd} to be read-only");
+    }
+}
 
-    assert!(!is_read_only_command("rm -rf target"));
-    assert!(!is_read_only_command("echo 'foo' > file.txt"));
-    assert!(!is_read_only_command("git commit -m 'test'"));
-    assert!(!is_read_only_command("npm install"));
-    assert!(!is_read_only_command("cargo run"));
-    assert!(!is_read_only_command("env sh -c 'touch marker'"));
-    assert!(!is_read_only_command("git branch new-branch"));
-    assert!(!is_read_only_command("git config user.name model"));
-    assert!(is_read_only_command("git branch --show-current"));
-    assert!(is_read_only_command("git config --get user.name"));
-    assert!(is_read_only_command("git rev-parse HEAD"));
-    assert!(is_read_only_command("git remote -v"));
-    assert!(is_read_only_command("jq . package.json"));
-    assert!(is_read_only_command("sort file.txt | uniq"));
-    assert!(is_read_only_command("python3 --version"));
-    assert!(is_read_only_command("node -v"));
-    assert!(is_read_only_command("npm test"));
-    assert!(is_read_only_command("go version"));
-    assert!(!is_read_only_command("npm publish"));
-    assert!(!is_read_only_command("python script.py"));
-    assert!(!is_read_only_command("git remote add origin https://..."));
+#[test]
+fn test_is_read_only_command_mutating() {
+    let mutating = [
+        "rm -rf target",
+        "echo 'foo' > file.txt",
+        "git commit -m 'test'",
+        "npm install",
+        "cargo run",
+        "env sh -c 'touch marker'",
+        "git branch new-branch",
+        "git config user.name model",
+        "npm publish",
+        "python script.py",
+        "git remote add origin https://...",
+    ];
+    for cmd in mutating {
+        assert!(!is_read_only_command(cmd), "expected {cmd} to not be read-only");
+    }
 }
 
 #[test]

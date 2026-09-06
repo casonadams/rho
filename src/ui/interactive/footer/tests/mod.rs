@@ -6,16 +6,21 @@ use std::path::Path;
 
 #[test]
 fn format_tokens_matches_status_line_breakpoints() {
-    assert_eq!(format_tokens(0), "0");
-    assert_eq!(format_tokens(999), "999");
-    assert_eq!(format_tokens(1_000), "1.0k");
-    assert_eq!(format_tokens(1_234), "1.2k");
-    assert_eq!(format_tokens(9_999), "10.0k");
-    assert_eq!(format_tokens(10_000), "10k");
-    assert_eq!(format_tokens(128_000), "128k");
-    assert_eq!(format_tokens(200_000), "200k");
-    assert_eq!(format_tokens(1_000_000), "1M");
-    assert_eq!(format_tokens(2_500_000), "3M");
+    let cases = [
+        (0, "0"),
+        (999, "999"),
+        (1_000, "1.0k"),
+        (1_234, "1.2k"),
+        (9_999, "10.0k"),
+        (10_000, "10k"),
+        (128_000, "128k"),
+        (200_000, "200k"),
+        (1_000_000, "1M"),
+        (2_500_000, "3M"),
+    ];
+    for (tokens, expected) in cases {
+        assert_eq!(format_tokens(tokens), expected);
+    }
 }
 
 #[test]
@@ -64,9 +69,8 @@ fn top_line_contains_cwd_branch_session_and_quota() {
     assert!(line.ends_with("80% (3h22m)"));
 }
 
-#[test]
-fn stats_line_formats_usage_and_model() {
-    let footer = FooterState {
+fn sample_stats_footer() -> FooterState {
+    FooterState {
         activity: Activity::Idle,
         model: "gemini-3.8-flash".into(),
         thinking_level: Some("medium".into()),
@@ -79,15 +83,15 @@ fn stats_line_formats_usage_and_model() {
         context_window: 200_000,
         tokens_per_second: Some(258.0),
         ..FooterState::default()
-    };
-    let line = format_stats_line(&footer, 80);
-    assert!(line.contains("↑1.2k"));
-    assert!(line.contains("↓450"));
-    assert!(line.contains("R10k"));
-    assert!(line.contains("W2.0k"));
-    assert!(line.contains("$0.012"));
-    assert!(line.contains("1.2%/200k"));
-    assert!(line.contains("@258t/s"));
+    }
+}
+
+#[test]
+fn stats_line_formats_usage_and_model() {
+    let line = format_stats_line(&sample_stats_footer(), 80);
+    for token in ["↑1.2k", "↓450", "R10k", "W2.0k", "$0.012", "1.2%/200k", "@258t/s"] {
+        assert!(line.contains(token));
+    }
     assert!(line.ends_with("gemini-3.8-flash • medium"));
 }
 

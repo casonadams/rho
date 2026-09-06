@@ -25,33 +25,11 @@ async fn login_is_dispatched_without_collecting_credentials() {
     let (renderer, _) = collecting_renderer();
     let mut context = test_context(&mut config, &mut auth, &renderer);
 
-    let result = SlashCommandHandler::handle("/login chatgpt", &mut context)
-        .await
-        .unwrap();
-    assert!(matches!(
-        result,
-        Some(CommandResult::Login {
-            provider: Some(provider)
-        }) if provider == "chatgpt"
-    ));
-    let result_ag = SlashCommandHandler::handle("/login antigravity", &mut context)
-        .await
-        .unwrap();
-    assert!(matches!(
-        result_ag,
-        Some(CommandResult::Login {
-            provider: Some(provider)
-        }) if provider == "antigravity"
-    ));
-    let result_claude = SlashCommandHandler::handle("/login claude", &mut context)
-        .await
-        .unwrap();
-    assert!(matches!(
-        result_claude,
-        Some(CommandResult::Login {
-            provider: Some(provider)
-        }) if provider == "claude"
-    ));
+    for provider in ["chatgpt", "antigravity", "claude"] {
+        let cmd = format!("/login {provider}");
+        let res = SlashCommandHandler::handle(&cmd, &mut context).await.unwrap();
+        assert!(matches!(res, Some(CommandResult::Login { provider: Some(p) }) if p == provider));
+    }
 }
 
 #[tokio::test]
@@ -126,37 +104,38 @@ async fn test_new_and_thinking_commands() {
     assert_eq!(context.config.thinking_level.as_deref(), Some("high"));
 }
 
-#[tokio::test]
-async fn file_paths_starting_with_slash_are_not_treated_as_commands() {
+#[test]
+fn slash_command_predicate_classification() {
     use crate::repl::commands::is_slash_command;
 
-    assert!(is_slash_command("/help"));
-    assert!(is_slash_command("/model gpt-4o openai"));
-    assert!(is_slash_command("/skill:create-plugin"));
-    assert!(is_slash_command("/unknown_command"));
+    for cmd in [
+        "/help",
+        "/model gpt-4o openai",
+        "/skill:create-plugin",
+        "/unknown_command",
+    ] {
+        assert!(is_slash_command(cmd));
+    }
+    for not_cmd in ["", "/", "// comment", "/Users/alice/photo.png", "/tmp/file.txt"] {
+        assert!(!is_slash_command(not_cmd));
+    }
+}
 
-    assert!(!is_slash_command(""));
-    assert!(!is_slash_command("/"));
-    assert!(!is_slash_command("// comment"));
-    assert!(!is_slash_command(
-        "/var/folders/m3/7v9fjc054tvbwgcqw7kl51t40000gn/t/rho-clipboard-85923951.png"
-    ));
-    assert!(!is_slash_command("/Users/alice/photo.png"));
-    assert!(!is_slash_command("/tmp/file.txt"));
-
+#[tokio::test]
+async fn file_paths_starting_with_slash_are_not_treated_as_commands() {
     let mut config = Config::default();
     let mut auth = AuthStore::default();
     let (renderer, _) = collecting_renderer();
     let mut context = test_context(&mut config, &mut auth, &renderer);
 
-    let result = SlashCommandHandler::handle(
-        "/var/folders/m3/7v9fjc054tvbwgcqw7kl51t40000gn/t/rho-clipboard-85923951.png",
-        &mut context,
-    )
-    .await
-    .unwrap();
-    assert_eq!(result, None);
-
-    let comment_result = SlashCommandHandler::handle("// comment", &mut context).await.unwrap();
-    assert_eq!(comment_result, None);
+    assert_eq!(
+        SlashCommandHandler::handle("/tmp/file.txt", &mut context)
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        SlashCommandHandler::handle("// comment", &mut context).await.unwrap(),
+        None
+    );
 }

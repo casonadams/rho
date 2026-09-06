@@ -46,34 +46,27 @@ fn tracker_counts_tool_errors_and_denials_separately() {
     assert_eq!(metrics.tool_denials, 1);
 }
 
+fn track_sample_run(session_id: &str, response: &PromptResponse) -> RunMetrics {
+    let tracker = RunTracker::default();
+    tracker.start();
+    tracker.tool_called();
+    tracker.tool_finished("success");
+    tracker
+        .complete(CompletionOutcome {
+            session_id,
+            status: TerminalStatus::Completed,
+            response,
+        })
+        .normalized()
+}
+
 #[test]
 fn normalized_metrics_are_stable_across_runs() {
     let response = PromptResponse::new("not recorded", usage()).with_completion_calls(vec![
         CompletionCall::new(0, usage()).with_finish_reason(Some(FinishReason::Stop)),
     ]);
-    let first = RunTracker::default();
-    first.start();
-    first.tool_called();
-    first.tool_finished("success");
-    let first = first
-        .complete(CompletionOutcome {
-            session_id: "random-a",
-            status: TerminalStatus::Completed,
-            response: &response,
-        })
-        .normalized();
-    let second = RunTracker::default();
-    second.start();
-    second.tool_called();
-    second.tool_finished("success");
-    let second = second
-        .complete(CompletionOutcome {
-            session_id: "random-b",
-            status: TerminalStatus::Completed,
-            response: &response,
-        })
-        .normalized();
-
+    let first = track_sample_run("random-a", &response);
+    let second = track_sample_run("random-b", &response);
     assert_eq!(
         serde_json::to_vec(&first).unwrap(),
         serde_json::to_vec(&second).unwrap()

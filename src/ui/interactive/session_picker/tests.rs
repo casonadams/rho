@@ -54,25 +54,33 @@ fn session_modal_labels_carry_the_session_id_in_the_description() {
 }
 
 #[test]
-fn picker_action_navigates_and_filters() {
+fn picker_action_navigates() {
     let mut modal = modal();
     picker_action(&mut modal, &key(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(modal.selected, 1);
     picker_action(&mut modal, &key(KeyCode::Up, KeyModifiers::NONE));
     assert_eq!(modal.selected, 0);
+}
 
+#[test]
+fn picker_action_filters_query() {
+    let mut modal = modal();
     for c in "sec".chars() {
         picker_action(&mut modal, &key(KeyCode::Char(c), KeyModifiers::NONE));
     }
     assert_eq!(modal.filter_query, "sec");
     assert_eq!(modal.options.len(), 1);
-    assert_eq!(
-        modal.selected_option().and_then(|o| o.description.as_deref()),
-        Some("bbb-222")
-    );
+    let desc = modal.selected_option().and_then(|o| o.description.as_deref());
+    assert_eq!(desc, Some("bbb-222"));
+}
 
+#[test]
+fn picker_action_backspace_removes_filter() {
+    let mut modal = modal();
+    picker_action(&mut modal, &key(KeyCode::Char('s'), KeyModifiers::NONE));
+    picker_action(&mut modal, &key(KeyCode::Char('e'), KeyModifiers::NONE));
     picker_action(&mut modal, &key(KeyCode::Backspace, KeyModifiers::NONE));
-    assert_eq!(modal.filter_query, "se");
+    assert_eq!(modal.filter_query, "s");
 }
 
 #[test]
@@ -86,7 +94,7 @@ fn picker_action_enter_selects_the_highlighted_session() {
 }
 
 #[test]
-fn picker_action_esc_and_ctrl_c_cancel_and_ctrl_d_is_ignored() {
+fn picker_action_cancels() {
     let mut state = modal();
     assert!(matches!(
         picker_action(&mut state, &key(KeyCode::Esc, KeyModifiers::NONE)),
@@ -97,18 +105,27 @@ fn picker_action_esc_and_ctrl_c_cancel_and_ctrl_d_is_ignored() {
         picker_action(&mut state, &key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
         PickerAction::Cancel
     ));
+}
+
+#[test]
+fn picker_action_ctrl_d_is_ignored() {
     let mut state = modal();
     picker_action(&mut state, &key(KeyCode::Char('d'), KeyModifiers::CONTROL));
-    assert_eq!(state.filter_query, "", "ctrl+d is a no-op in the startup picker");
+    assert_eq!(state.filter_query, "");
 }
 
 #[test]
 fn relative_time_buckets() {
     let now = Utc::now();
-    assert_eq!(format_relative_time(now), "just now");
-    assert_eq!(format_relative_time(now - ChronoDuration::minutes(5)), "5m ago");
-    assert_eq!(format_relative_time(now - ChronoDuration::hours(3)), "3h ago");
-    assert_eq!(format_relative_time(now - ChronoDuration::days(2)), "2d ago");
-    assert_eq!(format_relative_time(now - ChronoDuration::days(10)), "10d ago");
+    let cases = [
+        (now, "just now"),
+        (now - ChronoDuration::minutes(5), "5m ago"),
+        (now - ChronoDuration::hours(3), "3h ago"),
+        (now - ChronoDuration::days(2), "2d ago"),
+        (now - ChronoDuration::days(10), "10d ago"),
+    ];
+    for (time, expected) in cases {
+        assert_eq!(format_relative_time(time), expected);
+    }
     assert!(format_relative_time(now - ChronoDuration::days(45)).contains('-'));
 }

@@ -1,20 +1,23 @@
+use super::super::AntigravityClient;
 use super::discovery::{extract_project_id, is_selectable_runtime_model};
 use super::http::{antigravity_headers, friendly_error};
+use crate::auth::TokenProvider;
 use rig::completion::CompletionRequest;
 
 #[test]
 fn is_selectable_runtime_model_filters_correctly() {
-    assert!(is_selectable_runtime_model("gemini-2.5-pro"));
-    assert!(is_selectable_runtime_model("gemini-3.7-flash"));
-    assert!(is_selectable_runtime_model("claude-sonnet-4-6"));
-    assert!(is_selectable_runtime_model("gpt-oss-1"));
-
-    // Excluded patterns
-    assert!(!is_selectable_runtime_model("gemini-image-gen"));
-    assert!(!is_selectable_runtime_model("gemini-2.5 chat"));
-    assert!(!is_selectable_runtime_model("MODEL_GEMINI_1"));
-    assert!(!is_selectable_runtime_model("text-embedding-004"));
-    assert!(!is_selectable_runtime_model("chat-bison-001"));
+    for model in ["gemini-2.5-pro", "gemini-3.7-flash", "claude-sonnet-4-6", "gpt-oss-1"] {
+        assert!(is_selectable_runtime_model(model));
+    }
+    for model in [
+        "gemini-image-gen",
+        "gemini-2.5 chat",
+        "MODEL_GEMINI_1",
+        "text-embedding-004",
+        "chat-bison-001",
+    ] {
+        assert!(!is_selectable_runtime_model(model));
+    }
 }
 
 #[test]
@@ -51,49 +54,79 @@ fn extract_project_id_from_nested_arrays() {
 }
 
 #[test]
-fn friendly_error_formats_known_error_cases() {
-    let quota_body = r#"{"error":{"message":"Individual quota reached. Resets in 2h45m."}}"#;
-    let quota_err = friendly_error(Some(429), quota_body);
-    assert!(quota_err.contains("Resets in 2h45m"));
+fn friendly_error_formats_quota_cases() {
+    let cases = [
+        (
+            Some(429),
+            r#"{"error":{"message":"Individual quota reached. Resets in 2h45m."}}"#,
+            "Resets in 2h45m",
+        ),
+        (
+            Some(429),
+            r#"{"error":{"message":"Resource has been exhausted (e.g. check quota)."}}"#,
+            "rate limit reached",
+        ),
+    ];
+    for (status, body, expected) in cases {
+        assert!(friendly_error(status, body).contains(expected));
+    }
+}
 
-    let rate_limit_body = r#"{"error":{"message":"Resource has been exhausted (e.g. check quota)."}}"#;
-    let rate_err = friendly_error(Some(429), rate_limit_body);
-    assert!(rate_err.contains("rate limit reached"));
+#[test]
+fn friendly_error_formats_auth_and_not_found_cases() {
+    let cases = [
+        (Some(401), "Unauthorized", "rho login antigravity"),
+        (
+            Some(403),
+            r#"{"error":{"message":"Permission denied"}}"#,
+            "access denied",
+        ),
+        (
+            Some(404),
+            r#"{"error":{"message":"Model not found"}}"#,
+            "Model not available",
+        ),
+    ];
+    for (status, body, expected) in cases {
+        assert!(friendly_error(status, body).contains(expected));
+    }
+}
 
-    let auth_err = friendly_error(Some(401), "Unauthorized");
-    assert!(auth_err.contains("rho login antigravity"));
-
-    let forbidden = friendly_error(Some(403), r#"{"error":{"message":"Permission denied"}}"#);
-    assert!(forbidden.contains("access denied"));
-    assert!(forbidden.contains("Permission denied"));
-
-    let not_found = friendly_error(Some(404), r#"{"error":{"message":"Model not found"}}"#);
-    assert!(not_found.contains("Model not available"));
-
-    let capacity = friendly_error(Some(503), r#"{"error":{"message":"No capacity available"}}"#);
-    assert!(capacity.contains("no capacity right now"));
-
-    let generic_500 = friendly_error(Some(500), r#"{"error":{"message":"Internal server error"}}"#);
-    assert!(generic_500.contains("API error (500)"));
-
-    let none_status = friendly_error(None, "Connection closed");
-    assert!(none_status.contains("Antigravity request failed: Connection closed"));
+#[test]
+fn friendly_error_formats_server_and_network_error_cases() {
+    let cases = [
+        (
+            Some(503),
+            r#"{"error":{"message":"No capacity available"}}"#,
+            "no capacity right now",
+        ),
+        (
+            Some(500),
+            r#"{"error":{"message":"Internal server error"}}"#,
+            "API error (500)",
+        ),
+        (
+            None,
+            "Connection closed",
+            "Antigravity request failed: Connection closed",
+        ),
+    ];
+    for (status, body, expected) in cases {
+        assert!(friendly_error(status, body).contains(expected));
+    }
 }
 
 #[test]
 fn antigravity_headers_sets_expected_keys() {
     let headers = antigravity_headers("test-secret-token");
-    assert_eq!(
+    let actual = (
         headers.get("authorization").and_then(|v| v.to_str().ok()),
-        Some("Bearer test-secret-token")
-    );
-    assert_eq!(
         headers.get("content-type").and_then(|v| v.to_str().ok()),
-        Some("application/json")
     );
-    assert!(headers.get("user-agent").is_some());
-    assert!(headers.get("x-goog-api-client").is_some());
-    assert!(headers.get("client-metadata").is_some());
+    assert_eq!(actual, (Some("Bearer test-secret-token"), Some("application/json")));
+    for key in ["user-agent", "x-goog-api-client", "client-metadata"] {
+        assert!(headers.get(key).is_some());
+    }
 }
 
 fn test_completion_request() -> CompletionRequest {
@@ -112,158 +145,97 @@ fn test_completion_request() -> CompletionRequest {
     }
 }
 
-#[tokio::test]
-async fn open_stream_retries_on_401_with_forced_token_refresh() {
-    use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
+struct MockTokenProvider {
+    token_val: String,
+    refresh_count: Arc<AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl TokenProvider for MockTokenProvider {
+    async fn token(&self) -> Result<String, String> {
+        Ok(self.token_val.clone())
+    }
+    async fn force_refresh(&self) -> Result<String, String> {
+        self.refresh_count.fetch_add(1, Ordering::SeqCst);
+        Ok("token-refreshed".into())
+    }
+}
+
+struct FailingRefreshProvider;
+
+#[async_trait::async_trait]
+impl TokenProvider for FailingRefreshProvider {
+    async fn token(&self) -> Result<String, String> {
+        Ok("stale-token".into())
+    }
+    async fn force_refresh(&self) -> Result<String, String> {
+        Err("token revoked".into())
+    }
+}
+
+async fn spawn_two_responses(resp1: &'static str, resp2: &'static str) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-
     tokio::spawn(async move {
-        // Request 1: 401 Unauthorized
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf).await;
-            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-            let _ = stream.write_all(resp.as_bytes()).await;
-        }
-        // Request 2: 200 OK
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 4096];
-            let n = stream.read(&mut buf).await.unwrap_or(0);
-            let req_str = String::from_utf8_lossy(&buf[..n]);
-            assert!(req_str.contains("Bearer token-refreshed"));
-            let resp = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
-            let _ = stream.write_all(resp.as_bytes()).await;
+        for resp in [resp1, resp2] {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
         }
     });
+    addr
+}
 
-    struct MockProvider {
-        refresh_count: Arc<AtomicUsize>,
-    }
-
-    #[async_trait::async_trait]
-    impl TokenProvider for MockProvider {
-        async fn token(&self) -> Result<String, String> {
-            Ok("token-initial".into())
-        }
-        async fn force_refresh(&self) -> Result<String, String> {
-            self.refresh_count.fetch_add(1, Ordering::SeqCst);
-            Ok("token-refreshed".into())
-        }
-    }
+#[tokio::test]
+async fn open_stream_retries_on_401_with_forced_token_refresh() {
+    let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+    let r200 = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
+    let addr = spawn_two_responses(r401, r200).await;
 
     let refresh_count = Arc::new(AtomicUsize::new(0));
-    let provider = Arc::new(MockProvider {
+    let provider = Arc::new(MockTokenProvider {
+        token_val: "token-initial".into(),
         refresh_count: refresh_count.clone(),
     });
-
     let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro")
         .with_endpoint(format!("http://{addr}"));
 
-    let req = test_completion_request();
-    let response = client.open_stream(&req).await;
-    assert!(response.is_ok(), "Expected retry to succeed with 200 OK");
+    assert!(client.open_stream(&test_completion_request()).await.is_ok());
     assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
 async fn open_stream_stops_after_single_retry_if_401_persists() {
-    use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    tokio::spawn(async move {
-        // Request 1: 401 Unauthorized
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf).await;
-            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-            let _ = stream.write_all(resp.as_bytes()).await;
-        }
-        // Request 2 (retry): 401 Unauthorized again
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf).await;
-            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-            let _ = stream.write_all(resp.as_bytes()).await;
-        }
-    });
-
-    struct MockProvider {
-        refresh_count: Arc<AtomicUsize>,
-    }
-
-    #[async_trait::async_trait]
-    impl TokenProvider for MockProvider {
-        async fn token(&self) -> Result<String, String> {
-            Ok("token-1".into())
-        }
-        async fn force_refresh(&self) -> Result<String, String> {
-            self.refresh_count.fetch_add(1, Ordering::SeqCst);
-            Ok("token-2".into())
-        }
-    }
+    let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+    let addr = spawn_two_responses(r401, r401).await;
 
     let refresh_count = Arc::new(AtomicUsize::new(0));
-    let provider = Arc::new(MockProvider {
+    let provider = Arc::new(MockTokenProvider {
+        token_val: "token-1".into(),
         refresh_count: refresh_count.clone(),
     });
-
     let client = AntigravityClient::with_token_provider(provider, "test-project", "gemini-2.5-pro")
         .with_endpoint(format!("http://{addr}"));
 
-    let req = test_completion_request();
-    let err = client.open_stream(&req).await.unwrap_err();
-    assert_eq!(err.0, Some(401));
-    assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+    let err = client.open_stream(&test_completion_request()).await.unwrap_err();
+    assert_eq!((err.0, refresh_count.load(Ordering::SeqCst)), (Some(401), 1));
 }
 
 #[tokio::test]
 async fn open_stream_fails_immediately_if_refresh_fails() {
-    use super::*;
-    use std::sync::Arc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
-
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 4096];
-            let _ = stream.read(&mut buf).await;
-            let resp = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
-            let _ = stream.write_all(resp.as_bytes()).await;
-        }
-    });
-
-    struct FailingRefreshProvider;
-
-    #[async_trait::async_trait]
-    impl TokenProvider for FailingRefreshProvider {
-        async fn token(&self) -> Result<String, String> {
-            Ok("stale-token".into())
-        }
-        async fn force_refresh(&self) -> Result<String, String> {
-            Err("token revoked".into())
-        }
-    }
+    let r401 = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized";
+    let addr = spawn_two_responses(r401, r401).await;
 
     let client =
         AntigravityClient::with_token_provider(Arc::new(FailingRefreshProvider), "test-project", "gemini-2.5-pro")
             .with_endpoint(format!("http://{addr}"));
-
-    let req = test_completion_request();
-    let err = client.open_stream(&req).await.unwrap_err();
+    let err = client.open_stream(&test_completion_request()).await.unwrap_err();
     assert_eq!(err.0, Some(401));
 }

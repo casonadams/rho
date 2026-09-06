@@ -6,28 +6,38 @@ use serde_json::json;
 use std::path::Path;
 
 #[test]
-fn path_module_normalization_and_containment() {
-    let ws = Path::new("/ws");
-    assert!(is_safe_system_path("/dev/null"));
-    assert!(is_safe_system_path("/dev/stderr"));
+fn path_module_system_safety() {
+    assert!(is_safe_system_path("/dev/null") && is_safe_system_path("/dev/stderr"));
     assert!(!is_safe_system_path("/tmp/foo"));
+}
 
-    assert!(!is_path_outside_working_dir("src/main.rs", Some(ws)));
-    assert!(!is_path_outside_working_dir("src/../src/lib.rs", Some(ws)));
-    assert!(!is_path_outside_working_dir("/dev/null", Some(ws)));
-    assert!(is_path_outside_working_dir("/etc/passwd", Some(ws)));
-    assert!(is_path_outside_working_dir("../sibling/file", Some(ws)));
-    assert!(is_path_outside_working_dir("a/../../etc/passwd", Some(ws)));
+#[test]
+fn path_module_working_dir_containment() {
+    let ws = Path::new("/ws");
+    for path in ["src/main.rs", "src/../src/lib.rs", "/dev/null"] {
+        assert!(!is_path_outside_working_dir(path, Some(ws)));
+    }
+    for path in ["/etc/passwd", "../sibling/file", "a/../../etc/passwd"] {
+        assert!(is_path_outside_working_dir(path, Some(ws)));
+    }
+}
 
-    let values = path_policy_values("src/main.rs", Some(ws));
-    assert!(values.contains(&"src/main.rs".to_string()));
+#[test]
+fn path_module_tool_extraction() {
+    let ws = Path::new("/ws");
+    assert!(path_policy_values("src/main.rs", Some(ws)).contains(&"src/main.rs".to_string()));
 
     let tool_args = json!({"path": "src/main.rs", "old_text": "foo"});
     assert_eq!(extract_tool_path("read", &tool_args), Some("src/main.rs".to_string()));
     assert_eq!(extract_tool_path("bash", &tool_args), None);
+}
 
+#[test]
+fn path_module_mcp_extraction() {
     let mcp_args = json!({"server": "playwright", "tool": "navigate", "arguments": {"path": "/tmp/test.html"}});
     assert_eq!(extract_mcp_path(&mcp_args), Some("/tmp/test.html".to_string()));
-    let targets = extract_mcp_targets(&mcp_args);
-    assert_eq!(targets, vec!["playwright:navigate", "playwright"]);
+    assert_eq!(
+        extract_mcp_targets(&mcp_args),
+        vec!["playwright:navigate", "playwright"]
+    );
 }

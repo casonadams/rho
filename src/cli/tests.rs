@@ -1,6 +1,6 @@
 #[test]
-fn rpc_request_and_response_roundtrip() {
-    use rho_harness_core::rpc::protocol::{RpcCommand, RpcRequest, RpcResponse};
+fn rpc_request_roundtrip() {
+    use rho_harness_core::rpc::protocol::{RpcCommand, RpcRequest};
 
     let prompt_req = RpcRequest {
         id: Some("1".to_string()),
@@ -14,6 +14,11 @@ fn rpc_request_and_response_roundtrip() {
     let deserialized: RpcRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.id, Some("1".to_string()));
     assert!(matches!(deserialized.command, RpcCommand::Prompt { ref message, .. } if message == "Analyze repo"));
+}
+
+#[test]
+fn rpc_response_roundtrip() {
+    use rho_harness_core::rpc::protocol::RpcResponse;
 
     let resp = RpcResponse::success(Some("1".to_string()), "prompt", None);
     let resp_json = serde_json::to_string(&resp).unwrap();
@@ -69,16 +74,8 @@ async fn test_handle_command_remove_missing() {
     assert!(res.is_err());
 }
 
-#[tokio::test]
-async fn test_handle_command_install_duplicate_error() {
-    use super::commands::handle_command;
-    use crate::auth::AuthStore;
-    use crate::config::Config;
-    use crate::config::cli::Commands;
+fn config_with_dup_plugin(dir: &std::path::Path) -> crate::config::Config {
     use rho_harness_core::config::PluginConfig;
-    use tempfile::tempdir;
-
-    let temp = tempdir().unwrap();
     let mut plugins = std::collections::BTreeMap::new();
     plugins.insert(
         "rho-plugin-dup".to_string(),
@@ -87,11 +84,22 @@ async fn test_handle_command_install_duplicate_error() {
             ..Default::default()
         },
     );
-    let config = Config {
-        config_dir: temp.path().to_path_buf(),
+    crate::config::Config {
+        config_dir: dir.to_path_buf(),
         plugins,
         ..Default::default()
-    };
+    }
+}
+
+#[tokio::test]
+async fn test_handle_command_install_duplicate_error() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::cli::Commands;
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let config = config_with_dup_plugin(temp.path());
     let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
     let res = handle_command(
         Commands::Install {
@@ -109,25 +117,11 @@ async fn test_handle_command_install_duplicate_error() {
 async fn test_handle_command_plugin_install_duplicate_error() {
     use super::commands::handle_command;
     use crate::auth::AuthStore;
-    use crate::config::Config;
     use crate::config::cli::{Commands, PluginCommands};
-    use rho_harness_core::config::PluginConfig;
     use tempfile::tempdir;
 
     let temp = tempdir().unwrap();
-    let mut plugins = std::collections::BTreeMap::new();
-    plugins.insert(
-        "rho-plugin-dup".to_string(),
-        PluginConfig {
-            command: Some("rho-plugin-dup".to_string()),
-            ..Default::default()
-        },
-    );
-    let config = Config {
-        config_dir: temp.path().to_path_buf(),
-        plugins,
-        ..Default::default()
-    };
+    let config = config_with_dup_plugin(temp.path());
     let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
     let res = handle_command(
         Commands::Plugin {

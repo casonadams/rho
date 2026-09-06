@@ -31,8 +31,7 @@ fmt-check: ## Check formatting of Rust source files
 
 .PHONY: clippy
 clippy: ## Run Clippy with warnings treated as errors
-	$(CARGO) clippy --workspace --lib --bins -- -D warnings
-	$(CARGO) clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -D warnings
+	$(CARGO) clippy --workspace --all-targets -- -D warnings
 
 .PHONY: clippy-fix
 clippy-fix: ## Automatically fix Clippy suggestions where possible
@@ -40,7 +39,7 @@ clippy-fix: ## Automatically fix Clippy suggestions where possible
 
 .PHONY: test
 test: ## Run tests across the workspace
-	$(CARGO) test --workspace
+	$(CARGO) test --workspace --quiet
 
 .PHONY: test-cargo
 test-cargo: ## Run standard cargo tests across all targets

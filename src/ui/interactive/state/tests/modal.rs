@@ -53,26 +53,32 @@ fn modal_filter_fuzzy_matches_subsequences_ranked() {
 }
 
 #[test]
-fn test_modal_state_layout_and_scroll_behavior() {
-    let mut modal = ModalState::new("Test", "body", vec![]);
+fn test_modal_state_option_layout() {
+    let modal = ModalState::new("Test", "body", vec![]);
     assert_eq!(modal.option_layout, OptionLayout::Vertical);
+    let horizontal_modal = modal.with_option_layout(OptionLayout::Horizontal);
+    assert_eq!(horizontal_modal.option_layout, OptionLayout::Horizontal);
+}
+
+#[test]
+fn test_modal_state_scroll_down_and_up() {
+    let mut modal = ModalState::new("Test", "body", vec![]);
     assert_eq!(modal.body_scroll, 0);
 
-    let horizontal_modal = modal.clone().with_option_layout(OptionLayout::Horizontal);
-    assert_eq!(horizontal_modal.option_layout, OptionLayout::Horizontal);
-
     modal.scroll_body_down(5);
-    assert_eq!(modal.body_scroll, 1);
     modal.scroll_body_down(5);
     assert_eq!(modal.body_scroll, 2);
 
     modal.scroll_body_up();
     assert_eq!(modal.body_scroll, 1);
     modal.scroll_body_up();
-    assert_eq!(modal.body_scroll, 0);
     modal.scroll_body_up();
     assert_eq!(modal.body_scroll, 0);
+}
 
+#[test]
+fn test_modal_state_clamp_body_scroll() {
+    let mut modal = ModalState::new("Test", "body", vec![]);
     modal.body_scroll = 10;
     modal.clamp_body_scroll(4);
     assert_eq!(modal.body_scroll, 4);

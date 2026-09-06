@@ -11,15 +11,7 @@ fn output_cursor_tracks_wrap_boundaries_styles_and_wide_text() {
     assert_eq!(output_cursor("\u{1b}[2mwide\u{1b}[0m", 10), (4, false));
 }
 
-#[test]
-fn output_erases_then_writes_then_redraws_with_one_flush() {
-    let (backend, operations, _) = FakeTerminal::new(10);
-    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
-    operations.borrow_mut().clear();
-
-    controller.write_output("answer\nnext").unwrap();
-
-    let operations = operations.borrow();
+fn assert_operation_order(operations: &[Operation]) {
     let output_index = operations
         .iter()
         .position(|operation| operation == &Operation::Write("answer\r\nnext".into()))
@@ -37,13 +29,20 @@ fn output_erases_then_writes_then_redraws_with_one_flush() {
             )
         })
         .unwrap();
-    assert!(last_clear < output_index);
-    assert!(output_index < divider_index);
+    assert!(last_clear < output_index && output_index < divider_index);
+}
+
+#[test]
+fn output_erases_then_writes_then_redraws_with_one_flush() {
+    let (backend, operations, _) = FakeTerminal::new(10);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    operations.borrow_mut().clear();
+
+    controller.write_output("answer\nnext").unwrap();
+    let ops = operations.borrow();
+    assert_operation_order(&ops);
     assert_eq!(
-        operations
-            .iter()
-            .filter(|operation| operation == &&Operation::Flush)
-            .count(),
+        ops.iter().filter(|operation| operation == &&Operation::Flush).count(),
         1
     );
 }

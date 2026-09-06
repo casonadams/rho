@@ -30,18 +30,26 @@ fn completion_rejects_invalid_cursor_boundaries() {
 }
 
 #[test]
-fn history_navigation_restores_the_active_draft() {
+fn history_navigation_previous_and_next() {
     let path = std::env::temp_dir().join(format!("rho-history-{}.txt", uuid::Uuid::new_v4()));
     let mut history = InteractiveHistory::with_file(3, path.clone()).unwrap();
     history.record("first").unwrap();
     history.record("second").unwrap();
 
-    assert_eq!(history.previous("draft").as_deref(), Some("second"));
-    assert_eq!(history.previous("ignored").as_deref(), Some("first"));
-    assert_eq!(history.previous("ignored").as_deref(), Some("first"));
-    assert_eq!(history.next_entry().as_deref(), Some("second"));
-    assert_eq!(history.next_entry().as_deref(), Some("draft"));
-    assert_eq!(history.next_entry(), None);
-
+    assert_eq!(
+        (
+            history.previous("draft").as_deref(),
+            history.previous("ignored").as_deref()
+        ),
+        (Some("second"), Some("first"))
+    );
+    assert_eq!(
+        (
+            history.next_entry().as_deref(),
+            history.next_entry().as_deref(),
+            history.next_entry()
+        ),
+        (Some("second"), Some("draft"), None)
+    );
     let _ = fs::remove_file(path);
 }

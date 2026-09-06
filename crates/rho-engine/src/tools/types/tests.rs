@@ -5,15 +5,15 @@ use crate::tools::web::{
 use crate::tools::{BashTool, EditTool, FdTool, ReadTool, WriteTool};
 use rig::tool::{ToolContext, ToolErrorKind, ToolSet};
 
-fn tool_set() -> ToolSet {
-    let base = std::env::temp_dir();
-    let http = HttpClient::new(false).unwrap();
-    let mut tools = ToolSet::default();
-    tools.add_tool(ReadTool::new(&base));
-    tools.add_tool(WriteTool::new(&base));
-    tools.add_tool(EditTool::new(&base));
-    tools.add_tool(BashTool::new(&base));
-    tools.add_tool(FdTool::new(&base));
+fn add_core_tools(tools: &mut ToolSet, base: &std::path::Path) {
+    tools.add_tool(ReadTool::new(base));
+    tools.add_tool(WriteTool::new(base));
+    tools.add_tool(EditTool::new(base));
+    tools.add_tool(BashTool::new(base));
+    tools.add_tool(FdTool::new(base));
+}
+
+fn add_web_tools(tools: &mut ToolSet, http: HttpClient) {
     tools.add_tool(WebSearchTool::new(
         http.clone(),
         SearchRateLimiter::new(0),
@@ -31,50 +31,34 @@ fn tool_set() -> ToolSet {
             default_limit: 20,
         },
     ));
+}
+
+fn tool_set() -> ToolSet {
+    let base = std::env::temp_dir();
+    let http = HttpClient::new(false).unwrap();
+    let mut tools = ToolSet::default();
+    add_core_tools(&mut tools, &base);
+    add_web_tools(&mut tools, http);
     tools
 }
 
 #[test]
 fn normalize_schema_replaces_boolean_subschemas() {
     let mut schema = serde_json::json!({
-        "$defs": {
-            "Item": {
-                "type": "string"
-            }
-        },
+        "$defs": { "Item": { "type": "string" } },
         "type": "object",
-        "properties": {
-            "options": {
-                "type": ["array", "null"],
-                "items": true
-            },
-            "item": {
-                "$ref": "#/$defs/Item"
-            },
-            "extra": true
-        },
+        "properties": { "options": { "type": ["array", "null"], "items": true }, "item": { "$ref": "#/$defs/Item" }, "extra": true },
         "prefixItems": [true],
         "anyOf": [true, {"type": "string"}]
     });
     normalize_schema(&mut schema);
-    assert_eq!(
-        schema,
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "options": {
-                    "type": "array",
-                    "items": {}
-                },
-                "item": {
-                    "type": "string"
-                },
-                "extra": {}
-            },
-            "prefixItems": [{}],
-            "anyOf": [{}, {"type": "string"}]
-        })
-    );
+    let expected = serde_json::json!({
+        "type": "object",
+        "properties": { "options": { "type": "array", "items": {} }, "item": { "type": "string" }, "extra": {} },
+        "prefixItems": [{}],
+        "anyOf": [{}, {"type": "string"}]
+    });
+    assert_eq!(schema, expected);
 }
 
 #[test]

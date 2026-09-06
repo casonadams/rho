@@ -13,101 +13,52 @@ fn sample_tool() -> TranscriptItem {
     })
 }
 
+fn render_cached(
+    cache: &mut TranscriptRenderCache,
+    (item, theme): (&TranscriptItem, &Theme),
+    (expanded, hide): (bool, bool),
+) -> String {
+    cache
+        .get_or_render(
+            0,
+            TranscriptRenderInput {
+                item,
+                theme,
+                width: 80,
+                tools_expanded: expanded,
+                hide_thinking: hide,
+            },
+        )
+        .to_string()
+}
+
 #[test]
 fn tool_caching_populates_both_standard_and_alternate_lazily() {
     let mut cache = TranscriptRenderCache::new();
-    let tool = sample_tool();
-    let theme = Theme::default();
+    let (tool, theme) = (sample_tool(), Theme::default());
 
-    let collapsed = cache
-        .get_or_render(
-            0,
-            TranscriptRenderInput {
-                item: &tool,
-                theme: &theme,
-                width: 80,
-                tools_expanded: false,
-                hide_thinking: false,
-            },
-        )
-        .to_string();
+    let collapsed = render_cached(&mut cache, (&tool, &theme), (false, false));
+    let entry = cache.entry(0).unwrap();
+    assert!(entry.standard.is_some() && entry.alternate.is_none());
 
-    assert!(cache.entry(0).unwrap().standard.is_some());
-    assert!(cache.entry(0).unwrap().alternate.is_none());
+    let expanded = render_cached(&mut cache, (&tool, &theme), (true, false));
+    let entry = cache.entry(0).unwrap();
+    assert!(entry.standard.is_some() && entry.alternate.is_some() && collapsed != expanded);
 
-    let expanded = cache
-        .get_or_render(
-            0,
-            TranscriptRenderInput {
-                item: &tool,
-                theme: &theme,
-                width: 80,
-                tools_expanded: true,
-                hide_thinking: false,
-            },
-        )
-        .to_string();
-
-    assert!(cache.entry(0).unwrap().standard.is_some());
-    assert!(cache.entry(0).unwrap().alternate.is_some());
-    assert_ne!(collapsed, expanded);
-
-    let collapsed_second = cache.get_or_render(
-        0,
-        TranscriptRenderInput {
-            item: &tool,
-            theme: &theme,
-            width: 80,
-            tools_expanded: false,
-            hide_thinking: false,
-        },
-    );
+    let collapsed_second = render_cached(&mut cache, (&tool, &theme), (false, false));
     assert_eq!(collapsed_second, collapsed);
 
-    let expanded_second = cache.get_or_render(
-        0,
-        TranscriptRenderInput {
-            item: &tool,
-            theme: &theme,
-            width: 80,
-            tools_expanded: true,
-            hide_thinking: false,
-        },
-    );
+    let expanded_second = render_cached(&mut cache, (&tool, &theme), (true, false));
     assert_eq!(expanded_second, expanded);
 }
 
 #[test]
 fn thinking_caching_populates_both_standard_and_alternate_lazily() {
     let mut cache = TranscriptRenderCache::new();
-    let thinking = TranscriptItem::Thinking("internal thoughts".into());
-    let theme = Theme::default();
+    let (thinking, theme) = (TranscriptItem::Thinking("internal thoughts".into()), Theme::default());
 
-    let visible = cache
-        .get_or_render(
-            0,
-            TranscriptRenderInput {
-                item: &thinking,
-                theme: &theme,
-                width: 80,
-                tools_expanded: false,
-                hide_thinking: false,
-            },
-        )
-        .to_string();
-
-    let hidden = cache
-        .get_or_render(
-            0,
-            TranscriptRenderInput {
-                item: &thinking,
-                theme: &theme,
-                width: 80,
-                tools_expanded: false,
-                hide_thinking: true,
-            },
-        )
-        .to_string();
+    let visible = render_cached(&mut cache, (&thinking, &theme), (false, false));
+    let hidden = render_cached(&mut cache, (&thinking, &theme), (false, true));
 
     assert_ne!(visible, hidden);
     assert!(hidden.contains("Thinking..."));

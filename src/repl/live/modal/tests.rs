@@ -7,27 +7,44 @@ use chrono::{Duration, Utc};
 #[test]
 fn test_format_relative_time_intervals() {
     let now = Utc::now();
-    assert_eq!(format_relative_time(now), "just now");
-    assert_eq!(format_relative_time(now - Duration::seconds(30)), "just now");
-    assert_eq!(format_relative_time(now - Duration::minutes(5)), "5m ago");
-    assert_eq!(format_relative_time(now - Duration::hours(3)), "3h ago");
-    assert_eq!(format_relative_time(now - Duration::days(4)), "4d ago");
     let old = now - Duration::days(40);
-    assert_eq!(format_relative_time(old), old.format("%Y-%m-%d").to_string());
+    let cases = [
+        (now, "just now".to_string()),
+        (now - Duration::seconds(30), "just now".to_string()),
+        (now - Duration::minutes(5), "5m ago".to_string()),
+        (now - Duration::hours(3), "3h ago".to_string()),
+        (now - Duration::days(4), "4d ago".to_string()),
+        (old, old.format("%Y-%m-%d").to_string()),
+    ];
+    for (time, expected) in cases {
+        assert_eq!(format_relative_time(time), expected);
+    }
 }
 
 #[test]
-fn test_is_input_trigger_and_prompt_labels() {
-    assert!(is_input_trigger("Deny with reason"));
-    assert!(is_input_trigger("Allow with feedback"));
-    assert!(is_input_trigger("Type something"));
-    assert!(is_input_trigger("Accept input"));
+fn test_is_input_trigger() {
+    for trigger in [
+        "Deny with reason",
+        "Allow with feedback",
+        "Type something",
+        "Accept input",
+    ] {
+        assert!(is_input_trigger(trigger));
+    }
     assert!(!is_input_trigger("Yes, approve"));
+}
 
-    assert_eq!(prompt_label_for("Deny with reason"), "reason");
-    assert_eq!(prompt_label_for("Permission requested"), "reason");
-    assert_eq!(prompt_label_for("Approve tool"), "reason");
-    assert_eq!(prompt_label_for("Type something"), "answer");
+#[test]
+fn test_prompt_labels_for_triggers() {
+    let label_cases = [
+        ("Deny with reason", "reason"),
+        ("Permission requested", "reason"),
+        ("Approve tool", "reason"),
+        ("Type something", "answer"),
+    ];
+    for (prompt, expected) in label_cases {
+        assert_eq!(prompt_label_for(prompt), expected);
+    }
 }
 
 #[test]

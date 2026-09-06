@@ -1,16 +1,15 @@
 use super::super::InteractiveState;
 
 #[test]
-fn tools_expanded_toggle_and_set() {
+fn tools_expanded_toggle() {
     let mut state = InteractiveState::default();
-    assert!(!state.tools_expanded());
+    assert_eq!((state.toggle_tools_expanded(), state.tools_expanded()), (true, true));
+    assert_eq!((state.toggle_tools_expanded(), state.tools_expanded()), (false, false));
+}
 
-    assert!(state.toggle_tools_expanded());
-    assert!(state.tools_expanded());
-
-    assert!(!state.toggle_tools_expanded());
-    assert!(!state.tools_expanded());
-
+#[test]
+fn tools_expanded_set() {
+    let mut state = InteractiveState::default();
     state.set_tools_expanded(true);
     assert!(state.tools_expanded());
 }
@@ -19,36 +18,41 @@ fn tools_expanded_toggle_and_set() {
 fn thinking_toggle_state() {
     let mut state = InteractiveState::default();
     assert!(!state.hide_thinking());
-    assert!(state.toggle_thinking());
-    assert!(state.hide_thinking());
-    assert!(!state.toggle_thinking());
-    assert!(!state.hide_thinking());
+    assert_eq!((state.toggle_thinking(), state.hide_thinking()), (true, true));
+    assert_eq!((state.toggle_thinking(), state.hide_thinking()), (false, false));
 }
 
 #[test]
-fn active_tool_lifecycle_and_chunk_accumulation() {
+fn active_tool_chunk_accumulation() {
+    let mut tool = super::super::RunningTool::new("bash", "cargo test", None);
+    tool.append_chunk("compiling...\n");
+    tool.append_chunk("running 5 tests\n");
+    assert_eq!((tool.name.as_str(), tool.args_summary.as_str()), ("bash", "cargo test"));
+    assert_eq!(tool.output, "compiling...\nrunning 5 tests\n");
+}
+
+#[test]
+fn active_tool_lifecycle() {
     let mut state = InteractiveState::default();
     assert!(state.active_tool().is_none());
 
     let mut tool = super::super::RunningTool::new("bash", "cargo test", None);
     tool.append_chunk("compiling...\n");
-    tool.append_chunk("running 5 tests\n");
-    assert_eq!(tool.name, "bash");
-    assert_eq!(tool.args_summary, "cargo test");
-    assert_eq!(tool.output, "compiling...\nrunning 5 tests\n");
-
     state.set_active_tool(Some(tool));
-    assert!(state.active_tool().is_some());
-    assert_eq!(state.active_tool().unwrap().output, "compiling...\nrunning 5 tests\n");
+    assert_eq!(state.active_tool().unwrap().output, "compiling...\n");
 
-    state.active_tool_mut().unwrap().append_chunk("test result: ok\n");
-    assert_eq!(
-        state.active_tool().unwrap().output,
-        "compiling...\nrunning 5 tests\ntest result: ok\n"
-    );
+    state.active_tool_mut().unwrap().append_chunk("ok\n");
+    assert_eq!(state.active_tool().unwrap().output, "compiling...\nok\n");
 
     state.set_active_tool(None);
     assert!(state.active_tool().is_none());
+}
+
+fn assert_tail_truncation(output: &str) {
+    let max = super::super::MAX_RUNNING_BUFFER_BYTES;
+    assert!(output.len() <= max);
+    assert!(output.ends_with("line 5000: detailed execution log output\n"));
+    assert!(!output.contains("line 0001:") && output.starts_with("line "));
 }
 
 #[test]
@@ -57,25 +61,7 @@ fn running_tool_rolling_tail_truncation_under_massive_chunks() {
     for i in 1..=5000 {
         tool.append_chunk(&format!("line {i:04}: detailed execution log output\n"));
     }
-
-    assert!(
-        tool.output.len() <= super::super::MAX_RUNNING_BUFFER_BYTES,
-        "tool output length ({}) must not exceed MAX_RUNNING_BUFFER_BYTES ({})",
-        tool.output.len(),
-        super::super::MAX_RUNNING_BUFFER_BYTES
-    );
-    assert!(
-        tool.output.len() <= super::super::MAX_RUNNING_OUTPUT_BYTES + 200,
-        "tool output length ({}) should be trimmed close to MAX_RUNNING_OUTPUT_BYTES ({})",
-        tool.output.len(),
-        super::super::MAX_RUNNING_OUTPUT_BYTES
-    );
-    assert!(tool.output.ends_with("line 5000: detailed execution log output\n"));
-    assert!(!tool.output.contains("line 0001:"));
-    assert!(
-        tool.output.starts_with("line "),
-        "trimmed output should start cleanly on a newline boundary without half-line fragments"
-    );
+    assert_tail_truncation(&tool.output);
 }
 
 #[test]

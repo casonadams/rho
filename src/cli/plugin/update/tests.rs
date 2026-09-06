@@ -20,27 +20,65 @@ fn create_tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
     gz.finish().unwrap()
 }
 
-#[tokio::test]
-async fn test_update_single_plugin_already_up_to_date() {
+async fn spawn_mock_github_single(body: &'static str) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-
     tokio::spawn(async move {
         if let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = [0u8; 1024];
             let _ = stream.read(&mut buf).await;
-            let body = r#"{"tag_name":"v1.0.0","assets":[]}"#;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.write_all(resp.as_bytes()).await;
         }
     });
+    addr
+}
 
-    let config_dir = tempfile::tempdir().unwrap();
-    let bin_dir = tempfile::tempdir().unwrap();
+async fn serve_raw_bytes(mut stream: tokio::net::TcpStream, bytes: &[u8]) {
+    let mut buf = [0u8; 1024];
+    let _ = stream.read(&mut buf).await;
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    );
+    let _ = stream.write_all(resp.as_bytes()).await;
+    let _ = stream.write_all(bytes).await;
+}
+
+async fn serve_raw_json(mut stream: tokio::net::TcpStream, body: &str) {
+    let mut buf = [0u8; 1024];
+    let _ = stream.read(&mut buf).await;
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(resp.as_bytes()).await;
+}
+
+async fn spawn_update_download_server(asset_name: String, asset: Arc<Vec<u8>>) -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let body = format!(
+        r#"{{"tag_name":"v2.0.0","assets":[{{"name":"{asset_name}","browser_download_url":"http://{addr}/download/{asset_name}"}}]}}"#
+    );
+    tokio::spawn(async move {
+        if let Ok((stream, _)) = listener.accept().await {
+            serve_raw_json(stream, &body).await;
+        }
+        if let Ok((stream, _)) = listener.accept().await {
+            serve_raw_bytes(stream, &asset).await;
+        }
+    });
+    addr
+}
+
+#[tokio::test]
+async fn test_update_single_plugin_already_up_to_date() {
+    let addr = spawn_mock_github_single(r#"{"tag_name":"v1.0.0","assets":[]}"#).await;
+    let (config_dir, bin_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let binary_path = bin_dir.path().join("rho-plugin-sample");
     std::fs::write(&binary_path, b"existing-bin").unwrap();
 
@@ -50,7 +88,6 @@ async fn test_update_single_plugin_already_up_to_date() {
         ..Default::default()
     };
     let client = GitHubClient::with_base_url(format!("http://{addr}"));
-
     let ctx = UpdatePluginContext {
         config_dir: config_dir.path(),
         cargo_bin_dir: bin_dir.path(),
@@ -69,48 +106,31 @@ async fn test_update_single_plugin_already_up_to_date() {
     assert_eq!(std::fs::read(&binary_path).unwrap(), b"existing-bin");
 }
 
+fn assert_update_success(status: &PluginUpdateStatus, binary_path: &std::path::Path, config_dir: &std::path::Path) {
+    assert_eq!(
+        *status,
+        PluginUpdateStatus::Updated {
+            old_version: "v1.0.0".to_string(),
+            new_version: "v2.0.0".to_string(),
+            binary_path: binary_path.to_path_buf(),
+        }
+    );
+    assert_eq!(std::fs::read(binary_path).unwrap(), b"updated-sample-payload");
+    assert!(
+        std::fs::read_to_string(config_dir.join("config.toml"))
+            .unwrap()
+            .contains("version = \"v2.0.0\"")
+    );
+}
+
 #[tokio::test]
 async fn test_update_single_plugin_success() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let platform = Platform::current().unwrap();
-    let triple = platform.target_triple();
+    let triple = Platform::current().unwrap().target_triple();
     let asset_name = format!("rho-plugin-sample-{triple}.tar.gz");
-    let asset_bytes = create_tar_gz(&[("rho-plugin-sample", b"updated-sample-payload")]);
-    let shared_asset = Arc::new(asset_bytes);
+    let asset = Arc::new(create_tar_gz(&[("rho-plugin-sample", b"updated-sample-payload")]));
+    let addr = spawn_update_download_server(asset_name, asset).await;
 
-    let asset_clone = shared_asset.clone();
-    let asset_name_clone = asset_name.clone();
-    tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 1024];
-            let _ = stream.read(&mut buf).await;
-            let body = format!(
-                r#"{{"tag_name":"v2.0.0","assets":[{{"name":"{asset_name_clone}","browser_download_url":"http://{addr}/download/{asset_name_clone}"}}]}}"#
-            );
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-        }
-
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 1024];
-            let _ = stream.read(&mut buf).await;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                asset_clone.len()
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-            let _ = stream.write_all(&asset_clone).await;
-        }
-    });
-
-    let config_dir = tempfile::tempdir().unwrap();
-    let bin_dir = tempfile::tempdir().unwrap();
+    let (config_dir, bin_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let binary_path = bin_dir.path().join("rho-plugin-sample");
     std::fs::write(&binary_path, b"old-payload").unwrap();
 
@@ -120,7 +140,6 @@ async fn test_update_single_plugin_success() {
         ..Default::default()
     };
     let client = GitHubClient::with_base_url(format!("http://{addr}"));
-
     let ctx = UpdatePluginContext {
         config_dir: config_dir.path(),
         cargo_bin_dir: bin_dir.path(),
@@ -130,22 +149,7 @@ async fn test_update_single_plugin_success() {
         .await
         .unwrap();
 
-    match status {
-        PluginUpdateStatus::Updated {
-            old_version,
-            new_version,
-            binary_path: p,
-        } => {
-            assert_eq!(old_version, "v1.0.0");
-            assert_eq!(new_version, "v2.0.0");
-            assert_eq!(p, binary_path);
-        }
-        other => panic!("expected Updated, got {:?}", other),
-    }
-
-    assert_eq!(std::fs::read(&binary_path).unwrap(), b"updated-sample-payload");
-    let config_text = std::fs::read_to_string(config_dir.path().join("config.toml")).unwrap();
-    assert!(config_text.contains("version = \"v2.0.0\""));
+    assert_update_success(&status, &binary_path, config_dir.path());
 }
 
 #[tokio::test]

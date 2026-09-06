@@ -35,6 +35,13 @@ fn styled_content_keeps_its_background_after_an_inner_reset() {
     assert!(rendered.ends_with("\x1b[0m"));
 }
 
+fn assert_lines_padded_and_styled(lines: &[&str], width: usize, bg: &str) {
+    for line in lines {
+        assert_eq!(visible_width(line), width);
+        assert!(line.starts_with(bg));
+    }
+}
+
 #[test]
 fn multiline_styled_blocks_preserve_background_across_resets_and_blank_lines() {
     let content = "\x1b[1m\x1b[31mbold red\x1b[0m\n\n\x1b[32m+ line 2\x1b[0m extra";
@@ -43,22 +50,20 @@ fn multiline_styled_blocks_preserve_background_across_resets_and_blank_lines() {
         .render_styled(content);
     let lines: Vec<&str> = rendered.lines().collect();
     assert_eq!(lines.len(), 5);
-    for line in &lines {
-        assert_eq!(visible_width(line), 24);
-        assert!(line.starts_with("\x1b[40m"));
-    }
+    assert_lines_padded_and_styled(&lines, 24, "\x1b[40m");
     assert!(rendered.contains("\x1b[0m\x1b[40m extra"));
 }
 
 #[test]
-fn compound_and_color_resets_are_detected_correctly() {
-    assert!(sgr_resets_background("\x1b[m"));
-    assert!(sgr_resets_background("\x1b[0m"));
-    assert!(sgr_resets_background("\x1b[49m"));
-    assert!(sgr_resets_background("\x1b[0;31m"));
-    assert!(sgr_resets_background("\x1b[31;0m"));
-    assert!(!sgr_resets_background("\x1b[31m"));
-    assert!(!sgr_resets_background("\x1b[1;32m"));
-    assert!(!sgr_resets_background("\x1b[38;2;255;0;0m"));
-    assert!(!sgr_resets_background("\x1b[38;5;0m"));
+fn compound_and_color_resets_positive() {
+    for s in ["\x1b[m", "\x1b[0m", "\x1b[49m", "\x1b[0;31m", "\x1b[31;0m"] {
+        assert!(sgr_resets_background(s));
+    }
+}
+
+#[test]
+fn compound_and_color_resets_negative() {
+    for s in ["\x1b[31m", "\x1b[1;32m", "\x1b[38;2;255;0;0m", "\x1b[38;5;0m"] {
+        assert!(!sgr_resets_background(s));
+    }
 }

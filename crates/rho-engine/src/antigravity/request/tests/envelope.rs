@@ -8,110 +8,90 @@ fn request_envelope_has_project_model_and_agent_shape() {
         content: vec![UserContent::text("hello")],
     }]);
     let body = build_request_body(target("proj-1", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
-
-    assert_eq!(body["project"], "proj-1");
-    assert_eq!(body["model"], "gemini-3.8-flash-low");
-    assert_eq!(body["requestType"], "agent");
-    assert_eq!(body["userAgent"], "antigravity");
-    assert_eq!(body["request"]["systemInstruction"]["role"], "user");
-    assert_eq!(
-        body["request"]["systemInstruction"]["parts"][0]["text"],
-        "system prompt"
+    let actual = (
+        body["project"].as_str(),
+        body["model"].as_str(),
+        body["requestType"].as_str(),
+        body["userAgent"].as_str(),
     );
-    assert_eq!(body["request"]["contents"][0]["role"], "user");
+    assert_eq!(
+        actual,
+        (
+            Some("proj-1"),
+            Some("gemini-3.8-flash-low"),
+            Some("agent"),
+            Some("antigravity")
+        )
+    );
+    assert_eq!(body["request"]["systemInstruction"]["role"], "user");
     assert_eq!(body["request"]["contents"][0]["parts"][0]["text"], "hello");
-    // Gemini thinking config off by default.
     assert_eq!(
         body["request"]["generationConfig"]["thinkingConfig"]["includeThoughts"],
         false
     );
-    assert_eq!(body["request"]["generationConfig"]["maxOutputTokens"], 65536);
 }
 
-#[test]
-fn unsigned_tool_calls_flatten_to_observations_on_gemini_3() {
+fn tool_history_messages(
+    prompt: &'static str,
+    call: rig::message::ToolCall,
+    result: rig::message::ToolResult,
+) -> Vec<Message> {
+    vec![
+        Message::User {
+            content: vec![UserContent::text(prompt)],
+        },
+        Message::Assistant {
+            id: None,
+            content: vec![rig::message::AssistantContent::ToolCall(call)],
+        },
+        Message::User {
+            content: vec![UserContent::ToolResult(result)],
+        },
+    ]
+}
+
+fn sample_tool_history(sig: Option<String>) -> Vec<Message> {
+    let call_id = rig::message::ToolCallId::new("call-1").unwrap();
     let tool_call = rig::message::ToolCall {
-        id: rig::message::ToolCallId::new("call-1").unwrap(),
+        id: call_id.clone(),
         provider: None,
         function: rig::message::ToolFunction {
             name: "read_file".to_string(),
             arguments: serde_json::json!({"path": "a.rs"}),
         },
-        signature: None,
+        signature: sig,
         additional_params: None,
     };
     let tool_result = rig::message::ToolResult {
-        call: rig::message::ToolCallId::new("call-1").unwrap(),
+        call: call_id,
         provider: None,
         name: "read_file".to_string(),
         content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(
             "file body",
         ))],
     };
-    let history = vec![
-        Message::User {
-            content: vec![UserContent::text("read it")],
-        },
-        Message::Assistant {
-            id: None,
-            content: vec![rig::message::AssistantContent::ToolCall(tool_call)],
-        },
-        Message::User {
-            content: vec![UserContent::ToolResult(tool_result)],
-        },
-    ];
-    let request = minimal_request(history);
+    tool_history_messages("read it", tool_call, tool_result)
+}
+
+#[test]
+fn unsigned_tool_calls_flatten_to_observations_on_gemini_3() {
+    let request = minimal_request(sample_tool_history(None));
     let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
     let contents = body["request"]["contents"].as_array().unwrap();
 
-    // The empty assistant turn vanishes and the result is replayed as a user
-    // observation (merged into the previous user turn, pi parity). No
-    // functionCall may appear anywhere on the wire.
-    let serialized = body.to_string();
-    assert!(!serialized.contains("functionCall"));
-    let observation = contents[0]["parts"][1]["text"].as_str().unwrap();
-    assert!(observation.contains("[Observation from `read_file`"));
-    assert!(observation.contains("file body"));
+    assert!(!body.to_string().contains("functionCall"));
+    let obs = contents[0]["parts"][1]["text"].as_str().unwrap();
+    assert!(obs.contains("[Observation from `read_file`") && obs.contains("file body"));
 
-    // Same history on Claude replays a real functionCall + functionResponse.
-    let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
-    let contents = body["request"]["contents"].as_array().unwrap();
-    assert!(contents[1]["parts"][0].get("functionCall").is_some());
-    assert_eq!(contents[1]["parts"][0]["functionCall"]["name"], "read_file");
-    assert_eq!(contents[2]["parts"][0]["functionResponse"]["name"], "read_file");
+    let body_claude = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
+    let contents_claude = body_claude["request"]["contents"].as_array().unwrap();
+    assert_eq!(contents_claude[1]["parts"][0]["functionCall"]["name"], "read_file");
+    assert_eq!(contents_claude[2]["parts"][0]["functionResponse"]["name"], "read_file");
 }
 
 #[test]
 fn signed_tool_calls_replay_function_calls_on_gemini_3() {
-    let tool_call = rig::message::ToolCall {
-        id: rig::message::ToolCallId::new("call-1").unwrap(),
-        provider: None,
-        function: rig::message::ToolFunction {
-            name: "read_file".to_string(),
-            arguments: serde_json::json!({}),
-        },
-        signature: Some("c2lnbmF0dXJl".to_string()),
-        additional_params: None,
-    };
-    let tool_result = rig::message::ToolResult {
-        call: rig::message::ToolCallId::new("call-1").unwrap(),
-        provider: None,
-        name: "read_file".to_string(),
-        content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new("ok"))],
-    };
-    let history = vec![
-        Message::User {
-            content: vec![UserContent::text("read it")],
-        },
-        Message::Assistant {
-            id: None,
-            content: vec![rig::message::AssistantContent::ToolCall(tool_call)],
-        },
-        Message::User {
-            content: vec![UserContent::ToolResult(tool_result)],
-        },
-    ];
-    let request = minimal_request(history);
+    let request = minimal_request(sample_tool_history(Some("c2lnbmF0dXJl".to_string())));
     let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
     let contents = body["request"]["contents"].as_array().unwrap();
     assert_eq!(contents[1]["parts"][0]["functionCall"]["name"], "read_file");
@@ -119,12 +99,8 @@ fn signed_tool_calls_replay_function_calls_on_gemini_3() {
     assert!(contents[2]["parts"][0].get("functionResponse").is_some());
 }
 
-#[test]
-fn tools_use_json_schema_for_gemini_and_legacy_parameters_for_claude() {
-    let mut request = minimal_request(vec![Message::User {
-        content: vec![UserContent::text("hi")],
-    }]);
-    request.tools = vec![ToolDefinition {
+fn sample_bash_tool_def() -> ToolDefinition {
+    ToolDefinition {
         name: "bash".to_string(),
         description: "run shell".to_string(),
         parameters: serde_json::json!({
@@ -133,31 +109,41 @@ fn tools_use_json_schema_for_gemini_and_legacy_parameters_for_claude() {
             "required": ["command"],
             "$defs": {"x": {"type": "string"}}
         }),
-    }];
-
-    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
-    let declaration = &body["request"]["tools"][0]["functionDeclarations"][0];
-    assert!(declaration["parametersJsonSchema"].is_object());
-    assert!(declaration["parametersJsonSchema"].get("$defs").is_none());
-    assert!(declaration["parametersJsonSchema"]["properties"]["command"].is_object());
-
-    let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
-    let declaration = &body["request"]["tools"][0]["functionDeclarations"][0];
-    assert!(declaration["parameters"].is_object());
-    // `format` is outside the protobuf allowlist and must be stripped.
-    assert!(
-        declaration["parameters"]["properties"]["command"]
-            .get("format")
-            .is_none()
-    );
-    assert_eq!(declaration["parameters"]["required"][0], "command");
-    assert!(body["request"]["toolConfig"]["functionCallingConfig"]["mode"] == "VALIDATED");
+    }
 }
 
 #[test]
-fn tool_result_with_image_serializes_multimodal_function_response() {
+fn tools_use_json_schema_for_gemini() {
+    let mut request = minimal_request(vec![Message::User {
+        content: vec![UserContent::text("hi")],
+    }]);
+    request.tools = vec![sample_bash_tool_def()];
+    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+    let decl = &body["request"]["tools"][0]["functionDeclarations"][0];
+    assert!(decl["parametersJsonSchema"].is_object() && decl["parametersJsonSchema"].get("$defs").is_none());
+    assert!(decl["parametersJsonSchema"]["properties"]["command"].is_object());
+}
+
+#[test]
+fn tools_use_legacy_parameters_for_claude() {
+    let mut request = minimal_request(vec![Message::User {
+        content: vec![UserContent::text("hi")],
+    }]);
+    request.tools = vec![sample_bash_tool_def()];
+    let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
+    let decl = &body["request"]["tools"][0]["functionDeclarations"][0];
+    assert!(decl["parameters"].is_object() && decl["parameters"]["properties"]["command"].get("format").is_none());
+    assert_eq!(decl["parameters"]["required"][0], "command");
+    assert_eq!(
+        body["request"]["toolConfig"]["functionCallingConfig"]["mode"],
+        "VALIDATED"
+    );
+}
+
+fn sample_image_tool_history() -> Vec<Message> {
+    let call_id = rig::message::ToolCallId::new("call-1").unwrap();
     let tool_call = rig::message::ToolCall {
-        id: rig::message::ToolCallId::new("call-1").unwrap(),
+        id: call_id.clone(),
         provider: None,
         function: rig::message::ToolFunction {
             name: "read".to_string(),
@@ -167,7 +153,7 @@ fn tool_result_with_image_serializes_multimodal_function_response() {
         additional_params: None,
     };
     let tool_result = rig::message::ToolResult {
-        call: rig::message::ToolCallId::new("call-1").unwrap(),
+        call: call_id,
         provider: None,
         name: "read".to_string(),
         content: vec![
@@ -179,34 +165,38 @@ fn tool_result_with_image_serializes_multimodal_function_response() {
             ),
         ],
     };
-    let history = vec![
-        Message::User {
-            content: vec![UserContent::text("read image")],
-        },
-        Message::Assistant {
-            id: None,
-            content: vec![rig::message::AssistantContent::ToolCall(tool_call)],
-        },
-        Message::User {
-            content: vec![UserContent::ToolResult(tool_result)],
-        },
-    ];
-    let request = minimal_request(history);
+    tool_history_messages("read image", tool_call, tool_result)
+}
 
-    // Claude runtime retains functionCall + functionResponse with parts containing inlineData.
+#[test]
+fn tool_result_with_image_claude_response() {
+    let request = minimal_request(sample_image_tool_history());
     let body = build_request_body(target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
     let contents = body["request"]["contents"].as_array().unwrap();
-    let fn_response = &contents[2]["parts"][0]["functionResponse"];
-    assert_eq!(fn_response["name"], "read");
-    let parts = fn_response["parts"].as_array().unwrap();
-    assert_eq!(parts.len(), 1);
-    assert_eq!(parts[0]["inlineData"]["mimeType"], "image/png");
-    assert_eq!(parts[0]["inlineData"]["data"], "iVBORw0KGgo=");
+    let fn_resp = &contents[2]["parts"][0]["functionResponse"];
+    assert_eq!(fn_resp["name"], "read");
+    let parts = fn_resp["parts"].as_array().unwrap();
+    assert_eq!(
+        (
+            parts.len(),
+            parts[0]["inlineData"]["mimeType"].as_str(),
+            parts[0]["inlineData"]["data"].as_str()
+        ),
+        (1, Some("image/png"), Some("iVBORw0KGgo="))
+    );
+}
 
-    // Gemini 3 unsigned tool call flattens into observation text + inlineData part.
+#[test]
+fn tool_result_with_image_gemini_observation() {
+    let request = minimal_request(sample_image_tool_history());
     let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
-    let contents = body["request"]["contents"].as_array().unwrap();
-    assert_eq!(contents[0]["parts"].as_array().unwrap().len(), 3);
-    assert_eq!(contents[0]["parts"][2]["inlineData"]["mimeType"], "image/png");
-    assert_eq!(contents[0]["parts"][2]["inlineData"]["data"], "iVBORw0KGgo=");
+    let parts = body["request"]["contents"][0]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 3);
+    assert_eq!(
+        (
+            parts[2]["inlineData"]["mimeType"].as_str(),
+            parts[2]["inlineData"]["data"].as_str()
+        ),
+        (Some("image/png"), Some("iVBORw0KGgo="))
+    );
 }

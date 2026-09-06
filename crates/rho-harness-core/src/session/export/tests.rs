@@ -5,24 +5,8 @@ use rig::message::{
     AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
 
-fn tree_with_conversation() -> SessionTree {
-    let mut tree = SessionTree::new();
-    tree.set_session_name("export demo".to_string());
-    tree.set_active_leaf(Some("leaf-1".to_string()));
-    let node = TreeNodeData {
-        id: "node-1".to_string(),
-        parent_id: None,
-        timestamp: Utc::now(),
-        kind: TreeNodeKind::UserTurn,
-        messages: vec![
-            Message::user("what is <html> & \"quotes\"?"),
-            Message::assistant("it is escaped"),
-        ],
-        label: None,
-        metadata: None,
-    };
-    tree.add_node(node);
-    let tool_node = TreeNodeData {
+fn sample_tool_node() -> TreeNodeData {
+    TreeNodeData {
         id: "node-2".to_string(),
         parent_id: Some("node-1".to_string()),
         timestamp: Utc::now(),
@@ -46,8 +30,26 @@ fn tree_with_conversation() -> SessionTree {
         ],
         label: None,
         metadata: None,
-    };
-    tree.add_node(tool_node);
+    }
+}
+
+fn tree_with_conversation() -> SessionTree {
+    let mut tree = SessionTree::new();
+    tree.set_session_name("export demo".to_string());
+    tree.set_active_leaf(Some("leaf-1".to_string()));
+    tree.add_node(TreeNodeData {
+        id: "node-1".to_string(),
+        parent_id: None,
+        timestamp: Utc::now(),
+        kind: TreeNodeKind::UserTurn,
+        messages: vec![
+            Message::user("what is <html> & \"quotes\"?"),
+            Message::assistant("it is escaped"),
+        ],
+        label: None,
+        metadata: None,
+    });
+    tree.add_node(sample_tool_node());
     tree
 }
 
@@ -55,27 +57,35 @@ fn tree_with_conversation() -> SessionTree {
 fn markdown_render_includes_header_roles_and_branch_context() {
     let tree = tree_with_conversation();
     let markdown = render_markdown(&tree, "session-123");
-
-    assert!(markdown.contains("# rho session: export demo"), "{markdown}");
-    assert!(markdown.contains("- Session: `session-123`"), "{markdown}");
-    assert!(markdown.contains("- Branch: `node-2`"), "{markdown}");
-    assert!(markdown.contains("## User"), "{markdown}");
-    assert!(markdown.contains("## Assistant"), "{markdown}");
-    assert!(markdown.contains("## Tool output"), "{markdown}");
-    assert!(markdown.contains("*tool call: bash*"), "{markdown}");
+    let fragments = [
+        "# rho session: export demo",
+        "- Session: `session-123`",
+        "- Branch: `node-2`",
+        "## User",
+        "## Assistant",
+        "## Tool output",
+        "*tool call: bash*",
+    ];
+    for f in fragments {
+        assert!(markdown.contains(f), "{markdown}");
+    }
 }
 
 #[test]
 fn html_render_escapes_markup_and_includes_metadata() {
     let tree = tree_with_conversation();
     let html = render_html(&tree, "session-1");
-
     assert!(html.starts_with("<!doctype html>"), "{html}");
-    assert!(html.contains("rho session: export demo"), "{html}");
-    assert!(html.contains("&lt;html&gt; &amp; &quot;quotes&quot;?"), "{html}");
     assert!(!html.contains("<html> &"), "{html}");
-    assert!(html.contains("Branch <code>node-2</code>"), "{html}");
-    assert!(html.contains("tool call: bash"), "{html}");
+    let fragments = [
+        "rho session: export demo",
+        "&lt;html&gt; &amp; &quot;quotes&quot;?",
+        "Branch <code>node-2</code>",
+        "tool call: bash",
+    ];
+    for f in fragments {
+        assert!(html.contains(f), "{html}");
+    }
 }
 
 #[test]

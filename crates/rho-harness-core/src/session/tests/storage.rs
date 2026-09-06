@@ -2,36 +2,43 @@ use super::{SessionManager, temp_dir};
 use std::io::Write;
 
 #[cfg(unix)]
+fn assert_mode(path: &std::path::Path, expected: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, expected);
+}
+
+#[cfg(unix)]
 #[test]
 fn session_storage_is_private() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
-    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-    assert_eq!(
-        std::fs::metadata(&store.file_path).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    assert_mode(&dir, 0o700);
+    assert_mode(&store.file_path, 0o600);
 
     let id = store.session_id.clone();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::set_permissions(&store.file_path, std::fs::Permissions::from_mode(0o644)).unwrap();
     drop(store);
+
     let resumed = SessionManager::new(&dir, Some(&id)).unwrap();
-    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
-    assert_eq!(
-        std::fs::metadata(&resumed.file_path).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    assert_mode(&dir, 0o700);
+    assert_mode(&resumed.file_path, 0o600);
+}
+
+#[cfg(unix)]
+#[test]
+fn session_storage_protects_bad_file_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = temp_dir();
+    std::fs::create_dir_all(&dir).unwrap();
     let bad_path = dir.join("bad.jsonl");
     std::fs::write(&bad_path, "{}\n").unwrap();
     std::fs::set_permissions(&bad_path, std::fs::Permissions::from_mode(0o644)).unwrap();
     assert!(SessionManager::new(&dir, Some("bad")).is_err());
-    assert_eq!(
-        std::fs::metadata(&bad_path).unwrap().permissions().mode() & 0o777,
-        0o600
-    );
+    assert_mode(&bad_path, 0o600);
 }
 
 #[test]
@@ -73,7 +80,7 @@ fn missing_and_unknown_sessions_fail_clearly() {
 }
 
 #[test]
-fn malformed_committed_records_fail_but_incomplete_tail_is_ignored() {
+fn incomplete_tail_record_is_ignored() {
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
     let id = store.session_id.clone();
@@ -84,22 +91,16 @@ fn malformed_committed_records_fail_but_incomplete_tail_is_ignored() {
         .write_all(b"{interrupted")
         .unwrap();
     assert!(SessionManager::new(&dir, Some(&id)).is_ok());
+}
 
+#[test]
+fn malformed_committed_records_fail() {
     let bad_dir = temp_dir();
     let bad = SessionManager::new(&bad_dir, None).unwrap();
     let bad_id = bad.session_id.clone();
-    std::fs::OpenOptions::new()
-        .append(true)
-        .open(&bad.file_path)
-        .unwrap()
-        .write_all(b"{malformed}\n")
-        .unwrap();
-    std::fs::OpenOptions::new()
-        .append(true)
-        .open(&bad.file_path)
-        .unwrap()
-        .write_all(b"{\"record_type\":\"canonical_reset\",\"sequence\":1,\"session_id\":\"ignored\",\"timestamp\":\"2025-01-01T00:00:00Z\"}\n")
-        .unwrap();
+    let mut file = std::fs::OpenOptions::new().append(true).open(&bad.file_path).unwrap();
+    file.write_all(b"{malformed}\n").unwrap();
+    file.write_all(b"{\"record_type\":\"canonical_reset\",\"sequence\":1,\"session_id\":\"ignored\",\"timestamp\":\"2025-01-01T00:00:00Z\"}\n").unwrap();
     let error = SessionManager::new(&bad_dir, Some(&bad_id)).unwrap_err().to_string();
     assert!(error.contains("malformed committed record"));
 }

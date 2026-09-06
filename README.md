@@ -286,6 +286,6 @@ Run tests, formatting, and lint checks across the workspace:
 
 ```sh
 cargo test --workspace
-cargo clippy --all-targets -- -D warnings
+make clippy
 cargo fmt --check
 ```

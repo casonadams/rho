@@ -3,31 +3,17 @@ use rig::message::UserContent;
 
 #[test]
 fn runtime_mapping_covers_known_families_and_passes_through_unknown() {
-    assert_eq!(
-        resolve_runtime_model("gemini-3.8-flash", Effort::Off),
-        "gemini-3.8-flash-low"
-    );
-    assert_eq!(
-        resolve_runtime_model("gemini-3.5-flash", Effort::Off),
-        "gemini-3.5-flash-extra-low"
-    );
-    assert_eq!(
-        resolve_runtime_model("claude-opus-4-6", Effort::Off),
-        "claude-opus-4-6-thinking"
-    );
-    assert_eq!(
-        resolve_runtime_model("gpt-oss-120b", Effort::Off),
-        "gpt-oss-120b-medium"
-    );
-    // Runtime ids from the live catalog pass through untouched.
-    assert_eq!(
-        resolve_runtime_model("gemini-3.8-flash-high", Effort::High),
-        "gemini-3.8-flash-high"
-    );
-    assert_eq!(
-        resolve_runtime_model("claude-sonnet-4-6", Effort::High),
-        "claude-sonnet-4-6"
-    );
+    let cases = [
+        ("gemini-3.8-flash", Effort::Off, "gemini-3.8-flash-low"),
+        ("gemini-3.5-flash", Effort::Off, "gemini-3.5-flash-extra-low"),
+        ("claude-opus-4-6", Effort::Off, "claude-opus-4-6-thinking"),
+        ("gpt-oss-120b", Effort::Off, "gpt-oss-120b-medium"),
+        ("gemini-3.8-flash-high", Effort::High, "gemini-3.8-flash-high"),
+        ("claude-sonnet-4-6", Effort::High, "claude-sonnet-4-6"),
+    ];
+    for (model, effort, expected) in cases {
+        assert_eq!(resolve_runtime_model(model, effort), expected);
+    }
 }
 
 #[test]
@@ -68,100 +54,73 @@ fn model_enum_label_uses_rollout_ids() {
 
 #[test]
 fn thinking_level_routes_runtime_variants() {
-    assert_eq!(
-        resolve_runtime_model("gemini-3.7-flash", Effort::Off),
-        "gemini-3.7-flash-low"
-    );
-    assert_eq!(
-        resolve_runtime_model("gemini-3.7-flash", Effort::Low),
-        "gemini-3.7-flash-low"
-    );
-    assert_eq!(
-        resolve_runtime_model("gemini-3.7-flash", Effort::Medium),
-        "gemini-3.7-flash-medium"
-    );
-    assert_eq!(
-        resolve_runtime_model("gemini-3.7-flash", Effort::High),
-        "gemini-3.7-flash-high"
-    );
-    // xhigh/max have no finer backend level; they ride high.
+    let cases = [
+        ("gemini-3.7-flash", Effort::Off, "gemini-3.7-flash-low"),
+        ("gemini-3.7-flash", Effort::Low, "gemini-3.7-flash-low"),
+        ("gemini-3.7-flash", Effort::Medium, "gemini-3.7-flash-medium"),
+        ("gemini-3.7-flash", Effort::High, "gemini-3.7-flash-high"),
+        ("gemini-3.1-pro", Effort::High, "gemini-pro-agent"),
+        ("gemini-3.1-pro", Effort::Medium, "gemini-3.1-pro-low"),
+        ("gemini-3.5-flash", Effort::High, "gemini-3-flash-agent"),
+    ];
+    for (model, effort, expected) in cases {
+        assert_eq!(resolve_runtime_model(model, effort), expected);
+    }
+}
+
+#[test]
+fn effort_parse_max_and_off() {
     assert_eq!(Effort::parse(Some("xhigh")), Effort::High);
     assert_eq!(Effort::parse(Some("max")), Effort::High);
     assert_eq!(Effort::parse(None), Effort::Off);
-    // Agent aliases are the high variant of their family.
-    assert_eq!(
-        resolve_runtime_model("gemini-3.1-pro", Effort::High),
-        "gemini-pro-agent"
-    );
-    assert_eq!(
-        resolve_runtime_model("gemini-3.1-pro", Effort::Medium),
-        "gemini-3.1-pro-low"
-    );
-    assert_eq!(
-        resolve_runtime_model("gemini-3.5-flash", Effort::High),
-        "gemini-3-flash-agent"
-    );
 }
 
 #[test]
 fn collapse_runtime_id_folds_tiers_into_families() {
-    let (base, level) = collapse_runtime_id("gemini-3.7-flash-high");
-    assert_eq!(base, "gemini-3.7-flash");
-    assert_eq!(level, Some(Effort::High));
-
-    let (base, level) = collapse_runtime_id("gemini-3.5-flash-extra-low");
-    assert_eq!(base, "gemini-3.5-flash");
-    assert_eq!(level, Some(Effort::Low));
-
-    let (base, level) = collapse_runtime_id("gemini-3.6-flash-tiered");
-    assert_eq!(base, "gemini-3.6-flash");
-    assert_eq!(level, None);
-
-    let (base, level) = collapse_runtime_id("gemini-3-flash-agent");
-    assert_eq!(base, "gemini-3.5-flash");
-    assert_eq!(level, Some(Effort::High));
-
-    let (base, level) = collapse_runtime_id("claude-sonnet-4-6");
-    assert_eq!(base, "claude-sonnet-4-6");
-    assert_eq!(level, None);
-
-    let (base, level) = collapse_runtime_id("gpt-oss-120b-medium");
-    assert_eq!(base, "gpt-oss-120b");
-    assert_eq!(level, Some(Effort::Medium));
+    let cases = [
+        ("gemini-3.7-flash-high", "gemini-3.7-flash", Some(Effort::High)),
+        ("gemini-3.5-flash-extra-low", "gemini-3.5-flash", Some(Effort::Low)),
+        ("gemini-3.6-flash-tiered", "gemini-3.6-flash", None),
+        ("gemini-3-flash-agent", "gemini-3.5-flash", Some(Effort::High)),
+        ("claude-sonnet-4-6", "claude-sonnet-4-6", None),
+        ("gpt-oss-120b-medium", "gpt-oss-120b", Some(Effort::Medium)),
+    ];
+    for (id, exp_base, exp_level) in cases {
+        let (base, level) = collapse_runtime_id(id);
+        assert_eq!((base.as_str(), level), (exp_base, exp_level));
+    }
 }
 
 #[test]
-fn thinking_config_tracks_effort() {
+fn thinking_config_tracks_gemini() {
     let request = minimal_request(vec![Message::User {
         content: vec![UserContent::text("hi")],
     }]);
-
-    // Gemini flash: thinkingLevel follows the effort.
     let body = build_request_body(high_target("p", "gemini-3.7-flash-high"), &request, &envelope()).unwrap();
+    let cfg = &body["request"]["generationConfig"]["thinkingConfig"];
     assert_eq!(
-        body["request"]["generationConfig"]["thinkingConfig"]["thinkingLevel"],
-        "HIGH"
-    );
-    assert_eq!(
-        body["request"]["generationConfig"]["thinkingConfig"]["includeThoughts"],
-        true
+        (cfg["thinkingLevel"].as_str(), cfg["includeThoughts"].as_bool()),
+        (Some("HIGH"), Some(true))
     );
 
-    // Off: includeThoughts false.
-    let body = build_request_body(target("p", "gemini-3.7-flash-low"), &request, &envelope()).unwrap();
+    let body_off = build_request_body(target("p", "gemini-3.7-flash-low"), &request, &envelope()).unwrap();
     assert_eq!(
-        body["request"]["generationConfig"]["thinkingConfig"]["includeThoughts"],
+        body_off["request"]["generationConfig"]["thinkingConfig"]["includeThoughts"],
         false
     );
 
-    // 3.1-pro high routes to the agent id and uses a thinking budget.
-    let body = build_request_body(high_target("p", "gemini-pro-agent"), &request, &envelope()).unwrap();
+    let body_pro = build_request_body(high_target("p", "gemini-pro-agent"), &request, &envelope()).unwrap();
     assert_eq!(
-        body["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+        body_pro["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"],
         10001
     );
+}
 
-    // Claude takes no gemini thinkingConfig (beta header path instead).
+#[test]
+fn thinking_config_tracks_claude_headers() {
+    let request = minimal_request(vec![Message::User {
+        content: vec![UserContent::text("hi")],
+    }]);
     let body = build_request_body(high_target("p", "claude-sonnet-4-6"), &request, &envelope()).unwrap();
     assert!(body["request"]["generationConfig"].get("thinkingConfig").is_none());
     assert!(wants_claude_thinking_header("claude-sonnet-4-6", Effort::High));

@@ -103,17 +103,43 @@ fn test_parse_claude_json_metadata_missing() {
     assert_eq!(email, None);
 }
 
+fn assert_detected_oauth(cred: StoredCredential) {
+    let StoredCredential::OAuth {
+        access_token,
+        refresh_token,
+        expires_at_ms,
+        account_id,
+        account_email,
+    } = cred
+    else {
+        panic!("expected OAuth credential");
+    };
+    let actual = (
+        access_token.as_str(),
+        refresh_token.as_deref(),
+        expires_at_ms,
+        account_id.as_deref(),
+        account_email.as_deref(),
+    );
+    let expected = (
+        "test-access",
+        Some("test-refresh"),
+        Some(1800000000000),
+        Some("org-1"),
+        Some("user@test.com"),
+    );
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn test_detect_credentials_from_paths_success() {
     let dir = tempdir().unwrap();
-    let creds_path = dir.path().join(".credentials.json");
-    let config_path = dir.path().join(".claude.json");
-
+    let (creds_path, config_path) = (dir.path().join(".credentials.json"), dir.path().join(".claude.json"));
     std::fs::write(
         &creds_path,
         r#"{"claudeAiOauth": {"accessToken": "test-access", "refreshToken": "test-refresh", "expiresAt": 1800000000000}}"#,
-    ).unwrap();
-
+    )
+    .unwrap();
     std::fs::write(
         &config_path,
         r#"{"oauthAccount": {"organizationUuid": "org-1", "emailAddress": "user@test.com"}}"#,
@@ -121,20 +147,5 @@ fn test_detect_credentials_from_paths_success() {
     .unwrap();
 
     let cred = detect_credentials_from_paths(&creds_path, Some(&config_path)).unwrap();
-    match cred {
-        StoredCredential::OAuth {
-            access_token,
-            refresh_token,
-            expires_at_ms,
-            account_id,
-            account_email,
-        } => {
-            assert_eq!(access_token, "test-access");
-            assert_eq!(refresh_token.as_deref(), Some("test-refresh"));
-            assert_eq!(expires_at_ms, Some(1800000000000));
-            assert_eq!(account_id.as_deref(), Some("org-1"));
-            assert_eq!(account_email.as_deref(), Some("user@test.com"));
-        }
-        _ => panic!("Expected OAuth credential"),
-    }
+    assert_detected_oauth(cred);
 }

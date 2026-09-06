@@ -74,6 +74,18 @@ async fn test_user_bash_runner_ctrl_c_does_not_cancel() {
     assert!(res.output.contains("still running"));
 }
 
+fn assert_spool_file(output: &str) {
+    let start_marker = "Full output: ";
+    let start_idx = output.find(start_marker).expect("spool marker");
+    let after = &output[start_idx + start_marker.len()..];
+    let end_idx = after.find(']').expect("closing bracket");
+    let path = std::path::Path::new(&after[..end_idx]);
+    assert!(path.exists());
+    let spooled = std::fs::read_to_string(path).expect("spool log");
+    assert!(spooled.starts_with("1\n") && spooled.ends_with("2500\n"));
+    let _ = std::fs::remove_file(path);
+}
+
 #[tokio::test]
 async fn test_user_bash_runner_large_output_spools_to_disk() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
@@ -90,29 +102,11 @@ async fn test_user_bash_runner_large_output_spools_to_disk() {
     let res = super::super::bash_runner::run_user_bash("seq 1 2500", &renderer, &mut live_io)
         .await
         .unwrap();
-
-    assert!(!res.is_cancelled);
-    assert!(!res.is_error);
-    assert!(res.output.contains("[Showing lines "));
-    assert!(res.output.contains("of 2500"));
-    assert!(res.output.contains("Full output: "));
-    assert!(res.output.contains("rho-bash-"));
-
-    let start_marker = "Full output: ";
-    let start_idx = res
-        .output
-        .find(start_marker)
-        .expect("spool marker must be present in output");
-    let after = &res.output[start_idx + start_marker.len()..];
-    let end_idx = after.find(']').expect("closing bracket must terminate path");
-    let path_str = &after[..end_idx];
-    let path = std::path::Path::new(path_str);
-    assert!(path.exists(), "temp spool log should exist at {path_str}");
-
-    let spooled = std::fs::read_to_string(path).expect("spool log should be readable");
-    assert!(spooled.starts_with("1\n"));
-    assert!(spooled.ends_with("2500\n"));
-    let _ = std::fs::remove_file(path);
+    assert!(!res.is_cancelled && !res.is_error);
+    for fragment in ["[Showing lines ", "of 2500", "Full output: ", "rho-bash-"] {
+        assert!(res.output.contains(fragment));
+    }
+    assert_spool_file(&res.output);
 }
 
 #[tokio::test]

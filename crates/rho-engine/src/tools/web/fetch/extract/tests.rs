@@ -46,11 +46,16 @@ fn test_resolve_markdown_links() {
 
 #[test]
 fn test_is_pdf_request() {
-    assert!(is_pdf_request("https://example.com/doc.pdf", None));
-    assert!(is_pdf_request("https://example.com/doc.pdf?dl=1", None));
-    assert!(is_pdf_request("https://example.com/fetch", Some("pdf")));
-    assert!(!is_pdf_request("https://example.com/page", None));
-    assert!(!is_pdf_request("https://example.com/page", Some("html")));
+    let cases = [
+        ("https://example.com/doc.pdf", None, true),
+        ("https://example.com/doc.pdf?dl=1", None, true),
+        ("https://example.com/fetch", Some("pdf"), true),
+        ("https://example.com/page", None, false),
+        ("https://example.com/page", Some("html"), false),
+    ];
+    for (url, fmt, expected) in cases {
+        assert_eq!(is_pdf_request(url, fmt), expected);
+    }
 }
 
 #[test]
@@ -88,7 +93,7 @@ fn test_extract_sitemap() {
 }
 
 #[test]
-fn test_extract_text_routing() {
+fn test_extract_text_routing_json() {
     let json_body = r#"{"hello":"world"}"#;
     let out = extract_text(ExtractTextParams {
         body: json_body,
@@ -107,10 +112,12 @@ fn test_extract_text_routing() {
         format_override: Some("json"),
     });
     assert!(out_override.contains("\"hello\": \"world\""));
+}
 
-    let csv_body = "col1,col2\nval1,val2";
+#[test]
+fn test_extract_text_routing_csv() {
     let out_csv = extract_text(ExtractTextParams {
-        body: csv_body,
+        body: "col1,col2\nval1,val2",
         content_type: "text/csv",
         url_str: "https://example.com/data.csv",
         mode: "auto",

@@ -36,62 +36,52 @@ async fn test_session_turns_and_rewind() {
     assert_eq!(turns_after[0].user_prompt, "first prompt");
 }
 
+async fn setup_root_and_branch_a(session: &SessionManager) -> (String, String) {
+    let root = vec![Message::user("Root prompt"), Message::assistant("Root answer")];
+    session.append_messages(&session.session_id, root).await.unwrap();
+    let root_leaf = session.load_tree().await.unwrap().active_leaf_id.unwrap();
+
+    let branch_a = vec![Message::user("Branch A prompt"), Message::assistant("Branch A answer")];
+    session.append_messages(&session.session_id, branch_a).await.unwrap();
+    let branch_a_leaf = session.load_tree().await.unwrap().active_leaf_id.unwrap();
+    (root_leaf, branch_a_leaf)
+}
+
+async fn setup_branch_b(session: &SessionManager, root_leaf: &str) -> String {
+    let switched = session.switch_branch(Some(root_leaf.to_string())).await.unwrap();
+    assert_eq!(switched[0], Message::user("Root prompt"));
+    let branch_b = vec![Message::user("Branch B prompt"), Message::assistant("Branch B answer")];
+    session.append_messages(&session.session_id, branch_b).await.unwrap();
+    session.load_tree().await.unwrap().active_leaf_id.unwrap()
+}
+
+async fn assert_resumed_tree(resumed: &SessionManager, branch_b_leaf: &str) {
+    let resumed_tree = resumed.load_tree().await.unwrap();
+    assert_eq!(resumed_tree.len(), 3);
+    assert_eq!(resumed_tree.active_leaf_id.as_deref(), Some(branch_b_leaf));
+}
+
+async fn assert_resumed_msgs(resumed: &SessionManager) {
+    let resumed_msgs = resumed.load_messages().await.unwrap();
+    assert_eq!(resumed_msgs.len(), 4);
+    assert_eq!(resumed_msgs[2], Message::user("Branch B prompt"));
+}
+
 #[tokio::test]
 async fn test_session_tree_dag_branching_and_ancestors() {
     let dir = temp_dir();
     let session = SessionManager::new(&dir, None).unwrap();
-
-    session
-        .append_messages(
-            &session.session_id,
-            vec![Message::user("Root prompt"), Message::assistant("Root answer")],
-        )
-        .await
-        .unwrap();
-
-    let tree = session.load_tree().await.unwrap();
-    assert_eq!(tree.len(), 1);
-    let root_leaf_id = tree.active_leaf_id.clone().unwrap();
-
-    session
-        .append_messages(
-            &session.session_id,
-            vec![Message::user("Branch A prompt"), Message::assistant("Branch A answer")],
-        )
-        .await
-        .unwrap();
-
-    let tree_a = session.load_tree().await.unwrap();
-    assert_eq!(tree_a.len(), 2);
-    let branch_a_leaf = tree_a.active_leaf_id.clone().unwrap();
-
-    let switched_msgs = session.switch_branch(Some(root_leaf_id.clone())).await.unwrap();
-    assert_eq!(switched_msgs.len(), 2);
-    assert_eq!(switched_msgs[0], Message::user("Root prompt"));
-
-    session
-        .append_messages(
-            &session.session_id,
-            vec![Message::user("Branch B prompt"), Message::assistant("Branch B answer")],
-        )
-        .await
-        .unwrap();
+    let (root_leaf, branch_a_leaf) = setup_root_and_branch_a(&session).await;
+    let branch_b_leaf = setup_branch_b(&session, &root_leaf).await;
 
     let tree_b = session.load_tree().await.unwrap();
-    assert_eq!(tree_b.len(), 3);
-    let branch_b_leaf = tree_b.active_leaf_id.clone().unwrap();
-
     let (unique_a, unique_b) = tree_b.branch_divergence(&branch_a_leaf, &branch_b_leaf);
     assert_eq!(unique_a.len(), 1);
     assert_eq!(unique_b.len(), 1);
 
     let resumed = SessionManager::new(&dir, Some(&session.session_id)).unwrap();
-    let resumed_tree = resumed.load_tree().await.unwrap();
-    assert_eq!(resumed_tree.len(), 3);
-    assert_eq!(resumed_tree.active_leaf_id, Some(branch_b_leaf));
-    let resumed_msgs = resumed.load_messages().await.unwrap();
-    assert_eq!(resumed_msgs.len(), 4);
-    assert_eq!(resumed_msgs[2], Message::user("Branch B prompt"));
+    assert_resumed_tree(&resumed, &branch_b_leaf).await;
+    assert_resumed_msgs(&resumed).await;
 }
 
 #[tokio::test]

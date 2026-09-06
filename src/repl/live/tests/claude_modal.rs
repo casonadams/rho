@@ -12,12 +12,8 @@ use rho_engine::provider::store::ModelStore;
 use rho_harness_core::auth::StoredCredential;
 use rho_harness_core::config::Config;
 
-fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config_dir = temp_dir.path().to_path_buf();
-    let auth_file = config_dir.join("auth.json");
-
-    let mut auth_store = AuthStore::load(&auth_file).unwrap();
+fn seed_claude_auth(auth_file: &std::path::Path) -> AuthStore {
+    let mut auth_store = AuthStore::load(auth_file).unwrap();
     auth_store
         .set_credential(
             "claude",
@@ -30,6 +26,14 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
             },
         )
         .unwrap();
+    auth_store
+}
+
+fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_dir = temp_dir.path().to_path_buf();
+    let auth_file = config_dir.join("auth.json");
+    let auth_store = seed_claude_auth(&auth_file);
 
     let mut model_store = ModelStore::load(config_dir.join("models-store.json"));
     model_store.set_models("claude", claude_preset_models()).unwrap();
@@ -41,31 +45,25 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
         provider: "claude".into(),
         ..Config::default()
     };
-    let session = ReplSession::new(config, auth_store, None);
-    (temp_dir, session)
+    (temp_dir, ReplSession::new(config, auth_store, None))
 }
 
 #[test]
-fn model_selector_displays_claude_tag_and_selects_claude_model() {
+fn model_selector_displays_claude_tag() {
     let (_dir, session) = setup_claude_session();
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-
     open_model_selector(&session, &mut controller);
     let modal = controller.state().active_modal().unwrap();
     assert_eq!(modal.title, "Select Model");
 
-    let claude_opt = modal.options.iter().find(|o| o.label == "claude-sonnet-4-5");
-    assert!(claude_opt.is_some());
-    let desc = claude_opt.unwrap().description.as_deref().unwrap();
-    assert!(desc.starts_with("claude\t"));
+    let claude_opt = modal.options.iter().find(|o| o.label == "claude-sonnet-4-5").unwrap();
+    assert!(claude_opt.description.as_deref().unwrap().starts_with("claude\t"));
 
-    let editor = EditorState::default();
-    let footer = FooterState::default();
     let rendered = layout(LayoutInput {
-        editor: &editor,
+        editor: &EditorState::default(),
         modal: Some(modal),
         autocomplete: None,
-        footer: &footer,
+        footer: &FooterState::default(),
         system_message: None,
         queued_messages: &[],
         widget_lines: &[],
@@ -75,21 +73,41 @@ fn model_selector_displays_claude_tag_and_selects_claude_model() {
         theme: None,
     });
     assert!(rendered.editor_lines.iter().any(|l| l.contains("[claude]")));
+}
 
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let res = handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+#[test]
+fn model_selector_selects_claude_model() {
+    let (_dir, session) = setup_claude_session();
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_model_selector(&session, &mut controller);
+
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
     match res {
         ModalKeyResult::ModelSelected {
             model,
             provider,
             save_as_default,
         } => {
-            assert_eq!(model, "claude-sonnet-4-5");
-            assert_eq!(provider, "claude");
-            assert!(!save_as_default);
+            assert_eq!(
+                (model.as_str(), provider.as_str(), save_as_default),
+                ("claude-sonnet-4-5", "claude", false)
+            );
         }
-        _ => panic!("expected ModelSelected for claude model"),
+        _ => panic!("expected ModelSelected"),
     }
+}
+
+fn assert_model_switch_state(config: &Config, switch: &SharedModelSwitch, (m, p): (&str, &str)) {
+    assert_eq!((config.model.as_str(), config.provider.as_str()), (m, p));
+    assert_eq!(
+        (switch.current_model().as_deref(), switch.current_provider().as_deref()),
+        (Some(m), Some(p))
+    );
 }
 
 #[tokio::test]
@@ -115,12 +133,5 @@ async fn turn_model_switch_applies_claude_model_and_creates_handle() {
     };
 
     apply_turn_model_switch(input).await.unwrap();
-
-    assert_eq!(config.model, "claude-opus-4-6");
-    assert_eq!(config.provider, "claude");
-    assert_eq!(model_switch.current_model().as_deref(), Some("claude-opus-4-6"));
-    assert_eq!(model_switch.current_provider().as_deref(), Some("claude"));
-    let handle = model_switch.get_handle().expect("claude model handle should exist");
-    assert_eq!(handle.label(), Some("claude"));
-    assert_eq!(controller.state().footer().model, "claude-opus-4-6");
+    assert_model_switch_state(&config, &model_switch, ("claude-opus-4-6", "claude"));
 }

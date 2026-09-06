@@ -2,51 +2,56 @@ use crate::auth::claude::client::*;
 
 #[test]
 fn test_claude_constants() {
-    assert_eq!(CLIENT_ID, "9d1c250a-e61b-44d9-88ed-5944d1962f5e");
-    assert_eq!(AUTHORIZE_URL, "https://claude.ai/oauth/authorize");
-    assert_eq!(TOKEN_URL, "https://platform.claude.com/v1/oauth/token");
-    assert_eq!(PROFILE_URL, "https://api.anthropic.com/api/oauth/profile");
-    assert_eq!(REDIRECT_URI, "https://platform.claude.com/oauth/code/callback");
-    assert!(SCOPES.contains("user:inference"));
-    assert!(SCOPES.contains("user:profile"));
-    assert!(SCOPES.contains("user:sessions:claude_code"));
-    assert_eq!(USER_AGENT, "claude-cli/2.1.62");
-    assert_eq!(TOKEN_TIMEOUT.as_secs(), 60);
+    let urls = (
+        CLIENT_ID,
+        AUTHORIZE_URL,
+        TOKEN_URL,
+        PROFILE_URL,
+        REDIRECT_URI,
+        USER_AGENT,
+        TOKEN_TIMEOUT.as_secs(),
+    );
+    assert_eq!(
+        urls,
+        (
+            "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+            "https://claude.ai/oauth/authorize",
+            "https://platform.claude.com/v1/oauth/token",
+            "https://api.anthropic.com/api/oauth/profile",
+            "https://platform.claude.com/oauth/code/callback",
+            "claude-cli/2.1.62",
+            60,
+        )
+    );
+    for s in ["user:inference", "user:profile", "user:sessions:claude_code"] {
+        assert!(SCOPES.contains(s));
+    }
 }
 
 #[test]
 fn test_token_response_deserialization() {
-    let json = r#"{
-        "token_type": "Bearer",
-        "access_token": "sk-ant-oat01-abc",
-        "refresh_token": "sk-ant-ort01-xyz",
-        "expires_in": 28800,
-        "scope": "user:inference user:profile",
-        "organization": {
-            "uuid": "org-uuid-1",
-            "name": "Org One"
-        },
-        "account": {
-            "uuid": "acc-uuid-1",
-            "email_address": "user@example.com"
-        }
-    }"#;
-
+    let json = r#"{"token_type":"Bearer","access_token":"sk-ant-oat01-abc","refresh_token":"sk-ant-ort01-xyz","expires_in":28800,"organization":{"uuid":"org-uuid-1","name":"Org One"},"account":{"uuid":"acc-uuid-1","email_address":"user@example.com"}}"#;
     let res: ClaudeTokenResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(res.access_token, "sk-ant-oat01-abc");
-    assert_eq!(res.refresh_token.as_deref(), Some("sk-ant-ort01-xyz"));
-    assert_eq!(res.expires_in, Some(28800));
-    assert_eq!(
-        res.organization.as_ref().and_then(|o| o.uuid.as_deref()),
-        Some("org-uuid-1")
+    let org = res.organization.as_ref();
+    let acc = res.account.as_ref();
+    let actual = (
+        res.access_token.as_str(),
+        res.refresh_token.as_deref(),
+        res.expires_in,
+        org.and_then(|o| o.uuid.as_deref()),
+        org.and_then(|o| o.name.as_deref()),
+        acc.and_then(|a| a.email_address.as_deref()),
     );
     assert_eq!(
-        res.organization.as_ref().and_then(|o| o.name.as_deref()),
-        Some("Org One")
-    );
-    assert_eq!(
-        res.account.as_ref().and_then(|a| a.email_address.as_deref()),
-        Some("user@example.com")
+        actual,
+        (
+            "sk-ant-oat01-abc",
+            Some("sk-ant-ort01-xyz"),
+            Some(28800),
+            Some("org-uuid-1"),
+            Some("Org One"),
+            Some("user@example.com")
+        )
     );
 }
 
@@ -54,11 +59,11 @@ fn test_token_response_deserialization() {
 fn test_token_response_minimal() {
     let json = r#"{"access_token": "sk-ant-oat01-minimal"}"#;
     let res: ClaudeTokenResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(res.access_token, "sk-ant-oat01-minimal");
-    assert_eq!(res.refresh_token, None);
-    assert_eq!(res.expires_in, None);
-    assert!(res.organization.is_none());
-    assert!(res.account.is_none());
+    assert_eq!(
+        (res.access_token.as_str(), res.refresh_token, res.expires_in),
+        ("sk-ant-oat01-minimal", None, None)
+    );
+    assert!(res.organization.is_none() && res.account.is_none());
 }
 
 #[test]

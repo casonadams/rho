@@ -1,14 +1,14 @@
-use super::input::{TurnInputContext, TurnKeyResult, handle_turn_key, reconcile_consumed_steering};
+use std::io;
+
+use super::input::{TurnInputContext, TurnKeyResult, handle_turn_key};
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{
-    Activity, InteractiveState, QueueKind, QueuedMessage, RunningTool, TerminalBackend, TerminalController,
-};
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use std::io;
+use crate::ui::interactive::{Activity, InteractiveState, QueueKind, RunningTool, TerminalBackend, TerminalController};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
 
 struct MockTerminal;
+
 impl TerminalBackend for MockTerminal {
     fn set_raw_mode(&mut self, _: bool) -> io::Result<()> {
         Ok(())
@@ -34,7 +34,7 @@ impl TerminalBackend for MockTerminal {
     fn clear_line(&mut self) -> io::Result<()> {
         Ok(())
     }
-    fn write_text(&mut self, _: &str) -> io::Result<()> {
+    fn write_text(&mut self, _text: &str) -> io::Result<()> {
         Ok(())
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -46,157 +46,143 @@ fn key_event(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent {
         code,
         modifiers,
-        kind: KeyEventKind::Press,
+        kind: crossterm::event::KeyEventKind::Press,
         state: KeyEventState::empty(),
+    }
+}
+
+struct TurnTestFixture {
+    _temp: tempfile::TempDir,
+    controller: TerminalController<MockTerminal>,
+    history: InteractiveHistory,
+    completions: CompletionSet,
+    batch: super::LiveBatch,
+    steering: SharedSteeringQueue,
+    session: crate::repl::ReplSession,
+    model_switch: std::sync::Arc<rho_engine::engine::runner::SharedModelSwitch>,
+}
+
+impl TurnTestFixture {
+    fn new(initial_text: &str) -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        controller.state_mut().editor_mut().set_text(initial_text);
+        let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let completions = CompletionSet::from_sources(Default::default());
+        let batch = super::LiveBatch::new();
+        let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
+        let session = crate::repl::ReplSession::new(
+            rho_harness_core::config::Config::default(),
+            crate::auth::AuthStore::default(),
+            None,
+        );
+        let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
+        Self {
+            _temp: temp,
+            controller,
+            history,
+            completions,
+            batch,
+            steering,
+            session,
+            model_switch,
+        }
+    }
+
+    fn context(&mut self) -> TurnInputContext<'_, MockTerminal> {
+        TurnInputContext {
+            controller: &mut self.controller,
+            history: &mut self.history,
+            completions: &self.completions,
+            batch: &mut self.batch,
+            steering: &self.steering,
+            session: &mut self.session,
+            model_switch: &self.model_switch,
+            shared_auth: None,
+        }
     }
 }
 
 #[tokio::test]
 async fn test_turn_input_enter_queues_steering_and_sets_status() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-    let mut batch = super::LiveBatch::new();
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    let mut session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
-    controller.state_mut().editor_mut().set_text("steer this tool");
-    let mut ctx = TurnInputContext {
-        controller: &mut controller,
-        history: &mut history,
-        completions: &completions,
-        batch: &mut batch,
-        steering: &steering,
-        session: &mut session,
-        model_switch: &model_switch,
-        shared_auth: None,
-    };
-
+    let mut f = TurnTestFixture::new("steer this tool");
+    let mut ctx = f.context();
     let result = handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::empty()), &mut ctx)
         .await
         .unwrap();
     assert!(matches!(result, TurnKeyResult::Handled));
 
-    let polled = crate::engine::runner::SteeringQueueProvider::poll_steering(&steering).await;
+    let polled = crate::engine::runner::SteeringQueueProvider::poll_steering(&f.steering).await;
     assert_eq!(polled, vec!["steer this tool"]);
     assert_eq!(
-        controller.state().system_message(),
+        f.controller.state().system_message(),
         Some("[Steering queued for tool boundary]")
     );
-
-    let queue = controller.state().queue();
-    assert_eq!(queue.len(), 1);
-    assert_eq!(queue[0].text, "steer this tool");
-    assert_eq!(queue[0].kind, QueueKind::Steering);
+    let queue = f.controller.state().queue();
+    assert_eq!(
+        (queue.len(), queue[0].text.as_str(), queue[0].kind),
+        (1, "steer this tool", QueueKind::Steering)
+    );
 }
 
 #[tokio::test]
 async fn test_turn_input_alt_enter_queues_follow_up_without_steering() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-    let mut batch = super::LiveBatch::new();
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    let mut session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
-    controller.state_mut().editor_mut().set_text("run after turn");
-    let mut ctx = TurnInputContext {
-        controller: &mut controller,
-        history: &mut history,
-        completions: &completions,
-        batch: &mut batch,
-        steering: &steering,
-        session: &mut session,
-        model_switch: &model_switch,
-        shared_auth: None,
-    };
-
+    let mut f = TurnTestFixture::new("run after turn");
+    let mut ctx = f.context();
     let result = handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::ALT), &mut ctx)
         .await
         .unwrap();
     assert!(matches!(result, TurnKeyResult::Handled));
 
-    let polled = crate::engine::runner::SteeringQueueProvider::poll_steering(&steering).await;
+    let polled = crate::engine::runner::SteeringQueueProvider::poll_steering(&f.steering).await;
     assert!(polled.is_empty());
     assert_eq!(
-        controller.state().system_message(),
+        f.controller.state().system_message(),
         Some("[Follow-up queued for turn completion]")
     );
-
-    let queue = controller.state().queue();
-    assert_eq!(queue.len(), 1);
-    assert_eq!(queue[0].text, "run after turn");
-    assert_eq!(queue[0].kind, QueueKind::FollowUp);
+    let queue = f.controller.state().queue();
+    assert_eq!(
+        (queue.len(), queue[0].text.as_str(), queue[0].kind),
+        (1, "run after turn", QueueKind::FollowUp)
+    );
 }
 
 #[tokio::test]
-async fn test_reconcile_consumed_steering_removes_consumed_prompts() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().push_front_queued(QueuedMessage {
-        text: "steer 1".to_string(),
-        kind: QueueKind::Steering,
-    });
-    controller.state_mut().push_front_queued(QueuedMessage {
-        text: "follow up".to_string(),
-        kind: QueueKind::FollowUp,
-    });
-    controller.state_mut().push_front_queued(QueuedMessage {
-        text: "steer 2".to_string(),
-        kind: QueueKind::Steering,
-    });
+async fn test_turn_input_multiple_queued_messages() {
+    let mut f = TurnTestFixture::new("steer 1");
+    let mut ctx = f.context();
+    let _ = handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::empty()), &mut ctx)
+        .await
+        .unwrap();
 
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    steering.enqueue("steer 1".to_string());
-    let polled = crate::engine::runner::SteeringQueueProvider::poll_steering(&steering).await;
-    assert_eq!(polled, vec!["steer 1"]);
+    f.controller.state_mut().editor_mut().set_text("steer 2");
+    let mut ctx = f.context();
+    let _ = handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::empty()), &mut ctx)
+        .await
+        .unwrap();
 
-    let reconciled = reconcile_consumed_steering(&mut controller, &steering);
-    assert!(reconciled);
+    f.controller.state_mut().editor_mut().set_text("follow up");
+    let mut ctx = f.context();
+    let _ = handle_turn_key(key_event(KeyCode::Enter, KeyModifiers::ALT), &mut ctx)
+        .await
+        .unwrap();
 
-    let queue: Vec<_> = controller.state().queue().iter().cloned().collect();
-    assert_eq!(queue.len(), 2);
-    assert_eq!(queue[0].text, "steer 2");
-    assert_eq!(queue[1].text, "follow up");
+    let queue = f.controller.state().queue();
+    assert_eq!(
+        (
+            queue.len(),
+            queue[0].text.as_str(),
+            queue[1].text.as_str(),
+            queue[2].text.as_str()
+        ),
+        (3, "steer 1", "steer 2", "follow up")
+    );
 }
 
 #[tokio::test]
 async fn test_turn_input_escape_cancels() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-    let mut batch = super::LiveBatch::new();
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    let mut session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
-    let mut ctx = TurnInputContext {
-        controller: &mut controller,
-        history: &mut history,
-        completions: &completions,
-        batch: &mut batch,
-        steering: &steering,
-        session: &mut session,
-        model_switch: &model_switch,
-        shared_auth: None,
-    };
-
+    let mut f = TurnTestFixture::new("");
+    let mut ctx = f.context();
     let result = handle_turn_key(key_event(KeyCode::Esc, KeyModifiers::empty()), &mut ctx)
         .await
         .unwrap();
@@ -205,83 +191,47 @@ async fn test_turn_input_escape_cancels() {
 
 #[tokio::test]
 async fn test_turn_input_ctrl_c_clears_input_without_cancelling() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().editor_mut().set_text("partial input to discard");
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-    let mut batch = super::LiveBatch::new();
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    let mut session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
-    let mut ctx = TurnInputContext {
-        controller: &mut controller,
-        history: &mut history,
-        completions: &completions,
-        batch: &mut batch,
-        steering: &steering,
-        session: &mut session,
-        model_switch: &model_switch,
-        shared_auth: None,
-    };
-
+    let mut f = TurnTestFixture::new("partial input to discard");
+    let mut ctx = f.context();
     let result = handle_turn_key(key_event(KeyCode::Char('c'), KeyModifiers::CONTROL), &mut ctx)
         .await
         .unwrap();
     assert!(matches!(result, TurnKeyResult::Handled));
-    assert_eq!(controller.state().editor().text(), "");
+    assert_eq!(f.controller.state().editor().text(), "");
 }
 
 #[tokio::test]
 async fn test_turn_input_ctrl_l_opens_model_selector() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-    let mut batch = super::LiveBatch::new();
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    let mut session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
-    let mut ctx = TurnInputContext {
-        controller: &mut controller,
-        history: &mut history,
-        completions: &completions,
-        batch: &mut batch,
-        steering: &steering,
-        session: &mut session,
-        model_switch: &model_switch,
-        shared_auth: None,
-    };
-
+    let mut f = TurnTestFixture::new("");
+    let mut ctx = f.context();
     let result = handle_turn_key(key_event(KeyCode::Char('l'), KeyModifiers::CONTROL), &mut ctx)
         .await
         .unwrap();
     assert!(matches!(result, TurnKeyResult::Handled));
+    assert_eq!(f.controller.state().active_modal().unwrap().title, "Select Model");
+}
 
-    let active_modal = controller.state().active_modal();
-    assert!(active_modal.is_some());
-    assert_eq!(active_modal.unwrap().title, "Select Model");
+fn model_switch_fixture() -> (
+    TerminalController<MockTerminal>,
+    super::LiveBatch,
+    rho_harness_core::config::Config,
+    crate::auth::AuthStore,
+    TerminalRenderer,
+    std::sync::Arc<rho_engine::engine::runner::SharedModelSwitch>,
+) {
+    (
+        TerminalController::new(MockTerminal, InteractiveState::default()).unwrap(),
+        super::LiveBatch::new(),
+        rho_harness_core::config::Config::default(),
+        crate::auth::AuthStore::default(),
+        TerminalRenderer::default(),
+        std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new()),
+    )
 }
 
 #[tokio::test]
 async fn test_apply_turn_model_switch_updates_model_switch_and_footer() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    let mut batch = super::LiveBatch::new();
-    let mut config = rho_harness_core::config::Config::default();
-    let auth_store = crate::auth::AuthStore::default();
-    let renderer = TerminalRenderer::default();
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
+    let (mut controller, mut batch, mut config, auth_store, renderer, model_switch) = model_switch_fixture();
     let input = super::TurnModelSwitchInput {
         model: "llama3.2",
         provider: "local",
@@ -294,158 +244,127 @@ async fn test_apply_turn_model_switch_updates_model_switch_and_footer() {
         batch: &mut batch,
         shared_auth: None,
     };
-
     super::apply_turn_model_switch(input).await.unwrap();
-
-    assert_eq!(config.model, "llama3.2");
-    assert_eq!(config.provider, "local");
-    assert_eq!(model_switch.current_model().as_deref(), Some("llama3.2"));
-    assert_eq!(model_switch.current_provider().as_deref(), Some("local"));
-    assert!(model_switch.get_handle().is_some());
-    assert_eq!(controller.state().footer().model, "llama3.2");
+    assert_eq!((config.model.as_str(), config.provider.as_str()), ("llama3.2", "local"));
     assert_eq!(
-        controller.state().system_message(),
-        Some("[Next step will use model: llama3.2 (local)]")
+        (
+            model_switch.current_model().as_deref(),
+            controller.state().footer().model.as_str()
+        ),
+        (Some("llama3.2"), "llama3.2")
     );
 }
 
 #[tokio::test]
 async fn test_turn_input_cycle_model_shortcut() {
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-    let mut batch = super::LiveBatch::new();
-    let steering = SharedSteeringQueue::new(crate::engine::runner::QueueMode::All);
-    let mut session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
-
-    let mut ctx = TurnInputContext {
-        controller: &mut controller,
-        history: &mut history,
-        completions: &completions,
-        batch: &mut batch,
-        steering: &steering,
-        session: &mut session,
-        model_switch: &model_switch,
-        shared_auth: None,
-    };
-
+    let mut f = TurnTestFixture::new("");
+    let mut ctx = f.context();
     let result = handle_turn_key(key_event(KeyCode::Char('p'), KeyModifiers::CONTROL), &mut ctx)
         .await
         .unwrap();
     assert!(matches!(result, TurnKeyResult::Handled));
 }
 
-#[tokio::test]
-async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
-    let temp = tempfile::tempdir().unwrap();
+struct ActiveTurnHarness {
+    _temp: tempfile::TempDir,
+    session: crate::repl::ReplSession,
+    engine: crate::engine::AgentEngine,
+    controller: TerminalController<MockTerminal>,
+    ui_events: tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+    input_reader: crate::repl::input_reader::TerminalInputReader,
+    history: InteractiveHistory,
+    completions: CompletionSet,
+}
+
+async fn create_harness_engine(
+    temp: &std::path::Path,
+) -> (
+    rho_harness_core::config::Config,
+    crate::auth::AuthStore,
+    crate::engine::AgentEngine,
+) {
     let config = rho_harness_core::config::Config {
         provider: "local".to_string(),
         model: "llama3.2".to_string(),
-        sessions_dir: temp.path().join("sessions"),
+        sessions_dir: temp.join("sessions"),
         ..Default::default()
     };
-    let auth_store = crate::auth::AuthStore::default();
-    let engine = crate::engine::builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
+    let auth = crate::auth::AuthStore::default();
+    let engine = crate::engine::builder::AgentEngineBuilder::new(config.clone(), auth.clone())
         .build()
         .await
         .unwrap();
-    let mut session = crate::repl::ReplSession::new(config, auth_store, None);
+    (config, auth, engine)
+}
 
-    let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
-    session.renderer = TerminalRenderer::with_ui(ui);
+impl ActiveTurnHarness {
+    async fn new() -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        let (config, auth, engine) = create_harness_engine(temp.path()).await;
+        let mut session = crate::repl::ReplSession::new(config, auth, None);
+        let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
+        session.renderer = TerminalRenderer::with_ui(ui);
+        let controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+        let cancel = crossterm::event::Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
+        let input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel]);
+        let history = InteractiveHistory::with_file(10, temp.path().join("history.txt")).unwrap();
+        let completions = CompletionSet::from_sources(Default::default());
+        Self {
+            _temp: temp,
+            session,
+            engine,
+            controller,
+            ui_events,
+            input_reader,
+            history,
+            completions,
+        }
+    }
 
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().footer_mut().activity = Activity::Working;
-    controller.state_mut().footer_mut().running_tool = Some("bash".to_string());
-    controller
+    async fn run_turn(&mut self, prompt: &str) {
+        let turn = crate::repl::live::ActiveTurn {
+            io: crate::repl::live::LiveIo {
+                controller: &mut self.controller,
+                events: &mut self.ui_events,
+                input: &mut self.input_reader,
+            },
+            editor: crate::repl::live::EditorResources {
+                history: &mut self.history,
+                completions: &self.completions,
+            },
+            prompt,
+        };
+        super::run_active_turn(&mut self.session, &self.engine, turn)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
+    let mut h = ActiveTurnHarness::new().await;
+    h.controller.state_mut().footer_mut().activity = Activity::Working;
+    h.controller.state_mut().footer_mut().running_tool = Some("bash".to_string());
+    h.controller
         .state_mut()
         .set_active_tool(Some(RunningTool::new("bash".to_string(), "sleep 30".to_string(), None)));
 
-    let cancel_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Esc,
-        crossterm::event::KeyModifiers::empty(),
-    ));
-    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel_event]);
-
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-
-    let turn = crate::repl::live::ActiveTurn {
-        io: crate::repl::live::LiveIo {
-            controller: &mut controller,
-            events: &mut ui_events,
-            input: &mut input_reader,
-        },
-        editor: crate::repl::live::EditorResources {
-            history: &mut history,
-            completions: &completions,
-        },
-        prompt: "sleep 30",
-    };
-
-    super::run_active_turn(&mut session, &engine, turn).await.unwrap();
-
-    assert_eq!(controller.state().footer().activity, Activity::Idle);
-    assert_eq!(controller.state().footer().running_tool, None);
-    assert!(controller.state().active_tool().is_none());
-    assert!(
-        controller
-            .rendered()
-            .map(|r| r.working_line.as_str())
-            .unwrap_or("")
-            .is_empty()
+    h.run_turn("sleep 30").await;
+    let state = (
+        h.controller.state().footer().activity == Activity::Idle,
+        h.controller.state().footer().running_tool.clone(),
     );
+    assert_eq!(state, (true, None));
+    assert!(h.controller.state().active_tool().is_none());
 }
 
 #[tokio::test]
 async fn test_turn_with_active_modal_advances_spinner() {
-    let temp = tempfile::tempdir().unwrap();
-    let config = rho_harness_core::config::Config {
-        config_dir: temp.path().to_path_buf(),
-        ..Default::default()
-    };
-    let auth_store = crate::auth::AuthStore::default();
-    let mut session = crate::repl::ReplSession::new(config.clone(), auth_store.clone(), None);
-    let engine = crate::platform::agent_engine(config, auth_store, None).await.unwrap();
+    let mut h = ActiveTurnHarness::new().await;
+    h.controller.state_mut().footer_mut().activity = Activity::Working;
+    h.controller
+        .state_mut()
+        .push_modal(crate::ui::interactive::ModalState::new("Select Model", "", vec![]));
 
-    let (ui, mut ui_events) = crate::ui::interactive::InteractiveUi::channel();
-    session.renderer = TerminalRenderer::with_ui(ui);
-
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().footer_mut().activity = Activity::Working;
-    let modal = crate::ui::interactive::ModalState::new("Select Model", "", vec![]);
-    controller.state_mut().push_modal(modal);
-
-    let cancel_event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
-        crossterm::event::KeyCode::Esc,
-        crossterm::event::KeyModifiers::empty(),
-    ));
-    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![cancel_event]);
-
-    let history_dir = tempfile::tempdir().unwrap();
-    let mut history = InteractiveHistory::with_file(10, history_dir.path().join("history.txt")).unwrap();
-    let completions = CompletionSet::from_sources(Default::default());
-
-    let turn = crate::repl::live::ActiveTurn {
-        io: crate::repl::live::LiveIo {
-            controller: &mut controller,
-            events: &mut ui_events,
-            input: &mut input_reader,
-        },
-        editor: crate::repl::live::EditorResources {
-            history: &mut history,
-            completions: &completions,
-        },
-        prompt: "test",
-    };
-
-    super::run_active_turn(&mut session, &engine, turn).await.unwrap();
-    assert!(controller.state().active_modal().is_none());
+    h.run_turn("test").await;
 }

@@ -100,7 +100,10 @@ fn test_render_file_lists_xml() {
     let expected =
         "<read-files>\nsrc/bar.rs\nsrc/foo.rs\n</read-files>\n\n<modified-files>\nsrc/baz.rs\n</modified-files>";
     assert_eq!(xml, expected);
+}
 
+#[test]
+fn test_render_file_lists_xml_partial_and_empty() {
     let read_only = CompactionDetails {
         read_files: vec!["src/bar.rs".to_string()],
         modified_files: vec![],
@@ -118,7 +121,5 @@ fn test_render_file_lists_xml() {
         render_file_lists_xml(&mod_only),
         "<modified-files>\nsrc/baz.rs\n</modified-files>"
     );
-
-    let empty = CompactionDetails::default();
-    assert_eq!(render_file_lists_xml(&empty), "");
+    assert_eq!(render_file_lists_xml(&CompactionDetails::default()), "");
 }

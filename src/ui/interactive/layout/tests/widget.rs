@@ -32,70 +32,45 @@ fn widget_lines_affect_height_and_cursor_row() {
     assert_eq!(layout.cursor_row(), 6);
 }
 
+fn render_test_widget(tool: &RunningTool, expanded: bool) -> String {
+    render_running_tool_widget(RunningToolWidgetInput {
+        tool,
+        theme: &Theme::default(),
+        width: 60,
+        tools_expanded: expanded,
+    })
+    .join("\n")
+}
+
 #[test]
-fn running_tool_widget_renders_header_tail_and_elapsed() {
-    let theme = Theme::default();
+fn running_tool_widget_collapsed_header_and_tail() {
     let mut tool = RunningTool::new("bash", "cargo test", None);
     tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
+    let full = render_test_widget(&tool, false);
 
-    // Collapsed view (tools_expanded = false)
-    let lines = render_running_tool_widget(RunningToolWidgetInput {
-        tool: &tool,
-        theme: &theme,
-        width: 60,
-        tools_expanded: false,
-    });
-    let full = lines.join("\n");
-    assert!(full.contains("bash"), "should contain tool name");
-    assert!(full.contains("cargo test"), "should contain command");
-    assert!(
-        full.contains("... (2 earlier lines)"),
-        "should show skipped lines count"
-    );
-    assert!(full.contains("line 7"), "should show latest tailed lines");
-    assert!(
-        !full.contains("line 1\n"),
-        "earlier line 1 should be truncated from tail preview"
-    );
-    assert!(full.contains("Elapsed"), "should contain elapsed duration");
+    assert!(full.contains("bash") && full.contains("cargo test"));
+    assert!(full.contains("... (2 earlier lines)") && full.contains("line 7"));
+    assert!(!full.contains("line 1\n") && full.contains("Elapsed"));
+}
 
-    // Expanded view (tools_expanded = true)
-    let lines_expanded = render_running_tool_widget(RunningToolWidgetInput {
-        tool: &tool,
-        theme: &theme,
-        width: 60,
-        tools_expanded: true,
-    });
-    let full_expanded = lines_expanded.join("\n");
-    assert!(
-        full_expanded.contains("line 1"),
-        "expanded view should show earlier lines"
-    );
-    assert!(full_expanded.contains("line 7"));
-    assert!(
-        !full_expanded.contains("earlier lines"),
-        "expanded view should not have skip hint"
-    );
+#[test]
+fn running_tool_widget_expanded_shows_all() {
+    let mut tool = RunningTool::new("bash", "cargo test", None);
+    tool.append_chunk("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n");
+    let full = render_test_widget(&tool, true);
+
+    assert!(full.contains("line 1") && full.contains("line 7"));
+    assert!(!full.contains("earlier lines"));
 }
 
 #[test]
 fn running_tool_widget_with_preview_renders_diff_card() {
-    let theme = Theme::default();
     let preview = Some("+ line added\n- line removed".to_string());
     let tool = RunningTool::new("edit", "src/main.rs", preview);
-
-    let lines = render_running_tool_widget(RunningToolWidgetInput {
-        tool: &tool,
-        theme: &theme,
-        width: 60,
-        tools_expanded: false,
-    });
-    let full = lines.join("\n");
-    assert!(full.contains("edit"));
-    assert!(full.contains("src/main.rs"));
-    assert!(full.contains("+ line added"));
-    assert!(full.contains("- line removed"));
-    assert!(full.contains("Elapsed"));
+    let full = render_test_widget(&tool, false);
+    for token in ["edit", "src/main.rs", "+ line added", "- line removed", "Elapsed"] {
+        assert!(full.contains(token));
+    }
 }
 
 #[test]

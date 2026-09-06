@@ -133,43 +133,40 @@ async fn host_ui_confirm_fail_closed_in_headless_mode() {
     assert_eq!(res.result, Some(json!(HostUiConfirmResult { confirmed: false })));
 }
 
+fn sample_select_params() -> HostUiSelectParams {
+    HostUiSelectParams {
+        title: "Pick option".into(),
+        message: "Choose".into(),
+        options: vec![
+            HostSelectOption {
+                label: "A".into(),
+                description: None,
+                input: None,
+            },
+            HostSelectOption {
+                label: "B".into(),
+                description: None,
+                input: None,
+            },
+        ],
+        initial_selection: 0,
+        allow_custom: false,
+    }
+}
+
 #[tokio::test]
 async fn host_ui_select_handles_selection_and_custom() {
     let presenter = Arc::new(MockTestPresenter::new(true, Some(InteractionResponse::Selected(1))));
     let dispatcher = HostDispatcher::new(presenter);
 
-    let req = JsonRpcRequest::new(
-        4,
-        "host/ui/select",
-        json!(HostUiSelectParams {
-            title: "Pick option".into(),
-            message: "Choose".into(),
-            options: vec![
-                HostSelectOption {
-                    label: "A".into(),
-                    description: None,
-                    input: None,
-                },
-                HostSelectOption {
-                    label: "B".into(),
-                    description: None,
-                    input: None,
-                },
-            ],
-            initial_selection: 0,
-            allow_custom: false,
-        }),
-    );
-
+    let req = JsonRpcRequest::new(4, "host/ui/select", json!(sample_select_params()));
     let res = dispatcher.dispatch(req).await;
-    assert_eq!(
-        res.result,
-        Some(json!(HostUiSelectResult {
-            selected: Some(1),
-            custom: None,
-            cancelled: false,
-        }))
-    );
+    let expected = HostUiSelectResult {
+        selected: Some(1),
+        custom: None,
+        cancelled: false,
+    };
+    assert_eq!(res.result, Some(json!(expected)));
 }
 
 #[tokio::test]
@@ -197,35 +194,39 @@ async fn host_ui_notify_and_unknown_method_error() {
 }
 
 #[tokio::test]
-async fn host_ui_block_and_set_status() {
+async fn host_ui_block() {
     let presenter = Arc::new(MockTestPresenter::new(true, None));
     let dispatcher = HostDispatcher::new(presenter.clone());
-
-    let req_block = JsonRpcRequest::new(
+    let req = JsonRpcRequest::new(
         7,
         "host/ui/block",
         json!(HostUiBlockParams {
             title: "Summary".into(),
-            content: "All checks passed".into(),
-            style: "success".into(),
+            content: "Passed".into(),
+            style: "success".into()
         }),
     );
-    let res_block = dispatcher.dispatch(req_block).await;
-    assert_eq!(res_block.result, Some(json!({"success": true})));
+    let res = dispatcher.dispatch(req).await;
+    assert_eq!(res.result, Some(json!({"success": true})));
     assert_eq!(
         presenter.blocks.lock().unwrap().as_slice(),
-        &[("Summary".into(), "All checks passed".into(), "success".into())]
+        &[("Summary".into(), "Passed".into(), "success".into())]
     );
+}
 
-    let req_status = JsonRpcRequest::new(
+#[tokio::test]
+async fn host_ui_set_status() {
+    let presenter = Arc::new(MockTestPresenter::new(true, None));
+    let dispatcher = HostDispatcher::new(presenter.clone());
+    let req = JsonRpcRequest::new(
         8,
         "host/ui/set_status",
         json!(HostUiSetStatusParams {
             key: "quota".into(),
-            text: Some("5h: 80%".into()),
+            text: Some("5h: 80%".into())
         }),
     );
-    let res_status = dispatcher.dispatch(req_status).await;
-    assert_eq!(res_status.result, Some(json!({"success": true})));
+    let res = dispatcher.dispatch(req).await;
+    assert_eq!(res.result, Some(json!({"success": true})));
     assert_eq!(presenter.extra_status.lock().unwrap().as_deref(), Some("5h: 80%"));
 }

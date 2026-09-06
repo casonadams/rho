@@ -6,15 +6,19 @@ use rig::message::{
 #[test]
 fn test_fallback_summary_empty_messages() {
     let summary = generate_fallback_summary(&[], None, None);
-
-    assert!(summary.contains("## Goal\n(none)"));
-    assert!(summary.contains("## Constraints & Preferences\n- (none)"));
-    assert!(summary.contains("## Progress\n### Done\n- [x] (none)"));
-    assert!(summary.contains("### In Progress\n- (none)"));
-    assert!(summary.contains("### Blocked\n- (none)"));
-    assert!(summary.contains("## Key Decisions\n- (none)"));
-    assert!(summary.contains("## Next Steps\n1. Continue session work"));
-    assert!(summary.contains("## Critical Context\n- (none)"));
+    let expected = [
+        "## Goal\n(none)",
+        "## Constraints & Preferences\n- (none)",
+        "## Progress\n### Done\n- [x] (none)",
+        "### In Progress\n- (none)",
+        "### Blocked\n- (none)",
+        "## Key Decisions\n- (none)",
+        "## Next Steps\n1. Continue session work",
+        "## Critical Context\n- (none)",
+    ];
+    for section in expected {
+        assert!(summary.contains(section));
+    }
 }
 
 #[test]
@@ -68,36 +72,12 @@ fn test_fallback_summary_captures_errors_in_blocked() {
     );
 }
 
+fn sample_prior_summary() -> &'static str {
+    "## Goal\nInitial authentication flow\n\n## Constraints & Preferences\n- Must use argon2 password hashing\n\n## Progress\n### Done\n- [x] Implemented password hasher\n\n### In Progress\n- [ ] Implement JWT tokens\n\n### Blocked\n- (none)\n\n## Key Decisions\n- **Argon2**: Chosen over bcrypt for memory hardness\n\n## Next Steps\n1. Finish JWT signing\n2. Add token middleware\n\n## Critical Context\n- Secret key configured via env\n"
+}
+
 #[test]
 fn test_fallback_summary_preserves_prior_summary() {
-    let prior = "\
-## Goal
-Initial authentication flow
-
-## Constraints & Preferences
-- Must use argon2 password hashing
-
-## Progress
-### Done
-- [x] Implemented password hasher
-
-### In Progress
-- [ ] Implement JWT tokens
-
-### Blocked
-- (none)
-
-## Key Decisions
-- **Argon2**: Chosen over bcrypt for memory hardness
-
-## Next Steps
-1. Finish JWT signing
-2. Add token middleware
-
-## Critical Context
-- Secret key configured via env
-";
-
     let messages = vec![Message::Assistant {
         id: None,
         content: vec![AssistantContent::ToolCall(ToolCall::new(
@@ -105,18 +85,21 @@ Initial authentication flow
             ToolFunction::new("write".to_string(), serde_json::json!({"path": "src/jwt.rs"})),
         ))],
     }];
-
-    let summary = generate_fallback_summary(&messages, Some(prior), None);
-
-    assert!(summary.contains("## Goal\nInitial authentication flow"));
-    assert!(summary.contains("- Must use argon2 password hashing"));
-    assert!(summary.contains("- [x] Implemented password hasher"));
-    assert!(summary.contains("- [x] Modified `src/jwt.rs`"));
-    assert!(summary.contains("- [ ] Implement JWT tokens"));
-    assert!(summary.contains("- **Argon2**: Chosen over bcrypt for memory hardness"));
-    assert!(summary.contains("1. Finish JWT signing"));
-    assert!(summary.contains("2. Add token middleware"));
-    assert!(summary.contains("- Secret key configured via env"));
+    let summary = generate_fallback_summary(&messages, Some(sample_prior_summary()), None);
+    let expected = [
+        "## Goal\nInitial authentication flow",
+        "- Must use argon2 password hashing",
+        "- [x] Implemented password hasher",
+        "- [x] Modified `src/jwt.rs`",
+        "- [ ] Implement JWT tokens",
+        "- **Argon2**: Chosen over bcrypt for memory hardness",
+        "1. Finish JWT signing",
+        "2. Add token middleware",
+        "- Secret key configured via env",
+    ];
+    for fragment in expected {
+        assert!(summary.contains(fragment));
+    }
 }
 
 #[test]

@@ -69,11 +69,15 @@ fn test_extract_chatgpt_account_id_missing_claim() {
 
 #[test]
 fn test_extract_chatgpt_account_id_malformed_jwt() {
-    assert_eq!(extract_chatgpt_account_id(""), None);
-    assert_eq!(extract_chatgpt_account_id("not-a-jwt"), None);
-    assert_eq!(extract_chatgpt_account_id("single.dot"), None);
-    assert_eq!(extract_chatgpt_account_id("header.invalid!base64.signature"), None);
-    assert_eq!(extract_chatgpt_account_id("header.bm90LWpzb24=.signature"), None);
+    for input in [
+        "",
+        "not-a-jwt",
+        "single.dot",
+        "header.invalid!base64.signature",
+        "header.bm90LWpzb24=.signature",
+    ] {
+        assert_eq!(extract_chatgpt_account_id(input), None);
+    }
 }
 
 #[tokio::test]
@@ -112,18 +116,24 @@ async fn test_refresh_oauth_token_unsupported_provider_passthrough() {
 }
 
 #[test]
-fn test_openrouter_build_auth_url() {
-    let url_with_cb = openrouter::build_auth_url(Some("http://localhost:1234/callback"), "challenge123");
-    assert!(url_with_cb.starts_with(openrouter::OPENROUTER_AUTH_URL));
-    assert!(url_with_cb.contains("callback_url=http://localhost:1234/callback"));
-    assert!(url_with_cb.contains("code_challenge=challenge123"));
-    assert!(url_with_cb.contains("code_challenge_method=S256"));
-    assert!(url_with_cb.contains("key_label=rho"));
+fn test_openrouter_build_auth_url_with_callback() {
+    let url = openrouter::build_auth_url(Some("http://localhost:1234/callback"), "challenge123");
+    assert!(url.starts_with(openrouter::OPENROUTER_AUTH_URL));
+    for fragment in [
+        "callback_url=http://localhost:1234/callback",
+        "code_challenge=challenge123",
+        "code_challenge_method=S256",
+        "key_label=rho",
+    ] {
+        assert!(url.contains(fragment));
+    }
+}
 
-    let url_headless = openrouter::build_auth_url(None, "challenge456");
-    assert!(!url_headless.contains("callback_url="));
-    assert!(url_headless.contains("code_challenge=challenge456"));
-    assert!(url_headless.contains("key_label=rho"));
+#[test]
+fn test_openrouter_build_auth_url_headless() {
+    let url = openrouter::build_auth_url(None, "challenge456");
+    assert!(!url.contains("callback_url="));
+    assert!(url.contains("code_challenge=challenge456") && url.contains("key_label=rho"));
 }
 
 #[test]

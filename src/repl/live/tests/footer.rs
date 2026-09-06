@@ -6,8 +6,7 @@ use crate::ui::interactive::{Activity, InteractiveState, RunningTool, TerminalCo
 use rho_engine::auth::AuthStore;
 use rho_harness_core::config::Config;
 
-#[tokio::test]
-async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
+async fn test_engine_for_footer() -> (crate::engine::AgentEngine, tempfile::TempDir) {
     let temp = tempfile::tempdir().unwrap();
     let config = Config {
         provider: "local".to_string(),
@@ -15,27 +14,26 @@ async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
         sessions_dir: temp.path().join("sessions"),
         ..Default::default()
     };
-    let auth_store = AuthStore::default();
-    let engine = AgentEngineBuilder::new(config, auth_store).build().await.unwrap();
+    let engine = AgentEngineBuilder::new(config, AuthStore::default())
+        .build()
+        .await
+        .unwrap();
+    (engine, temp)
+}
 
+#[tokio::test]
+async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
+    let (engine, _temp) = test_engine_for_footer().await;
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
 
-    let changed = sync_turn_footer(&mut controller, &engine);
-    assert!(changed);
-
-    let changed = sync_turn_footer(&mut controller, &engine);
-    assert!(!changed);
+    assert!(sync_turn_footer(&mut controller, &engine) && !sync_turn_footer(&mut controller, &engine));
 
     engine.usage().start_turn(Some(500));
-    let changed = sync_turn_footer(&mut controller, &engine);
-    assert!(changed);
+    assert!(sync_turn_footer(&mut controller, &engine));
     assert_eq!(controller.state().footer().total_input_tokens, 500);
 
-    assert!(!sync_turn_footer(&mut controller, &engine));
-
     engine.usage().record_streaming_chunk(25);
-    let changed = sync_turn_footer(&mut controller, &engine);
-    assert!(changed);
+    assert!(sync_turn_footer(&mut controller, &engine));
     assert_eq!(controller.state().footer().total_output_tokens, 25);
 
     let usage = rho_engine::engine::metrics::StructuralUsage {
@@ -49,11 +47,12 @@ async fn sync_turn_footer_updates_in_flight_tokens_and_detects_changes() {
     };
     engine.usage().record_step(usage, 400);
 
-    let changed = sync_turn_footer(&mut controller, &engine);
-    assert!(changed);
-    assert_eq!(controller.state().footer().total_input_tokens, 520);
-    assert_eq!(controller.state().footer().total_output_tokens, 30);
-    assert_eq!(controller.state().footer().total_cache_read_tokens, 100);
+    assert!(sync_turn_footer(&mut controller, &engine));
+    let f = controller.state().footer();
+    assert_eq!(
+        (f.total_input_tokens, f.total_output_tokens, f.total_cache_read_tokens),
+        (520, 30, 100)
+    );
 }
 
 #[tokio::test]

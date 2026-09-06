@@ -29,73 +29,51 @@ async fn test_engine(label: &str, model: Option<MockCompletionModel>) -> AgentEn
     builder.build().await.unwrap()
 }
 
+fn tool_turn((cid, tool, path): (&str, &str, &str), (user, done): (&str, &str)) -> Vec<Message> {
+    let call = ToolCall::new(
+        ToolCallId::new_or_mint(cid),
+        ToolFunction::new(tool.to_string(), serde_json::json!({"path": path})),
+    );
+    let res = ToolResult {
+        call: ToolCallId::new_or_mint(cid),
+        provider: None,
+        name: tool.to_string(),
+        content: vec![ToolResultContent::Text(Text::new("data"))],
+    };
+    vec![
+        Message::user(user),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(call)],
+        },
+        Message::User {
+            content: vec![UserContent::ToolResult(res)],
+        },
+        Message::assistant(done),
+    ]
+}
+
+async fn populate_test_turns(sm: &rho_harness_core::session::SessionManager, sid: &str) {
+    let turn1 = tool_turn(("c1", "read", "Cargo.toml"), ("Read config", "Done read"));
+    let turn2 = tool_turn(("c2", "write", "src/storage.rs"), ("Edit storage", "Done write"));
+    for turn in [
+        turn1,
+        turn2,
+        vec![Message::user("Verify"), Message::assistant("Verified")],
+    ] {
+        ConversationMemory::append(sm, sid, turn).await.unwrap();
+    }
+}
+
 #[tokio::test]
 async fn test_compact_session_with_file_tracking_and_metrics() {
     let mock =
         MockCompletionModel::text("## Goal\nRefactor session storage\n\n## Progress\n### Done\n- [x] Read files");
     let engine = test_engine("file_tracking", Some(mock)).await;
     let session_id = engine.session_manager.session_id.clone();
-
-    let turn1 = vec![
-        Message::user("Please read the config and modify src/storage.rs"),
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c1"),
-                ToolFunction::new("read".to_string(), serde_json::json!({"path": "Cargo.toml"})),
-            ))],
-        },
-        Message::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("c1"),
-                provider: None,
-                name: "read".to_string(),
-                content: vec![ToolResultContent::Text(Text::new("[package]\nname = \"rho\""))],
-            })],
-        },
-        Message::assistant("I read Cargo.toml."),
-    ];
-
-    let turn2 = vec![
-        Message::user("Now edit src/storage.rs"),
-        Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::ToolCall(ToolCall::new(
-                ToolCallId::new_or_mint("c2"),
-                ToolFunction::new(
-                    "write".to_string(),
-                    serde_json::json!({"path": "src/storage.rs", "content": "pub fn init() {}"}),
-                ),
-            ))],
-        },
-        Message::User {
-            content: vec![UserContent::ToolResult(ToolResult {
-                call: ToolCallId::new_or_mint("c2"),
-                provider: None,
-                name: "write".to_string(),
-                content: vec![ToolResultContent::Text(Text::new("Wrote 20 bytes"))],
-            })],
-        },
-        Message::assistant("Wrote src/storage.rs."),
-    ];
-
-    let turn3 = vec![
-        Message::user("Final step: verify everything"),
-        Message::assistant("All verified."),
-    ];
-
-    ConversationMemory::append(&engine.session_manager, &session_id, turn1)
-        .await
-        .unwrap();
-    ConversationMemory::append(&engine.session_manager, &session_id, turn2)
-        .await
-        .unwrap();
-    ConversationMemory::append(&engine.session_manager, &session_id, turn3)
-        .await
-        .unwrap();
+    populate_test_turns(&engine.session_manager, &session_id).await;
 
     let stats = engine.compact_session(Some("Focus on storage refactor")).await.unwrap();
-
     assert!(stats.tokens_before > 0);
     assert!(stats.tokens_after > 0);
     assert!(stats.summary.contains("Refactor session storage"));

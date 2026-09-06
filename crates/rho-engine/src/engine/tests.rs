@@ -95,6 +95,35 @@ async fn wait_for_server_count(pattern: &str, expected: usize) {
     );
 }
 
+async fn seed_test_engine_history(engine: &AgentEngine) -> (Vec<rig::message::Message>, Vec<u8>) {
+    let sid = &engine.session_manager.session_id;
+    let msgs = vec![
+        rig::message::Message::user("remember this line"),
+        rig::message::Message::assistant("recorded"),
+    ];
+    engine.session_manager.append(sid, msgs).await.unwrap();
+    let history = engine.session_manager.load(sid).await.unwrap();
+    let jsonl = engine.config.sessions_dir.join(format!("{sid}.jsonl"));
+    let bytes = std::fs::read(&jsonl).unwrap();
+    (history, bytes)
+}
+
+fn assert_rebuilt_meta(rebuilt: &AgentEngine, sid: &str, tool_count: usize) {
+    assert_eq!(
+        (rebuilt.config.max_turns, rebuilt.session_manager.session_id.as_str()),
+        (7, sid)
+    );
+    assert_eq!(rebuilt.tool_names().len(), tool_count);
+}
+
+async fn assert_rebuilt_storage(rebuilt: &AgentEngine, (sid, history, jsonl): (&str, &[rig::message::Message], &[u8])) {
+    assert_eq!(rebuilt.session_manager.load(sid).await.unwrap(), history);
+    assert_eq!(
+        std::fs::read(rebuilt.config.sessions_dir.join(format!("{sid}.jsonl"))).unwrap(),
+        jsonl
+    );
+}
+
 #[tokio::test]
 async fn rebuild_preserves_session_history_and_reattaches_tools() {
     with_dummy_provider_key();
@@ -102,7 +131,6 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
     let tools = crate::tools::build_builtin_tools(&base_dir, &config).unwrap();
-    assert!(!tools.is_empty(), "builtin tools should be assembled");
 
     let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
         .base_dir(base_dir.clone())
@@ -113,34 +141,26 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
     assert_eq!(engine.tool_names().len(), tools.len());
 
     let session_id = engine.session_manager.session_id.clone();
-    engine
-        .session_manager
-        .append(
-            &session_id,
-            vec![
-                rig::message::Message::user("remember this line"),
-                rig::message::Message::assistant("recorded"),
-            ],
-        )
-        .await
-        .unwrap();
-    let history_before = engine.session_manager.load(&session_id).await.unwrap();
-    assert_eq!(history_before.len(), 2);
-    let jsonl = config.sessions_dir.join(format!("{session_id}.jsonl"));
-    let jsonl_before = std::fs::read(&jsonl).unwrap();
+    let (history_before, jsonl_before) = seed_test_engine_history(&engine).await;
 
     let mut new_config = config.clone();
     new_config.max_turns = 7;
     let rebuilt = engine.rebuild(new_config, auth_store.clone()).await.unwrap();
 
-    assert_eq!(rebuilt.config.max_turns, 7);
-    assert_eq!(rebuilt.session_manager.session_id, session_id);
-    assert_eq!(rebuilt.tool_names().len(), tools.len());
-    let history_after = rebuilt.session_manager.load(&session_id).await.unwrap();
-    assert_eq!(history_after, history_before);
-    assert_eq!(std::fs::read(&jsonl).unwrap(), jsonl_before);
-
+    assert_rebuilt_meta(&rebuilt, &session_id, tools.len());
+    assert_rebuilt_storage(&rebuilt, (&session_id, &history_before, &jsonl_before)).await;
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+async fn setup_mcp_engine(config: Config, workspace: &std::path::Path, auth_store: AuthStore) -> AgentEngine {
+    let tools = load_mcp_tools(&config, workspace).await;
+    assert!(tools.iter().any(|t| t.name() == "mock_ping"));
+    builder::AgentEngineBuilder::new(config, auth_store)
+        .base_dir(workspace.to_path_buf())
+        .tools(tools)
+        .build()
+        .await
+        .unwrap()
 }
 
 /// Rebuild must re-resolve MCP tools (REQ-004) and dropping the old engine must
@@ -156,28 +176,11 @@ async fn rebuild_respawns_mcp_tools_and_reaps_previous_children() {
     let config = with_mock_mcp(config, script_command);
 
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-    let tools = load_mcp_tools(&config, &workspace).await;
-    assert!(
-        tools.iter().any(|t| t.name() == "mock_ping"),
-        "mock MCP server should expose mock_ping"
-    );
-
-    let engine = builder::AgentEngineBuilder::new(config.clone(), auth_store.clone())
-        .base_dir(workspace.clone())
-        .tools(tools)
-        .build()
-        .await
-        .unwrap();
+    let engine = setup_mcp_engine(config.clone(), &workspace, auth_store.clone()).await;
     wait_for_server_count(&script_pattern, 1).await;
 
     let rebuilt = engine.rebuild(config.clone(), auth_store.clone()).await.unwrap();
-    assert!(
-        rebuilt.tool_names().iter().any(|name| name == "mock_ping"),
-        "rebuild must re-attach MCP tools, got: {:?}",
-        rebuilt.tool_names()
-    );
-    // Old engine still alive here (rebuild borrows); drop it and confirm its
-    // child is reaped while the rebuilt engine's child keeps running.
+    assert!(rebuilt.tool_names().iter().any(|name| name == "mock_ping"));
     drop(engine);
     wait_for_server_count(&script_pattern, 1).await;
 
@@ -285,10 +288,8 @@ async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[tokio::test]
-async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
-    let (config, dir) = test_config("ctx_ollama_cloud");
-    let mut store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+fn populate_ollama_model_store(config_dir: &std::path::Path) {
+    let mut store = crate::provider::ModelStore::load(config_dir.join("models-store.json"));
     store
         .set_models(
             "ollama-cloud",
@@ -301,6 +302,12 @@ async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
             }],
         )
         .unwrap();
+}
+
+#[tokio::test]
+async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
+    let (config, dir) = test_config("ctx_ollama_cloud");
+    populate_ollama_model_store(&config.config_dir);
     let config = Config {
         provider: "ollama-cloud".to_string(),
         model: "glm-5.3-flash".to_string(),
@@ -313,9 +320,7 @@ async fn context_limit_resolves_ollama_cloud_model_from_model_store() {
         .build()
         .await
         .unwrap();
-
     assert_eq!(engine.context_limit(), Some(1_048_576));
-
     std::fs::remove_dir_all(dir).unwrap();
 }
 

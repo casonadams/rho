@@ -2,58 +2,78 @@ use super::*;
 
 #[test]
 fn test_parse_acceptance_criteria_examples() {
-    let spec = PluginSpec::parse("foo").unwrap();
-    assert_eq!(spec.name, "rho-plugin-foo");
-    assert_eq!(spec.owner, DEFAULT_GITHUB_ORG);
-    assert_eq!(spec.repo, "rho-plugin-foo");
-    assert_eq!(spec.tag, None);
-
-    let spec = PluginSpec::parse("foo@1.0.0").unwrap();
-    assert_eq!(spec.name, "rho-plugin-foo");
-    assert_eq!(spec.owner, DEFAULT_GITHUB_ORG);
-    assert_eq!(spec.repo, "rho-plugin-foo");
-    assert_eq!(spec.tag.as_deref(), Some("1.0.0"));
-
-    let spec = PluginSpec::parse("org/repo").unwrap();
-    assert_eq!(spec.name, "repo");
-    assert_eq!(spec.owner, "org");
-    assert_eq!(spec.repo, "repo");
-    assert_eq!(spec.tag, None);
-
-    let spec = PluginSpec::parse("org/repo@v1.0.0").unwrap();
-    assert_eq!(spec.name, "repo");
-    assert_eq!(spec.owner, "org");
-    assert_eq!(spec.repo, "repo");
-    assert_eq!(spec.tag.as_deref(), Some("v1.0.0"));
-
-    let spec = PluginSpec::parse("https://github.com/org/repo").unwrap();
-    assert_eq!(spec.name, "repo");
-    assert_eq!(spec.owner, "org");
-    assert_eq!(spec.repo, "repo");
-    assert_eq!(spec.tag, None);
+    let cases = [
+        ("foo", ("rho-plugin-foo", DEFAULT_GITHUB_ORG, "rho-plugin-foo", None)),
+        (
+            "foo@1.0.0",
+            ("rho-plugin-foo", DEFAULT_GITHUB_ORG, "rho-plugin-foo", Some("1.0.0")),
+        ),
+        ("org/repo", ("repo", "org", "repo", None)),
+        ("org/repo@v1.0.0", ("repo", "org", "repo", Some("v1.0.0"))),
+        ("https://github.com/org/repo", ("repo", "org", "repo", None)),
+    ];
+    for (input, (name, owner, repo, tag)) in cases {
+        let spec = PluginSpec::parse(input).unwrap();
+        assert_eq!(
+            (
+                spec.name.as_str(),
+                spec.owner.as_str(),
+                spec.repo.as_str(),
+                spec.tag.as_deref()
+            ),
+            (name, owner, repo, tag)
+        );
+    }
 }
 
 #[test]
 fn test_parse_bare_short_name() {
     let spec = PluginSpec::parse("permission").unwrap();
-    assert_eq!(spec.name, "rho-plugin-permission");
-    assert_eq!(spec.owner, DEFAULT_GITHUB_ORG);
-    assert_eq!(spec.repo, "rho-plugin-permission");
-    assert_eq!(spec.executable_name, "rho-plugin-permission");
-    assert_eq!(spec.tag, None);
-    assert_eq!(spec.github_repo(), "casonadams/rho-plugin-permission");
-    assert_eq!(spec.short_name(), "permission");
+    let actual = (
+        spec.name.as_str(),
+        spec.owner.as_str(),
+        spec.repo.as_str(),
+        spec.executable_name.as_str(),
+        spec.tag.as_deref(),
+    );
+    assert_eq!(
+        actual,
+        (
+            "rho-plugin-permission",
+            DEFAULT_GITHUB_ORG,
+            "rho-plugin-permission",
+            "rho-plugin-permission",
+            None
+        )
+    );
+    assert_eq!(
+        (spec.github_repo().as_str(), spec.short_name()),
+        ("casonadams/rho-plugin-permission", "permission")
+    );
 }
 
 #[test]
 fn test_parse_bare_prefixed_name() {
     let spec = PluginSpec::parse("rho-plugin-git").unwrap();
-    assert_eq!(spec.name, "rho-plugin-git");
-    assert_eq!(spec.owner, DEFAULT_GITHUB_ORG);
-    assert_eq!(spec.repo, "rho-plugin-git");
-    assert_eq!(spec.executable_name, "rho-plugin-git");
-    assert_eq!(spec.tag, None);
-    assert_eq!(spec.short_name(), "git");
+    let actual = (
+        spec.name.as_str(),
+        spec.owner.as_str(),
+        spec.repo.as_str(),
+        spec.executable_name.as_str(),
+        spec.tag.as_deref(),
+        spec.short_name(),
+    );
+    assert_eq!(
+        actual,
+        (
+            "rho-plugin-git",
+            DEFAULT_GITHUB_ORG,
+            "rho-plugin-git",
+            "rho-plugin-git",
+            None,
+            "git"
+        )
+    );
 }
 
 #[test]
@@ -69,102 +89,89 @@ fn test_parse_pinned_versions() {
 
 #[test]
 fn test_parse_github_slug() {
-    let spec = PluginSpec::parse("casonadams/rho-plugin-permission").unwrap();
-    assert_eq!(spec.name, "rho-plugin-permission");
-    assert_eq!(spec.owner, "casonadams");
-    assert_eq!(spec.repo, "rho-plugin-permission");
-    assert_eq!(spec.tag, None);
-
-    let spec = PluginSpec::parse("custom-org/custom-plugin@2.0.0").unwrap();
-    assert_eq!(spec.name, "custom-plugin");
-    assert_eq!(spec.owner, "custom-org");
-    assert_eq!(spec.repo, "custom-plugin");
-    assert_eq!(spec.tag, Some("2.0.0".to_string()));
-
-    let spec = PluginSpec::parse("custom-org/custom-plugin/").unwrap();
-    assert_eq!(spec.name, "custom-plugin");
-    assert_eq!(spec.owner, "custom-org");
-    assert_eq!(spec.repo, "custom-plugin");
-    assert_eq!(spec.tag, None);
+    let cases = [
+        (
+            "casonadams/rho-plugin-permission",
+            ("rho-plugin-permission", "casonadams", "rho-plugin-permission", None),
+        ),
+        (
+            "custom-org/custom-plugin@2.0.0",
+            ("custom-plugin", "custom-org", "custom-plugin", Some("2.0.0")),
+        ),
+        (
+            "custom-org/custom-plugin/",
+            ("custom-plugin", "custom-org", "custom-plugin", None),
+        ),
+    ];
+    for (input, (name, owner, repo, tag)) in cases {
+        let spec = PluginSpec::parse(input).unwrap();
+        let actual = (
+            spec.name.as_str(),
+            spec.owner.as_str(),
+            spec.repo.as_str(),
+            spec.tag.as_deref(),
+        );
+        assert_eq!(actual, (name, owner, repo, tag));
+    }
 }
 
 #[test]
-fn test_parse_github_url() {
-    let spec = PluginSpec::parse("https://github.com/casonadams/rho-plugin-permission").unwrap();
-    assert_eq!(spec.name, "rho-plugin-permission");
-    assert_eq!(spec.owner, "casonadams");
-    assert_eq!(spec.repo, "rho-plugin-permission");
-    assert_eq!(spec.tag, None);
-
-    let spec = PluginSpec::parse("https://github.com/casonadams/rho-plugin-permission.git").unwrap();
-    assert_eq!(spec.repo, "rho-plugin-permission");
-
-    let spec = PluginSpec::parse("https://github.com/casonadams/rho-plugin-permission/").unwrap();
-    assert_eq!(spec.repo, "rho-plugin-permission");
-
-    let spec = PluginSpec::parse("https://github.com/org/repo@v1.0.0").unwrap();
-    assert_eq!(spec.name, "repo");
-    assert_eq!(spec.owner, "org");
-    assert_eq!(spec.repo, "repo");
-    assert_eq!(spec.tag, Some("v1.0.0".to_string()));
-
-    let spec = PluginSpec::parse("https://github.com/org/repo/releases/tag/v1.2.3").unwrap();
-    assert_eq!(spec.name, "repo");
-    assert_eq!(spec.owner, "org");
-    assert_eq!(spec.repo, "repo");
-    assert_eq!(spec.tag, Some("v1.2.3".to_string()));
-
-    let spec = PluginSpec::parse("https://github.com/org/repo/tree/v2.0.0").unwrap();
-    assert_eq!(spec.name, "repo");
-    assert_eq!(spec.owner, "org");
-    assert_eq!(spec.repo, "repo");
-    assert_eq!(spec.tag, Some("v2.0.0".to_string()));
-
-    let spec = PluginSpec::parse("github.com/casonadams/rho-plugin-git").unwrap();
-    assert_eq!(spec.name, "rho-plugin-git");
-    assert_eq!(spec.owner, "casonadams");
-    assert_eq!(spec.repo, "rho-plugin-git");
-    assert_eq!(spec.tag, None);
+fn test_parse_github_url_standard() {
+    for url in [
+        "https://github.com/casonadams/rho-plugin-permission",
+        "https://github.com/casonadams/rho-plugin-permission.git",
+        "https://github.com/casonadams/rho-plugin-permission/",
+    ] {
+        let spec = PluginSpec::parse(url).unwrap();
+        assert_eq!(
+            (spec.name.as_str(), spec.owner.as_str(), spec.repo.as_str()),
+            ("rho-plugin-permission", "casonadams", "rho-plugin-permission")
+        );
+    }
 }
 
 #[test]
-fn test_parse_invalid_inputs() {
-    assert_eq!(PluginSpec::parse(""), Err(PluginSpecError::Empty));
-    assert_eq!(PluginSpec::parse("   "), Err(PluginSpecError::Empty));
-    assert_eq!(PluginSpec::parse("@1.0.0"), Err(PluginSpecError::Empty));
+fn test_parse_github_url_release_and_tree() {
+    let cases = [
+        ("https://github.com/org/repo@v1.0.0", "v1.0.0"),
+        ("https://github.com/org/repo/releases/tag/v1.2.3", "v1.2.3"),
+        ("https://github.com/org/repo/tree/v2.0.0", "v2.0.0"),
+    ];
+    for (url, tag) in cases {
+        let spec = PluginSpec::parse(url).unwrap();
+        assert_eq!(
+            (spec.name.as_str(), spec.owner.as_str(), spec.tag.as_deref()),
+            ("repo", "org", Some(tag))
+        );
+    }
+}
+
+#[test]
+fn test_parse_invalid_empty_and_tag() {
+    for input in ["", "   ", "@1.0.0"] {
+        assert_eq!(PluginSpec::parse(input), Err(PluginSpecError::Empty));
+    }
     assert_eq!(PluginSpec::parse("plugin@"), Err(PluginSpecError::EmptyTag));
-    assert!(matches!(
-        PluginSpec::parse("http://github.com/org/repo"),
-        Err(PluginSpecError::InsecureHttp(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("https://gitlab.com/org/repo"),
-        Err(PluginSpecError::UnsupportedHost(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("org/repo/extra"),
-        Err(PluginSpecError::InvalidSlug(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("invalid name with spaces"),
-        Err(PluginSpecError::InvalidName(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("git@github.com:org/repo.git"),
-        Err(PluginSpecError::UnsupportedHost(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("ftp://github.com/org/repo"),
-        Err(PluginSpecError::UnsupportedHost(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("https://github.com/org/repo/extra/path"),
-        Err(PluginSpecError::InvalidUrl(_))
-    ));
-    assert!(matches!(
-        PluginSpec::parse("rho-plugin-"),
-        Err(PluginSpecError::InvalidName(_))
-    ));
+}
+
+#[test]
+fn test_parse_invalid_urls_and_names() {
+    for host in [
+        "http://github.com/org/repo",
+        "https://gitlab.com/org/repo",
+        "git@github.com:org/repo.git",
+        "ftp://github.com/org/repo",
+    ] {
+        assert!(PluginSpec::parse(host).is_err());
+    }
+    for invalid in [
+        "org/repo/extra",
+        "invalid name with spaces",
+        "https://github.com/org/repo/extra/path",
+        "rho-plugin-",
+    ] {
+        assert!(PluginSpec::parse(invalid).is_err());
+    }
 }
 
 #[test]

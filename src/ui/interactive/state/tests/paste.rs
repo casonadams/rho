@@ -17,15 +17,11 @@ fn large_multiline_paste_collapses_to_marker() {
     assert_eq!(state.editor().text(), "[paste #1 +15 lines]");
     assert_eq!(state.editor().pastes().len(), 1);
 
-    // Expand on submission
-    let effect = state.apply(UiAction::Submit(QueueKind::Steering));
-    let UiEffect::Queued(msg) = effect else {
+    let UiEffect::Queued(msg) = state.apply(UiAction::Submit(QueueKind::Steering)) else {
         panic!("expected queued message");
     };
-    assert!(msg.text.contains("line 1"));
-    assert!(msg.text.contains("line 15"));
-    assert_eq!(state.editor().text(), "");
-    assert_eq!(state.editor().pastes().len(), 0);
+    assert!(msg.text.contains("line 1") && msg.text.contains("line 15"));
+    assert_eq!((state.editor().text(), state.editor().pastes().len()), ("", 0));
 }
 
 #[test]
@@ -43,69 +39,77 @@ fn large_single_line_paste_collapses_to_char_marker() {
     assert_eq!(msg.text.len(), 1200);
 }
 
-#[test]
-fn atomic_marker_cursor_navigation_and_backspace() {
+fn state_with_paste(prefix: &str) -> InteractiveState {
     let mut state = InteractiveState::default();
-    state.editor_mut().set_text("prefix ");
+    state.editor_mut().set_text(prefix);
     let lines = (1..=12).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");
     state.apply(UiAction::Paste(lines));
-    state.editor_mut().insert_newline();
-    state.editor_mut().insert('x');
+    state
+}
 
-    assert_eq!(state.editor().text(), "prefix [paste #1 +12 lines]\nx");
-    assert_eq!(state.editor().cursor(), state.editor().text().len());
-
-    // Backspace 'x' and newline
-    state.apply(UiAction::Backspace);
-    state.apply(UiAction::Backspace);
+#[test]
+fn atomic_marker_cursor_navigation() {
+    let mut state = state_with_paste("prefix ");
     assert_eq!(state.editor().text(), "prefix [paste #1 +12 lines]");
-    assert_eq!(state.editor().cursor(), "prefix [paste #1 +12 lines]".len());
+    let marker_end = state.editor().cursor();
 
-    // MoveLeft should leap across the marker to "prefix "
     state.apply(UiAction::MoveLeft);
     assert_eq!(state.editor().cursor(), "prefix ".len());
 
-    // MoveRight should leap across the marker to the end
     state.apply(UiAction::MoveRight);
-    assert_eq!(state.editor().cursor(), "prefix [paste #1 +12 lines]".len());
+    assert_eq!(state.editor().cursor(), marker_end);
+}
 
-    // Backspace immediately after marker deletes the entire marker
+#[test]
+fn atomic_marker_backspace_deletion() {
+    let mut state = state_with_paste("prefix ");
+    state.editor_mut().insert_newline();
+    state.editor_mut().insert('x');
+
     state.apply(UiAction::Backspace);
-    assert_eq!(state.editor().text(), "prefix ");
-    assert_eq!(state.editor().cursor(), "prefix ".len());
-    assert_eq!(state.editor().pastes().len(), 0);
+    state.apply(UiAction::Backspace);
+    assert_eq!(state.editor().text(), "prefix [paste #1 +12 lines]");
+
+    state.apply(UiAction::Backspace);
+    assert_eq!((state.editor().text(), state.editor().pastes().len()), ("prefix ", 0));
+}
+
+fn state_with_two_pastes() -> InteractiveState {
+    let mut state = InteractiveState::default();
+    let p1 = (1..=12).map(|i| format!("first {i}")).collect::<Vec<_>>().join("\n");
+    let p2 = (1..=12).map(|i| format!("second {i}")).collect::<Vec<_>>().join("\n");
+    state.apply(UiAction::Paste(p1));
+    state.editor_mut().insert(' ');
+    state.apply(UiAction::Paste(p2));
+    state
 }
 
 #[test]
 fn multi_paste_deletion_renumbers_subsequent_markers() {
-    let mut state = InteractiveState::default();
-    let p1 = (1..=12).map(|i| format!("first {i}")).collect::<Vec<_>>().join("\n");
-    let p2 = (1..=12).map(|i| format!("second {i}")).collect::<Vec<_>>().join("\n");
-
-    state.apply(UiAction::Paste(p1));
-    state.editor_mut().insert(' ');
-    state.apply(UiAction::Paste(p2));
-
+    let mut state = state_with_two_pastes();
     assert_eq!(state.editor().text(), "[paste #1 +12 lines] [paste #2 +12 lines]");
     assert_eq!(state.editor().pastes().len(), 2);
 
-    // Move left past paste #2 and space to end of paste #1
-    state.apply(UiAction::MoveLeft); // before paste #2
-    state.apply(UiAction::MoveLeft); // at end of paste #1: "[paste #1 +12 lines]| [paste #2 +12 lines]"
-    assert_eq!(state.editor().cursor(), "[paste #1 +12 lines]".len());
-
-    // Backspace deletes paste #1 and renumbers paste #2 -> paste #1
+    state.apply(UiAction::MoveLeft);
+    state.apply(UiAction::MoveLeft);
     state.apply(UiAction::Backspace);
-    assert_eq!(state.editor().text(), " [paste #1 +12 lines]");
-    assert_eq!(state.editor().pastes().len(), 1);
+    assert_eq!(
+        (state.editor().text(), state.editor().pastes().len()),
+        (" [paste #1 +12 lines]", 1)
+    );
+}
 
-    // Verify submission expansion has second content
-    let effect = state.apply(UiAction::Submit(QueueKind::Steering));
-    let UiEffect::Queued(msg) = effect else {
+#[test]
+fn multi_paste_submit_expansion() {
+    let mut state = state_with_two_pastes();
+    state.apply(UiAction::MoveLeft);
+    state.apply(UiAction::MoveLeft);
+    state.apply(UiAction::Backspace);
+
+    let UiEffect::Queued(msg) = state.apply(UiAction::Submit(QueueKind::Steering)) else {
         panic!("expected queued message");
     };
-    assert!(msg.text.contains("second 1"));
-    assert!(!msg.text.contains("first 1"));
+    assert!(msg.text.contains("second 1") && !msg.text.contains("first 1"));
 }
 
 #[test]

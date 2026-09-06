@@ -76,28 +76,24 @@ async fn test_system_prompt_override_and_append() {
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 
-#[tokio::test]
-async fn test_no_context_files_suppression() {
-    let temp_dir = std::env::temp_dir().join(format!("ctx_no_ctx_{}", uuid::Uuid::new_v4()));
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    tokio::fs::write(temp_dir.join("AGENTS.md"), "# Project Instructions\n")
-        .await
-        .unwrap();
-    tokio::fs::write(temp_dir.join("CLAUDE.md"), "# Claude Instructions\n")
-        .await
-        .unwrap();
-    tokio::fs::write(temp_dir.join(".cursorrules"), "cursor rules\n")
-        .await
-        .unwrap();
-
+fn setup_suppression_files(temp_dir: &Path) {
+    std::fs::create_dir_all(temp_dir).unwrap();
+    std::fs::write(temp_dir.join("AGENTS.md"), "# Project Instructions\n").unwrap();
+    std::fs::write(temp_dir.join("CLAUDE.md"), "# Claude Instructions\n").unwrap();
+    std::fs::write(temp_dir.join(".cursorrules"), "cursor rules\n").unwrap();
     let skills_dir = temp_dir.join("skills").join("plan");
-    tokio::fs::create_dir_all(&skills_dir).await.unwrap();
-    tokio::fs::write(
+    std::fs::create_dir_all(&skills_dir).unwrap();
+    std::fs::write(
         skills_dir.join("SKILL.md"),
         "---\nname: plan\ndescription: Plan before code\n---\n# Plan\n",
     )
-    .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn test_no_context_files_suppression() {
+    let temp_dir = std::env::temp_dir().join(format!("ctx_no_ctx_{}", uuid::Uuid::new_v4()));
+    setup_suppression_files(&temp_dir);
 
     let ctx = ProjectContext::discover_with_dirs(
         &temp_dir,
@@ -107,17 +103,14 @@ async fn test_no_context_files_suppression() {
         },
     )
     .await;
-
-    assert!(ctx.instruction_files.is_empty());
-    assert_eq!(ctx.skills.len(), 1);
+    assert!(ctx.instruction_files.is_empty() && ctx.skills.len() == 1);
     assert!(ctx.skills.iter().any(|s| s.name == "plan"));
 
     let prompt = ctx.build_system_prompt();
-    assert!(!prompt.contains("<project_context>"));
-    assert!(!prompt.contains("<project_instructions"));
-    assert!(!prompt.contains("Project Instructions"));
+    for excluded in ["<project_context>", "<project_instructions", "Project Instructions"] {
+        assert!(!prompt.contains(excluded));
+    }
     assert!(prompt.contains("<available_skills>"));
-
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
 

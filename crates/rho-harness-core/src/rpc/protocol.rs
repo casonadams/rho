@@ -141,8 +141,11 @@ mod tests {
         let req: RpcRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.id, Some("req-1".to_string()));
         assert!(matches!(req.command, RpcCommand::Prompt { message, .. } if message == "hello"));
+    }
 
-        let res = RpcResponse::success(req.id, "prompt", None);
+    #[test]
+    fn test_rpc_response_serialization() {
+        let res = RpcResponse::success(Some("req-1".to_string()), "prompt", None);
         let res_json = serde_json::to_string(&res).unwrap();
         assert!(res_json.contains("\"success\":true"));
         assert!(res_json.contains("\"id\":\"req-1\""));

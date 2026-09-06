@@ -15,17 +15,21 @@ fn test_system_prompt_spec() {
 fn test_build_summarization_prompt_without_instructions() {
     let transcript = "[User]: hello\n[Assistant]: hi";
     let prompt = build_summarization_prompt(transcript, None);
-
-    assert!(prompt.starts_with("<conversation>\n"));
-    assert!(prompt.contains(transcript));
-    assert!(prompt.contains("</conversation>\n\n"));
-    assert!(prompt.contains(SUMMARIZATION_PROMPT));
-    assert!(prompt.contains("## Goal"));
-    assert!(prompt.contains("## Constraints & Preferences"));
-    assert!(prompt.contains("## Progress"));
-    assert!(prompt.contains("## Key Decisions"));
-    assert!(prompt.contains("## Next Steps"));
-    assert!(prompt.contains("## Critical Context"));
+    let expected = [
+        "<conversation>\n",
+        transcript,
+        "</conversation>\n\n",
+        SUMMARIZATION_PROMPT,
+        "## Goal",
+        "## Constraints & Preferences",
+        "## Progress",
+        "## Key Decisions",
+        "## Next Steps",
+        "## Critical Context",
+    ];
+    for section in expected {
+        assert!(prompt.contains(section));
+    }
     assert!(!prompt.contains("Additional focus:"));
 }
 
@@ -44,35 +48,47 @@ fn test_build_update_summarization_prompt() {
     let prev_summary = "## Goal\nPrior goal\n\n## Progress\n### Done\n- [x] Step 1";
 
     let prompt = build_update_summarization_prompt(transcript, prev_summary, None);
-
-    assert!(prompt.contains("<conversation>\n[User]: new step\n[Assistant]: completed\n</conversation>"));
-    assert!(prompt.contains(
-        "<previous-summary>\n## Goal\nPrior goal\n\n## Progress\n### Done\n- [x] Step 1\n</previous-summary>"
-    ));
-    assert!(prompt.contains(UPDATE_SUMMARIZATION_PROMPT));
-    assert!(prompt.contains("RULES:"));
-    assert!(prompt.contains("PRESERVE all existing information"));
+    let expected = [
+        "<conversation>\n[User]: new step\n[Assistant]: completed\n</conversation>",
+        "<previous-summary>\n## Goal\nPrior goal\n\n## Progress\n### Done\n- [x] Step 1\n</previous-summary>",
+        UPDATE_SUMMARIZATION_PROMPT,
+        "RULES:",
+        "PRESERVE all existing information",
+    ];
+    for section in expected {
+        assert!(prompt.contains(section));
+    }
     assert!(!prompt.contains("Additional focus:"));
+}
 
-    let with_inst = build_update_summarization_prompt(transcript, prev_summary, Some("Track security issues"));
-    assert!(with_inst.contains("Additional focus: Track security issues"));
+#[test]
+fn test_build_update_summarization_prompt_with_instructions() {
+    let prompt = build_update_summarization_prompt("msg", "summary", Some("Track security issues"));
+    assert!(prompt.contains("Additional focus: Track security issues"));
 }
 
 #[test]
 fn test_build_turn_prefix_prompt() {
     let prefix = "[User]: massive task\n[Assistant]: part 1 of 100";
     let prompt = build_turn_prefix_prompt(prefix, None);
+    let expected = [
+        "<conversation>\n",
+        prefix,
+        "</conversation>\n\n",
+        TURN_PREFIX_SUMMARIZATION_PROMPT,
+        "## Original Request",
+        "## Early Progress",
+        "## Context for Suffix",
+    ];
+    for section in expected {
+        assert!(prompt.contains(section));
+    }
+}
 
-    assert!(prompt.contains("<conversation>\n"));
-    assert!(prompt.contains(prefix));
-    assert!(prompt.contains("</conversation>\n\n"));
-    assert!(prompt.contains(TURN_PREFIX_SUMMARIZATION_PROMPT));
-    assert!(prompt.contains("## Original Request"));
-    assert!(prompt.contains("## Early Progress"));
-    assert!(prompt.contains("## Context for Suffix"));
-
-    let with_inst = build_turn_prefix_prompt(prefix, Some("Note memory limits"));
-    assert!(with_inst.contains("Additional focus: Note memory limits"));
+#[test]
+fn test_build_turn_prefix_prompt_with_instructions() {
+    let prompt = build_turn_prefix_prompt("prefix", Some("Note memory limits"));
+    assert!(prompt.contains("Additional focus: Note memory limits"));
 }
 
 #[test]

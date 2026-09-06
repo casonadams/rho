@@ -5,6 +5,37 @@ use super::{ActiveQueueResult, CoordinatorInput, fake_runner, prompt, run_active
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::ui::interactive::QueueKind;
 
+async fn drive_steering_sequence(
+    input_sender: &mpsc::UnboundedSender<CoordinatorInput>,
+    permits: &mpsc::UnboundedSender<Result<(), &'static str>>,
+) {
+    let _ = input_sender.send(CoordinatorInput::Prompt(prompt("steer", QueueKind::Steering)));
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let _ = input_sender.send(CoordinatorInput::Prompt(prompt("follow", QueueKind::FollowUp)));
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let _ = permits.send(Ok(()));
+    let _ = permits.send(Ok(()));
+}
+
+fn assert_steering_results(delivered: &[crate::ui::interactive::QueuedMessage], timeline: &[String]) {
+    assert_eq!(
+        delivered,
+        [
+            prompt("steer", QueueKind::Steering),
+            prompt("active", QueueKind::Steering),
+            prompt("follow", QueueKind::FollowUp)
+        ]
+    );
+    let expected = [
+        "started:active",
+        "steered:steer",
+        "finished:active",
+        "started:follow",
+        "finished:follow",
+    ];
+    assert_eq!(timeline, expected);
+}
+
 #[tokio::test]
 async fn steering_prompts_are_delivered_mid_run_and_follow_ups_run_after() {
     let (runner, permits, mut started, timeline) = fake_runner();
@@ -16,39 +47,13 @@ async fn steering_prompts_are_delivered_mid_run_and_follow_ups_run_after() {
     });
 
     assert_eq!(started.recv().await.as_deref(), Some("active"));
-    input_sender
-        .send(CoordinatorInput::Prompt(prompt("steer", QueueKind::Steering)))
-        .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    input_sender
-        .send(CoordinatorInput::Prompt(prompt("follow", QueueKind::FollowUp)))
-        .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    permits.send(Ok(())).unwrap();
+    drive_steering_sequence(&input_sender, &permits).await;
     assert_eq!(started.recv().await.as_deref(), Some("follow"));
-    permits.send(Ok(())).unwrap();
 
     let ActiveQueueResult::Completed { delivered, .. } = task.await.unwrap() else {
-        panic!("queue should complete");
+        panic!()
     };
-    assert_eq!(
-        delivered,
-        [
-            prompt("steer", QueueKind::Steering),
-            prompt("active", QueueKind::Steering),
-            prompt("follow", QueueKind::FollowUp),
-        ]
-    );
-    assert_eq!(
-        *timeline.lock().unwrap(),
-        [
-            "started:active",
-            "steered:steer",
-            "finished:active",
-            "started:follow",
-            "finished:follow",
-        ]
-    );
+    assert_steering_results(&delivered, &timeline.lock().unwrap());
 }
 
 #[tokio::test]

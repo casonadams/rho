@@ -2,52 +2,49 @@ use super::*;
 
 #[test]
 fn test_parse_simple_version() {
-    let v = SimpleVersion::parse("1.2.3").unwrap();
-    assert_eq!(v.major, 1);
-    assert_eq!(v.minor, 2);
-    assert_eq!(v.patch, 3);
-    assert_eq!(v.prerelease, None);
-
-    let v2 = SimpleVersion::parse("v0.3.0").unwrap();
-    assert_eq!(v2.major, 0);
-    assert_eq!(v2.minor, 3);
-    assert_eq!(v2.patch, 0);
-
-    let v3 = SimpleVersion::parse("v1.0.0-rc.1").unwrap();
-    assert_eq!(v3.major, 1);
-    assert_eq!(v3.minor, 0);
-    assert_eq!(v3.patch, 0);
-    assert_eq!(v3.prerelease, Some("rc.1".to_string()));
+    let cases = [
+        ("1.2.3", (1, 2, 3, None)),
+        ("v0.3.0", (0, 3, 0, None)),
+        ("v1.0.0-rc.1", (1, 0, 0, Some("rc.1".to_string()))),
+    ];
+    for (input, (maj, min, pat, pre)) in cases {
+        let v = SimpleVersion::parse(input).unwrap();
+        assert_eq!((v.major, v.minor, v.patch, v.prerelease), (maj, min, pat, pre));
+    }
 }
 
 #[test]
 fn test_is_newer_than() {
-    let v1 = SimpleVersion::parse("0.3.0").unwrap();
-    let v2 = SimpleVersion::parse("0.3.1").unwrap();
-    let v3 = SimpleVersion::parse("0.4.0").unwrap();
-    let v4 = SimpleVersion::parse("1.0.0").unwrap();
-    let v_rc = SimpleVersion::parse("1.0.0-rc.1").unwrap();
-
-    assert!(v2.is_newer_than(&v1));
-    assert!(v3.is_newer_than(&v2));
-    assert!(v4.is_newer_than(&v3));
-    assert!(v4.is_newer_than(&v_rc));
-
-    assert!(!v1.is_newer_than(&v2));
-    assert!(!v1.is_newer_than(&v1));
-    assert!(!v_rc.is_newer_than(&v4));
+    let cases = [
+        ("0.3.1", "0.3.0", true),
+        ("0.4.0", "0.3.1", true),
+        ("1.0.0", "0.4.0", true),
+        ("1.0.0", "1.0.0-rc.1", true),
+        ("0.3.0", "0.3.1", false),
+        ("0.3.0", "0.3.0", false),
+        ("1.0.0-rc.1", "1.0.0", false),
+    ];
+    for (v_new, v_old, expected) in cases {
+        let n = SimpleVersion::parse(v_new).unwrap();
+        let o = SimpleVersion::parse(v_old).unwrap();
+        assert_eq!(n.is_newer_than(&o), expected);
+    }
 }
 
 #[test]
 fn test_is_update_available() {
-    assert!(is_update_available("0.3.0", "v0.3.1"));
-    assert!(is_update_available("v0.3.0", "0.4.0"));
-    assert!(is_update_available("1.0.0-rc.1", "1.0.0"));
-
-    assert!(!is_update_available("0.3.1", "v0.3.1"));
-    assert!(!is_update_available("v0.3.1", "0.3.1"));
-    assert!(!is_update_available("0.4.0", "0.3.1"));
-    assert!(!is_update_available("1.0.0", "1.0.0"));
+    let cases = [
+        ("0.3.0", "v0.3.1", true),
+        ("v0.3.0", "0.4.0", true),
+        ("1.0.0-rc.1", "1.0.0", true),
+        ("0.3.1", "v0.3.1", false),
+        ("v0.3.1", "0.3.1", false),
+        ("0.4.0", "0.3.1", false),
+        ("1.0.0", "1.0.0", false),
+    ];
+    for (current, latest, expected) in cases {
+        assert_eq!(is_update_available(current, latest), expected);
+    }
 }
 
 #[test]

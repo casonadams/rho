@@ -29,10 +29,15 @@ fn dequeue_all_extracts_all_queued_messages() {
 
     assert_eq!(state.queue_len(), 2);
     let dequeued = state.dequeue_all();
-    assert_eq!(dequeued.len(), 2);
-    assert_eq!(dequeued[0].text, "first");
-    assert_eq!(dequeued[1].text, "second");
-    assert_eq!(state.queue_len(), 0);
+    assert_eq!(
+        (
+            dequeued.len(),
+            dequeued[0].text.as_str(),
+            dequeued[1].text.as_str(),
+            state.queue_len()
+        ),
+        (2, "first", "second", 0)
+    );
 }
 
 #[test]

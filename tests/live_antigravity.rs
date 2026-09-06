@@ -82,6 +82,36 @@ async fn live_antigravity_dynamic_model_discovery_lists_runtime_catalog() {
     );
 }
 
+async fn run_plant_antigravity_turn(
+    engine: &AgentEngine,
+    presenter: Arc<dyn rho_harness_core::presentation::Presenter>,
+) {
+    let first = engine
+        .run_turn(
+            TurnRequest::new("My favorite color is chartreuse. Reply with exactly: OK-CHARTREUSE-RECEIVED"),
+            presenter,
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status, rho::engine::runner::RunStatus::Completed);
+    assert!(first.final_text.contains("OK-CHARTREUSE-RECEIVED"));
+}
+
+async fn run_recall_antigravity_turn(
+    engine: &AgentEngine,
+    presenter: Arc<dyn rho_harness_core::presentation::Presenter>,
+) {
+    let second = engine
+        .run_turn(
+            TurnRequest::new("What is my favorite color? Answer with only the color name, nothing else."),
+            presenter,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status, rho::engine::runner::RunStatus::Completed);
+    assert!(second.final_text.to_lowercase().contains("chartreuse"));
+}
+
 #[tokio::test]
 async fn live_antigravity_multi_turn_session_recalls_planted_fact() {
     if std::env::var("RHO_LIVE_ANTIGRAVITY").ok().as_deref() != Some("1") {
@@ -91,49 +121,12 @@ async fn live_antigravity_multi_turn_session_recalls_planted_fact() {
 
     let workspace = temp_dir("rho_live_antigravity");
     let mut config = live_config(&workspace);
-    // RHO_LIVE_AG_THINKING=<level> exercises effort routing + thinking config.
     config.thinking_level = std::env::var("RHO_LIVE_AG_THINKING").ok().filter(|l| l != "off");
     let auth_store = seed_auth(&config);
-
     let engine = AgentEngine::new(config, auth_store, None).await.unwrap();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
         Arc::new(StructuredPresenter::recording(RecordingSink::default()));
-
-    let first = engine
-        .run_turn(
-            TurnRequest::new("My favorite color is chartreuse. Reply with exactly: OK-CHARTREUSE-RECEIVED"),
-            presenter.clone(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        first.status,
-        rho::engine::runner::RunStatus::Completed,
-        "turn 1: {}",
-        first.final_text
-    );
-    assert!(
-        first.final_text.contains("OK-CHARTREUSE-RECEIVED"),
-        "turn 1 text: {}",
-        first.final_text
-    );
-
-    let second = engine
-        .run_turn(
-            TurnRequest::new("What is my favorite color? Answer with only the color name, nothing else."),
-            presenter,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        second.status,
-        rho::engine::runner::RunStatus::Completed,
-        "turn 2: {}",
-        second.final_text
-    );
-    assert!(
-        second.final_text.to_lowercase().contains("chartreuse"),
-        "session continuity broken, turn 2 text: {}",
-        second.final_text
-    );
+    run_plant_antigravity_turn(&engine, presenter.clone()).await;
+    run_recall_antigravity_turn(&engine, presenter).await;
+    let _ = std::fs::remove_dir_all(workspace);
 }

@@ -34,7 +34,7 @@ fn test_estimate_message_tokens() {
 }
 
 #[test]
-fn test_calculate_context_tokens_and_should_compact() {
+fn test_calculate_context_tokens() {
     let messages = vec![
         Message::user("Initial prompt"),
         Message::assistant("Response 1"),
@@ -48,14 +48,21 @@ fn test_calculate_context_tokens_and_should_compact() {
     let stats_anchored = calculate_context_tokens(&messages, Some((1, 500)), "gpt-4");
     assert!(stats_anchored.total_tokens > 500);
     assert_eq!(stats_anchored.usage_anchor_tokens, 500);
+}
 
+#[test]
+fn test_should_compact_thresholds() {
     let window = 200_000;
-    let reserve = 0;
-    assert!(!should_compact(50_000, window, reserve));
-    assert!(!should_compact(190_000, window, reserve));
-    assert!(should_compact(192_000, window, reserve));
-    assert!(should_compact(195_000, window, reserve));
-    assert!(should_compact(185_000, window, 20_000));
+    let cases = [
+        (50_000, 0, false),
+        (190_000, 0, false),
+        (192_000, 0, true),
+        (195_000, 0, true),
+        (185_000, 20_000, true),
+    ];
+    for (tokens, reserve, expected) in cases {
+        assert_eq!(should_compact(tokens, window, reserve), expected);
+    }
 }
 
 #[test]
@@ -86,12 +93,17 @@ fn test_find_token_cut_point_and_tool_pair_preservation() {
 
 #[test]
 fn test_context_window_size() {
-    assert_eq!(context_window_size("claude-sonnet-4-6"), 200_000);
-    assert_eq!(context_window_size("claude-opus-4-6"), 200_000);
-    assert_eq!(context_window_size("claude-3-7-sonnet"), 200_000);
-    assert_eq!(context_window_size("gemini-2.5-pro"), 2_000_000);
-    assert_eq!(context_window_size("gemini-2.5-flash"), 1_000_000);
-    assert_eq!(context_window_size("gpt-5.6"), 372_000);
-    assert_eq!(context_window_size("gpt-5.4"), 272_000);
-    assert_eq!(context_window_size("unknown-model"), 128_000);
+    let cases = [
+        ("claude-sonnet-4-6", 200_000),
+        ("claude-opus-4-6", 200_000),
+        ("claude-3-7-sonnet", 200_000),
+        ("gemini-2.5-pro", 2_000_000),
+        ("gemini-2.5-flash", 1_000_000),
+        ("gpt-5.6", 372_000),
+        ("gpt-5.4", 272_000),
+        ("unknown-model", 128_000),
+    ];
+    for (model, expected) in cases {
+        assert_eq!(context_window_size(model), expected);
+    }
 }

@@ -2,54 +2,17 @@ use super::*;
 
 #[test]
 fn test_target_triples() {
-    assert_eq!(
-        Platform {
-            os: Os::Macos,
-            arch: Arch::Aarch64
-        }
-        .target_triple(),
-        "aarch64-apple-darwin"
-    );
-    assert_eq!(
-        Platform {
-            os: Os::Macos,
-            arch: Arch::X86_64
-        }
-        .target_triple(),
-        "x86_64-apple-darwin"
-    );
-    assert_eq!(
-        Platform {
-            os: Os::Linux,
-            arch: Arch::X86_64
-        }
-        .target_triple(),
-        "x86_64-unknown-linux-gnu"
-    );
-    assert_eq!(
-        Platform {
-            os: Os::Linux,
-            arch: Arch::Aarch64
-        }
-        .target_triple(),
-        "aarch64-unknown-linux-gnu"
-    );
-    assert_eq!(
-        Platform {
-            os: Os::Windows,
-            arch: Arch::X86_64
-        }
-        .target_triple(),
-        "x86_64-pc-windows-msvc"
-    );
-    assert_eq!(
-        Platform {
-            os: Os::Windows,
-            arch: Arch::Aarch64
-        }
-        .target_triple(),
-        "aarch64-pc-windows-msvc"
-    );
+    let cases = [
+        (Os::Macos, Arch::Aarch64, "aarch64-apple-darwin"),
+        (Os::Macos, Arch::X86_64, "x86_64-apple-darwin"),
+        (Os::Linux, Arch::X86_64, "x86_64-unknown-linux-gnu"),
+        (Os::Linux, Arch::Aarch64, "aarch64-unknown-linux-gnu"),
+        (Os::Windows, Arch::X86_64, "x86_64-pc-windows-msvc"),
+        (Os::Windows, Arch::Aarch64, "aarch64-pc-windows-msvc"),
+    ];
+    for (os, arch, expected) in cases {
+        assert_eq!(Platform { os, arch }.target_triple(), expected);
+    }
 }
 
 #[test]

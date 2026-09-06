@@ -2,12 +2,17 @@ use super::*;
 
 #[test]
 fn test_private_host_detection() {
-    assert!(is_private_host("127.0.0.1"));
-    assert!(is_private_host("localhost"));
-    assert!(is_private_host("192.168.1.1"));
-    assert!(is_private_host("10.0.0.5"));
-    assert!(!is_private_host("example.com"));
-    assert!(!is_private_host("8.8.8.8"));
+    let cases = [
+        ("127.0.0.1", true),
+        ("localhost", true),
+        ("192.168.1.1", true),
+        ("10.0.0.5", true),
+        ("example.com", false),
+        ("8.8.8.8", false),
+    ];
+    for (host, expected) in cases {
+        assert_eq!(is_private_host(host), expected);
+    }
 }
 
 #[test]

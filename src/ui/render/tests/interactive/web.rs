@@ -2,6 +2,29 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 use rho_harness_core::presentation::ToolLine;
 
+fn collect_rendered_output(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    theme: &crate::ui::theme::Theme,
+) -> String {
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme,
+                    width: 80,
+                    tools_expanded: false,
+                    hide_thinking: false,
+                },
+            )),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            _ => {}
+        }
+    }
+    output
+}
+
 #[test]
 fn fetch_renders_url_on_same_line_without_duplicate() {
     let (ui, mut events) = InteractiveUi::channel();
@@ -16,22 +39,7 @@ fn fetch_renders_url_on_same_line_without_duplicate() {
         duration_ms: None,
     });
 
-    let mut output = String::new();
-    while let Ok(event) = events.try_recv() {
-        match event {
-            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
-                crate::ui::interactive::TranscriptRenderInput {
-                    item: &item,
-                    theme: &renderer.theme,
-                    width: 80,
-                    tools_expanded: false,
-                    hide_thinking: false,
-                },
-            )),
-            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            _ => {}
-        }
-    }
+    let output = collect_rendered_output(&mut events, &renderer.theme);
     assert!(output.contains("web_fetch"));
     assert!(output.contains("https://serde.rs/"));
     assert!(output.contains("fetched (text)"));
@@ -52,22 +60,7 @@ fn search_tool_displays_cleanly() {
         duration_ms: None,
     });
 
-    let mut output = String::new();
-    while let Ok(event) = events.try_recv() {
-        match event {
-            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
-                crate::ui::interactive::TranscriptRenderInput {
-                    item: &item,
-                    theme: &renderer.theme,
-                    width: 80,
-                    tools_expanded: false,
-                    hide_thinking: false,
-                },
-            )),
-            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            _ => {}
-        }
-    }
+    let output = collect_rendered_output(&mut events, &renderer.theme);
     assert!(output.contains("web_search"));
     assert!(output.contains("\"serde release\""));
 }

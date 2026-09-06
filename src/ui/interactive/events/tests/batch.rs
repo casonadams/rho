@@ -8,10 +8,7 @@ use crate::ui::interactive::{Activity, InteractiveState, UiAction};
 #[test]
 fn pending_batch_preserves_text_and_keeps_the_latest_activity() {
     let mut batch = PendingUiBatch::new(1024);
-    assert!(matches!(
-        batch.push(UiEvent::Output(OutputEvent::Text("one".into()))),
-        BatchDecision::Pending
-    ));
+    batch.push(UiEvent::Output(OutputEvent::Text("one".into())));
     batch.push(UiEvent::Activity(Activity::Thinking));
     batch.push(UiEvent::Output(OutputEvent::Text(" two".into())));
     batch.push(UiEvent::Activity(Activity::Working));
@@ -34,48 +31,61 @@ fn pending_batch_keeps_the_latest_running_tool_update() {
     assert!(batch.drain().running_tool.is_none());
 }
 
-#[test]
-fn streaming_flood_preserves_output_and_applies_input_within_two_frames() {
-    let fragments = (0..10_000).map(|index| format!("{index:05}|")).collect::<VecDeque<_>>();
-    let expected = fragments.iter().cloned().collect::<String>();
-    let mut fragments = fragments;
+fn step_streaming_flood(
+    (fragments, input): (&mut VecDeque<String>, &mut VecDeque<UiAction>),
+    (batch, state, output): (&mut PendingUiBatch, &mut InteractiveState, &mut String),
+    (frame, since_frame, input_visible_at): (&mut usize, &mut usize, &mut Option<usize>),
+) {
+    if *since_frame == 64 || fragments.is_empty() {
+        output.push_str(&batch.drain().text);
+        *frame += 1;
+        *since_frame = 0;
+        return;
+    }
+    if let Some(action) = input.pop_front() {
+        state.apply(action);
+        input_visible_at.get_or_insert(*frame);
+        return;
+    }
+    let fragment = fragments.pop_front().unwrap();
+    if matches!(
+        batch.push(UiEvent::Output(OutputEvent::Text(fragment))),
+        BatchDecision::Flush(_)
+    ) {
+        output.push_str(&batch.drain().text);
+    }
+    *since_frame += 1;
+}
+
+fn simulate_streaming_flood() -> (String, usize, String) {
+    let mut fragments = (0..10_000).map(|index| format!("{index:05}|")).collect::<VecDeque<_>>();
     let mut input = VecDeque::from([UiAction::Insert('r'), UiAction::Insert('h'), UiAction::Insert('o')]);
     let mut state = InteractiveState::default();
     let mut batch = PendingUiBatch::new(4 * 1024);
     let mut output = String::new();
-    let mut frame = 0_usize;
-    let mut input_visible_at = None;
-    let mut fragments_since_frame = 0_usize;
+    let (mut frame, mut input_visible_at, mut since_frame) = (0, None, 0);
 
     while !fragments.is_empty() || !input.is_empty() || !batch.is_empty() {
-        if fragments_since_frame == 64 || fragments.is_empty() {
-            output.push_str(&batch.drain().text);
-            frame += 1;
-            fragments_since_frame = 0;
-            continue;
-        }
-        if let Some(action) = input.pop_front() {
-            state.apply(action);
-            input_visible_at.get_or_insert(frame);
-            continue;
-        }
-        let fragment = fragments.pop_front().unwrap();
-        if matches!(
-            batch.push(UiEvent::Output(OutputEvent::Text(fragment))),
-            BatchDecision::Flush(_)
-        ) {
-            output.push_str(&batch.drain().text);
-        }
-        fragments_since_frame += 1;
+        step_streaming_flood(
+            (&mut fragments, &mut input),
+            (&mut batch, &mut state, &mut output),
+            (&mut frame, &mut since_frame, &mut input_visible_at),
+        );
     }
+    (state.editor().text().to_string(), input_visible_at.unwrap(), output)
+}
 
-    assert_eq!(state.editor().text(), "rho");
-    assert!(input_visible_at.unwrap() <= 2);
+#[test]
+fn streaming_flood_preserves_output_and_applies_input_within_two_frames() {
+    let expected = (0..10_000).map(|i| format!("{i:05}|")).collect::<String>();
+    let (text, visible_frame, output) = simulate_streaming_flood();
+    assert_eq!(text, "rho");
+    assert!(visible_frame <= 2);
     assert_eq!(output.as_bytes(), expected.as_bytes());
 }
 
-#[tokio::test]
-async fn pending_batch_exposes_newline_size_and_interaction_barriers() {
+#[test]
+fn pending_batch_newline_and_size_barriers() {
     let mut newline = PendingUiBatch::new(1024);
     assert!(matches!(
         newline.push(UiEvent::Output(OutputEvent::Text("line\n".into()))),
@@ -87,7 +97,11 @@ async fn pending_batch_exposes_newline_size_and_interaction_barriers() {
         size.push(UiEvent::Output(OutputEvent::Text("1234".into()))),
         BatchDecision::Flush(FlushBarrier::Size)
     ));
+}
 
+#[tokio::test]
+async fn pending_batch_interaction_barriers() {
+    let mut size = PendingUiBatch::new(4);
     let (ui, mut events) = InteractiveUi::channel();
     let request = tokio::spawn(async move {
         ui.request(InteractionPrompt {

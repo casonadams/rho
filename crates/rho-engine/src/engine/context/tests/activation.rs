@@ -1,34 +1,30 @@
 use super::super::*;
 use std::path::Path;
 
+fn setup_monorepo_dirs(repo_root: &Path) {
+    let plugin_crate = repo_root.join("crates").join("rho-plugin-sdk");
+    let plugin_src = plugin_crate.join("src");
+    std::fs::create_dir_all(repo_root.join(".git")).unwrap();
+    std::fs::create_dir_all(&plugin_src).unwrap();
+    std::fs::write(repo_root.join("AGENTS.md"), "# Root Instructions\n").unwrap();
+    std::fs::write(plugin_crate.join("AGENTS.md"), "# Plugin SDK Instructions\n").unwrap();
+    std::fs::write(plugin_src.join("lib.rs"), "pub fn run() {}\n").unwrap();
+}
+
 #[tokio::test]
 async fn test_dynamic_path_activation_in_monorepo() {
     let temp_dir = std::env::temp_dir().join(format!("ctx_dyn_monorepo_{}", uuid::Uuid::new_v4()));
     let repo_root = temp_dir.join("repo");
-    let plugin_crate = repo_root.join("crates").join("rho-plugin-sdk");
-    let plugin_src = plugin_crate.join("src");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-    tokio::fs::create_dir_all(&plugin_src).await.unwrap();
-
-    tokio::fs::write(repo_root.join("AGENTS.md"), "# Root Instructions\n")
-        .await
-        .unwrap();
-    tokio::fs::write(plugin_crate.join("AGENTS.md"), "# Plugin SDK Instructions\n")
-        .await
-        .unwrap();
-    tokio::fs::write(plugin_src.join("lib.rs"), "pub fn run() {}\n")
-        .await
-        .unwrap();
+    setup_monorepo_dirs(&repo_root);
 
     let mut ctx = ProjectContext::discover(&repo_root, None).await;
-    assert_eq!(ctx.instruction_files.len(), 1);
-    assert_eq!(ctx.instruction_files[0].1, "# Root Instructions");
+    assert_eq!(
+        (ctx.instruction_files.len(), ctx.instruction_files[0].1.as_str()),
+        (1, "# Root Instructions")
+    );
 
     ctx.activate_path_instructions(Path::new("crates/rho-plugin-sdk/src/lib.rs"));
-
     assert_eq!(ctx.instruction_files.len(), 2);
-    assert_eq!(ctx.instruction_files[0].1, "# Root Instructions");
     assert_eq!(ctx.instruction_files[1].1, "# Plugin SDK Instructions");
 
     let prompt = ctx.build_system_prompt();

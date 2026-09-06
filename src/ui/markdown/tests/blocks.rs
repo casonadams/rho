@@ -78,40 +78,41 @@ fn code_blocks_show_fences_instead_of_code_bars() {
 fn test_header_rendering() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
-
     let h1 = md.render_line("# Main Title", &theme);
     assert!(h1.contains("Main Title"));
-
-    let bullet = md.render_line("- first item", &theme);
-    assert!(bullet.contains("first item"));
-    assert!(bullet.contains('•'));
-
-    let num = md.render_line("1. First step", &theme);
-    assert!(num.contains("1."));
-    assert!(num.contains("First step"));
-
     let h4 = md.render_line("#### Level 4 Heading", &theme);
-    assert!(h4.contains("####"));
-    assert!(h4.contains("Level 4 Heading"));
+    assert!(h4.contains("####") && h4.contains("Level 4 Heading"));
+}
 
+#[test]
+fn test_list_rendering() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+    let bullet = md.render_line("- first item", &theme);
+    assert!(bullet.contains("first item") && bullet.contains('•'));
+    let num = md.render_line("1. First step", &theme);
+    assert!(num.contains("1.") && num.contains("First step"));
     let indented_bullet = md.render_line("  - nested item", &theme);
-    assert!(indented_bullet.contains('•'));
-    assert!(indented_bullet.starts_with("  "));
-
+    assert!(indented_bullet.contains('•') && indented_bullet.starts_with("  "));
     let indented_num = md.render_line("   1. nested step", &theme);
-    assert!(indented_num.contains("1."));
-    assert!(indented_num.starts_with("   "));
+    assert!(indented_num.contains("1.") && indented_num.starts_with("   "));
+}
 
+#[test]
+fn test_quote_rendering() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
     let quote = md.render_line("  > quoted text", &theme);
-    assert!(quote.contains('│'));
-    assert!(quote.starts_with("  "));
-
+    assert!(quote.contains('│') && quote.starts_with("  "));
     let empty_quote = md.render_line(">", &theme);
     assert!(empty_quote.contains('│'));
-
     let nested_quote = md.render_line(">> nested quote", &theme);
     assert_eq!(nested_quote.matches('│').count(), 2);
     assert!(nested_quote.contains("nested quote"));
+}
+
+fn assert_task_line(line: &str, marker: &str, text: &str) {
+    assert!(line.contains(marker) && line.contains(text) && !line.contains('•'));
 }
 
 #[test]
@@ -120,23 +121,17 @@ fn test_task_list_rendering() {
     let mut md = MarkdownRenderer::new();
 
     let unchecked = md.render_line("- [ ] incomplete task", &theme);
-    assert!(unchecked.contains("[ ]"));
-    assert!(unchecked.contains("incomplete task"));
-    assert!(!unchecked.contains('•'));
+    assert_task_line(&unchecked, "[ ]", "incomplete task");
 
     let checked = md.render_line("- [x] completed task", &theme);
-    assert!(checked.contains("[x]"));
-    assert!(checked.contains("completed task"));
-    assert!(!checked.contains('•'));
+    assert_task_line(&checked, "[x]", "completed task");
 
-    let indented_task = md.render_line("  * [ ] indented task", &theme);
-    assert!(indented_task.starts_with("  "));
-    assert!(indented_task.contains("[ ]"));
-    assert!(!indented_task.contains('•'));
+    let indented = md.render_line("  * [ ] indented task", &theme);
+    assert!(indented.starts_with("  "));
+    assert_task_line(&indented, "[ ]", "indented task");
 
-    let ordered_task = md.render_line("1. [ ] numbered task", &theme);
-    assert!(ordered_task.contains("1."));
-    assert!(ordered_task.contains("[ ]"));
+    let ordered = md.render_line("1. [ ] numbered task", &theme);
+    assert!(ordered.contains("1.") && ordered.contains("[ ]"));
 }
 
 #[test]

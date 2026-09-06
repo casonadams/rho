@@ -5,37 +5,34 @@ use super::presets::{default_presets_for, format_context_tokens, ollama_cloud_pr
 
 #[test]
 fn test_model_recency_key_parsing() {
-    assert_eq!(model_recency_key("gemini-3.8-flash"), (3, 8));
-    assert_eq!(model_recency_key("claude-sonnet-4-6"), (4, 6));
-    assert_eq!(model_recency_key("gpt-5"), (5, 0));
-    assert_eq!(model_recency_key("model-without-numbers"), (0, 0));
-    assert_eq!(model_recency_key("claude-3-7-sonnet-20250219"), (3, 7));
+    let cases = [
+        ("gemini-3.8-flash", (3, 8)),
+        ("claude-sonnet-4-6", (4, 6)),
+        ("gpt-5", (5, 0)),
+        ("model-without-numbers", (0, 0)),
+        ("claude-3-7-sonnet-20250219", (3, 7)),
+    ];
+    for (model, expected) in cases {
+        assert_eq!(model_recency_key(model), expected);
+    }
+}
+
+fn make_discovered_gemini_model(id: &str, name: &str) -> DiscoveredModel {
+    DiscoveredModel {
+        id: id.into(),
+        name: name.into(),
+        provider: "gemini".into(),
+        description: "".into(),
+        context_tokens: None,
+    }
 }
 
 #[test]
 fn test_sort_models_newest_first_descending_and_stable() {
     let models = vec![
-        DiscoveredModel {
-            id: "gemini-2.0-flash".into(),
-            name: "Gemini 2.0".into(),
-            provider: "gemini".into(),
-            description: "".into(),
-            context_tokens: None,
-        },
-        DiscoveredModel {
-            id: "gemini-3.8-flash".into(),
-            name: "Gemini 3.8".into(),
-            provider: "gemini".into(),
-            description: "".into(),
-            context_tokens: None,
-        },
-        DiscoveredModel {
-            id: "gemini-2.0-pro".into(),
-            name: "Gemini 2.0 Pro".into(),
-            provider: "gemini".into(),
-            description: "".into(),
-            context_tokens: None,
-        },
+        make_discovered_gemini_model("gemini-2.0-flash", "Gemini 2.0"),
+        make_discovered_gemini_model("gemini-3.8-flash", "Gemini 3.8"),
+        make_discovered_gemini_model("gemini-2.0-pro", "Gemini 2.0 Pro"),
     ];
 
     let sorted = sort_models_newest_first(models);

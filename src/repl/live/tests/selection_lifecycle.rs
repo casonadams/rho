@@ -155,27 +155,31 @@ fn test_interaction_double_escape_cancels_and_restores_draft() {
     assert_eq!(rx.try_recv().unwrap(), InteractionResponse::Cancelled);
 }
 
-#[test]
-fn test_interaction_custom_input_submit_delivers_input_and_restores_draft() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().editor_mut().set_text("queued user question");
-    let (tx, mut rx) = oneshot::channel();
-    let prompt = InteractionPrompt {
+fn custom_input_prompt(label: &str, tag: &str, value: &str) -> InteractionPrompt {
+    InteractionPrompt {
         title: "Input".into(),
-        body: "Tag:".into(),
+        body: "Prompt:".into(),
         options: vec![InteractionOption {
-            label: "Custom".into(),
+            label: label.into(),
             description: None,
             input: Some(InteractionInput {
-                label: "tag".into(),
-                value: Some("v1.0.0".into()),
+                label: tag.into(),
+                value: Some(value.into()),
             }),
         }],
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,
         option_layout: OptionLayout::Vertical,
-    };
+    }
+}
+
+#[test]
+fn test_interaction_custom_input_submit_delivers_input_and_restores_draft() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().editor_mut().set_text("queued user question");
+    let (tx, mut rx) = oneshot::channel();
+    let prompt = custom_input_prompt("Custom", "tag", "v1.0.0");
     let mut pending = None;
     let mut driver = ModalDriver {
         controller: &mut controller,
@@ -230,22 +234,7 @@ fn test_tree_and_settings_ctrl_c_dismiss_restores_draft() {
 fn test_interaction_custom_input_shift_enter_inserts_newline() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let (tx, mut rx) = oneshot::channel();
-    let prompt = InteractionPrompt {
-        title: "Perm".into(),
-        body: "Input:".into(),
-        options: vec![InteractionOption {
-            label: "Edit".into(),
-            description: None,
-            input: Some(InteractionInput {
-                label: "cmd".into(),
-                value: Some("echo line1".into()),
-            }),
-        }],
-        initial_selection: 0,
-        allow_custom: false,
-        initial_text: None,
-        option_layout: OptionLayout::Vertical,
-    };
+    let prompt = custom_input_prompt("Edit", "cmd", "echo line1");
     let mut pending = None;
     let mut driver = ModalDriver {
         controller: &mut controller,

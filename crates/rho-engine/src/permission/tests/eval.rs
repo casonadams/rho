@@ -1,5 +1,5 @@
 use crate::permission::eval::ask_drafts;
-use crate::permission::policy::{build_policy, parse_scope_from_str, save_allow_rule};
+use crate::permission::policy::{Policy, build_policy, parse_scope_from_str, save_allow_rule};
 use crate::permission::suggest::{canonical_tool, match_input, suggested_rule};
 use crate::permission::{Decision, EvalRequest, decide_tool_call};
 use serde_json::json;
@@ -16,40 +16,27 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
+fn check_eval(policy: &Policy, tool: &'static str, args: serde_json::Value) -> Decision {
+    decide_tool_call(
+        policy,
+        EvalRequest {
+            tool,
+            args: &args,
+            working_dir: ws(),
+        },
+    )
+}
+
 #[test]
 fn fd_and_rg_tools_are_baseline_allowed_with_path_checks() {
     let policy = build_policy(None, None);
+    assert_eq!(check_eval(&policy, "fd", json!({"pattern": "main"})), Decision::Allow);
     assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "fd",
-                args: &json!({"pattern": "main"}),
-                working_dir: ws()
-            }
-        ),
+        check_eval(&policy, "rg", json!({"pattern": "todo", "path": "src"})),
         Decision::Allow
     );
     assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "rg",
-                args: &json!({"pattern": "todo", "path": "src"}),
-                working_dir: ws()
-            }
-        ),
-        Decision::Allow
-    );
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "rg",
-                args: &json!({"pattern": "x", "path": "/etc"}),
-                working_dir: ws()
-            }
-        ),
+        check_eval(&policy, "rg", json!({"pattern": "x", "path": "/etc"})),
         Decision::Ask
     );
 
@@ -57,14 +44,7 @@ fn fd_and_rg_tools_are_baseline_allowed_with_path_checks() {
         parse_scope_from_str("[permission.path]\n\"*.env*\" = { action = \"deny\", reason = \"secrets\" }\n").unwrap();
     let policy = build_policy(Some(scope), None);
     assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "rg",
-                args: &json!({"pattern": "key", "path": ".env"}),
-                working_dir: ws()
-            }
-        ),
+        check_eval(&policy, "rg", json!({"pattern": "key", "path": ".env"})),
         Decision::Deny("secrets".to_string())
     );
 }
@@ -74,48 +54,11 @@ fn paths_outside_working_dir_always_ask() {
     let scope = parse_scope_from_str("[allow]\nread = [\"*\"]\nwrite = [\"*\"]\n").unwrap();
     let policy = build_policy(Some(scope), None);
 
+    for path in ["/etc/passwd", "../sibling/x", "a/../../etc/x"] {
+        assert_eq!(check_eval(&policy, "read", json!({"path": path})), Decision::Ask);
+    }
     assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "read",
-                args: &json!({"path": "/etc/passwd"}),
-                working_dir: ws()
-            }
-        ),
-        Decision::Ask
-    );
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "read",
-                args: &json!({"path": "../sibling/x"}),
-                working_dir: ws()
-            }
-        ),
-        Decision::Ask
-    );
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "read",
-                args: &json!({"path": "a/../../etc/x"}),
-                working_dir: ws()
-            }
-        ),
-        Decision::Ask
-    );
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "read",
-                args: &json!({"path": "src/../main.rs"}),
-                working_dir: ws()
-            }
-        ),
+        check_eval(&policy, "read", json!({"path": "src/../main.rs"})),
         Decision::Allow
     );
     assert_eq!(
@@ -129,68 +72,66 @@ fn paths_outside_working_dir_always_ask() {
         ),
         Decision::Ask
     );
+}
 
+#[test]
+fn paths_denied_by_permission_rule() {
     let scope = parse_scope_from_str("[deny]\nread = [\"/tmp/*\", \"*.env*\"]\n").unwrap();
     let policy = build_policy(Some(scope), None);
     assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "read",
-                args: &json!({"path": "/tmp/file.txt"}),
-                working_dir: ws()
-            }
-        ),
+        check_eval(&policy, "read", json!({"path": "/tmp/file.txt"})),
         Decision::Deny("denied by permission rule 'read|/tmp/*'".to_string())
     );
     assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "read",
-                args: &json!({"path": "secrets.env"}),
-                working_dir: ws()
-            }
-        ),
+        check_eval(&policy, "read", json!({"path": "secrets.env"})),
         Decision::Deny("denied by permission rule 'read|*.env*'".to_string())
     );
 }
 
 #[test]
 fn match_input_and_tool_aliases() {
-    assert_eq!(canonical_tool("webfetch"), "fetch");
-    assert_eq!(canonical_tool("web_fetch"), "fetch");
-    assert_eq!(canonical_tool("websearch"), "search");
-    assert_eq!(canonical_tool("web_search"), "search");
-    assert_eq!(canonical_tool("bash"), "bash");
+    let tool_cases = [
+        ("webfetch", "fetch"),
+        ("web_fetch", "fetch"),
+        ("websearch", "search"),
+        ("web_search", "search"),
+        ("bash", "bash"),
+    ];
+    for (alias, canonical) in tool_cases {
+        assert_eq!(canonical_tool(alias), canonical);
+    }
 
-    assert_eq!(match_input(&json!({"command": "cargo test"})), "cargo test");
-    assert_eq!(match_input(&json!({"path": "/tmp/x"})), "/tmp/x");
-    assert_eq!(match_input(&json!({"url": "https://x.com"})), "https://x.com");
-    assert_eq!(match_input(&json!({"query": "rust"})), "rust");
-    assert_eq!(
-        match_input(&json!({"tool": "mcp", "arg": 1})),
-        r#"{"arg":1,"tool":"mcp"}"#
-    );
+    let input_cases = [
+        (json!({"command": "cargo test"}), "cargo test"),
+        (json!({"path": "/tmp/x"}), "/tmp/x"),
+        (json!({"url": "https://x.com"}), "https://x.com"),
+        (json!({"query": "rust"}), "rust"),
+        (json!({"tool": "mcp", "arg": 1}), r#"{"arg":1,"tool":"mcp"}"#),
+    ];
+    for (arg, expected) in input_cases {
+        assert_eq!(match_input(&arg), expected);
+    }
 }
 
 #[test]
 fn suggested_rules_semantics() {
-    assert_eq!(suggested_rule("bash", "cargo test --nocapture"), "cargo test *");
-    assert_eq!(suggested_rule("bash", "cat /etc/hosts"), "cat *");
-    assert_eq!(suggested_rule("bash", "ls"), "ls *");
-    assert_eq!(suggested_rule("read", "src/main.rs"), "src/main.rs/*");
-    assert_eq!(suggested_rule("write", "/tmp/notes.txt"), "/tmp/notes.txt/*");
-    assert_eq!(
-        suggested_rule("fetch", "https://github.com/x/y?z=1"),
-        "https://github.com/*"
-    );
-    assert_eq!(suggested_rule("fetch", "not a url"), "*");
-    assert_eq!(suggested_rule("search", "rust async"), "*");
+    let cases = [
+        ("bash", "cargo test --nocapture", "cargo test *"),
+        ("bash", "cat /etc/hosts", "cat *"),
+        ("bash", "ls", "ls *"),
+        ("read", "src/main.rs", "src/main.rs/*"),
+        ("write", "/tmp/notes.txt", "/tmp/notes.txt/*"),
+        ("fetch", "https://github.com/x/y?z=1", "https://github.com/*"),
+        ("fetch", "not a url", "*"),
+        ("search", "rust async", "*"),
+    ];
+    for (tool, input, expected) in cases {
+        assert_eq!(suggested_rule(tool, input), expected);
+    }
 }
 
 #[test]
-fn ask_drafts_target_the_components_that_asked() {
+fn ask_drafts_targets_single_and_empty() {
     let policy = build_policy(None, None);
     let drafts = ask_drafts(
         &policy,
@@ -200,23 +141,10 @@ fn ask_drafts_target_the_components_that_asked() {
             working_dir: ws(),
         },
     );
-    assert_eq!(drafts.len(), 1);
-    assert_eq!(drafts[0].surface, "path");
-    assert_eq!(drafts[0].pattern, "/etc/hosts/*");
-
-    let drafts = ask_drafts(
-        &policy,
-        EvalRequest {
-            tool: "bash",
-            args: &json!({"command": "python3 /tmp/gen.py"}),
-            working_dir: ws(),
-        },
+    assert_eq!(
+        (drafts.len(), drafts[0].surface.as_str(), drafts[0].pattern.as_str()),
+        (1, "path", "/etc/hosts/*")
     );
-    assert_eq!(drafts.len(), 2);
-    assert_eq!(drafts[0].surface, "bash");
-    assert_eq!(drafts[0].pattern, "python3 /tmp/gen.py");
-    assert_eq!(drafts[1].surface, "path");
-    assert_eq!(drafts[1].pattern, "/tmp/gen.py/*");
 
     let drafts = ask_drafts(
         &policy,
@@ -227,6 +155,28 @@ fn ask_drafts_target_the_components_that_asked() {
         },
     );
     assert!(drafts.is_empty());
+}
+
+#[test]
+fn ask_drafts_targets_multiple() {
+    let policy = build_policy(None, None);
+    let drafts = ask_drafts(
+        &policy,
+        EvalRequest {
+            tool: "bash",
+            args: &json!({"command": "python3 /tmp/gen.py"}),
+            working_dir: ws(),
+        },
+    );
+    assert_eq!(drafts.len(), 2);
+    assert_eq!(
+        (drafts[0].surface.as_str(), drafts[0].pattern.as_str()),
+        ("bash", "python3 /tmp/gen.py")
+    );
+    assert_eq!(
+        (drafts[1].surface.as_str(), drafts[1].pattern.as_str()),
+        ("path", "/tmp/gen.py/*")
+    );
 }
 
 #[test]
@@ -289,28 +239,40 @@ fn saving_never_clobbers_a_malformed_file() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[test]
-fn default_policy_allows_safe_bash_and_asks_for_unknown() {
+fn check_default_bash(cmd: &str) -> Decision {
     let policy = build_policy(None, None);
-    let check = |cmd: &str| {
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "bash",
-                args: &json!({"command": cmd}),
-                working_dir: ws(),
-            },
-        )
-    };
-    assert_eq!(check("git status"), Decision::Allow);
-    assert_eq!(check("git branch --show-current"), Decision::Allow);
-    assert_eq!(check("cargo check"), Decision::Allow);
-    assert_eq!(check("cargo test"), Decision::Allow);
-    assert_eq!(check("ls -la"), Decision::Allow);
-    assert_eq!(check("pwd"), Decision::Allow);
+    decide_tool_call(
+        &policy,
+        EvalRequest {
+            tool: "bash",
+            args: &json!({"command": cmd}),
+            working_dir: ws(),
+        },
+    )
+}
 
-    assert_eq!(check("make clippy"), Decision::Ask);
-    assert_eq!(check("git commit -m 'feat: test'"), Decision::Ask);
-    assert_eq!(check("curl https://example.com"), Decision::Ask);
-    assert_eq!(check("npm install"), Decision::Ask);
+#[test]
+fn default_policy_allows_safe_bash() {
+    for cmd in [
+        "git status",
+        "git branch --show-current",
+        "cargo check",
+        "cargo test",
+        "ls -la",
+        "pwd",
+    ] {
+        assert_eq!(check_default_bash(cmd), Decision::Allow);
+    }
+}
+
+#[test]
+fn default_policy_asks_for_unknown_bash() {
+    for cmd in [
+        "make clippy",
+        "git commit -m 'feat: test'",
+        "curl https://example.com",
+        "npm install",
+    ] {
+        assert_eq!(check_default_bash(cmd), Decision::Ask);
+    }
 }

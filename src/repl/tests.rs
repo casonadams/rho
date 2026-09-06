@@ -39,15 +39,26 @@ fn submitted_input_rows_include_prompt_width_and_terminal_wrapping() {
     assert_eq!(submitted_input_rows("界界", 5), 2);
 }
 
-#[tokio::test]
-async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
+async fn setup_reload_session(home: &std::path::Path) -> (crate::repl::ReplSession, crate::engine::AgentEngine) {
     use crate::auth::AuthStore;
     use crate::config::cli::Cli;
     use clap::Parser;
     use rho_harness_core::config::Config;
 
-    // Re-run via RHO_HOME env; serialize against other env-sensitive tests.
-    // tokio Mutex: the guard is held across awaits by design.
+    let config = Config::load(None).unwrap();
+    config.ensure_dirs().unwrap();
+    let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
+        .with_cli(Some(Cli::parse_from(["rho", "--max-turns", "9"])));
+    session.config.model = "runtime-model".to_string();
+    let engine = crate::platform::agent_engine(session.config.clone(), session.auth_store.clone(), None)
+        .await
+        .unwrap();
+    std::fs::write(home.join("config.toml"), "max_turns = 42\n").unwrap();
+    (session, engine)
+}
+
+#[tokio::test]
+async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
     static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _env = ENV_LOCK.lock().await;
     unsafe {
@@ -59,28 +70,17 @@ async fn reload_adopts_file_and_cli_values_but_keeps_runtime_model() {
         std::env::set_var("RHO_HOME", &home);
     }
 
-    let config = Config::load(None).unwrap();
-    config.ensure_dirs().unwrap();
-    let mut session = crate::repl::ReplSession::new(config, AuthStore::default(), None)
-        .with_cli(Some(Cli::parse_from(["rho", "--max-turns", "9"])));
-    // Simulate a runtime /model selection made after startup.
-    session.config.model = "runtime-model".to_string();
-    let engine = crate::platform::agent_engine(session.config.clone(), session.auth_store.clone(), None)
-        .await
-        .unwrap();
-
-    // The file changes after startup; /reload must pick it up.
-    std::fs::write(home.join("config.toml"), "max_turns = 42\n").unwrap();
-
+    let (mut session, engine) = setup_reload_session(&home).await;
     let reloaded = session.reload_engine(&engine).await.unwrap();
 
-    // Runtime model choice wins over config files...
-    assert_eq!(reloaded.config.model, "runtime-model");
-    // ...the engine adopts the re-read value...
-    assert_eq!(reloaded.config.max_turns, 9, "CLI override beats the file");
-    // ...and session config stays in sync with the engine.
-    assert_eq!(session.config.max_turns, 9);
-    assert_eq!(session.config.model, "runtime-model");
+    assert_eq!(
+        (reloaded.config.model.as_str(), reloaded.config.max_turns),
+        ("runtime-model", 9)
+    );
+    assert_eq!(
+        (session.config.max_turns, session.config.model.as_str()),
+        (9, "runtime-model")
+    );
 
     unsafe {
         std::env::remove_var("RHO_HOME");

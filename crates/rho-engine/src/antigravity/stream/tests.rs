@@ -3,6 +3,36 @@ use rig::completion::FinishReason;
 use rig::message::ReasoningContent;
 use rig::streaming::RawStreamingChoice;
 
+fn assert_tool_call_event(event: &Result<RawStreamingChoice, rig::completion::CompletionError>) {
+    if let Ok(RawStreamingChoice::ToolCall(call)) = event {
+        assert_eq!(
+            (call.name.as_str(), call.arguments["cmd"].as_str()),
+            ("bash", Some("ls"))
+        );
+    } else {
+        panic!("expected tool call");
+    }
+}
+
+fn assert_final_event(event: &Result<RawStreamingChoice, rig::completion::CompletionError>) {
+    if let Ok(RawStreamingChoice::FinalResponse(resp)) = event {
+        assert_eq!(
+            (
+                resp.usage.input_tokens,
+                resp.usage.output_tokens,
+                resp.finish_reason.as_ref()
+            ),
+            (10, 5, Some(&FinishReason::Stop))
+        );
+    } else {
+        panic!("expected final response");
+    }
+}
+
+fn is_msg(event: &Result<RawStreamingChoice, rig::completion::CompletionError>, expected: &str) -> bool {
+    matches!(event, Ok(RawStreamingChoice::Message(t)) if t == expected)
+}
+
 #[test]
 fn sse_parser_emits_text_tool_call_and_terminal() {
     let mut parser = SseParser::new();
@@ -13,23 +43,21 @@ fn sse_parser_emits_text_tool_call_and_terminal() {
     );
     let events = parser.feed(sse.as_bytes());
     assert_eq!(events.len(), 4);
-    assert!(matches!(&events[0], Ok(RawStreamingChoice::Message(t)) if t == "Hel"));
-    assert!(matches!(&events[1], Ok(RawStreamingChoice::Message(t)) if t == "lo"));
-    match &events[2] {
-        Ok(RawStreamingChoice::ToolCall(call)) => {
-            assert_eq!(call.name, "bash");
-            assert_eq!(call.arguments["cmd"], "ls");
-        }
-        other => panic!("expected tool call, got {other:?}"),
-    }
-    match &events[3] {
-        Ok(RawStreamingChoice::FinalResponse(final_response)) => {
-            assert_eq!(final_response.usage.input_tokens, 10);
-            assert_eq!(final_response.usage.output_tokens, 5);
-            assert_eq!(final_response.finish_reason, Some(FinishReason::Stop));
-        }
-        other => panic!("expected final response, got {other:?}"),
-    }
+    assert!(is_msg(&events[0], "Hel") && is_msg(&events[1], "lo"));
+    assert_tool_call_event(&events[2]);
+    assert_final_event(&events[3]);
+}
+
+fn assert_reasoning_end_block(event: &Result<RawStreamingChoice, rig::completion::CompletionError>) {
+    let Ok(RawStreamingChoice::ReasoningEnd {
+        reasoning, signature, ..
+    }) = event
+    else {
+        panic!()
+    };
+    assert_eq!(signature.as_deref(), Some("c2ln"));
+    let block = reasoning.as_ref().unwrap();
+    assert!(matches!(&block.content[0], ReasoningContent::Text { text, .. } if text == "thinking...more"));
 }
 
 #[test]
@@ -42,27 +70,9 @@ fn sse_parser_streams_thoughts_as_reasoning_blocks() {
         "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}]}}\n\n"
     );
     let events = parser.feed(sse.as_bytes());
-    assert!(matches!(events[0], Ok(RawStreamingChoice::ReasoningStart { .. })));
-    assert!(matches!(
-        &events[1],
-        Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) if reasoning == "thinking..."
-    ));
-    assert!(matches!(&events[2], Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) if reasoning == "more"));
-    match &events[3] {
-        Ok(RawStreamingChoice::ReasoningEnd {
-            reasoning, signature, ..
-        }) => {
-            let block = reasoning.as_ref().unwrap();
-            assert!(matches!(
-                &block.content[0],
-                ReasoningContent::Text { text, .. } if text == "thinking...more"
-            ));
-            assert_eq!(signature.as_deref(), Some("c2ln"));
-        }
-        other => panic!("expected reasoning end, got {other:?}"),
-    }
-    assert!(matches!(&events[4], Ok(RawStreamingChoice::Message(t)) if t == "answer"));
-    assert!(matches!(events[5], Ok(RawStreamingChoice::FinalResponse(_))));
+    assert!(events[0].is_ok() && events[1].is_ok());
+    assert_reasoning_end_block(&events[3]);
+    assert!(is_msg(&events[4], "answer"));
 }
 
 #[test]

@@ -42,6 +42,30 @@ fn seed_auth(config: &Config) -> AuthStore {
     store
 }
 
+async fn run_plant_fact_turn(engine: &AgentEngine, presenter: Arc<dyn rho_harness_core::presentation::Presenter>) {
+    let first = engine
+        .run_turn(
+            TurnRequest::new("My secret word is PHOENIX-99. Reply with exactly: OK-PHOENIX-RECEIVED"),
+            presenter,
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.status, rho::engine::runner::RunStatus::Completed);
+    assert!(first.final_text.contains("OK-PHOENIX-RECEIVED"));
+}
+
+async fn run_recall_fact_turn(engine: &AgentEngine, presenter: Arc<dyn rho_harness_core::presentation::Presenter>) {
+    let second = engine
+        .run_turn(
+            TurnRequest::new("What is my secret word? Answer with only the secret word, nothing else."),
+            presenter,
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status, rho::engine::runner::RunStatus::Completed);
+    assert!(second.final_text.to_uppercase().contains("PHOENIX-99"));
+}
+
 #[tokio::test]
 async fn live_claude_multi_turn_session_recalls_planted_fact() {
     if std::env::var("RHO_LIVE_CLAUDE").ok().as_deref() != Some("1") {
@@ -53,48 +77,10 @@ async fn live_claude_multi_turn_session_recalls_planted_fact() {
     let mut config = live_config(&workspace);
     config.thinking_level = std::env::var("RHO_LIVE_CLAUDE_THINKING").ok().filter(|l| l != "off");
     let auth_store = seed_auth(&config);
-
     let engine = AgentEngine::new(config, auth_store, None).await.unwrap();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
         Arc::new(StructuredPresenter::recording(RecordingSink::default()));
-
-    let first = engine
-        .run_turn(
-            TurnRequest::new("My secret word is PHOENIX-99. Reply with exactly: OK-PHOENIX-RECEIVED"),
-            presenter.clone(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        first.status,
-        rho::engine::runner::RunStatus::Completed,
-        "turn 1: {}",
-        first.final_text
-    );
-    assert!(
-        first.final_text.contains("OK-PHOENIX-RECEIVED"),
-        "turn 1 text: {}",
-        first.final_text
-    );
-
-    let second = engine
-        .run_turn(
-            TurnRequest::new("What is my secret word? Answer with only the secret word, nothing else."),
-            presenter,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        second.status,
-        rho::engine::runner::RunStatus::Completed,
-        "turn 2: {}",
-        second.final_text
-    );
-    assert!(
-        second.final_text.to_uppercase().contains("PHOENIX-99"),
-        "turn 2 text: {}",
-        second.final_text
-    );
-
+    run_plant_fact_turn(&engine, presenter.clone()).await;
+    run_recall_fact_turn(&engine, presenter).await;
     let _ = std::fs::remove_dir_all(workspace);
 }

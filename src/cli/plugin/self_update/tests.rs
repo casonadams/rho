@@ -20,25 +20,64 @@ fn create_tar_gz(files: &[(&str, &[u8])]) -> Vec<u8> {
     gz.finish().unwrap()
 }
 
-#[tokio::test]
-async fn test_self_update_already_up_to_date() {
+async fn spawn_self_update_single(body: &'static str) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-
     tokio::spawn(async move {
         if let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = [0u8; 1024];
             let _ = stream.read(&mut buf).await;
-            let body = r#"{"tag_name":"v0.3.0","assets":[]}"#;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
             );
-            let _ = stream.write_all(response.as_bytes()).await;
+            let _ = stream.write_all(resp.as_bytes()).await;
         }
     });
+    addr
+}
 
+async fn serve_raw_bytes(mut stream: tokio::net::TcpStream, bytes: &[u8]) {
+    let mut buf = [0u8; 1024];
+    let _ = stream.read(&mut buf).await;
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    );
+    let _ = stream.write_all(resp.as_bytes()).await;
+    let _ = stream.write_all(bytes).await;
+}
+
+async fn serve_raw_json(mut stream: tokio::net::TcpStream, body: &str) {
+    let mut buf = [0u8; 1024];
+    let _ = stream.read(&mut buf).await;
+    let resp = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = stream.write_all(resp.as_bytes()).await;
+}
+
+async fn spawn_self_update_download(asset_name: String, asset: Arc<Vec<u8>>) -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let body = format!(
+        r#"{{"tag_name":"v0.4.0","assets":[{{"name":"{asset_name}","browser_download_url":"http://{addr}/download/{asset_name}"}}]}}"#
+    );
+    tokio::spawn(async move {
+        if let Ok((stream, _)) = listener.accept().await {
+            serve_raw_json(stream, &body).await;
+        }
+        if let Ok((stream, _)) = listener.accept().await {
+            serve_raw_bytes(stream, &asset).await;
+        }
+    });
+    addr
+}
+
+#[tokio::test]
+async fn test_self_update_already_up_to_date() {
+    let addr = spawn_self_update_single(r#"{"tag_name":"v0.3.0","assets":[]}"#).await;
     let temp_dir = tempfile::tempdir().unwrap();
     let fake_exe = temp_dir.path().join("rho");
     std::fs::write(&fake_exe, b"old-binary").unwrap();
@@ -63,43 +102,10 @@ async fn test_self_update_already_up_to_date() {
 
 #[tokio::test]
 async fn test_self_update_success() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-
-    let platform = Platform::current().unwrap();
-    let triple = platform.target_triple();
+    let triple = Platform::current().unwrap().target_triple();
     let asset_name = format!("rho-{triple}.tar.gz");
-    let asset_bytes = create_tar_gz(&[("rho", b"new-rho-binary")]);
-    let shared_asset = Arc::new(asset_bytes);
-
-    let asset_clone = shared_asset.clone();
-    let asset_name_clone = asset_name.clone();
-    tokio::spawn(async move {
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 1024];
-            let _ = stream.read(&mut buf).await;
-            let body = format!(
-                r#"{{"tag_name":"v0.4.0","assets":[{{"name":"{asset_name_clone}","browser_download_url":"http://{addr}/download/{asset_name_clone}"}}]}}"#
-            );
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-        }
-
-        if let Ok((mut stream, _)) = listener.accept().await {
-            let mut buf = [0u8; 1024];
-            let _ = stream.read(&mut buf).await;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                asset_clone.len()
-            );
-            let _ = stream.write_all(response.as_bytes()).await;
-            let _ = stream.write_all(&asset_clone).await;
-        }
-    });
+    let asset = Arc::new(create_tar_gz(&[("rho", b"new-rho-binary")]));
+    let addr = spawn_self_update_download(asset_name, asset).await;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let fake_exe = temp_dir.path().join("rho");
@@ -114,18 +120,13 @@ async fn test_self_update_success() {
     .await
     .unwrap();
 
-    match status {
+    assert_eq!(
+        status,
         SelfUpdateStatus::Updated {
-            old_version,
-            new_version,
-            binary_path,
-        } => {
-            assert_eq!(old_version, "v0.3.0");
-            assert_eq!(new_version, "v0.4.0");
-            assert_eq!(binary_path, fake_exe);
+            old_version: "v0.3.0".to_string(),
+            new_version: "v0.4.0".to_string(),
+            binary_path: fake_exe.clone()
         }
-        other => panic!("expected Updated, got {:?}", other),
-    }
-
+    );
     assert_eq!(std::fs::read(&fake_exe).unwrap(), b"new-rho-binary");
 }

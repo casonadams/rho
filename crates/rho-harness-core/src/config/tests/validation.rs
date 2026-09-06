@@ -23,47 +23,48 @@ fn rejects_invalid_plugin_configuration() {
 }
 
 #[test]
-fn rejects_invalid_provider_configuration() {
-    let collision = ProviderConfig {
+fn rejects_colliding_or_bad_provider_name() {
+    let valid = ProviderConfig {
         base_url: "https://api.acme.dev/v1".to_string(),
         key_env: None,
     };
     let mut config = Config::default();
-    config.providers.insert("anthropic".to_string(), collision.clone());
+    config.providers.insert("anthropic".to_string(), valid.clone());
     assert!(config.validate().is_err());
 
     config.providers.clear();
-    config.providers.insert("Bad Name".to_string(), collision.clone());
+    config.providers.insert("Bad Name".to_string(), valid);
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn rejects_invalid_provider_urls() {
+    let mut config = Config::default();
+    for bad_url in ["ftp://api.acme.dev", "not a url"] {
+        config.providers.clear();
+        config.providers.insert(
+            "test_provider".to_string(),
+            ProviderConfig {
+                base_url: bad_url.to_string(),
+                key_env: None,
+            },
+        );
+        assert!(config.validate().is_err());
+    }
 
     config.providers.clear();
-    config.providers.insert("acme".to_string(), collision.clone());
     config.providers.insert(
-        "ftp".to_string(),
+        "acme".to_string(),
         ProviderConfig {
-            base_url: "ftp://api.acme.dev".to_string(),
+            base_url: "https://api.acme.dev/v1".to_string(),
             key_env: None,
         },
     );
-    assert!(config.validate().is_err());
-
-    config.providers.remove("ftp");
-    config.providers.insert(
-        "garbage".to_string(),
-        ProviderConfig {
-            base_url: "not a url".to_string(),
-            key_env: None,
-        },
-    );
-    assert!(config.validate().is_err());
-
-    config.providers.remove("garbage");
-    config.providers.insert("acme".to_string(), collision);
     config.validate().unwrap();
 }
 
 #[test]
-fn test_runtime_limit_boundaries() {
+fn rejects_zero_max_turns_and_output_tokens() {
     let mut cfg = Config {
         max_turns: 0,
         ..Config::default()
@@ -73,9 +74,14 @@ fn test_runtime_limit_boundaries() {
     cfg.max_turns = 1;
     cfg.max_output_tokens = Some(0);
     assert!(cfg.validate().is_err());
+}
 
-    cfg.max_output_tokens = Some(1);
-    cfg.context_window_messages = 0;
+#[test]
+fn rejects_zero_context_and_compaction_bytes() {
+    let mut cfg = Config {
+        context_window_messages: 0,
+        ..Config::default()
+    };
     assert!(cfg.validate().is_err());
 
     cfg.context_window_messages = 1;

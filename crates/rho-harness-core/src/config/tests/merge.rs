@@ -1,20 +1,52 @@
 use super::super::{Config, FileConfig, cli, merge};
 use clap::Parser;
 
+fn assert_default_limits(cfg: &Config) {
+    let actual = (
+        cfg.search_min_interval_ms,
+        cfg.output_max_bytes,
+        cfg.max_output_tokens,
+        cfg.max_turns,
+        cfg.context_window_messages,
+        cfg.compaction_max_bytes,
+    );
+    assert_eq!(actual, (2000, 50_000, None, 1000, 24, 8192));
+}
+
+fn assert_default_features(cfg: &Config) {
+    let actual = (
+        !cfg.model.is_empty(),
+        cfg.allow_private_network,
+        cfg.session_retention_days,
+        cfg.plugins.is_empty(),
+        cfg.permission.enabled,
+    );
+    assert_eq!(actual, (true, false, Some(5), true, true));
+}
+
 #[test]
 fn test_default_config() {
     let cfg = Config::default();
-    assert!(!cfg.model.is_empty());
-    assert_eq!(cfg.search_min_interval_ms, 2000);
-    assert_eq!(cfg.output_max_bytes, 50_000);
-    assert_eq!(cfg.max_output_tokens, None);
-    assert_eq!(cfg.max_turns, 1000);
-    assert_eq!(cfg.context_window_messages, 24);
-    assert_eq!(cfg.compaction_max_bytes, 8192);
-    assert!(!cfg.allow_private_network);
-    assert_eq!(cfg.session_retention_days, Some(5));
-    assert!(cfg.plugins.is_empty());
-    assert!(cfg.permission.enabled);
+    assert_default_limits(&cfg);
+    assert_default_features(&cfg);
+}
+
+fn assert_merged_models(cfg: &Config) {
+    assert_eq!(cfg.model, "gpt-4o");
+    assert_eq!(cfg.session_retention_days, Some(10));
+    assert_eq!(cfg.provider, "openai");
+}
+
+fn assert_merged_limits(cfg: &Config) {
+    let actual = (
+        cfg.max_output_tokens,
+        cfg.max_turns,
+        cfg.context_limit,
+        cfg.context_window_messages,
+        cfg.compaction_max_bytes,
+        cfg.search_min_interval_ms,
+    );
+    assert_eq!(actual, (Some(8192), 10, Some(65536), 16, 4096, 3000));
 }
 
 #[test]
@@ -33,15 +65,31 @@ fn test_file_merge() {
         ..Default::default()
     };
     merge::merge_file(&mut cfg, file_cfg);
-    assert_eq!(cfg.model, "gpt-4o");
-    assert_eq!(cfg.session_retention_days, Some(10));
-    assert_eq!(cfg.provider, "openai");
-    assert_eq!(cfg.max_output_tokens, Some(8192));
-    assert_eq!(cfg.max_turns, 10);
-    assert_eq!(cfg.context_limit, Some(65536));
-    assert_eq!(cfg.context_window_messages, 16);
-    assert_eq!(cfg.compaction_max_bytes, 4096);
-    assert_eq!(cfg.search_min_interval_ms, 3000);
+    assert_merged_models(&cfg);
+    assert_merged_limits(&cfg);
+}
+
+fn sample_cli_override(model: &str, turns: usize) -> cli::Cli {
+    cli::Cli {
+        prompt: None,
+        model: Some(model.to_string()),
+        provider: None,
+        max_output_tokens: None,
+        max_turns: Some(turns),
+        thinking: None,
+        name: None,
+        export: None,
+        resume: None,
+        r#continue: false,
+        resume_picker: false,
+        mode: "interactive".to_string(),
+        message: Vec::new(),
+        system_prompt: None,
+        append_system_prompt: None,
+        no_context_files: false,
+        no_permission: false,
+        command: None,
+    }
 }
 
 #[test]
@@ -62,26 +110,7 @@ fn test_precedence_is_defaults_file_environment_then_cli() {
     })
     .unwrap();
 
-    let cli = cli::Cli {
-        prompt: None,
-        model: Some("cli-model".to_string()),
-        provider: None,
-        max_output_tokens: None,
-        max_turns: Some(40),
-        thinking: None,
-        name: None,
-        export: None,
-        resume: None,
-        r#continue: false,
-        resume_picker: false,
-        mode: "interactive".to_string(),
-        message: Vec::new(),
-        system_prompt: None,
-        append_system_prompt: None,
-        no_context_files: false,
-        no_permission: false,
-        command: None,
-    };
+    let cli = sample_cli_override("cli-model", 40);
     merge::apply_cli_overrides(&mut config, Some(&cli));
 
     assert_eq!(config.model, "cli-model");

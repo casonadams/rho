@@ -107,13 +107,10 @@ async fn path_scopes_results_to_a_subtree() {
 #[test]
 fn schema_exposes_renamed_type_property() {
     let schema = generated_schema::<FdArgs>();
-    assert!(schema["properties"].get("type").is_some());
+    for prop in ["type", "pattern", "stats", "min_lines", "max_lines", "sort"] {
+        assert!(schema["properties"].get(prop).is_some());
+    }
     assert!(schema["properties"].get("file_type").is_none());
-    assert!(schema["properties"].get("pattern").is_some());
-    assert!(schema["properties"].get("stats").is_some());
-    assert!(schema["properties"].get("min_lines").is_some());
-    assert!(schema["properties"].get("max_lines").is_some());
-    assert!(schema["properties"].get("sort").is_some());
     let required = schema.get("required").and_then(|r| r.as_array());
     assert!(
         required.is_none() || !required.unwrap().iter().any(|v| v == "pattern"),

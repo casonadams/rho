@@ -1,4 +1,4 @@
-use crate::permission::policy::{build_policy, load_policy, parse_scope_from_str, project_config_path};
+use crate::permission::policy::{Policy, build_policy, load_policy, parse_scope_from_str, project_config_path};
 use crate::permission::{Decision, EvalRequest, decide_tool_call};
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -156,21 +156,18 @@ fn permission_surface_tables_and_custom_deny_reason() {
     );
 }
 
-#[test]
-fn global_and_project_scope_merging() {
-    let global_toml = r#"
-[permission.bash]
-"cargo *" = "allow"
-"git *" = "allow"
-"#;
-    let project_toml = r#"
-[permission.bash]
-"cargo publish" = { action = "deny", reason = "publishing forbidden from repo" }
-"#;
+fn build_test_merged_policy() -> Policy {
+    let global_toml = "[permission.bash]\n\"cargo *\" = \"allow\"\n\"git *\" = \"allow\"\n";
+    let project_toml =
+        "[permission.bash]\n\"cargo publish\" = { action = \"deny\", reason = \"publishing forbidden from repo\" }\n";
     let global_scope = parse_scope_from_str(global_toml).unwrap();
     let project_scope = parse_scope_from_str(project_toml).unwrap();
-    let policy = build_policy(Some(global_scope), Some(project_scope));
+    build_policy(Some(global_scope), Some(project_scope))
+}
 
+#[test]
+fn global_and_project_scope_merging() {
+    let policy = build_test_merged_policy();
     let check = |cmd: &str| {
         decide_tool_call(
             &policy,
@@ -195,64 +192,58 @@ fn malformed_scope_fails_safely() {
     assert!(parse_scope_from_str(malformed).is_err());
 }
 
-#[test]
-fn load_policy_discovers_project_and_global_hierarchies() {
-    let _guard = ENV_LOCK.lock().unwrap();
+fn setup_hierarchical_dirs() -> (PathBuf, PathBuf) {
     let global_dir = temp_dir("global");
-    let global_perm = global_dir.join("permission.toml");
-    std::fs::write(&global_perm, "[permission.bash]\n\"global_cmd *\" = \"allow\"\n").unwrap();
-
+    std::fs::write(
+        global_dir.join("permission.toml"),
+        "[permission.bash]\n\"global_cmd *\" = \"allow\"\n",
+    )
+    .unwrap();
     let project_dir = temp_dir("project");
     let dot_rho = project_dir.join(".rho");
     std::fs::create_dir_all(&dot_rho).unwrap();
-    let project_perm = dot_rho.join("permission.toml");
-    std::fs::write(&project_perm, "[permission.bash]\n\"project_cmd *\" = \"allow\"\n").unwrap();
+    std::fs::write(
+        dot_rho.join("permission.toml"),
+        "[permission.bash]\n\"project_cmd *\" = \"allow\"\n",
+    )
+    .unwrap();
+    (global_dir, project_dir)
+}
 
-    assert_eq!(project_config_path(Some(&project_dir)), Some(project_perm));
-
+fn load_test_policy_with_env(global_dir: &std::path::Path, project_dir: &std::path::Path) -> Policy {
+    let _guard = ENV_LOCK.lock().unwrap();
     unsafe {
-        std::env::set_var("RHO_HOME", &global_dir);
+        std::env::set_var("RHO_HOME", global_dir);
     }
-
-    let (policy, healthy) = load_policy(Some(&project_dir));
-    assert!(healthy);
-
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "bash",
-                args: &json!({"command": "global_cmd run"}),
-                working_dir: Some(&project_dir),
-            }
-        ),
-        Decision::Allow
-    );
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "bash",
-                args: &json!({"command": "project_cmd run"}),
-                working_dir: Some(&project_dir),
-            }
-        ),
-        Decision::Allow
-    );
-    assert_eq!(
-        decide_tool_call(
-            &policy,
-            EvalRequest {
-                tool: "bash",
-                args: &json!({"command": "unknown_cmd run"}),
-                working_dir: Some(&project_dir),
-            }
-        ),
-        Decision::Ask
-    );
-
+    let (p, healthy) = load_policy(Some(project_dir));
     unsafe {
         std::env::remove_var("RHO_HOME");
+    }
+    assert!(healthy);
+    p
+}
+
+#[test]
+fn load_policy_discovers_project_and_global_hierarchies() {
+    let (global_dir, project_dir) = setup_hierarchical_dirs();
+    assert!(project_config_path(Some(&project_dir)).is_some());
+    let policy = load_test_policy_with_env(&global_dir, &project_dir);
+
+    let cases = [
+        ("global_cmd run", Decision::Allow),
+        ("project_cmd run", Decision::Allow),
+        ("unknown_cmd run", Decision::Ask),
+    ];
+    for (cmd, expected) in cases {
+        let dec = decide_tool_call(
+            &policy,
+            EvalRequest {
+                tool: "bash",
+                args: &json!({"command": cmd}),
+                working_dir: Some(&project_dir),
+            },
+        );
+        assert_eq!(dec, expected);
     }
     let _ = std::fs::remove_dir_all(global_dir);
     let _ = std::fs::remove_dir_all(project_dir);

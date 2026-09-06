@@ -42,15 +42,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pkce_challenge_generates_s256_properly() {
+    fn pkce_challenge_format_valid() {
         let pkce = PkceChallenge::generate();
         assert_eq!(pkce.method, "S256");
-        assert!(!pkce.verifier.is_empty());
-        assert!(!pkce.challenge.is_empty());
-        assert!(!pkce.verifier.contains('='));
-        assert!(!pkce.challenge.contains('='));
+        assert!(!pkce.verifier.is_empty() && !pkce.challenge.is_empty());
+        assert!(!pkce.verifier.contains('=') && !pkce.challenge.contains('='));
+    }
 
-        // Verify that challenge matches SHA-256 of verifier
+    #[test]
+    fn pkce_challenge_matches_sha256() {
+        let pkce = PkceChallenge::generate();
         let mut hasher = Sha256::new();
         hasher.update(pkce.verifier.as_bytes());
         let expected = URL_SAFE_NO_PAD.encode(hasher.finalize());

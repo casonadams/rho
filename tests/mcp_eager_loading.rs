@@ -19,96 +19,56 @@ fn temp_workspace() -> PathBuf {
     dir
 }
 
-#[tokio::test]
-async fn test_mcp_eager_loading_attaches_tools_before_first_turn() {
-    with_dummy_provider_key();
-    let workspace = temp_workspace();
-    let server_script = workspace.join("fast_mcp_server.sh");
+fn write_fast_mcp_server(workspace: &std::path::Path) -> PathBuf {
+    let script_path = workspace.join("fast_mcp_server.sh");
+    let script = "#!/bin/sh\nwhile IFS= read -r line; do\n  id=$(echo \"$line\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\n  case \"$line\" in\n    *\"initialize\"*) echo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":$id,\\\"result\\\":{\\\"protocolVersion\\\":\\\"2024-11-05\\\",\\\"capabilities\\\":{\\\"tools\\\":{}},\\\"serverInfo\\\":{\\\"name\\\":\\\"fast-fs\\\",\\\"version\\\":\\\"1.0\\\"}}}\" ;;\n    *\"tools/list\"*) echo \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":$id,\\\"result\\\":{\\\"tools\\\":[{\\\"name\\\":\\\"fast_read\\\",\\\"inputSchema\\\":{}}]}}\" ;;\n  esac\ndone\n";
+    std::fs::write(&script_path, script).unwrap();
+    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    script_path
+}
 
-    let script_content = r#"#!/bin/sh
-while IFS= read -r line; do
-    if echo "$line" | grep -q '"method":"initialize"'; then
-        id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"fast-fs\",\"version\":\"1.0\"}}}"
-    elif echo "$line" | grep -q '"method":"tools/list"'; then
-        id=$(echo "$line" | grep -o '"id":[0-9]*' | cut -d: -f2)
-        echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"fast_read\",\"description\":\"Read fast\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}}]}}"
-    fi
-done
-"#;
-
-    std::fs::write(&server_script, script_content).unwrap();
-    std::fs::set_permissions(&server_script, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    let mut mcp_servers = BTreeMap::new();
-    mcp_servers.insert(
-        "fast".to_string(),
+fn build_mcp_test_config(workspace: &std::path::Path, server_name: &str, cmd: &str) -> Config {
+    let mut servers = BTreeMap::new();
+    servers.insert(
+        server_name.to_string(),
         McpServerConfig {
-            command: server_script.to_str().unwrap().to_string(),
+            command: cmd.to_string(),
             args: Vec::new(),
             env: BTreeMap::new(),
             enabled: true,
         },
     );
-
-    let config = Config {
-        mcp: McpConfig {
-            enabled: true,
-            servers: mcp_servers,
-        },
-        config_dir: workspace.clone(),
+    Config {
+        mcp: McpConfig { enabled: true, servers },
+        config_dir: workspace.to_path_buf(),
         sessions_dir: workspace.join("sessions"),
         auth_file: workspace.join("auth.json"),
         ..Config::default()
-    };
+    }
+}
+
+#[tokio::test]
+async fn test_mcp_eager_loading_attaches_tools_before_first_turn() {
+    with_dummy_provider_key();
+    let workspace = temp_workspace();
+    let script = write_fast_mcp_server(&workspace);
+    let config = build_mcp_test_config(&workspace, "fast", script.to_str().unwrap());
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
 
-    // 1. Build engine eagerly
     let engine = AgentEngineBuilder::new(config, auth_store)
         .base_dir(workspace.clone())
         .build()
         .await
         .unwrap();
-
-    // 2. Immediately after build, both built-in and MCP tools must be ready
     let tools = engine.tool_names();
-    assert!(
-        tools.contains(&"read".to_string()),
-        "built-in 'read' tool should be present immediately"
-    );
-    assert!(
-        tools.contains(&"fast_fast_read".to_string()),
-        "MCP tool should be attached eagerly on engine build, got: {tools:?}"
-    );
-
+    assert!(tools.contains(&"read".to_string()) && tools.contains(&"fast_fast_read".to_string()));
     let _ = std::fs::remove_dir_all(&workspace);
 }
 
 #[tokio::test]
 async fn test_mcp_eager_loading_resilient_to_server_failure() {
     let workspace = temp_workspace();
-
-    let mut mcp_servers = BTreeMap::new();
-    mcp_servers.insert(
-        "broken".to_string(),
-        McpServerConfig {
-            command: "/nonexistent/binary/that/cannot/be/spawned".to_string(),
-            args: Vec::new(),
-            env: BTreeMap::new(),
-            enabled: true,
-        },
-    );
-
-    let config = Config {
-        mcp: McpConfig {
-            enabled: true,
-            servers: mcp_servers,
-        },
-        config_dir: workspace.clone(),
-        sessions_dir: workspace.join("sessions"),
-        auth_file: workspace.join("auth.json"),
-        ..Config::default()
-    };
+    let config = build_mcp_test_config(&workspace, "broken", "/nonexistent/binary");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
 
     let engine = AgentEngineBuilder::new(config, auth_store)
@@ -116,11 +76,7 @@ async fn test_mcp_eager_loading_resilient_to_server_failure() {
         .build()
         .await
         .unwrap();
-
-    // Built-in tools must remain intact even if MCP server failed
     let tools = engine.tool_names();
-    assert!(tools.contains(&"read".to_string()));
-    assert!(tools.contains(&"bash".to_string()));
-
+    assert!(tools.contains(&"read".to_string()) && tools.contains(&"bash".to_string()));
     let _ = std::fs::remove_dir_all(&workspace);
 }

@@ -49,33 +49,35 @@ fn render_transcript_skill_read_expanded() {
     assert!(rendered.contains("Full instructions here..."));
 }
 
+fn render_skill_transcript(item: &TranscriptItem, theme: &Theme, expanded: bool) -> String {
+    render_transcript_item(TranscriptRenderInput {
+        item,
+        theme,
+        width: 80,
+        tools_expanded: expanded,
+        hide_thinking: false,
+    })
+}
+
 #[test]
 fn render_transcript_skill_invocation_user_message() {
     let theme = Theme::default();
     let text = "<skill name=\"plan\" location=\"/path/to/SKILL.md\">\nPlan skill body\n</skill>\n\nSkill input: create feature";
     let item = TranscriptItem::UserMessage(text.into());
 
-    let collapsed = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
-    assert!(collapsed.contains("[skill]"));
-    assert!(collapsed.contains("plan"));
-    assert!(collapsed.contains("create feature"));
-    assert!(!collapsed.contains("Plan skill body"));
+    let collapsed = render_skill_transcript(&item, &theme, false);
+    assert!(
+        collapsed.contains("[skill]")
+            && collapsed.contains("plan")
+            && collapsed.contains("create feature")
+            && !collapsed.contains("Plan skill body")
+    );
 
-    let expanded = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: true,
-        hide_thinking: false,
-    });
-    assert!(expanded.contains("[skill]"));
-    assert!(expanded.contains("plan"));
-    assert!(expanded.contains("Plan skill body"));
-    assert!(expanded.contains("create feature"));
+    let expanded = render_skill_transcript(&item, &theme, true);
+    assert!(
+        expanded.contains("[skill]")
+            && expanded.contains("plan")
+            && expanded.contains("Plan skill body")
+            && expanded.contains("create feature")
+    );
 }

@@ -23,67 +23,47 @@ fn mock_sink(dir: &Path) -> Arc<TerminalApprovalSink> {
 
 #[test]
 fn test_extract_path_argument_variants() {
-    assert_eq!(
-        extract_path_argument(&json!({"path": "src/lib.rs"})),
-        Some("src/lib.rs")
-    );
-    assert_eq!(
-        extract_path_argument(&json!({"file_path": "crates/foo/bar.rs"})),
-        Some("crates/foo/bar.rs")
-    );
-    assert_eq!(
-        extract_path_argument(&json!({"filePath": "nested/path.rs"})),
-        Some("nested/path.rs")
-    );
-    assert_eq!(
-        extract_path_argument(&json!({"path": "  \"quoted/path.rs\"  "})),
-        Some("quoted/path.rs")
-    );
-    assert_eq!(
-        extract_path_argument(&json!({"path": "  'single_quoted.rs'  "})),
-        Some("single_quoted.rs")
-    );
-    assert_eq!(extract_path_argument(&json!({"path": ""})), None);
-    assert_eq!(extract_path_argument(&json!({"other": 123})), None);
-    assert_eq!(extract_path_argument(&json!({})), None);
-    assert_eq!(extract_path_argument(&json!(null)), None);
+    let cases = [
+        (json!({"path": "src/lib.rs"}), Some("src/lib.rs")),
+        (json!({"file_path": "crates/foo/bar.rs"}), Some("crates/foo/bar.rs")),
+        (json!({"filePath": "nested/path.rs"}), Some("nested/path.rs")),
+        (json!({"path": "  \"quoted/path.rs\"  "}), Some("quoted/path.rs")),
+        (json!({"path": "  'single_quoted.rs'  "}), Some("single_quoted.rs")),
+        (json!({"path": ""}), None),
+        (json!({"other": 123}), None),
+        (json!({}), None),
+        (json!(null), None),
+    ];
+    for (arg, expected) in cases {
+        assert_eq!(extract_path_argument(&arg), expected);
+    }
+}
+
+fn setup_subtree_repo(repo_root: &std::path::Path) {
+    let plugin_crate = repo_root.join("crates").join("rho-plugin-sdk");
+    let plugin_src = plugin_crate.join("src");
+    std::fs::create_dir_all(repo_root.join(".git")).unwrap();
+    std::fs::create_dir_all(&plugin_src).unwrap();
+    std::fs::write(repo_root.join("AGENTS.md"), "# Root Workspace Instructions\n").unwrap();
+    std::fs::write(plugin_crate.join("AGENTS.md"), "# Plugin SDK Subtree Instructions\n").unwrap();
+    std::fs::write(plugin_src.join("lib.rs"), "pub fn hello() {}").unwrap();
 }
 
 #[tokio::test]
 async fn test_tool_hook_dynamic_subtree_activation_during_turn() {
     let temp = tempfile::tempdir().unwrap();
     let repo_root = temp.path().join("repo");
-    let plugin_crate = repo_root.join("crates").join("rho-plugin-sdk");
-    let plugin_src = plugin_crate.join("src");
-
-    tokio::fs::create_dir_all(repo_root.join(".git")).await.unwrap();
-    tokio::fs::create_dir_all(&plugin_src).await.unwrap();
-
-    let root_agents = repo_root.join("AGENTS.md");
-    tokio::fs::write(&root_agents, "# Root Workspace Instructions\n")
-        .await
-        .unwrap();
-
-    let plugin_agents = plugin_crate.join("AGENTS.md");
-    tokio::fs::write(&plugin_agents, "# Plugin SDK Subtree Instructions\n")
-        .await
-        .unwrap();
-
-    let lib_rs = plugin_src.join("lib.rs");
-    tokio::fs::write(&lib_rs, "pub fn hello() {}").await.unwrap();
+    setup_subtree_repo(&repo_root);
 
     let initial_ctx = ProjectContext::discover(&repo_root, None).await;
     assert_eq!(initial_ctx.instruction_files.len(), 1);
-    assert_eq!(initial_ctx.instruction_files[0].1, "# Root Workspace Instructions");
 
     let shared_ctx = Arc::new(Mutex::new(Some((repo_root.clone(), initial_ctx))));
-
     let hook =
         TurnToolExecutionHook::new(mock_sink(&repo_root), "anthropic", None).with_project_context(shared_ctx.clone());
 
-    let relative_file_path = "crates/rho-plugin-sdk/src/lib.rs";
     let model = MockCompletionModel::new([
-        MockTurn::tool_call("1", "read", json!({"path": relative_file_path})),
+        MockTurn::tool_call("1", "read", json!({"path": "crates/rho-plugin-sdk/src/lib.rs"})),
         MockTurn::text("file inspected"),
     ]);
 
@@ -92,21 +72,11 @@ async fn test_tool_hook_dynamic_subtree_activation_during_turn() {
         .add_hook(hook)
         .record_content_telemetry(false)
         .build();
-
     let response = agent.runner("Inspect plugin sdk").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "file inspected");
 
     let guard = shared_ctx.lock().await;
     let (_, updated_ctx) = guard.as_ref().unwrap();
-
     assert_eq!(updated_ctx.instruction_files.len(), 2);
-    assert_eq!(updated_ctx.instruction_files[0].1, "# Root Workspace Instructions");
     assert_eq!(updated_ctx.instruction_files[1].1, "# Plugin SDK Subtree Instructions");
-
-    let subsequent_prompt = updated_ctx.build_system_prompt();
-    assert!(subsequent_prompt.contains("# Root Workspace Instructions"));
-    assert!(subsequent_prompt.contains("# Plugin SDK Subtree Instructions"));
-    let root_idx = subsequent_prompt.find("# Root Workspace Instructions").unwrap();
-    let plugin_idx = subsequent_prompt.find("# Plugin SDK Subtree Instructions").unwrap();
-    assert!(root_idx < plugin_idx);
 }

@@ -3,6 +3,17 @@ use crate::ui::markdown::table::render_markdown_table_at_width;
 use crate::ui::theme::Theme;
 use unicode_width::UnicodeWidthStr;
 
+fn has_table_border(out: &str) -> bool {
+    out.chars().any(|c| matches!(c, '┌' | '+' | '-' | '│' | '╭'))
+}
+
+fn assert_table_contains(out: &str, items: &[&str]) {
+    for item in items {
+        assert!(out.contains(item));
+    }
+    assert!(has_table_border(out));
+}
+
 #[test]
 fn test_table_rendering() {
     let theme = Theme::default();
@@ -10,11 +21,7 @@ fn test_table_rendering() {
 
     let chunk = "| Category | Details |\n|---|---|\n| Architecture | Linear Loop |\n\n";
     let out = md.render_token(chunk, &theme);
-    assert!(out.contains("Category"));
-    assert!(out.contains("Details"));
-    assert!(out.contains("Architecture"));
-    assert!(out.contains("Linear Loop"));
-    assert!(out.contains('┌') || out.contains('+') || out.contains('-') || out.contains('│') || out.contains('╭'));
+    assert_table_contains(&out, &["Category", "Details", "Architecture", "Linear Loop"]);
 }
 
 #[test]
@@ -39,18 +46,12 @@ fn test_chunked_table_streaming() {
     let mut md = MarkdownRenderer::new();
 
     let t1 = md.render_token("| Name ", &theme);
-    assert_eq!(t1, "");
-
     let t2 = md.render_token("| Role |\n", &theme);
-    assert_eq!(t2, "");
-
     let t3 = md.render_token("|---|---|\n", &theme);
-    assert_eq!(t3, "");
+    assert!(t1.is_empty() && t2.is_empty() && t3.is_empty());
 
     let t4 = md.render_token("| Alice | Engineer |\n\n", &theme);
-    assert!(t4.contains("Alice"));
-    assert!(t4.contains("Engineer"));
-    assert!(t4.contains('┌') || t4.contains('+') || t4.contains('-') || t4.contains('│') || t4.contains('╭'));
+    assert_table_contains(&t4, &["Alice", "Engineer"]);
 }
 
 #[test]

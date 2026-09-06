@@ -31,15 +31,20 @@ impl OAuthLoginCallbacks for MockCallbacks {
 fn test_build_authorize_url() {
     let url = build_authorize_url("http://localhost:51122/callback", "challenge123", "state456");
     assert!(url.starts_with(AUTHORIZE_URL));
-    assert!(url.contains("client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e"));
+    let fragments = [
+        "client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        "code_challenge=challenge123",
+        "code_challenge_method=S256",
+        "state=state456",
+        "code=true",
+    ];
+    for f in fragments {
+        assert!(url.contains(f));
+    }
     assert!(
         url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A51122%2Fcallback")
             || url.contains("redirect_uri=http://localhost:51122/callback")
     );
-    assert!(url.contains("code_challenge=challenge123"));
-    assert!(url.contains("code_challenge_method=S256"));
-    assert!(url.contains("state=state456"));
-    assert!(url.contains("code=true"));
 }
 
 #[test]

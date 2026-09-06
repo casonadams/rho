@@ -2,6 +2,29 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 use rho_harness_core::presentation::ToolLine;
 
+fn collect_rendered_transcript(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    theme: &crate::ui::theme::Theme,
+) -> String {
+    let mut output = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
+                crate::ui::interactive::TranscriptRenderInput {
+                    item: &item,
+                    theme,
+                    width: 80,
+                    tools_expanded: false,
+                    hide_thinking: false,
+                },
+            )),
+            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            _ => {}
+        }
+    }
+    output
+}
+
 #[test]
 fn finished_bash_block_includes_elapsed_duration() {
     let (ui, mut events) = InteractiveUi::channel();
@@ -16,22 +39,7 @@ fn finished_bash_block_includes_elapsed_duration() {
         duration_ms: Some(5000),
     });
 
-    let mut output = String::new();
-    while let Ok(event) = events.try_recv() {
-        match event {
-            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
-                crate::ui::interactive::TranscriptRenderInput {
-                    item: &item,
-                    theme: &renderer.theme,
-                    width: 80,
-                    tools_expanded: false,
-                    hide_thinking: false,
-                },
-            )),
-            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            _ => {}
-        }
-    }
+    let output = collect_rendered_transcript(&mut events, &renderer.theme);
     assert!(output.contains("cargo test --all-targets"));
     assert!(output.contains("Took 5s"));
 }
@@ -50,24 +58,8 @@ fn finished_read_block_omits_elapsed_duration() {
         duration_ms: Some(50),
     });
 
-    let mut output = String::new();
-    while let Ok(event) = events.try_recv() {
-        match event {
-            UiEvent::Transcript(item) => output.push_str(&crate::ui::interactive::render_transcript_item(
-                crate::ui::interactive::TranscriptRenderInput {
-                    item: &item,
-                    theme: &renderer.theme,
-                    width: 80,
-                    tools_expanded: false,
-                    hide_thinking: false,
-                },
-            )),
-            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
-            _ => {}
-        }
-    }
-    assert!(output.contains("read"));
-    assert!(output.contains("src/main.rs"));
+    let output = collect_rendered_transcript(&mut events, &renderer.theme);
+    assert!(output.contains("read") && output.contains("src/main.rs"));
     assert!(!output.contains("Took"));
 }
 
@@ -85,21 +77,6 @@ fn finished_read_block_includes_line_range_styling() {
         duration_ms: None,
     });
 
-    let mut output = String::new();
-    while let Ok(event) = events.try_recv() {
-        if let UiEvent::Transcript(item) = event {
-            output.push_str(&crate::ui::interactive::render_transcript_item(
-                crate::ui::interactive::TranscriptRenderInput {
-                    item: &item,
-                    theme: &renderer.theme,
-                    width: 80,
-                    tools_expanded: false,
-                    hide_thinking: false,
-                },
-            ));
-        }
-    }
-    assert!(output.contains("read"));
-    assert!(output.contains("src/lib.rs"));
-    assert!(output.contains(":10-29"));
+    let output = collect_rendered_transcript(&mut events, &renderer.theme);
+    assert!(output.contains("read") && output.contains("src/lib.rs") && output.contains(":10-29"));
 }

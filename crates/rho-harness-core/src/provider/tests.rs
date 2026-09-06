@@ -31,85 +31,92 @@ fn api_key_providers_list_excludes_local_and_pure_oauth() {
             ProviderId::Cohere,
         ]
     );
-    assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::Local));
-    assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::ChatGpt));
-    assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::Copilot));
-    assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::Antigravity));
-    assert!(!ProviderId::API_KEY_PROVIDERS.contains(&ProviderId::ClaudeCode));
-}
-
-#[test]
-fn supports_oauth_and_api_key_capabilities() {
-    // OpenRouter supports both
-    assert!(ProviderId::OpenRouter.supports_oauth());
-    assert!(ProviderId::OpenRouter.supports_api_key());
-
-    // Pure OAuth providers
-    for provider in [
+    for excluded in [
+        ProviderId::Local,
         ProviderId::ChatGpt,
         ProviderId::Copilot,
         ProviderId::Antigravity,
         ProviderId::ClaudeCode,
     ] {
-        assert!(provider.supports_oauth(), "{provider} should support OAuth");
-        assert!(!provider.supports_api_key(), "{provider} should not support API key");
+        assert!(!ProviderId::API_KEY_PROVIDERS.contains(&excluded));
     }
+}
 
-    // Pure API key providers
-    for provider in [
-        ProviderId::Anthropic,
-        ProviderId::OpenAi,
-        ProviderId::DeepSeek,
-        ProviderId::Gemini,
-        ProviderId::Groq,
-        ProviderId::OllamaCloud,
-        ProviderId::XAi,
-        ProviderId::Mistral,
-        ProviderId::Cohere,
-    ] {
-        assert!(!provider.supports_oauth(), "{provider} should not support OAuth");
-        assert!(provider.supports_api_key(), "{provider} should support API key");
+#[test]
+fn supports_oauth_capabilities() {
+    let cases = [
+        (ProviderId::OpenRouter, true),
+        (ProviderId::ChatGpt, true),
+        (ProviderId::Copilot, true),
+        (ProviderId::Antigravity, true),
+        (ProviderId::ClaudeCode, true),
+        (ProviderId::Anthropic, false),
+        (ProviderId::OpenAi, false),
+        (ProviderId::Gemini, false),
+        (ProviderId::Local, false),
+    ];
+    for (p, expected) in cases {
+        assert_eq!(p.supports_oauth(), expected);
     }
+}
 
-    // Local requires no credentials
-    assert!(!ProviderId::Local.supports_oauth());
-    assert!(!ProviderId::Local.supports_api_key());
+#[test]
+fn supports_api_key_capabilities() {
+    let cases = [
+        (ProviderId::OpenRouter, true),
+        (ProviderId::Anthropic, true),
+        (ProviderId::OpenAi, true),
+        (ProviderId::DeepSeek, true),
+        (ProviderId::Gemini, true),
+        (ProviderId::ChatGpt, false),
+        (ProviderId::Copilot, false),
+        (ProviderId::Antigravity, false),
+        (ProviderId::ClaudeCode, false),
+        (ProviderId::Local, false),
+    ];
+    for (p, expected) in cases {
+        assert_eq!(p.supports_api_key(), expected);
+    }
 }
 
 #[test]
 fn credential_strategies_and_labels() {
-    assert_eq!(
-        ProviderId::OpenRouter.credential_strategy(),
-        CredentialStrategy::OAuthOrApiKey
-    );
-    assert_eq!(ProviderId::OpenRouter.auth_mode_label(), "OAuth or API key");
-
-    assert_eq!(
-        ProviderId::ChatGpt.credential_strategy(),
-        CredentialStrategy::SubscriptionOAuth
-    );
-    assert_eq!(ProviderId::ChatGpt.auth_mode_label(), "subscription OAuth");
-
-    assert_eq!(
-        ProviderId::ClaudeCode.credential_strategy(),
-        CredentialStrategy::SubscriptionOAuth
-    );
-    assert_eq!(ProviderId::ClaudeCode.auth_mode_label(), "subscription OAuth");
-
-    assert_eq!(ProviderId::Anthropic.credential_strategy(), CredentialStrategy::ApiKey);
-    assert_eq!(ProviderId::Anthropic.auth_mode_label(), "API key");
-
-    assert_eq!(ProviderId::Local.credential_strategy(), CredentialStrategy::Local);
-    assert_eq!(ProviderId::Local.auth_mode_label(), "local; no login");
+    let cases = [
+        (
+            ProviderId::OpenRouter,
+            CredentialStrategy::OAuthOrApiKey,
+            "OAuth or API key",
+        ),
+        (
+            ProviderId::ChatGpt,
+            CredentialStrategy::SubscriptionOAuth,
+            "subscription OAuth",
+        ),
+        (
+            ProviderId::ClaudeCode,
+            CredentialStrategy::SubscriptionOAuth,
+            "subscription OAuth",
+        ),
+        (ProviderId::Anthropic, CredentialStrategy::ApiKey, "API key"),
+        (ProviderId::Local, CredentialStrategy::Local, "local; no login"),
+    ];
+    for (p, strategy, label) in cases {
+        assert_eq!((p.credential_strategy(), p.auth_mode_label()), (strategy, label));
+    }
 }
 
 #[test]
 fn api_key_environment_variables() {
-    assert_eq!(ProviderId::OpenRouter.api_key_env(), Some("OPENROUTER_API_KEY"));
-    assert_eq!(ProviderId::Anthropic.api_key_env(), Some("ANTHROPIC_API_KEY"));
-    assert_eq!(ProviderId::ChatGpt.api_key_env(), None);
-    assert_eq!(ProviderId::ClaudeCode.api_key_env(), None);
-    assert_eq!(ProviderId::Local.api_key_env(), None);
+    let cases = [
+        (ProviderId::OpenRouter, Some("OPENROUTER_API_KEY")),
+        (ProviderId::Anthropic, Some("ANTHROPIC_API_KEY")),
+        (ProviderId::ChatGpt, None),
+        (ProviderId::ClaudeCode, None),
+        (ProviderId::Local, None),
+    ];
+    for (p, expected) in cases {
+        assert_eq!(p.api_key_env(), expected);
+    }
 }
 
 #[test]
@@ -123,33 +130,37 @@ fn all_variants_are_unique_and_represented() {
 
 #[test]
 fn from_str_aliases_and_case_insensitivity() {
-    assert_eq!(ProviderId::from_str("  OPENROUTER  ").unwrap(), ProviderId::OpenRouter);
-    assert_eq!(
-        ProviderId::from_str("google-antigravity").unwrap(),
-        ProviderId::Antigravity
-    );
-    assert_eq!(ProviderId::from_str("claude").unwrap(), ProviderId::ClaudeCode);
-    assert_eq!(ProviderId::from_str("claude-code").unwrap(), ProviderId::ClaudeCode);
-    assert_eq!(ProviderId::from_str("claude-oauth").unwrap(), ProviderId::ClaudeCode);
-    assert_eq!(ProviderId::from_str("google").unwrap(), ProviderId::Gemini);
-    assert_eq!(ProviderId::from_str("ollama").unwrap(), ProviderId::Local);
-    assert_eq!(ProviderId::from_str("ollamacloud").unwrap(), ProviderId::OllamaCloud);
+    let cases = [
+        ("  OPENROUTER  ", ProviderId::OpenRouter),
+        ("google-antigravity", ProviderId::Antigravity),
+        ("claude", ProviderId::ClaudeCode),
+        ("claude-code", ProviderId::ClaudeCode),
+        ("claude-oauth", ProviderId::ClaudeCode),
+        ("google", ProviderId::Gemini),
+        ("ollama", ProviderId::Local),
+        ("ollamacloud", ProviderId::OllamaCloud),
+    ];
+    for (alias, expected) in cases {
+        assert_eq!(ProviderId::from_str(alias).unwrap(), expected);
+    }
     assert!(ProviderId::from_str("nonexistent-ai").is_err());
 }
 
 #[test]
 fn infer_provider_for_model_resolves_common_prefixes() {
-    assert_eq!(
-        infer_provider_for_model("claude-3-7-sonnet-20250219"),
-        Some("anthropic")
-    );
-    assert_eq!(infer_provider_for_model("gpt-4o"), Some("openai"));
-    assert_eq!(infer_provider_for_model("o3-mini"), Some("openai"));
-    assert_eq!(infer_provider_for_model("gemini-2.0-flash"), Some("gemini"));
-    assert_eq!(infer_provider_for_model("deepseek-chat"), Some("deepseek"));
-    assert_eq!(infer_provider_for_model("grok-2"), Some("xai"));
-    assert_eq!(infer_provider_for_model("mistral-large-latest"), Some("mistral"));
-    assert_eq!(infer_provider_for_model("llama-3.3-70b-versatile"), Some("groq"));
-    assert_eq!(infer_provider_for_model("meta-llama/llama-3-70b"), Some("openrouter"));
-    assert_eq!(infer_provider_for_model("unknown-model"), None);
+    let cases = [
+        ("claude-3-7-sonnet-20250219", Some("anthropic")),
+        ("gpt-4o", Some("openai")),
+        ("o3-mini", Some("openai")),
+        ("gemini-2.0-flash", Some("gemini")),
+        ("deepseek-chat", Some("deepseek")),
+        ("grok-2", Some("xai")),
+        ("mistral-large-latest", Some("mistral")),
+        ("llama-3.3-70b-versatile", Some("groq")),
+        ("meta-llama/llama-3-70b", Some("openrouter")),
+        ("unknown-model", None),
+    ];
+    for (model, expected) in cases {
+        assert_eq!(infer_provider_for_model(model), expected);
+    }
 }

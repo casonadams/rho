@@ -20,14 +20,16 @@ fn test_format_fetch_output_pagination() {
         limit: 2,
         url_str: "https://example.com",
     });
-    assert!(res.content.contains("    2\tline 2"));
-    assert!(res.content.contains("    3\tline 3"));
-    assert!(!res.content.contains("line 1"));
-    assert!(!res.content.contains("line 4"));
-    assert!(
-        res.content
-            .contains("[Lines 2-3 of 5 total lines from https://example.com]")
-    );
+    for included in [
+        "    2\tline 2",
+        "    3\tline 3",
+        "[Lines 2-3 of 5 total lines from https://example.com]",
+    ] {
+        assert!(res.content.contains(included));
+    }
+    for excluded in ["line 1", "line 4"] {
+        assert!(!res.content.contains(excluded));
+    }
 }
 
 #[test]

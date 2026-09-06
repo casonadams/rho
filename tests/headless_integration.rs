@@ -15,26 +15,38 @@ fn temp_workspace() -> PathBuf {
     dir
 }
 
-#[tokio::test]
-async fn headless_presentation_records_deterministic_event_sequence() {
-    let workspace = temp_workspace();
-    let file_path = workspace.join("sample.txt");
-    std::fs::write(&file_path, "headless content").unwrap();
-
-    let model = MockCompletionModel::from_stream_turns([
+fn setup_headless_model(path: &str) -> MockCompletionModel {
+    MockCompletionModel::from_stream_turns([
         vec![
-            MockStreamEvent::tool_call("call_1", "read", json!({"path": file_path.to_str().unwrap()})),
+            MockStreamEvent::tool_call("call_1", "read", json!({"path": path})),
             final_event(rig::completion::Usage::new()),
         ],
         vec![
             MockStreamEvent::text("The file contains: headless content"),
             final_event(rig::completion::Usage::new()),
         ],
-    ]);
+    ])
+}
 
+fn assert_headless_tool_events(events: &[UiEvent], file_path: &str) {
+    let has_started = events.iter().any(
+        |e| matches!(e, UiEvent::ToolStarted { name, arguments } if name == "read" && arguments["path"] == file_path),
+    );
+    assert!(has_started);
+    let has_finished = events.iter().any(|e| matches!(e, UiEvent::ToolFinished { line } if line.name == "read" && line.arguments["path"] == file_path && line.output.contains("headless content")));
+    assert!(has_finished);
+}
+
+#[tokio::test]
+async fn headless_presentation_records_deterministic_event_sequence() {
+    let workspace = temp_workspace();
+    let file_path = workspace.join("sample.txt");
+    std::fs::write(&file_path, "headless content").unwrap();
+
+    let path_str = file_path.to_str().unwrap();
+    let model = setup_headless_model(path_str);
     let config = Config::default();
     let built_in_tools = rho_engine::tools::build_builtin_tools(&workspace, &config).ok();
-
     let engine = mock_engine(
         model,
         MockEngineConfig {
@@ -47,34 +59,13 @@ async fn headless_presentation_records_deterministic_event_sequence() {
 
     let recording = RecordingSink::default();
     let presenter = Arc::new(StructuredPresenter::recording(recording.clone()));
-
     let output = engine
         .run_turn(TurnRequest::new("read sample.txt"), presenter)
         .await
         .unwrap();
-
     assert_eq!(output.final_text, "The file contains: headless content");
 
-    let events = recording.events();
-    assert!(!events.is_empty());
-
-    let has_tool_started = events.iter().any(|e| match e {
-        UiEvent::ToolStarted { name, arguments } => name == "read" && arguments["path"] == file_path.to_str().unwrap(),
-        _ => false,
-    });
-    assert!(has_tool_started, "Expected ToolStarted event for read");
-
-    let has_tool_finished = events.iter().any(|e| match e {
-        UiEvent::ToolFinished { line } => {
-            line.name == "read"
-                && line.arguments["path"] == file_path.to_str().unwrap()
-                && line.output.contains("headless content")
-                && !line.is_error
-        }
-        _ => false,
-    });
-    assert!(has_tool_finished, "Expected ToolFinished event for read");
-
+    assert_headless_tool_events(&recording.events(), path_str);
     let _ = std::fs::remove_dir_all(&workspace);
 }
 

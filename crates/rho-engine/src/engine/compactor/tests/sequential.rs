@@ -51,55 +51,49 @@ fn file_turn(call_id: &str, tool: &str, path: &str) -> Vec<Message> {
     ]
 }
 
+async fn append_file_turns(sm: &rho_harness_core::session::SessionManager, sid: &str, turns: &[(&str, &str, &str)]) {
+    for (call_id, tool, path) in turns {
+        let turn = file_turn(call_id, tool, path);
+        ConversationMemory::append(sm, sid, turn).await.unwrap();
+    }
+}
+
+async fn assert_two_compactions(sm: &rho_harness_core::session::SessionManager) {
+    let tree = sm.load_tree().await.unwrap();
+    let leaf_id = tree.active_leaf_id.as_ref().unwrap();
+    let count = tree
+        .ancestor_nodes(leaf_id)
+        .into_iter()
+        .filter(|n| n.kind == TreeNodeKind::Compaction)
+        .count();
+    assert_eq!(count, 2);
+}
+
 #[tokio::test]
 async fn test_sequential_compactions_accumulate_files() {
     let mock = MockCompletionModel::text("## Goal\nProgress summary");
     let engine = test_engine("seq", Some(mock)).await;
     let session_id = engine.session_manager.session_id.clone();
 
-    ConversationMemory::append(
+    append_file_turns(
         &engine.session_manager,
         &session_id,
-        file_turn("c1", "read", "file1.txt"),
+        &[("c1", "read", "file1.txt"), ("c2", "write", "file2.txt")],
     )
-    .await
-    .unwrap();
-    ConversationMemory::append(
-        &engine.session_manager,
-        &session_id,
-        file_turn("c2", "write", "file2.txt"),
-    )
-    .await
-    .unwrap();
-
+    .await;
     let stats1 = engine.compact_session(None).await.unwrap();
-    assert!(stats1.summary.contains("file1.txt"));
-    assert!(stats1.summary.contains("file2.txt"));
+    assert!(stats1.summary.contains("file1.txt") && stats1.summary.contains("file2.txt"));
 
-    ConversationMemory::append(
+    append_file_turns(
         &engine.session_manager,
         &session_id,
-        file_turn("c3", "edit", "file3.txt"),
+        &[("c3", "edit", "file3.txt"), ("c4", "read", "file4.txt")],
     )
-    .await
-    .unwrap();
-    ConversationMemory::append(
-        &engine.session_manager,
-        &session_id,
-        file_turn("c4", "read", "file4.txt"),
-    )
-    .await
-    .unwrap();
-
+    .await;
     let stats2 = engine.compact_session(None).await.unwrap();
-    assert!(stats2.summary.contains("file1.txt"));
-    assert!(stats2.summary.contains("file2.txt"));
-    assert!(stats2.summary.contains("file3.txt"));
-    assert!(stats2.summary.contains("file4.txt"));
+    for f in ["file1.txt", "file2.txt", "file3.txt", "file4.txt"] {
+        assert!(stats2.summary.contains(f));
+    }
 
-    let tree = engine.session_manager.load_tree().await.unwrap();
-    let leaf_id = tree.active_leaf_id.as_ref().unwrap();
-    let nodes = tree.ancestor_nodes(leaf_id);
-    let compactions: Vec<_> = nodes.iter().filter(|n| n.kind == TreeNodeKind::Compaction).collect();
-    assert_eq!(compactions.len(), 2);
+    assert_two_compactions(&engine.session_manager).await;
 }

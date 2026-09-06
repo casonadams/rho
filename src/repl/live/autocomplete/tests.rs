@@ -41,85 +41,89 @@ impl TerminalBackend for MockTerminal {
     }
 }
 
-#[test]
-fn test_autocomplete_pi_exact_contract() {
-    let skill1 = ResolvedSkill {
-        metadata: SkillMetadata {
-            name: "plan".to_string(),
-            description: "Planning workflow".to_string(),
-            location: "/path".to_string(),
-        },
-        origin: SkillOrigin::User,
-    };
-    let skill2 = ResolvedSkill {
-        metadata: SkillMetadata {
-            name: "spec".to_string(),
-            description: "Specification workflow".to_string(),
-            location: "/path".to_string(),
-        },
-        origin: SkillOrigin::User,
-    };
-    let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill1, skill2]);
-    let completions = CompletionSet::from_sources(sources);
+fn sample_skill_completions(skills: &[(&str, &str)]) -> CompletionSet {
+    let list = skills
+        .iter()
+        .map(|(name, desc)| ResolvedSkill {
+            metadata: SkillMetadata {
+                name: name.to_string(),
+                description: desc.to_string(),
+                location: "/path".to_string(),
+            },
+            origin: SkillOrigin::User,
+        })
+        .collect();
+    CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new().with_skills(list))
+}
+
+fn init_autocomplete_controller(text: &str, completions: &CompletionSet) -> TerminalController<MockTerminal> {
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().editor_mut().set_text(text);
+    update_autocomplete_state_generic(&mut controller, completions);
+    controller
+}
 
-    // 1. Type "/skil" -> menu opens with "/skill"
-    controller.state_mut().editor_mut().set_text("/skil");
-    update_autocomplete_state_generic(&mut controller, &completions);
+fn press_key(
+    controller: &mut TerminalController<MockTerminal>,
+    completions: &CompletionSet,
+    code: KeyCode,
+) -> AutocompleteKeyResult {
+    let key = KeyEvent::new(code, KeyModifiers::NONE);
+    handle_autocomplete_key_generic(controller, completions, key)
+}
+
+fn assert_autocomplete_selected(controller: &TerminalController<MockTerminal>, expected: &str) {
     assert!(controller.state().autocomplete.visible);
-    assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/skill");
+    assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, expected);
+}
 
-    // 2. Tab accepts "/skill " and closes autocomplete (Pi contract)
-    let tab_key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
-    let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
+fn assert_tab_completes(
+    controller: &mut TerminalController<MockTerminal>,
+    completions: &CompletionSet,
+    expected_text: &str,
+) {
+    let res = press_key(controller, completions, KeyCode::Tab);
     assert!(matches!(res, AutocompleteKeyResult::Handled));
-    assert_eq!(controller.state().editor().text(), "/skill ");
-    assert!(!controller.state().autocomplete.visible);
+    assert_eq!(controller.state().editor().text(), expected_text);
+}
 
-    // 3. Arrow Down / Up navigates menu when open
-    controller.state_mut().editor_mut().set_text("/skill ");
-    update_autocomplete_state_generic(&mut controller, &completions);
-    assert!(controller.state().autocomplete.visible);
-    assert_eq!(controller.state().autocomplete.selected, 0);
+#[test]
+fn test_autocomplete_pi_contract_command() {
+    let completions = sample_skill_completions(&[("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skil", &completions);
+    assert_autocomplete_selected(&controller, "/skill");
 
-    let down_key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-    let res = handle_autocomplete_key_generic(&mut controller, &completions, down_key);
-    assert!(matches!(res, AutocompleteKeyResult::Handled));
-    assert_eq!(controller.state().autocomplete.selected, 1);
-
-    // 4. Tab applies currently selected skill (spec) and closes
-    let res = handle_autocomplete_key_generic(&mut controller, &completions, tab_key);
-    assert!(matches!(res, AutocompleteKeyResult::Handled));
-    assert_eq!(controller.state().editor().text(), "/skill spec ");
+    assert_tab_completes(&mut controller, &completions, "/skill ");
     assert!(!controller.state().autocomplete.visible);
 }
 
 #[test]
+fn test_autocomplete_pi_contract_subcommand() {
+    let completions = sample_skill_completions(&[("plan", "Plan"), ("spec", "Spec")]);
+    let mut controller = init_autocomplete_controller("/skill ", &completions);
+    assert_eq!(controller.state().autocomplete.selected, 0);
+
+    let res = press_key(&mut controller, &completions, KeyCode::Down);
+    assert!(matches!(res, AutocompleteKeyResult::Handled));
+    assert_eq!(controller.state().autocomplete.selected, 1);
+
+    assert_tab_completes(&mut controller, &completions, "/skill spec ");
+}
+
+#[test]
 fn test_autocomplete_ignores_key_release_events() {
-    let skill1 = ResolvedSkill {
-        metadata: SkillMetadata {
-            name: "lean".to_string(),
-            description: "Lean workflow".to_string(),
-            location: "/path".to_string(),
-        },
-        origin: SkillOrigin::User,
-    };
-    let skill2 = ResolvedSkill {
-        metadata: SkillMetadata {
-            name: "spec".to_string(),
-            description: "Specification workflow".to_string(),
-            location: "/path".to_string(),
-        },
-        origin: SkillOrigin::User,
-    };
-    let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill1, skill2]);
-    let completions = CompletionSet::from_sources(sources);
+    let completions = sample_skill_completions(&[("lean", "Lean"), ("spec", "Spec")]);
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
 
     controller.state_mut().editor_mut().set_text("/skill ");
     update_autocomplete_state_generic(&mut controller, &completions);
-    assert!(controller.state().autocomplete.visible);
-    assert_eq!(controller.state().autocomplete.selected, 0);
+    assert_eq!(
+        (
+            controller.state().autocomplete.visible,
+            controller.state().autocomplete.selected
+        ),
+        (true, 0)
+    );
 
     let down_release = KeyEvent {
         code: KeyCode::Down,
@@ -133,33 +137,22 @@ fn test_autocomplete_ignores_key_release_events() {
 }
 
 #[test]
-fn test_autocomplete_theme_command_and_arguments() {
-    let sources = crate::repl::interactive::CompletionSources::new();
-    let completions = CompletionSet::from_sources(sources);
+fn test_autocomplete_theme_command() {
+    let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new());
     let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-
     controller.state_mut().editor_mut().set_text("/them");
     update_autocomplete_state_generic(&mut controller, &completions);
     assert!(controller.state().autocomplete.visible);
     assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/theme");
+}
 
+#[test]
+fn test_autocomplete_theme_arguments() {
+    let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new());
+    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
     controller.state_mut().editor_mut().set_text("/theme ");
     update_autocomplete_state_generic(&mut controller, &completions);
     assert!(controller.state().autocomplete.visible);
-    assert!(
-        controller
-            .state()
-            .autocomplete
-            .items
-            .iter()
-            .any(|item| item.value == "/theme nord")
-    );
-    assert!(
-        controller
-            .state()
-            .autocomplete
-            .items
-            .iter()
-            .any(|item| item.value == "/theme catppuccin")
-    );
+    let items = &controller.state().autocomplete.items;
+    assert!(items.iter().any(|i| i.value == "/theme nord") && items.iter().any(|i| i.value == "/theme catppuccin"));
 }

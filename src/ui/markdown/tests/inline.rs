@@ -3,33 +3,36 @@ use crate::ui::markdown::renderer::MarkdownRenderer;
 use crate::ui::theme::Theme;
 
 #[test]
-fn test_bold_and_italic_rendering() {
+fn test_bold_rendering() {
     let theme = Theme::default();
-    let res = render_inline_elements("This is **important** and *italic* text", &theme);
-    assert!(!res.contains("**"));
-    assert!(res.contains("important"));
-    assert!(res.contains("\x1b[1m"));
-    assert!(res.contains("italic"));
-    assert!(res.contains("\x1b[3m"));
+    let res = render_inline_elements("This is **important** text", &theme);
+    assert!(!res.contains("**") && res.contains("important") && res.contains("\x1b[1m"));
 }
 
 #[test]
-fn inline_code_hides_backticks_in_complete_and_streamed_text() {
+fn test_italic_rendering() {
+    let theme = Theme::default();
+    let res = render_inline_elements("This is *italic* text", &theme);
+    assert!(res.contains("italic") && res.contains("\x1b[3m"));
+}
+
+#[test]
+fn inline_code_complete_rendering() {
     let theme = Theme::default();
     let complete = render_inline_elements("Run `cargo test` now", &theme);
-    assert!(complete.contains("cargo test"));
-    assert!(!complete.contains('`'));
-    assert!(complete.contains("\x1b[36m"));
+    assert!(complete.contains("cargo test") && !complete.contains('`') && complete.contains("\x1b[36m"));
+}
 
+#[test]
+fn inline_code_streamed_rendering() {
+    let theme = Theme::default();
     let mut markdown = MarkdownRenderer::new();
     let streamed = format!(
         "{}{}",
         markdown.render_token("Run `cargo", &theme),
         markdown.render_token(" test` now", &theme)
     );
-    assert!(streamed.contains("cargo"));
-    assert!(streamed.contains(" test"));
-    assert!(!streamed.contains('`'));
+    assert!(streamed.contains("cargo") && streamed.contains(" test") && !streamed.contains('`'));
 }
 
 #[test]

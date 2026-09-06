@@ -4,29 +4,36 @@ mod wrap;
 use crate::ui::interactive::layout::{CursorPosition, LayoutInput, layout};
 use crate::ui::interactive::{EditorState, FooterState};
 
-#[test]
-fn empty_editor_has_one_line_and_fixed_chrome() {
-    let default_editor = EditorState::default();
-    let default_footer = FooterState::default();
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
+fn empty_editor_layout(width: usize) -> crate::ui::interactive::layout::InteractiveLayout {
+    layout(LayoutInput {
+        editor: &EditorState::default(),
         modal: None,
         autocomplete: None,
-        footer: &default_footer,
+        footer: &FooterState::default(),
         system_message: None,
         queued_messages: &[],
         widget_lines: &[],
-        terminal_width: 8,
+        terminal_width: width,
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
-    });
+    })
+}
 
-    assert_eq!(layout.top_divider, "\u{1b}[2m────────\u{1b}[0m");
+#[test]
+fn empty_editor_has_one_line_and_fixed_chrome() {
+    let layout = empty_editor_layout(8);
     assert_eq!(layout.editor_lines, [""]);
-    assert_eq!(layout.footer_lines.len(), 2);
-    assert_eq!(layout.cursor, CursorPosition { row: 0, column: 0 });
-    assert_eq!(layout.height(), 7);
+    let actual = (
+        layout.top_divider.as_str(),
+        layout.footer_lines.len(),
+        layout.cursor,
+        layout.height(),
+    );
+    assert_eq!(
+        actual,
+        ("\u{1b}[2m────────\u{1b}[0m", 2, CursorPosition { row: 0, column: 0 }, 7)
+    );
 }
 
 #[test]

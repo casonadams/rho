@@ -1,10 +1,24 @@
 use crate::ui::interactive::transcript::{TranscriptItem, TranscriptRenderInput, WelcomeItem, render_transcript_item};
 use crate::ui::theme::Theme;
 
-#[test]
-fn render_transcript_welcome() {
-    let theme = Theme::default();
-    let item = TranscriptItem::Welcome(WelcomeItem {
+fn render_welcome(item: &TranscriptItem, theme: &Theme) -> String {
+    render_transcript_item(TranscriptRenderInput {
+        item,
+        theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: false,
+    })
+}
+
+fn assert_welcome_content(rendered: &str, expected: &[&str]) {
+    for text in expected {
+        assert!(rendered.contains(text));
+    }
+}
+
+fn sample_welcome_item() -> WelcomeItem {
+    WelcomeItem {
         version: "0.1.0".into(),
         model: "gpt-4".into(),
         provider: "openai".into(),
@@ -14,27 +28,32 @@ fn render_transcript_welcome() {
         tools: vec!["read".into(), "write".into(), "playwright_click".into()],
         skills: vec!["plan".into(), "spec".into()],
         plugins: vec!["permission".into()],
-    });
+    }
+}
 
-    let rendered = render_transcript_item(TranscriptRenderInput {
-        item: &item,
-        theme: &theme,
-        width: 80,
-        tools_expanded: false,
-        hide_thinking: false,
-    });
-    assert!(rendered.contains("rho"));
-    assert!(rendered.contains("Type /help for commands"));
-    assert!(rendered.contains("[agents]"));
-    assert!(rendered.contains("AGENTS.md"));
-    assert!(rendered.contains("[skills]"));
-    assert!(rendered.contains("plan, spec"));
-    assert!(rendered.contains("[tools]"));
-    assert!(rendered.contains("read, write"));
-    assert!(rendered.contains("[mcp]"));
-    assert!(rendered.contains("playwright (1 tool)"));
-    assert!(rendered.contains("[plugins]"));
-    assert!(rendered.contains("permission"));
+#[test]
+fn render_transcript_welcome() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Welcome(sample_welcome_item());
+
+    let rendered = render_welcome(&item, &theme);
+    assert_welcome_content(
+        &rendered,
+        &[
+            "rho",
+            "Type /help for commands",
+            "[agents]",
+            "AGENTS.md",
+            "[skills]",
+            "plan, spec",
+            "[tools]",
+            "read, write",
+            "[mcp]",
+            "playwright (1 tool)",
+            "[plugins]",
+            "permission",
+        ],
+    );
 }
 
 #[test]

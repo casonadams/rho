@@ -58,19 +58,35 @@ fn batched_tool_calls(calls: Vec<(&str, &str, serde_json::Value)>) -> MockTurn {
 }
 
 #[test]
-fn test_steering_format_and_attach() {
+fn test_steering_format_messages() {
     let msg = format_steering_message("stop editing");
     assert!(msg.starts_with("[USER STEERING INTERRUPT]:\nstop editing"));
     assert!(msg.contains("Please adjust your approach immediately"));
 
     let combined = format_steering_messages(&["one".to_string(), "two".to_string()]);
     assert!(combined.contains("one\n\ntwo"));
+}
 
+#[test]
+fn test_steering_attach_to_output() {
+    let msg = format_steering_message("stop editing");
     let attached = attach_steering_to_output("tool output", &msg);
     assert_eq!(attached, format!("tool output\n\n{msg}"));
 
     let attached_empty = attach_steering_to_output("", &msg);
     assert_eq!(attached_empty, msg);
+}
+
+fn assert_steering_applied(model: &MockCompletionModel, file_b: &std::path::Path) {
+    assert!(!file_b.exists() && model.requests().len() >= 2);
+    let history = format!("{:?}", model.requests()[1].chat_history);
+    for pattern in [
+        "[USER STEERING INTERRUPT]",
+        "pivot to another task",
+        STEERING_SKIP_REASON,
+    ] {
+        assert!(history.contains(pattern));
+    }
 }
 
 #[tokio::test]
@@ -82,8 +98,6 @@ async fn test_steering_during_tool_execution_augments_result_and_skips_next() {
 
     let steering = Arc::new(MockSteeringQueue::default());
     let hook = TurnToolExecutionHook::new(mock_sink(), "anthropic", Some(steering.clone()));
-
-    // Stage steering message so it is drained when tool 1 completes
     steering.enqueue("pivot to another task");
 
     let model = MockCompletionModel::new([
@@ -103,17 +117,7 @@ async fn test_steering_during_tool_execution_augments_result_and_skips_next() {
 
     let response = agent.runner("start").max_turns(5).run().await.unwrap();
     assert_eq!(response.output, "acknowledged steering");
-
-    // file_b should never have been created because tool 2 was skipped
-    assert!(!file_b.exists());
-
-    // Chat history for turn 2 should contain the steering interrupt and skip reason
-    let requests = model.requests();
-    assert!(requests.len() >= 2);
-    let history_str = format!("{:?}", requests[1].chat_history);
-    assert!(history_str.contains("[USER STEERING INTERRUPT]"));
-    assert!(history_str.contains("pivot to another task"));
-    assert!(history_str.contains(STEERING_SKIP_REASON));
+    assert_steering_applied(&model, &file_b);
 }
 
 #[tokio::test]

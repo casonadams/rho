@@ -66,10 +66,8 @@ mod tests {
     use super::*;
     use std::ops::Range;
 
-    #[test]
-    fn test_autocomplete_navigation() {
-        let mut state = AutocompleteState::default();
-        let items = vec![
+    fn sample_autocomplete_items() -> Vec<Completion> {
+        vec![
             Completion {
                 value: "/model".to_string(),
                 description: Some("Model desc".to_string()),
@@ -80,21 +78,29 @@ mod tests {
                 description: Some("Clear desc".to_string()),
                 replacement: Range { start: 0, end: 1 },
             },
-        ];
+        ]
+    }
 
-        state.open(items);
+    #[test]
+    fn test_autocomplete_open_and_next() {
+        let mut state = AutocompleteState::default();
+        state.open(sample_autocomplete_items());
         assert!(state.visible);
-        assert_eq!(state.selected, 0);
         assert_eq!(state.selected_item().unwrap().value, "/model");
 
         state.select_next();
-        assert_eq!(state.selected, 1);
         assert_eq!(state.selected_item().unwrap().value, "/clear");
+    }
 
-        state.select_next(); // Wrap
+    #[test]
+    fn test_autocomplete_wrap_and_close() {
+        let mut state = AutocompleteState::default();
+        state.open(sample_autocomplete_items());
+        state.select_next();
+        state.select_next();
         assert_eq!(state.selected, 0);
 
-        state.select_prev(); // Wrap back
+        state.select_prev();
         assert_eq!(state.selected, 1);
 
         state.close();

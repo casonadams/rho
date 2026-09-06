@@ -85,32 +85,20 @@ mod tests {
 
     #[test]
     fn parses_simple_and_modified_keys() {
-        assert_eq!(
-            parse_key_chord("ctrl+l"),
-            Some(KeyChord::new(KeyCode::Char('l'), KeyModifiers::CONTROL))
-        );
-        assert_eq!(
-            parse_key_chord("shift+ctrl+p"),
-            Some(KeyChord::new(
+        let cases = [
+            ("ctrl+l", KeyCode::Char('l'), KeyModifiers::CONTROL),
+            (
+                "shift+ctrl+p",
                 KeyCode::Char('p'),
-                KeyModifiers::SHIFT | KeyModifiers::CONTROL
-            ))
-        );
-        assert_eq!(
-            parse_key_chord("alt+enter"),
-            Some(KeyChord::new(KeyCode::Enter, KeyModifiers::ALT))
-        );
-        assert_eq!(
-            parse_key_chord("shift+tab"),
-            Some(KeyChord::new(KeyCode::Tab, KeyModifiers::SHIFT))
-        );
-        assert_eq!(
-            parse_key_chord("escape"),
-            Some(KeyChord::new(KeyCode::Esc, KeyModifiers::NONE))
-        );
-        assert_eq!(
-            parse_key_chord("ctrl+-"),
-            Some(KeyChord::new(KeyCode::Char('-'), KeyModifiers::CONTROL))
-        );
+                KeyModifiers::SHIFT | KeyModifiers::CONTROL,
+            ),
+            ("alt+enter", KeyCode::Enter, KeyModifiers::ALT),
+            ("shift+tab", KeyCode::Tab, KeyModifiers::SHIFT),
+            ("escape", KeyCode::Esc, KeyModifiers::NONE),
+            ("ctrl+-", KeyCode::Char('-'), KeyModifiers::CONTROL),
+        ];
+        for (input, code, mods) in cases {
+            assert_eq!(parse_key_chord(input), Some(KeyChord::new(code, mods)));
+        }
     }
 }

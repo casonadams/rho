@@ -1,9 +1,28 @@
 use crate::ui::interactive::layout::{LayoutInput, layout};
 use crate::ui::interactive::{EditorState, FooterState};
 
+fn layout_for_thinking(level: Option<&str>) -> crate::ui::interactive::layout::InteractiveLayout {
+    let footer = FooterState {
+        thinking_level: level.map(ToString::to_string),
+        ..FooterState::default()
+    };
+    layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 10,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+    })
+}
+
 #[test]
 fn thinking_borders_change_color_with_thinking_level() {
-    let default_editor = EditorState::default();
     let levels = [
         (None, "\u{1b}[2m"),
         (Some("off"), "\u{1b}[2m"),
@@ -16,31 +35,8 @@ fn thinking_borders_change_color_with_thinking_level() {
     ];
 
     for (level, expected_style) in levels {
-        let footer = FooterState {
-            thinking_level: level.map(ToString::to_string),
-            ..FooterState::default()
-        };
-        let layout = layout(LayoutInput {
-            editor: &default_editor,
-            modal: None,
-            autocomplete: None,
-            footer: &footer,
-            system_message: None,
-            queued_messages: &[],
-            widget_lines: &[],
-            terminal_width: 10,
-            terminal_height: 24,
-            spinner_frame: 0,
-            theme: None,
-        });
-
-        assert!(
-            layout.top_divider.starts_with(expected_style),
-            "level {:?} expected style {:?}, got {:?}",
-            level,
-            expected_style,
-            layout.top_divider
-        );
+        let layout = layout_for_thinking(level);
+        assert!(layout.top_divider.starts_with(expected_style));
         assert!(layout.bottom_divider.starts_with(expected_style));
     }
 }

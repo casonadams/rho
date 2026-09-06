@@ -16,6 +16,7 @@
 - Do not add Clippy `allow`, `expect`, command-line exclusions, or crate-level
   lint suppressions. Refactor code to satisfy the configured lints instead.
 - Remove any existing Clippy suppression encountered in code being changed.
+- Verify with `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`).
 
 ## Testing and performance
 
@@ -37,5 +38,5 @@
 
 ## Completion
 
-- Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and
+- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), and
   `cargo test --workspace` before finishing.

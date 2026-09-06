@@ -39,40 +39,32 @@ fn test_ignores_disabled_permission_plugin() {
     assert!(!has_external_permission_plugin(&plugins));
 }
 
+fn guard_map(cfg: PluginConfig) -> BTreeMap<String, PluginConfig> {
+    BTreeMap::from([("custom-guard".to_string(), cfg)])
+}
+
 #[test]
 fn test_detects_by_command_path_or_package() {
-    let mut plugins = BTreeMap::new();
-    plugins.insert(
-        "custom-guard".to_string(),
-        PluginConfig {
-            enabled: true,
-            command: Some("/usr/local/bin/rho-plugin-permission".to_string()),
-            ..PluginConfig::default()
-        },
-    );
-    assert!(has_external_permission_plugin(&plugins));
+    let by_cmd = guard_map(PluginConfig {
+        enabled: true,
+        command: Some("/usr/local/bin/rho-plugin-permission".to_string()),
+        ..PluginConfig::default()
+    });
+    assert!(has_external_permission_plugin(&by_cmd));
 
-    let mut plugins = BTreeMap::new();
-    plugins.insert(
-        "custom-guard".to_string(),
-        PluginConfig {
-            enabled: true,
-            path: PathBuf::from("/opt/plugins/rho-plugin-permission"),
-            ..PluginConfig::default()
-        },
-    );
-    assert!(has_external_permission_plugin(&plugins));
+    let by_path = guard_map(PluginConfig {
+        enabled: true,
+        path: PathBuf::from("/opt/plugins/rho-plugin-permission"),
+        ..PluginConfig::default()
+    });
+    assert!(has_external_permission_plugin(&by_path));
 
-    let mut plugins = BTreeMap::new();
-    plugins.insert(
-        "custom-guard".to_string(),
-        PluginConfig {
-            enabled: true,
-            package: Some("casonadams/rho-plugin-permission".to_string()),
-            ..PluginConfig::default()
-        },
-    );
-    assert!(has_external_permission_plugin(&plugins));
+    let by_pkg = guard_map(PluginConfig {
+        enabled: true,
+        package: Some("casonadams/rho-plugin-permission".to_string()),
+        ..PluginConfig::default()
+    });
+    assert!(has_external_permission_plugin(&by_pkg));
 }
 
 #[test]

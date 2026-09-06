@@ -30,17 +30,34 @@ fn footer_contains_available_status_and_queue_count() {
     assert!(layout.footer_lines[1].ends_with("model"));
 }
 
+fn test_status_layout(
+    footer: &FooterState,
+    (queued, widgets): (&[QueuedMessage], &[String]),
+    width: usize,
+) -> crate::ui::interactive::layout::InteractiveLayout {
+    layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer,
+        system_message: None,
+        queued_messages: queued,
+        widget_lines: widgets,
+        terminal_width: width,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+    })
+}
+
 #[test]
 fn queued_messages_render_above_the_working_line() {
-    let default_editor = EditorState::default();
     let footer = FooterState {
         activity: Activity::Working,
         model: "model".into(),
-        context: None,
-        quota: None,
         ..FooterState::default()
     };
-    let queued = vec![
+    let queued = [
         QueuedMessage {
             text: "first steer".into(),
             kind: QueueKind::Steering,
@@ -50,53 +67,26 @@ fn queued_messages_render_above_the_working_line() {
             kind: QueueKind::FollowUp,
         },
     ];
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &queued,
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-    });
+    let layout = test_status_layout(&footer, (&queued, &[]), 80);
 
     assert_eq!(layout.queued_lines.len(), 3);
-    assert!(layout.queued_lines[0].contains("Steering: first steer"));
-    assert!(layout.queued_lines[1].contains("Follow-up: next follow"));
-    assert!(layout.queued_lines[2].contains("Alt+↑"));
-    assert_eq!(layout.height(), 10);
+    assert!(
+        layout.queued_lines[0].contains("Steering: first steer")
+            && layout.queued_lines[1].contains("Follow-up: next follow")
+    );
+    assert!(layout.queued_lines[2].contains("Alt+↑") && layout.height() == 10);
 }
 
 #[test]
 fn narrow_layout_never_exceeds_terminal_width() {
-    let default_editor = EditorState::default();
     let footer = FooterState {
         activity: Activity::Working,
         model: "model".into(),
-        context: None,
-        quota: None,
         ..FooterState::default()
     };
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 5,
-        terminal_height: 24,
-        spinner_frame: 1,
-        theme: None,
-    });
+    let layout = test_status_layout(&footer, (&[], &[]), 5);
 
-    assert!(layout.footer_lines[0].width() <= 5);
-    assert!(layout.footer_lines[1].width() <= 5);
+    assert!(layout.footer_lines[0].width() <= 5 && layout.footer_lines[1].width() <= 5);
     assert_eq!(
         crate::ui::interactive::layout::text::visible_width(&layout.top_divider),
         5
@@ -105,12 +95,11 @@ fn narrow_layout_never_exceeds_terminal_width() {
 
 #[test]
 fn queued_messages_render_below_widget_lines_and_above_editor() {
-    let default_editor = EditorState::default();
     let footer = FooterState {
         activity: Activity::Working,
         ..FooterState::default()
     };
-    let queued = vec![QueuedMessage {
+    let queued = [QueuedMessage {
         text: "do this next".into(),
         kind: QueueKind::Steering,
     }];
@@ -119,19 +108,7 @@ fn queued_messages_render_below_widget_lines_and_above_editor() {
         "│ running 1 test     │".to_string(),
         "└────────────────────┘".to_string(),
     ];
-    let layout = layout(LayoutInput {
-        editor: &default_editor,
-        modal: None,
-        autocomplete: None,
-        footer: &footer,
-        system_message: None,
-        queued_messages: &queued,
-        widget_lines: &widgets,
-        terminal_width: 80,
-        terminal_height: 24,
-        spinner_frame: 0,
-        theme: None,
-    });
+    let layout = test_status_layout(&footer, (&queued, &widgets), 80);
 
     let widget_pos = layout.lines.iter().position(|l| l.contains("bash cargo test")).unwrap();
     let steering_pos = layout
@@ -140,13 +117,5 @@ fn queued_messages_render_below_widget_lines_and_above_editor() {
         .position(|l| l.contains("Steering: do this next"))
         .unwrap();
     let top_div_pos = layout.lines.iter().position(|l| l == &layout.top_divider).unwrap();
-
-    assert!(
-        widget_pos < steering_pos,
-        "running tool widget must appear before steering text"
-    );
-    assert!(
-        steering_pos < top_div_pos,
-        "steering text must appear before editor divider"
-    );
+    assert!(widget_pos < steering_pos && steering_pos < top_div_pos);
 }

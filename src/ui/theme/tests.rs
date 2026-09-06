@@ -12,26 +12,42 @@ fn block_backgrounds_use_only_terminal_ansi_colors() {
     assert_eq!(theme.tool_error_bg.render().to_string(), "\x1b[40m");
 }
 
+fn assert_all_ansi_fg(styles: &[Style]) {
+    for s in styles {
+        assert!(matches!(s.get_fg_color(), Some(Color::Ansi(_))));
+    }
+}
+
+fn assert_all_ansi_bg(styles: &[Style]) {
+    for s in styles {
+        assert!(matches!(s.get_bg_color(), Some(Color::Ansi(_))));
+    }
+}
+
 #[test]
 fn default_theme_uses_only_ansi_colors() {
     let theme = Theme::default();
     assert!(theme.is_ansi());
-    assert!(matches!(theme.prompt.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_header.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_ok.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_err.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.highlight.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.warning.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.skill_tag.get_fg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.user_message_bg.get_bg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_success_bg.get_bg_color(), Some(Color::Ansi(_))));
-    assert!(matches!(theme.tool_error_bg.get_bg_color(), Some(Color::Ansi(_))));
+    assert_all_ansi_fg(&[
+        theme.prompt,
+        theme.tool_header,
+        theme.tool_ok,
+        theme.tool_err,
+        theme.highlight,
+        theme.warning,
+        theme.skill_tag,
+    ]);
+    assert_all_ansi_bg(&[theme.user_message_bg, theme.tool_success_bg, theme.tool_error_bg]);
 }
 
 #[test]
-fn hex_color_parsing_valid_and_invalid() {
+fn hex_color_parsing_valid() {
     assert_eq!(parse_color("#88c0d0"), Some(Color::Rgb(RgbColor(0x88, 0xc0, 0xd0))));
     assert_eq!(parse_color("#f0a"), Some(Color::Rgb(RgbColor(0xff, 0x00, 0xaa))));
+}
+
+#[test]
+fn hex_color_parsing_invalid() {
     assert_eq!(parse_color("#xyz123"), None);
     assert_eq!(parse_color("#1234"), None);
     assert_eq!(parse_color("not_a_color"), None);
@@ -45,6 +61,24 @@ fn named_ansi_color_parsing() {
     assert_eq!(parse_color("gray"), Some(Color::Ansi(AnsiColor::BrightBlack)));
 }
 
+fn assert_partial_palette_theme(theme: &Theme) {
+    let actual1 = (theme.name.as_str(), theme.is_ansi(), theme.tool_ok.render().to_string());
+    assert_eq!(actual1, ("custom", false, "\x1b[38;2;166;227;161m".to_string()));
+    let actual2 = (
+        theme.tool_err.render().to_string(),
+        theme.user_message_bg.render().to_string(),
+        theme.prompt.render().to_string(),
+    );
+    assert_eq!(
+        actual2,
+        (
+            "\x1b[38;2;243;139;168m".to_string(),
+            "\x1b[40m".to_string(),
+            Theme::default().prompt.render().to_string()
+        )
+    );
+}
+
 #[test]
 fn theme_def_partial_palette_maps_available_roles() {
     let def = ThemeDef {
@@ -55,20 +89,7 @@ fn theme_def_partial_palette_maps_available_roles() {
         ..Default::default()
     };
     let theme = def.into_theme("custom");
-    assert_eq!(theme.name, "custom");
-    assert!(!theme.is_ansi());
-    assert_eq!(theme.tool_ok.render().to_string(), "\x1b[38;2;166;227;161m");
-    assert_eq!(theme.tool_err.render().to_string(), "\x1b[38;2;243;139;168m");
-    assert_eq!(
-        theme.user_message_bg.render().to_string(),
-        "\x1b[40m",
-        "block backgrounds use the color0 surface, falling back to ANSI black"
-    );
-    assert_eq!(
-        theme.prompt.render().to_string(),
-        Theme::default().prompt.render().to_string(),
-        "unmapped roles keep the default ANSI styling"
-    );
+    assert_partial_palette_theme(&theme);
 }
 
 #[test]
@@ -95,59 +116,81 @@ fn all_10_builtin_themes_load_and_have_metadata() {
     }
 }
 
+fn assert_styles_rgb_fg(styles: &[Style]) {
+    for s in styles {
+        assert!(matches!(s.get_fg_color(), Some(Color::Rgb(_))));
+    }
+}
+
+fn assert_styles_rgb_bg(styles: &[Style]) {
+    for s in styles {
+        assert!(matches!(s.get_bg_color(), Some(Color::Rgb(_))));
+    }
+}
+
+fn assert_theme_rgb(theme: &Theme) {
+    assert_styles_rgb_fg(&[
+        theme.prompt,
+        theme.thinking,
+        theme.tool_header,
+        theme.tool_ok,
+        theme.tool_err,
+        theme.highlight,
+        theme.code_inline,
+        theme.heading_h3,
+        theme.dimmed,
+        theme.warning,
+        theme.skill_tag,
+    ]);
+    assert_styles_rgb_bg(&[theme.user_message_bg, theme.tool_success_bg, theme.tool_error_bg]);
+}
+
 #[test]
 fn built_in_themes_use_only_hex_rgb_colors() {
     let registry = ThemeRegistry::default();
-    for meta in registry.list() {
-        if meta.name == "default" || meta.name == "ansi" {
-            continue;
-        }
+    let themes = registry
+        .list()
+        .into_iter()
+        .filter(|m| m.name != "default" && m.name != "ansi");
+    for meta in themes {
         let theme = registry.get(&meta.name).unwrap();
-        assert!(!theme.is_ansi(), "theme {} should not be ANSI", meta.name);
-        for (label, style) in [
-            ("prompt", theme.prompt),
-            ("thinking", theme.thinking),
-            ("tool_header", theme.tool_header),
-            ("tool_ok", theme.tool_ok),
-            ("tool_err", theme.tool_err),
-            ("highlight", theme.highlight),
-            ("code_inline", theme.code_inline),
-            ("heading_h3", theme.heading_h3),
-            ("dimmed", theme.dimmed),
-            ("warning", theme.warning),
-            ("skill_tag", theme.skill_tag),
-        ] {
-            assert!(
-                matches!(style.get_fg_color(), Some(Color::Rgb(_))),
-                "{}: {label}",
-                meta.name
-            );
-        }
-        for (label, style) in [
-            ("user_message_bg", theme.user_message_bg),
-            ("tool_success_bg", theme.tool_success_bg),
-            ("tool_error_bg", theme.tool_error_bg),
-        ] {
-            assert!(
-                matches!(style.get_bg_color(), Some(Color::Rgb(_))),
-                "{}: {label}",
-                meta.name
-            );
-        }
+        assert!(!theme.is_ansi());
+        assert_theme_rgb(theme);
     }
 }
 
 #[test]
-fn registry_aliases_and_listing() {
+fn registry_aliases() {
     let registry = ThemeRegistry::default();
-    assert!(registry.contains("ansi"));
-    assert!(registry.contains("catppuccin-mocha"));
+    assert!(registry.contains("ansi") && registry.contains("catppuccin-mocha"));
+}
 
+#[test]
+fn registry_listing() {
+    let registry = ThemeRegistry::default();
     let list = registry.list();
-    assert_eq!(list.len(), 10);
-    assert_eq!(list[0].name, "default");
-    assert_eq!(list[9].name, "catppuccin-latte");
+    assert_eq!(
+        (list.len(), list[0].name.as_str(), list[9].name.as_str()),
+        (10, "default", "catppuccin-latte")
+    );
     assert!(list[9].is_light);
+}
+
+fn write_custom_theme_file(themes_dir: &std::path::Path) {
+    let content = "name = \"my-custom\"\ndescription = \"My test custom theme\"\nis_light = false\nbackground = \"#1a1b26\"\nforeground = \"#c0caf5\"\nblack = \"#15161e\"\nred = \"#f7768e\"\ngreen = \"#9ece6a\"\nyellow = \"#e0af68\"\nblue = \"#7aa2f7\"\nmagenta = \"#bb9af7\"\ncyan = \"#7dcfff\"\nwhite = \"#a9b1d6\"\nbright_black = \"#414868\"\nbright_red = \"#f7768e\"\nbright_green = \"#9ece6a\"\nbright_yellow = \"#e0af68\"\nbright_blue = \"#7aa2f7\"\nbright_magenta = \"#bb9af7\"\nbright_cyan = \"#2ac3de\"\nbright_white = \"#c0caf5\"\n";
+    std::fs::write(themes_dir.join("my-custom.toml"), content).unwrap();
+}
+
+fn assert_custom_theme_loaded(registry: &ThemeRegistry) {
+    assert!(registry.contains("my-custom"));
+    let meta = registry.metadata("my-custom").unwrap();
+    assert_eq!(
+        (meta.description.as_str(), meta.is_custom),
+        ("My test custom theme", true)
+    );
+    let theme = registry.get("my-custom").unwrap();
+    assert_eq!(theme.tool_ok.render().to_string(), "\x1b[38;2;158;206;106m");
+    assert_eq!(theme.user_message_bg.render().to_string(), "\x1b[48;2;21;22;30m");
 }
 
 #[test]
@@ -155,44 +198,9 @@ fn registry_loads_custom_themes_from_directory() {
     let temp_dir = std::env::temp_dir().join(format!("rho_theme_test_{}", uuid::Uuid::new_v4()));
     let themes_dir = temp_dir.join("themes");
     std::fs::create_dir_all(&themes_dir).unwrap();
-
-    let theme_content = r##"
-name = "my-custom"
-description = "My test custom theme"
-is_light = false
-
-background = "#1a1b26"
-foreground = "#c0caf5"
-
-black = "#15161e"
-red = "#f7768e"
-green = "#9ece6a"
-yellow = "#e0af68"
-blue = "#7aa2f7"
-magenta = "#bb9af7"
-cyan = "#7dcfff"
-white = "#a9b1d6"
-
-bright_black = "#414868"
-bright_red = "#f7768e"
-bright_green = "#9ece6a"
-bright_yellow = "#e0af68"
-bright_blue = "#7aa2f7"
-bright_magenta = "#bb9af7"
-bright_cyan = "#2ac3de"
-bright_white = "#c0caf5"
-"##;
-    std::fs::write(themes_dir.join("my-custom.toml"), theme_content).unwrap();
+    write_custom_theme_file(&themes_dir);
 
     let registry = ThemeRegistry::new(Some(&temp_dir));
-    assert!(registry.contains("my-custom"));
-    let meta = registry.metadata("my-custom").unwrap();
-    assert_eq!(meta.description, "My test custom theme");
-    assert!(meta.is_custom);
-
-    let theme = registry.get("my-custom").unwrap();
-    assert_eq!(theme.tool_ok.render().to_string(), "\x1b[38;2;158;206;106m");
-    assert_eq!(theme.user_message_bg.render().to_string(), "\x1b[48;2;21;22;30m");
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
+    assert_custom_theme_loaded(&registry);
+    let _ = std::fs::remove_dir_all(temp_dir);
 }

@@ -3,11 +3,16 @@ use chrono::TimeZone;
 
 #[test]
 fn format_duration_matches_all_breakpoints() {
-    assert_eq!(format_duration(Duration::seconds(45)), "45s");
-    assert_eq!(format_duration(Duration::minutes(15)), "15m");
-    assert_eq!(format_duration(Duration::hours(3) + Duration::minutes(22)), "3h22m");
-    assert_eq!(format_duration(Duration::days(1) + Duration::hours(5)), "1d5h");
-    assert_eq!(format_duration(Duration::days(6) + Duration::hours(12)), "6d12h");
+    let cases = [
+        (Duration::seconds(45), "45s"),
+        (Duration::minutes(15), "15m"),
+        (Duration::hours(3) + Duration::minutes(22), "3h22m"),
+        (Duration::days(1) + Duration::hours(5), "1d5h"),
+        (Duration::days(6) + Duration::hours(12), "6d12h"),
+    ];
+    for (d, expected) in cases {
+        assert_eq!(format_duration(d), expected);
+    }
 }
 
 #[test]

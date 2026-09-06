@@ -44,11 +44,27 @@ async fn test_shared_model_switch_state_transitions() {
     );
 }
 
+struct SwitchHook {
+    switcher: Arc<SharedModelSwitch>,
+    next_model: ModelHandle,
+}
+
+impl AgentHook for SwitchHook {
+    async fn on_tool_result(
+        &self,
+        _ctx: &HookContext,
+        _event: rig::agent::hook::ToolResultEvent<'_>,
+    ) -> rig::agent::hook::ToolResultAction {
+        self.switcher
+            .switch_to(ActiveModelSwitch::new("model-2", "mock", self.next_model.clone()));
+        rig::agent::hook::ToolResultAction::keep()
+    }
+}
+
 #[tokio::test]
 async fn test_runtime_model_switching_across_turns_within_agent() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("out.txt");
-
     let switcher = Arc::new(SharedModelSwitch::new());
     let hook = TurnToolExecutionHook::new(mock_sink(), "anthropic", None).with_model_switch(Some(switcher.clone()));
 
@@ -57,41 +73,21 @@ async fn test_runtime_model_switching_across_turns_within_agent() {
         "write",
         json!({"path": file, "content": "first model wrote"}),
     )]);
-
     let model_2 = MockCompletionModel::new([MockTurn::text("second model finished")]);
     let handle_2 = ModelHandle::new(model_2.clone());
 
-    let switcher_clone = switcher.clone();
-    let handle_2_clone = handle_2.clone();
-
-    struct SwitchHook {
-        switcher: Arc<SharedModelSwitch>,
-        next_model: ModelHandle,
-    }
-    impl AgentHook for SwitchHook {
-        async fn on_tool_result(
-            &self,
-            _ctx: &HookContext,
-            _event: rig::agent::hook::ToolResultEvent<'_>,
-        ) -> rig::agent::hook::ToolResultAction {
-            self.switcher
-                .switch_to(ActiveModelSwitch::new("model-2", "mock", self.next_model.clone()));
-            rig::agent::hook::ToolResultAction::keep()
-        }
-    }
-
+    let switch_hook = SwitchHook {
+        switcher,
+        next_model: handle_2,
+    };
     let agent = AgentBuilder::new(model_1.clone())
         .tool(crate::tools::WriteTool::new(dir.path()))
         .add_hook(hook)
-        .add_hook(SwitchHook {
-            switcher: switcher_clone,
-            next_model: handle_2_clone,
-        })
+        .add_hook(switch_hook)
         .record_content_telemetry(false)
         .build();
 
     let response = agent.runner("execute task").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "second model finished");
-    assert_eq!(model_1.requests().len(), 1);
-    assert_eq!(model_2.requests().len(), 1);
+    assert_eq!((model_1.requests().len(), model_2.requests().len()), (1, 1));
 }

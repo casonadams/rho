@@ -77,9 +77,14 @@ fn format_tool_args_summary_rg() {
 
 #[test]
 fn test_quote_cli_arg() {
-    assert_eq!(quote_cli_arg(""), "''");
-    assert_eq!(quote_cli_arg("foo"), "foo");
-    assert_eq!(quote_cli_arg("foo-bar_1.2"), "foo-bar_1.2");
-    assert_eq!(quote_cli_arg("foo bar"), "'foo bar'");
-    assert_eq!(quote_cli_arg("don't"), "'don'\\''t'");
+    let cases = [
+        ("", "''"),
+        ("foo", "foo"),
+        ("foo-bar_1.2", "foo-bar_1.2"),
+        ("foo bar", "'foo bar'"),
+        ("don't", "'don'\\''t'"),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(quote_cli_arg(input), expected);
+    }
 }

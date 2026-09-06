@@ -1,74 +1,53 @@
 use super::*;
 use crate::engine::metrics::StructuralUsage;
 
+fn make_usage(tokens: (u64, u64), cache: (Option<u64>, Option<u64>)) -> StructuralUsage {
+    let (inp, out) = tokens;
+    let (cr, cw) = cache;
+    StructuralUsage {
+        input_tokens: inp,
+        output_tokens: out,
+        total_tokens: inp + out,
+        cached_input_tokens: cr,
+        cache_creation_input_tokens: cw,
+        tool_use_prompt_tokens: None,
+        reasoning_tokens: None,
+    }
+}
+
 #[test]
 fn usage_tracker_accumulates_totals_across_turns() {
     let tracker = UsageTracker::default();
-    let turn1 = StructuralUsage {
-        input_tokens: 100,
-        output_tokens: 50,
-        total_tokens: 150,
-        cached_input_tokens: Some(20),
-        cache_creation_input_tokens: Some(10),
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: Some(5),
-    };
-    let turn2 = StructuralUsage {
-        input_tokens: 200,
-        output_tokens: 80,
-        total_tokens: 280,
-        cached_input_tokens: Some(40),
-        cache_creation_input_tokens: None,
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: None,
-    };
+    let mut turn1 = make_usage((100, 50), (Some(20), Some(10)));
+    turn1.reasoning_tokens = Some(5);
+    let turn2 = make_usage((200, 80), (Some(40), None));
 
     tracker.record(turn1);
     tracker.record(turn2);
 
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 300);
-    assert_eq!(totals.total_output, 130);
-    assert_eq!(totals.total_cache_read, 60);
-    assert_eq!(totals.total_cache_write, 10);
-    assert_eq!(totals.total_reasoning, 5);
+    let t = tracker.totals();
+    let actual = (
+        t.total_input,
+        t.total_output,
+        t.total_cache_read,
+        t.total_cache_write,
+        t.total_reasoning,
+    );
+    assert_eq!(actual, (300, 130, 60, 10, 5));
     assert_eq!(tracker.latest(), Some(turn2));
 }
 
 #[test]
 fn usage_tracker_record_turn_differentiates_totals_from_latest_context() {
     let tracker = UsageTracker::default();
-    let multi_turn_total = StructuralUsage {
-        input_tokens: 30_000,
-        output_tokens: 1_200,
-        total_tokens: 31_200,
-        cached_input_tokens: Some(5_000),
-        cache_creation_input_tokens: None,
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: None,
-    };
-    let final_call_context = StructuralUsage {
-        input_tokens: 11_000,
-        output_tokens: 400,
-        total_tokens: 11_400,
-        cached_input_tokens: Some(5_000),
-        cache_creation_input_tokens: None,
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: None,
-    };
+    let total = make_usage((30_000, 1_200), (Some(5_000), None));
+    let final_ctx = make_usage((11_000, 400), (Some(5_000), None));
+    tracker.record_turn(TurnUsage::new(total, final_ctx), 2000);
 
-    tracker.record_turn(TurnUsage::new(multi_turn_total, final_call_context), 2000);
-
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 30_000);
-    assert_eq!(totals.total_output, 1_200);
-
-    // Latest must reflect the active context call, NOT the accumulated 30k input tokens
-    let latest = tracker.latest().expect("latest usage exists");
-    assert_eq!(latest.input_tokens, 11_000);
-    assert_eq!(latest.output_tokens, 400);
-
-    // Speed uses total output tokens / elapsed
+    let t = tracker.totals();
+    assert_eq!((t.total_input, t.total_output), (30_000, 1_200));
+    let latest = tracker.latest().unwrap();
+    assert_eq!((latest.input_tokens, latest.output_tokens), (11_000, 400));
     assert_eq!(tracker.tokens_per_second(), Some(600.0));
 }
 
@@ -100,97 +79,59 @@ fn quota_tracker_caching_and_backoff() {
 }
 
 #[test]
-fn usage_tracker_in_flight_streaming_and_step_reconciliation() {
+fn usage_tracker_in_flight_streaming() {
     let tracker = UsageTracker::default();
-
     tracker.start_turn(Some(500));
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 500);
-    assert_eq!(totals.total_output, 0);
-    let latest = tracker.latest().expect("estimated context exists");
-    assert_eq!(latest.input_tokens, 500);
+    assert_eq!((tracker.totals().total_input, tracker.totals().total_output), (500, 0));
 
     tracker.record_streaming_chunk(15);
     tracker.record_streaming_chunk(10);
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 500);
-    assert_eq!(totals.total_output, 25);
+    assert_eq!((tracker.totals().total_input, tracker.totals().total_output), (500, 25));
+}
 
-    let step_usage = StructuralUsage {
-        input_tokens: 520,
-        output_tokens: 28,
-        total_tokens: 548,
-        cached_input_tokens: Some(100),
-        cache_creation_input_tokens: Some(50),
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: None,
-    };
-    tracker.record_step(step_usage, 500);
+#[test]
+fn usage_tracker_step_and_turn_reconciliation() {
+    let tracker = UsageTracker::default();
+    let step = make_usage((520, 28), (Some(100), Some(50)));
+    tracker.record_step(step, 500);
 
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 520);
-    assert_eq!(totals.total_output, 28);
-    assert_eq!(totals.total_cache_read, 100);
-    assert_eq!(totals.total_cache_write, 50);
+    let t = tracker.totals();
+    assert_eq!(
+        (t.total_input, t.total_output, t.total_cache_read, t.total_cache_write),
+        (520, 28, 100, 50)
+    );
+    let latest = tracker.latest().unwrap();
+    assert_eq!((latest.input_tokens, latest.cached_input_tokens), (520, Some(100)));
 
-    let latest = tracker.latest().expect("exact context exists");
-    assert_eq!(latest.input_tokens, 520);
-    assert_eq!(latest.cached_input_tokens, Some(100));
-
-    let turn_usage = TurnUsage::single(step_usage);
-    tracker.record_turn(turn_usage, 500);
-
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 520);
-    assert_eq!(totals.total_output, 28);
-    assert_eq!(totals.total_cache_read, 100);
-    assert_eq!(totals.total_cache_write, 50);
+    tracker.record_turn(TurnUsage::single(step), 500);
+    let t = tracker.totals();
+    assert_eq!(
+        (t.total_input, t.total_output, t.total_cache_read, t.total_cache_write),
+        (520, 28, 100, 50)
+    );
 }
 
 #[test]
 fn usage_tracker_in_flight_multi_step_progression() {
     let tracker = UsageTracker::default();
-
     tracker.start_turn(Some(1000));
     tracker.record_streaming_chunk(10);
-
-    let step1 = StructuralUsage {
-        input_tokens: 1000,
-        output_tokens: 15,
-        total_tokens: 1015,
-        cached_input_tokens: None,
-        cache_creation_input_tokens: None,
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: None,
-    };
-    tracker.record_step(step1, 200);
-
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 1000);
-    assert_eq!(totals.total_output, 15);
+    tracker.record_step(make_usage((1000, 15), (None, None)), 200);
+    assert_eq!(
+        (tracker.totals().total_input, tracker.totals().total_output),
+        (1000, 15)
+    );
 
     tracker.start_step();
     tracker.record_streaming_chunk(20);
-    let totals = tracker.totals();
-    assert_eq!(totals.total_output, 35);
+    assert_eq!(tracker.totals().total_output, 35);
 
-    let step2 = StructuralUsage {
-        input_tokens: 1200,
-        output_tokens: 30,
-        total_tokens: 1230,
-        cached_input_tokens: None,
-        cache_creation_input_tokens: None,
-        tool_use_prompt_tokens: None,
-        reasoning_tokens: None,
-    };
-    tracker.record_step(step2, 300);
-
-    let totals = tracker.totals();
-    assert_eq!(totals.total_input, 2200);
-    assert_eq!(totals.total_output, 45);
-
-    let latest = tracker.latest().expect("latest context from step 2");
-    assert_eq!(latest.input_tokens, 1200);
+    tracker.record_step(make_usage((1200, 30), (None, None)), 300);
+    assert_eq!(
+        (tracker.totals().total_input, tracker.totals().total_output),
+        (2200, 45)
+    );
+    assert_eq!(tracker.latest().unwrap().input_tokens, 1200);
 }
 
 #[test]

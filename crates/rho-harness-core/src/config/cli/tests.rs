@@ -20,56 +20,47 @@ fn test_cli_parsing_subcommand() {
 }
 
 #[test]
-fn test_cli_parsing_plugin_subcommands() {
-    let cli = Cli::try_parse_from(["rho", "plugin", "list"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Plugin {
-            action: Some(PluginCommands::List)
-        })
-    );
+fn test_cli_parsing_plugin_list() {
+    for cmd in [["rho", "plugin", "list"], ["rho", "plugin", "ls"]] {
+        let cli = Cli::try_parse_from(cmd).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::List)
+            })
+        );
+    }
+}
 
-    let cli = Cli::try_parse_from(["rho", "plugin", "ls"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Plugin {
-            action: Some(PluginCommands::List)
-        })
-    );
-
+#[test]
+fn test_cli_parsing_plugin_install() {
     let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-git"]).unwrap();
     assert_eq!(
         cli.command,
         Some(Commands::Plugin {
             action: Some(PluginCommands::Install {
                 target: "rho-plugin-git".to_string(),
-                force: false,
+                force: false
             })
         })
     );
 
-    let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", "--replace"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Plugin {
-            action: Some(PluginCommands::Install {
-                target: "rho-plugin-shell".to_string(),
-                force: true,
+    for flag in ["--replace", "--force"] {
+        let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", flag]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Plugin {
+                action: Some(PluginCommands::Install {
+                    target: "rho-plugin-shell".to_string(),
+                    force: true
+                })
             })
-        })
-    );
+        );
+    }
+}
 
-    let cli = Cli::try_parse_from(["rho", "plugin", "install", "rho-plugin-shell", "--force"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Plugin {
-            action: Some(PluginCommands::Install {
-                target: "rho-plugin-shell".to_string(),
-                force: true,
-            })
-        })
-    );
-
+#[test]
+fn test_cli_parsing_plugin_update() {
     let cli = Cli::try_parse_from(["rho", "plugin", "update"]).unwrap();
     assert_eq!(
         cli.command,
@@ -87,14 +78,17 @@ fn test_cli_parsing_plugin_subcommands() {
             })
         })
     );
+}
 
+#[test]
+fn test_cli_parsing_plugin_remove() {
     let cli = Cli::try_parse_from(["rho", "plugin", "remove", "git"]).unwrap();
     assert_eq!(
         cli.command,
         Some(Commands::Plugin {
             action: Some(PluginCommands::Remove {
                 name: "git".to_string(),
-                keep_binary: false,
+                keep_binary: false
             })
         })
     );
@@ -105,11 +99,14 @@ fn test_cli_parsing_plugin_subcommands() {
         Some(Commands::Plugin {
             action: Some(PluginCommands::Remove {
                 name: "git".to_string(),
-                keep_binary: true,
+                keep_binary: true
             })
         })
     );
+}
 
+#[test]
+fn test_cli_parsing_plugin_inspect() {
     let cli = Cli::try_parse_from(["rho", "plugin", "inspect", "tool:bash"]).unwrap();
     assert_eq!(
         cli.command,
@@ -122,86 +119,67 @@ fn test_cli_parsing_plugin_subcommands() {
 }
 
 #[test]
-fn test_cli_parsing_top_level_package_commands() {
+fn test_cli_parsing_top_level_install() {
     let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git"]).unwrap();
     assert_eq!(
         cli.command,
         Some(Commands::Install {
             target: "rho-plugin-git".to_string(),
-            force: false,
+            force: false
         })
     );
 
-    let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git", "--force"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Install {
-            target: "rho-plugin-git".to_string(),
-            force: true,
-        })
-    );
+    for flag in ["--force", "--replace"] {
+        let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git", flag]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Install {
+                target: "rho-plugin-git".to_string(),
+                force: true
+            })
+        );
+    }
+}
 
-    let cli = Cli::try_parse_from(["rho", "install", "rho-plugin-git", "--replace"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Install {
-            target: "rho-plugin-git".to_string(),
-            force: true,
-        })
-    );
-
+#[test]
+fn test_cli_parsing_top_level_update() {
     let cli = Cli::try_parse_from(["rho", "update"]).unwrap();
     assert_eq!(cli.command, Some(Commands::Update { target: None }));
 
-    let cli = Cli::try_parse_from(["rho", "update", "all"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Update {
-            target: Some("all".to_string())
-        })
-    );
+    for target in ["all", "permission"] {
+        let cli = Cli::try_parse_from(["rho", "update", target]).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Update {
+                target: Some(target.to_string())
+            })
+        );
+    }
+}
 
-    let cli = Cli::try_parse_from(["rho", "update", "permission"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Update {
-            target: Some("permission".to_string())
-        })
-    );
-
-    let cli = Cli::try_parse_from(["rho", "remove", "git"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Remove {
-            name: "git".to_string(),
-            keep_binary: false,
-        })
-    );
+#[test]
+fn test_cli_parsing_top_level_remove() {
+    for cmd in [
+        ["rho", "remove", "git"],
+        ["rho", "uninstall", "git"],
+        ["rho", "rm", "git"],
+    ] {
+        let cli = Cli::try_parse_from(cmd).unwrap();
+        assert_eq!(
+            cli.command,
+            Some(Commands::Remove {
+                name: "git".to_string(),
+                keep_binary: false
+            })
+        );
+    }
 
     let cli = Cli::try_parse_from(["rho", "remove", "git", "--keep-binary"]).unwrap();
     assert_eq!(
         cli.command,
         Some(Commands::Remove {
             name: "git".to_string(),
-            keep_binary: true,
-        })
-    );
-
-    let cli = Cli::try_parse_from(["rho", "uninstall", "git"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Remove {
-            name: "git".to_string(),
-            keep_binary: false,
-        })
-    );
-
-    let cli = Cli::try_parse_from(["rho", "rm", "git"]).unwrap();
-    assert_eq!(
-        cli.command,
-        Some(Commands::Remove {
-            name: "git".to_string(),
-            keep_binary: false,
+            keep_binary: true
         })
     );
 }
@@ -225,14 +203,22 @@ fn test_cli_flags() {
         "--no-permission",
     ])
     .unwrap();
-    assert_eq!(cli.system_prompt.as_deref(), Some("custom system prompt"));
-    assert_eq!(cli.append_system_prompt.as_deref(), Some("append instructions"));
-    assert!(cli.no_context_files);
-    assert!(cli.no_permission);
+    let actual = (
+        cli.system_prompt.as_deref(),
+        cli.append_system_prompt.as_deref(),
+        cli.no_context_files,
+        cli.no_permission,
+    );
+    assert_eq!(
+        actual,
+        (Some("custom system prompt"), Some("append instructions"), true, true)
+    );
+}
 
-    let cli_alias = Cli::try_parse_from(["rho", "--nc"]).unwrap();
-    assert!(cli_alias.no_context_files);
-    assert!(!cli_alias.no_permission);
+#[test]
+fn test_cli_flag_aliases() {
+    let cli = Cli::try_parse_from(["rho", "--nc"]).unwrap();
+    assert_eq!((cli.no_context_files, cli.no_permission), (true, false));
 }
 
 #[test]

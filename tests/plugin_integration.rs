@@ -72,78 +72,73 @@ fn create_executable_script(dir: &Path, name: &str, body: &str) -> PathBuf {
     script_path
 }
 
-#[tokio::test]
-async fn test_decoupled_permission_plugin_with_interactive_modal() {
-    let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/tool_call"*)
-      echo '{"jsonrpc":"2.0","id":100,"method":"host/ui/confirm","params":{"title":"Permission Prompt","message":"Execute command?"}}'
-      ;;
-    *"\"confirmed\":true"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"continue"}}'
-      ;;
-    *"\"confirmed\":false"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"skip","reason":"User denied command execution"}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_executable_script(dir.path(), "permission_plugin.sh", script);
+struct TestDaemonArgs<'a> {
+    dir: &'a std::path::Path,
+    name: &'a str,
+    script: &'a str,
+    interaction: Option<InteractionResponse>,
+    subscriptions: &'a [&'a str],
+}
 
-    let presenter = Arc::new(MockPresenter::new(
-        true,
-        Some(InteractionResponse::Selected(0)), // User approved
-    ));
-    let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
+async fn spawn_integration_daemon(args: TestDaemonArgs<'_>) -> (DaemonHook, Arc<MockPresenter>) {
+    let script_path = create_executable_script(args.dir, &format!("{}.sh", args.name), args.script);
+    let presenter = Arc::new(MockPresenter::new(true, args.interaction));
+    let dispatcher = Arc::new(HostDispatcher::new(presenter.clone()));
     let config = rho_harness_core::config::PluginConfig {
         path: script_path,
         enabled: true,
         ..Default::default()
     };
-
     let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "permission-plugin",
+        name: args.name,
         config: &config,
-        working_dir: dir.path(),
+        working_dir: args.dir,
         dispatcher,
     })
     .await
     .expect("spawn daemon")
-    .with_subscriptions(["tool_call"]);
+    .with_subscriptions(args.subscriptions.iter().copied());
+    (DaemonHook::from_daemons(vec![Arc::new(daemon)]), presenter)
+}
 
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
+#[tokio::test]
+async fn test_decoupled_permission_plugin_with_interactive_modal() {
+    let dir = tempdir().unwrap();
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/tool_call\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":100,\"method\":\"host/ui/confirm\",\"params\":{\"title\":\"Prompt\",\"message\":\"Exec?\"}}' ;; *\"\\\"confirmed\\\":true\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"continue\"}}' ;; *\"\\\"confirmed\\\":false\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"skip\",\"reason\":\"User denied command execution\"}}' ;; esac; done\n";
+    let (hook, _) = spawn_integration_daemon(TestDaemonArgs {
+        dir: dir.path(),
+        name: "permission_plugin",
+        script,
+        interaction: Some(InteractionResponse::Selected(0)),
+        subscriptions: &["tool_call"],
+    })
+    .await;
 
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": "git status"})),
         MockTurn::text("status check done"),
     ]);
 
-    let agent = AgentBuilder::new(model.clone())
+    let agent = AgentBuilder::new(model)
         .tool(rho_engine::tools::BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-
     let response = agent.runner("check status").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "status check done");
+}
+
+fn dynamic_image_tool() -> rig::tool::DynamicTool {
+    rig::tool::DynamicTool::new(
+        "generate_image",
+        "Generate image from prompt",
+        json!({"type": "object", "properties": { "prompt": { "type": "string" } }, "required": ["prompt"]}),
+        |_ctx, _args| Box::pin(async { Ok(rig::tool::ToolOutput::text("generated: output.png")) }),
+    )
 }
 
 #[tokio::test]
 async fn test_dynamic_plugin_tool_registration_and_execution() {
     let dir = tempdir().unwrap();
-    let image_tool = rig::tool::DynamicTool::new(
-        "generate_image",
-        "Generate image from prompt",
-        json!({
-            "type": "object",
-            "properties": { "prompt": { "type": "string" } },
-            "required": ["prompt"]
-        }),
-        |_ctx, _args| Box::pin(async { Ok(rig::tool::ToolOutput::text("generated: output.png")) }),
-    );
-
     let config = Config {
         config_dir: dir.path().to_path_buf(),
         sessions_dir: dir.path().join("sessions"),
@@ -151,69 +146,51 @@ async fn test_dynamic_plugin_tool_registration_and_execution() {
         ..Config::default()
     };
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-
     let engine = AgentEngineBuilder::new(config, auth_store)
         .base_dir(dir.path().to_path_buf())
-        .add_tool(image_tool)
+        .add_tool(dynamic_image_tool())
         .build()
         .await
         .unwrap();
+    assert!(
+        engine.tool_names().contains(&"generate_image".to_string())
+            && engine.tool_names().contains(&"read".to_string())
+    );
+}
 
-    assert!(engine.tool_names().contains(&"generate_image".to_string()));
-    assert!(engine.tool_names().contains(&"read".to_string()));
+fn assert_alias_transform(before: &str, expected: &str) {
+    let mut pipeline = DisplayTransformerPipeline::new();
+    pipeline.add(Arc::new(ReplaceTransformer::new("mcp__bash__run", "bash")));
+    assert_eq!(pipeline.transform(before), expected);
 }
 
 #[tokio::test]
 async fn test_claude_code_compatibility_aliasing_and_repair_flow() {
     let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/invalid_tool_call"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"repair","tool_name":"bash"}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_executable_script(dir.path(), "claude_code_plugin.sh", script);
-    let presenter = Arc::new(MockPresenter::new(true, None));
-    let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
-    let config = rho_harness_core::config::PluginConfig {
-        path: script_path,
-        enabled: true,
-        ..Default::default()
-    };
-
-    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "claude-code-alias",
-        config: &config,
-        working_dir: dir.path(),
-        dispatcher,
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/invalid_tool_call\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"repair\",\"tool_name\":\"bash\"}}' ;; esac; done\n";
+    let (hook, _) = spawn_integration_daemon(TestDaemonArgs {
+        dir: dir.path(),
+        name: "claude_code_plugin",
+        script,
+        interaction: None,
+        subscriptions: &["invalid_tool_call"],
     })
-    .await
-    .expect("spawn daemon")
-    .with_subscriptions(["invalid_tool_call"]);
-
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
-
+    .await;
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "mcp__bash__run", json!({"command": "echo aliased"})),
         MockTurn::text("success"),
     ]);
 
-    let agent = AgentBuilder::new(model.clone())
+    let agent = AgentBuilder::new(model)
         .tool(rho_engine::tools::BashTool::new(dir.path()))
         .add_hook(hook)
         .build();
-
     let response = agent.runner("run aliased").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "success");
-
-    let mut pipeline = DisplayTransformerPipeline::new();
-    pipeline.add(Arc::new(ReplaceTransformer::new("mcp__bash__run", "bash")));
-    let display_output = pipeline.transform("Model invoked `mcp__bash__run` with success.");
-    assert_eq!(display_output, "Model invoked `bash` with success.");
+    assert_alias_transform(
+        "Model invoked `mcp__bash__run` with success.",
+        "Model invoked `bash` with success.",
+    );
 }
 
 struct NativeTestPlugin;
@@ -280,90 +257,43 @@ async fn test_native_in_process_rho_plugin() {
 #[tokio::test]
 async fn test_rag_document_injection_via_plugin() {
     let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/completion_call"*)
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"override_request","request":{"extra_context":[{"id":"arch.md","text":"Strict layering required"}]}}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_executable_script(dir.path(), "rag_plugin.sh", script);
-    let presenter = Arc::new(MockPresenter::new(true, None));
-    let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
-    let config = rho_harness_core::config::PluginConfig {
-        path: script_path,
-        enabled: true,
-        ..Default::default()
-    };
-
-    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "rag-plugin",
-        config: &config,
-        working_dir: dir.path(),
-        dispatcher,
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/completion_call\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"override_request\",\"request\":{\"extra_context\":[{\"id\":\"arch.md\",\"text\":\"Strict layering required\"}]}}}' ;; esac; done\n";
+    let (hook, _) = spawn_integration_daemon(TestDaemonArgs {
+        dir: dir.path(),
+        name: "rag_plugin",
+        script,
+        interaction: None,
+        subscriptions: &["completion_call"],
     })
-    .await
-    .expect("spawn daemon")
-    .with_subscriptions(["completion_call"]);
-
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
-
+    .await;
     let model = MockCompletionModel::new([MockTurn::text("understood guidelines")]);
-
     let agent = AgentBuilder::new(model.clone()).add_hook(hook).build();
 
     let response = agent.runner("explain arch").run().await.unwrap();
     assert_eq!(response.output, "understood guidelines");
 
     let requests = model.requests();
-    assert_eq!(requests.len(), 1);
     let docs = &requests[0].documents;
-    assert_eq!(docs.len(), 1);
-    assert_eq!(docs[0].id, "arch.md");
-    assert_eq!(docs[0].text, "Strict layering required");
+    assert_eq!(
+        (docs.len(), docs[0].id.as_str(), docs[0].text.as_str()),
+        (1, "arch.md", "Strict layering required")
+    );
 }
 
 #[tokio::test]
 async fn test_plugin_block_and_status_dispatch() {
     let dir = tempdir().unwrap();
-    let script = r#"
-while IFS= read -r line; do
-  case "$line" in
-    *"hook/completion_response"*)
-      echo '{"jsonrpc":"2.0","id":10,"method":"host/ui/block","params":{"title":"Audit Report","content":"Clean","style":"success"}}'
-      echo '{"jsonrpc":"2.0","id":11,"method":"host/ui/set_status","params":{"key":"quota","text":"5h: 80%"}}'
-      echo '{"jsonrpc":"2.0","id":1,"result":{"action":"continue"}}'
-      ;;
-  esac
-done
-"#;
-    let script_path = create_executable_script(dir.path(), "status_plugin.sh", script);
-    let presenter = Arc::new(MockPresenter::new(true, None));
-    let dispatcher = Arc::new(HostDispatcher::new(presenter));
-
-    let config = rho_harness_core::config::PluginConfig {
-        path: script_path,
-        enabled: true,
-        ..Default::default()
-    };
-
-    let daemon = DaemonProcess::spawn(DaemonSpawnArgs {
-        name: "status-plugin",
-        config: &config,
-        working_dir: dir.path(),
-        dispatcher,
+    let script = "while IFS= read -r line; do case \"$line\" in *\"hook/completion_response\"*) echo '{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"host/ui/block\",\"params\":{\"title\":\"Audit Report\",\"content\":\"Clean\",\"style\":\"success\"}}'; echo '{\"jsonrpc\":\"2.0\",\"id\":11,\"method\":\"host/ui/set_status\",\"params\":{\"key\":\"quota\",\"text\":\"5h: 80%\"}}'; echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"action\":\"continue\"}}' ;; esac; done\n";
+    let (hook, _) = spawn_integration_daemon(TestDaemonArgs {
+        dir: dir.path(),
+        name: "status_plugin",
+        script,
+        interaction: None,
+        subscriptions: &["completion_response"],
     })
-    .await
-    .expect("spawn daemon")
-    .with_subscriptions(["completion_response"]);
-
-    let hook = DaemonHook::from_daemons(vec![Arc::new(daemon)]);
+    .await;
     let model = MockCompletionModel::new([MockTurn::text("done")]);
-
-    let agent = AgentBuilder::new(model.clone()).add_hook(hook).build();
+    let agent = AgentBuilder::new(model).add_hook(hook).build();
 
     let response = agent.runner("test").run().await.unwrap();
     assert_eq!(response.output, "done");

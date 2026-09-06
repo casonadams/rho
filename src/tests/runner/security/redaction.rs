@@ -37,6 +37,39 @@ fn provider_error_mapping_redacts_sensitive_bodies() {
     assert!(!mapped.contains("Bearer"));
 }
 
+fn collect_displayed_events(
+    events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    renderer: &TerminalRenderer,
+) -> String {
+    let mut displayed = String::new();
+    while let Ok(event) = events.try_recv() {
+        match event {
+            UiEvent::Output(OutputEvent::Text(text)) => displayed.push_str(&text),
+            UiEvent::Transcript(item) => {
+                displayed.push_str(&crate::ui::interactive::render_transcript_item(
+                    crate::ui::interactive::TranscriptRenderInput {
+                        item: &item,
+                        theme: &renderer.theme,
+                        width: 80,
+                        tools_expanded: false,
+                        hide_thinking: false,
+                    },
+                ));
+            }
+            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
+            _ => {}
+        }
+    }
+    displayed
+}
+
+fn assert_redacted(completed: &[rho_engine::engine::runner::CompletedTool], displayed: &str, secret: &str) {
+    assert_eq!(completed.len(), 1);
+    assert!(!completed[0].arguments.to_string().contains(secret) && !completed[0].output.contains(secret));
+    assert!(completed[0].output.contains("[REDACTED]"));
+    assert!(!displayed.contains(secret) && displayed.contains("[REDACTED]"));
+}
+
 #[test]
 fn terminal_sink_redacts_secret_tool_arguments_and_results() {
     let dir = std::env::temp_dir().join(format!("sink_secret_{}", uuid::Uuid::new_v4()));
@@ -60,41 +93,8 @@ fn terminal_sink_redacts_secret_tool_arguments_and_results() {
         output: "credential-sentinel",
         is_error: true,
     });
-    let completed = sink.completed();
-    assert_eq!(completed.len(), 1);
-    assert!(!completed[0].arguments.to_string().contains("credential-sentinel"));
-    assert!(!completed[0].output.contains("credential-sentinel"));
-    assert!(completed[0].output.contains("[REDACTED]"));
-
-    let mut displayed = String::new();
-    while let Ok(event) = events.try_recv() {
-        match event {
-            UiEvent::Output(OutputEvent::Text(text)) => {
-                displayed.push_str(&text);
-            }
-            UiEvent::Transcript(item) => {
-                displayed.push_str(&crate::ui::interactive::render_transcript_item(
-                    crate::ui::interactive::TranscriptRenderInput {
-                        item: &item,
-                        theme: &renderer.theme,
-                        width: 80,
-                        tools_expanded: false,
-                        hide_thinking: false,
-                    },
-                ));
-            }
-            UiEvent::Activity(_)
-            | UiEvent::RunningTool(_)
-            | UiEvent::ExtraStatus(_)
-            | UiEvent::SystemMessage(_)
-            | UiEvent::ToolStart(_)
-            | UiEvent::ToolChunk { .. }
-            | UiEvent::ToolEnd => {}
-            UiEvent::Interaction { .. } => panic!("unexpected interaction"),
-        }
-    }
-    assert!(!displayed.contains("credential-sentinel"));
-    assert!(displayed.contains("[REDACTED]"));
+    let displayed = collect_displayed_events(&mut events, &renderer);
+    assert_redacted(&sink.completed(), &displayed, "credential-sentinel");
 }
 
 #[test]

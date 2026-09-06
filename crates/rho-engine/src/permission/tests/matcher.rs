@@ -32,9 +32,14 @@ fn wildcard_matching() {
 #[test]
 fn home_directory_expansion() {
     let home = std::env::var("HOME").unwrap_or_default();
-    assert_eq!(expand_home("~/dir/file"), format!("{home}/dir/file"));
-    assert_eq!(expand_home("$HOME/dir/file"), format!("{home}/dir/file"));
-    assert_eq!(expand_home("~"), home);
-    assert_eq!(expand_home("$HOME"), home);
-    assert_eq!(expand_home("/var/log"), "/var/log");
+    let cases = [
+        ("~/dir/file", format!("{home}/dir/file")),
+        ("$HOME/dir/file", format!("{home}/dir/file")),
+        ("~", home.clone()),
+        ("$HOME", home),
+        ("/var/log", "/var/log".to_string()),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(expand_home(input), expected);
+    }
 }

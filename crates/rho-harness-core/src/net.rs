@@ -80,39 +80,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn classifies_private_and_public_hosts() {
-        assert!(is_private_host("localhost"));
-        assert!(is_private_host("api.localhost"));
-        assert!(is_private_host("service.local"));
-        assert!(is_private_host("127.0.0.1"));
-        assert!(is_private_host("10.0.1.2"));
-        assert!(is_private_host("192.168.1.1"));
-        assert!(is_private_host("172.16.0.5"));
-        assert!(is_private_host("169.254.169.254"));
-        assert!(is_private_host("0.0.0.0"));
+    fn classifies_private_hosts() {
+        let private = [
+            "localhost",
+            "api.localhost",
+            "service.local",
+            "127.0.0.1",
+            "10.0.1.2",
+            "192.168.1.1",
+            "172.16.0.5",
+            "169.254.169.254",
+            "0.0.0.0",
+            "::1",
+            "::",
+            "[::1]",
+            "[::ffff:127.0.0.1]",
+            "[::ffff:10.0.0.1]",
+            "[::ffff:192.168.1.1]",
+            "fc00::1",
+            "fd12:3456:789a::1",
+            "fe80::1",
+        ];
+        for host in private {
+            assert!(is_private_host(host));
+        }
+    }
 
-        assert!(is_private_host("::1"));
-        assert!(is_private_host("::"));
-        assert!(is_private_host("[::1]"));
-        assert!(is_private_host("[::ffff:127.0.0.1]"));
-        assert!(is_private_host("[::ffff:10.0.0.1]"));
-        assert!(is_private_host("[::ffff:192.168.1.1]"));
-        assert!(is_private_host("fc00::1"));
-        assert!(is_private_host("fd12:3456:789a::1"));
-        assert!(is_private_host("fe80::1"));
-
-        assert!(!is_private_host("example.com"));
-        assert!(!is_private_host("93.184.216.34"));
-        assert!(!is_private_host("2606:4700:4700::1111"));
+    #[test]
+    fn classifies_public_hosts() {
+        for host in ["example.com", "93.184.216.34", "2606:4700:4700::1111"] {
+            assert!(!is_private_host(host));
+        }
     }
 
     #[test]
     fn validates_url_security_rules() {
-        assert!(validate_url("https://example.com/api", false).is_ok());
-        assert!(validate_url("http://127.0.0.1:8080", false).is_err());
-        assert!(validate_url("http://[::ffff:127.0.0.1]:8080", false).is_err());
-        assert!(validate_url("http://[fd00::1]:8080", false).is_err());
-        assert!(validate_url("http://127.0.0.1:8080", true).is_ok());
-        assert!(validate_url("file:///etc/passwd", false).is_err());
+        let cases = [
+            ("https://example.com/api", false, true),
+            ("http://127.0.0.1:8080", false, false),
+            ("http://[::ffff:127.0.0.1]:8080", false, false),
+            ("http://[fd00::1]:8080", false, false),
+            ("http://127.0.0.1:8080", true, true),
+            ("file:///etc/passwd", false, false),
+        ];
+        for (url, allow, ok) in cases {
+            assert_eq!(validate_url(url, allow).is_ok(), ok);
+        }
     }
 }

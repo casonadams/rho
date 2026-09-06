@@ -15,7 +15,7 @@ mod tests {
     }
 
     #[test]
-    fn normalization_preserves_meaningful_differences() {
+    fn normalization_bash_command_differences() {
         assert_eq!(
             key("bash", json!({"command":"  cargo   test  ", "timeout":30})),
             key("bash", json!({"command":"cargo test", "timeout":30}))
@@ -28,6 +28,10 @@ mod tests {
             key("bash", json!({"command":"cargo test", "timeout":30})),
             key("bash", json!({"command":"cargo test", "timeout":31}))
         );
+    }
+
+    #[test]
+    fn normalization_web_search_differences() {
         assert_eq!(
             key("web_search", json!({"query":" Rig   Memory ", "limit":null})),
             key("web_search", json!({"query":"rig memory", "limit":5}))

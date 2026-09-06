@@ -73,14 +73,19 @@ fn autocomplete_scales_down_to_max_lines() {
 }
 
 #[test]
-fn autocomplete_window_keeps_selection_in_view_when_scaled() {
+fn autocomplete_window_keeps_initial_selection_in_view() {
     let mut state = AutocompleteState::default();
     state.open(make_items(10));
-
     state.selected = 0;
     let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
     assert_eq!(lines.len(), 4);
     assert!(lines[0].contains("/item0"));
+}
+
+#[test]
+fn autocomplete_window_keeps_scrolled_selection_in_view() {
+    let mut state = AutocompleteState::default();
+    state.open(make_items(10));
 
     state.selected = 5;
     let lines = render_autocomplete_dropdown(&state, (60, 4), &crate::ui::theme::Theme::default());
@@ -93,43 +98,36 @@ fn autocomplete_window_keeps_selection_in_view_when_scaled() {
     assert!(lines.iter().any(|l| l.contains("/item9")));
 }
 
+fn test_ac_layout(
+    editor: &EditorState,
+    ac: &AutocompleteState,
+    terminal_height: usize,
+) -> crate::ui::interactive::layout::InteractiveLayout {
+    layout(LayoutInput {
+        editor,
+        modal: None,
+        autocomplete: Some(ac),
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height,
+        spinner_frame: 0,
+        theme: None,
+    })
+}
+
 #[test]
 fn autocomplete_layout_bounded_by_terminal_height() {
     let mut editor = EditorState::default();
     editor.set_text("/");
     let mut ac = AutocompleteState::default();
     ac.open(make_items(10));
-    let footer = FooterState::default();
 
-    let layout_9 = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: Some(&ac),
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 9,
-        spinner_frame: 0,
-        theme: None,
-    });
-    assert!(layout_9.height() <= 9);
-    assert!(layout_9.lines.iter().any(|l| l.contains("/item")));
+    let layout_9 = test_ac_layout(&editor, &ac, 9);
+    assert!(layout_9.height() <= 9 && layout_9.lines.iter().any(|l| l.contains("/item")));
 
-    let layout_7 = layout(LayoutInput {
-        editor: &editor,
-        modal: None,
-        autocomplete: Some(&ac),
-        footer: &footer,
-        system_message: None,
-        queued_messages: &[],
-        widget_lines: &[],
-        terminal_width: 80,
-        terminal_height: 7,
-        spinner_frame: 0,
-        theme: None,
-    });
-    assert!(layout_7.height() <= 7);
-    assert!(!layout_7.lines.iter().any(|l| l.contains("/item")));
+    let layout_7 = test_ac_layout(&editor, &ac, 7);
+    assert!(layout_7.height() <= 7 && !layout_7.lines.iter().any(|l| l.contains("/item")));
 }

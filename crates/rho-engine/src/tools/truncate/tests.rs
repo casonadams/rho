@@ -75,11 +75,14 @@ fn test_truncate_head_by_bytes() {
 fn test_truncate_head_first_line_exceeds_limit() {
     let long_line = "abcdefghijklmnopqrstuvwxyz";
     let res = truncate_head(long_line, 10, 5);
-    assert!(res.truncated);
-    assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
-    assert!(res.first_line_exceeds_limit);
-    assert_eq!(res.content, "");
-    assert_eq!(res.output_lines, 0);
+    let actual = (
+        res.truncated,
+        res.truncated_by,
+        res.first_line_exceeds_limit,
+        res.content.as_str(),
+        res.output_lines,
+    );
+    assert_eq!(actual, (true, Some(TruncatedBy::Bytes), true, "", 0));
 }
 
 #[test]
@@ -94,16 +97,17 @@ fn test_truncate_head_counts_joining_newline() {
 
 #[test]
 fn test_truncate_head_counts_multibyte_characters_as_bytes() {
-    // Each 'é' is two bytes: 20000 chars = 40000 bytes, so the second line
-    // would push the joined output past the byte limit.
     let line = "é".repeat(20_000);
     let text = format!("{line}\n{line}\n{line}");
     let res = truncate_head(&text, 10, 51200);
-    assert!(res.truncated);
-    assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
-    assert!(!res.first_line_exceeds_limit);
-    assert_eq!(res.output_lines, 1);
-    assert_eq!(res.output_bytes, 40_000);
+    let actual = (
+        res.truncated,
+        res.truncated_by,
+        res.first_line_exceeds_limit,
+        res.output_lines,
+        res.output_bytes,
+    );
+    assert_eq!(actual, (true, Some(TruncatedBy::Bytes), false, 1, 40_000));
 }
 
 #[test]

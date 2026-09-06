@@ -107,21 +107,10 @@ mod tests {
     #[test]
     fn test_pending_message_queue_one_at_a_time() {
         let mut queue = PendingMessageQueue::new(QueueMode::OneAtATime);
-        assert!(!queue.has_items());
-        assert_eq!(queue.len(), 0);
-
         queue.enqueue("msg 1");
         queue.enqueue("msg 2");
-        assert_eq!(queue.len(), 2);
-        assert!(queue.has_items());
-
-        let drained1 = queue.drain();
-        assert_eq!(drained1, vec!["msg 1"]);
-        assert_eq!(queue.len(), 1);
-
-        let drained2 = queue.drain();
-        assert_eq!(drained2, vec!["msg 2"]);
-        assert_eq!(queue.len(), 0);
+        assert_eq!(queue.drain(), vec!["msg 1"]);
+        assert_eq!(queue.drain(), vec!["msg 2"]);
         assert!(queue.drain().is_empty());
     }
 

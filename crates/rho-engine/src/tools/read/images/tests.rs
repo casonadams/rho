@@ -81,16 +81,18 @@ fn apng_fixture() -> Vec<u8> {
 
 #[test]
 fn sniff_detects_supported_formats() {
-    assert_eq!(detect_supported_image_mime(&solid_png(2, 2)), Some(SniffedMime::Png));
-    assert_eq!(
-        detect_supported_image_mime(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70]),
-        Some(SniffedMime::Jpeg)
-    );
-    assert_eq!(detect_supported_image_mime(&gif_fixture()), Some(SniffedMime::Gif));
     let mut webp = b"RIFF\x24\x00\x00\x00WEBP".to_vec();
     webp.extend_from_slice(b"VP8 \x10\x00\x00\x00");
-    assert_eq!(detect_supported_image_mime(&webp), Some(SniffedMime::WebP));
-    assert_eq!(detect_supported_image_mime(&bmp_with(1, 24)), Some(SniffedMime::Bmp));
+    let cases = [
+        (solid_png(2, 2), SniffedMime::Png),
+        (vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70], SniffedMime::Jpeg),
+        (gif_fixture(), SniffedMime::Gif),
+        (webp, SniffedMime::WebP),
+        (bmp_with(1, 24), SniffedMime::Bmp),
+    ];
+    for (bytes, expected) in cases {
+        assert_eq!(detect_supported_image_mime(&bytes), Some(expected));
+    }
 }
 
 #[test]
@@ -123,21 +125,28 @@ fn apng_scan_stops_at_first_idat() {
 }
 
 #[test]
-fn sniff_validates_bmp_headers() {
+fn sniff_validates_bmp_planes_and_depth() {
     assert_eq!(detect_supported_image_mime(&bmp_with(1, 24)), Some(SniffedMime::Bmp));
-    assert_eq!(detect_supported_image_mime(&bmp_with(2, 24)), None); // planes must be 1
-    assert_eq!(detect_supported_image_mime(&bmp_with(1, 3)), None); // unsupported depth
+    assert_eq!(detect_supported_image_mime(&bmp_with(2, 24)), None);
+    assert_eq!(detect_supported_image_mime(&bmp_with(1, 3)), None);
+}
+
+#[test]
+fn sniff_validates_bmp_dib_and_offsets() {
     let mut b = bmp_with(1, 24);
     b[14..18].copy_from_slice(&200u32.to_le_bytes());
-    assert_eq!(detect_supported_image_mime(&b), None); // DIB size out of range
-    b = bmp_with(1, 24);
+    assert_eq!(detect_supported_image_mime(&b), None);
+
+    let mut b = bmp_with(1, 24);
     b[2..6].copy_from_slice(&10u32.to_le_bytes());
-    assert_eq!(detect_supported_image_mime(&b), None); // declared size < 26
-    b = bmp_with(1, 24);
+    assert_eq!(detect_supported_image_mime(&b), None);
+
+    let mut b = bmp_with(1, 24);
     b[10..14].copy_from_slice(&20u32.to_le_bytes());
-    assert_eq!(detect_supported_image_mime(&b), None); // pixel data before headers
+    assert_eq!(detect_supported_image_mime(&b), None);
+
     let truncated = bmp_with(1, 24)[..28].to_vec();
-    assert_eq!(detect_supported_image_mime(&truncated), None); // truncated DIB
+    assert_eq!(detect_supported_image_mime(&truncated), None);
 }
 
 #[test]
@@ -202,15 +211,25 @@ fn bmp_is_converted_to_png_with_conversion_hint() {
 }
 
 #[test]
-fn ladder_scaling_math_matches_pi() {
+fn ladder_scaling_fit_dimensions() {
     let limits = ResizeLimits::INLINE;
-    assert_eq!(limits.fit_dimensions(5120, 2880), (2000, 1125));
-    assert_eq!(limits.fit_dimensions(2100, 100), (2000, 95));
-    assert_eq!(limits.fit_dimensions(20000, 1), (2000, 1));
-    assert_eq!(limits.fit_dimensions(1, 20000), (1, 2000));
-    assert_eq!(shrink(2000), 1500);
-    assert_eq!(shrink(2), 1);
-    assert_eq!(shrink(1), 1);
+    let cases = [
+        ((5120, 2880), (2000, 1125)),
+        ((2100, 100), (2000, 95)),
+        ((20000, 1), (2000, 1)),
+        ((1, 20000), (1, 2000)),
+    ];
+    for ((w, h), expected) in cases {
+        assert_eq!(limits.fit_dimensions(w, h), expected);
+    }
+}
+
+#[test]
+fn ladder_scaling_shrink_math() {
+    let cases = [(2000, 1500), (2, 1), (1, 1)];
+    for (input, expected) in cases {
+        assert_eq!(shrink(input), expected);
+    }
 }
 
 #[test]

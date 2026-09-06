@@ -2,14 +2,16 @@ use super::*;
 
 #[test]
 fn test_normalize_domain() {
-    assert_eq!(
-        normalize_domain("https://www.github.com/path"),
-        Some("github.com".to_string())
-    );
-    assert_eq!(normalize_domain("http://docs.rs:443"), Some("docs.rs".to_string()));
-    assert_eq!(normalize_domain("-www.bad-site.org/"), Some("bad-site.org".to_string()));
-    assert_eq!(normalize_domain("invalid domain!"), None);
-    assert_eq!(normalize_domain(""), None);
+    let cases = [
+        ("https://www.github.com/path", Some("github.com".to_string())),
+        ("http://docs.rs:443", Some("docs.rs".to_string())),
+        ("-www.bad-site.org/", Some("bad-site.org".to_string())),
+        ("invalid domain!", None),
+        ("", None),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(normalize_domain(input), expected);
+    }
 }
 
 #[test]
@@ -29,12 +31,16 @@ fn test_normalize_domain_filters() {
 fn test_matches_domain_filters() {
     let allowed = vec!["github.com".to_string(), "docs.rs".to_string()];
     let blocked = vec!["blog.github.com".to_string(), "spam.com".to_string()];
-
-    assert!(matches_domain_filters("github.com", &allowed, &blocked));
-    assert!(matches_domain_filters("raw.github.com", &allowed, &blocked));
-    assert!(!matches_domain_filters("blog.github.com", &allowed, &blocked));
-    assert!(!matches_domain_filters("spam.com", &allowed, &blocked));
-    assert!(!matches_domain_filters("other.org", &allowed, &blocked));
+    let cases = [
+        ("github.com", true),
+        ("raw.github.com", true),
+        ("blog.github.com", false),
+        ("spam.com", false),
+        ("other.org", false),
+    ];
+    for (domain, expected) in cases {
+        assert_eq!(matches_domain_filters(domain, &allowed, &blocked), expected);
+    }
 }
 
 #[test]
@@ -86,9 +92,13 @@ fn test_format_search_results() {
         limit: 1,
         today: "2026-09-03",
     });
-    assert!(formatted.starts_with("**Search results for:** rust lang (searched on 2026-09-03)"));
-    assert!(formatted.contains("1. Rust"));
-    assert!(formatted.contains("URL: https://www.rust-lang.org/"));
-    assert!(formatted.contains("Summary: A systems programming language"));
+    for fragment in [
+        "**Search results for:** rust lang",
+        "1. Rust",
+        "URL: https://www.rust-lang.org/",
+        "Summary: A systems programming language",
+    ] {
+        assert!(formatted.contains(fragment));
+    }
     assert!(!formatted.contains("Crates.io"));
 }
