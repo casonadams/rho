@@ -288,3 +288,29 @@ fn saving_never_clobbers_a_malformed_file() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "[allow\n");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn default_policy_allows_safe_bash_and_asks_for_unknown() {
+    let policy = build_policy(None, None);
+    let check = |cmd: &str| {
+        decide_tool_call(
+            &policy,
+            EvalRequest {
+                tool: "bash",
+                args: &json!({"command": cmd}),
+                working_dir: ws(),
+            },
+        )
+    };
+    assert_eq!(check("git status"), Decision::Allow);
+    assert_eq!(check("git branch --show-current"), Decision::Allow);
+    assert_eq!(check("cargo check"), Decision::Allow);
+    assert_eq!(check("cargo test"), Decision::Allow);
+    assert_eq!(check("ls -la"), Decision::Allow);
+    assert_eq!(check("pwd"), Decision::Allow);
+
+    assert_eq!(check("make clippy"), Decision::Ask);
+    assert_eq!(check("git commit -m 'feat: test'"), Decision::Ask);
+    assert_eq!(check("curl https://example.com"), Decision::Ask);
+    assert_eq!(check("npm install"), Decision::Ask);
+}

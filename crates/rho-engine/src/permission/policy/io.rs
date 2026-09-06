@@ -43,13 +43,7 @@ pub fn project_config_path(cwd: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
-pub fn target_config_path(cwd: Option<&Path>) -> Option<PathBuf> {
-    if let Some(path) = project_config_path(cwd) {
-        return Some(path);
-    }
-    if let Some(cwd) = cwd {
-        return Some(cwd.join(".rho/permission.toml"));
-    }
+pub fn target_config_path(_cwd: Option<&Path>) -> Option<PathBuf> {
     config_path()
 }
 

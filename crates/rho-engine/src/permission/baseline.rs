@@ -80,7 +80,8 @@ pub fn is_baseline_tool(tool: &str) -> bool {
 }
 
 pub fn is_baseline_bash(command: &str) -> bool {
-    BASELINE_BASH_ALLOW
-        .iter()
-        .any(|pattern| crate::permission::matcher::wildcard_match(pattern, command))
+    crate::tools::bash::is_read_only_command(command)
+        || BASELINE_BASH_ALLOW
+            .iter()
+            .any(|pattern| crate::permission::matcher::wildcard_match(pattern, command))
 }

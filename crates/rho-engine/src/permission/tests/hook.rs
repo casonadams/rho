@@ -164,7 +164,7 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
     let response = agent.runner("persist").max_turns(3).run().await.unwrap();
     assert_eq!(response.output, "completed");
 
-    let perm_file = project_dir.path().join(".rho/permission.toml");
+    let perm_file = global_dir.path().join("permission.toml");
     assert!(perm_file.exists());
     let content = std::fs::read_to_string(&perm_file).unwrap();
     assert!(content.contains("touch persist_test"));
