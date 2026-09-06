@@ -80,38 +80,26 @@ fn push_pattern_rule(target: (&str, &str), action: RuleAction, rules: &mut Vec<P
     }
 }
 
+fn push_legacy_rules(
+    map: &std::collections::BTreeMap<String, Vec<String>>,
+    state: PermissionState,
+    rules: &mut Vec<PolicyRule>,
+) {
+    for (tool, patterns) in map {
+        for pattern in patterns {
+            rules.push(PolicyRule {
+                surface: tool.clone(),
+                pattern: pattern.clone(),
+                state,
+                reason: None,
+                synthetic: false,
+            });
+        }
+    }
+}
+
 fn collect_legacy_rules(config: &RawConfigFile, rules: &mut Vec<PolicyRule>) {
-    for (tool, patterns) in &config.allow {
-        for pattern in patterns {
-            rules.push(PolicyRule {
-                surface: tool.clone(),
-                pattern: pattern.clone(),
-                state: PermissionState::Allow,
-                reason: None,
-                synthetic: false,
-            });
-        }
-    }
-    for (tool, patterns) in &config.ask {
-        for pattern in patterns {
-            rules.push(PolicyRule {
-                surface: tool.clone(),
-                pattern: pattern.clone(),
-                state: PermissionState::Ask,
-                reason: None,
-                synthetic: false,
-            });
-        }
-    }
-    for (tool, patterns) in &config.deny {
-        for pattern in patterns {
-            rules.push(PolicyRule {
-                surface: tool.clone(),
-                pattern: pattern.clone(),
-                state: PermissionState::Deny,
-                reason: None,
-                synthetic: false,
-            });
-        }
-    }
+    push_legacy_rules(&config.allow, PermissionState::Allow, rules);
+    push_legacy_rules(&config.ask, PermissionState::Ask, rules);
+    push_legacy_rules(&config.deny, PermissionState::Deny, rules);
 }

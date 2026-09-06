@@ -8,12 +8,12 @@ mod client;
 #[cfg(test)]
 mod tests;
 
-use super::loopback::LoopbackServer;
+use super::loopback::{CallbackParams, LoopbackServer};
 use super::pkce::{PkceChallenge, generate_state};
 use crate::antigravity::load_project_id;
 use client::{
-    CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, REDIRECT_PORT, REDIRECT_URI_ENCODED, SCOPES, exchange_code,
-    fetch_user_email, refresh_google_token,
+    CALLBACK_TIMEOUT, GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GoogleTokenResponse, REDIRECT_PORT, REDIRECT_URI_ENCODED,
+    SCOPES, exchange_code, fetch_user_email, refresh_google_token,
 };
 use rho_harness_core::auth::{OAuthLoginCallbacks, StoredCredential};
 use rho_harness_core::error::{AppError, Result};
@@ -33,30 +33,7 @@ pub fn stable_project_id(seed: &str) -> String {
     )
 }
 
-pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
-    let pkce = PkceChallenge::generate();
-    let state = generate_state();
-
-    let server = LoopbackServer::bind_port(REDIRECT_PORT).await.map_err(|e| {
-        AppError::Auth(format!(
-            "Failed to bind OAuth callback listener on port {REDIRECT_PORT}: {e}.\n\
-             Close the process using port {REDIRECT_PORT} and try again."
-        ))
-    })?;
-
-    let auth_url = format!(
-        "{GOOGLE_AUTH_URL}?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={REDIRECT_URI_ENCODED}\
-         &scope={SCOPES}&code_challenge={}&code_challenge_method=S256&state={state}\
-         &access_type=offline&prompt=consent",
-        pkce.challenge
-    );
-
-    callbacks
-        .on_auth_url(&auth_url, Some("Complete Google sign-in to finish."))
-        .await?;
-    callbacks.on_progress("Waiting for Google authorization...").await?;
-
-    let callback = server.wait_for_callback(CALLBACK_TIMEOUT).await?;
+fn validate_oauth_callback(callback: CallbackParams, state: &str) -> Result<String> {
     if let Some(err) = callback.error {
         let desc = callback.error_description.unwrap_or_default();
         return Err(AppError::Auth(format!("OAuth failed: {err} {desc}")));
@@ -64,24 +41,20 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
     let code = callback
         .code
         .ok_or_else(|| AppError::Auth("No authorization code received from callback".to_string()))?;
-    if callback.state.as_deref() != Some(state.as_str()) {
+    if callback.state.as_deref() != Some(state) {
         return Err(AppError::Auth("OAuth state mismatch".to_string()));
     }
+    Ok(code)
+}
 
-    callbacks
-        .on_progress("Exchanging authorization code for tokens...")
-        .await?;
-    let token = exchange_code(&code, &pkce.verifier).await?;
-
+async fn build_antigravity_credential(token: GoogleTokenResponse) -> StoredCredential {
     let expires_at_ms = token
         .expires_in
         .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
-
     let email = fetch_user_email(&token.access_token).await;
     let project_id = load_project_id(&token.access_token)
         .await
         .unwrap_or_else(|| stable_project_id(email.as_deref().unwrap_or("antigravity-default")));
-
     let mut cred = StoredCredential::oauth(token.access_token, token.refresh_token, expires_at_ms);
     if let StoredCredential::OAuth {
         account_id,
@@ -92,7 +65,71 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
         *account_id = Some(project_id);
         *account_email = email;
     }
-    Ok(cred)
+    cred
+}
+
+async fn wait_and_exchange_code(
+    (server, state, verifier): (LoopbackServer, &str, &str),
+    callbacks: &dyn OAuthLoginCallbacks,
+) -> Result<GoogleTokenResponse> {
+    let callback = server.wait_for_callback(CALLBACK_TIMEOUT).await?;
+    let code = validate_oauth_callback(callback, state)?;
+    callbacks
+        .on_progress("Exchanging authorization code for tokens...")
+        .await?;
+    exchange_code(&code, verifier).await
+}
+
+async fn prompt_user_auth(
+    callbacks: &dyn OAuthLoginCallbacks,
+    (challenge, state): (&str, &str),
+) -> Result<LoopbackServer> {
+    let server = LoopbackServer::bind_port(REDIRECT_PORT).await.map_err(|e| {
+        AppError::Auth(format!(
+            "Failed to bind OAuth callback listener on port {REDIRECT_PORT}: {e}"
+        ))
+    })?;
+    let auth_url = format!(
+        "{GOOGLE_AUTH_URL}?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={REDIRECT_URI_ENCODED}&scope={SCOPES}&code_challenge={challenge}&code_challenge_method=S256&state={state}&access_type=offline&prompt=consent"
+    );
+    callbacks
+        .on_auth_url(&auth_url, Some("Complete Google sign-in to finish."))
+        .await?;
+    callbacks.on_progress("Waiting for Google authorization...").await?;
+    Ok(server)
+}
+
+pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
+    let pkce = PkceChallenge::generate();
+    let state = generate_state();
+    let server = prompt_user_auth(callbacks, (&pkce.challenge, &state)).await?;
+    let token = wait_and_exchange_code((server, &state, &pkce.verifier), callbacks).await?;
+    Ok(build_antigravity_credential(token).await)
+}
+
+fn construct_refreshed_credential(
+    token: GoogleTokenResponse,
+    refresh: &str,
+    (acc_id, acc_email): (Option<String>, Option<String>),
+) -> StoredCredential {
+    let expires_at_ms = token
+        .expires_in
+        .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
+    let mut cred = StoredCredential::oauth(
+        token.access_token,
+        token.refresh_token.or_else(|| Some(refresh.to_string())),
+        expires_at_ms,
+    );
+    if let StoredCredential::OAuth {
+        account_id,
+        account_email,
+        ..
+    } = &mut cred
+    {
+        *account_id = acc_id;
+        *account_email = acc_email;
+    }
+    cred
 }
 
 pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredCredential> {
@@ -109,25 +146,9 @@ pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredC
     };
 
     let token = refresh_google_token(refresh).await?;
-
-    let expires_at_ms = token
-        .expires_in
-        .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000 - 5 * 60 * 1000);
-
-    // Google does not rotate the refresh token on this grant; keep the stored one.
-    let mut cred = StoredCredential::oauth(
-        token.access_token,
-        token.refresh_token.or_else(|| Some(refresh.clone())),
-        expires_at_ms,
-    );
-    if let StoredCredential::OAuth {
-        account_id: stored_id,
-        account_email: stored_email,
-        ..
-    } = &mut cred
-    {
-        *stored_id = account_id.clone();
-        *stored_email = account_email.clone();
-    }
-    Ok(cred)
+    Ok(construct_refreshed_credential(
+        token,
+        refresh,
+        (account_id.clone(), account_email.clone()),
+    ))
 }

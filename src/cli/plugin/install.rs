@@ -60,6 +60,57 @@ pub struct InstallPluginContext<'a> {
     pub github_client: Option<&'a GitHubClient>,
 }
 
+async fn download_and_extract_plugin(
+    client: &GitHubClient,
+    release: &super::github::Release,
+    spec: &PluginSpec,
+) -> Result<Vec<u8>, InstallError> {
+    let platform = Platform::current().ok_or_else(|| {
+        InstallError::UnsupportedPlatform(format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS))
+    })?;
+    let asset_names: Vec<String> = release.assets.iter().map(|a| a.name.clone()).collect();
+    let matched_name = match_platform_asset(&platform, &asset_names)?;
+    let asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == matched_name)
+        .expect("matched asset must exist in release");
+    let downloaded = client.download_asset(&asset.browser_download_url).await?;
+    extract_binary(&asset.name, &downloaded, &spec.executable_name).map_err(Into::into)
+}
+
+fn build_installed_plugin_config(spec: &PluginSpec, release: &super::github::Release) -> PluginConfig {
+    PluginConfig {
+        path: PathBuf::new(),
+        command: Some(spec.executable_name.clone()),
+        package: Some(spec.name.clone()),
+        version: Some(release.tag_name.clone()),
+        git: Some(format!("https://github.com/{}", spec.github_repo())),
+        tag: spec.tag.clone(),
+        enabled: true,
+        ..Default::default()
+    }
+}
+
+async fn fetch_and_install_binary(
+    ctx: InstallPluginContext<'_>,
+    spec: &PluginSpec,
+    dest_path: &Path,
+) -> Result<super::github::Release, InstallError> {
+    let default_client = GitHubClient::new();
+    let client = ctx.github_client.unwrap_or(&default_client);
+    let release = client.fetch_release(&spec.github_repo(), spec.tag.as_deref()).await?;
+    let binary = download_and_extract_plugin(client, &release, spec).await?;
+    write_binary_atomically(dest_path, &binary)?;
+    Config::add_plugin_async(
+        ctx.config_dir,
+        &spec.name,
+        build_installed_plugin_config(spec, &release),
+    )
+    .await?;
+    Ok(release)
+}
+
 pub async fn install_plugin(ctx: InstallPluginContext<'_>, target: &str) -> Result<InstallResult, InstallError> {
     let spec = PluginSpec::parse(target)?;
     let dest_path = ctx.cargo_bin_dir.join(&spec.executable_name);
@@ -76,38 +127,7 @@ pub async fn install_plugin(ctx: InstallPluginContext<'_>, target: &str) -> Resu
         return Err(InstallError::BinaryAlreadyExists(dest_path));
     }
 
-    let platform = Platform::current().ok_or_else(|| {
-        InstallError::UnsupportedPlatform(format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS))
-    })?;
-
-    let default_client = GitHubClient::new();
-    let client = ctx.github_client.unwrap_or(&default_client);
-    let release = client.fetch_release(&spec.github_repo(), spec.tag.as_deref()).await?;
-
-    let asset_names: Vec<String> = release.assets.iter().map(|a| a.name.clone()).collect();
-    let matched_name = match_platform_asset(&platform, &asset_names)?;
-    let asset = release
-        .assets
-        .iter()
-        .find(|a| a.name == matched_name)
-        .expect("matched asset must exist in release");
-
-    let downloaded = client.download_asset(&asset.browser_download_url).await?;
-    let binary = extract_binary(&asset.name, &downloaded, &spec.executable_name)?;
-    write_binary_atomically(&dest_path, &binary)?;
-
-    let plugin_cfg = PluginConfig {
-        path: PathBuf::new(),
-        command: Some(spec.executable_name.clone()),
-        package: Some(spec.name.clone()),
-        version: Some(release.tag_name.clone()),
-        git: Some(format!("https://github.com/{}", spec.github_repo())),
-        tag: spec.tag.clone(),
-        enabled: true,
-        ..Default::default()
-    };
-    Config::add_plugin_async(ctx.config_dir, &spec.name, plugin_cfg).await?;
-
+    let release = fetch_and_install_binary(ctx, &spec, &dest_path).await?;
     Ok(InstallResult {
         name: spec.name,
         version: release.tag_name,

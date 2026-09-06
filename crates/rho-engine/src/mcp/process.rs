@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{ChildStdin, ChildStdout, Command};
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
 
 pub const MAX_STDERR_BYTES: usize = 64 * 1024;
 
@@ -26,55 +26,62 @@ impl McpChildHandle {
 
 pub struct McpProcess;
 
+fn build_mcp_command(config: &McpServerConfig, working_dir: &Path) -> Command {
+    let mut cmd = Command::new(&config.command);
+    cmd.args(&config.args);
+    cmd.current_dir(working_dir);
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
+    crate::process::isolate_group(&mut cmd);
+    for (key, val) in resolve_env(&config.env) {
+        cmd.env(key, val);
+    }
+    cmd
+}
+
+fn spawn_stderr_reader(stderr: ChildStderr) -> Arc<Mutex<String>> {
+    let stderr_buffer = Arc::new(Mutex::new(String::new()));
+    let buffer_clone = Arc::clone(&stderr_buffer);
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let mut buf = buffer_clone.lock().unwrap();
+            if buf.len() < MAX_STDERR_BYTES {
+                buf.push_str(&line);
+                buf.push('\n');
+            }
+        }
+    });
+    stderr_buffer
+}
+
+fn take_process_stdio(child: &mut tokio::process::Child) -> Result<(ChildStdin, ChildStdout, ChildStderr)> {
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| AppError::Plugin("Failed to open child process stdin".to_string()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AppError::Plugin("Failed to open child process stdout".to_string()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| AppError::Plugin("Failed to open child process stderr".to_string()))?;
+    Ok((stdin, stdout, stderr))
+}
+
 impl McpProcess {
     pub fn spawn(config: &McpServerConfig, working_dir: &Path) -> Result<(ChildStdin, ChildStdout, McpChildHandle)> {
-        let mut cmd = Command::new(&config.command);
-        cmd.args(&config.args);
-        cmd.current_dir(working_dir);
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-        cmd.kill_on_drop(true);
-        crate::process::isolate_group(&mut cmd);
+        let mut cmd = build_mcp_command(config, working_dir);
+        let mut child = cmd
+            .spawn()
+            .map_err(|error| AppError::Plugin(format!("Failed to spawn MCP server '{}': {error}", config.command)))?;
 
-        let resolved_env = resolve_env(&config.env);
-        for (key, val) in resolved_env {
-            cmd.env(key, val);
-        }
-
-        let mut child = cmd.spawn().map_err(|error| {
-            AppError::Plugin(format!(
-                "Failed to spawn MCP server '{}' (command: '{}'): {error}",
-                config.command, config.command
-            ))
-        })?;
-
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| AppError::Plugin("Failed to open child process stdin".to_string()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| AppError::Plugin("Failed to open child process stdout".to_string()))?;
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| AppError::Plugin("Failed to open child process stderr".to_string()))?;
-
-        let stderr_buffer = Arc::new(Mutex::new(String::new()));
-        let buffer_clone = Arc::clone(&stderr_buffer);
-
-        tokio::spawn(async move {
-            let mut reader = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = reader.next_line().await {
-                let mut buf = buffer_clone.lock().unwrap();
-                if buf.len() < MAX_STDERR_BYTES {
-                    buf.push_str(&line);
-                    buf.push('\n');
-                }
-            }
-        });
+        let (stdin, stdout, stderr) = take_process_stdio(&mut child)?;
+        let stderr_buffer = spawn_stderr_reader(stderr);
 
         Ok((
             stdin,

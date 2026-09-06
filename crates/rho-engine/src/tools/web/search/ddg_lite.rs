@@ -48,38 +48,43 @@ pub fn decode_ddg_url(raw: &str) -> String {
     raw.to_string()
 }
 
+fn normalize_ddg_href(href: &str) -> String {
+    if href.starts_with("//") {
+        format!("https:{href}")
+    } else if href.starts_with('/') {
+        format!("https://lite.duckduckgo.com{href}")
+    } else {
+        href.to_string()
+    }
+}
+
+fn build_ddg_result(link: scraper::ElementRef<'_>, snippet: Option<&String>) -> Option<SearchResult> {
+    let href = link.value().attr("href")?;
+    if href.is_empty() {
+        return None;
+    }
+    let decoded = decode_ddg_url(&normalize_ddg_href(href));
+    let title = link.text().collect::<Vec<_>>().join(" ").trim().to_string();
+    if !decoded.is_empty() && !title.is_empty() && decoded.starts_with("http") {
+        let abs = snippet.cloned().unwrap_or_default();
+        Some(SearchResult::new(title, abs, decoded))
+    } else {
+        None
+    }
+}
+
 pub fn parse_ddg_lite_html(html: &str) -> Vec<SearchResult> {
     let document = Html::parse_document(html);
-
-    let mut results = Vec::new();
     let snippets: Vec<String> = document
         .select(&SNIPPET_SEL)
         .map(|s| s.text().collect::<Vec<_>>().join(" ").trim().to_string())
         .collect();
 
-    for (i, link) in document.select(&LINK_SEL).enumerate() {
-        let href = link.value().attr("href").unwrap_or_default();
-        if href.is_empty() {
-            continue;
-        }
-
-        let full_url = if href.starts_with("//") {
-            format!("https:{href}")
-        } else if href.starts_with('/') {
-            format!("https://lite.duckduckgo.com{href}")
-        } else {
-            href.to_string()
-        };
-
-        let decoded_url = decode_ddg_url(&full_url);
-        let title = link.text().collect::<Vec<_>>().join(" ").trim().to_string();
-        let abstract_text = snippets.get(i).cloned().unwrap_or_default();
-
-        if !decoded_url.is_empty() && !title.is_empty() && decoded_url.starts_with("http") {
-            results.push(SearchResult::new(title, abstract_text, decoded_url));
-        }
-    }
-    results
+    document
+        .select(&LINK_SEL)
+        .enumerate()
+        .filter_map(|(i, link)| build_ddg_result(link, snippets.get(i)))
+        .collect()
 }
 
 #[cfg(test)]

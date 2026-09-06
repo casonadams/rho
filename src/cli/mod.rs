@@ -17,63 +17,77 @@ use crate::config::cli::Cli;
 use crate::repl::ReplSession;
 use std::io::Read;
 
+struct ProcessCleanupGuard;
+impl Drop for ProcessCleanupGuard {
+    fn drop(&mut self) {
+        rho_engine::process::kill_all_tracked_processes();
+    }
+}
+
+#[cfg(feature = "ui")]
+async fn run_interactive_session(
+    (config, auth_store, resume_target): (Config, AuthStore, Option<String>),
+    cli: Cli,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let mut session = ReplSession::new(config, auth_store, resume_target).with_cli(Some(cli));
+    session.run().await?;
+    Ok(())
+}
+
+#[cfg(not(feature = "ui"))]
+async fn run_interactive_session(
+    _state: (Config, AuthStore, Option<String>),
+    _cli: Cli,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    Err(Box::new(crate::error::AppError::Session(
+        "interactive REPL is unavailable in headless mode (compiled without 'ui' feature); provide a prompt via -p or piped stdin".to_string(),
+    )))
+}
+
+async fn dispatch_prompt_runner(
+    runner: runner::CliRunner,
+    (prompt, mode, name): (&str, &str, Option<&str>),
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    if mode == "json" {
+        runner.run_json_turn(prompt).await
+    } else {
+        runner.run_prompt_turn(prompt, name).await
+    }
+}
+
+async fn dispatch_cli_run(
+    cli: Cli,
+    config: Config,
+    auth_store: AuthStore,
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let resume_target = session::resolve_resume_target(&cli, &config)?;
+    if let Some(export_path) = cli.export.as_deref() {
+        return session::export_session(export_path, resume_target, &config).await;
+    }
+    if cli.mode == "rpc" {
+        return rpc::run_rpc_daemon(config, auth_store).await.map_err(Into::into);
+    }
+    if let Some(prompt) = resolve_prompt_text(&cli) {
+        let runner = runner::CliRunner::new(config, auth_store, resume_target);
+        return dispatch_prompt_runner(runner, (&prompt, &cli.mode, cli.name.as_deref())).await;
+    }
+    run_interactive_session((config, auth_store, resume_target), cli).await
+}
+
 pub async fn run_cli() -> std::result::Result<(), Box<dyn std::error::Error>> {
     rho_engine::install_crypto_provider();
-    struct ProcessCleanupGuard;
-    impl Drop for ProcessCleanupGuard {
-        fn drop(&mut self) {
-            rho_engine::process::kill_all_tracked_processes();
-        }
-    }
     let _process_cleanup = ProcessCleanupGuard;
 
     let cli = <Cli as clap::Parser>::parse();
     let config = Config::load(Some(&cli))?;
-    let cli_for_repl = cli.clone();
     config.ensure_dirs_async().await?;
 
     let mut auth_store = AuthStore::load_async(&config.auth_file).await?;
-
     if let Some(cmd) = cli.command {
         return commands::handle_command(cmd, &config, &mut auth_store).await;
     }
 
-    let prompt_text = resolve_prompt_text(&cli);
-    let resume_target = session::resolve_resume_target(&cli, &config)?;
-
-    if let Some(export_path) = cli.export {
-        return session::export_session(&export_path, resume_target, &config).await;
-    }
-
-    if cli.mode == "rpc" {
-        return rpc::run_rpc_daemon(config, auth_store).await.map_err(Into::into);
-    }
-
-    if cli.mode == "json"
-        && let Some(prompt) = prompt_text.as_deref()
-    {
-        let runner = runner::CliRunner::new(config, auth_store, resume_target);
-        return runner.run_json_turn(prompt).await;
-    }
-
-    if let Some(prompt) = prompt_text.as_deref() {
-        let runner = runner::CliRunner::new(config, auth_store, resume_target);
-        return runner.run_prompt_turn(prompt, cli.name.as_deref()).await;
-    }
-
-    #[cfg(feature = "ui")]
-    {
-        let mut session = ReplSession::new(config, auth_store, resume_target).with_cli(Some(cli_for_repl));
-        session.run().await?;
-        Ok(())
-    }
-    #[cfg(not(feature = "ui"))]
-    {
-        let _ = cli_for_repl;
-        Err(Box::new(crate::error::AppError::Session(
-            "interactive REPL is unavailable in headless mode (compiled without 'ui' feature); provide a prompt via -p or piped stdin".to_string(),
-        )))
-    }
+    dispatch_cli_run(cli, config, auth_store).await
 }
 
 fn resolve_prompt_text(cli: &Cli) -> Option<String> {

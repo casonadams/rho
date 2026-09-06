@@ -25,6 +25,15 @@ pub struct SelectInput {
     pub value: Option<String>,
 }
 
+impl SelectInput {
+    pub fn new(label: impl Into<String>, value: Option<String>) -> Self {
+        Self {
+            label: label.into(),
+            value,
+        }
+    }
+}
+
 impl SelectOption {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
@@ -42,19 +51,11 @@ impl SelectOption {
         }
     }
 
-    pub fn with_input(
-        label: impl Into<String>,
-        description: impl Into<String>,
-        input_label: impl Into<String>,
-        input_value: Option<String>,
-    ) -> Self {
+    pub fn with_input(label: impl Into<String>, description: impl Into<String>, input: SelectInput) -> Self {
         Self {
             label: label.into(),
             description: Some(description.into()),
-            input: Some(SelectInput {
-                label: input_label.into(),
-                value: input_value,
-            }),
+            input: Some(input),
         }
     }
 }
@@ -108,10 +109,8 @@ impl HostContext {
 
     pub async fn select(
         &self,
-        title: &str,
-        message: &str,
-        options: &[SelectOption],
-        allow_custom: bool,
+        (title, message): (&str, &str),
+        (options, allow_custom): (&[SelectOption], bool),
     ) -> SelectResult {
         let params = json!({
             "title": title,
@@ -148,7 +147,7 @@ impl HostContext {
     /// Like `input`, but prefills the editable text buffer with `value` so the
     /// user modifies an existing input instead of retyping it. Older hosts
     /// ignore the extra field and behave like `input`.
-    pub async fn input_with_default(&self, title: &str, message: &str, value: &str) -> Option<String> {
+    pub async fn input_with_default(&self, (title, message): (&str, &str), value: &str) -> Option<String> {
         let params = json!({
             "title": title,
             "message": message,
@@ -166,7 +165,7 @@ impl HostContext {
         let _ = self.call_host("host/ui/notify", params).await;
     }
 
-    pub async fn block(&self, title: &str, content: &str, style: &str) {
+    pub async fn block(&self, (title, content, style): (&str, &str, &str)) {
         let params = json!({
             "title": title,
             "content": content,

@@ -18,32 +18,48 @@ struct SegmentAnalysis {
     path_tokens: Vec<String>,
 }
 
-pub fn analyze_bash_command(command: &str) -> BashAnalysis {
-    let token_res = tokenize(command);
-    let segments = split_segments(&token_res.tokens);
-    let mut commands = Vec::new();
-    let mut path_tokens = Vec::new();
-    let mut has_dangling = false;
+struct AnalysisCollector {
+    commands: Vec<String>,
+    path_tokens: Vec<String>,
+    has_dangling: bool,
+}
 
-    for segment in segments {
-        if segment.dangling {
-            has_dangling = true;
-        }
-        let analysis = analyze_segment(segment);
-        if let Some(cmd) = analysis.command {
-            commands.push(cmd);
-        }
-        for token in analysis.path_tokens {
-            if !path_tokens.contains(&token) {
-                path_tokens.push(token);
-            }
+impl AnalysisCollector {
+    fn new() -> Self {
+        Self {
+            commands: Vec::new(),
+            path_tokens: Vec::new(),
+            has_dangling: false,
         }
     }
 
-    let suspicious = token_res.suspicious || commands.is_empty() || has_dangling;
+    fn record_segment(&mut self, segment: Segment) {
+        if segment.dangling {
+            self.has_dangling = true;
+        }
+        let analysis = analyze_segment(segment);
+        if let Some(cmd) = analysis.command {
+            self.commands.push(cmd);
+        }
+        for token in analysis.path_tokens {
+            if !self.path_tokens.contains(&token) {
+                self.path_tokens.push(token);
+            }
+        }
+    }
+}
+
+pub fn analyze_bash_command(command: &str) -> BashAnalysis {
+    let token_res = tokenize(command);
+    let mut collector = AnalysisCollector::new();
+    for segment in split_segments(&token_res.tokens) {
+        collector.record_segment(segment);
+    }
+
+    let suspicious = token_res.suspicious || collector.commands.is_empty() || collector.has_dangling;
     BashAnalysis {
-        commands,
-        path_tokens,
+        commands: collector.commands,
+        path_tokens: collector.path_tokens,
         suspicious,
     }
 }

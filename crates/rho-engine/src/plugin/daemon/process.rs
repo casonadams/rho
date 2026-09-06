@@ -36,34 +36,62 @@ pub struct DaemonProcess {
     _guard: Arc<Mutex<crate::process::ProcessTreeGuard>>,
 }
 
+fn configure_daemon_command(args: &DaemonSpawnArgs<'_>) -> Result<tokio::process::Command, String> {
+    let (program, cmd_args) = resolve_executable(args.config, args.working_dir)?;
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(cmd_args)
+        .current_dir(args.working_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
+    crate::process::isolate_group(&mut cmd);
+    Ok(cmd)
+}
+
+async fn wait_for_daemon_response(
+    rx: oneshot::Receiver<Result<JsonRpcResponse, String>>,
+    pending: &PendingResponses,
+    id: u64,
+) -> Result<JsonRpcResponse, String> {
+    match tokio::time::timeout(Duration::from_secs(600), rx).await {
+        Ok(Ok(response)) => response,
+        Ok(Err(_)) => Err("Plugin response channel closed".to_string()),
+        Err(_) => {
+            pending.lock().await.remove(&id);
+            Err("Plugin call timed out".to_string())
+        }
+    }
+}
+
+fn init_daemon_io(
+    child: &mut tokio::process::Child,
+    args: &DaemonSpawnArgs<'_>,
+) -> Result<(mpsc::Sender<String>, PendingResponses), String> {
+    let child_stdin = child.stdin.take().ok_or("Failed to open child stdin")?;
+    let child_stdout = child.stdout.take().ok_or("Failed to open child stdout")?;
+    let pending: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
+    let (stdin_tx, stdin_rx) = mpsc::channel::<String>(64);
+
+    spawn_stdin_writer(child_stdin, stdin_rx);
+    spawn_stdout_reader(
+        child_stdout,
+        StdoutReaderContext {
+            pending: pending.clone(),
+            dispatcher: args.dispatcher.clone(),
+            stdin_tx: stdin_tx.clone(),
+        },
+    );
+
+    Ok((stdin_tx, pending))
+}
+
 impl DaemonProcess {
     pub async fn spawn(args: DaemonSpawnArgs<'_>) -> Result<Self, String> {
-        let (program, cmd_args) = resolve_executable(args.config, args.working_dir)?;
-        let mut cmd = tokio::process::Command::new(program);
-        cmd.args(cmd_args)
-            .current_dir(args.working_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        cmd.kill_on_drop(true);
-        crate::process::isolate_group(&mut cmd);
-
+        let mut cmd = configure_daemon_command(&args)?;
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn {}: {e}", args.name))?;
-        let child_stdin = child.stdin.take().ok_or("Failed to open child stdin")?;
-        let child_stdout = child.stdout.take().ok_or("Failed to open child stdout")?;
+        let (stdin_tx, pending) = init_daemon_io(&mut child, &args)?;
         let guard = crate::process::ProcessTreeGuard::new(child);
-        let pending: PendingResponses = Arc::new(Mutex::new(HashMap::new()));
-        let (stdin_tx, stdin_rx) = mpsc::channel::<String>(64);
-
-        spawn_stdin_writer(child_stdin, stdin_rx);
-        spawn_stdout_reader(
-            child_stdout,
-            StdoutReaderContext {
-                pending: pending.clone(),
-                dispatcher: args.dispatcher,
-                stdin_tx: stdin_tx.clone(),
-            },
-        );
 
         Ok(Self {
             name: args.name.to_string(),
@@ -90,24 +118,13 @@ impl DaemonProcess {
         let json_line = serde_json::to_string(&req).map_err(|e| e.to_string())?;
 
         let (tx, rx) = oneshot::channel();
-        {
-            let mut map = self.pending.lock().await;
-            map.insert(id, tx);
-        }
+        self.pending.lock().await.insert(id, tx);
 
         self.stdin_tx
             .send(json_line)
             .await
             .map_err(|e| format!("Failed to send to plugin stdin: {e}"))?;
 
-        match tokio::time::timeout(Duration::from_secs(600), rx).await {
-            Ok(Ok(response)) => response,
-            Ok(Err(_)) => Err("Plugin response channel closed".to_string()),
-            Err(_) => {
-                let mut map = self.pending.lock().await;
-                map.remove(&id);
-                Err("Plugin call timed out".to_string())
-            }
-        }
+        wait_for_daemon_response(rx, &self.pending, id).await
     }
 }

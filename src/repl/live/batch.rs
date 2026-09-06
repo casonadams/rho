@@ -1,6 +1,6 @@
 use super::modal::{PendingModal, install_interaction};
 use crate::error::Result;
-use crate::ui::interactive::{BatchDecision, PendingUiBatch, TerminalController, UiEvent};
+use crate::ui::interactive::{BatchDecision, PendingUiBatch, PendingUiDrain, TerminalController, UiEvent};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -48,24 +48,21 @@ impl LiveBatch {
         Ok(())
     }
 
-    pub fn flush<B: crate::ui::interactive::TerminalBackend>(
+    fn apply_status_updates<B: crate::ui::interactive::TerminalBackend>(
         &mut self,
         controller: &mut TerminalController<B>,
-        redraw: bool,
-    ) -> Result<()> {
-        let drained = self.ui.drain();
+        drained: &mut PendingUiDrain,
+    ) -> Result<bool> {
         let mut changed = false;
-        let mut wrote_output = false;
-
-        if let Some(activity) = drained.activity {
+        if let Some(activity) = drained.activity.take() {
             controller.state_mut().footer_mut().activity = activity;
             changed = true;
         }
-        if let Some(extra) = drained.extra_status {
+        if let Some(extra) = drained.extra_status.take() {
             controller.state_mut().footer_mut().extra_status = extra;
             changed = true;
         }
-        if let Some(system_msg) = drained.system_message {
+        if let Some(system_msg) = drained.system_message.take() {
             if let Some(msg) = system_msg {
                 controller.set_system_message(msg);
             } else {
@@ -73,7 +70,16 @@ impl LiveBatch {
             }
             changed = true;
         }
-        if let Some(request) = drained.tool_start {
+        Ok(changed)
+    }
+
+    fn apply_tool_updates<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+        drained: &mut PendingUiDrain,
+    ) -> Result<bool> {
+        let mut changed = false;
+        if let Some(request) = drained.tool_start.take() {
             controller.start_tool(request)?;
             changed = true;
         }
@@ -88,10 +94,22 @@ impl LiveBatch {
         if drained.tool_end && !has_tool_transcript {
             controller.end_tool()?;
             changed = true;
-        } else if !has_tool_transcript && let Some(running) = drained.running_tool {
+        } else if !has_tool_transcript && let Some(running) = drained.running_tool.take() {
             controller.state_mut().footer_mut().running_tool = running;
             changed = true;
         }
+        Ok(changed)
+    }
+
+    pub fn flush<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut TerminalController<B>,
+        redraw: bool,
+    ) -> Result<()> {
+        let mut drained = self.ui.drain();
+        let mut changed = self.apply_status_updates(controller, &mut drained)?;
+        changed |= self.apply_tool_updates(controller, &mut drained)?;
+        let mut wrote_output = false;
 
         for item in drained.transcript_items {
             if controller.push_transcript_item(item)? {

@@ -50,6 +50,47 @@ impl Default for GitHubClient {
     }
 }
 
+fn build_github_request(client: &reqwest::Client, url: &str) -> reqwest::RequestBuilder {
+    let mut req = client
+        .get(url)
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("rho/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28");
+    if let Some(token) = std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.trim().is_empty()) {
+        req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    req
+}
+
+async fn check_github_response(
+    resp: reqwest::Response,
+    (repo_slug, tag): (&str, Option<&str>),
+) -> Result<reqwest::Response, GitHubError> {
+    let status = resp.status();
+    if status == reqwest::StatusCode::NOT_FOUND {
+        return Err(GitHubError::NotFound {
+            repo_slug: repo_slug.to_string(),
+            tag_info: tag.map(|t| format!(" @ {t}")).unwrap_or_default(),
+        });
+    }
+    if status == reqwest::StatusCode::FORBIDDEN
+        && resp
+            .headers()
+            .get("x-ratelimit-remaining")
+            .is_some_and(|rem| rem == "0")
+    {
+        return Err(GitHubError::RateLimited);
+    }
+    if !status.is_success() {
+        let error_text = resp.text().await.unwrap_or_default();
+        return Err(GitHubError::Api(format!("status {status}: {error_text}")));
+    }
+    Ok(resp)
+}
+
 impl GitHubClient {
     pub fn new() -> Self {
         Self {
@@ -70,45 +111,8 @@ impl GitHubClient {
             Some(t) => format!("{}/repos/{repo_slug}/releases/tags/{t}", self.base_url),
             None => format!("{}/repos/{repo_slug}/releases/latest", self.base_url),
         };
-
-        let mut req = self
-            .client
-            .get(&url)
-            .header(
-                reqwest::header::USER_AGENT,
-                format!("rho/{}", env!("CARGO_PKG_VERSION")),
-            )
-            .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28");
-
-        if let Some(token) = std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.trim().is_empty()) {
-            req = req.header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
-        }
-
-        let resp = req.send().await?;
-        let status = resp.status();
-
-        if status == reqwest::StatusCode::NOT_FOUND {
-            return Err(GitHubError::NotFound {
-                repo_slug: repo_slug.to_string(),
-                tag_info: tag.map(|t| format!(" @ {t}")).unwrap_or_default(),
-            });
-        }
-
-        if status == reqwest::StatusCode::FORBIDDEN
-            && resp
-                .headers()
-                .get("x-ratelimit-remaining")
-                .is_some_and(|rem| rem == "0")
-        {
-            return Err(GitHubError::RateLimited);
-        }
-
-        if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
-            return Err(GitHubError::Api(format!("status {status}: {error_text}")));
-        }
-
+        let req = build_github_request(&self.client, &url);
+        let resp = check_github_response(req.send().await?, (repo_slug, tag)).await?;
         resp.json::<Release>()
             .await
             .map_err(|e| GitHubError::Parse(e.to_string()))

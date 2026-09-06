@@ -51,26 +51,21 @@ pub struct RequestTarget<'a> {
 }
 
 /// Build the full Antigravity request envelope for a completion request.
-pub fn build_request_body(
-    target: RequestTarget<'_>,
-    request: &CompletionRequest,
-    envelope: &Envelope,
-) -> Result<Value, CompletionError> {
-    let runtime_model = target.runtime_model;
-    let is_claude = runtime_model.starts_with("claude-");
-    let legacy_parameters = is_claude || runtime_model.starts_with("gpt-oss-");
-
-    let mut generation_config = json!({
+fn build_generation_config(runtime_model: &str, effort: Effort, request: &CompletionRequest) -> Value {
+    let mut config = json!({
         "maxOutputTokens": cap_max_tokens(runtime_model, request.max_tokens),
     });
     if let Some(temperature) = request.temperature {
-        generation_config["temperature"] = json!(temperature);
+        config["temperature"] = json!(temperature);
     }
-    let thinking = thinking_config(runtime_model, target.effort);
+    let thinking = thinking_config(runtime_model, effort);
     if !thinking.is_null() {
-        generation_config["thinkingConfig"] = thinking;
+        config["thinkingConfig"] = thinking;
     }
+    config
+}
 
+fn build_request_labels(runtime_model: &str, is_claude: bool) -> Value {
     let used_claude = is_claude.to_string();
     let mut labels = json!({
         "last_step_index": "1",
@@ -81,30 +76,59 @@ pub fn build_request_body(
     if let Some(enum_label) = model_enum_label(runtime_model) {
         labels["model_enum"] = json!(enum_label);
     }
+    labels
+}
+
+fn build_tool_configuration(
+    request: &CompletionRequest,
+    (is_claude, legacy_parameters): (bool, bool),
+) -> (Option<Value>, Option<Value>) {
+    if !request.tools.is_empty() {
+        let tools = convert_tools(request, legacy_parameters).expect("non-empty tools produce declarations");
+        let tool_config = json!({
+            "functionCallingConfig": { "mode": tool_config_mode(request.tool_choice.clone()) }
+        });
+        (Some(tools), Some(tool_config))
+    } else if is_claude {
+        (None, Some(json!({ "functionCallingConfig": { "mode": "VALIDATED" } })))
+    } else {
+        (None, None)
+    }
+}
+
+fn attach_tools(req: &mut Value, (tools, tool_config): (Option<Value>, Option<Value>)) {
+    if let Some(t) = tools {
+        req["tools"] = t;
+    }
+    if let Some(tc) = tool_config {
+        req["toolConfig"] = tc;
+    }
+}
+
+pub fn build_request_body(
+    target: RequestTarget<'_>,
+    request: &CompletionRequest,
+    envelope: &Envelope,
+) -> Result<Value, CompletionError> {
+    let runtime_model = target.runtime_model;
+    let is_claude = runtime_model.starts_with("claude-");
+    let legacy_parameters = is_claude || runtime_model.starts_with("gpt-oss-");
 
     let mut gemini_request = json!({
         "contents": convert_contents(request, runtime_model),
         "sessionId": envelope.session_id,
-        "labels": labels,
+        "labels": build_request_labels(runtime_model, is_claude),
+        "systemInstruction": {
+            "role": "user",
+            "parts": [{ "text": system_prompt(request) }],
+        },
+        "generationConfig": build_generation_config(runtime_model, target.effort, request),
     });
-    let system_prompt = system_prompt(request);
-    gemini_request["systemInstruction"] = json!({
-        "role": "user",
-        "parts": [{ "text": system_prompt }],
-    });
-    gemini_request["generationConfig"] = generation_config;
 
-    if !request.tools.is_empty() {
-        let tools = convert_tools(request, legacy_parameters);
-        gemini_request["tools"] = tools.expect("non-empty tools produce declarations");
-        gemini_request["toolConfig"] = json!({
-            "functionCallingConfig": { "mode": tool_config_mode(request.tool_choice.clone()) }
-        });
-    } else if is_claude {
-        gemini_request["toolConfig"] = json!({
-            "functionCallingConfig": { "mode": "VALIDATED" }
-        });
-    }
+    attach_tools(
+        &mut gemini_request,
+        build_tool_configuration(request, (is_claude, legacy_parameters)),
+    );
 
     Ok(json!({
         "project": target.project,

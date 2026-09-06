@@ -61,6 +61,50 @@ pub struct AntigravityClient {
     endpoint: Option<String>,
 }
 
+fn resolve_candidate_models(model: &str, effort: Effort) -> Vec<String> {
+    let runtime = request::resolve_runtime_model(model, effort);
+    let mut candidates = vec![runtime.clone()];
+    if let Some(fallback) = request::fallback_runtime_model(&runtime) {
+        candidates.push(fallback);
+    }
+    candidates
+}
+
+async fn try_post_stream_refresh(
+    client: &AntigravityClient,
+    (endpoint, request): (Endpoint<'_>, &CompletionRequest),
+    (token, refreshed): (&mut String, &mut bool),
+) -> Result<reqwest::Response, (Option<u16>, String)> {
+    let mut res = client.post_stream(endpoint.with_token(token), request).await;
+    if let Err((Some(401), ref body)) = res
+        && !*refreshed
+    {
+        if let Ok(new_token) = client.token_provider.force_refresh().await {
+            *token = new_token;
+            *refreshed = true;
+            res = client.post_stream(endpoint.with_token(token), request).await;
+        } else {
+            return Err((Some(401), body.clone()));
+        }
+    }
+    res
+}
+
+fn classify_stream_error(
+    res: Result<reqwest::Response, (Option<u16>, String)>,
+    last: &mut Option<(Option<u16>, String)>,
+) -> Option<Result<reqwest::Response, (Option<u16>, String)>> {
+    match res {
+        Ok(resp) => Some(Ok(resp)),
+        Err((Some(429), body)) if body.contains("Individual quota reached") => Some(Err((Some(429), body))),
+        Err((Some(status), body)) if [403, 404, 429, 500, 502, 503, 504].contains(&status) => {
+            *last = Some((Some(status), body));
+            None
+        }
+        Err(other) => Some(Err(other)),
+    }
+}
+
 impl AntigravityClient {
     pub fn new(token: impl Into<String>, project_id: impl Into<String>, model: impl Into<String>) -> Self {
         Self {
@@ -145,58 +189,43 @@ impl AntigravityClient {
         Err((Some(status.as_u16()), text))
     }
 
+    async fn try_candidates(
+        &self,
+        (candidates, endpoints): (Vec<String>, &[&str]),
+        (token, refreshed, request): (&mut String, &mut bool, &CompletionRequest),
+    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+        let mut last = None;
+        for candidate in candidates {
+            for &base_url in endpoints {
+                let ep = Endpoint {
+                    base_url,
+                    project: &self.project_id,
+                    runtime_model: &candidate,
+                    effort: self.effort,
+                };
+                let res = try_post_stream_refresh(self, (ep, request), (token, refreshed)).await;
+                if let Some(final_res) = classify_stream_error(res, &mut last) {
+                    return final_res;
+                }
+            }
+        }
+        Err(last.unwrap_or((None, "no endpoint available".to_string())))
+    }
+
     async fn open_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
         let mut token = self
             .token_provider
             .token()
             .await
             .map_err(|e| (None, format!("Failed to acquire Antigravity access token: {e}")))?;
-        let runtime_model = request::resolve_runtime_model(&self.model, self.effort);
-        let mut candidates = vec![runtime_model.clone()];
-        if let Some(fallback) = request::fallback_runtime_model(&runtime_model) {
-            candidates.push(fallback);
-        }
-
-        let mut last: Option<(Option<u16>, String)> = None;
+        let candidates = resolve_candidate_models(&self.model, self.effort);
+        let endpoints = self
+            .endpoint
+            .as_deref()
+            .map_or_else(|| ENDPOINT_CANDIDATES.to_vec(), |c| vec![c]);
         let mut refreshed = false;
-        let endpoints: Vec<&str> = match self.endpoint.as_deref() {
-            Some(custom) => vec![custom],
-            None => ENDPOINT_CANDIDATES.to_vec(),
-        };
-        for candidate in candidates {
-            for &candidate_endpoint in &endpoints {
-                let endpoint = Endpoint {
-                    base_url: candidate_endpoint,
-                    project: &self.project_id,
-                    runtime_model: &candidate,
-                    effort: self.effort,
-                };
-                let mut res = self.post_stream(endpoint.with_token(&token), request).await;
-                if let Err((Some(401), ref body)) = res
-                    && !refreshed
-                {
-                    if let Ok(new_token) = self.token_provider.force_refresh().await {
-                        token = new_token;
-                        refreshed = true;
-                        res = self.post_stream(endpoint.with_token(&token), request).await;
-                    } else {
-                        return Err((Some(401), body.clone()));
-                    }
-                }
-                match res {
-                    Ok(response) => return Ok(response),
-                    Err((Some(429), body)) if body.contains("Individual quota reached") => {
-                        // Quota is account-wide; other endpoints won't help.
-                        return Err((Some(429), body));
-                    }
-                    Err((Some(status), body)) if [403, 404, 429, 500, 502, 503, 504].contains(&status) => {
-                        last = Some((Some(status), body));
-                    }
-                    Err(other) => return Err(other),
-                }
-            }
-        }
-        Err(last.unwrap_or((None, "no endpoint available".to_string())))
+        self.try_candidates((candidates, &endpoints), (&mut token, &mut refreshed, request))
+            .await
     }
 
     async fn feed_stream(

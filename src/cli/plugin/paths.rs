@@ -90,54 +90,60 @@ pub fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 
+fn resolve_explicit_plugin_path(path: &Path, cargo_bin_dir: Option<&Path>, home_dir: Option<&Path>) -> PathBuf {
+    let expanded = expand_home(path, home_dir);
+    if expanded.is_absolute() {
+        return expanded;
+    }
+    if let Some(bin_dir) = cargo_bin_dir {
+        let candidate = bin_dir.join(&expanded);
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    expanded
+}
+
+fn find_in_system_path(cmd: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(cmd);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn resolve_command_plugin_path(cmd: &str, cargo_bin_dir: Option<&Path>, home_dir: Option<&Path>) -> PathBuf {
+    let trimmed = cmd.trim();
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return expand_home(Path::new(trimmed), home_dir);
+    }
+    if let Some(candidate) = cargo_bin_dir.map(|b| b.join(trimmed)).filter(|c| c.is_file()) {
+        return candidate;
+    }
+    if let Some(candidate) = find_in_system_path(trimmed) {
+        return candidate;
+    }
+    cargo_bin_dir
+        .map(|b| b.join(trimmed))
+        .unwrap_or_else(|| PathBuf::from(trimmed))
+}
+
 pub fn resolve_plugin_binary_path(
     plugin: &PluginConfig,
     cargo_bin_dir: Option<&Path>,
     home_dir: Option<&Path>,
 ) -> Option<PathBuf> {
     if !plugin.path.as_os_str().is_empty() {
-        let expanded = expand_home(&plugin.path, home_dir);
-        if expanded.is_absolute() {
-            return Some(expanded);
-        }
-        if let Some(bin_dir) = cargo_bin_dir {
-            let candidate = bin_dir.join(&expanded);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-        return Some(expanded);
+        return Some(resolve_explicit_plugin_path(&plugin.path, cargo_bin_dir, home_dir));
     }
 
-    if let Some(cmd) = &plugin.command {
-        let trimmed = cmd.trim();
-        if trimmed.contains('/') || trimmed.contains('\\') {
-            return Some(expand_home(Path::new(trimmed), home_dir));
-        }
-
-        if let Some(bin_dir) = cargo_bin_dir {
-            let candidate = bin_dir.join(trimmed);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-
-        if let Some(path_var) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&path_var) {
-                let candidate = dir.join(trimmed);
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
-
-        if let Some(bin_dir) = cargo_bin_dir {
-            return Some(bin_dir.join(trimmed));
-        }
-        return Some(PathBuf::from(trimmed));
-    }
-
-    None
+    plugin
+        .command
+        .as_deref()
+        .map(|cmd| resolve_command_plugin_path(cmd, cargo_bin_dir, home_dir))
 }
 
 #[cfg(test)]

@@ -4,39 +4,52 @@ use tokio::io::AsyncWriteExt;
 /// Atomically writes content to a file by writing to a sibling temporary file
 /// in the same directory, syncing to disk, and renaming over the target path.
 /// Preserves existing file permissions on Unix if the target file already exists.
-pub async fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
+fn temp_file_for_path(path: &Path) -> std::path::PathBuf {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-    let temp_name = format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4());
-    let temp_path = parent.join(temp_name);
+    parent.join(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()))
+}
 
+async fn write_and_sync_temp(temp_path: &Path, content: &[u8]) -> std::io::Result<()> {
+    let mut file = tokio::fs::File::create(temp_path).await?;
+    file.write_all(content).await?;
+    file.flush().await?;
+    file.sync_all().await
+}
+
+#[cfg(unix)]
+async fn read_existing_perms(path: &Path) -> Option<std::fs::Permissions> {
+    tokio::fs::metadata(path).await.ok().map(|m| m.permissions())
+}
+
+async fn finalize_atomic_replace(
+    temp_path: &Path,
+    path: &Path,
+    perms: Option<std::fs::Permissions>,
+) -> std::io::Result<()> {
     #[cfg(unix)]
-    let existing_perms = match tokio::fs::metadata(path).await {
-        Ok(meta) => Some(meta.permissions()),
-        Err(_) => None,
-    };
-
-    let result = async {
-        let mut file = tokio::fs::File::create(&temp_path).await?;
-        file.write_all(content).await?;
-        file.flush().await?;
-        file.sync_all().await?;
-
-        #[cfg(unix)]
-        if let Some(perms) = existing_perms {
-            let _ = tokio::fs::set_permissions(&temp_path, perms).await;
-        }
-
-        tokio::fs::rename(&temp_path, path).await?;
-        Ok::<(), std::io::Error>(())
+    if let Some(p) = perms {
+        let _ = tokio::fs::set_permissions(temp_path, p).await;
     }
-    .await;
+    if let Err(e) = tokio::fs::rename(temp_path, path).await {
+        let _ = tokio::fs::remove_file(temp_path).await;
+        return Err(e);
+    }
+    Ok(())
+}
 
-    if result.is_err() {
+pub async fn atomic_write(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    let temp_path = temp_file_for_path(path);
+    #[cfg(unix)]
+    let perms = read_existing_perms(path).await;
+    #[cfg(not(unix))]
+    let perms: Option<std::fs::Permissions> = None;
+
+    if let Err(e) = write_and_sync_temp(&temp_path, content).await {
         let _ = tokio::fs::remove_file(&temp_path).await;
+        return Err(e);
     }
-
-    result
+    finalize_atomic_replace(&temp_path, path, perms).await
 }
 
 #[cfg(test)]

@@ -32,6 +32,32 @@ pub struct ProjectContext {
     pub dynamic_instructions_bytes: usize,
 }
 
+async fn resolve_skills(base: &Path, home: Option<&Path>) -> Vec<SkillMetadata> {
+    let base_owned = base.to_path_buf();
+    let home_owned = home.map(Path::to_path_buf);
+    tokio::task::spawn_blocking(move || {
+        let paths = rho_harness_core::skills::SkillResolutionPaths {
+            project_dir: Some(&base_owned),
+            home_dir: home_owned.as_deref(),
+        };
+        rho_harness_core::skills::resolved_skills_for_paths(paths)
+            .into_iter()
+            .map(|skill| skill.metadata)
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+async fn resolve_full_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {
+    let base_prompt = resolve_base_system_prompt(base, dirs).await;
+    match dirs.append_system_prompt.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(append) if !base_prompt.is_empty() => format!("{}\n\n{}", base_prompt.trim(), append),
+        Some(append) => append.to_string(),
+        None => base_prompt,
+    }
+}
+
 impl ProjectContext {
     pub async fn discover(dir: impl AsRef<Path>, config_dir: Option<&Path>) -> Self {
         let home = config_dir.and_then(|_| resolve_home_dir());
@@ -65,34 +91,8 @@ impl ProjectContext {
         let base = dir.as_ref();
         let (instruction_files, seen_instruction_files) =
             instructions::discover_instructions_with_seen_async(base, dirs).await;
-
-        let base_owned = base.to_path_buf();
-        let home_owned = dirs.home_dir.map(Path::to_path_buf);
-        let skills: Vec<SkillMetadata> = tokio::task::spawn_blocking(move || {
-            let paths = rho_harness_core::skills::SkillResolutionPaths {
-                project_dir: Some(&base_owned),
-                home_dir: home_owned.as_deref(),
-            };
-            rho_harness_core::skills::resolved_skills_for_paths(paths)
-                .into_iter()
-                .map(|skill| skill.metadata)
-                .collect()
-        })
-        .await
-        .unwrap_or_default();
-
-        let mut base_system_prompt = resolve_base_system_prompt(base, dirs).await;
-        if let Some(append) = dirs.append_system_prompt {
-            let trimmed = append.trim();
-            if !trimmed.is_empty() {
-                if !base_system_prompt.is_empty() {
-                    base_system_prompt = format!("{}\n\n{}", base_system_prompt.trim(), trimmed);
-                } else {
-                    base_system_prompt = trimmed.to_string();
-                }
-            }
-        }
-
+        let skills = resolve_skills(base, dirs.home_dir).await;
+        let base_system_prompt = resolve_full_system_prompt(base, dirs).await;
         let git_status = get_git_summary(base).await;
         let os_info = format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH);
         let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
@@ -153,25 +153,36 @@ fn resolve_home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+async fn try_read_system_md(dir: Option<&Path>, subpath: &str) -> Option<String> {
+    let dir = dir?;
+    tokio::fs::read_to_string(dir.join(subpath)).await.ok()
+}
+
+async fn resolve_project_system_prompt(base: &Path) -> Option<String> {
+    for candidate in [".agents/SYSTEM.md", ".rho/SYSTEM.md", "prompts/SYSTEM.md", "SYSTEM.md"] {
+        if let Ok(custom) = tokio::fs::read_to_string(base.join(candidate)).await {
+            return Some(custom);
+        }
+    }
+    None
+}
+
+async fn resolve_user_system_prompt(dirs: ContextDirs<'_>) -> Option<String> {
+    if let Some(custom) = try_read_system_md(dirs.config_dir, "SYSTEM.md").await {
+        return Some(custom);
+    }
+    try_read_system_md(dirs.home_dir, ".agents/SYSTEM.md").await
+}
+
 async fn resolve_base_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {
     if let Some(prompt) = dirs.system_prompt {
         return prompt.to_string();
     }
-    let mut prompt = DEFAULT_SYSTEM_PROMPT.to_string();
-    if let Some(home) = dirs.home_dir
-        && let Ok(custom) = tokio::fs::read_to_string(home.join(".agents/SYSTEM.md")).await
-    {
-        prompt = custom;
+    if let Some(custom) = resolve_project_system_prompt(base).await {
+        return custom;
     }
-    if let Some(cfg) = dirs.config_dir
-        && let Ok(custom) = tokio::fs::read_to_string(cfg.join("SYSTEM.md")).await
-    {
-        prompt = custom;
+    if let Some(custom) = resolve_user_system_prompt(dirs).await {
+        return custom;
     }
-    for candidate in [".agents/SYSTEM.md", ".rho/SYSTEM.md", "prompts/SYSTEM.md", "SYSTEM.md"] {
-        if let Ok(custom) = tokio::fs::read_to_string(base.join(candidate)).await {
-            return custom;
-        }
-    }
-    prompt
+    DEFAULT_SYSTEM_PROMPT.to_string()
 }

@@ -163,31 +163,43 @@ pub fn wants_claude_thinking_header(runtime_model: &str, effort: Effort) -> bool
 
 /// Gemini thinkingConfig for the effort (pi parity). `Null` = omit the field
 /// (Claude/GPT-OSS take the Claude beta header path instead).
-pub fn thinking_config(runtime_model: &str, effort: Effort) -> Value {
-    if !runtime_model.starts_with("gemini-") {
-        return Value::Null;
+fn flash_thinking_config(effort: Effort) -> Value {
+    match effort {
+        Effort::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
+        Effort::Minimal | Effort::Low => {
+            json!({ "includeThoughts": true, "thinkingBudget": 1000 })
+        }
+        Effort::Medium => json!({ "includeThoughts": true, "thinkingBudget": 4000 }),
+        Effort::High => json!({ "includeThoughts": true, "thinkingBudget": 10000 }),
     }
-    if runtime_model.starts_with("gemini-3.5-flash") {
-        return match effort {
-            Effort::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
-            Effort::Minimal | Effort::Low => {
-                json!({ "includeThoughts": true, "thinkingBudget": 1000 })
-            }
-            Effort::Medium => json!({ "includeThoughts": true, "thinkingBudget": 4000 }),
-            Effort::High => json!({ "includeThoughts": true, "thinkingBudget": 10000 }),
-        };
+}
+
+fn pro_thinking_config(effort: Effort) -> Value {
+    match effort {
+        Effort::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
+        Effort::High => json!({ "includeThoughts": true, "thinkingBudget": 10001 }),
+        _ => json!({ "includeThoughts": true, "thinkingBudget": 1001 }),
     }
-    if runtime_model.starts_with("gemini-3.1-pro") || runtime_model == "gemini-pro-agent" {
-        return match effort {
-            Effort::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
-            Effort::High => json!({ "includeThoughts": true, "thinkingBudget": 10001 }),
-            _ => json!({ "includeThoughts": true, "thinkingBudget": 1001 }),
-        };
-    }
+}
+
+fn default_gemini_thinking_config(effort: Effort) -> Value {
     match effort {
         Effort::Off => json!({ "includeThoughts": false }),
         Effort::Minimal | Effort::Low => json!({ "includeThoughts": true, "thinkingLevel": "LOW" }),
         Effort::Medium => json!({ "includeThoughts": true, "thinkingLevel": "MEDIUM" }),
         Effort::High => json!({ "includeThoughts": true, "thinkingLevel": "HIGH" }),
+    }
+}
+
+pub fn thinking_config(runtime_model: &str, effort: Effort) -> Value {
+    if !runtime_model.starts_with("gemini-") {
+        return Value::Null;
+    }
+    if runtime_model.starts_with("gemini-3.5-flash") {
+        flash_thinking_config(effort)
+    } else if runtime_model.starts_with("gemini-3.1-pro") || runtime_model == "gemini-pro-agent" {
+        pro_thinking_config(effort)
+    } else {
+        default_gemini_thinking_config(effort)
     }
 }

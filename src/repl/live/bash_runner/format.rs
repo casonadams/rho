@@ -26,47 +26,54 @@ pub(super) fn finalize_run(
     accumulator.snapshot()
 }
 
-pub(super) fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
-    if let Some(code) = outcome.exit_code {
-        let is_error = code != 0;
-        let output = format_bash_output(snapshot, code);
-        let summary = if is_error {
-            format!("exit {code}")
-        } else {
-            "completed".to_string()
-        };
-        (
-            ToolLine {
-                name: "bash".to_string(),
-                arguments: outcome.args_val,
-                is_error,
-                output: output.clone(),
-                output_summary: summary,
-                duration_ms: Some(outcome.duration_ms),
-            },
-            UserBashResult {
-                output,
-                is_cancelled: false,
-                is_error,
-            },
-        )
+fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, code: i32) -> (ToolLine, UserBashResult) {
+    let is_error = code != 0;
+    let output = format_bash_output(snapshot, code);
+    let summary = if is_error {
+        format!("exit {code}")
     } else {
-        let output = format_cancel_output(snapshot);
-        (
-            ToolLine {
-                name: "bash".to_string(),
-                arguments: outcome.args_val,
-                is_error: true,
-                output: output.clone(),
-                output_summary: "(cancelled)".to_string(),
-                duration_ms: Some(outcome.duration_ms),
-            },
-            UserBashResult {
-                output,
-                is_cancelled: true,
-                is_error: true,
-            },
-        )
+        "completed".to_string()
+    };
+    (
+        ToolLine {
+            name: "bash".to_string(),
+            arguments: outcome.args_val,
+            is_error,
+            output: output.clone(),
+            output_summary: summary,
+            duration_ms: Some(outcome.duration_ms),
+        },
+        UserBashResult {
+            output,
+            is_cancelled: false,
+            is_error,
+        },
+    )
+}
+
+fn cancelled_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
+    let output = format_cancel_output(snapshot);
+    (
+        ToolLine {
+            name: "bash".to_string(),
+            arguments: outcome.args_val,
+            is_error: true,
+            output: output.clone(),
+            output_summary: "(cancelled)".to_string(),
+            duration_ms: Some(outcome.duration_ms),
+        },
+        UserBashResult {
+            output,
+            is_cancelled: true,
+            is_error: true,
+        },
+    )
+}
+
+pub(super) fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
+    match outcome.exit_code {
+        Some(code) => completed_bash_result(snapshot, outcome, code),
+        None => cancelled_bash_result(snapshot, outcome),
     }
 }
 

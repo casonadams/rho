@@ -6,6 +6,18 @@ use chrono::Utc;
 use rig::memory::{ConversationMemory, MemoryError};
 use rig::message::Message;
 
+fn create_user_turn_node(parent_id: Option<String>, messages: Vec<Message>) -> TreeNodeData {
+    TreeNodeData {
+        id: uuid::Uuid::new_v4().to_string(),
+        parent_id,
+        timestamp: Utc::now(),
+        kind: TreeNodeKind::UserTurn,
+        messages,
+        label: None,
+        metadata: None,
+    }
+}
+
 impl SessionManager {
     pub(crate) async fn append_messages(&self, conversation_id: &str, messages: Vec<Message>) -> Result<()> {
         self.ensure_conversation(conversation_id)?;
@@ -20,18 +32,7 @@ impl SessionManager {
             ));
         }
         state.integrity.check_canonical_batch(&messages)?;
-        let now = Utc::now();
-        let node_id = uuid::Uuid::new_v4().to_string();
-        let parent_id = state.tree.active_leaf_id.clone();
-        let node = TreeNodeData {
-            id: node_id,
-            parent_id,
-            timestamp: now,
-            kind: TreeNodeKind::UserTurn,
-            messages: messages.clone(),
-            label: None,
-            metadata: None,
-        };
+        let node = create_user_turn_node(state.tree.active_leaf_id.clone(), messages);
         let record = SessionRecord::TreeNode {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),

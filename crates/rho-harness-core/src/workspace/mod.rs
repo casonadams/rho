@@ -94,85 +94,118 @@ impl Workspace {
     }
 }
 
-pub async fn list_relative_files_async(root: &Path, max_files: usize) -> Vec<String> {
-    let mut files = Vec::new();
-    let mut dirs_to_visit = vec![root.to_path_buf()];
+fn is_ignored_directory_or_file(name: &str) -> bool {
+    name.starts_with('.') || matches!(name, "target" | "node_modules" | "dist" | "build")
+}
 
-    while let Some(current_dir) = dirs_to_visit.pop() {
-        let Ok(mut entries) = tokio::fs::read_dir(&current_dir).await else {
-            continue;
-        };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            let file_name = entry.file_name();
-            let name_str = file_name.to_string_lossy();
+fn to_forward_slash_rel(root: &Path, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(root).ok()?;
+    Some(rel.to_string_lossy().replace('\\', "/"))
+}
 
-            if name_str.starts_with('.')
-                || name_str == "target"
-                || name_str == "node_modules"
-                || name_str == "dist"
-                || name_str == "build"
-            {
-                continue;
-            }
+async fn process_async_entry(
+    root: &Path,
+    entry: tokio::fs::DirEntry,
+    (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>),
+) {
+    let Ok(metadata) = entry.metadata().await else {
+        return;
+    };
+    let path = entry.path();
+    if metadata.is_dir() {
+        dirs.push(path);
+    } else if metadata.is_file()
+        && let Some(rel) = to_forward_slash_rel(root, &path)
+    {
+        files.push(rel);
+    }
+}
 
-            if let Ok(metadata) = entry.metadata().await {
-                if metadata.is_dir() {
-                    dirs_to_visit.push(path);
-                } else if metadata.is_file()
-                    && let Ok(rel) = path.strip_prefix(root)
-                {
-                    let rel_str = rel.to_string_lossy().replace('\\', "/");
-                    files.push(rel_str);
-                    if files.len() >= max_files {
-                        break;
-                    }
-                }
-            }
-        }
+async fn step_async_entry(
+    root: &Path,
+    entry: tokio::fs::DirEntry,
+    (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>),
+) {
+    let file_name = entry.file_name();
+    if !is_ignored_directory_or_file(&file_name.to_string_lossy()) {
+        process_async_entry(root, entry, (dirs, files)).await;
+    }
+}
+
+async fn drain_async_entries(
+    (root, entries): (&Path, &mut tokio::fs::ReadDir),
+    (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>),
+    max_files: usize,
+) {
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        step_async_entry(root, entry, (dirs, files)).await;
         if files.len() >= max_files {
             break;
         }
     }
+}
 
+async fn drain_async_dir(
+    (root, current): (&Path, &Path),
+    (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>),
+    max_files: usize,
+) {
+    if let Ok(mut entries) = tokio::fs::read_dir(current).await {
+        drain_async_entries((root, &mut entries), (dirs, files), max_files).await;
+    }
+}
+
+pub async fn list_relative_files_async(root: &Path, max_files: usize) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(current) = dirs.pop() {
+        drain_async_dir((root, &current), (&mut dirs, &mut files), max_files).await;
+        if files.len() >= max_files {
+            break;
+        }
+    }
     files.sort();
     files
 }
 
+fn process_sync_entry(root: &Path, path: PathBuf, (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>)) {
+    if path.is_dir() {
+        dirs.push(path);
+    } else if path.is_file()
+        && let Some(rel) = to_forward_slash_rel(root, &path)
+    {
+        files.push(rel);
+    }
+}
+
+fn step_sync_entry(root: &Path, entry: std::fs::DirEntry, (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>)) {
+    let file_name = entry.file_name();
+    if !is_ignored_directory_or_file(&file_name.to_string_lossy()) {
+        process_sync_entry(root, entry.path(), (dirs, files));
+    }
+}
+
+fn drain_sync_dir(
+    (root, current): (&Path, &Path),
+    (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>),
+    max_files: usize,
+) {
+    let Ok(entries) = std::fs::read_dir(current) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        step_sync_entry(root, entry, (dirs, files));
+        if files.len() >= max_files {
+            break;
+        }
+    }
+}
+
 pub fn list_relative_files(root: &Path, max_files: usize) -> Vec<String> {
     let mut files = Vec::new();
-    let mut dirs_to_visit = vec![root.to_path_buf()];
-
-    while let Some(current_dir) = dirs_to_visit.pop() {
-        let Ok(entries) = std::fs::read_dir(&current_dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let file_name = entry.file_name();
-            let name_str = file_name.to_string_lossy();
-
-            if name_str.starts_with('.')
-                || name_str == "target"
-                || name_str == "node_modules"
-                || name_str == "dist"
-                || name_str == "build"
-            {
-                continue;
-            }
-
-            if path.is_dir() {
-                dirs_to_visit.push(path);
-            } else if path.is_file()
-                && let Ok(rel) = path.strip_prefix(root)
-            {
-                let rel_str = rel.to_string_lossy().replace('\\', "/");
-                files.push(rel_str);
-                if files.len() >= max_files {
-                    break;
-                }
-            }
-        }
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(current) = dirs.pop() {
+        drain_sync_dir((root, &current), (&mut dirs, &mut files), max_files);
         if files.len() >= max_files {
             break;
         }

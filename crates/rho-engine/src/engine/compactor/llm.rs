@@ -19,38 +19,35 @@ pub struct SummarizeOptions<'a> {
     pub is_split_turn: bool,
 }
 
+async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Option<String> {
+    let agent = rig::agent::AgentBuilder::from_model_handle(model)
+        .preamble(SUMMARIZATION_SYSTEM_PROMPT)
+        .default_max_turns(1)
+        .record_content_telemetry(false)
+        .build();
+    let runner = crate::engine::runtime::build_runner(&agent, prompt).max_turns(1);
+    match tokio::time::timeout(Duration::from_secs(60), runner.run()).await {
+        Ok(Ok(resp)) if !resp.output.trim().is_empty() => Some(resp.output.trim().to_string()),
+        Ok(Ok(_)) => None,
+        Ok(Err(e)) => {
+            eprintln!("Warning: Compaction LLM call failed, falling back to deterministic summary: {e}");
+            None
+        }
+        Err(_) => {
+            eprintln!("Warning: Compaction LLM call timed out after 60s, falling back to deterministic summary");
+            None
+        }
+    }
+}
+
 impl LlmCompactor {
     pub fn new(model: Option<ModelHandle>) -> Self {
         Self { model }
     }
 
     pub async fn complete(&self, prompt: &str) -> Option<String> {
-        let model = self.model.as_ref()?;
-        let agent = rig::agent::AgentBuilder::from_model_handle(model.clone())
-            .preamble(SUMMARIZATION_SYSTEM_PROMPT)
-            .default_max_turns(1)
-            .record_content_telemetry(false)
-            .build();
-        let runner = crate::engine::runtime::build_runner(&agent, prompt).max_turns(1);
-        let completion_future = runner.run();
-        match tokio::time::timeout(Duration::from_secs(60), completion_future).await {
-            Ok(Ok(response)) => {
-                let trimmed = response.output.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            }
-            Ok(Err(err)) => {
-                eprintln!("Warning: Compaction LLM call failed, falling back to deterministic summary: {err}");
-                None
-            }
-            Err(_) => {
-                eprintln!("Warning: Compaction LLM call timed out after 60s, falling back to deterministic summary");
-                None
-            }
-        }
+        let model = self.model.as_ref()?.clone();
+        run_agent_completion(model, prompt).await
     }
 
     pub async fn summarize(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
@@ -79,37 +76,33 @@ impl LlmCompactor {
         }
     }
 
+    async fn summarize_prefix(&self, prefix: &[Message], instructions: Option<&str>) -> String {
+        let transcript = serialize_conversation(prefix);
+        let prompt = build_turn_prefix_prompt(&transcript, instructions);
+        match self.complete(&prompt).await {
+            Some(summary) => summary,
+            None => generate_fallback_summary(prefix, None, instructions),
+        }
+    }
+
+    async fn summarize_head_turn(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
+        let prefix_summary = self.summarize_prefix(messages, options.custom_instructions).await;
+        match options.prior_summary {
+            Some(prior) => merge_split_turn_summary(prior, &prefix_summary),
+            None => prefix_summary,
+        }
+    }
+
     async fn summarize_split_turn(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
-        let split_turn_start = messages.iter().rposition(is_user_turn_start).unwrap_or(0);
-
-        if split_turn_start > 0 {
-            let earlier = &messages[..split_turn_start];
-            let prefix = &messages[split_turn_start..];
-
-            let main_summary = self.summarize_full(earlier, options).await;
-
-            let prefix_transcript = serialize_conversation(prefix);
-            let prefix_prompt = build_turn_prefix_prompt(&prefix_transcript, options.custom_instructions);
-            let prefix_summary = if let Some(summary) = self.complete(&prefix_prompt).await {
-                summary
-            } else {
-                generate_fallback_summary(prefix, None, options.custom_instructions)
-            };
-
+        let split = messages.iter().rposition(is_user_turn_start).unwrap_or(0);
+        if split > 0 {
+            let main_summary = self.summarize_full(&messages[..split], options).await;
+            let prefix_summary = self
+                .summarize_prefix(&messages[split..], options.custom_instructions)
+                .await;
             merge_split_turn_summary(&main_summary, &prefix_summary)
         } else {
-            let prefix_transcript = serialize_conversation(messages);
-            let prefix_prompt = build_turn_prefix_prompt(&prefix_transcript, options.custom_instructions);
-            let prefix_summary = if let Some(summary) = self.complete(&prefix_prompt).await {
-                summary
-            } else {
-                generate_fallback_summary(messages, None, options.custom_instructions)
-            };
-
-            match options.prior_summary {
-                Some(prior) => merge_split_turn_summary(prior, &prefix_summary),
-                None => prefix_summary,
-            }
+            self.summarize_head_turn(messages, options).await
         }
     }
 }

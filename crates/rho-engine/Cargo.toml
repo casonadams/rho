@@ -7,6 +7,9 @@ description = "rho turn orchestration, provider assembly, tools, and MCP runtime
 license.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 rho-harness-core.workspace = true
 async-trait.workspace = true

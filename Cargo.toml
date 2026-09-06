@@ -7,6 +7,10 @@ members = [
     "crates/rho-plugin-sdk",
 ]
 
+[workspace.lints.clippy]
+too_many_lines = "warn"
+cognitive_complexity = "warn"
+
 [workspace.package]
 version = "0.4.0"
 edition = "2024"
@@ -49,6 +53,9 @@ description.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
+
+[lints]
+workspace = true
 
 [features]
 default = ["ui"]

@@ -29,6 +29,21 @@ static OLLAMA_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .unwrap_or_default()
 });
 
+fn map_openai_models(data: Vec<OpenAiModelItem>, provider_name: &str) -> Vec<DiscoveredModel> {
+    let mut models = Vec::new();
+    for item in data {
+        models.push(DiscoveredModel {
+            context_tokens: None,
+            id: item.id.clone(),
+            name: item.id.clone(),
+            provider: provider_name.to_string(),
+            description: format_context_desc(&item.id),
+        });
+    }
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    models
+}
+
 pub(crate) async fn discover_openai_compatible(
     provider_name: &str,
     base_url: &str,
@@ -44,19 +59,8 @@ pub(crate) async fn discover_openai_compatible(
         && resp.status().is_success()
         && let Ok(body) = resp.json::<OpenAiModelsResponse>().await
     {
-        let mut models = Vec::new();
-        for item in body.data {
-            let desc = format_context_desc(&item.id);
-            models.push(DiscoveredModel {
-                context_tokens: None,
-                id: item.id.clone(),
-                name: item.id.clone(),
-                provider: provider_name.to_string(),
-                description: desc,
-            });
-        }
+        let models = map_openai_models(body.data, provider_name);
         if !models.is_empty() {
-            models.sort_by(|a, b| a.id.cmp(&b.id));
             return Ok(models);
         }
     }
@@ -101,35 +105,54 @@ struct OllamaCatalog<'a> {
     fallback_description: &'a str,
 }
 
+async fn convert_ollama_models(
+    models: Vec<OllamaTagItem>,
+    spec: &OllamaCatalog<'_>,
+    host: &str,
+) -> Vec<DiscoveredModel> {
+    let mut out = Vec::new();
+    for item in models {
+        let id = item.name;
+        let context_tokens = ollama_context_length(spec.client, host, &id).await;
+        let description = context_tokens
+            .map(format_context_tokens)
+            .unwrap_or_else(|| spec.fallback_description.to_string());
+        out.push(DiscoveredModel {
+            name: id.clone(),
+            id,
+            provider: spec.provider.to_string(),
+            description,
+            context_tokens,
+        });
+    }
+    out
+}
+
+fn build_tags_request(client: &reqwest::Client, endpoint: &str, auth: Option<&str>) -> reqwest::RequestBuilder {
+    let mut req = client.get(endpoint);
+    if let Some(key) = auth {
+        req = req.header("Authorization", format!("Bearer {}", key.trim()));
+    }
+    req
+}
+
+async fn fetch_ollama_tags(spec: &OllamaCatalog<'_>, endpoint: &str) -> Option<Vec<OllamaTagItem>> {
+    let resp = build_tags_request(spec.client, endpoint, spec.auth).send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body = resp.json::<OllamaTagsResponse>().await.ok()?;
+    Some(body.models)
+}
+
 async fn discover_ollama_catalog(spec: OllamaCatalog<'_>) -> Result<Vec<DiscoveredModel>> {
     let host = spec.host.trim_end_matches('/');
     let endpoint = format!("{host}/api/tags");
-    let mut req = spec.client.get(&endpoint);
-    if let Some(key) = spec.auth {
-        req = req.header("Authorization", format!("Bearer {}", key.trim()));
-    }
 
-    if let Ok(resp) = req.send().await
-        && resp.status().is_success()
-        && let Ok(body) = resp.json::<OllamaTagsResponse>().await
-    {
-        let mut models = Vec::new();
-        for item in body.models {
-            let id = item.name;
-            let context_tokens = ollama_context_length(spec.client, host, &id).await;
-            let description = context_tokens
-                .map(format_context_tokens)
-                .unwrap_or_else(|| spec.fallback_description.to_string());
-            models.push(DiscoveredModel {
-                name: id.clone(),
-                id,
-                provider: spec.provider.to_string(),
-                description,
-                context_tokens,
-            });
-        }
-        if !models.is_empty() {
-            return Ok(models);
+    if let Some(models) = fetch_ollama_tags(&spec, &endpoint).await {
+        let converted = convert_ollama_models(models, &spec, host).await;
+        if !converted.is_empty() {
+            return Ok(converted);
         }
     }
 
@@ -160,33 +183,54 @@ pub fn ollama_context_from_info(model_info: &serde_json::Map<String, serde_json:
         .and_then(|(_, value)| value.as_u64().map(|n| n as usize))
 }
 
+fn map_anthropic_models(data: Vec<AnthropicModelItem>) -> Vec<DiscoveredModel> {
+    data.into_iter()
+        .map(|item| DiscoveredModel {
+            context_tokens: None,
+            id: item.id.clone(),
+            name: item.display_name.unwrap_or_else(|| item.id.clone()),
+            provider: "anthropic".to_string(),
+            description: format_context_desc(&item.id),
+        })
+        .collect()
+}
+
 pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
-    if let Ok(resp) = HTTP_CLIENT
+    let req = HTTP_CLIENT
         .get("https://api.anthropic.com/v1/models")
         .header("x-api-key", api_key.trim())
-        .header("anthropic-version", "2023-06-01")
-        .send()
-        .await
+        .header("anthropic-version", "2023-06-01");
+    if let Ok(resp) = req.send().await
         && resp.status().is_success()
         && let Ok(body) = resp.json::<AnthropicModelsResponse>().await
     {
-        let mut models = Vec::new();
-        for item in body.data {
-            let desc = format_context_desc(&item.id);
-            models.push(DiscoveredModel {
-                context_tokens: None,
-                id: item.id.clone(),
-                name: item.display_name.unwrap_or_else(|| item.id.clone()),
-                provider: "anthropic".to_string(),
-                description: desc,
-            });
-        }
+        let models = map_anthropic_models(body.data);
         if !models.is_empty() {
             return Ok(models);
         }
     }
 
     Ok(anthropic_preset_models())
+}
+
+fn map_gemini_models(models: Vec<GeminiModelItem>) -> Vec<DiscoveredModel> {
+    models
+        .into_iter()
+        .filter_map(|item| {
+            let id = item.name.strip_prefix("models/").unwrap_or(&item.name);
+            if id.starts_with("gemini") {
+                Some(DiscoveredModel {
+                    context_tokens: None,
+                    id: id.to_string(),
+                    name: item.display_name.unwrap_or_else(|| id.to_string()),
+                    provider: "gemini".to_string(),
+                    description: format_context_desc(id),
+                })
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 pub(crate) async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
@@ -198,19 +242,7 @@ pub(crate) async fn discover_gemini_models(api_key: &str) -> Result<Vec<Discover
         && resp.status().is_success()
         && let Ok(body) = resp.json::<GeminiModelsResponse>().await
     {
-        let mut models = Vec::new();
-        for item in body.models {
-            let id = item.name.strip_prefix("models/").unwrap_or(&item.name);
-            if id.starts_with("gemini") {
-                models.push(DiscoveredModel {
-                    context_tokens: None,
-                    id: id.to_string(),
-                    name: item.display_name.unwrap_or_else(|| id.to_string()),
-                    provider: "gemini".to_string(),
-                    description: format_context_desc(id),
-                });
-            }
-        }
+        let models = map_gemini_models(body.models);
         if !models.is_empty() {
             return Ok(models);
         }

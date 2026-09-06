@@ -30,21 +30,28 @@ pub const SNIFF_WINDOW_BYTES: usize = 4100;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
-pub fn detect_supported_image_mime(bytes: &[u8]) -> Option<SniffedMime> {
-    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        // Lossless JPEG (FF D8 FF F7) is excluded (pi parity).
-        return if bytes.get(3) == Some(&0xF7) {
-            None
-        } else {
-            Some(SniffedMime::Jpeg)
-        };
+fn detect_jpeg(bytes: &[u8]) -> Option<SniffedMime> {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) && bytes.get(3) != Some(&0xF7) {
+        Some(SniffedMime::Jpeg)
+    } else {
+        None
     }
-    if bytes.starts_with(&PNG_SIGNATURE) {
-        return if is_png(bytes) && !is_animated_png(bytes) {
-            Some(SniffedMime::Png)
-        } else {
-            None
-        };
+}
+
+fn detect_png(bytes: &[u8]) -> Option<SniffedMime> {
+    if bytes.starts_with(&PNG_SIGNATURE) && is_png(bytes) && !is_animated_png(bytes) {
+        Some(SniffedMime::Png)
+    } else {
+        None
+    }
+}
+
+pub fn detect_supported_image_mime(bytes: &[u8]) -> Option<SniffedMime> {
+    if let Some(jpeg) = detect_jpeg(bytes) {
+        return Some(jpeg);
+    }
+    if let Some(png) = detect_png(bytes) {
+        return Some(png);
     }
     if starts_with_ascii(bytes, 0, b"GIF") {
         return Some(SniffedMime::Gif);
@@ -85,33 +92,35 @@ fn is_animated_png(bytes: &[u8]) -> bool {
     false
 }
 
+fn validate_bmp_offsets((size, offset, dib_size): (u32, u32, u32)) -> bool {
+    if size != 0 && (size < 26 || offset >= size) {
+        return false;
+    }
+    u64::from(offset) >= 14 + u64::from(dib_size)
+}
+
+fn read_bmp_dimensions(bytes: &[u8], dib_size: u32) -> Option<(u16, u16)> {
+    if dib_size == 12 {
+        Some((read_u16_le(bytes, 22), read_u16_le(bytes, 24)))
+    } else if (40..=124).contains(&dib_size) && bytes.len() >= 30 {
+        Some((read_u16_le(bytes, 26), read_u16_le(bytes, 28)))
+    } else {
+        None
+    }
+}
+
 fn is_bmp(bytes: &[u8]) -> bool {
     if bytes.len() < 26 {
         return false;
     }
-    let declared_file_size = read_u32_le(bytes, 2);
-    let pixel_data_offset = read_u32_le(bytes, 10);
-    let dib_header_size = read_u32_le(bytes, 14);
-    if declared_file_size != 0 && declared_file_size < 26 {
+    let offsets = (read_u32_le(bytes, 2), read_u32_le(bytes, 10), read_u32_le(bytes, 14));
+    if !validate_bmp_offsets(offsets) {
         return false;
     }
-    if u64::from(pixel_data_offset) < 14 + u64::from(dib_header_size) {
-        return false;
-    }
-    if declared_file_size != 0 && pixel_data_offset >= declared_file_size {
-        return false;
-    }
-    let (color_planes, bits_per_pixel) = if dib_header_size == 12 {
-        (read_u16_le(bytes, 22), read_u16_le(bytes, 24))
-    } else if (40..=124).contains(&dib_header_size) {
-        if bytes.len() < 30 {
-            return false;
-        }
-        (read_u16_le(bytes, 26), read_u16_le(bytes, 28))
-    } else {
+    let Some((planes, bpp)) = read_bmp_dimensions(bytes, offsets.2) else {
         return false;
     };
-    color_planes == 1 && matches!(bits_per_pixel, 1 | 4 | 8 | 16 | 24 | 32)
+    planes == 1 && matches!(bpp, 1 | 4 | 8 | 16 | 24 | 32)
 }
 
 fn read_u32_be(bytes: &[u8], offset: usize) -> u32 {

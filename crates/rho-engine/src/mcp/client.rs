@@ -35,34 +35,36 @@ pub struct McpToolResult {
     pub is_error: Option<bool>,
 }
 
+fn format_mcp_content_item(item: &McpContent) -> Option<String> {
+    if let Some(text) = &item.text {
+        Some(text.clone())
+    } else if item.kind == "image" {
+        let mime = item.mime_type.as_deref().unwrap_or("image/png");
+        let data_len = item.data.as_ref().map(|d| d.len()).unwrap_or(0);
+        Some(format!("[Image: {mime}, {data_len} bytes base64]"))
+    } else {
+        None
+    }
+}
+
+fn truncate_mcp_text(out: &str, max_bytes: usize) -> String {
+    if out.len() > max_bytes && max_bytes > 0 {
+        let truncated = &out[..out.floor_char_boundary(max_bytes.min(out.len()))];
+        format!("{truncated}\n[MCP tool output truncated at {max_bytes} bytes]")
+    } else {
+        out.to_string()
+    }
+}
+
 impl McpToolResult {
     pub fn as_text(&self) -> String {
         self.as_text_truncated(usize::MAX)
     }
 
     pub fn as_text_truncated(&self, max_bytes: usize) -> String {
-        let mut out = String::new();
-        for item in &self.content {
-            if let Some(text) = &item.text {
-                if !out.is_empty() {
-                    out.push('\n');
-                }
-                out.push_str(text);
-            } else if item.kind == "image" {
-                if !out.is_empty() {
-                    out.push('\n');
-                }
-                let mime = item.mime_type.as_deref().unwrap_or("image/png");
-                let data_len = item.data.as_ref().map(|d| d.len()).unwrap_or(0);
-                out.push_str(&format!("[Image: {mime}, {data_len} bytes base64]"));
-            }
-        }
-        if out.len() > max_bytes && max_bytes > 0 {
-            let truncated = &out[..out.floor_char_boundary(max_bytes.min(out.len()))];
-            format!("{truncated}\n[MCP tool output truncated at {max_bytes} bytes]")
-        } else {
-            out
-        }
+        let lines: Vec<String> = self.content.iter().filter_map(format_mcp_content_item).collect();
+        let out = lines.join("\n");
+        truncate_mcp_text(&out, max_bytes)
     }
 }
 

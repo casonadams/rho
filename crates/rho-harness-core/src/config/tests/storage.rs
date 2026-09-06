@@ -145,7 +145,6 @@ fn test_cli_overrides_config_file() {
 
 #[tokio::test]
 async fn test_save_default_model_persists_both_fields() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_save_default_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -153,24 +152,32 @@ async fn test_save_default_model_persists_both_fields() {
         .await
         .unwrap();
 
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
-    let config = Config::load(None).unwrap();
-    assert_eq!(config.model, "saved-model");
-    assert_eq!(config.provider, "saved-provider");
-    assert_eq!(config.default_model.as_deref(), Some("saved-model"));
-    assert_eq!(config.default_provider.as_deref(), Some("saved-provider"));
+    let (model, provider, default_model, default_provider) = {
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+        }
+        let config = Config::load(None).unwrap();
+        unsafe {
+            std::env::remove_var("RHO_HOME");
+        }
+        (
+            config.model,
+            config.provider,
+            config.default_model,
+            config.default_provider,
+        )
+    };
+    assert_eq!(model, "saved-model");
+    assert_eq!(provider, "saved-provider");
+    assert_eq!(default_model.as_deref(), Some("saved-model"));
+    assert_eq!(default_provider.as_deref(), Some("saved-provider"));
 
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[tokio::test]
 async fn test_save_default_thinking_level_persists() {
-    let _guard = ENV_LOCK.lock().unwrap();
     let dir = std::env::temp_dir().join(format!("rho_save_thinking_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -178,15 +185,19 @@ async fn test_save_default_thinking_level_persists() {
         .await
         .unwrap();
 
-    unsafe {
-        std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-    }
-    let config = Config::load(None).unwrap();
-    assert_eq!(config.thinking_level.as_deref(), Some("high"));
+    let thinking_level = {
+        let _guard = ENV_LOCK.lock().unwrap();
+        unsafe {
+            std::env::set_var("RHO_HOME", dir.to_str().unwrap());
+        }
+        let config = Config::load(None).unwrap();
+        unsafe {
+            std::env::remove_var("RHO_HOME");
+        }
+        config.thinking_level
+    };
+    assert_eq!(thinking_level.as_deref(), Some("high"));
 
-    unsafe {
-        std::env::remove_var("RHO_HOME");
-    }
     std::fs::remove_dir_all(dir).unwrap();
 }
 

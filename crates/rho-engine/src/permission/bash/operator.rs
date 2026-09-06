@@ -28,33 +28,29 @@ fn two_chars(chars: &[char], index: usize) -> Option<&'static str> {
     }
 }
 
+fn make_separator_token(s: &str) -> Token {
+    Token {
+        kind: TokenKind::Separator,
+        raw: s.to_string(),
+        text: s.to_string(),
+    }
+}
+
 pub(crate) fn read_operator(chars: &[char], index: &mut usize) -> Token {
     let c = chars[*index];
     if c == '\n' {
         *index += 1;
-        return Token {
-            kind: TokenKind::Separator,
-            raw: "\n".into(),
-            text: "\n".into(),
-        };
+        return make_separator_token("\n");
     }
     if let Some(op) = two_chars(chars, *index) {
         *index += 2;
-        return Token {
-            kind: TokenKind::Separator,
-            raw: op.into(),
-            text: op.into(),
-        };
+        return make_separator_token(op);
     }
     if c == '>' || c == '<' || (c == '&' && chars.get(*index + 1) == Some(&'>')) {
         return read_redirect_operator(chars, index);
     }
     *index += 1;
-    Token {
-        kind: TokenKind::Separator,
-        raw: c.to_string(),
-        text: c.to_string(),
-    }
+    make_separator_token(&c.to_string())
 }
 
 fn read_redirect_operator(chars: &[char], index: &mut usize) -> Token {

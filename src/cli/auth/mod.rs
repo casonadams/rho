@@ -45,54 +45,75 @@ async fn perform_oauth_and_save(id: ProviderId, config: &Config, auth_store: &mu
     Ok(())
 }
 
-pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
-    let (target, method) = match provider {
-        Some(name) => (resolve_provider_name(Some(name), &config.provider), None),
+fn resolve_login_target(provider: Option<&str>, config: &Config) -> Result<(String, Option<AuthMethod>)> {
+    match provider {
+        Some(name) => Ok((resolve_provider_name(Some(name), &config.provider), None)),
         None => {
             let method = prompt_select_auth_method()?;
             let target = match method {
                 AuthMethod::OAuth => prompt_select_oauth_provider()?,
                 AuthMethod::ApiKey => prompt_select_api_key_provider(config)?,
             };
-            (target, Some(method))
+            Ok((target, Some(method)))
         }
-    };
-
-    if target == "local" {
-        println!("Local models run offline and do not require credentials.");
-        return Ok(());
     }
+}
 
-    if let Ok(id) = ProviderId::from_str(&target) {
-        match method {
-            Some(AuthMethod::OAuth) => {
-                return perform_oauth_and_save(id, config, auth_store).await;
+async fn try_default_oauth_login(id: ProviderId, (config, auth_store): (&Config, &mut AuthStore)) -> Result<bool> {
+    match id {
+        ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity | ProviderId::ClaudeCode => {
+            perform_oauth_and_save(id, config, auth_store).await?;
+            Ok(true)
+        }
+        ProviderId::OpenRouter => {
+            if prompt_auth_method("OpenRouter")? == AuthMethod::OAuth {
+                perform_oauth_and_save(id, config, auth_store).await?;
+                return Ok(true);
             }
-            Some(AuthMethod::ApiKey) => {}
-            None => match id {
-                ProviderId::ChatGpt | ProviderId::Copilot | ProviderId::Antigravity | ProviderId::ClaudeCode => {
-                    return perform_oauth_and_save(id, config, auth_store).await;
-                }
-                ProviderId::OpenRouter => {
-                    let chosen = prompt_auth_method("OpenRouter")?;
-                    if chosen == AuthMethod::OAuth {
-                        return perform_oauth_and_save(id, config, auth_store).await;
-                    }
-                }
-                _ => {}
-            },
+            Ok(false)
         }
+        _ => Ok(false),
     }
+}
 
+async fn try_oauth_login(
+    (id, method): (ProviderId, Option<AuthMethod>),
+    (config, auth_store): (&Config, &mut AuthStore),
+) -> Result<bool> {
+    match method {
+        Some(AuthMethod::OAuth) => {
+            perform_oauth_and_save(id, config, auth_store).await?;
+            Ok(true)
+        }
+        Some(AuthMethod::ApiKey) => Ok(false),
+        None => try_default_oauth_login(id, (config, auth_store)).await,
+    }
+}
+
+fn login_api_key(target: &str, (config, auth_store): (&Config, &mut AuthStore)) -> Result<()> {
     let key = prompt_password(&format!("Enter API key for {target}:"))?;
     let key = key.trim();
     if key.is_empty() {
         return Err(AppError::Auth("API key cannot be empty".to_string()));
     }
-    auth_store.set_key(&target, key)?;
+    auth_store.set_key(target, key)?;
     crate::repl::interactive::spawn_background_model_refresh(config, auth_store);
     println!("Stored API key for {target}");
     Ok(())
+}
+
+pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+    let (target, method) = resolve_login_target(provider, config)?;
+    if target == "local" {
+        println!("Local models run offline and do not require credentials.");
+        return Ok(());
+    }
+    if let Ok(id) = ProviderId::from_str(&target)
+        && try_oauth_login((id, method), (config, auth_store)).await?
+    {
+        return Ok(());
+    }
+    login_api_key(&target, (config, auth_store))
 }
 
 pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {

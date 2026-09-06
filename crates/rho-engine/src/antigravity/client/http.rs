@@ -52,8 +52,8 @@ pub fn antigravity_headers(token: &str) -> HeaderMap {
     headers
 }
 
-pub(super) fn friendly_error(status: Option<u16>, body: &str) -> String {
-    let message = serde_json::from_str::<serde_json::Value>(body)
+fn parse_error_message(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|v| {
             v.get("error")
@@ -61,9 +61,12 @@ pub(super) fn friendly_error(status: Option<u16>, body: &str) -> String {
                 .and_then(|m| m.as_str())
                 .map(String::from)
         })
-        .unwrap_or_else(|| body.chars().take(300).collect());
+        .unwrap_or_else(|| body.chars().take(300).collect())
+}
+
+fn format_status_error(status: u16, message: &str) -> String {
     match status {
-        Some(429) if message.contains("Individual quota reached") => {
+        429 if message.contains("Individual quota reached") => {
             let reset = message
                 .split("Resets in ")
                 .nth(1)
@@ -71,14 +74,21 @@ pub(super) fn friendly_error(status: Option<u16>, body: &str) -> String {
                 .unwrap_or("unknown");
             format!("Antigravity quota reached. Resets in {reset}. Switch models or wait for the reset.")
         }
-        Some(429) => "Antigravity rate limit reached. Wait a bit and retry.".to_string(),
-        Some(401) => "Antigravity login expired or credentials are invalid. Run 'rho login antigravity'.".to_string(),
-        Some(403) => format!("Antigravity access denied. Re-login or try another model. Backend: {message}"),
-        Some(404) => format!("Model not available on Antigravity. Backend: {message}"),
-        Some(503) if message.contains("No capacity") => {
+        429 => "Antigravity rate limit reached. Wait a bit and retry.".to_string(),
+        401 => "Antigravity login expired or credentials are invalid. Run 'rho login antigravity'.".to_string(),
+        403 => format!("Antigravity access denied. Re-login or try another model. Backend: {message}"),
+        404 => format!("Model not available on Antigravity. Backend: {message}"),
+        503 if message.contains("No capacity") => {
             "This model has no capacity right now. Try another model.".to_string()
         }
-        Some(other) => format!("Antigravity API error ({other}): {message}"),
+        other => format!("Antigravity API error ({other}): {message}"),
+    }
+}
+
+pub(super) fn friendly_error(status: Option<u16>, body: &str) -> String {
+    let message = parse_error_message(body);
+    match status {
+        Some(code) => format_status_error(code, &message),
         None => format!("Antigravity request failed: {message}"),
     }
 }

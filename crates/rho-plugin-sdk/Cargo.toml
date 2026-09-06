@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Lightweight SDK for building rho plugins and lifecycle hooks in Rust"
 
+[lints]
+workspace = true
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

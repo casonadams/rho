@@ -51,54 +51,48 @@ impl PromptTemplate {
     }
 }
 
-fn expand_braced_pattern(pattern: &str, args: &[&str], full_args: &str) -> String {
-    if let Some(rest) = pattern.strip_prefix("@:") {
-        let parts: Vec<&str> = rest.split(':').collect();
-        let start = parts
-            .first()
-            .and_then(|s| s.parse::<usize>().ok())
-            .unwrap_or(1)
-            .saturating_sub(1);
-        let len = parts.get(1).and_then(|s| s.parse::<usize>().ok());
-        if start >= args.len() {
-            return String::new();
+fn expand_slice_pattern(rest: &str, args: &[&str]) -> String {
+    let parts: Vec<&str> = rest.split(':').collect();
+    let start = parts
+        .first()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(1)
+        .saturating_sub(1);
+    if start >= args.len() {
+        return String::new();
+    }
+    let slice = match parts.get(1).and_then(|s| s.parse::<usize>().ok()) {
+        Some(l) => &args[start..(start + l).min(args.len())],
+        None => &args[start..],
+    };
+    slice.join(" ")
+}
+
+fn expand_default_pattern((key, default_val): (&str, &str), args: &[&str], full_args: &str) -> String {
+    match key.trim() {
+        "@" | "ARGUMENTS" => {
+            if full_args.trim().is_empty() {
+                default_val.to_string()
+            } else {
+                full_args.to_string()
+            }
         }
-        let slice = match len {
-            Some(l) => &args[start..(start + l).min(args.len())],
-            None => &args[start..],
-        };
-        return slice.join(" ");
+        num => num
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| args.get(n.saturating_sub(1)))
+            .filter(|v| !v.trim().is_empty())
+            .map(|v| (*v).to_string())
+            .unwrap_or_else(|| default_val.to_string()),
     }
+}
 
-    if let Some((key, default_val)) = pattern.split_once(":-") {
-        return match key.trim() {
-            "@" | "ARGUMENTS" => {
-                if full_args.trim().is_empty() {
-                    default_val.to_string()
-                } else {
-                    full_args.to_string()
-                }
-            }
-            num => {
-                if let Ok(n) = num.parse::<usize>() {
-                    let idx = n.saturating_sub(1);
-                    args.get(idx)
-                        .filter(|v| !v.trim().is_empty())
-                        .map(|v| (*v).to_string())
-                        .unwrap_or_else(|| default_val.to_string())
-                } else {
-                    default_val.to_string()
-                }
-            }
-        };
-    }
-
+fn expand_positional_pattern(pattern: &str, args: &[&str], full_args: &str) -> String {
     match pattern.trim() {
         "@" | "ARGUMENTS" => full_args.to_string(),
         num => {
             if let Ok(n) = num.parse::<usize>() {
-                let idx = n.saturating_sub(1);
-                args.get(idx).copied().unwrap_or("").to_string()
+                args.get(n.saturating_sub(1)).copied().unwrap_or("").to_string()
             } else {
                 format!("${{{pattern}}}")
             }
@@ -106,40 +100,56 @@ fn expand_braced_pattern(pattern: &str, args: &[&str], full_args: &str) -> Strin
     }
 }
 
-fn parse_frontmatter(name: &str, content: &str) -> (PromptTemplateMetadata, String) {
-    let trimmed = content.trim_start();
-    if let Some(rest) = trimmed.strip_prefix("---")
-        && let Some(end_idx) = rest.find("\n---")
-    {
-        let frontmatter_str = &rest[..end_idx];
-        let body = rest[end_idx + 4..]
-            .trim_start_matches('\n')
-            .trim_start_matches('\r')
-            .to_string();
-
-        let mut description = None;
-        let mut argument_hint = None;
-
-        for line in frontmatter_str.lines() {
-            let line = line.trim();
-            if let Some(val) = line.strip_prefix("description:") {
-                description = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
-            } else if let Some(val) = line
-                .strip_prefix("argument-hint:")
-                .or_else(|| line.strip_prefix("argument_hint:"))
-            {
-                argument_hint = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
-            }
-        }
-
-        let meta = PromptTemplateMetadata {
-            name: name.to_string(),
-            description,
-            argument_hint,
-        };
-        return (meta, body);
+fn expand_braced_pattern(pattern: &str, args: &[&str], full_args: &str) -> String {
+    if let Some(rest) = pattern.strip_prefix("@:") {
+        expand_slice_pattern(rest, args)
+    } else if let Some(pattern_pair) = pattern.split_once(":-") {
+        expand_default_pattern(pattern_pair, args, full_args)
+    } else {
+        expand_positional_pattern(pattern, args, full_args)
     }
+}
 
+fn parse_frontmatter_lines(frontmatter_str: &str) -> (Option<String>, Option<String>) {
+    let mut description = None;
+    let mut argument_hint = None;
+    for line in frontmatter_str.lines() {
+        let line = line.trim();
+        if let Some(val) = line.strip_prefix("description:") {
+            description = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
+        } else if let Some(val) = line
+            .strip_prefix("argument-hint:")
+            .or_else(|| line.strip_prefix("argument_hint:"))
+        {
+            argument_hint = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
+        }
+    }
+    (description, argument_hint)
+}
+
+fn extract_frontmatter(content: &str) -> Option<(&str, String)> {
+    let rest = content.trim_start().strip_prefix("---")?;
+    let end_idx = rest.find("\n---")?;
+    let frontmatter_str = &rest[..end_idx];
+    let body = rest[end_idx + 4..]
+        .trim_start_matches('\n')
+        .trim_start_matches('\r')
+        .to_string();
+    Some((frontmatter_str, body))
+}
+
+fn parse_frontmatter(name: &str, content: &str) -> (PromptTemplateMetadata, String) {
+    if let Some((fm, body)) = extract_frontmatter(content) {
+        let (description, argument_hint) = parse_frontmatter_lines(fm);
+        return (
+            PromptTemplateMetadata {
+                name: name.to_string(),
+                description,
+                argument_hint,
+            },
+            body,
+        );
+    }
     let first_line = content
         .lines()
         .find(|l| !l.trim().is_empty())

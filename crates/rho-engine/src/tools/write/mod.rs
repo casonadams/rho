@@ -14,6 +14,52 @@ pub struct WriteTool {
     exclusions: Vec<PathBuf>,
 }
 
+fn validate_write_workspace(
+    workspace: &Workspace,
+    clean_path: &str,
+) -> std::result::Result<std::path::PathBuf, ToolResult> {
+    let Some(path) = workspace.resolve(clean_path) else {
+        return Err(ToolResult::error("Empty file path provided for write tool"));
+    };
+    if !workspace.can_mutate(clean_path) {
+        return Err(ToolResult::error(format!(
+            "Write target is outside the permitted workspace: {clean_path}"
+        )));
+    }
+    Ok(path)
+}
+
+async fn check_not_directory(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
+    if tokio::fs::metadata(path).await.map(|m| m.is_dir()).unwrap_or(false) {
+        return Err(ToolResult::error(format!(
+            "Cannot write to {clean_path}: target path is a directory"
+        )));
+    }
+    Ok(())
+}
+
+async fn ensure_parent_dir(path: &Path, clean_path: &str) -> std::result::Result<(), ToolResult> {
+    if let Some(parent) = path.parent()
+        && let Err(e) = tokio::fs::create_dir_all(parent).await
+    {
+        return Err(ToolResult::error(format!(
+            "Failed to create directories for {clean_path}: {e}"
+        )));
+    }
+    Ok(())
+}
+
+async fn perform_atomic_write(path: &Path, clean_path: &str, content: &str) -> Result<ToolResult, AppError> {
+    let bytes_len = content.len();
+    let lines_len = content.lines().count();
+    match atomic_write(path, content.as_bytes()).await {
+        Ok(_) => Ok(ToolResult::success(format!(
+            "Successfully wrote {bytes_len} bytes ({lines_len} lines) to {clean_path}"
+        ))),
+        Err(e) => Ok(ToolResult::error(format!("Failed to write file {clean_path}: {e}"))),
+    }
+}
+
 impl WriteTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self::with_exclusions(base_dir, std::iter::empty::<&Path>())
@@ -37,43 +83,23 @@ impl WriteTool {
         }
 
         let workspace = Workspace::with_exclusions(&self.base_dir, &self.exclusions);
-        let Some(path) = workspace.resolve(clean_path) else {
-            return Ok(ToolResult::error("Empty file path provided for write tool"));
+        let path = match validate_write_workspace(&workspace, clean_path) {
+            Ok(p) => p,
+            Err(e) => return Ok(e),
         };
-        if !workspace.can_mutate(clean_path) {
-            return Ok(ToolResult::error(format!(
-                "Write target is outside the permitted workspace: {clean_path}"
-            )));
+        if let Err(e) = check_not_directory(&path, clean_path).await {
+            return Ok(e);
         }
-        let is_dir = tokio::fs::metadata(&path).await.map(|m| m.is_dir()).unwrap_or(false);
-        if is_dir {
-            return Ok(ToolResult::error(format!(
-                "Cannot write to {clean_path}: target path is a directory"
-            )));
+        if let Err(e) = ensure_parent_dir(&path, clean_path).await {
+            return Ok(e);
         }
-        if let Some(parent) = path.parent()
-            && let Err(e) = tokio::fs::create_dir_all(parent).await
-        {
-            return Ok(ToolResult::error(format!(
-                "Failed to create directories for {clean_path}: {e}"
-            )));
-        }
-
         if !workspace.can_mutate(clean_path) {
             return Ok(ToolResult::error(format!(
                 "Write target moved outside the permitted workspace: {clean_path}"
             )));
         }
 
-        let bytes_len = args.content.len();
-        let lines_len = args.content.lines().count();
-        match atomic_write(&path, args.content.as_bytes()).await {
-            Ok(_) => Ok(ToolResult::success(format!(
-                "Successfully wrote {} bytes ({} lines) to {}",
-                bytes_len, lines_len, clean_path
-            ))),
-            Err(e) => Ok(ToolResult::error(format!("Failed to write file {clean_path}: {e}"))),
-        }
+        perform_atomic_write(&path, clean_path, &args.content).await
     }
 }
 

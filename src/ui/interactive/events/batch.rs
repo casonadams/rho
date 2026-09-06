@@ -62,52 +62,66 @@ impl PendingUiBatch {
         }
     }
 
+    fn flush_barrier_for_text(&self, has_newline: bool) -> BatchDecision {
+        if has_newline {
+            BatchDecision::Flush(FlushBarrier::Newline)
+        } else if self.text.len() >= self.max_text_bytes {
+            BatchDecision::Flush(FlushBarrier::Size)
+        } else {
+            BatchDecision::Pending
+        }
+    }
+
+    fn flushes() -> BatchDecision {
+        BatchDecision::Flush(FlushBarrier::Newline)
+    }
+
+    fn push_flushing(&mut self, event: UiEvent) -> BatchDecision {
+        match event {
+            UiEvent::ToolStart(r) => {
+                self.tool_start = Some(r);
+                Self::flushes()
+            }
+            UiEvent::ToolChunk { chunk } => {
+                self.tool_chunks.push(chunk);
+                Self::flushes()
+            }
+            UiEvent::Transcript(item) => {
+                self.transcript_items.push(item);
+                Self::flushes()
+            }
+            UiEvent::SystemMessage(m) => {
+                self.system_message = Some(m);
+                Self::flushes()
+            }
+            _ => BatchDecision::Pending,
+        }
+    }
+
     pub fn push(&mut self, event: UiEvent) -> BatchDecision {
         match event {
             UiEvent::Output(OutputEvent::Text(text)) => {
                 let has_newline = text.contains('\n');
                 self.text.push_str(&text);
-                if has_newline {
-                    BatchDecision::Flush(FlushBarrier::Newline)
-                } else if self.text.len() >= self.max_text_bytes {
-                    BatchDecision::Flush(FlushBarrier::Size)
-                } else {
-                    BatchDecision::Pending
-                }
+                self.flush_barrier_for_text(has_newline)
             }
-            UiEvent::Activity(activity) => {
-                self.activity = Some(activity);
+            UiEvent::Activity(a) => {
+                self.activity = Some(a);
                 BatchDecision::Pending
-            }
-            UiEvent::ToolStart(request) => {
-                self.tool_start = Some(request);
-                BatchDecision::Flush(FlushBarrier::Newline)
-            }
-            UiEvent::ToolChunk { chunk } => {
-                self.tool_chunks.push(chunk);
-                BatchDecision::Flush(FlushBarrier::Newline)
             }
             UiEvent::ToolEnd => {
                 self.tool_end = true;
                 BatchDecision::Pending
             }
-            UiEvent::Transcript(item) => {
-                self.transcript_items.push(item);
-                BatchDecision::Flush(FlushBarrier::Newline)
-            }
-            UiEvent::RunningTool(update) => {
-                self.running_tool = Some(update);
+            UiEvent::RunningTool(u) => {
+                self.running_tool = Some(u);
                 BatchDecision::Pending
             }
-            UiEvent::ExtraStatus(status) => {
-                self.extra_status = Some(status);
+            UiEvent::ExtraStatus(s) => {
+                self.extra_status = Some(s);
                 BatchDecision::Pending
             }
-            UiEvent::SystemMessage(message) => {
-                self.system_message = Some(message);
-                BatchDecision::Flush(FlushBarrier::Newline)
-            }
-            event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
+            other => self.push_flushing(other),
         }
     }
 

@@ -7,6 +7,21 @@ use std::collections::BTreeMap;
 /// Fold tiered runtime ids into one selectable family entry per model
 /// (`gemini-3.7-flash-{low,medium,high}` → `gemini-3.7-flash`); the thinking
 /// level then picks the variant at request time.
+fn make_discovered_model((base, levels): (String, Vec<Option<crate::antigravity::Effort>>)) -> DiscoveredModel {
+    let thinking = if levels.iter().any(|l| l.is_some()) {
+        " · adaptive thinking"
+    } else {
+        ""
+    };
+    DiscoveredModel {
+        context_tokens: None,
+        name: antigravity_display_name(&base),
+        description: format!("{}{}", format_context_desc(&base), thinking),
+        id: base,
+        provider: "antigravity".to_string(),
+    }
+}
+
 pub fn collapse_antigravity_catalog(runtime_ids: Vec<String>) -> Vec<DiscoveredModel> {
     let mut families: BTreeMap<String, Vec<Option<crate::antigravity::Effort>>> = BTreeMap::new();
     for id in &runtime_ids {
@@ -14,24 +29,7 @@ pub fn collapse_antigravity_catalog(runtime_ids: Vec<String>) -> Vec<DiscoveredM
         families.entry(base).or_default().push(level);
     }
 
-    let models: Vec<DiscoveredModel> = families
-        .into_iter()
-        .map(|(base, levels)| {
-            let thinking = if levels.iter().any(|l| l.is_some()) {
-                " · adaptive thinking"
-            } else {
-                ""
-            };
-            DiscoveredModel {
-                context_tokens: None,
-                name: antigravity_display_name(&base),
-                description: format!("{}{}", format_context_desc(&base), thinking),
-                id: base,
-                provider: "antigravity".to_string(),
-            }
-        })
-        .collect();
-
+    let models: Vec<DiscoveredModel> = families.into_iter().map(make_discovered_model).collect();
     sort_models_newest_first(models)
 }
 
@@ -63,37 +61,46 @@ pub fn sort_models_newest_first(mut models: Vec<DiscoveredModel>) -> Vec<Discove
     models
 }
 
+const TITLES: [(&str, &str); 11] = [
+    ("gemini", "Gemini"),
+    ("claude", "Claude"),
+    ("gpt", "GPT"),
+    ("oss", "OSS"),
+    ("opus", "Opus"),
+    ("sonnet", "Sonnet"),
+    ("pro", "Pro"),
+    ("flash", "Flash"),
+    ("lite", "Lite"),
+    ("thinking", "Thinking"),
+    ("agent", "Agent"),
+];
+
+fn parse_split_version(token: &str, next_token: Option<&&str>) -> Option<(String, usize)> {
+    let a = token.parse::<u8>().ok()?;
+    let b = next_token?.parse::<u8>().ok()?;
+    Some((format!("{a}.{b}"), 2))
+}
+
+fn map_display_token(token: &str) -> String {
+    TITLES
+        .iter()
+        .find(|(key, _)| *key == token)
+        .map(|(_, title)| (*title).to_string())
+        .unwrap_or_else(|| token.to_string())
+}
+
 pub fn antigravity_display_name(id: &str) -> String {
-    const TITLES: [(&str, &str); 11] = [
-        ("gemini", "Gemini"),
-        ("claude", "Claude"),
-        ("gpt", "GPT"),
-        ("oss", "OSS"),
-        ("opus", "Opus"),
-        ("sonnet", "Sonnet"),
-        ("pro", "Pro"),
-        ("flash", "Flash"),
-        ("lite", "Lite"),
-        ("thinking", "Thinking"),
-        ("agent", "Agent"),
-    ];
     let tokens: Vec<&str> = id.split('-').collect();
     let mut words: Vec<String> = Vec::new();
     let mut index = 0;
     while index < tokens.len() {
-        let token = tokens[index];
-        if let (Ok(a), Some(Ok(b))) = (token.parse::<u8>(), tokens.get(index + 1).map(|t| t.parse::<u8>())) {
-            words.push(format!("{a}.{b}"));
-            index += 2;
-            continue;
+        if let Some((ver, step)) = parse_split_version(tokens[index], tokens.get(index + 1)) {
+            words.push(ver);
+            index += step;
+        } else {
+            words.push(map_display_token(tokens[index]));
+            index += 1;
         }
-        let title = TITLES
-            .iter()
-            .find(|(key, _)| *key == token)
-            .map(|(_, title)| (*title).to_string())
-            .unwrap_or_else(|| token.to_string());
-        words.push(title);
-        index += 1;
     }
     words.join(" ")
 }

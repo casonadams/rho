@@ -13,21 +13,22 @@ pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
 pub const DEFAULT_RESERVE_TOKENS: usize = 16_384;
 pub const DEFAULT_KEEP_RECENT_TOKENS: usize = 20_000;
 
+const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
+    (&["gemini-1.5-pro", "gemini-2.5-pro"], 2_000_000),
+    (&["gemini"], 1_000_000),
+    (&["gpt-5.6", "luna", "terra", "sol"], 372_000),
+    (&["gpt-5.4", "gpt-5.5"], 272_000),
+    (&["claude", "o1", "o3"], 200_000),
+];
+
 pub fn context_window_size(model: &str) -> usize {
     let lower = model.to_lowercase();
-    if lower.contains("gemini-1.5-pro") || lower.contains("gemini-2.5-pro") {
-        2_000_000
-    } else if lower.contains("gemini") {
-        1_000_000
-    } else if lower.contains("gpt-5.6") || lower.contains("luna") || lower.contains("terra") || lower.contains("sol") {
-        372_000
-    } else if lower.contains("gpt-5.4") || lower.contains("gpt-5.5") {
-        272_000
-    } else if lower.contains("claude") || lower.contains("o1") || lower.contains("o3") {
-        200_000
-    } else {
-        128_000
+    for &(patterns, window) in MODEL_CONTEXT_WINDOWS {
+        if patterns.iter().any(|&p| lower.contains(p)) {
+            return window;
+        }
     }
+    128_000
 }
 
 pub fn should_compact(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
@@ -82,6 +83,32 @@ pub fn estimate_char_tokens(text: &str) -> usize {
     chars.div_ceil(4)
 }
 
+fn estimate_user_content_tokens(item: &UserContent, model: &str) -> usize {
+    match item {
+        UserContent::Text(text) => estimate_text_tokens(&text.text, model),
+        UserContent::ToolResult(result) => result
+            .content
+            .iter()
+            .filter_map(|c| c.as_text())
+            .map(|t| estimate_text_tokens(t, model))
+            .fold(0usize, |acc, n| acc.saturating_add(n)),
+        _ => 0,
+    }
+}
+
+fn estimate_assistant_content_tokens(item: &AssistantContent, model: &str) -> usize {
+    match item {
+        AssistantContent::Text(text) => estimate_text_tokens(&text.text, model),
+        AssistantContent::ToolCall(call) => {
+            let name_tokens = estimate_text_tokens(&call.function.name, model);
+            let args_str = call.function.arguments.to_string();
+            let arg_tokens = estimate_text_tokens(&args_str, model);
+            name_tokens.saturating_add(arg_tokens)
+        }
+        _ => 0,
+    }
+}
+
 pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
     let mut tokens = DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE;
     match message {
@@ -90,34 +117,12 @@ pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
         }
         Message::User { content } => {
             for item in content {
-                match item {
-                    UserContent::Text(text) => {
-                        tokens = tokens.saturating_add(estimate_text_tokens(&text.text, model));
-                    }
-                    UserContent::ToolResult(result) => {
-                        for c in &result.content {
-                            if let Some(t) = c.as_text() {
-                                tokens = tokens.saturating_add(estimate_text_tokens(t, model));
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                tokens = tokens.saturating_add(estimate_user_content_tokens(item, model));
             }
         }
         Message::Assistant { content, .. } => {
             for item in content {
-                match item {
-                    AssistantContent::Text(text) => {
-                        tokens = tokens.saturating_add(estimate_text_tokens(&text.text, model));
-                    }
-                    AssistantContent::ToolCall(call) => {
-                        tokens = tokens.saturating_add(estimate_text_tokens(&call.function.name, model));
-                        let args_str = call.function.arguments.to_string();
-                        tokens = tokens.saturating_add(estimate_text_tokens(&args_str, model));
-                    }
-                    _ => {}
-                }
+                tokens = tokens.saturating_add(estimate_assistant_content_tokens(item, model));
             }
         }
     }

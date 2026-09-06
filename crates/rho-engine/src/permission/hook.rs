@@ -38,6 +38,26 @@ impl PermissionHook {
         }
     }
 
+    async fn map_interaction_action(
+        &self,
+        response: Option<InteractionResponse>,
+        (req, drafts): (EvalRequest<'_>, &[RuleDraft]),
+    ) -> ToolCallAction {
+        match response {
+            Some(InteractionResponse::Selected(0 | 1)) => ToolCallAction::run(),
+            Some(InteractionResponse::SelectedWithInput { index: 1, text }) => {
+                ToolCallAction::rewrite(rewrite_tool_args(req.args, &text))
+            }
+            Some(InteractionResponse::Selected(2)) | Some(InteractionResponse::SelectedWithInput { index: 2, .. }) => {
+                self.apply_always_allow(req, drafts).await;
+                ToolCallAction::run()
+            }
+            Some(InteractionResponse::SelectedWithInput { index: 3, text })
+            | Some(InteractionResponse::Custom(text)) => skip_with_feedback(&text),
+            _ => ToolCallAction::skip("Operation denied by user."),
+        }
+    }
+
     async fn handle_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> ToolCallAction {
         if HeadlessGuard::is_headless(self.presenter.as_ref()) {
             return ToolCallAction::skip(format!(
@@ -48,24 +68,7 @@ impl PermissionHook {
 
         let prompt = build_permission_prompt(req.tool, req.args, drafts);
         let response = self.presenter.request_interaction(prompt).await;
-
-        match response {
-            Some(InteractionResponse::Selected(0)) => ToolCallAction::run(),
-            Some(InteractionResponse::SelectedWithInput { index: 1, text }) => {
-                let new_args = rewrite_tool_args(req.args, &text);
-                ToolCallAction::rewrite(new_args)
-            }
-            Some(InteractionResponse::Selected(1)) => ToolCallAction::run(),
-            Some(InteractionResponse::Selected(2)) | Some(InteractionResponse::SelectedWithInput { index: 2, .. }) => {
-                self.apply_always_allow(req, drafts).await;
-                ToolCallAction::run()
-            }
-            Some(InteractionResponse::Selected(3)) => ToolCallAction::skip("Operation denied by user."),
-            Some(InteractionResponse::SelectedWithInput { index: 3, text }) => skip_with_feedback(&text),
-            Some(InteractionResponse::Custom(text)) => skip_with_feedback(&text),
-            Some(InteractionResponse::Cancelled) | None => ToolCallAction::skip("Operation denied by user."),
-            _ => ToolCallAction::skip("Operation denied by user."),
-        }
+        self.map_interaction_action(response, (req, drafts)).await
     }
 
     async fn apply_always_allow(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) {

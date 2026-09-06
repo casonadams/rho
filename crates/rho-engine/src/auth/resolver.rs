@@ -82,23 +82,7 @@ fn execute_command(cmd: &str) -> Result<String> {
     Ok(stdout)
 }
 
-async fn execute_command_async(cmd: &str) -> Result<String> {
-    #[cfg(unix)]
-    let output = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .output()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
-
-    #[cfg(not(unix))]
-    let output = tokio::process::Command::new("cmd")
-        .arg("/C")
-        .arg(cmd)
-        .output()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))?;
-
+fn validate_command_output(output: std::process::Output, cmd: &str) -> Result<String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(AppError::Auth(format!(
@@ -115,47 +99,76 @@ async fn execute_command_async(cmd: &str) -> Result<String> {
     Ok(stdout)
 }
 
+async fn run_raw_cmd_async(cmd: &str) -> Result<std::process::Output> {
+    #[cfg(unix)]
+    let mut c = tokio::process::Command::new("sh");
+    #[cfg(unix)]
+    c.arg("-c").arg(cmd);
+
+    #[cfg(not(unix))]
+    let mut c = tokio::process::Command::new("cmd");
+    #[cfg(not(unix))]
+    c.arg("/C").arg(cmd);
+
+    c.output()
+        .await
+        .map_err(|e| AppError::Auth(format!("Failed to execute auth command '{cmd}': {e}")))
+}
+
+async fn execute_command_async(cmd: &str) -> Result<String> {
+    let output = run_raw_cmd_async(cmd).await?;
+    validate_command_output(output, cmd)
+}
+
+fn extract_braced_var<I: Iterator<Item = (usize, char)>>(chars: &mut I) -> String {
+    let mut var_name = String::new();
+    for (_, vc) in chars {
+        if vc == '}' {
+            break;
+        }
+        var_name.push(vc);
+    }
+    var_name
+}
+
+fn extract_unbraced_var<I: std::iter::Iterator<Item = (usize, char)>>(chars: &mut std::iter::Peekable<I>) -> String {
+    let mut var_name = String::new();
+    while let Some(&(_, vc)) = chars.peek() {
+        if vc.is_alphanumeric() || vc == '_' {
+            var_name.push(vc);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+    var_name
+}
+
+fn resolve_env_var_name<I: std::iter::Iterator<Item = (usize, char)>>(
+    chars: &mut std::iter::Peekable<I>,
+) -> Result<String> {
+    let var_name = if let Some(&(_, '{')) = chars.peek() {
+        chars.next();
+        extract_braced_var(chars)
+    } else {
+        extract_unbraced_var(chars)
+    };
+    if var_name.is_empty() {
+        return Ok("$".to_string());
+    }
+    std::env::var(&var_name).map_err(|_| AppError::Auth(format!("Environment variable '{var_name}' is not set")))
+}
+
 fn expand_env(s: &str) -> Result<String> {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.char_indices().peekable();
-
     while let Some((_, c)) = chars.next() {
         if c == '$' {
-            if let Some(&(_, '{')) = chars.peek() {
-                chars.next(); // consume '{'
-                let mut var_name = String::new();
-                for (_, vc) in chars.by_ref() {
-                    if vc == '}' {
-                        break;
-                    }
-                    var_name.push(vc);
-                }
-                let val = std::env::var(&var_name)
-                    .map_err(|_| AppError::Auth(format!("Environment variable '{var_name}' is not set")))?;
-                result.push_str(&val);
-            } else {
-                let mut var_name = String::new();
-                while let Some(&(_, vc)) = chars.peek() {
-                    if vc.is_alphanumeric() || vc == '_' {
-                        var_name.push(vc);
-                        chars.next();
-                    } else {
-                        break;
-                    }
-                }
-                if var_name.is_empty() {
-                    result.push('$');
-                } else {
-                    let val = std::env::var(&var_name)
-                        .map_err(|_| AppError::Auth(format!("Environment variable '{var_name}' is not set")))?;
-                    result.push_str(&val);
-                }
-            }
+            result.push_str(&resolve_env_var_name(&mut chars)?);
         } else {
             result.push(c);
         }
     }
-
     Ok(result)
 }
 

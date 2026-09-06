@@ -53,18 +53,26 @@ pub async fn create_session_file_async(path: &Path, session_id: &str) -> Result<
     Ok(())
 }
 
-async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
+fn serialize_record_line(record: &SessionRecord) -> Result<Vec<u8>> {
     let mut line = serde_json::to_vec(record).map_err(|_| session_error("session record serialization failed"))?;
     line.push(b'\n');
-    let mut file = tokio::fs::OpenOptions::new().append(true).open(path).await?;
-    file.write_all(&line).await?;
+    Ok(line)
+}
+
+async fn flush_or_sync(file: &mut tokio::fs::File, durable: bool) -> Result<()> {
     if durable {
-        // Durable boundary: full state transitions fsync; audit events do not.
         file.sync_data().await?;
     } else {
         file.flush().await?;
     }
     Ok(())
+}
+
+async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
+    let line = serialize_record_line(record)?;
+    let mut file = tokio::fs::OpenOptions::new().append(true).open(path).await?;
+    file.write_all(&line).await?;
+    flush_or_sync(&mut file, durable).await
 }
 
 /// Append an audit event without an fsync; the JSONL loader drops a torn

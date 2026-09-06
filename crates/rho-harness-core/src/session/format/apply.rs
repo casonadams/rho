@@ -3,101 +3,116 @@ use super::super::tree::{SessionTree, TreeNodeData, TreeNodeKind};
 use super::types::{SessionRecord, StoreState};
 use crate::error::Result;
 
-pub fn apply_record(state: &mut StoreState, record: SessionRecord, expected_id: &str) -> Result<()> {
-    let (sequence, session_id) = match &record {
-        SessionRecord::CanonicalMessages {
-            sequence, session_id, ..
+macro_rules! extract_record_ident {
+    ($record:expr) => {
+        match $record {
+            SessionRecord::CanonicalMessages {
+                sequence, session_id, ..
+            }
+            | SessionRecord::CanonicalReset {
+                sequence, session_id, ..
+            }
+            | SessionRecord::RunCheckpoint {
+                sequence, session_id, ..
+            }
+            | SessionRecord::CheckpointPromoted {
+                sequence, session_id, ..
+            }
+            | SessionRecord::AuditEvent {
+                sequence, session_id, ..
+            }
+            | SessionRecord::TreeNode {
+                sequence, session_id, ..
+            }
+            | SessionRecord::ActiveLeafChanged {
+                sequence, session_id, ..
+            }
+            | SessionRecord::SessionLabel {
+                sequence, session_id, ..
+            }
+            | SessionRecord::SessionNamed {
+                sequence, session_id, ..
+            } => (*sequence, session_id.as_str()),
         }
-        | SessionRecord::CanonicalReset {
-            sequence, session_id, ..
-        }
-        | SessionRecord::RunCheckpoint {
-            sequence, session_id, ..
-        }
-        | SessionRecord::CheckpointPromoted {
-            sequence, session_id, ..
-        }
-        | SessionRecord::AuditEvent {
-            sequence, session_id, ..
-        }
-        | SessionRecord::TreeNode {
-            sequence, session_id, ..
-        }
-        | SessionRecord::ActiveLeafChanged {
-            sequence, session_id, ..
-        }
-        | SessionRecord::SessionLabel {
-            sequence, session_id, ..
-        }
-        | SessionRecord::SessionNamed {
-            sequence, session_id, ..
-        } => (*sequence, session_id),
     };
+}
+
+fn record_identity_and_sequence(record: &SessionRecord) -> (u64, &str) {
+    extract_record_ident!(record)
+}
+
+fn validate_record_ordering((sequence, session_id): (u64, &str), (expected_id, next_seq): (&str, u64)) -> Result<()> {
     if session_id != expected_id {
         return Err(session_error("session record identity mismatch"));
     }
-    if sequence != state.next_sequence {
+    if sequence != next_seq {
         return Err(session_error("session record ordering is invalid"));
     }
+    Ok(())
+}
+
+fn apply_canonical_messages(
+    state: &mut StoreState,
+    messages: Vec<rig::message::Message>,
+    timestamp: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    if messages.is_empty() {
+        return Err(session_error("canonical message batches cannot be empty"));
+    }
+    state.integrity.check_canonical_batch(&messages)?;
+    state.messages.extend(messages.clone());
+    let node = TreeNodeData {
+        id: uuid::Uuid::new_v4().to_string(),
+        parent_id: state.tree.active_leaf_id.clone(),
+        timestamp,
+        kind: TreeNodeKind::UserTurn,
+        messages,
+        label: None,
+        metadata: None,
+    };
+    state.tree.add_node(node);
+    Ok(())
+}
+
+fn apply_checkpoint_record(state: &mut StoreState, messages: Vec<rig::message::Message>) -> Result<()> {
+    if messages.is_empty() {
+        return Err(session_error("run checkpoints cannot be empty"));
+    }
+    state.integrity.check_checkpoint_batch(&messages)?;
+    state.checkpoint = Some(messages);
+    Ok(())
+}
+
+fn apply_checkpoint_promoted(
+    state: &mut StoreState,
+    messages: Vec<rig::message::Message>,
+    timestamp: chrono::DateTime<chrono::Utc>,
+) -> Result<()> {
+    let checkpoint = state
+        .checkpoint
+        .as_ref()
+        .ok_or_else(|| session_error("checkpoint promotion ordering is invalid"))?;
+    if messages.is_empty() || !messages.starts_with(checkpoint) {
+        return Err(session_error("checkpoint promotion does not match pending history"));
+    }
+    state.integrity.check_canonical_batch(&messages)?;
+    state.messages.extend(messages.clone());
+    state.checkpoint = None;
+    let node = TreeNodeData {
+        id: uuid::Uuid::new_v4().to_string(),
+        parent_id: state.tree.active_leaf_id.clone(),
+        timestamp,
+        kind: TreeNodeKind::AssistantTurn,
+        messages,
+        label: None,
+        metadata: None,
+    };
+    state.tree.add_node(node);
+    Ok(())
+}
+
+fn apply_tree_record(state: &mut StoreState, record: SessionRecord) {
     match record {
-        SessionRecord::CanonicalMessages {
-            messages, timestamp, ..
-        } => {
-            if messages.is_empty() {
-                return Err(session_error("canonical message batches cannot be empty"));
-            }
-            state.integrity.check_canonical_batch(&messages)?;
-            state.messages.extend(messages.clone());
-            let node_id = uuid::Uuid::new_v4().to_string();
-            let parent_id = state.tree.active_leaf_id.clone();
-            state.tree.add_node(TreeNodeData {
-                id: node_id,
-                parent_id,
-                timestamp,
-                kind: TreeNodeKind::UserTurn,
-                messages,
-                label: None,
-                metadata: None,
-            });
-        }
-        SessionRecord::CanonicalReset { .. } => {
-            state.messages.clear();
-            state.checkpoint = None;
-            state.integrity.clear();
-            state.tree = SessionTree::new();
-        }
-        SessionRecord::RunCheckpoint { messages, .. } => {
-            if messages.is_empty() {
-                return Err(session_error("run checkpoints cannot be empty"));
-            }
-            state.integrity.check_checkpoint_batch(&messages)?;
-            state.checkpoint = Some(messages);
-        }
-        SessionRecord::CheckpointPromoted {
-            messages, timestamp, ..
-        } => {
-            let checkpoint = state
-                .checkpoint
-                .as_ref()
-                .ok_or_else(|| session_error("checkpoint promotion ordering is invalid"))?;
-            if messages.is_empty() || !messages.starts_with(checkpoint) {
-                return Err(session_error("checkpoint promotion does not match pending history"));
-            }
-            state.integrity.check_canonical_batch(&messages)?;
-            state.messages.extend(messages.clone());
-            state.checkpoint = None;
-            let node_id = uuid::Uuid::new_v4().to_string();
-            let parent_id = state.tree.active_leaf_id.clone();
-            state.tree.add_node(TreeNodeData {
-                id: node_id,
-                parent_id,
-                timestamp,
-                kind: TreeNodeKind::AssistantTurn,
-                messages,
-                label: None,
-                metadata: None,
-            });
-        }
         SessionRecord::AuditEvent { event, .. } => state.events.push(event),
         SessionRecord::TreeNode { node, .. } => {
             state.tree.add_node(node);
@@ -114,6 +129,34 @@ pub fn apply_record(state: &mut StoreState, record: SessionRecord, expected_id: 
         SessionRecord::SessionNamed { name, .. } => {
             state.tree.set_session_name(name);
         }
+        _ => {}
+    }
+}
+
+fn reset_canonical_state(state: &mut StoreState) {
+    state.messages.clear();
+    state.checkpoint = None;
+    state.integrity.clear();
+    state.tree = SessionTree::new();
+}
+
+pub fn apply_record(state: &mut StoreState, record: SessionRecord, expected_id: &str) -> Result<()> {
+    let ident = record_identity_and_sequence(&record);
+    validate_record_ordering(ident, (expected_id, state.next_sequence))?;
+    match record {
+        SessionRecord::CanonicalMessages {
+            messages, timestamp, ..
+        } => {
+            apply_canonical_messages(state, messages, timestamp)?;
+        }
+        SessionRecord::CanonicalReset { .. } => reset_canonical_state(state),
+        SessionRecord::RunCheckpoint { messages, .. } => apply_checkpoint_record(state, messages)?,
+        SessionRecord::CheckpointPromoted {
+            messages, timestamp, ..
+        } => {
+            apply_checkpoint_promoted(state, messages, timestamp)?;
+        }
+        other => apply_tree_record(state, other),
     }
     state.next_sequence += 1;
     Ok(())

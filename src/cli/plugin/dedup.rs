@@ -1,6 +1,6 @@
 use rho_harness_core::config::PluginConfig;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DuplicatePluginError {
@@ -22,73 +22,75 @@ pub struct PluginCandidate {
     pub force: bool,
 }
 
+fn cmd_err(existing_plugin: &str, command: &str) -> DuplicatePluginError {
+    DuplicatePluginError::Command {
+        existing_plugin: existing_plugin.to_string(),
+        command: command.to_string(),
+    }
+}
+
+fn check_name_conflict(existing_name: &str, candidate: &PluginCandidate) -> Result<bool, DuplicatePluginError> {
+    let same = existing_name == candidate.name || strip_prefix(existing_name) == strip_prefix(&candidate.name);
+    if same {
+        if !candidate.force {
+            return Err(DuplicatePluginError::Name(existing_name.to_string()));
+        }
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn check_path_conflict(
+    existing_name: &str,
+    existing_path: &Path,
+    candidate_path: &Path,
+) -> Result<(), DuplicatePluginError> {
+    if !candidate_path.as_os_str().is_empty()
+        && !existing_path.as_os_str().is_empty()
+        && existing_path == candidate_path
+    {
+        return Err(DuplicatePluginError::Path {
+            existing_plugin: existing_name.to_string(),
+            path: candidate_path.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
+fn check_command_overlap(
+    existing_name: &str,
+    existing_cfg: &PluginConfig,
+    candidate: &PluginCandidate,
+) -> Result<(), DuplicatePluginError> {
+    if existing_cfg.command.as_deref() == Some(&candidate.command) {
+        return Err(cmd_err(existing_name, &candidate.command));
+    }
+    let cand_p = (!candidate.path.as_os_str().is_empty()).then_some(candidate.path.as_path());
+    let exist_p = (!existing_cfg.path.as_os_str().is_empty()).then_some(existing_cfg.path.as_path());
+    let cand_matches = cand_p.is_some_and(|p| {
+        existing_cfg.command.as_deref() == p.to_str()
+            || existing_cfg.command.as_deref() == p.file_name().and_then(|f| f.to_str())
+    });
+    let exist_matches = exist_p.is_some_and(|p| {
+        p.to_str() == Some(&candidate.command) || p.file_name().and_then(|f| f.to_str()) == Some(&candidate.command)
+    });
+    if cand_matches || exist_matches {
+        return Err(cmd_err(existing_name, &candidate.command));
+    }
+    Ok(())
+}
+
 pub fn validate_no_duplicates(
     existing_plugins: &BTreeMap<String, PluginConfig>,
     candidate: &PluginCandidate,
 ) -> Result<(), DuplicatePluginError> {
-    let candidate_short = strip_prefix(&candidate.name);
-
     for (existing_name, existing_cfg) in existing_plugins {
-        let existing_short = strip_prefix(existing_name);
-        let same_name = existing_name == &candidate.name || existing_short == candidate_short;
-
-        if same_name {
-            if !candidate.force {
-                return Err(DuplicatePluginError::Name(existing_name.clone()));
-            }
+        if check_name_conflict(existing_name, candidate)? {
             continue;
         }
-
-        if existing_cfg.command.as_deref() == Some(&candidate.command) {
-            return Err(DuplicatePluginError::Command {
-                existing_plugin: existing_name.clone(),
-                command: candidate.command.clone(),
-            });
-        }
-
-        let candidate_has_path = !candidate.path.as_os_str().is_empty();
-        let existing_has_path = !existing_cfg.path.as_os_str().is_empty();
-
-        if candidate_has_path && existing_has_path && existing_cfg.path == candidate.path {
-            return Err(DuplicatePluginError::Path {
-                existing_plugin: existing_name.clone(),
-                path: candidate.path.clone(),
-            });
-        }
-
-        let candidate_path_str = candidate.path.to_str();
-        let existing_path_str = existing_cfg.path.to_str();
-        let existing_file_name = existing_cfg.path.file_name().and_then(|f| f.to_str());
-
-        if candidate_has_path && existing_cfg.command.as_deref() == candidate_path_str {
-            return Err(DuplicatePluginError::Command {
-                existing_plugin: existing_name.clone(),
-                command: candidate.command.clone(),
-            });
-        }
-
-        if existing_has_path && existing_path_str == Some(&candidate.command) {
-            return Err(DuplicatePluginError::Command {
-                existing_plugin: existing_name.clone(),
-                command: candidate.command.clone(),
-            });
-        }
-        if existing_has_path && existing_file_name == Some(&candidate.command) {
-            return Err(DuplicatePluginError::Command {
-                existing_plugin: existing_name.clone(),
-                command: candidate.command.clone(),
-            });
-        }
-
-        let candidate_file_name = candidate.path.file_name().and_then(|f| f.to_str());
-        if candidate_has_path && existing_cfg.command.as_deref() == candidate_file_name {
-            return Err(DuplicatePluginError::Command {
-                existing_plugin: existing_name.clone(),
-                command: candidate.command.clone(),
-            });
-        }
+        check_path_conflict(existing_name, &existing_cfg.path, &candidate.path)?;
+        check_command_overlap(existing_name, existing_cfg, candidate)?;
     }
-
     Ok(())
 }
 

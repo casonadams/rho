@@ -8,6 +8,79 @@ pub enum AutocompleteKeyResult {
     NotHandled,
 }
 
+fn apply_selected_completion<B: TerminalBackend>(controller: &mut TerminalController<B>, val: &str) {
+    let state = controller.state_mut();
+    let editor = state.editor_mut();
+    let text = editor.text();
+    let cursor = editor.cursor();
+    if val.starts_with('/') {
+        let mut new_text = val.to_string();
+        if !new_text.ends_with(' ') {
+            new_text.push(' ');
+        }
+        new_text.push_str(&text[cursor..]);
+        editor.set_text(&new_text);
+    } else {
+        let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
+        let new_text = format!("{val} {}", &text[end..]);
+        editor.set_text(&new_text);
+    }
+}
+
+fn handle_accept_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    completions: &CompletionSet,
+) -> AutocompleteKeyResult {
+    let selected_val = controller
+        .state_mut()
+        .autocomplete
+        .selected_item()
+        .map(|item| item.value.clone());
+    if let Some(val) = selected_val {
+        apply_selected_completion(controller, &val);
+    } else {
+        apply_completion_generic(controller, completions);
+    }
+    controller.state_mut().autocomplete.close();
+    AutocompleteKeyResult::Handled
+}
+
+fn handle_navigation_key(code: KeyCode, modifiers: KeyModifiers) -> Option<bool> {
+    match (code, modifiers) {
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
+            Some(true)
+        }
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(true),
+        _ => None,
+    }
+}
+
+fn dispatch_autocomplete_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    completions: &CompletionSet,
+    (code, modifiers): (KeyCode, KeyModifiers),
+) -> AutocompleteKeyResult {
+    if let Some(is_prev) = handle_navigation_key(code, modifiers) {
+        let state = controller.state_mut();
+        if is_prev {
+            state.autocomplete.select_prev();
+        } else {
+            state.autocomplete.select_next();
+        }
+        return AutocompleteKeyResult::Handled;
+    }
+    match (code, modifiers) {
+        (KeyCode::Tab, KeyModifiers::NONE)
+        | (KeyCode::Enter, KeyModifiers::NONE)
+        | (KeyCode::Right, KeyModifiers::NONE) => handle_accept_key(controller, completions),
+        (KeyCode::Esc, KeyModifiers::NONE) => {
+            controller.state_mut().autocomplete.close();
+            AutocompleteKeyResult::Handled
+        }
+        _ => AutocompleteKeyResult::NotHandled,
+    }
+}
+
 pub fn handle_autocomplete_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     completions: &CompletionSet,
@@ -25,78 +98,10 @@ pub fn handle_autocomplete_key_generic<B: TerminalBackend>(
     if !state.autocomplete.visible {
         return AutocompleteKeyResult::NotHandled;
     }
-
     if key.kind == crossterm::event::KeyEventKind::Release {
         return AutocompleteKeyResult::Handled;
     }
-
-    match (key.code, key.modifiers) {
-        // Navigation: Up/Down, Ctrl+P/Ctrl+N, and Shift+Tab
-        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::BackTab, _) => {
-            state.autocomplete.select_prev();
-            AutocompleteKeyResult::Handled
-        }
-        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-            state.autocomplete.select_next();
-            AutocompleteKeyResult::Handled
-        }
-        // Tab key: exactly matches Pi.tui Editor behavior:
-        // Applies the selected item, updates cursor, and cancels autocomplete
-        (KeyCode::Tab, KeyModifiers::NONE) => {
-            let selected_val = state.autocomplete.selected_item().map(|item| item.value.clone());
-            if let Some(val) = selected_val {
-                let editor = state.editor_mut();
-                let text = editor.text();
-                let cursor = editor.cursor();
-                if val.starts_with('/') {
-                    let mut new_text = val;
-                    if !new_text.ends_with(' ') {
-                        new_text.push(' ');
-                    }
-                    new_text.push_str(&text[cursor..]);
-                    editor.set_text(&new_text);
-                } else {
-                    let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
-                    let new_text = format!("{} {}", val, &text[end..]);
-                    editor.set_text(&new_text);
-                }
-            } else {
-                apply_completion_generic(controller, completions);
-            }
-            controller.state_mut().autocomplete.close();
-            AutocompleteKeyResult::Handled
-        }
-        // Enter / Right-Arrow: applies completion and closes autocomplete
-        (KeyCode::Enter, KeyModifiers::NONE) | (KeyCode::Right, KeyModifiers::NONE) => {
-            let selected_val = state.autocomplete.selected_item().map(|item| item.value.clone());
-            if let Some(val) = selected_val {
-                let editor = state.editor_mut();
-                let text = editor.text();
-                let cursor = editor.cursor();
-                if val.starts_with('/') {
-                    let mut new_text = val;
-                    if !new_text.ends_with(' ') {
-                        new_text.push(' ');
-                    }
-                    new_text.push_str(&text[cursor..]);
-                    editor.set_text(&new_text);
-                } else {
-                    let end = text[cursor..].find(' ').map_or(text.len(), |i| cursor + i);
-                    let new_text = format!("{} {}", val, &text[end..]);
-                    editor.set_text(&new_text);
-                }
-            } else {
-                apply_completion_generic(controller, completions);
-            }
-            controller.state_mut().autocomplete.close();
-            AutocompleteKeyResult::Handled
-        }
-        (KeyCode::Esc, KeyModifiers::NONE) => {
-            state.autocomplete.close();
-            AutocompleteKeyResult::Handled
-        }
-        _ => AutocompleteKeyResult::NotHandled,
-    }
+    dispatch_autocomplete_key(controller, completions, (key.code, key.modifiers))
 }
 
 pub fn update_autocomplete_state<B: TerminalBackend>(

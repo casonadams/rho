@@ -96,20 +96,23 @@ fn is_non_binary_asset(name: &str) -> bool {
         || lower == "source.zip"
 }
 
+fn base_asset_score(lower: &str, platform: &Platform) -> Option<i32> {
+    if lower.contains(platform.target_triple()) {
+        return Some(100);
+    }
+    if !matches_os(lower, platform.os) || !matches_arch(lower, platform.os, platform.arch) {
+        return None;
+    }
+    if platform.os == Os::Macos && (lower.contains("universal") || lower.contains("all")) {
+        Some(40)
+    } else {
+        Some(50)
+    }
+}
+
 fn score_asset(name: &str, platform: &Platform) -> Option<i32> {
     let lower = name.to_ascii_lowercase();
-    let mut score = if lower.contains(platform.target_triple()) {
-        100
-    } else {
-        if !matches_os(&lower, platform.os) || !matches_arch(&lower, platform.os, platform.arch) {
-            return None;
-        }
-        if platform.os == Os::Macos && (lower.contains("universal") || lower.contains("all")) {
-            40
-        } else {
-            50
-        }
-    };
+    let mut score = base_asset_score(&lower, platform)?;
     if lower.ends_with(".tar.gz") || lower.ends_with(".zip") || lower.ends_with(".tar.xz") || lower.ends_with(".exe") {
         score += 20;
     }

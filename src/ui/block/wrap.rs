@@ -10,6 +10,22 @@ pub(crate) fn visible_width(content: &str) -> usize {
     UnicodeWidthStr::width(ANSI_PATTERN.replace_all(content, "").as_ref())
 }
 
+fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>) {
+    match params.peek().copied() {
+        Some("5") => {
+            params.next();
+            params.next();
+        }
+        Some("2") => {
+            params.next();
+            params.next();
+            params.next();
+            params.next();
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn sgr_resets_background(sequence: &str) -> bool {
     let Some(inner) = sequence.strip_prefix("\x1b[").and_then(|s| s.strip_suffix('m')) else {
         return false;
@@ -23,66 +39,78 @@ pub(crate) fn sgr_resets_background(sequence: &str) -> bool {
             return true;
         }
         if param == "38" || param == "48" {
-            match params.peek().copied() {
-                Some("5") => {
-                    params.next();
-                    params.next();
-                }
-                Some("2") => {
-                    params.next();
-                    params.next();
-                    params.next();
-                    params.next();
-                }
-                _ => {}
-            }
+            skip_color_params(&mut params);
         }
     }
     false
 }
 
+struct WrapState<'a> {
+    lines: &'a mut Vec<String>,
+    width: usize,
+    bg_code: String,
+    current: String,
+    active_sgr: String,
+    current_width: usize,
+    offset: usize,
+}
+
+impl WrapState<'_> {
+    fn push_char(&mut self, character: char, character_width: usize) {
+        if self.current_width > 0 && self.current_width + character_width > self.width {
+            self.lines.push(std::mem::take(&mut self.current));
+            self.current.push_str(&self.active_sgr);
+            self.current_width = 0;
+        }
+        self.current.push(character);
+        self.current_width += character_width;
+    }
+
+    fn consume_sgr(&mut self, content: &str) {
+        let Some(rel) = content[self.offset..].find('m') else {
+            return;
+        };
+        let end = self.offset + rel + 1;
+        let sequence = &content[self.offset..end];
+        self.current.push_str(sequence);
+        if sgr_resets_background(sequence) {
+            if !self.bg_code.is_empty() {
+                self.current.push_str(&self.bg_code);
+            }
+            self.active_sgr.clear();
+        } else {
+            self.active_sgr.push_str(sequence);
+        }
+        self.offset = end;
+    }
+}
+
 pub(crate) fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> Vec<String> {
     let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut active_sgr = String::new();
-    let mut current_width = 0;
-    let mut offset = 0;
-    let bg_code = bg_style.render().to_string();
+    let mut state = WrapState {
+        lines: &mut lines,
+        width,
+        bg_code: bg_style.render().to_string(),
+        current: String::new(),
+        active_sgr: String::new(),
+        current_width: 0,
+        offset: 0,
+    };
 
-    while offset < content.len() {
-        if content.as_bytes()[offset..].starts_with(b"\x1b[")
-            && let Some(end) = content[offset..].find('m')
-        {
-            let end = offset + end + 1;
-            let sequence = &content[offset..end];
-            current.push_str(sequence);
-            if sgr_resets_background(sequence) {
-                if !bg_code.is_empty() {
-                    current.push_str(&bg_code);
-                }
-                active_sgr.clear();
-            } else {
-                active_sgr.push_str(sequence);
-            }
-            offset = end;
+    while state.offset < content.len() {
+        if content.as_bytes()[state.offset..].starts_with(b"\x1b[") {
+            state.consume_sgr(content);
             continue;
         }
-
-        let Some(character) = content[offset..].chars().next() else {
+        let Some(character) = content[state.offset..].chars().next() else {
             break;
         };
         let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if current_width > 0 && current_width + character_width > width {
-            lines.push(std::mem::take(&mut current));
-            current.push_str(&active_sgr);
-            current_width = 0;
-        }
-        current.push(character);
-        current_width += character_width;
-        offset += character.len_utf8();
+        state.push_char(character, character_width);
+        state.offset += character.len_utf8();
     }
 
-    lines.push(current);
+    state.lines.push(state.current);
     lines
 }
 

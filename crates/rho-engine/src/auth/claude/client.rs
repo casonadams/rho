@@ -71,6 +71,19 @@ pub async fn exchange_code(code: &str, verifier: &str) -> Result<ClaudeTokenResp
     exchange_code_with_redirect(code, verifier, REDIRECT_URI).await
 }
 
+async fn parse_claude_token_response(res: reqwest::Response) -> Result<ClaudeTokenResponse> {
+    if !res.status().is_success() {
+        let status = res.status();
+        let body = res.text().await.unwrap_or_default();
+        return Err(AppError::Auth(format!(
+            "Claude token exchange failed ({status}): {body}"
+        )));
+    }
+    res.json::<ClaudeTokenResponse>()
+        .await
+        .map_err(|e| AppError::Auth(format!("Failed to parse Claude token response: {e}")))
+}
+
 pub async fn exchange_code_with_redirect(
     code: &str,
     verifier: &str,
@@ -92,17 +105,7 @@ pub async fn exchange_code_with_redirect(
         .await
         .map_err(|e| AppError::Auth(format!("Claude token exchange network error: {e}")))?;
 
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!(
-            "Claude token exchange failed ({status}): {body}"
-        )));
-    }
-
-    res.json::<ClaudeTokenResponse>()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse Claude token response: {e}")))
+    parse_claude_token_response(res).await
 }
 
 pub async fn refresh_token(refresh: &str) -> Result<ClaudeTokenResponse> {

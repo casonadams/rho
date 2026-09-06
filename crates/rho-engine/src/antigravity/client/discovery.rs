@@ -3,6 +3,18 @@
 
 use super::http::post_metadata;
 
+fn extract_from_array(items: &[serde_json::Value]) -> Option<String> {
+    for item in items {
+        if let Some(id) = item.as_str() {
+            return Some(id.to_string());
+        }
+        if let Some(found) = extract_project_id(item) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 pub(super) fn extract_project_id(value: &serde_json::Value) -> Option<String> {
     let direct = value
         .get("antigravityProjectId")
@@ -13,15 +25,10 @@ pub(super) fn extract_project_id(value: &serde_json::Value) -> Option<String> {
         return Some(id.to_string());
     }
     for key in ["projects", "projectIds", "cloudaicompanionProjects"] {
-        if let Some(items) = value.get(key).and_then(|v| v.as_array()) {
-            for item in items {
-                if let Some(id) = item.as_str() {
-                    return Some(id.to_string());
-                }
-                if let Some(found) = extract_project_id(item) {
-                    return Some(found);
-                }
-            }
+        if let Some(items) = value.get(key).and_then(|v| v.as_array())
+            && let Some(found) = extract_from_array(items)
+        {
+            return Some(found);
         }
     }
     None

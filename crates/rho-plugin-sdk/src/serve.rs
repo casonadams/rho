@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 #[async_trait]
 pub trait Plugin: Send + Sync {
@@ -30,22 +30,7 @@ pub async fn serve<P: Plugin + 'static>(plugin: P) {
     serve_stdio(plugin, stdin, stdout).await;
 }
 
-pub async fn serve_stdio<P: Plugin + 'static, R, W>(plugin: P, reader: R, mut writer: W)
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
-    let plugin = Arc::new(plugin);
-    let (out_tx, mut out_rx) = mpsc::channel::<String>(64);
-    let pending_rpc = Arc::new(Mutex::new(HashMap::new()));
-    let next_id = Arc::new(AtomicU64::new(1000));
-
-    let ctx = HostContext {
-        out_tx: out_tx.clone(),
-        pending_rpc: pending_rpc.clone(),
-        next_id,
-    };
-
+fn spawn_writer<W: tokio::io::AsyncWrite + Unpin + Send + 'static>(mut writer: W, mut out_rx: mpsc::Receiver<String>) {
     tokio::spawn(async move {
         while let Some(line) = out_rx.recv().await {
             if writer.write_all(line.as_bytes()).await.is_err()
@@ -56,75 +41,92 @@ where
             }
         }
     });
+}
+
+async fn handle_rpc_response(pending_rpc: &Mutex<HashMap<u64, oneshot::Sender<Value>>>, val: &Value) -> bool {
+    let Some(id) = val.get("id").and_then(Value::as_u64) else {
+        return false;
+    };
+    if val.get("method").is_some() {
+        return false;
+    }
+    let mut map = pending_rpc.lock().await;
+    if let Some(tx) = map.remove(&id) {
+        let res = val.get("result").cloned().unwrap_or(Value::Null);
+        let _ = tx.send(res);
+    }
+    true
+}
+
+async fn handle_initialize<P: Plugin>(plugin: &P, req_id: Value, out_tx: &mpsc::Sender<String>) {
+    let res = json!({
+        "jsonrpc": "2.0",
+        "id": req_id,
+        "result": {
+            "protocolVersion": "2024-11-05",
+            "subscribes": plugin.subscriptions(),
+            "serverInfo": { "name": plugin.name() }
+        }
+    });
+    let _ = out_tx.send(res.to_string()).await;
+}
+
+async fn dispatch_event<P: Plugin + 'static>(plugin: Arc<P>, ctx: HostContext, (req_id, val): (Value, &Value)) {
+    let params = val.get("params").cloned().unwrap_or(Value::Null);
+    let Ok(event) = serde_json::from_value::<StepEvent>(params) else {
+        let err = json!({
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "error": { "code": -32602, "message": "Invalid event parameters" }
+        });
+        let _ = ctx.out_tx.send(err.to_string()).await;
+        return;
+    };
+    let out_tx = ctx.out_tx.clone();
+    tokio::spawn(async move {
+        let flow = plugin.on_event(event, &ctx).await;
+        let resp = json!({ "jsonrpc": "2.0", "id": req_id, "result": flow });
+        let _ = out_tx.send(resp.to_string()).await;
+    });
+}
+
+async fn handle_request<P: Plugin + 'static>(plugin: Arc<P>, ctx: HostContext, val: Value) {
+    let Some(method) = val.get("method").and_then(Value::as_str) else {
+        return;
+    };
+    let req_id = val.get("id").cloned().unwrap_or(Value::Null);
+    if method == "initialize" {
+        handle_initialize(&*plugin, req_id, &ctx.out_tx).await;
+    } else {
+        dispatch_event(plugin, ctx, (req_id, &val)).await;
+    }
+}
+
+async fn process_line<P: Plugin + 'static>(plugin: Arc<P>, ctx: &HostContext, line: &str) {
+    let Ok(val) = serde_json::from_str::<Value>(line.trim()) else {
+        return;
+    };
+    if !handle_rpc_response(&ctx.pending_rpc, &val).await {
+        handle_request(plugin, ctx.clone(), val).await;
+    }
+}
+
+pub async fn serve_stdio<P: Plugin + 'static, R, W>(plugin: P, reader: R, writer: W)
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    W: tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let plugin = Arc::new(plugin);
+    let (out_tx, out_rx) = mpsc::channel::<String>(64);
+    let ctx = HostContext {
+        out_tx,
+        pending_rpc: Arc::new(Mutex::new(HashMap::new())),
+        next_id: Arc::new(AtomicU64::new(1000)),
+    };
+    spawn_writer(writer, out_rx);
 
     let mut lines = BufReader::new(reader).lines();
     while let Ok(Some(line)) = lines.next_line().await {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let Ok(val) = serde_json::from_str::<Value>(trimmed) else {
-            continue;
-        };
-
-        if let Some(id) = val.get("id").and_then(Value::as_u64)
-            && val.get("method").is_none()
-        {
-            let mut map = pending_rpc.lock().await;
-            if let Some(tx) = map.remove(&id) {
-                let res = val.get("result").cloned().unwrap_or(Value::Null);
-                let _ = tx.send(res);
-            }
-            continue;
-        }
-
-        let Some(method) = val.get("method").and_then(Value::as_str) else {
-            continue;
-        };
-        let req_id = val.get("id").cloned().unwrap_or(Value::Null);
-
-        if method == "initialize" {
-            let res = json!({
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "subscribes": plugin.subscriptions(),
-                    "serverInfo": {
-                        "name": plugin.name(),
-                    }
-                }
-            });
-            let _ = out_tx.send(res.to_string()).await;
-            continue;
-        }
-
-        let params = val.get("params").cloned().unwrap_or(Value::Null);
-        let Ok(event) = serde_json::from_value::<StepEvent>(params) else {
-            let err = json!({
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {
-                    "code": -32602,
-                    "message": "Invalid event parameters"
-                }
-            });
-            let _ = out_tx.send(err.to_string()).await;
-            continue;
-        };
-
-        let plugin = plugin.clone();
-        let ctx = ctx.clone();
-        let out_tx = out_tx.clone();
-
-        tokio::spawn(async move {
-            let flow = plugin.on_event(event, &ctx).await;
-            let resp = json!({
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "result": flow
-            });
-            let _ = out_tx.send(resp.to_string()).await;
-        });
+        process_line(plugin.clone(), &ctx, &line).await;
     }
 }

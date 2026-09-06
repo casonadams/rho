@@ -35,6 +35,35 @@ impl Default for OutputAccumulator {
     }
 }
 
+fn format_truncation_notice(
+    truncation: &Truncation,
+    path_str: &str,
+    (current_line_bytes, max_bytes): (usize, usize),
+) -> String {
+    let end_line = truncation.total_lines;
+    let start_line = truncation
+        .total_lines
+        .saturating_sub(truncation.output_lines)
+        .saturating_add(1);
+
+    if truncation.last_line_partial {
+        let size = format_size(truncation.output_bytes);
+        let line_size = format_size(current_line_bytes);
+        format!("\n\n[Showing last {size} of line {end_line} (line is {line_size}). Full output: {path_str}]")
+    } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
+        format!(
+            "\n\n[Showing lines {start_line}-{end_line} of {}. Full output: {path_str}]",
+            truncation.total_lines
+        )
+    } else {
+        let limit = format_size(max_bytes);
+        format!(
+            "\n\n[Showing lines {start_line}-{end_line} of {} ({limit} limit). Full output: {path_str}]",
+            truncation.total_lines
+        )
+    }
+}
+
 impl OutputAccumulator {
     pub fn new() -> Self {
         Self {
@@ -163,30 +192,8 @@ impl OutputAccumulator {
                 .as_ref()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| "temp log".to_string());
-            let end_line = truncation.total_lines;
-            let start_line = truncation
-                .total_lines
-                .saturating_sub(truncation.output_lines)
-                .saturating_add(1);
-
-            if truncation.last_line_partial {
-                let size = format_size(truncation.output_bytes);
-                let line_size = format_size(self.current_line_bytes);
-                text.push_str(&format!(
-                    "\n\n[Showing last {size} of line {end_line} (line is {line_size}). Full output: {path_str}]"
-                ));
-            } else if truncation.truncated_by == Some(TruncatedBy::Lines) {
-                text.push_str(&format!(
-                    "\n\n[Showing lines {start_line}-{end_line} of {}. Full output: {path_str}]",
-                    truncation.total_lines
-                ));
-            } else {
-                let limit = format_size(self.max_bytes);
-                text.push_str(&format!(
-                    "\n\n[Showing lines {start_line}-{end_line} of {} ({limit} limit). Full output: {path_str}]",
-                    truncation.total_lines
-                ));
-            }
+            let notice = format_truncation_notice(truncation, &path_str, (self.current_line_bytes, self.max_bytes));
+            text.push_str(&notice);
         }
         text
     }

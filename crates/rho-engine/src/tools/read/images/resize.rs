@@ -67,45 +67,53 @@ pub(crate) fn resize_to_limits(bytes: &[u8], mime: &'static str) -> Option<Resiz
     resize_with_limits(bytes, mime, ResizeLimits::INLINE)
 }
 
-/// Port of pi's `resizeImageInProcess`. Passes through when dimensions and the
-/// base64 size already fit; otherwise decodes, applies EXIF orientation, then
-/// tries PNG + JPEG candidates at decreasing sizes until one fits the budget.
-pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: ResizeLimits) -> Option<ResizedImage> {
-    // Approximate base64 length without encoding (pi parity).
+fn as_passthrough_image(
+    (bytes, mime): (&[u8], &'static str),
+    (orig_w, orig_h): (u32, u32),
+    limits: &ResizeLimits,
+) -> Option<ResizedImage> {
     let input_base64_size = bytes.len().div_ceil(3) * 4;
-    let format = image_format(mime)?;
-    let image = decode_with_orientation(bytes, format)?;
-    let (original_width, original_height) = (image.width(), image.height());
-    if original_width <= limits.max_width
-        && original_height <= limits.max_height
-        && input_base64_size < limits.max_bytes
-    {
-        return Some(ResizedImage {
+    if orig_w <= limits.max_width && orig_h <= limits.max_height && input_base64_size < limits.max_bytes {
+        Some(ResizedImage {
             data: STANDARD.encode(bytes),
             mime,
-            original_width,
-            original_height,
-            width: original_width,
-            height: original_height,
+            original_width: orig_w,
+            original_height: orig_h,
+            width: orig_w,
+            height: orig_h,
             was_resized: false,
-        });
+        })
+    } else {
+        None
     }
+}
 
-    let rgba = image.to_rgba8();
-    let (mut width, mut height) = limits.fit_dimensions(original_width, original_height);
+fn search_candidate(
+    rgba: &RgbaImage,
+    (w, h, orig_w, orig_h): (u32, u32, u32, u32),
+    max_bytes: usize,
+) -> Option<ResizedImage> {
+    for (candidate_mime, data) in encode_candidates(rgba, w, h) {
+        if data.len() < max_bytes {
+            return Some(ResizedImage {
+                data,
+                mime: candidate_mime,
+                original_width: orig_w,
+                original_height: orig_h,
+                width: w,
+                height: h,
+                was_resized: true,
+            });
+        }
+    }
+    None
+}
+
+fn resize_loop(rgba: &RgbaImage, orig: (u32, u32), limits: &ResizeLimits) -> Option<ResizedImage> {
+    let (mut width, mut height) = limits.fit_dimensions(orig.0, orig.1);
     loop {
-        for (candidate_mime, data) in encode_candidates(&rgba, width, height) {
-            if data.len() < limits.max_bytes {
-                return Some(ResizedImage {
-                    data,
-                    mime: candidate_mime,
-                    original_width,
-                    original_height,
-                    width,
-                    height,
-                    was_resized: true,
-                });
-            }
+        if let Some(res) = search_candidate(rgba, (width, height, orig.0, orig.1), limits.max_bytes) {
+            return Some(res);
         }
         if (width, height) == (1, 1) {
             return None;
@@ -116,6 +124,19 @@ pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: Resiz
         }
         (width, height) = next;
     }
+}
+
+/// Port of pi's `resizeImageInProcess`. Passes through when dimensions and the
+/// base64 size already fit; otherwise decodes, applies EXIF orientation, then
+/// tries PNG + JPEG candidates at decreasing sizes until one fits the budget.
+pub(crate) fn resize_with_limits(bytes: &[u8], mime: &'static str, limits: ResizeLimits) -> Option<ResizedImage> {
+    let format = image_format(mime)?;
+    let image = decode_with_orientation(bytes, format)?;
+    let orig = (image.width(), image.height());
+    if let Some(pass) = as_passthrough_image((bytes, mime), orig, &limits) {
+        return Some(pass);
+    }
+    resize_loop(&image.to_rgba8(), orig, &limits)
 }
 
 /// `Math.max(1, Math.floor(v * 0.75))`, with 1 kept at 1 (pi parity).

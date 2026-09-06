@@ -63,6 +63,81 @@ impl SseParser {
         self.interpret_message(msg, events);
     }
 
+    fn handle_content_block_start(
+        &mut self,
+        (index, content_block): (usize, ContentBlockStartPayload),
+        events: &mut SseEvents,
+    ) {
+        match content_block {
+            ContentBlockStartPayload::Thinking { signature } => {
+                self.thinking_open = true;
+                self.thinking_text.clear();
+                self.thinking_signature = signature;
+                events.push(Ok(RawStreamingChoice::ReasoningStart {
+                    id: StreamPartId::minted(MintKind::Reasoning, index as u64),
+                    provider_id: None,
+                }));
+            }
+            ContentBlockStartPayload::ToolUse { id, name } => {
+                self.tool_uses.insert(
+                    index,
+                    ToolUseState {
+                        id,
+                        name,
+                        input_json: String::new(),
+                    },
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_content_block_delta(&mut self, (index, delta): (usize, ContentDeltaPayload), events: &mut SseEvents) {
+        match delta {
+            ContentDeltaPayload::TextDelta { text } => {
+                events.push(Ok(RawStreamingChoice::Message(text)));
+            }
+            ContentDeltaPayload::ThinkingDelta { thinking } => {
+                self.thinking_text.push_str(&thinking);
+                events.push(Ok(RawStreamingChoice::ReasoningDelta {
+                    id: StreamPartId::minted(MintKind::Reasoning, index as u64),
+                    provider_id: None,
+                    reasoning: thinking,
+                }));
+            }
+            ContentDeltaPayload::SignatureDelta { signature } => {
+                self.thinking_signature
+                    .get_or_insert_with(String::new)
+                    .push_str(&signature);
+            }
+            ContentDeltaPayload::InputJsonDelta { partial_json } => {
+                if let Some(tool) = self.tool_uses.get_mut(&index) {
+                    tool.input_json.push_str(&partial_json);
+                }
+            }
+            ContentDeltaPayload::Other => {}
+        }
+    }
+
+    fn handle_message_stop(&mut self, events: &mut SseEvents) {
+        let mut usage = Usage::new();
+        usage.input_tokens = self.input_tokens;
+        usage.output_tokens = self.output_tokens;
+        usage.total_tokens = self.input_tokens + self.output_tokens;
+        let finish = self.finish_reason.take().unwrap_or(FinishReason::Stop);
+        let final_resp = StreamFinal::new("claude", usage).with_finish_reason(finish);
+        events.push(Ok(RawStreamingChoice::FinalResponse(final_resp)));
+    }
+
+    fn handle_message_delta(&mut self, (delta, usage): (wire::MessageDeltaPayload, Option<wire::MessageDeltaUsage>)) {
+        if let Some(reason) = delta.stop_reason {
+            self.finish_reason = Some(map_finish_reason(&reason));
+        }
+        if let Some(usage) = usage {
+            self.output_tokens = usage.output_tokens;
+        }
+    }
+
     fn interpret_message(&mut self, msg: SseMessage, events: &mut SseEvents) {
         match msg {
             SseMessage::MessageStart { message } => {
@@ -70,70 +145,15 @@ impl SseParser {
                     self.input_tokens = usage.input_tokens;
                 }
             }
-            SseMessage::ContentBlockStart { index, content_block } => match content_block {
-                ContentBlockStartPayload::Thinking { signature } => {
-                    self.thinking_open = true;
-                    self.thinking_text.clear();
-                    self.thinking_signature = signature;
-                    events.push(Ok(RawStreamingChoice::ReasoningStart {
-                        id: StreamPartId::minted(MintKind::Reasoning, index as u64),
-                        provider_id: None,
-                    }));
-                }
-                ContentBlockStartPayload::ToolUse { id, name } => {
-                    self.tool_uses.insert(
-                        index,
-                        ToolUseState {
-                            id,
-                            name,
-                            input_json: String::new(),
-                        },
-                    );
-                }
-                _ => {}
-            },
-            SseMessage::ContentBlockDelta { index, delta } => match delta {
-                ContentDeltaPayload::TextDelta { text } => {
-                    events.push(Ok(RawStreamingChoice::Message(text)));
-                }
-                ContentDeltaPayload::ThinkingDelta { thinking } => {
-                    self.thinking_text.push_str(&thinking);
-                    events.push(Ok(RawStreamingChoice::ReasoningDelta {
-                        id: StreamPartId::minted(MintKind::Reasoning, index as u64),
-                        provider_id: None,
-                        reasoning: thinking,
-                    }));
-                }
-                ContentDeltaPayload::SignatureDelta { signature } => {
-                    self.thinking_signature
-                        .get_or_insert_with(String::new)
-                        .push_str(&signature);
-                }
-                ContentDeltaPayload::InputJsonDelta { partial_json } => {
-                    if let Some(tool) = self.tool_uses.get_mut(&index) {
-                        tool.input_json.push_str(&partial_json);
-                    }
-                }
-                ContentDeltaPayload::Other => {}
-            },
+            SseMessage::ContentBlockStart { index, content_block } => {
+                self.handle_content_block_start((index, content_block), events);
+            }
+            SseMessage::ContentBlockDelta { index, delta } => {
+                self.handle_content_block_delta((index, delta), events);
+            }
             SseMessage::ContentBlockStop { index } => self.handle_block_stop(index, events),
-            SseMessage::MessageDelta { delta, usage } => {
-                if let Some(reason) = delta.stop_reason {
-                    self.finish_reason = Some(map_finish_reason(&reason));
-                }
-                if let Some(usage) = usage {
-                    self.output_tokens = usage.output_tokens;
-                }
-            }
-            SseMessage::MessageStop => {
-                let mut usage = Usage::new();
-                usage.input_tokens = self.input_tokens;
-                usage.output_tokens = self.output_tokens;
-                usage.total_tokens = self.input_tokens + self.output_tokens;
-                let finish = self.finish_reason.take().unwrap_or(FinishReason::Stop);
-                let final_resp = StreamFinal::new("claude", usage).with_finish_reason(finish);
-                events.push(Ok(RawStreamingChoice::FinalResponse(final_resp)));
-            }
+            SseMessage::MessageDelta { delta, usage } => self.handle_message_delta((delta, usage)),
+            SseMessage::MessageStop => self.handle_message_stop(events),
             SseMessage::Error { error } => {
                 let msg = error.message.unwrap_or_else(|| "Anthropic streaming error".to_string());
                 events.push(Err(CompletionError::ProviderError(msg)));
@@ -142,35 +162,46 @@ impl SseParser {
         }
     }
 
+    fn close_thinking_block(&mut self, index: usize, events: &mut SseEvents) {
+        self.thinking_open = false;
+        let text = std::mem::take(&mut self.thinking_text);
+        let signature = self.thinking_signature.take();
+        let reasoning = rig::message::Reasoning {
+            id: None,
+            content: vec![rig::message::ReasoningContent::Text {
+                text,
+                signature: signature.clone(),
+            }],
+        };
+        events.push(Ok(RawStreamingChoice::ReasoningEnd {
+            id: StreamPartId::minted(MintKind::Reasoning, index as u64),
+            reasoning: Some(reasoning),
+            signature,
+            wire_sent: true,
+        }));
+    }
+
+    fn close_tool_use_block(&mut self, index: usize, events: &mut SseEvents) {
+        let Some(tool) = self.tool_uses.remove(&index) else {
+            return;
+        };
+        let args = if tool.input_json.trim().is_empty() {
+            serde_json::json!({})
+        } else {
+            serde_json::from_str(&tool.input_json).unwrap_or_else(|_| serde_json::json!({}))
+        };
+        events.push(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+            StreamPartId::wire(tool.id),
+            tool.name,
+            args,
+        ))));
+    }
+
     fn handle_block_stop(&mut self, index: usize, events: &mut SseEvents) {
         if self.thinking_open {
-            self.thinking_open = false;
-            let text = std::mem::take(&mut self.thinking_text);
-            let signature = self.thinking_signature.take();
-            let reasoning = rig::message::Reasoning {
-                id: None,
-                content: vec![rig::message::ReasoningContent::Text {
-                    text,
-                    signature: signature.clone(),
-                }],
-            };
-            events.push(Ok(RawStreamingChoice::ReasoningEnd {
-                id: StreamPartId::minted(MintKind::Reasoning, index as u64),
-                reasoning: Some(reasoning),
-                signature,
-                wire_sent: true,
-            }));
-        } else if let Some(tool) = self.tool_uses.remove(&index) {
-            let args = if tool.input_json.trim().is_empty() {
-                serde_json::json!({})
-            } else {
-                serde_json::from_str(&tool.input_json).unwrap_or_else(|_| serde_json::json!({}))
-            };
-            events.push(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                StreamPartId::wire(tool.id),
-                tool.name,
-                args,
-            ))));
+            self.close_thinking_block(index, events);
+        } else {
+            self.close_tool_use_block(index, events);
         }
     }
 }

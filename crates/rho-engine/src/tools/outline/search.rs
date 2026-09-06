@@ -81,6 +81,33 @@ fn outline_single_file(
     ))
 }
 
+fn process_directory_entry(
+    entry: &ignore::DirEntry,
+    workspace: &Workspace,
+    options: &OutlineSearchOptions<'_>,
+) -> Option<FileOutline> {
+    if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+        return None;
+    }
+    let path = entry.path();
+    let lang = SupportedLanguage::from_path(path)?;
+    let content = std::fs::read_to_string(path).ok()?;
+    let symbols = parse_symbols(&content, lang).ok()?;
+    let filtered: Vec<_> = symbols.into_iter().filter(|s| options.matches(s)).collect();
+    if filtered.is_empty() {
+        return None;
+    }
+    let rel = path
+        .strip_prefix(workspace.root())
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string();
+    Some(FileOutline {
+        path: rel,
+        symbols: filtered,
+    })
+}
+
 fn outline_directory(
     workspace: &Workspace,
     dir_path: &Path,
@@ -91,35 +118,15 @@ fn outline_directory(
     let mut hit_file_limit = false;
 
     for entry in walker_builder(dir_path, false).build().flatten() {
-        if !entry.file_type().is_some_and(|ft| ft.is_file()) {
-            continue;
-        }
-        let path = entry.path();
-        let Some(lang) = SupportedLanguage::from_path(path) else {
-            continue;
-        };
-        scanned_files += 1;
-        if scanned_files > MAX_SCAN_FILES {
-            hit_file_limit = true;
-            break;
-        }
-        let Ok(content) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        let Ok(symbols) = parse_symbols(&content, lang) else {
-            continue;
-        };
-        let filtered: Vec<_> = symbols.into_iter().filter(|s| options.matches(s)).collect();
-        if !filtered.is_empty() {
-            let rel = path
-                .strip_prefix(workspace.root())
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
-            outlines.push(FileOutline {
-                path: rel,
-                symbols: filtered,
-            });
+        if entry.file_type().is_some_and(|ft| ft.is_file()) && SupportedLanguage::from_path(entry.path()).is_some() {
+            scanned_files += 1;
+            if scanned_files > MAX_SCAN_FILES {
+                hit_file_limit = true;
+                break;
+            }
+            if let Some(outline) = process_directory_entry(&entry, workspace, options) {
+                outlines.push(outline);
+            }
         }
     }
 

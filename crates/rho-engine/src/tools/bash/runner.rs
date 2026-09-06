@@ -7,6 +7,7 @@ use rho_harness_core::workspace::Workspace;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
+use tokio::process::Command;
 
 pub const DEFAULT_BASH_TIMEOUT_SEC: u64 = 30;
 
@@ -39,13 +40,8 @@ fn spawn_reader_task<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     })))
 }
 
-pub async fn run_command_streaming<F>(base_dir: &Path, args: &BashArgs, mut on_chunk: F) -> Result<ToolResult, AppError>
-where
-    F: FnMut(&str) + Send + 'static,
-{
-    let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
-
-    let mut cmd = resolve_shell_command(&args.command);
+fn configure_child_command(base_dir: &Path, command_str: &str) -> Command {
+    let mut cmd = resolve_shell_command(command_str);
     let base = Workspace::new(base_dir);
     cmd.current_dir(base.root());
     cmd.stdin(Stdio::null());
@@ -56,88 +52,153 @@ where
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.env("PAGER", "cat");
     crate::process::isolate_group(&mut cmd);
+    cmd
+}
 
-    let mut child = match cmd.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            return Ok(ToolResult::error(format!(
-                "Failed to spawn process for command '{}': {e}",
-                args.command
-            )));
-        }
-    };
-
+fn setup_command_child(
+    base_dir: &Path,
+    command_str: &str,
+) -> std::result::Result<
+    (
+        crate::process::ProcessTreeGuard,
+        TaskGuard,
+        TaskGuard,
+        tokio::sync::mpsc::UnboundedReceiver<String>,
+    ),
+    ToolResult,
+> {
+    let mut cmd = configure_child_command(base_dir, command_str);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| ToolResult::error(format!("Failed to spawn process for command '{command_str}': {e}")))?;
     let stdout = child.stdout.take().expect("child stdout was piped");
     let stderr = child.stderr.take().expect("child stderr was piped");
-    let mut guard = crate::process::ProcessTreeGuard::new(child);
+    let guard = crate::process::ProcessTreeGuard::new(child);
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let stdout_task = spawn_reader_task(stdout, tx.clone());
+    let stderr_task = spawn_reader_task(stderr, tx);
+    Ok((guard, stdout_task, stderr_task, rx))
+}
 
-    let (chunk_tx, mut chunk_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let mut stdout_task = spawn_reader_task(stdout, chunk_tx.clone());
-    let mut stderr_task = spawn_reader_task(stderr, chunk_tx);
-
-    let mut accumulator = OutputAccumulator::new();
-    let execution_future = async {
-        while let Some(chunk) = chunk_rx.recv().await {
-            on_chunk(&chunk);
-            accumulator.append(chunk.as_bytes());
-        }
-        if let Some(h) = stdout_task.0.take() {
-            let _ = h.await;
-        }
-        if let Some(h) = stderr_task.0.take() {
-            let _ = h.await;
-        }
-        accumulator.finish();
-        guard.wait().await
-    };
-
-    let status = match tokio::time::timeout(Duration::from_secs(timeout_sec), execution_future).await {
-        Ok(Ok(status)) => status,
-        Ok(Err(e)) => {
-            return Ok(ToolResult::error(format!(
-                "Failed waiting for command '{}': {e}",
-                args.command
-            )));
-        }
-        Err(_) => {
-            drop(stdout_task);
-            drop(stderr_task);
-            guard.kill().await;
-            while let Ok(chunk) = chunk_rx.try_recv() {
-                on_chunk(&chunk);
-                accumulator.append(chunk.as_bytes());
-            }
-            accumulator.finish();
-            let snapshot = accumulator.snapshot();
-            let output = snapshot.formatted_text.trim();
-            let status_msg = format!("Command timed out after {timeout_sec} seconds");
-            let res = if output.is_empty() {
-                status_msg
-            } else {
-                format!("{output}\n\n{status_msg}")
-            };
-            return Ok(ToolResult::error(res));
-        }
-    };
-
-    let exit_code = status.code().unwrap_or(-1);
+async fn handle_timeout_cleanup<F: FnMut(&str)>(
+    (mut guard, stdout_task, stderr_task): (crate::process::ProcessTreeGuard, TaskGuard, TaskGuard),
+    (rx, on_chunk, accumulator): (
+        &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+        &mut F,
+        &mut OutputAccumulator,
+    ),
+    timeout_sec: u64,
+) -> ToolResult {
+    drop(stdout_task);
+    drop(stderr_task);
+    guard.kill().await;
+    while let Ok(chunk) = rx.try_recv() {
+        on_chunk(&chunk);
+        accumulator.append(chunk.as_bytes());
+    }
+    accumulator.finish();
     let snapshot = accumulator.snapshot();
     let output = snapshot.formatted_text.trim();
+    let msg = format!("Command timed out after {timeout_sec} seconds");
+    let res = if output.is_empty() {
+        msg
+    } else {
+        format!("{output}\n\n{msg}")
+    };
+    ToolResult::error(res)
+}
 
+fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccumulator) -> ToolResult {
+    let snapshot = accumulator.snapshot();
+    let output = snapshot.formatted_text.trim();
     if status.success() {
         let res = if output.is_empty() {
             "[Command completed with exit code 0 (no output)]".to_string()
         } else {
             snapshot.formatted_text
         };
-        Ok(ToolResult::success(res))
+        ToolResult::success(res)
     } else {
-        let status_msg = format!("Command exited with code {exit_code}");
+        let exit_code = status.code().unwrap_or(-1);
+        let msg = format!("Command exited with code {exit_code}");
         let res = if output.is_empty() {
-            status_msg
+            msg
         } else {
-            format!("{output}\n\n{status_msg}")
+            format!("{output}\n\n{msg}")
         };
-        Ok(ToolResult::error(res))
+        ToolResult::error(res)
     }
+}
+
+async fn await_task_pair(stdout_task: &mut TaskGuard, stderr_task: &mut TaskGuard) {
+    if let Some(h) = stdout_task.0.take() {
+        let _ = h.await;
+    }
+    if let Some(h) = stderr_task.0.take() {
+        let _ = h.await;
+    }
+}
+
+async fn consume_stream_chunks<F: FnMut(&str)>(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+    on_chunk: &mut F,
+    accumulator: &mut OutputAccumulator,
+) {
+    while let Some(chunk) = rx.recv().await {
+        on_chunk(&chunk);
+        accumulator.append(chunk.as_bytes());
+    }
+}
+
+async fn execute_process_loop<F: FnMut(&str)>(
+    (rx, on_chunk, acc): (
+        &mut tokio::sync::mpsc::UnboundedReceiver<String>,
+        &mut F,
+        &mut OutputAccumulator,
+    ),
+    (stdout_task, stderr_task, guard): (&mut TaskGuard, &mut TaskGuard, &mut crate::process::ProcessTreeGuard),
+) -> std::io::Result<std::process::ExitStatus> {
+    consume_stream_chunks(rx, on_chunk, acc).await;
+    await_task_pair(stdout_task, stderr_task).await;
+    acc.finish();
+    guard.wait().await
+}
+
+async fn run_with_timeout<F>(
+    (base_dir, args, mut on_chunk): (&Path, &BashArgs, F),
+    timeout_sec: u64,
+) -> Result<ToolResult, AppError>
+where
+    F: FnMut(&str) + Send + 'static,
+{
+    let (mut guard, mut stdout_task, mut stderr_task, mut rx) = match setup_command_child(base_dir, &args.command) {
+        Ok(v) => v,
+        Err(e) => return Ok(e),
+    };
+    let mut acc = OutputAccumulator::new();
+    let exec = execute_process_loop(
+        (&mut rx, &mut on_chunk, &mut acc),
+        (&mut stdout_task, &mut stderr_task, &mut guard),
+    );
+    match tokio::time::timeout(Duration::from_secs(timeout_sec), exec).await {
+        Ok(Ok(status)) => Ok(format_exit_result(status, &acc)),
+        Ok(Err(e)) => Ok(ToolResult::error(format!(
+            "Failed waiting for command '{}': {e}",
+            args.command
+        ))),
+        Err(_) => Ok(handle_timeout_cleanup(
+            (guard, stdout_task, stderr_task),
+            (&mut rx, &mut on_chunk, &mut acc),
+            timeout_sec,
+        )
+        .await),
+    }
+}
+
+pub async fn run_command_streaming<F>(base_dir: &Path, args: &BashArgs, on_chunk: F) -> Result<ToolResult, AppError>
+where
+    F: FnMut(&str) + Send + 'static,
+{
+    let timeout_sec = args.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_SEC);
+    run_with_timeout((base_dir, args, on_chunk), timeout_sec).await
 }

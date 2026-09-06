@@ -2,19 +2,8 @@ use super::builder::CompletionSet;
 use super::types::{Completion, ModelItem, ProviderItem, SkillItem, THINKING_LEVELS};
 use crate::repl::interactive::fuzzy::fuzzy_match;
 
-pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
-    if let Some(argument) = prefix
-        .strip_prefix("/skill ")
-        .or_else(|| prefix.strip_prefix("/skills "))
-    {
-        Some(complete_skills(&set.skills, argument, cursor))
-    } else if let Some(argument) = prefix.strip_prefix("/model ") {
-        Some(complete_models(&set.models, argument, cursor))
-    } else if let Some(argument) = prefix.strip_prefix("/theme ") {
-        Some(complete_theme(argument, cursor))
-    } else if let Some(argument) = prefix.strip_prefix("/thinking ") {
-        Some(complete_thinking(argument, cursor))
-    } else if let Some(argument) = prefix.strip_prefix("/login ") {
+fn complete_auth_args(set: &CompletionSet, prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
+    if let Some(argument) = prefix.strip_prefix("/login ") {
         Some(complete_provider(
             &set.providers,
             TargetArgs {
@@ -35,6 +24,25 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
             )
         })
     }
+}
+
+pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
+    if let Some(argument) = prefix
+        .strip_prefix("/skill ")
+        .or_else(|| prefix.strip_prefix("/skills "))
+    {
+        return Some(complete_skills(&set.skills, argument, cursor));
+    }
+    if let Some(argument) = prefix.strip_prefix("/model ") {
+        return Some(complete_models(&set.models, argument, cursor));
+    }
+    if let Some(argument) = prefix.strip_prefix("/theme ") {
+        return Some(complete_theme(argument, cursor));
+    }
+    if let Some(argument) = prefix.strip_prefix("/thinking ") {
+        return Some(complete_thinking(argument, cursor));
+    }
+    complete_auth_args(set, prefix, cursor)
 }
 
 fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<Completion> {

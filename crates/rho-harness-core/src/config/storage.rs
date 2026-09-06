@@ -83,11 +83,24 @@ fn validate_plugin_args(name: &str, plugin: &PluginConfig) -> Result<()> {
     Ok(())
 }
 
-fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
-    let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
+fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
     match key {
         ConfigKey::Model => file_config.model = Some(value.to_string()),
         ConfigKey::Provider => file_config.provider = Some(value.to_string()),
+        ConfigKey::ThinkingLevel => {
+            file_config.thinking_level = (value != "off").then(|| value.to_string());
+        }
+        ConfigKey::Theme => file_config.theme = Some(value.to_string()),
+        ConfigKey::Region => file_config.region = Some(value.to_string()),
+        ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
+        ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn apply_limit_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
+    match key {
         ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::MaxTurns => file_config.max_turns = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::ContextLimit => file_config.context_limit = Some(parse_positive(key.as_str(), value)?),
@@ -95,6 +108,15 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
             file_config.context_window_messages = Some(parse_positive(key.as_str(), value)?)
         }
         ConfigKey::CompactionMaxBytes => file_config.compaction_max_bytes = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
+        ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
+        _ => apply_net_key(file_config, key, value)?,
+    }
+    Ok(())
+}
+
+fn apply_net_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
+    match key {
         ConfigKey::SearchMinIntervalMs => {
             file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?)
         }
@@ -104,22 +126,24 @@ fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Res
         ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?),
-        ConfigKey::Region => file_config.region = Some(value.to_string()),
-        ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
-        ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
-        ConfigKey::ReserveTokens => file_config.reserve_tokens = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::KeepRecentTokens => file_config.keep_recent_tokens = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::ThinkingLevel => {
-            file_config.thinking_level = if value == "off" { None } else { Some(value.to_string()) };
-        }
-        ConfigKey::Theme => file_config.theme = Some(value.to_string()),
-        ConfigKey::SessionRetentionDays => {
-            file_config.session_retention_days = if value == "off" || value == "0" {
-                Some(0)
-            } else {
-                Some(parse_positive(key.as_str(), value)?)
-            };
-        }
+        ConfigKey::SessionRetentionDays => file_config.session_retention_days = parse_retention(key.as_str(), value)?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
+    if value == "off" || value == "0" {
+        Ok(Some(0))
+    } else {
+        Ok(Some(parse_positive(key, value)?))
+    }
+}
+
+fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
+    let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
+    if !apply_model_key(file_config, &key, value)? {
+        apply_limit_key(file_config, &key, value)?;
     }
     Ok(())
 }
@@ -158,6 +182,14 @@ fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {
     Ok(())
 }
 
+async fn atomic_replace_async(temporary: &Path, path: &Path) -> Result<()> {
+    if let Err(error) = tokio::fs::rename(temporary, path).await {
+        let _ = tokio::fs::remove_file(temporary).await;
+        return Err(error.into());
+    }
+    Ok(())
+}
+
 async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
@@ -166,11 +198,7 @@ async fn write_file_config_async(path: &Path, file_config: &FileConfig) -> Resul
         .map_err(|error| AppError::Config(format!("Failed to serialize config: {error}")))?;
     let temporary = path.with_extension(format!("toml.{}.tmp", uuid::Uuid::new_v4()));
     tokio::fs::write(&temporary, serialized).await?;
-    if let Err(error) = tokio::fs::rename(&temporary, path).await {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(error.into());
-    }
-    Ok(())
+    atomic_replace_async(&temporary, path).await
 }
 
 fn parse_bool(key: &str, value: &str) -> Result<bool> {

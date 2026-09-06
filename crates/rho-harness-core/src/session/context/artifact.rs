@@ -40,39 +40,49 @@ fn critical_facts(carry: Option<&str>, messages: &[Message]) -> Vec<String> {
     facts
 }
 
+fn collect_user_tool_result_facts(
+    result: &rig::message::ToolResult,
+    facts: &mut Vec<String>,
+    seen: &mut HashSet<String>,
+) {
+    for content in &result.content {
+        let ToolResultContent::Text(text) = content else {
+            continue;
+        };
+        if result.name == "bash" || is_error_text(&text.text) {
+            insert_fact(
+                facts,
+                seen,
+                format!("tool result ({}): {}", result.name, text.text.trim()),
+            );
+        }
+    }
+}
+
+fn collect_user_facts(content: &[UserContent], facts: &mut Vec<String>, seen: &mut HashSet<String>) {
+    for part in content {
+        match part {
+            UserContent::Text(text) => collect_text_facts(&text.text, facts, seen),
+            UserContent::ToolResult(result) => collect_user_tool_result_facts(result, facts, seen),
+            _ => {}
+        }
+    }
+}
+
+fn collect_assistant_facts(content: &[AssistantContent], facts: &mut Vec<String>, seen: &mut HashSet<String>) {
+    for part in content {
+        match part {
+            AssistantContent::Text(text) => collect_text_facts(&text.text, facts, seen),
+            AssistantContent::ToolCall(call) => collect_tool_call_facts(call, facts, seen),
+            _ => {}
+        }
+    }
+}
+
 fn collect_message_facts(message: &Message, facts: &mut Vec<String>, seen: &mut HashSet<String>) {
     match message {
-        Message::User { content } => {
-            for part in content {
-                match part {
-                    UserContent::Text(text) => collect_text_facts(&text.text, facts, seen),
-                    UserContent::ToolResult(result) => {
-                        for content in &result.content {
-                            let ToolResultContent::Text(text) = content else {
-                                continue;
-                            };
-                            if result.name == "bash" || is_error_text(&text.text) {
-                                insert_fact(
-                                    facts,
-                                    seen,
-                                    format!("tool result ({}): {}", result.name, text.text.trim()),
-                                );
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-        Message::Assistant { content, .. } => {
-            for part in content {
-                match part {
-                    AssistantContent::Text(text) => collect_text_facts(&text.text, facts, seen),
-                    AssistantContent::ToolCall(call) => collect_tool_call_facts(call, facts, seen),
-                    _ => {}
-                }
-            }
-        }
+        Message::User { content } => collect_user_facts(content, facts, seen),
+        Message::Assistant { content, .. } => collect_assistant_facts(content, facts, seen),
         Message::System { content } => collect_text_facts(content, facts, seen),
     }
 }

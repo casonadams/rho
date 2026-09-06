@@ -4,48 +4,48 @@ use serde_json::Value;
 use super::suggest::match_input;
 use super::types::RuleDraft;
 
-pub fn build_permission_prompt(tool: &str, args: &Value, drafts: &[RuleDraft]) -> InteractionPrompt {
-    let input_display = match_input(args);
-    let title = "Permission Required".to_string();
-    let body = format!("Tool: {tool}\nInput: {input_display}");
+fn make_option(label: &str, desc: &str, input: Option<InteractionInput>) -> InteractionOption {
+    InteractionOption {
+        label: label.to_string(),
+        description: Some(desc.to_string()),
+        input,
+    }
+}
 
-    let always_allow_desc = drafts
+fn build_permission_options(input_display: String, drafts: &[RuleDraft]) -> Vec<InteractionOption> {
+    let always_desc = drafts
         .first()
-        .map(|draft| format!("Save rule: [{}] \"{}\" = \"allow\"", draft.surface, draft.pattern));
-
-    let options = vec![
-        InteractionOption {
-            label: "Allow".to_string(),
-            description: Some("Run this tool call once".to_string()),
-            input: None,
-        },
-        InteractionOption {
-            label: "Edit".to_string(),
-            description: Some("Edit tool arguments before running".to_string()),
-            input: Some(InteractionInput {
+        .map(|d| format!("Save rule: [{}] \"{}\" = \"allow\"", d.surface, d.pattern))
+        .unwrap_or_else(|| "Save allow rule to permission.toml".to_string());
+    vec![
+        make_option("Allow", "Run this tool call once", None),
+        make_option(
+            "Edit",
+            "Edit tool arguments before running",
+            Some(InteractionInput {
                 label: "args".to_string(),
                 value: Some(input_display),
             }),
-        },
-        InteractionOption {
-            label: "Always allow".to_string(),
-            description: always_allow_desc.or_else(|| Some("Save allow rule to permission.toml".to_string())),
-            input: None,
-        },
-        InteractionOption {
-            label: "Deny with reason".to_string(),
-            description: Some("Deny tool execution".to_string()),
-            input: Some(InteractionInput {
+        ),
+        make_option("Always allow", &always_desc, None),
+        make_option(
+            "Deny with reason",
+            "Deny tool execution",
+            Some(InteractionInput {
                 label: "reason".to_string(),
                 value: None,
             }),
-        },
-    ];
+        ),
+    ]
+}
 
+pub fn build_permission_prompt(tool: &str, args: &Value, drafts: &[RuleDraft]) -> InteractionPrompt {
+    let input_display = match_input(args);
+    let body = format!("Tool: {tool}\nInput: {input_display}");
     InteractionPrompt {
-        title,
+        title: "Permission Required".to_string(),
         body,
-        options,
+        options: build_permission_options(input_display, drafts),
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,

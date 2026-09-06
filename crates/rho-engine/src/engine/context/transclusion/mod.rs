@@ -73,49 +73,51 @@ fn parse_transclusion_target(trimmed: &str) -> Option<&str> {
     if target.is_empty() { None } else { Some(target) }
 }
 
-fn resolve_and_inline(target_str: &str, base_dir: &Path, scope: &mut TransclusionScope<'_>) -> String {
-    if scope.depth >= MAX_TRANSCLUSION_DEPTH {
-        return format!("<!-- Transclusion depth limit exceeded: {target_str} -->");
+fn validate_transclusion_target(target_str: &str, base_dir: &Path, depth: usize) -> Result<PathBuf, String> {
+    if depth >= MAX_TRANSCLUSION_DEPTH {
+        return Err(format!("<!-- Transclusion depth limit exceeded: {target_str} -->"));
     }
-
-    let target_path = base_dir.join(target_str);
-    let canonical = match target_path.canonicalize() {
-        Ok(p) => p,
-        Err(_) => {
-            return format!("<!-- Transclusion failed: file not found: {target_str} -->");
-        }
-    };
-
+    let canonical = base_dir
+        .join(target_str)
+        .canonicalize()
+        .map_err(|_| format!("<!-- Transclusion failed: file not found: {target_str} -->"))?;
     if !canonical.is_file() {
-        return format!("<!-- Transclusion failed: file not found: {target_str} -->");
+        return Err(format!("<!-- Transclusion failed: file not found: {target_str} -->"));
     }
-
     if !is_confined_target(&canonical, base_dir) {
-        return format!("<!-- Transclusion failed: path not permitted: {target_str} -->");
+        return Err(format!(
+            "<!-- Transclusion failed: path not permitted: {target_str} -->"
+        ));
     }
+    Ok(canonical)
+}
 
+fn expand_transcluded_file(canonical: &Path, target_str: &str, scope: &mut TransclusionScope<'_>) -> String {
+    let (content, truncated) = match read_bounded_file(canonical, MAX_TRANSCLUSION_BYTES) {
+        Ok(res) => res,
+        Err(_) => return format!("<!-- Transclusion failed: file not readable: {target_str} -->"),
+    };
+    let next_base = canonical.parent().unwrap_or(canonical);
+    let mut next_scope = TransclusionScope {
+        depth: scope.depth + 1,
+        visited: scope.visited,
+    };
+    let mut expanded = expand_inner(&content, next_base, &mut next_scope);
+    if truncated {
+        expanded.push_str(&format!("\n<!-- Transclusion truncated at 64 KB: {target_str} -->"));
+    }
+    expanded
+}
+
+fn resolve_and_inline(target_str: &str, base_dir: &Path, scope: &mut TransclusionScope<'_>) -> String {
+    let canonical = match validate_transclusion_target(target_str, base_dir, scope.depth) {
+        Ok(path) => path,
+        Err(err) => return err,
+    };
     if !scope.visited.insert(canonical.clone()) {
         return format!("<!-- Transclusion loop detected: {target_str} -->");
     }
-
-    let result = match read_bounded_file(&canonical, MAX_TRANSCLUSION_BYTES) {
-        Ok((file_content, truncated)) => {
-            let next_base = canonical.parent().unwrap_or(base_dir);
-            let mut next_scope = TransclusionScope {
-                depth: scope.depth + 1,
-                visited: scope.visited,
-            };
-            let mut expanded = expand_inner(&file_content, next_base, &mut next_scope);
-            if truncated {
-                expanded.push_str(&format!("\n<!-- Transclusion truncated at 64 KB: {target_str} -->"));
-            }
-            expanded
-        }
-        Err(_) => {
-            format!("<!-- Transclusion failed: file not readable: {target_str} -->")
-        }
-    };
-
+    let result = expand_transcluded_file(&canonical, target_str, scope);
     scope.visited.remove(&canonical);
     result
 }

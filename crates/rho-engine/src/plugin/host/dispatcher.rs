@@ -10,6 +10,31 @@ use rho_harness_core::presentation::{InteractionPrompt, InteractionResponse};
 use serde_json::json;
 use std::sync::Arc;
 
+fn map_select_result(response: Option<InteractionResponse>) -> HostUiSelectResult {
+    match response {
+        Some(InteractionResponse::Selected(idx)) => HostUiSelectResult {
+            selected: Some(idx),
+            custom: None,
+            cancelled: false,
+        },
+        Some(InteractionResponse::SelectedWithInput { index, text }) => HostUiSelectResult {
+            selected: Some(index),
+            custom: Some(text),
+            cancelled: false,
+        },
+        Some(InteractionResponse::Custom(text)) => HostUiSelectResult {
+            selected: None,
+            custom: Some(text),
+            cancelled: false,
+        },
+        _ => HostUiSelectResult {
+            selected: None,
+            custom: None,
+            cancelled: true,
+        },
+    }
+}
+
 pub struct HostDispatcher {
     presenter: Arc<dyn Presenter>,
 }
@@ -20,16 +45,25 @@ impl HostDispatcher {
     }
 
     pub async fn dispatch(&self, req: JsonRpcRequest) -> JsonRpcResponse {
+        self.route_request(req).await
+    }
+
+    fn route_request<'a>(
+        &'a self,
+        req: JsonRpcRequest,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = JsonRpcResponse> + Send + 'a>> {
         match req.method.as_str() {
-            "host/ui/confirm" => self.handle_confirm(req).await,
-            "host/ui/select" => self.handle_select(req).await,
-            "host/ui/input" => self.handle_input(req).await,
-            "host/ui/notify" => self.handle_notify(req),
-            "host/ui/block" => self.handle_block(req),
-            "host/ui/set_status" => self.handle_set_status(req),
-            "host/tools/list" => self.handle_tools_list(req),
-            "ui/prompt" => self.handle_legacy_prompt(req).await,
-            _ => JsonRpcResponse::err(req.id, -32601, format!("Method not found: {}", req.method)),
+            "host/ui/confirm" => Box::pin(self.handle_confirm(req)),
+            "host/ui/select" => Box::pin(self.handle_select(req)),
+            "host/ui/input" => Box::pin(self.handle_input(req)),
+            "host/ui/notify" => Box::pin(async move { self.handle_notify(req) }),
+            "host/ui/block" => Box::pin(async move { self.handle_block(req) }),
+            "host/ui/set_status" => Box::pin(async move { self.handle_set_status(req) }),
+            "host/tools/list" => Box::pin(async move { self.handle_tools_list(req) }),
+            "ui/prompt" => Box::pin(self.handle_legacy_prompt(req)),
+            _ => Box::pin(
+                async move { JsonRpcResponse::err(req.id, -32601, format!("Method not found: {}", req.method)) },
+            ),
         }
     }
 
@@ -54,28 +88,8 @@ impl HostDispatcher {
             return JsonRpcResponse::ok(req.id, json!(HeadlessGuard::fail_closed_select()));
         }
         let prompt = build_select_prompt(params);
-        let result = match self.presenter.request_interaction(prompt).await {
-            Some(InteractionResponse::Selected(idx)) => HostUiSelectResult {
-                selected: Some(idx),
-                custom: None,
-                cancelled: false,
-            },
-            Some(InteractionResponse::SelectedWithInput { index, text }) => HostUiSelectResult {
-                selected: Some(index),
-                custom: Some(text),
-                cancelled: false,
-            },
-            Some(InteractionResponse::Custom(text)) => HostUiSelectResult {
-                selected: None,
-                custom: Some(text),
-                cancelled: false,
-            },
-            Some(InteractionResponse::Cancelled) | None => HostUiSelectResult {
-                selected: None,
-                custom: None,
-                cancelled: true,
-            },
-        };
+        let response = self.presenter.request_interaction(prompt).await;
+        let result = map_select_result(response);
         JsonRpcResponse::ok(req.id, json!(result))
     }
 

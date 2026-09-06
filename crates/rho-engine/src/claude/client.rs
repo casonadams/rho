@@ -88,26 +88,34 @@ impl ClaudeClient {
         Err((Some(status.as_u16()), text))
     }
 
+    async fn refresh_and_retry(
+        &self,
+        request: &CompletionRequest,
+        body: &str,
+    ) -> Result<reqwest::Response, (Option<u16>, String)> {
+        if let Ok(new_token) = self.token_provider.force_refresh().await {
+            self.post_stream(&new_token, request).await
+        } else {
+            Err((Some(401), body.to_string()))
+        }
+    }
+
     pub(crate) async fn open_stream(
         &self,
         request: &CompletionRequest,
     ) -> Result<reqwest::Response, (Option<u16>, String)> {
-        let mut token = self
+        let token = self
             .token_provider
             .token()
             .await
             .map_err(|e| (None, format!("Failed to acquire Claude access token: {e}")))?;
 
-        let mut res = self.post_stream(&token, request).await;
+        let res = self.post_stream(&token, request).await;
         if let Err((Some(401), ref body)) = res {
-            if let Ok(new_token) = self.token_provider.force_refresh().await {
-                token = new_token;
-                res = self.post_stream(&token, request).await;
-            } else {
-                return Err((Some(401), body.clone()));
-            }
+            self.refresh_and_retry(request, body).await
+        } else {
+            res
         }
-        res
     }
 
     pub(crate) async fn feed_stream(

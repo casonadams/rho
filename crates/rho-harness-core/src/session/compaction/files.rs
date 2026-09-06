@@ -36,46 +36,65 @@ fn is_write_or_edit_tool(name: &str) -> bool {
     name == "write" || name.ends_with(":write") || name == "edit" || name.ends_with(":edit")
 }
 
+fn populate_prior_files(
+    prior: Option<&CompactionDetails>,
+    (read_set, modified_set): (&mut BTreeSet<String>, &mut BTreeSet<String>),
+) {
+    let Some(prior) = prior else {
+        return;
+    };
+    for file in &prior.read_files {
+        let norm = normalize_path(file);
+        if !norm.is_empty() {
+            read_set.insert(norm);
+        }
+    }
+    for file in &prior.modified_files {
+        let norm = normalize_path(file);
+        if !norm.is_empty() {
+            modified_set.insert(norm);
+        }
+    }
+}
+
+fn process_tool_call_file_op(
+    call: &rig::message::ToolCall,
+    (read_set, modified_set): (&mut BTreeSet<String>, &mut BTreeSet<String>),
+) {
+    let name = call.function.name.as_str();
+    let Some(raw_path) = extract_path(&call.function.arguments) else {
+        return;
+    };
+    let norm = normalize_path(&raw_path);
+    if norm.is_empty() {
+        return;
+    }
+    if is_write_or_edit_tool(name) {
+        modified_set.insert(norm);
+    } else if is_read_tool(name) {
+        read_set.insert(norm);
+    }
+}
+
+fn process_message_file_ops(msg: &Message, (read_set, modified_set): (&mut BTreeSet<String>, &mut BTreeSet<String>)) {
+    let Message::Assistant { content, .. } = msg else {
+        return;
+    };
+    for item in content {
+        if let AssistantContent::ToolCall(call) = item {
+            process_tool_call_file_op(call, (read_set, modified_set));
+        }
+    }
+}
+
 pub fn extract_file_ops(messages: &[Message], prior: Option<&CompactionDetails>) -> CompactionDetails {
     let mut read_set = BTreeSet::new();
     let mut modified_set = BTreeSet::new();
 
-    if let Some(prior) = prior {
-        for file in &prior.read_files {
-            let norm = normalize_path(file);
-            if !norm.is_empty() {
-                read_set.insert(norm);
-            }
-        }
-        for file in &prior.modified_files {
-            let norm = normalize_path(file);
-            if !norm.is_empty() {
-                modified_set.insert(norm);
-            }
-        }
-    }
-
+    populate_prior_files(prior, (&mut read_set, &mut modified_set));
     for msg in messages {
-        if let Message::Assistant { content, .. } = msg {
-            for item in content {
-                if let AssistantContent::ToolCall(call) = item {
-                    let name = call.function.name.as_str();
-                    if let Some(raw_path) = extract_path(&call.function.arguments) {
-                        let norm = normalize_path(&raw_path);
-                        if norm.is_empty() {
-                            continue;
-                        }
-                        if is_write_or_edit_tool(name) {
-                            modified_set.insert(norm);
-                        } else if is_read_tool(name) {
-                            read_set.insert(norm);
-                        }
-                    }
-                }
-            }
-        }
+        process_message_file_ops(msg, (&mut read_set, &mut modified_set));
     }
-
     for file in &modified_set {
         read_set.remove(file);
     }

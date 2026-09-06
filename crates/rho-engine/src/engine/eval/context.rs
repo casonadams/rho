@@ -9,7 +9,7 @@
 use super::mock::final_event;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::{RunTracker, TerminalStatus};
-use crate::engine::runner::{TurnOutput, TurnRequest};
+use crate::engine::runner::TurnRequest;
 use rho_harness_core::config::Config;
 use rho_harness_core::session::SessionManager;
 use rho_harness_core::session::context::{context_memory, model_visible_bytes};
@@ -50,33 +50,29 @@ pub struct ContextEvaluationInput<'a> {
     pub usage: Usage,
 }
 
-pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> ContextEvaluation {
-    let ContextEvaluationInput {
-        base_dir,
-        history,
-        bounded,
-        usage,
-    } = input;
-    let sessions = base_dir.join(if bounded { "bounded" } else { "full" });
-    let store = SessionManager::new(&sessions, None).unwrap();
-    let id = store.session_id.clone();
-    ConversationMemory::append(&store, &id, history.to_vec()).await.unwrap();
-    let memory: Arc<dyn ConversationMemory> = if bounded {
+fn build_eval_memory(store: &SessionManager, bounded: bool) -> Arc<dyn ConversationMemory> {
+    if bounded {
         context_memory(store.clone(), 4, 512)
     } else {
         Arc::new(store.clone())
-    };
-    let model = MockCompletionModel::from_stream_turns([[MockStreamEvent::text("completed"), final_event(usage)]]);
+    }
+}
+
+fn build_eval_engine(
+    (sessions, store): (std::path::PathBuf, SessionManager),
+    memory: Arc<dyn ConversationMemory>,
+    model: MockCompletionModel,
+) -> AgentEngine {
     let config = Config {
         max_turns: 2,
         sessions_dir: sessions,
         ..Config::default()
     };
-    let agent = rig::agent::AgentBuilder::from_model_handle(ModelHandle::new(model.clone()))
+    let agent = rig::agent::AgentBuilder::from_model_handle(ModelHandle::new(model))
         .memory(memory)
         .record_content_telemetry(false)
         .build();
-    let engine = AgentEngine {
+    AgentEngine {
         config,
         session_manager: store,
         tools: Vec::new(),
@@ -90,24 +86,41 @@ pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> Contex
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
         model: None,
-    };
-    let TurnOutput { metrics, usage, .. } = engine
+    }
+}
+
+fn build_context_eval_result(history: &[Message], res: crate::engine::runner::TurnOutput) -> ContextEvaluation {
+    ContextEvaluation {
+        model_visible_messages: history.len(),
+        model_visible_bytes: model_visible_bytes(history),
+        input_tokens: res.usage.map(|u| u.input_tokens),
+        success: res.metrics.success,
+        terminal_status: res.metrics.terminal_status,
+        turns: res.metrics.model_turns,
+        tool_calls: res.metrics.tool_calls,
+        tool_errors: res.metrics.tool_errors,
+        tool_denials: res.metrics.tool_denials,
+        usage_available: res.metrics.usage_available,
+    }
+}
+
+pub async fn run_context_evaluation(input: ContextEvaluationInput<'_>) -> ContextEvaluation {
+    let sessions = input.base_dir.join(if input.bounded { "bounded" } else { "full" });
+    let store = SessionManager::new(&sessions, None).unwrap();
+    ConversationMemory::append(&store, &store.session_id, input.history.to_vec())
+        .await
+        .unwrap();
+
+    let memory = build_eval_memory(&store, input.bounded);
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("completed"), final_event(input.usage)]]);
+    let engine = build_eval_engine((sessions, store), memory, model.clone());
+
+    let res = engine
         .run_turn(TurnRequest::new("continue"), super::presenter::presenter())
         .await
         .unwrap();
-    let visible = &model.requests()[0].chat_history;
-    ContextEvaluation {
-        model_visible_messages: visible.len(),
-        model_visible_bytes: model_visible_bytes(visible),
-        input_tokens: usage.map(|usage| usage.input_tokens),
-        success: metrics.success,
-        terminal_status: metrics.terminal_status,
-        turns: metrics.model_turns,
-        tool_calls: metrics.tool_calls,
-        tool_errors: metrics.tool_errors,
-        tool_denials: metrics.tool_denials,
-        usage_available: metrics.usage_available,
-    }
+    build_context_eval_result(&model.requests()[0].chat_history, res)
 }
 
 pub fn long_context_history() -> Vec<Message> {

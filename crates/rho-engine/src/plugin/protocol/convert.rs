@@ -50,10 +50,26 @@ pub fn flow_to_observation_action(flow: PluginFlow) -> ObservationAction {
     }
 }
 
-pub fn request_patch_payload_to_rig(payload: RequestPatchPayload) -> RequestPatch {
-    let mut patch = RequestPatch::new();
-    if let Some(preamble) = payload.preamble {
-        patch = patch.preamble(preamble);
+fn attach_extra_context(
+    mut patch: RequestPatch,
+    docs: Option<Vec<crate::plugin::protocol::types::DocumentPayload>>,
+) -> RequestPatch {
+    let Some(docs) = docs else {
+        return patch;
+    };
+    for doc in docs {
+        patch = patch.context(rig::completion::Document {
+            id: doc.id,
+            text: doc.text,
+            additional_props: std::collections::HashMap::new(),
+        });
+    }
+    patch
+}
+
+fn apply_scalar_patch(mut patch: RequestPatch, payload: &RequestPatchPayload) -> RequestPatch {
+    if let Some(ref preamble) = payload.preamble {
+        patch = patch.preamble(preamble.clone());
     }
     if let Some(temp) = payload.temperature {
         patch = patch.temperature(temp);
@@ -61,20 +77,16 @@ pub fn request_patch_payload_to_rig(payload: RequestPatchPayload) -> RequestPatc
     if let Some(max_tokens) = payload.max_tokens {
         patch = patch.max_tokens(max_tokens);
     }
+    patch
+}
+
+pub fn request_patch_payload_to_rig(payload: RequestPatchPayload) -> RequestPatch {
+    let mut patch = apply_scalar_patch(RequestPatch::new(), &payload);
     if let Some(tools) = payload.active_tools {
         patch = patch.active_tools(tools);
     }
     if let Some(params) = payload.additional_params {
         patch = patch.additional_params(params);
     }
-    if let Some(docs) = payload.extra_context {
-        for doc in docs {
-            patch = patch.context(rig::completion::Document {
-                id: doc.id,
-                text: doc.text,
-                additional_props: std::collections::HashMap::new(),
-            });
-        }
-    }
-    patch
+    attach_extra_context(patch, payload.extra_context)
 }

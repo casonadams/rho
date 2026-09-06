@@ -11,6 +11,60 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
+struct ReasoningStreamPlan {
+    prefix_blank: bool,
+    internal_newlines: Option<&'static str>,
+    content: String,
+}
+
+fn format_reasoning_text(history: &[String], redacted: &str) -> String {
+    if let Some(last) = history.last()
+        && !last.is_empty()
+        && (last.ends_with('.') || last.ends_with('!') || last.ends_with('?'))
+        && !redacted.starts_with(' ')
+        && !redacted.starts_with('\n')
+    {
+        format!(" {redacted}")
+    } else {
+        redacted.to_string()
+    }
+}
+
+fn pop_internal_newlines(state: &mut TerminalSinkState) -> Option<&'static str> {
+    if !state.has_reasoning_content || state.pending_reasoning_newlines == 0 {
+        return None;
+    }
+    let count = state.pending_reasoning_newlines.min(2);
+    state.pending_reasoning_newlines = 0;
+    Some(if count == 1 { "\n" } else { "\n\n" })
+}
+
+fn update_reasoning_state(state: &mut TerminalSinkState, text_to_stream: &str) -> ReasoningStreamPlan {
+    state.reasoning.push(text_to_stream.to_string());
+    let (content, trailing_newlines) = split_reasoning_chunk(text_to_stream);
+    if content.is_empty() {
+        state.pending_reasoning_newlines += trailing_newlines;
+        return ReasoningStreamPlan {
+            prefix_blank: false,
+            internal_newlines: None,
+            content: String::new(),
+        };
+    }
+    let internal_newlines = pop_internal_newlines(state);
+    let prefix_blank = matches!(
+        state.last_display,
+        DisplayKind::Tool | DisplayKind::Text | DisplayKind::None
+    );
+    state.last_display = DisplayKind::Thinking;
+    state.has_reasoning_content = true;
+    state.pending_reasoning_newlines = trailing_newlines;
+    ReasoningStreamPlan {
+        prefix_blank,
+        internal_newlines,
+        content: content.to_string(),
+    }
+}
+
 pub struct TerminalApprovalSink {
     pub presenter: std::sync::Arc<dyn Presenter>,
     pub model_label: String,
@@ -91,66 +145,40 @@ impl TerminalApprovalSink {
         }
     }
 
+    fn ensure_reasoning_spinner(&self) {
+        if !self.presenter.has_interactive_ui() {
+            self.finish_spinner();
+        } else if let Ok(mut state) = self.state.lock()
+            && state.spinner.is_none()
+        {
+            state.spinner = Some(self.presenter.start_spinner("thinking..."));
+        }
+    }
+
+    fn present_reasoning_plan(&self, plan: ReasoningStreamPlan) {
+        if plan.prefix_blank {
+            self.presenter.write_output("\n");
+        }
+        if let Some(newlines) = plan.internal_newlines {
+            self.presenter.print_thinking_token(newlines);
+        }
+        if !plan.content.is_empty() {
+            self.presenter.print_thinking_token(&plan.content);
+        }
+    }
+
     pub fn emit_reasoning(&self, text: &str) {
         if text.is_empty() {
             return;
         }
-        if !self.presenter.has_interactive_ui() {
-            self.finish_spinner();
-        } else if self.state.lock().is_ok_and(|state| state.spinner.is_none())
-            && let Ok(mut state) = self.state.lock()
-        {
-            state.spinner = Some(self.presenter.start_spinner("thinking..."));
-        }
-        let mut prefix_blank = false;
-        let mut internal_newlines = None;
-        let mut content_to_stream = String::new();
-
-        if let Ok(mut state) = self.state.lock() {
+        self.ensure_reasoning_spinner();
+        let plan = {
+            let Ok(mut state) = self.state.lock() else { return };
             let redacted = self.session_manager.redact_credentials(text);
-            let text_to_stream = if let Some(last) = state.reasoning.last()
-                && !last.is_empty()
-                && (last.ends_with('.') || last.ends_with('!') || last.ends_with('?'))
-                && !redacted.starts_with(' ')
-                && !redacted.starts_with('\n')
-            {
-                format!(" {redacted}")
-            } else {
-                redacted.clone()
-            };
-            state.reasoning.push(text_to_stream.clone());
-
-            let (content, trailing_newlines) = split_reasoning_chunk(&text_to_stream);
-            if !content.is_empty() {
-                if state.has_reasoning_content && state.pending_reasoning_newlines > 0 {
-                    let count = state.pending_reasoning_newlines.min(2);
-                    internal_newlines = Some(if count == 1 { "\n" } else { "\n\n" });
-                    state.pending_reasoning_newlines = 0;
-                }
-                if state.last_display == DisplayKind::Tool
-                    || state.last_display == DisplayKind::Text
-                    || state.last_display == DisplayKind::None
-                {
-                    prefix_blank = true;
-                }
-                state.last_display = DisplayKind::Thinking;
-                state.has_reasoning_content = true;
-                state.pending_reasoning_newlines = trailing_newlines;
-                content_to_stream = content.to_string();
-            } else {
-                state.pending_reasoning_newlines += trailing_newlines;
-            }
-        }
-
-        if prefix_blank {
-            self.presenter.write_output("\n");
-        }
-        if let Some(newlines) = internal_newlines {
-            self.presenter.print_thinking_token(newlines);
-        }
-        if !content_to_stream.is_empty() {
-            self.presenter.print_thinking_token(&content_to_stream);
-        }
+            let text_to_stream = format_reasoning_text(&state.reasoning, &redacted);
+            update_reasoning_state(&mut state, &text_to_stream)
+        };
+        self.present_reasoning_plan(plan);
     }
 
     pub fn emit_text(&self, text: &str) {
@@ -200,36 +228,47 @@ impl TerminalApprovalSink {
         }
     }
 
+    fn finish_tool_presentation(
+        &self,
+        details: &ToolFinishDetails<'_>,
+        (arguments, output, duration_ms): (&Value, &str, Option<u64>),
+    ) {
+        self.presenter.finish_tool_line(ToolLine {
+            name: details.name.to_string(),
+            arguments: arguments.clone(),
+            is_error: details.is_error,
+            output: output.to_string(),
+            output_summary: summarize_tool_output(output),
+            duration_ms,
+        });
+    }
+
+    fn record_completed_tool(&self, state: &mut TerminalSinkState, (details, status): (ToolFinishDetails<'_>, &str)) {
+        clear_spinner(state);
+        state.last_display = DisplayKind::Tool;
+        let duration_ms = state
+            .pending
+            .remove(details.name)
+            .and_then(|p| p.started)
+            .map(|s| s.elapsed().as_millis() as u64);
+        let arguments = redact_value(&self.session_manager, details.arguments);
+        let output_redacted = self.session_manager.redact_credentials(details.output);
+        self.finish_tool_presentation(&details, (&arguments, &output_redacted, duration_ms));
+        state.completed.push(CompletedTool {
+            internal_call_id: uuid::Uuid::new_v4().to_string(),
+            name: details.name.to_string(),
+            arguments,
+            output: output_redacted,
+            status: status.to_string(),
+        });
+        state.spinner = Some(self.presenter.start_spinner("thinking..."));
+    }
+
     pub fn tool_finished(&self, details: ToolFinishDetails<'_>) {
         let status = if details.is_error { "error" } else { "success" };
         self.run_tracker.tool_finished(status);
         if let Ok(mut state) = self.state.lock() {
-            clear_spinner(&mut state);
-            state.last_display = DisplayKind::Tool;
-            let duration_ms = state
-                .pending
-                .remove(details.name)
-                .and_then(|p| p.started)
-                .map(|s| s.elapsed().as_millis() as u64);
-            let arguments = redact_value(&self.session_manager, details.arguments);
-            let output_redacted = self.session_manager.redact_credentials(details.output);
-            let output_summary = summarize_tool_output(&output_redacted);
-            self.presenter.finish_tool_line(ToolLine {
-                name: details.name.to_string(),
-                arguments: arguments.clone(),
-                is_error: details.is_error,
-                output: output_redacted.clone(),
-                output_summary,
-                duration_ms,
-            });
-            state.completed.push(CompletedTool {
-                internal_call_id: uuid::Uuid::new_v4().to_string(),
-                name: details.name.to_string(),
-                arguments,
-                output: output_redacted,
-                status: status.to_string(),
-            });
-            state.spinner = Some(self.presenter.start_spinner("thinking..."));
+            self.record_completed_tool(&mut state, (details, status));
         }
     }
 

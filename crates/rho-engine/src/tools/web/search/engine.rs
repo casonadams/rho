@@ -36,27 +36,62 @@ pub struct MultiEngineParams<'a> {
 }
 
 pub async fn search_single_engine(engine: EngineKind, req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+    dispatch_engine_call(engine, req).await
+}
+
+fn dispatch_engine_call<'a>(
+    engine: EngineKind,
+    req: &'a EngineRequest<'_>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<SearchResult>, AppError>> + Send + 'a>> {
     match engine {
-        EngineKind::Brave => brave::search_brave(req).await,
-        EngineKind::DuckDuckGoLite => ddg_lite::search_ddg_lite(req).await,
-        EngineKind::Yahoo => yahoo::search_yahoo(req).await,
-        EngineKind::Firecrawl => firecrawl::search_firecrawl(req).await,
+        EngineKind::Brave => Box::pin(brave::search_brave(req)),
+        EngineKind::DuckDuckGoLite => Box::pin(ddg_lite::search_ddg_lite(req)),
+        EngineKind::Yahoo => Box::pin(yahoo::search_yahoo(req)),
+        EngineKind::Firecrawl => Box::pin(firecrawl::search_firecrawl(req)),
     }
 }
 
-pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchResult> {
-    let engines = {
-        let mut list = vec![
-            EngineKind::Brave,
-            EngineKind::DuckDuckGoLite,
-            EngineKind::Yahoo,
-            EngineKind::Firecrawl,
-        ];
-        let mut rng = rand::thread_rng();
-        list.shuffle(&mut rng);
-        list
-    };
+fn shuffled_engines() -> Vec<EngineKind> {
+    let mut list = vec![
+        EngineKind::Brave,
+        EngineKind::DuckDuckGoLite,
+        EngineKind::Yahoo,
+        EngineKind::Firecrawl,
+    ];
+    let mut rng = rand::thread_rng();
+    list.shuffle(&mut rng);
+    list
+}
 
+fn filter_result_by_domains(r: &SearchResult, allowed: &[String], blocked: &[String]) -> bool {
+    let Ok(u) = Url::parse(&r.url) else {
+        return false;
+    };
+    u.host_str()
+        .is_some_and(|host| matches_domain_filters(host, allowed, blocked))
+}
+
+fn filter_and_dedup(results: Vec<SearchResult>, (allowed, blocked): (&[String], &[String])) -> Vec<SearchResult> {
+    let filtered: Vec<_> = results
+        .into_iter()
+        .filter(|r| filter_result_by_domains(r, allowed, blocked))
+        .collect();
+    deduplicate_results(filtered)
+}
+
+async fn try_engine_round(
+    (engine, req): (EngineKind, &EngineRequest<'_>),
+    limiter: &SearchRateLimiter,
+    filters: (&[String], &[String]),
+) -> Option<Vec<SearchResult>> {
+    limiter.acquire().await;
+    let results = search_single_engine(engine, req).await.ok()?;
+    let deduplicated = filter_and_dedup(results, filters);
+    (!deduplicated.is_empty()).then_some(deduplicated)
+}
+
+pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchResult> {
+    let engines = shuffled_engines();
     let (allowed, blocked) = normalize_domain_filters(params.domains);
     let req = EngineRequest {
         http: params.http,
@@ -67,28 +102,8 @@ pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchRes
     };
 
     for engine in engines {
-        params.rate_limiter.acquire().await;
-        let res = search_single_engine(engine, &req).await;
-
-        if let Ok(results) = res {
-            let filtered: Vec<SearchResult> = results
-                .into_iter()
-                .filter(|r| match Url::parse(&r.url) {
-                    Ok(u) => {
-                        if let Some(host) = u.host_str() {
-                            matches_domain_filters(host, &allowed, &blocked)
-                        } else {
-                            false
-                        }
-                    }
-                    Err(_) => false,
-                })
-                .collect();
-
-            let deduplicated = deduplicate_results(filtered);
-            if !deduplicated.is_empty() {
-                return deduplicated.into_iter().take(params.limit).collect();
-            }
+        if let Some(deduplicated) = try_engine_round((engine, &req), params.rate_limiter, (&allowed, &blocked)).await {
+            return deduplicated.into_iter().take(params.limit).collect();
         }
     }
 

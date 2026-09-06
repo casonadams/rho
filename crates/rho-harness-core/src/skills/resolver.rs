@@ -41,29 +41,38 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
     resolved
 }
 
+fn skill_file_for_entry(path: &Path) -> Option<PathBuf> {
+    if path.is_dir() {
+        Some(path.join("SKILL.md"))
+    } else if path.extension().is_some_and(|ext| ext == "md") {
+        Some(path.to_path_buf())
+    } else {
+        None
+    }
+}
+
+fn process_skill_path(path: &Path, origin: SkillOrigin, resolved: &mut Vec<ResolvedSkill>) {
+    let Some(skill_file) = skill_file_for_entry(path) else {
+        return;
+    };
+    if skill_file.is_file()
+        && let Some(metadata) = parse_skill_file(&skill_file)
+    {
+        upsert_by_name(resolved, origin, metadata);
+    }
+}
+
 fn scan_directory(directory: &Path, origin: SkillOrigin, resolved: &mut Vec<ResolvedSkill>) {
-    if !directory.exists() || !directory.is_dir() {
+    if !directory.is_dir() {
         return;
     }
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;
     };
-    let mut entries: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
-    entries.sort();
-    for path in entries {
-        let skill_file = if path.is_dir() {
-            path.join("SKILL.md")
-        } else if path.extension().is_some_and(|ext| ext == "md") {
-            path.clone()
-        } else {
-            continue;
-        };
-        if !skill_file.is_file() {
-            continue;
-        }
-        if let Some(metadata) = parse_skill_file(&skill_file) {
-            upsert_by_name(resolved, origin, metadata);
-        }
+    let mut paths: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
+    paths.sort();
+    for path in paths {
+        process_skill_path(&path, origin, resolved);
     }
 }
 

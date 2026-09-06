@@ -7,45 +7,47 @@ pub use template::{PromptTemplate, PromptTemplateMetadata};
 
 pub static DEFAULT_SYSTEM_PROMPT: &str = include_str!("SYSTEM.md");
 
+fn is_distinct_project_dir(cwd: &Path) -> bool {
+    cwd != crate::config::default_config_dir() && cwd != crate::config::dirs_fallback()
+}
+
+fn load_project_prompts(cwd: &Path, target: &mut BTreeMap<String, PromptTemplate>) {
+    if is_distinct_project_dir(cwd) {
+        let project_dot_rho = cwd.join(".rho").join("prompts");
+        load_templates_from_dir(&project_dot_rho, "project", target);
+    }
+    let project_prompts = cwd.join("prompts");
+    load_templates_from_dir(&project_prompts, "project", target);
+}
+
 pub fn discover_prompt_templates(config_dir: Option<&Path>, cwd: Option<&Path>) -> Vec<PromptTemplate> {
     let mut resolved: BTreeMap<String, PromptTemplate> = BTreeMap::new();
-
     if let Some(config_dir) = config_dir {
-        let user_prompts_dir = config_dir.join("prompts");
-        load_templates_from_dir(&user_prompts_dir, "user", &mut resolved);
+        load_templates_from_dir(&config_dir.join("prompts"), "user", &mut resolved);
     }
-
     if let Some(cwd) = cwd {
-        if cwd != crate::config::default_config_dir() && cwd != crate::config::dirs_fallback() {
-            let project_dot_rho = cwd.join(".rho").join("prompts");
-            load_templates_from_dir(&project_dot_rho, "project", &mut resolved);
-        }
-
-        let project_prompts = cwd.join("prompts");
-        load_templates_from_dir(&project_prompts, "project", &mut resolved);
+        load_project_prompts(cwd, &mut resolved);
     }
-
     resolved.into_values().collect()
+}
+
+async fn load_project_prompts_async(cwd: &Path, target: &mut BTreeMap<String, PromptTemplate>) {
+    if is_distinct_project_dir(cwd) {
+        let project_dot_rho = cwd.join(".rho/prompts");
+        load_templates_from_dir_async(&project_dot_rho, "project", target).await;
+    }
+    let project_prompts = cwd.join("prompts");
+    load_templates_from_dir_async(&project_prompts, "project", target).await;
 }
 
 pub async fn discover_prompt_templates_async(config_dir: Option<&Path>, cwd: Option<&Path>) -> Vec<PromptTemplate> {
     let mut resolved = BTreeMap::new();
-
     if let Some(cfg) = config_dir {
-        let user_prompts = cfg.join("prompts");
-        load_templates_from_dir_async(&user_prompts, "user", &mut resolved).await;
+        load_templates_from_dir_async(&cfg.join("prompts"), "user", &mut resolved).await;
     }
-
     if let Some(cwd) = cwd {
-        if cwd != crate::config::default_config_dir() && cwd != crate::config::dirs_fallback() {
-            let project_dot_rho = cwd.join(".rho/prompts");
-            load_templates_from_dir_async(&project_dot_rho, "project", &mut resolved).await;
-        }
-
-        let project_prompts = cwd.join("prompts");
-        load_templates_from_dir_async(&project_prompts, "project", &mut resolved).await;
+        load_project_prompts_async(cwd, &mut resolved).await;
     }
-
     resolved.into_values().collect()
 }
 
@@ -69,22 +71,42 @@ fn load_templates_from_dir(dir: &Path, origin: &str, target: &mut BTreeMap<Strin
     }
 }
 
+fn is_md_file(path: &Path, is_file: bool) -> bool {
+    is_file && path.extension().and_then(|e| e.to_str()) == Some("md")
+}
+
+async fn read_prompt_template(path: &Path, origin: &str) -> Option<(String, PromptTemplate)> {
+    let stem = path.file_stem()?.to_str()?.to_string();
+    let content = tokio::fs::read_to_string(path).await.ok()?;
+    let template = PromptTemplate::parse(&stem, &content, origin);
+    Some((stem, template))
+}
+
+async fn insert_prompt_entry(entry: tokio::fs::DirEntry, origin: &str, target: &mut BTreeMap<String, PromptTemplate>) {
+    let path = entry.path();
+    let is_file = entry.metadata().await.map(|m| m.is_file()).unwrap_or(false);
+    if is_md_file(&path, is_file)
+        && let Some((stem, tmpl)) = read_prompt_template(&path, origin).await
+    {
+        target.insert(stem, tmpl);
+    }
+}
+
+async fn drain_prompt_entries_async(
+    entries: &mut tokio::fs::ReadDir,
+    origin: &str,
+    target: &mut BTreeMap<String, PromptTemplate>,
+) {
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        insert_prompt_entry(entry, origin, target).await;
+    }
+}
+
 async fn load_templates_from_dir_async(dir: &Path, origin: &str, target: &mut BTreeMap<String, PromptTemplate>) {
     let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
         return;
     };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("md")
-            && let Ok(metadata) = entry.metadata().await
-            && metadata.is_file()
-            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-            && let Ok(content) = tokio::fs::read_to_string(&path).await
-        {
-            let template = PromptTemplate::parse(stem, &content, origin);
-            target.insert(stem.to_string(), template);
-        }
-    }
+    drain_prompt_entries_async(&mut entries, origin, target).await;
 }
 
 #[cfg(test)]

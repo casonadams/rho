@@ -11,6 +11,7 @@ use rig::agent::hook::{
     AgentHook, CompletionCall, CompletionCallAction, CompletionResponse, HookContext, InvalidToolCallAction,
     InvalidToolCallContext, ObservationAction, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent,
 };
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -77,25 +78,43 @@ impl DaemonHook {
     }
 }
 
+async fn call_hook_flow(daemon: &DaemonProcess, (hook, sub): (&str, &str), val: &Value) -> Option<PluginFlow> {
+    if !daemon.subscribes_to(sub) {
+        return None;
+    }
+    let res = daemon.call(hook, val.clone()).await.ok()?;
+    res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
+}
+
+async fn call_tool_hook(
+    daemon: &DaemonProcess,
+    val: &Value,
+) -> std::result::Result<Option<ToolCallAction>, ToolCallAction> {
+    if !daemon.subscribes_to("tool_call") {
+        return Ok(None);
+    }
+    match daemon.call("hook/tool_call", val.clone()).await {
+        Ok(res) => {
+            if let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok()) {
+                let action = flow_to_tool_call_action(flow);
+                if action != ToolCallAction::run() {
+                    return Ok(Some(action));
+                }
+            }
+            Ok(None)
+        }
+        Err(err) => Err(ToolCallAction::skip(format!("Plugin '{}' failed: {err}", daemon.name))),
+    }
+}
+
 impl AgentHook for DaemonHook {
     async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
         let val = tool_call_event(event);
         for daemon in &self.daemons {
-            if !daemon.subscribes_to("tool_call") {
-                continue;
-            }
-            match daemon.call("hook/tool_call", val.clone()).await {
-                Ok(res) => {
-                    if let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok()) {
-                        let action = flow_to_tool_call_action(flow);
-                        if action != ToolCallAction::run() {
-                            return action;
-                        }
-                    }
-                }
-                Err(err) => {
-                    return ToolCallAction::skip(format!("Plugin '{}' failed: {err}", daemon.name));
-                }
+            match call_tool_hook(daemon, &val).await {
+                Ok(Some(action)) => return action,
+                Ok(None) => {}
+                Err(action) => return action,
             }
         }
         ToolCallAction::run()
@@ -118,12 +137,7 @@ impl AgentHook for DaemonHook {
     ) -> Option<InvalidToolCallAction> {
         let val = invalid_tool_call_event(event);
         for daemon in &self.daemons {
-            if !daemon.subscribes_to("invalid_tool_call") {
-                continue;
-            }
-            if let Ok(res) = daemon.call("hook/invalid_tool_call", val.clone()).await
-                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
-            {
+            if let Some(flow) = call_hook_flow(daemon, ("hook/invalid_tool_call", "invalid_tool_call"), &val).await {
                 let action = flow_to_invalid_tool_call_action(flow);
                 if action != InvalidToolCallAction::Fail {
                     return Some(action);
@@ -136,12 +150,7 @@ impl AgentHook for DaemonHook {
     async fn on_completion_call(&self, _ctx: &HookContext, event: CompletionCall<'_>) -> CompletionCallAction {
         let val = completion_call_event(event);
         for daemon in &self.daemons {
-            if !daemon.subscribes_to("completion_call") {
-                continue;
-            }
-            if let Ok(res) = daemon.call("hook/completion_call", val.clone()).await
-                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
-            {
+            if let Some(flow) = call_hook_flow(daemon, ("hook/completion_call", "completion_call"), &val).await {
                 let action = flow_to_completion_call_action(flow);
                 if action != CompletionCallAction::continue_run() {
                     return action;
@@ -154,11 +163,7 @@ impl AgentHook for DaemonHook {
     async fn on_completion_response(&self, _ctx: &HookContext, event: CompletionResponse<'_>) -> ObservationAction {
         let val = completion_response_event(event);
         for daemon in &self.daemons {
-            if !daemon.subscribes_to("completion_response") {
-                continue;
-            }
-            if let Ok(res) = daemon.call("hook/completion_response", val.clone()).await
-                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
+            if let Some(flow) = call_hook_flow(daemon, ("hook/completion_response", "completion_response"), &val).await
             {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {
@@ -172,12 +177,7 @@ impl AgentHook for DaemonHook {
     async fn on_text_delta(&self, _ctx: &HookContext, event: rig::agent::hook::TextDelta<'_>) -> ObservationAction {
         let val = text_delta_event(event.delta);
         for daemon in &self.daemons {
-            if !daemon.subscribes_to("text_delta") {
-                continue;
-            }
-            if let Ok(res) = daemon.call("hook/text_delta", val.clone()).await
-                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
-            {
+            if let Some(flow) = call_hook_flow(daemon, ("hook/text_delta", "text_delta"), &val).await {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {
                     return action;
@@ -194,12 +194,7 @@ impl AgentHook for DaemonHook {
     ) -> ObservationAction {
         let val = reasoning_delta_event(event.delta);
         for daemon in &self.daemons {
-            if !daemon.subscribes_to("reasoning_delta") {
-                continue;
-            }
-            if let Ok(res) = daemon.call("hook/reasoning_delta", val.clone()).await
-                && let Some(flow) = res.result.and_then(|r| serde_json::from_value::<PluginFlow>(r).ok())
-            {
+            if let Some(flow) = call_hook_flow(daemon, ("hook/reasoning_delta", "reasoning_delta"), &val).await {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {
                     return action;

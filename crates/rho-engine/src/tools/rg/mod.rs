@@ -22,6 +22,21 @@ pub struct RgTool {
     base_dir: PathBuf,
 }
 
+fn validate_rg_params(
+    args: &RgArgs,
+    base_dir: &Path,
+) -> std::result::Result<(RegexMatcher, Option<ignore::types::Types>, PathBuf), ToolResult> {
+    let pattern = args.pattern.trim();
+    if pattern.is_empty() {
+        return Err(ToolResult::error("Empty pattern provided for rg tool"));
+    }
+    let matcher = compile_matcher(pattern).map_err(ToolResult::error)?;
+    let types = build_type_matcher(args.file_type.as_deref()).map_err(ToolResult::error)?;
+    let workspace = Workspace::new(base_dir);
+    let search_root = search_root(&workspace, args.path.as_deref()).map_err(ToolResult::error)?;
+    Ok((matcher, types, search_root))
+}
+
 impl RgTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
@@ -30,28 +45,15 @@ impl RgTool {
     }
 
     pub async fn execute(&self, args: RgArgs) -> Result<ToolResult, AppError> {
-        let pattern = args.pattern.trim();
-        if pattern.is_empty() {
-            return Ok(ToolResult::error("Empty pattern provided for rg tool"));
-        }
-        let matcher = match compile_matcher(pattern) {
-            Ok(matcher) => matcher,
-            Err(message) => return Ok(ToolResult::error(message)),
-        };
-        let types = match build_type_matcher(args.file_type.as_deref()) {
-            Ok(types) => types,
-            Err(message) => return Ok(ToolResult::error(message)),
-        };
-        let workspace = Workspace::new(&self.base_dir);
-        let search_root = match search_root(&workspace, args.path.as_deref()) {
-            Ok(root) => root,
-            Err(message) => return Ok(ToolResult::error(message)),
+        let (matcher, types, search_root) = match validate_rg_params(&args, &self.base_dir) {
+            Ok(v) => v,
+            Err(e) => return Ok(e),
         };
         let limit = args.limit.unwrap_or(DEFAULT_RG_LIMIT).clamp(1, MAX_RG_LIMIT);
         let query = RgQuery {
-            workspace_root: workspace.root().to_path_buf(),
+            workspace_root: self.base_dir.clone(),
             search_root,
-            search_path_display: args.path.clone(),
+            search_path_display: args.path,
             matcher,
             types,
             include_hidden: args.hidden.unwrap_or(false),

@@ -20,6 +20,42 @@ pub struct ClipboardImage {
 /// that same single-flight behavior.
 static CLIPBOARD_LOCK: Mutex<()> = Mutex::new(());
 
+#[cfg(target_os = "macos")]
+fn get_os_clipboard_text() -> Option<String> {
+    if let Ok(output) = Command::new("pbpaste").output()
+        && output.status.success()
+    {
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn get_os_clipboard_text() -> Option<String> {
+    let mut wl = Command::new("wl-paste");
+    let mut xclip = Command::new("xclip");
+    xclip.args(["-selection", "clipboard", "-o"]);
+    for cmd in [&mut wl, &mut xclip] {
+        if let Ok(output) = cmd.output()
+            && output.status.success()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_string();
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn get_os_clipboard_text() -> Option<String> {
+    None
+}
+
 pub fn get_text() -> Result<Option<String>> {
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
@@ -29,39 +65,34 @@ pub fn get_text() -> Result<Option<String>> {
         return Ok(Some(text));
     }
 
+    Ok(get_os_clipboard_text())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn pipe_to_command(cmd: &mut Command, text: &str) -> bool {
+    if let Ok(mut child) = cmd.stdin(Stdio::piped()).spawn() {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        return child.wait().is_ok();
+    }
+    false
+}
+
+fn set_os_clipboard_text(text: &str) {
     #[cfg(target_os = "macos")]
     {
-        if let Ok(output) = Command::new("pbpaste").output()
-            && output.status.success()
-        {
-            let text = String::from_utf8_lossy(&output.stdout).to_string();
-            if !text.is_empty() {
-                return Ok(Some(text));
-            }
-        }
+        let _ = pipe_to_command(&mut Command::new("pbcopy"), text);
     }
 
     #[cfg(target_os = "linux")]
     {
-        if let Ok(output) = Command::new("wl-paste").output()
-            && output.status.success()
-        {
-            let text = String::from_utf8_lossy(&output.stdout).to_string();
-            if !text.is_empty() {
-                return Ok(Some(text));
-            }
-        }
-        if let Ok(output) = Command::new("xclip").args(["-selection", "clipboard", "-o"]).output()
-            && output.status.success()
-        {
-            let text = String::from_utf8_lossy(&output.stdout).to_string();
-            if !text.is_empty() {
-                return Ok(Some(text));
-            }
+        if !pipe_to_command(&mut Command::new("wl-copy"), text) {
+            let mut cmd = Command::new("xclip");
+            cmd.args(["-selection", "clipboard"]);
+            let _ = pipe_to_command(&mut cmd, text);
         }
     }
-
-    Ok(None)
 }
 
 pub fn set_text(text: &str) -> Result<()> {
@@ -72,39 +103,7 @@ pub fn set_text(text: &str) -> Result<()> {
         return Ok(());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(mut child) = Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            let _ = child.wait();
-            return Ok(());
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(mut child) = Command::new("wl-copy").stdin(Stdio::piped()).spawn() {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            let _ = child.wait();
-            return Ok(());
-        }
-        if let Ok(mut child) = Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(Stdio::piped())
-            .spawn()
-        {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            let _ = child.wait();
-            return Ok(());
-        }
-    }
-
+    set_os_clipboard_text(text);
     Ok(())
 }
 

@@ -19,7 +19,7 @@ build-release: ## Build the project in release mode
 
 .PHONY: check
 check: ## Type check all targets
-	$(CARGO) check --all-targets
+	$(CARGO) check --workspace --all-targets
 
 .PHONY: fmt
 fmt: ## Format all Rust source files
@@ -31,11 +31,12 @@ fmt-check: ## Check formatting of Rust source files
 
 .PHONY: clippy
 clippy: ## Run Clippy with warnings treated as errors
-	$(CARGO) clippy --all-targets -- -D warnings
+	$(CARGO) clippy --workspace --lib --bins -- -D warnings
+	$(CARGO) clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -D warnings
 
 .PHONY: clippy-fix
 clippy-fix: ## Automatically fix Clippy suggestions where possible
-	$(CARGO) clippy --all-targets --fix --allow-dirty --allow-staged
+	$(CARGO) clippy --workspace --all-targets --fix --allow-dirty --allow-staged
 
 .PHONY: test
 test: ## Run tests across the workspace

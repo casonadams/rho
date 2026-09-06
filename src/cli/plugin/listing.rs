@@ -15,30 +15,30 @@ pub struct PluginListingItem {
     pub managed: String,
 }
 
+fn resolve_plugin_status(path: Option<&PathBuf>) -> &'static str {
+    match path {
+        Some(p) if p.is_file() && is_executable(p) => "Installed (active)",
+        Some(p) if p.is_file() => "Missing (not executable)",
+        _ => "Missing",
+    }
+}
+
+fn resolve_plugin_managed(path: Option<&PathBuf>, cargo_bin_dir: Option<&std::path::Path>) -> &'static str {
+    match (path, cargo_bin_dir) {
+        (Some(p), Some(bin)) if is_in_cargo_bin(p, bin) => "cargo-bin",
+        _ => "system/local",
+    }
+}
+
 pub fn inspect_plugin(name: &str, plugin: &PluginConfig, env: PluginEnvironment<'_>) -> PluginListingItem {
     let command_or_path = plugin
         .command
         .as_deref()
-        .map(|s| s.to_string())
+        .map(ToString::to_string)
         .unwrap_or_else(|| plugin.path.display().to_string());
-
     let resolved_path = resolve_plugin_binary_path(plugin, env.cargo_bin_dir, env.home_dir);
-
-    let status = match &resolved_path {
-        Some(path) if path.is_file() => {
-            if is_executable(path) {
-                "Installed (active)".to_string()
-            } else {
-                "Missing (not executable)".to_string()
-            }
-        }
-        _ => "Missing".to_string(),
-    };
-
-    let managed = match (&resolved_path, env.cargo_bin_dir) {
-        (Some(path), Some(bin_dir)) if is_in_cargo_bin(path, bin_dir) => "cargo-bin".to_string(),
-        _ => "system/local".to_string(),
-    };
+    let status = resolve_plugin_status(resolved_path.as_ref()).to_string();
+    let managed = resolve_plugin_managed(resolved_path.as_ref(), env.cargo_bin_dir).to_string();
 
     PluginListingItem {
         name: name.to_string(),
@@ -60,31 +60,49 @@ pub fn collect_plugin_listings(
         .collect()
 }
 
+struct TableWidths {
+    w_name: usize,
+    w_target: usize,
+    w_status: usize,
+    w_managed: usize,
+}
+
+fn compute_table_widths(items: &[PluginListingItem]) -> TableWidths {
+    TableWidths {
+        w_name: items.iter().map(|i| i.name.len()).max().unwrap_or(0).max("NAME".len()),
+        w_target: items
+            .iter()
+            .map(|i| i.command_or_path.len())
+            .max()
+            .unwrap_or(0)
+            .max("COMMAND / PATH".len()),
+        w_status: items
+            .iter()
+            .map(|i| i.status.len())
+            .max()
+            .unwrap_or(0)
+            .max("STATUS".len()),
+        w_managed: items
+            .iter()
+            .map(|i| i.managed.len())
+            .max()
+            .unwrap_or(0)
+            .max("MANAGED".len()),
+    }
+}
+
 pub fn format_plugin_table(items: &[PluginListingItem]) -> String {
     if items.is_empty() {
         return "No plugins configured.\n".to_string();
     }
 
-    let w_name = items.iter().map(|i| i.name.len()).max().unwrap_or(0).max("NAME".len());
-    let w_target = items
-        .iter()
-        .map(|i| i.command_or_path.len())
-        .max()
-        .unwrap_or(0)
-        .max("COMMAND / PATH".len());
-    let w_status = items
-        .iter()
-        .map(|i| i.status.len())
-        .max()
-        .unwrap_or(0)
-        .max("STATUS".len());
+    let TableWidths {
+        w_name,
+        w_target,
+        w_status,
+        w_managed,
+    } = compute_table_widths(items);
     let w_enabled = "ENABLED".len();
-    let w_managed = items
-        .iter()
-        .map(|i| i.managed.len())
-        .max()
-        .unwrap_or(0)
-        .max("MANAGED".len());
 
     let mut out = format!(
         "{:<w_name$}  {:<w_target$}  {:<w_status$}  {:<w_enabled$}  {:<w_managed$}\n",

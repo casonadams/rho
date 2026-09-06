@@ -7,7 +7,7 @@ pub mod wire;
 mod tests;
 
 pub use wire::map_finish_reason;
-use wire::{StreamChunk, StreamPart, usage_from_metadata};
+use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, StreamResponseBody, usage_from_metadata};
 
 use rig::completion::CompletionError;
 use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
@@ -60,6 +60,28 @@ impl SseParser {
         events
     }
 
+    fn handle_candidate(
+        &mut self,
+        (candidate, body): (&StreamCandidate, &StreamResponseBody),
+        (json_line, events): (&str, &mut SseEvents),
+    ) {
+        for part in candidate.content.as_ref().map(|c| c.parts.clone()).unwrap_or_default() {
+            self.interpret_part(part, events);
+        }
+        if let Some(reason) = &candidate.finish_reason {
+            let usage = body
+                .usage_metadata
+                .as_ref()
+                .map(usage_from_metadata)
+                .unwrap_or_default();
+            self.close_reasoning(events);
+            let mut final_response =
+                StreamFinal::new("antigravity", usage).with_finish_reason(map_finish_reason(reason));
+            final_response.raw = serde_json::to_value(json_line).unwrap_or(Value::Null);
+            events.push(Ok(RawStreamingChoice::FinalResponse(final_response)));
+        }
+    }
+
     fn interpret_line(&mut self, line: &str, events: &mut SseEvents) {
         let Some(json_line) = line.strip_prefix("data:") else {
             return;
@@ -82,22 +104,46 @@ impl SseParser {
         }
         let body = chunk.response.unwrap_or(chunk.direct);
         for candidate in &body.candidates {
-            for part in candidate.content.as_ref().map(|c| c.parts.clone()).unwrap_or_default() {
-                self.interpret_part(part, events);
-            }
-            if let Some(reason) = &candidate.finish_reason {
-                let usage = body
-                    .usage_metadata
-                    .as_ref()
-                    .map(usage_from_metadata)
-                    .unwrap_or_default();
-                self.close_reasoning(events);
-                let mut final_response =
-                    StreamFinal::new("antigravity", usage).with_finish_reason(map_finish_reason(reason));
-                final_response.raw = serde_json::to_value(json_line).unwrap_or(Value::Null);
-                events.push(Ok(RawStreamingChoice::FinalResponse(final_response)));
-            }
+            self.handle_candidate((candidate, &body), (json_line, events));
         }
+    }
+
+    fn handle_part_function_call(
+        &mut self,
+        (call, signature): (StreamFunctionCall, Option<String>),
+        events: &mut SseEvents,
+    ) {
+        self.close_reasoning(events);
+        let sanitized = sanitize_tool_call_id(call.id.as_deref().unwrap_or_default());
+        let id = if call.id.as_deref().is_some_and(|id| !id.is_empty()) {
+            StreamPartId::wire(sanitized)
+        } else {
+            let index = self.next_minted_tool;
+            self.next_minted_tool += 1;
+            StreamPartId::minted(MintKind::Tool, index)
+        };
+        events.push(Ok(RawStreamingChoice::ToolCall(
+            RawStreamingToolCall::new(id, call.name, call.args).with_signature(signature),
+        )));
+    }
+
+    fn handle_part_thought(&mut self, (text, signature): (String, Option<String>), events: &mut SseEvents) {
+        if !self.reasoning_open {
+            self.reasoning_open = true;
+            events.push(Ok(RawStreamingChoice::ReasoningStart {
+                id: REASONING_ID,
+                provider_id: None,
+            }));
+        }
+        if let Some(sig) = signature {
+            self.reasoning_signature = Some(sig);
+        }
+        self.reasoning_text.push_str(&text);
+        events.push(Ok(RawStreamingChoice::ReasoningDelta {
+            id: REASONING_ID,
+            provider_id: None,
+            reasoning: text,
+        }));
     }
 
     fn interpret_part(&mut self, part: StreamPart, events: &mut SseEvents) {
@@ -108,49 +154,20 @@ impl SseParser {
             function_call,
         } = part;
         if let Some(call) = function_call {
-            self.close_reasoning(events);
-            let sanitized = sanitize_tool_call_id(call.id.as_deref().unwrap_or_default());
-            let id = if call.id.as_deref().is_some_and(|id| !id.is_empty()) {
-                StreamPartId::wire(sanitized)
-            } else {
-                let index = self.next_minted_tool;
-                self.next_minted_tool += 1;
-                StreamPartId::minted(MintKind::Tool, index)
-            };
-            events.push(Ok(RawStreamingChoice::ToolCall(
-                RawStreamingToolCall::new(id, call.name, call.args).with_signature(thought_signature),
-            )));
+            self.handle_part_function_call((call, thought_signature), events);
             return;
         }
         let Some(text) = text else { return };
         if thought == Some(true) {
-            if !self.reasoning_open {
-                self.reasoning_open = true;
-                events.push(Ok(RawStreamingChoice::ReasoningStart {
-                    id: REASONING_ID,
-                    provider_id: None,
-                }));
-            }
+            self.handle_part_thought((text, thought_signature), events);
+        } else if text.trim().is_empty() {
             if let Some(signature) = thought_signature {
                 self.reasoning_signature = Some(signature);
             }
-            self.reasoning_text.push_str(&text);
-            events.push(Ok(RawStreamingChoice::ReasoningDelta {
-                id: REASONING_ID,
-                provider_id: None,
-                reasoning: text,
-            }));
-            return;
+        } else {
+            self.close_reasoning(events);
+            events.push(Ok(RawStreamingChoice::Message(text)));
         }
-        // A trailing thoughtSignature can ride an empty non-thought part.
-        if text.trim().is_empty() {
-            if let Some(signature) = thought_signature {
-                self.reasoning_signature = Some(signature);
-            }
-            return;
-        }
-        self.close_reasoning(events);
-        events.push(Ok(RawStreamingChoice::Message(text)));
     }
 
     fn close_reasoning(&mut self, events: &mut SseEvents) {

@@ -1,3 +1,4 @@
+use crate::auth::AuthStore;
 use std::str::FromStr;
 
 use rho_harness_core::config::Config;
@@ -8,6 +9,30 @@ use super::AgentEngine;
 use super::builder;
 use super::runtime;
 use super::tracking::ContextTracker;
+
+pub(crate) fn resolve_context_limit(config: &Config) -> Option<usize> {
+    if let Some(limit) = config.context_limit {
+        return Some(limit);
+    }
+    if matches!(config.provider.as_str(), "local" | "ollama" | "ollama-cloud") {
+        let store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+        let keys: &[&str] = if config.provider == "ollama-cloud" {
+            &["ollama-cloud"]
+        } else {
+            &["local", "ollama"]
+        };
+        store.context_tokens(keys, &config.model)
+    } else {
+        None
+    }
+}
+
+async fn refresh_oauth_key_if_applicable(provider: &str, auth_store: &tokio::sync::Mutex<AuthStore>) {
+    if let Ok(provider_id) = ProviderId::from_str(provider.trim()) {
+        let mut store = auth_store.lock().await;
+        let _ = store.get_key(provider_id.as_str()).await;
+    }
+}
 
 impl AgentEngine {
     pub async fn build_model_handle(&self, config: &Config) -> Result<rig::agent::ModelHandle> {
@@ -22,28 +47,10 @@ impl AgentEngine {
     }
 
     pub async fn update_model(&mut self) -> Result<()> {
-        if let Ok(provider_id) = ProviderId::from_str(self.config.provider.trim()) {
-            let mut store = self.auth_store.lock().await;
-            let _ = store.get_key(provider_id.as_str()).await;
-        }
-
+        refresh_oauth_key_if_applicable(&self.config.provider, &self.auth_store).await;
         let model_handle = self.build_model_handle(&self.config).await?;
         self.model = Some(model_handle.clone());
-
-        let context_limit = match self.config.context_limit {
-            Some(limit) => Some(limit),
-            None if matches!(self.config.provider.as_str(), "local" | "ollama" | "ollama-cloud") => {
-                let store = crate::provider::ModelStore::load(self.config.config_dir.join("models-store.json"));
-                let keys: &[&str] = if self.config.provider == "ollama-cloud" {
-                    &["ollama-cloud"]
-                } else {
-                    &["local", "ollama"]
-                };
-                store.context_tokens(keys, &self.config.model)
-            }
-            None => None,
-        };
-        self.context = ContextTracker::new(context_limit);
+        self.context = ContextTracker::new(resolve_context_limit(&self.config));
 
         let base_dir = std::env::current_dir()?;
         let new_agent = runtime::build_coding_agent(
@@ -56,7 +63,6 @@ impl AgentEngine {
             },
         )?;
         *self.agent.write().await = new_agent;
-
         self.spawn_refresh_quota();
         Ok(())
     }

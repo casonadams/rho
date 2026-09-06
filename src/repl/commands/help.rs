@@ -4,8 +4,7 @@ use rho_harness_core::provider::ProviderId;
 use std::fmt::Write as _;
 use std::str::FromStr;
 
-pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
-    let mut output = "\nCommands\n\
+const HELP_REFERENCE: &str = "\nCommands\n\
   /help                       Show this reference\n\
   /settings                   Interactive runtime interface settings\n\
   /model [model] [provider]   Inspect or switch the model\n\
@@ -33,9 +32,9 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
   Ctrl+C                      Cancel the active operation\n\
   Ctrl+D                      Exit at an empty prompt\n\
   Ctrl+O                      Expand or collapse tool output\n\
-\nCurrent session\n"
-        .to_string();
+\nCurrent session\n";
 
+fn append_session_help(output: &mut String, config: &Config) {
     let _ = writeln!(output, "  Model                       {}", config.model);
     if let Ok(provider) = ProviderId::from_str(&config.provider) {
         let _ = writeln!(output, "  Provider                    {provider}");
@@ -43,10 +42,12 @@ pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
     } else {
         let _ = writeln!(output, "  Provider                    {}", config.provider);
     }
-    let _ = writeln!(
-        output,
-        "  Thinking                    {}",
-        config.thinking_level.as_deref().unwrap_or("none")
-    );
+    let thinking = config.thinking_level.as_deref().unwrap_or("none");
+    let _ = writeln!(output, "  Thinking                    {thinking}");
+}
+
+pub fn print_help(config: &Config, renderer: &TerminalRenderer) {
+    let mut output = HELP_REFERENCE.to_string();
+    append_session_help(&mut output, config);
     renderer.write_output(&output);
 }

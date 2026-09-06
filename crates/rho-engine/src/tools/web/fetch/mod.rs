@@ -44,6 +44,20 @@ impl WebFetchTool {
         }
     }
 
+    async fn get_or_fetch_text(&self, url_str: &str, (mode, format): (&str, Option<&str>)) -> Result<String, AppError> {
+        let cache_key = format!("{url_str}:{mode}:{}", format.unwrap_or(""));
+        if let Some(cached) = self.cache.get(&cache_key).await {
+            return Ok(cached);
+        }
+        let options = FetchOptions {
+            mode,
+            format_override: format,
+        };
+        let extracted = self.fetch_and_extract(url_str, options).await?;
+        self.cache.insert(cache_key, extracted.clone()).await;
+        Ok(extracted)
+    }
+
     pub async fn execute(&self, args: WebFetchArgs) -> Result<ToolResult, AppError> {
         let url_str = args.url.trim();
         if url_str.is_empty() {
@@ -53,20 +67,7 @@ impl WebFetchTool {
         let mode = args.mode.unwrap_or_else(|| "auto".to_string());
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.unwrap_or(self.default_limit);
-
-        let cache_key = format!("{}:{}:{}", url_str, mode, args.format.as_deref().unwrap_or(""));
-
-        let full_text = if let Some(cached) = self.cache.get(&cache_key).await {
-            cached
-        } else {
-            let options = FetchOptions {
-                mode: &mode,
-                format_override: args.format.as_deref(),
-            };
-            let extracted = self.fetch_and_extract(url_str, options).await?;
-            self.cache.insert(cache_key, extracted.clone()).await;
-            extracted
-        };
+        let full_text = self.get_or_fetch_text(url_str, (&mode, args.format.as_deref())).await?;
 
         Ok(format_fetch_output(FormatFetchParams {
             text: &full_text,
@@ -76,29 +77,26 @@ impl WebFetchTool {
         }))
     }
 
+    fn make_http_request<'a>(&self, url: &'a str) -> HttpRequest<'a> {
+        HttpRequest {
+            url,
+            user_agent: None,
+            timeout_sec: self.timeout_sec,
+            max_bytes: self.max_bytes,
+        }
+    }
+
+    async fn fetch_pdf(&self, url_str: &str) -> Result<String, AppError> {
+        let (bytes, _) = self.http.get_bytes(self.make_http_request(url_str)).await?;
+        extract::extract_pdf_bytes(bytes).await
+    }
+
     async fn fetch_and_extract(&self, url_str: &str, options: FetchOptions<'_>) -> Result<String, AppError> {
         if extract::is_pdf_request(url_str, options.format_override) {
-            let (bytes, _) = self
-                .http
-                .get_bytes(HttpRequest {
-                    url: url_str,
-                    user_agent: None,
-                    timeout_sec: self.timeout_sec,
-                    max_bytes: self.max_bytes,
-                })
-                .await?;
-            return extract::extract_pdf_bytes(bytes).await;
+            return self.fetch_pdf(url_str).await;
         }
 
-        let (body, content_type) = self
-            .http
-            .get_text(HttpRequest {
-                url: url_str,
-                user_agent: None,
-                timeout_sec: self.timeout_sec,
-                max_bytes: self.max_bytes,
-            })
-            .await?;
+        let (body, content_type) = self.http.get_text(self.make_http_request(url_str)).await?;
 
         Ok(extract::extract_text(extract::ExtractTextParams {
             body: &body,

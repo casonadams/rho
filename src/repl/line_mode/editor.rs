@@ -10,30 +10,36 @@ use reedline::{
     default_emacs_keybindings,
 };
 
-pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
+fn build_completion_sources(config: &Config, auth_store: &AuthStore) -> crate::repl::interactive::CompletionSources {
+    let cwd = std::env::current_dir().ok();
+    let skills = crate::skills::resolved_skills(cwd.as_deref());
+    let prompt_templates =
+        rho_harness_core::prompts::discover_prompt_templates(Some(&config.config_dir), cwd.as_deref())
+            .into_iter()
+            .map(|t| t.metadata.name)
+            .collect();
+    let models = crate::repl::interactive::discover_models(config, auth_store);
+    let custom_providers = config.providers.keys().cloned().collect();
+    crate::repl::interactive::CompletionSources::new()
+        .with_skills(skills)
+        .with_templates(prompt_templates)
+        .with_models(models)
+        .with_custom_providers(custom_providers)
+}
+
+fn build_emacs_edit_mode() -> Box<Emacs> {
     let mut keybindings = default_emacs_keybindings();
     keybindings.add_binding(
         KeyModifiers::ALT,
         KeyCode::Enter,
         ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
     );
-    let edit_mode = Box::new(Emacs::new(keybindings));
+    Box::new(Emacs::new(keybindings))
+}
 
-    let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
-    let prompt_templates = rho_harness_core::prompts::discover_prompt_templates(
-        Some(&config.config_dir),
-        std::env::current_dir().ok().as_deref(),
-    )
-    .into_iter()
-    .map(|t| t.metadata.name)
-    .collect::<Vec<_>>();
-    let models = crate::repl::interactive::discover_models(config, auth_store);
-    let custom_providers = config.providers.keys().cloned().collect();
-    let sources = crate::repl::interactive::CompletionSources::new()
-        .with_skills(skills)
-        .with_templates(prompt_templates)
-        .with_models(models)
-        .with_custom_providers(custom_providers);
+pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
+    let edit_mode = build_emacs_edit_mode();
+    let sources = build_completion_sources(config, auth_store);
     let completer = Box::new(RhoCompleter::new(sources));
     let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 

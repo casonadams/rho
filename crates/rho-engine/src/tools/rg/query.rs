@@ -8,7 +8,7 @@ use grep_searcher::SearcherBuilder;
 use grep_searcher::sinks::UTF8;
 use ignore::WalkState;
 use ignore::types::Types;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
@@ -23,91 +23,80 @@ pub struct RgQuery {
     pub include_hidden: bool,
 }
 
-impl RgQuery {
-    pub fn run(self, limit: usize) -> ToolResult {
-        let RgQuery {
-            workspace_root,
-            search_root,
-            search_path_display,
-            matcher,
-            types,
-            include_hidden,
-        } = self;
-        let mut builder = walker_builder(&search_root, include_hidden);
-        if let Some(types) = &types {
-            builder.types(types.clone());
+fn resolve_rg_relative_path(
+    path: &Path,
+    (workspace_root, search_root): (&Path, &Path),
+    search_path_display: Option<&str>,
+) -> String {
+    if let Ok(rel) = path.strip_prefix(workspace_root) {
+        rel.to_string_lossy().replace('\\', "/")
+    } else if let Ok(rel) = path.strip_prefix(search_root) {
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        let base = search_path_display.unwrap_or("");
+        if rel_str.is_empty() {
+            base.to_string()
+        } else if base.is_empty() || base.ends_with('/') {
+            format!("{base}{rel_str}")
+        } else {
+            format!("{base}/{rel_str}")
         }
+    } else {
+        path.to_string_lossy().replace('\\', "/")
+    }
+}
 
-        let matches: Mutex<Vec<LineMatch>> = Mutex::new(Vec::new());
+fn should_search_entry(entry: &ignore::DirEntry) -> bool {
+    let Some(file_type) = entry.file_type() else {
+        return false;
+    };
+    if file_type.is_dir() || file_type.is_symlink() {
+        return false;
+    }
+    entry.metadata().map(|m| m.len() <= MAX_RG_FILE_BYTES).unwrap_or(false)
+}
+
+fn search_file(
+    (searcher, matcher): (&mut grep_searcher::Searcher, &RegexMatcher),
+    (path, relative): (&Path, &str),
+    matches: &Mutex<Vec<LineMatch>>,
+) {
+    let mut sink = UTF8(|line_number, line| {
+        let mut list = matches.lock().unwrap_or_else(PoisonError::into_inner);
+        if list.len() >= RG_COLLECTION_CEILING {
+            return Ok(false);
+        }
+        let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
+        list.push(LineMatch {
+            path: relative.to_string(),
+            line: line_number,
+            text: truncated.text,
+            truncated: truncated.was_truncated,
+        });
+        Ok(true)
+    });
+    let _ = searcher.search_path(matcher, path, &mut sink);
+}
+
+impl RgQuery {
+    fn run_traversal(&self, builder: ignore::WalkBuilder, matches: &Mutex<Vec<LineMatch>>) {
+        let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
+        let matcher = &self.matcher;
+        let search_path_display = self.search_path_display.as_deref();
         builder.build_parallel().run(|| {
             let mut searcher = SearcherBuilder::new()
                 .line_number(true)
                 .binary_detection(BinaryDetection::quit(b'\x00'))
                 .build();
-            // Shared state is captured by reference; the searcher is owned by
-            // each visitor so the boxed closure stays self-contained.
-            let matches = &matches;
-            let matcher = &matcher;
-            let workspace_root = workspace_root.as_path();
-            let search_root = search_root.as_path();
-            let search_path_display = &search_path_display;
             Box::new(move |entry| {
-                let Ok(entry) = entry else {
-                    return WalkState::Continue;
-                };
-                // The walker's type matcher only filters files, so directory
-                // entries still arrive here and must be excluded from search.
-                let Some(file_type) = entry.file_type() else {
-                    return WalkState::Continue;
-                };
-                if file_type.is_dir() || file_type.is_symlink() {
+                let Ok(entry) = entry else { return WalkState::Continue };
+                if !should_search_entry(&entry) {
                     return WalkState::Continue;
                 }
-                let relative = if let Ok(rel) = entry.path().strip_prefix(workspace_root) {
-                    rel.to_string_lossy().replace('\\', "/")
-                } else if let Ok(rel) = entry.path().strip_prefix(search_root) {
-                    let rel_str = rel.to_string_lossy().replace('\\', "/");
-                    let base = search_path_display.as_deref().unwrap_or("");
-                    if rel_str.is_empty() {
-                        base.to_string()
-                    } else if base.is_empty() || base.ends_with('/') {
-                        format!("{base}{rel_str}")
-                    } else {
-                        format!("{base}/{rel_str}")
-                    }
-                } else {
-                    entry.path().to_string_lossy().replace('\\', "/")
-                };
                 if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
                     return WalkState::Quit;
                 }
-                let Ok(metadata) = entry.metadata() else {
-                    return WalkState::Continue;
-                };
-                if metadata.len() > MAX_RG_FILE_BYTES {
-                    return WalkState::Continue;
-                }
-                let mut sink = UTF8(|line_number, line| {
-                    let mut matches = matches.lock().unwrap_or_else(PoisonError::into_inner);
-                    if matches.len() >= RG_COLLECTION_CEILING {
-                        return Ok(false); // stop matching this file; the Quit below follows
-                    }
-                    // Truncate at collection time so pathological one-line files
-                    // cannot balloon shared state; pi computes the same text at
-                    // render time, and the flag below only counts shown rows.
-                    let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-                    matches.push(LineMatch {
-                        path: relative.clone(),
-                        line: line_number,
-                        text: truncated.text,
-                        truncated: truncated.was_truncated,
-                    });
-                    Ok(true)
-                });
-                // Unreadable files are skipped, never fatal.
-                if searcher.search_path(matcher, entry.path(), &mut sink).is_err() {
-                    return WalkState::Continue;
-                }
+                let relative = resolve_rg_relative_path(entry.path(), (w_root, s_root), search_path_display);
+                search_file((&mut searcher, matcher), (entry.path(), &relative), matches);
                 if matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
                     WalkState::Quit
                 } else {
@@ -115,8 +104,17 @@ impl RgQuery {
                 }
             })
         });
+    }
 
-        let matches = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
-        format_results(matches, limit)
+    pub fn run(self, limit: usize) -> ToolResult {
+        let mut builder = walker_builder(&self.search_root, self.include_hidden);
+        if let Some(types) = &self.types {
+            builder.types(types.clone());
+        }
+
+        let matches = Mutex::new(Vec::new());
+        self.run_traversal(builder, &matches);
+        let list = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
+        format_results(list, limit)
     }
 }

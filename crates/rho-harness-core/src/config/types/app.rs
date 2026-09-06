@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-pub const DEFAULT_MAX_TURNS: usize = 250;
+pub const DEFAULT_MAX_TURNS: usize = 1000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -52,10 +52,9 @@ pub struct Config {
     pub auth_file: PathBuf,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        let base_dir = default_config_dir();
-        Self {
+macro_rules! default_config_literal {
+    ($base_dir:expr) => {
+        Config {
             model: "llama3.2".to_string(),
             provider: "local".to_string(),
             max_output_tokens: None,
@@ -89,10 +88,17 @@ impl Default for Config {
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             permission: PermissionConfig::default(),
-            sessions_dir: base_dir.join("sessions"),
-            auth_file: base_dir.join("auth.json"),
-            config_dir: base_dir,
+            sessions_dir: $base_dir.join("sessions"),
+            auth_file: $base_dir.join("auth.json"),
+            config_dir: $base_dir,
         }
+    };
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let base_dir = default_config_dir();
+        default_config_literal!(base_dir)
     }
 }
 

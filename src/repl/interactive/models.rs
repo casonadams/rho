@@ -6,21 +6,26 @@ use rho_engine::provider::discovery::discover_provider_models;
 use rho_engine::provider::store::ModelStore;
 use rho_harness_core::config::Config;
 use rho_harness_core::provider::ProviderId;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::str::FromStr;
 
-/// Dynamically discovers models available to the current user from active configuration,
-/// local Ollama, live/cached provider discovery catalogs, and custom endpoints.
-pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem> {
-    let mut models = Vec::new();
-    let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
+fn push_model_item_unique(models: &mut Vec<ModelItem>, item: ModelItem) {
+    if !models
+        .iter()
+        .any(|existing| existing.id == item.id && existing.provider == item.provider)
+    {
+        models.push(item);
+    }
+}
 
-    // 1. Current active model always listed first with active status
-    let active_ctx = model_store
+fn append_active_model(models: &mut Vec<ModelItem>, config: &Config, store: &ModelStore) {
+    let active_ctx = store
         .get_models(&config.provider)
-        .and_then(|models| models.iter().find(|m| m.id == config.model))
+        .and_then(|m_list| m_list.iter().find(|m| m.id == config.model))
         .and_then(|m| m.context_tokens)
         .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&config.model));
-    let active_ctx_str = if active_ctx >= 1_000_000 {
+    let ctx_str = if active_ctx >= 1_000_000 {
         format!("{}M ctx", active_ctx / 1_000_000)
     } else {
         format!("{}k ctx", active_ctx / 1000)
@@ -28,74 +33,65 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
     models.push(ModelItem {
         id: config.model.clone(),
         provider: config.provider.clone(),
-        description: format!("{active_ctx_str} · active"),
+        description: format!("{ctx_str} · active"),
     });
+}
 
-    // 2. Local models
-    let local_models = model_store
+fn append_local_models(models: &mut Vec<ModelItem>, store: &ModelStore) {
+    let local = store
         .get_models("local")
-        .or_else(|| model_store.get_models("ollama"))
+        .or_else(|| store.get_models("ollama"))
         .cloned()
         .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for("local"));
-    for m in local_models {
-        if !models
-            .iter()
-            .any(|existing| existing.id == m.id && existing.provider == m.provider)
-        {
-            models.push(ModelItem {
-                id: m.id.clone(),
-                provider: m.provider.clone(),
-                description: m.description.clone(),
-            });
+    for m in local {
+        push_model_item_unique(
+            models,
+            ModelItem {
+                id: m.id,
+                provider: m.provider,
+                description: m.description,
+            },
+        );
+    }
+}
+
+fn append_configured_provider_models(models: &mut Vec<ModelItem>, (store, auth_store): (&ModelStore, &AuthStore)) {
+    let mut configured: Vec<String> = auth_store.list_configured_providers();
+    for prov in store.providers() {
+        if !configured.contains(prov) {
+            configured.push(prov.clone());
         }
     }
-
-    // 3. Models from configured providers in auth_store & model_store. The
-    // store keys are merged in too so a session started before a fresh login
-    // still sees the newly authenticated provider's catalog.
-    let mut configured_providers: Vec<String> = auth_store.list_configured_providers();
-    let store_providers: Vec<String> = model_store
-        .providers()
-        .filter(|prov| !configured_providers.contains(prov))
-        .cloned()
-        .collect();
-    configured_providers.extend(store_providers);
-    for prov in &configured_providers {
-        if prov == "local" || prov == "ollama" {
-            continue; // Already handled above
-        }
-        let prov_models = model_store
+    for prov in configured.iter().filter(|p| *p != "local" && *p != "ollama") {
+        let prov_models = store
             .get_models(prov)
             .cloned()
             .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(prov));
         for m in prov_models {
-            if !models
-                .iter()
-                .any(|existing| existing.id == m.id && existing.provider == m.provider)
-            {
-                models.push(ModelItem {
-                    id: m.id.clone(),
-                    provider: m.provider.clone(),
-                    description: m.description.clone(),
-                });
-            }
+            push_model_item_unique(
+                models,
+                ModelItem {
+                    id: m.id,
+                    provider: m.provider,
+                    description: m.description,
+                },
+            );
         }
     }
+}
 
-    // 4. Custom configured providers from config.toml ([providers.<name>])
+fn append_custom_provider_models(models: &mut Vec<ModelItem>, config: &Config, store: &ModelStore) {
     for (name, spec) in &config.providers {
-        if let Some(cached) = model_store.get_models(name) {
+        if let Some(cached) = store.get_models(name) {
             for m in cached {
-                if !models
-                    .iter()
-                    .any(|existing| existing.id == m.id && existing.provider == m.provider)
-                {
-                    models.push(ModelItem {
+                push_model_item_unique(
+                    models,
+                    ModelItem {
                         id: m.id.clone(),
                         provider: m.provider.clone(),
                         description: m.description.clone(),
-                    });
-                }
+                    },
+                );
             }
         } else if name != &config.provider {
             models.push(ModelItem {
@@ -105,46 +101,92 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
             });
         }
     }
+}
 
+/// Dynamically discovers models available to the current user from active configuration,
+/// local Ollama, live/cached provider discovery catalogs, and custom endpoints.
+pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem> {
+    let mut models = Vec::new();
+    let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
+    append_active_model(&mut models, config, &model_store);
+    append_local_models(&mut models, &model_store);
+    append_configured_provider_models(&mut models, (&model_store, auth_store));
+    append_custom_provider_models(&mut models, config, &model_store);
     models
+}
+
+async fn refresh_single_auth_provider(store: &mut ModelStore, auth: &AuthStore, prov: &str) {
+    if let Ok(id) = ProviderId::from_str(prov)
+        && let Ok(discovered) = discover_provider_models(id, auth).await
+    {
+        let _ = store.set_models_async(prov, discovered).await;
+    }
+}
+
+fn is_remote_provider(p: &str) -> bool {
+    p != "local" && p != "ollama"
+}
+
+async fn refresh_auth_provider_models(store: &mut ModelStore, auth: &AuthStore) {
+    for prov in auth.list_configured_providers() {
+        if is_remote_provider(&prov) {
+            refresh_single_auth_provider(store, auth, &prov).await;
+        }
+    }
+}
+
+async fn discover_custom(
+    name: &str,
+    base_url: &str,
+    auth: &AuthStore,
+) -> Option<Vec<rho_engine::provider::discovery::DiscoveredModel>> {
+    let key = auth.get_key_sync(name).ok().flatten();
+    rho_engine::provider::discovery::discover_custom_provider_models(name, base_url, key.as_deref())
+        .await
+        .ok()
+}
+
+async fn refresh_single_custom_provider(
+    store: &mut ModelStore,
+    auth: &AuthStore,
+    (name, spec): (&str, &rho_harness_core::config::ProviderConfig),
+) {
+    if let Some(discovered) = discover_custom(name, &spec.base_url, auth).await {
+        let _ = store.set_models_async(name, discovered).await;
+    }
+}
+
+async fn refresh_custom_provider_models(
+    store: &mut ModelStore,
+    auth: &AuthStore,
+    custom: BTreeMap<String, rho_harness_core::config::ProviderConfig>,
+) {
+    for (name, spec) in &custom {
+        refresh_single_custom_provider(store, auth, (name, spec)).await;
+    }
+}
+
+async fn refresh_local_models(store: &mut ModelStore, auth: &AuthStore) {
+    if let Ok(discovered) = discover_provider_models(ProviderId::Local, auth).await {
+        let _ = store.set_models_async("local", discovered).await;
+    }
+}
+
+async fn refresh_discovered_models(
+    config_dir: PathBuf,
+    auth: AuthStore,
+    custom_providers: BTreeMap<String, rho_harness_core::config::ProviderConfig>,
+) {
+    let mut store = ModelStore::load_async(config_dir.join("models-store.json")).await;
+    refresh_local_models(&mut store, &auth).await;
+    refresh_auth_provider_models(&mut store, &auth).await;
+    refresh_custom_provider_models(&mut store, &auth, custom_providers).await;
 }
 
 /// Spawns a background task to refresh models from live provider endpoints.
 pub fn spawn_background_model_refresh(config: &Config, auth_store: &AuthStore) {
     let config_dir = config.config_dir.clone();
-    let auth_store_clone = auth_store.clone();
-    let configured_providers = auth_store.list_configured_providers();
-    let custom_providers = config.providers.clone();
-
-    tokio::spawn(async move {
-        let mut store = ModelStore::load_async(config_dir.join("models-store.json")).await;
-
-        // Always discover local models
-        if let Ok(discovered) = discover_provider_models(ProviderId::Local, &auth_store_clone).await {
-            let _ = store.set_models_async("local", discovered).await;
-        }
-
-        // Discover configured authenticated providers
-        for prov_str in configured_providers {
-            if prov_str == "local" || prov_str == "ollama" {
-                continue;
-            }
-            if let Ok(id) = ProviderId::from_str(&prov_str)
-                && let Ok(discovered) = discover_provider_models(id, &auth_store_clone).await
-            {
-                let _ = store.set_models_async(&prov_str, discovered).await;
-            }
-        }
-
-        // Discover custom endpoints
-        for (name, spec) in custom_providers {
-            let key = auth_store_clone.get_key_sync(&name).ok().flatten();
-            if let Ok(discovered) =
-                rho_engine::provider::discovery::discover_custom_provider_models(&name, &spec.base_url, key.as_deref())
-                    .await
-            {
-                let _ = store.set_models_async(&name, discovered).await;
-            }
-        }
-    });
+    let auth = auth_store.clone();
+    let custom = config.providers.clone();
+    tokio::spawn(refresh_discovered_models(config_dir, auth, custom));
 }

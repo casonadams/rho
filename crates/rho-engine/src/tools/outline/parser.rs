@@ -29,6 +29,20 @@ const CONTAINER_KINDS: &[&str] = &[
     "module",
 ];
 
+fn build_symbol_entry((decl, name_node): (Node<'_>, Option<Node<'_>>), tag: &str, source: &str) -> SymbolEntry {
+    let candidate = SymbolCandidate { tag, decl, name_node };
+    let (kind, name) = classify_kind_and_name(candidate, source);
+    let (signature, line) = extract_signature(decl, source);
+    let depth = compute_depth(decl);
+    SymbolEntry {
+        name,
+        kind,
+        signature,
+        line,
+        depth,
+    }
+}
+
 pub fn parse_symbols(source: &str, language: SupportedLanguage) -> Result<Vec<SymbolEntry>, OutlineParseError> {
     let mut parser = language.create_parser()?;
     let tree = parser.parse(source, None).ok_or(OutlineParseError::FailedParse)?;
@@ -42,23 +56,11 @@ pub fn parse_symbols(source: &str, language: SupportedLanguage) -> Result<Vec<Sy
 
     while let Some(m) = matches.next() {
         let (decl_node, name_node, tag) = resolve_capture(m.captures, capture_names);
-        let Some(decl) = decl_node else { continue };
-        if !seen.insert(decl.id()) {
-            continue;
+        if let Some(decl) = decl_node
+            && seen.insert(decl.id())
+        {
+            entries.push(build_symbol_entry((decl, name_node), tag, source));
         }
-
-        let candidate = SymbolCandidate { tag, decl, name_node };
-        let (kind, name) = classify_kind_and_name(candidate, source);
-        let (signature, line) = extract_signature(decl, source);
-        let depth = compute_depth(decl);
-
-        entries.push(SymbolEntry {
-            name,
-            kind,
-            signature,
-            line,
-            depth,
-        });
     }
 
     entries.sort_by_key(|e| (e.line, e.depth));

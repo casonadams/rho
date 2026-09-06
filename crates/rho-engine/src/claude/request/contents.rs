@@ -44,41 +44,45 @@ fn append_turn(turns: &mut Vec<(String, Vec<Value>)>, role: &str, mut parts: Vec
     }
 }
 
+fn tool_result_json(result: &rig::message::ToolResult) -> Value {
+    let text = result
+        .content
+        .iter()
+        .filter_map(|c| match c {
+            ToolResultContent::Text(t) => Some(t.text.as_str()),
+            ToolResultContent::Json { value } => value.as_str(),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    json!({
+        "type": "tool_result",
+        "tool_use_id": result.call.to_string(),
+        "content": text,
+    })
+}
+
+fn image_json(image: &rig::message::Image) -> Option<Value> {
+    let data = match &image.data {
+        rig::message::DocumentSourceKind::Base64(b64) => b64.clone(),
+        rig::message::DocumentSourceKind::Raw(bytes) => base64::engine::general_purpose::STANDARD.encode(bytes),
+        _ => return None,
+    };
+    Some(json!({
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": image.media_type.as_ref().map(image_mime).unwrap_or("image/png"),
+            "data": data,
+        }
+    }))
+}
+
 fn convert_user_content(item: &UserContent) -> Option<Value> {
     match item {
         UserContent::Text(text) if !text.text.trim().is_empty() => Some(json!({ "type": "text", "text": text.text })),
-        UserContent::ToolResult(result) => {
-            let text = result
-                .content
-                .iter()
-                .filter_map(|c| match c {
-                    ToolResultContent::Text(t) => Some(t.text.as_str()),
-                    ToolResultContent::Json { value } => value.as_str(),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            Some(json!({
-                "type": "tool_result",
-                "tool_use_id": result.call.to_string(),
-                "content": text,
-            }))
-        }
-        UserContent::Image(image) => {
-            let data = match &image.data {
-                rig::message::DocumentSourceKind::Base64(b64) => b64.clone(),
-                rig::message::DocumentSourceKind::Raw(bytes) => base64::engine::general_purpose::STANDARD.encode(bytes),
-                _ => return None,
-            };
-            Some(json!({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": image.media_type.as_ref().map(image_mime).unwrap_or("image/png"),
-                    "data": data,
-                }
-            }))
-        }
+        UserContent::ToolResult(result) => Some(tool_result_json(result)),
+        UserContent::Image(image) => image_json(image),
         _ => None,
     }
 }

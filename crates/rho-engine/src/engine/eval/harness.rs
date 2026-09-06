@@ -19,21 +19,29 @@ use std::collections::HashMap;
 
 pub struct EvalHarness;
 
+fn build_harness_engine(
+    scenario: &EvalScenario,
+    base_dir: &std::path::Path,
+    model: &rig::test_utils::MockCompletionModel,
+) -> crate::engine::AgentEngine {
+    mock_engine(
+        model.clone(),
+        super::mock::MockEngineConfig {
+            base_dir,
+            app_config: rho_harness_core::config::Config {
+                max_turns: scenario.max_turns,
+                ..rho_harness_core::config::Config::default()
+            },
+            session_manager: None,
+            built_in_tools: scenario.built_in_tools.clone(),
+        },
+    )
+}
+
 impl EvalHarness {
     pub async fn run(scenario: EvalScenario, base_dir: &std::path::Path) -> Result<EvalReport, EvalFailure> {
         let model = rig::test_utils::MockCompletionModel::from_stream_turns(scenario.turns.clone());
-        let engine = mock_engine(
-            model.clone(),
-            super::mock::MockEngineConfig {
-                base_dir,
-                app_config: rho_harness_core::config::Config {
-                    max_turns: scenario.max_turns,
-                    ..rho_harness_core::config::Config::default()
-                },
-                session_manager: None,
-                built_in_tools: scenario.built_in_tools.clone(),
-            },
-        );
+        let engine = build_harness_engine(&scenario, base_dir, &model);
         let output = engine
             .run_turn(TurnRequest::new(scenario.prompt), super::presenter::presenter())
             .await

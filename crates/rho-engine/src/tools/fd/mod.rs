@@ -24,6 +24,43 @@ pub struct FdTool {
     base_dir: PathBuf,
 }
 
+fn build_fd_regex(pattern: Option<&str>) -> std::result::Result<Option<Regex>, ToolResult> {
+    match pattern {
+        Some(p) => compile_pattern(p).map(Some).map_err(ToolResult::error),
+        None => Ok(None),
+    }
+}
+
+fn determine_fd_stats(args: &FdArgs) -> (bool, bool) {
+    let implied =
+        args.min_lines.is_some() || args.max_lines.is_some() || matches!(args.sort, Some(FdSort::Lines | FdSort::Size));
+    let show_stats = args.stats.unwrap_or(implied);
+    let stats_needed = show_stats || implied;
+    (show_stats, stats_needed)
+}
+
+fn build_fd_query(
+    workspace: &Workspace,
+    args: FdArgs,
+    (regex, types, search_root): (Option<Regex>, Option<ignore::types::Types>, PathBuf),
+) -> FdQuery {
+    let (show_stats, stats_needed) = determine_fd_stats(&args);
+    FdQuery {
+        workspace_root: workspace.root().to_path_buf(),
+        search_root,
+        search_path_display: args.path,
+        regex,
+        types,
+        include_hidden: args.hidden.unwrap_or(false),
+        depth: args.depth.map(|d| d.clamp(1, MAX_FD_DEPTH)),
+        stats_needed,
+        min_lines: args.min_lines,
+        max_lines: args.max_lines,
+        sort: args.sort,
+        show_stats,
+    }
+}
+
 impl FdTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
         Self {
@@ -33,47 +70,22 @@ impl FdTool {
 
     pub async fn execute(&self, args: FdArgs) -> Result<ToolResult, AppError> {
         let pattern = args.pattern.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        let regex = match pattern {
-            Some(p) => match compile_pattern(p) {
-                Ok(regex) => Some(regex),
-                Err(message) => return Ok(ToolResult::error(message)),
-            },
-            None => None,
+        let regex = match build_fd_regex(pattern) {
+            Ok(r) => r,
+            Err(e) => return Ok(e),
         };
         let types = match build_type_matcher(args.file_type.as_deref()) {
-            Ok(types) => types,
-            Err(message) => return Ok(ToolResult::error(message)),
+            Ok(t) => t,
+            Err(e) => return Ok(ToolResult::error(e)),
         };
         let workspace = Workspace::new(&self.base_dir);
         let search_root = match search_root(&workspace, args.path.as_deref()) {
-            Ok(root) => root,
-            Err(message) => return Ok(ToolResult::error(message)),
+            Ok(r) => r,
+            Err(e) => return Ok(ToolResult::error(e)),
         };
         let limit = args.limit.unwrap_or(DEFAULT_FD_LIMIT).clamp(1, MAX_FD_LIMIT);
-        let show_stats = args.stats.unwrap_or(
-            args.min_lines.is_some()
-                || args.max_lines.is_some()
-                || matches!(args.sort, Some(FdSort::Lines | FdSort::Size)),
-        );
-        let stats_needed = show_stats
-            || args.min_lines.is_some()
-            || args.max_lines.is_some()
-            || matches!(args.sort, Some(FdSort::Lines | FdSort::Size));
+        let query = build_fd_query(&workspace, args, (regex, types, search_root));
 
-        let query = FdQuery {
-            workspace_root: workspace.root().to_path_buf(),
-            search_root,
-            search_path_display: args.path.clone(),
-            regex,
-            types,
-            include_hidden: args.hidden.unwrap_or(false),
-            depth: args.depth.map(|depth| depth.clamp(1, MAX_FD_DEPTH)),
-            stats_needed,
-            min_lines: args.min_lines,
-            max_lines: args.max_lines,
-            sort: args.sort,
-            show_stats,
-        };
         match tokio::task::spawn_blocking(move || query.run(limit)).await {
             Ok(result) => Ok(result),
             Err(error) => Err(AppError::Tool(format!("fd traversal task failed: {error}"))),

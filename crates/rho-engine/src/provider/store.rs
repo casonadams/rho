@@ -16,6 +16,17 @@ pub struct ModelStore {
     pub models: HashMap<String, Vec<DiscoveredModel>>,
 }
 
+fn open_store_file(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
 impl ModelStore {
     pub fn load(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref();
@@ -101,29 +112,8 @@ impl ModelStore {
         }
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| AppError::Other(anyhow::anyhow!("Failed to serialize model store: {e}")))?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&self.file_path)?;
-            file.write_all(json.as_bytes())?;
-        }
-
-        #[cfg(not(unix))]
-        {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .open(&self.file_path)?;
-            file.write_all(json.as_bytes())?;
-        }
-
+        let mut file = open_store_file(&self.file_path)?;
+        file.write_all(json.as_bytes())?;
         Ok(())
     }
 

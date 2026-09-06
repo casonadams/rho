@@ -31,33 +31,40 @@ fn read_skill_prefix(path: &Path) -> Option<String> {
     Some(prefix)
 }
 
+fn parse_skill_frontmatter(content: &str, name: &mut String, description: &mut String) {
+    if !content.starts_with("---") {
+        return;
+    }
+    let parts: Vec<&str> = content.splitn(3, "---").collect();
+    if parts.len() < 3 {
+        return;
+    }
+    for line in parts[1].lines() {
+        let trimmed = line.trim();
+        if let Some(value) = trimmed.strip_prefix("name:") {
+            *name = value.trim().trim_matches('"').trim_matches('\'').to_string();
+        } else if let Some(value) = trimmed.strip_prefix("description:") {
+            *description = value.trim().trim_matches('"').trim_matches('\'').to_string();
+        }
+    }
+}
+
+fn extract_body_description(content: &str) -> String {
+    content
+        .lines()
+        .find(|line| !line.trim().is_empty() && !line.starts_with('#') && !line.starts_with("---"))
+        .unwrap_or(FALLBACK_DESCRIPTION)
+        .trim()
+        .to_string()
+}
+
 fn build_metadata(path: &Path, declared_name: Option<String>, content: &str) -> SkillMetadata {
     let mut name = declared_name.unwrap_or_else(|| "skill".to_string());
     let mut description = String::new();
-
-    if content.starts_with("---") {
-        let parts: Vec<&str> = content.splitn(3, "---").collect();
-        if parts.len() >= 3 {
-            for line in parts[1].lines() {
-                let trimmed = line.trim();
-                if let Some(value) = trimmed.strip_prefix("name:") {
-                    name = value.trim().trim_matches('"').trim_matches('\'').to_string();
-                } else if let Some(value) = trimmed.strip_prefix("description:") {
-                    description = value.trim().trim_matches('"').trim_matches('\'').to_string();
-                }
-            }
-        }
-    }
-
+    parse_skill_frontmatter(content, &mut name, &mut description);
     if description.is_empty() {
-        description = content
-            .lines()
-            .find(|line| !line.trim().is_empty() && !line.starts_with('#') && !line.starts_with("---"))
-            .unwrap_or(FALLBACK_DESCRIPTION)
-            .trim()
-            .to_string();
+        description = extract_body_description(content);
     }
-
     SkillMetadata {
         name,
         description,

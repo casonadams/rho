@@ -11,31 +11,53 @@ pub struct CompletionSet {
     pub(super) files: Vec<String>,
 }
 
+fn build_command_items(sources: &super::super::sources::CompletionSources) -> Vec<CommandItem> {
+    let mut commands = Vec::new();
+    for (name, desc) in BUILTIN_SLASH_COMMANDS {
+        commands.push(CommandItem {
+            name: format!("/{name}"),
+            description: (*desc).to_string(),
+        });
+    }
+    for name in &sources.prompt_templates {
+        commands.push(CommandItem {
+            name: format!("/{name}"),
+            description: "Custom prompt template".to_string(),
+        });
+    }
+    for s in &sources.skills {
+        commands.push(CommandItem {
+            name: format!("/skill:{}", s.metadata.name),
+            description: format!("{} [{}]", s.metadata.description, s.origin),
+        });
+    }
+    commands.sort_by(|a, b| a.name.cmp(&b.name));
+    commands.dedup_by(|a, b| a.name == b.name);
+    commands
+}
+
+fn build_provider_items(custom_providers: Vec<String>) -> Vec<ProviderItem> {
+    let mut providers = Vec::new();
+    for p in ProviderId::ALL {
+        providers.push(ProviderItem {
+            name: p.as_str().to_string(),
+            auth_mode: p.auth_mode_label().to_string(),
+        });
+    }
+    for name in custom_providers {
+        if !providers.iter().any(|p| p.name == name) {
+            providers.push(ProviderItem {
+                name,
+                auth_mode: "custom endpoint".to_string(),
+            });
+        }
+    }
+    providers
+}
+
 impl CompletionSet {
     pub fn from_sources(sources: super::super::sources::CompletionSources) -> Self {
-        let mut commands = Vec::new();
-        for (name, desc) in BUILTIN_SLASH_COMMANDS {
-            commands.push(CommandItem {
-                name: format!("/{name}"),
-                description: (*desc).to_string(),
-            });
-        }
-        for name in &sources.prompt_templates {
-            commands.push(CommandItem {
-                name: format!("/{name}"),
-                description: "Custom prompt template".to_string(),
-            });
-        }
-        // Register each skill directly as a top-level `/skill:<name>` command (Pi-style)
-        for s in &sources.skills {
-            commands.push(CommandItem {
-                name: format!("/skill:{}", s.metadata.name),
-                description: format!("{} [{}]", s.metadata.description, s.origin),
-            });
-        }
-        commands.sort_by(|a, b| a.name.cmp(&b.name));
-        commands.dedup_by(|a, b| a.name == b.name);
-
+        let commands = build_command_items(&sources);
         let skills = sources
             .skills
             .into_iter()
@@ -46,22 +68,7 @@ impl CompletionSet {
             })
             .collect();
 
-        let mut providers = Vec::new();
-        for p in ProviderId::ALL {
-            providers.push(ProviderItem {
-                name: p.as_str().to_string(),
-                auth_mode: p.auth_mode_label().to_string(),
-            });
-        }
-        for name in sources.custom_providers {
-            if !providers.iter().any(|p| p.name == name) {
-                providers.push(ProviderItem {
-                    name,
-                    auth_mode: "custom endpoint".to_string(),
-                });
-            }
-        }
-
+        let providers = build_provider_items(sources.custom_providers);
         let cwd = std::env::current_dir().ok();
         let files = cwd
             .as_deref()

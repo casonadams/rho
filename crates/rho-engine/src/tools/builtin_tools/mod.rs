@@ -29,43 +29,8 @@ fn parse_args<T: serde::de::DeserializeOwned>(args: serde_json::Value) -> std::r
     serde_json::from_value(args).map_err(|e| ToolResult::error(format!("failed to parse tool arguments: {e}")))
 }
 
-pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
-    let http = HttpClient::new(config.allow_private_network)?;
-    let search = WebSearchTool::new(
-        http.clone(),
-        SearchRateLimiter::new(config.search_min_interval_ms),
-        WebSearchConfig {
-            region: config.region.clone(),
-            timeout_sec: config.search_timeout_sec,
-        },
-    );
-    let fetch = WebFetchTool::new(
-        http,
-        FetchCache::new(60, 64),
-        WebFetchConfig {
-            timeout_sec: config.fetch_timeout_sec,
-            max_bytes: config.fetch_max_bytes,
-            default_limit: config.fetch_limit,
-        },
-    );
-    let read = Arc::new(ReadTool::new(base_dir));
-    let write = Arc::new(WriteTool::with_exclusions(
-        base_dir,
-        [&config.config_dir, &config.sessions_dir],
-    ));
-    let edit = Arc::new(EditTool::with_exclusions(
-        base_dir,
-        [&config.config_dir, &config.sessions_dir],
-    ));
-    let bash = Arc::new(BashTool::new(base_dir));
-    let fd = Arc::new(FdTool::new(base_dir));
-    let rg = Arc::new(RgTool::new(base_dir));
-    let outline = Arc::new(OutlineTool::new(base_dir));
-
-    let mut tools = Vec::new();
-
-    let r = Arc::clone(&read);
-    tools.push(DynamicTool::new(
+fn build_read_dynamic_tool(r: Arc<ReadTool>) -> DynamicTool {
+    DynamicTool::new(
         "read",
         "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result.",
         generated_schema::<ReadArgs>(),
@@ -79,10 +44,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(r.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let w = Arc::clone(&write);
-    tools.push(DynamicTool::new(
+fn build_write_dynamic_tool(w: Arc<WriteTool>) -> DynamicTool {
+    DynamicTool::new(
         "write",
         "Write full content to a file, automatically creating parent directories.",
         generated_schema::<WriteArgs>(),
@@ -102,10 +68,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(w.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let e = Arc::clone(&edit);
-    tools.push(DynamicTool::new(
+fn build_edit_dynamic_tool(e: Arc<EditTool>) -> DynamicTool {
+    DynamicTool::new(
         "edit",
         "Edit a file by applying exact string replacements. Every oldText must match exactly once.",
         generated_schema::<EditArgs>(),
@@ -119,10 +86,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(e.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let b = Arc::clone(&bash);
-    tools.push(DynamicTool::new(
+fn build_bash_dynamic_tool(b: Arc<BashTool>) -> DynamicTool {
+    DynamicTool::new(
         "bash",
         "Execute a shell command in the current working directory with a timeout. Do not prefix commands with cd.",
         generated_schema::<BashArgs>(),
@@ -144,10 +112,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 }
             })
         },
-    ));
+    )
+}
 
-    let fd_tool = fd;
-    tools.push(DynamicTool::new(
+fn build_fd_dynamic_tool(fd_tool: Arc<FdTool>) -> DynamicTool {
+    DynamicTool::new(
         "fd",
         "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.",
         generated_schema::<FdArgs>(),
@@ -161,10 +130,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(fd_tool.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let rg_tool = rg;
-    tools.push(DynamicTool::new(
+fn build_rg_dynamic_tool(rg_tool: Arc<RgTool>) -> DynamicTool {
+    DynamicTool::new(
         "rg",
         "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded.",
         generated_schema::<RgArgs>(),
@@ -178,10 +148,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(rg_tool.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let outline_tool = outline;
-    tools.push(DynamicTool::new(
+fn build_outline_dynamic_tool(outline_tool: Arc<OutlineTool>) -> DynamicTool {
+    DynamicTool::new(
         "outline",
         "Extract syntax-aware symbol outlines (functions, methods, classes, structs, traits) without implementation bodies.",
         generated_schema::<OutlineArgs>(),
@@ -195,10 +166,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(outline_tool.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let s = search;
-    tools.push(DynamicTool::new(
+fn build_search_dynamic_tool(s: WebSearchTool) -> DynamicTool {
+    DynamicTool::new(
         "web_search",
         "Search the web and return structured search results with titles, summaries, and URLs.",
         generated_schema::<WebSearchArgs>(),
@@ -212,10 +184,11 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(s.execute(args).await)
             })
         },
-    ));
+    )
+}
 
-    let f = fetch;
-    tools.push(DynamicTool::new(
+fn build_fetch_dynamic_tool(f: WebFetchTool) -> DynamicTool {
+    DynamicTool::new(
         "web_fetch",
         "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
         generated_schema::<WebFetchArgs>(),
@@ -229,7 +202,51 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
                 into_dynamic_result(f.execute(args).await)
             })
         },
+    )
+}
+
+fn build_web_tools(config: &Config) -> Result<(DynamicTool, DynamicTool)> {
+    let http = HttpClient::new(config.allow_private_network)?;
+    let search = WebSearchTool::new(
+        http.clone(),
+        SearchRateLimiter::new(config.search_min_interval_ms),
+        WebSearchConfig {
+            region: config.region.clone(),
+            timeout_sec: config.search_timeout_sec,
+        },
+    );
+    let fetch = WebFetchTool::new(
+        http,
+        FetchCache::new(60, 64),
+        WebFetchConfig {
+            timeout_sec: config.fetch_timeout_sec,
+            max_bytes: config.fetch_max_bytes,
+            default_limit: config.fetch_limit,
+        },
+    );
+    Ok((build_search_dynamic_tool(search), build_fetch_dynamic_tool(fetch)))
+}
+
+pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
+    let (search, fetch) = build_web_tools(config)?;
+    let write = Arc::new(WriteTool::with_exclusions(
+        base_dir,
+        [&config.config_dir, &config.sessions_dir],
+    ));
+    let edit = Arc::new(EditTool::with_exclusions(
+        base_dir,
+        [&config.config_dir, &config.sessions_dir],
     ));
 
-    Ok(tools)
+    Ok(vec![
+        build_read_dynamic_tool(Arc::new(ReadTool::new(base_dir))),
+        build_write_dynamic_tool(write),
+        build_edit_dynamic_tool(edit),
+        build_bash_dynamic_tool(Arc::new(BashTool::new(base_dir))),
+        build_fd_dynamic_tool(Arc::new(FdTool::new(base_dir))),
+        build_rg_dynamic_tool(Arc::new(RgTool::new(base_dir))),
+        build_outline_dynamic_tool(Arc::new(OutlineTool::new(base_dir))),
+        search,
+        fetch,
+    ])
 }

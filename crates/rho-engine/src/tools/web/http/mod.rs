@@ -80,73 +80,63 @@ impl HttpClient {
         rho_harness_core::net::validate_url(raw_url, self.allow_private_network)
     }
 
-    pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<(String, String)> {
+    async fn send_request_and_check(
+        &self,
+        request: &HttpRequest<'_>,
+        accept_headers: bool,
+    ) -> Result<reqwest::Response> {
         let valid_url = self.validate_url(request.url)?;
         let ua = request.user_agent.unwrap_or(DEFAULT_USER_AGENT);
-
-        let resp = self
+        let mut req = self
             .client
             .get(valid_url.as_str())
             .header("User-Agent", ua)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/pdf,application/json,text/plain;q=0.9,*/*;q=0.1",
-            )
-            .header("Accept-Language", "en-US,en;q=0.8")
-            .timeout(Duration::from_secs(request.timeout_sec))
+            .timeout(Duration::from_secs(request.timeout_sec));
+        if accept_headers {
+            req = req
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/pdf,application/json,text/plain;q=0.9,*/*;q=0.1",
+                )
+                .header("Accept-Language", "en-US,en;q=0.8");
+        }
+        let resp = req
             .send()
             .await
             .map_err(|e| AppError::Tool(format!("HTTP request failed for {}: {e}", request.url)))?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(AppError::Tool(format!("HTTP error {status} from {}", request.url)));
+        }
+        Ok(resp)
+    }
 
+    pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<(String, String)> {
+        let resp = self.send_request_and_check(&request, true).await?;
         let content_type = resp
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("text/html")
             .to_string();
-
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(AppError::Tool(format!("HTTP error {status} from {}", request.url)));
-        }
-
         let bytes = read_limited(resp, request.max_bytes)
             .await
             .map_err(|e| AppError::Tool(format!("Failed to read response body from {}: {e}", request.url)))?;
-
         let body = String::from_utf8_lossy(&bytes).to_string();
         Ok((body, content_type))
     }
 
     pub async fn get_bytes(&self, request: HttpRequest<'_>) -> Result<(Vec<u8>, String)> {
-        let valid_url = self.validate_url(request.url)?;
-        let ua = request.user_agent.unwrap_or(DEFAULT_USER_AGENT);
-
-        let resp = self
-            .client
-            .get(valid_url.as_str())
-            .header("User-Agent", ua)
-            .timeout(Duration::from_secs(request.timeout_sec))
-            .send()
-            .await
-            .map_err(|e| AppError::Tool(format!("HTTP request failed for {}: {e}", request.url)))?;
-
+        let resp = self.send_request_and_check(&request, false).await?;
         let content_type = resp
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("application/octet-stream")
             .to_string();
-
-        let status = resp.status();
-        if !status.is_success() {
-            return Err(AppError::Tool(format!("HTTP error {status} from {}", request.url)));
-        }
-
         let bytes = read_limited(resp, request.max_bytes)
             .await
             .map_err(|e| AppError::Tool(format!("Failed to read body from {}: {e}", request.url)))?;
-
         Ok((bytes, content_type))
     }
 }

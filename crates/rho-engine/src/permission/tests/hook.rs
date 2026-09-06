@@ -2,7 +2,7 @@ use rho_harness_core::presentation::types::InteractionResponse;
 use rig::agent::AgentBuilder;
 use rig::test_utils::{MockCompletionModel, MockTurn};
 use serde_json::json;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tempfile::tempdir;
 
 use super::mock::MockHookPresenter;
@@ -10,7 +10,7 @@ use crate::permission::hook::PermissionHook;
 use crate::permission::policy::{build_policy, parse_scope_from_str};
 use crate::tools::BashTool;
 
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tokio::test]
 async fn test_allowed_call_runs_silently() {
@@ -140,7 +140,7 @@ async fn test_ask_interactive_edit_action() {
 
 #[tokio::test]
 async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
-    let _guard = ENV_LOCK.lock().unwrap();
+    let _guard = ENV_LOCK.lock().await;
     let global_dir = tempdir().unwrap();
     unsafe {
         std::env::set_var("RHO_HOME", global_dir.path());

@@ -52,6 +52,59 @@ impl WebSearchTool {
         }
     }
 
+    async fn try_relaxed_search(&self, query: &str, (limit, today): (usize, &str)) -> Option<ToolResult> {
+        let relaxed = relax_query(query);
+        if relaxed == query {
+            return None;
+        }
+        let relaxed_results = self
+            .search(SearchQueryParams {
+                query: &relaxed,
+                limit,
+                recency: None,
+                domains: None,
+            })
+            .await;
+        if relaxed_results.is_empty() {
+            None
+        } else {
+            Some(ToolResult::success(format_search_results(FormatResultsParams {
+                query,
+                results: &relaxed_results,
+                limit,
+                today,
+            })))
+        }
+    }
+
+    async fn perform_search(
+        &self,
+        query: &str,
+        (limit, domains, recency): (usize, Option<&[String]>, Option<WebSearchRecency>),
+    ) -> Vec<SearchResult> {
+        let effective_query = build_search_query_with_filters(query, domains);
+        self.search(SearchQueryParams {
+            query: &effective_query,
+            limit,
+            recency,
+            domains,
+        })
+        .await
+    }
+
+    async fn handle_empty_search(
+        &self,
+        (query, today): (&str, &str),
+        (limit, no_filters): (usize, bool),
+    ) -> ToolResult {
+        if no_filters && let Some(res) = self.try_relaxed_search(query, (limit, today)).await {
+            return res;
+        }
+        ToolResult::success(format!(
+            "No search results found for: \"{query}\" (searched on {today})"
+        ))
+    }
+
     pub async fn execute(&self, args: WebSearchArgs) -> Result<ToolResult, AppError> {
         let query = args.query.trim();
         if query.is_empty() {
@@ -59,45 +112,15 @@ impl WebSearchTool {
         }
 
         let limit = args.limit.unwrap_or(5).clamp(1, 20);
-        let domains = args.domains.as_deref();
-        let recency = args.recency;
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-
-        let effective_query = build_search_query_with_filters(query, domains);
         let results = self
-            .search(SearchQueryParams {
-                query: &effective_query,
-                limit,
-                recency,
-                domains,
-            })
+            .perform_search(query, (limit, args.domains.as_deref(), args.recency))
             .await;
 
         if results.is_empty() {
-            if domains.is_none() && recency.is_none() {
-                let relaxed = relax_query(query);
-                if relaxed != query {
-                    let relaxed_results = self
-                        .search(SearchQueryParams {
-                            query: &relaxed,
-                            limit,
-                            recency: None,
-                            domains: None,
-                        })
-                        .await;
-                    if !relaxed_results.is_empty() {
-                        return Ok(ToolResult::success(format_search_results(FormatResultsParams {
-                            query,
-                            results: &relaxed_results,
-                            limit,
-                            today: &today,
-                        })));
-                    }
-                }
-            }
-            return Ok(ToolResult::success(format!(
-                "No search results found for: \"{query}\" (searched on {today})"
-            )));
+            let no_filters = args.domains.is_none() && args.recency.is_none();
+            let res = self.handle_empty_search((query, &today), (limit, no_filters)).await;
+            return Ok(res);
         }
 
         Ok(ToolResult::success(format_search_results(FormatResultsParams {

@@ -16,19 +16,42 @@ use rho_harness_core::provider::ProviderId;
 
 pub(super) use super::http::http_client;
 
+fn dispatch_oauth_login<'a>(
+    provider: ProviderId,
+    callbacks: &'a dyn OAuthLoginCallbacks,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<StoredCredential>> + Send + 'a>> {
+    match provider {
+        ProviderId::ChatGpt => Box::pin(chatgpt::perform_openai_pkce(callbacks)),
+        ProviderId::Copilot => Box::pin(copilot::perform_copilot_device_flow(callbacks)),
+        ProviderId::OpenRouter => Box::pin(openrouter::perform_openrouter_pkce(callbacks)),
+        ProviderId::Antigravity => Box::pin(super::antigravity::perform_login(callbacks)),
+        ProviderId::ClaudeCode => Box::pin(super::claude::perform_login(callbacks)),
+        _ => Box::pin(async move {
+            Err(AppError::Auth(format!(
+                "OAuth login is not supported for provider '{provider}'"
+            )))
+        }),
+    }
+}
+
 pub async fn perform_oauth_login(
     provider: ProviderId,
     callbacks: &dyn OAuthLoginCallbacks,
 ) -> Result<StoredCredential> {
+    dispatch_oauth_login(provider, callbacks).await
+}
+
+fn dispatch_oauth_refresh<'a>(
+    provider: ProviderId,
+    credential: &'a StoredCredential,
+    refresh: &'a str,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<StoredCredential>> + Send + 'a>> {
     match provider {
-        ProviderId::ChatGpt => chatgpt::perform_openai_pkce(callbacks).await,
-        ProviderId::Copilot => copilot::perform_copilot_device_flow(callbacks).await,
-        ProviderId::OpenRouter => openrouter::perform_openrouter_pkce(callbacks).await,
-        ProviderId::Antigravity => super::antigravity::perform_login(callbacks).await,
-        ProviderId::ClaudeCode => super::claude::perform_login(callbacks).await,
-        _ => Err(AppError::Auth(format!(
-            "OAuth login is not supported for provider '{provider}'"
-        ))),
+        ProviderId::ChatGpt => Box::pin(chatgpt::refresh_openai_token(refresh)),
+        ProviderId::Copilot => Box::pin(copilot::refresh_copilot_token(refresh)),
+        ProviderId::Antigravity => Box::pin(super::antigravity::refresh_credential(credential)),
+        ProviderId::ClaudeCode => Box::pin(super::claude::refresh_credential(credential)),
+        _ => Box::pin(async move { Ok(credential.clone()) }),
     }
 }
 
@@ -38,13 +61,7 @@ pub async fn refresh_oauth_token(provider: ProviderId, credential: &StoredCreden
         StoredCredential::OAuth {
             refresh_token: Some(refresh),
             ..
-        } => match provider {
-            ProviderId::ChatGpt => chatgpt::refresh_openai_token(refresh).await,
-            ProviderId::Copilot => copilot::refresh_copilot_token(refresh).await,
-            ProviderId::Antigravity => super::antigravity::refresh_credential(credential).await,
-            ProviderId::ClaudeCode => super::claude::refresh_credential(credential).await,
-            _ => Ok(credential.clone()),
-        },
+        } => dispatch_oauth_refresh(provider, credential, refresh).await,
         StoredCredential::OAuth { .. } => Err(AppError::Auth(format!(
             "OAuth token for '{provider}' has expired and has no refresh token. Please re-run /login."
         ))),

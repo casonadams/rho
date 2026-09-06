@@ -81,38 +81,46 @@ fn bash_components(rules: &[PolicyRule], req: EvalRequest<'_>) -> Vec<Component>
     components
 }
 
+fn mcp_components(rules: &[PolicyRule], args: &serde_json::Value) -> Component {
+    let targets = extract_mcp_targets(args);
+    let vals = if targets.is_empty() {
+        vec!["*".to_string()]
+    } else {
+        targets.clone()
+    };
+    let dec = decide_surface(rules, ("mcp", &vals), SurfaceKind::First);
+    Component {
+        surface: "mcp".into(),
+        value: targets.first().cloned().unwrap_or_else(|| "*".to_string()),
+        decision: map_surface_decision("mcp", dec),
+    }
+}
+
+fn generic_tool_component(rules: &[PolicyRule], req: &EvalRequest<'_>) -> Component {
+    let tool_path = extract_tool_path(req.tool, req.args);
+    let input = match_input(req.args);
+    let value = tool_path
+        .clone()
+        .unwrap_or_else(|| if input.is_empty() { "*".to_string() } else { input });
+    let vals = match &tool_path {
+        Some(p) => path_policy_values(p, req.working_dir),
+        None if value == "*" => vec!["*".to_string()],
+        None => vec![value.clone()],
+    };
+    let dec = decide_surface(rules, (req.tool, &vals), SurfaceKind::First);
+    Component {
+        surface: req.tool.into(),
+        value,
+        decision: map_surface_decision(req.tool, dec),
+    }
+}
+
 fn non_bash_components(rules: &[PolicyRule], req: EvalRequest<'_>) -> Vec<Component> {
     let mut components = Vec::new();
     if req.tool == "mcp" {
-        let targets = extract_mcp_targets(req.args);
-        let vals = if targets.is_empty() {
-            vec!["*".to_string()]
-        } else {
-            targets.clone()
-        };
-        let dec = decide_surface(rules, ("mcp", &vals), SurfaceKind::First);
-        components.push(Component {
-            surface: "mcp".into(),
-            value: targets.first().cloned().unwrap_or_else(|| "*".to_string()),
-            decision: map_surface_decision("mcp", dec),
-        });
+        components.push(mcp_components(rules, req.args));
     } else {
-        let tool_path = extract_tool_path(req.tool, req.args);
-        let input = match_input(req.args);
-        let value = tool_path
-            .clone()
-            .unwrap_or_else(|| if input.is_empty() { "*".to_string() } else { input });
-        let vals = match &tool_path {
-            Some(p) => path_policy_values(p, req.working_dir),
-            None if value == "*" => vec!["*".to_string()],
-            None => vec![value.clone()],
-        };
-        let dec = decide_surface(rules, (req.tool, &vals), SurfaceKind::First);
-        components.push(Component {
-            surface: req.tool.into(),
-            value,
-            decision: map_surface_decision(req.tool, dec),
-        });
+        components.push(generic_tool_component(rules, &req));
     }
     let path_val = extract_tool_path(req.tool, req.args).or_else(|| extract_mcp_path(req.args));
     if let Some(p) = path_val

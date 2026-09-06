@@ -1,24 +1,37 @@
 use super::super::Config;
 use super::super::types::FileConfig;
 
-pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
+fn merge_provider_fallback(config: &mut Config, model_specified: bool) {
+    if !model_specified {
+        return;
+    }
+    if let Some(inferred) = crate::provider::infer_provider_for_model(&config.model) {
+        config.provider = inferred.to_string();
+        config.default_provider = Some(inferred.to_string());
+    } else {
+        config.provider = "local".to_string();
+        config.default_provider = None;
+    }
+}
+
+fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     let model_specified = file.model.is_some();
-    if let Some(m) = file.model {
+    if let Some(ref m) = file.model {
         config.model = m.clone();
-        config.default_model = Some(m);
+        config.default_model = Some(m.clone());
     }
-    if let Some(p) = file.provider {
+    if let Some(ref p) = file.provider {
         config.provider = p.clone();
-        config.default_provider = Some(p);
-    } else if model_specified {
-        if let Some(inferred) = crate::provider::infer_provider_for_model(&config.model) {
-            config.provider = inferred.to_string();
-            config.default_provider = Some(inferred.to_string());
-        } else {
-            config.provider = "local".to_string();
-            config.default_provider = None;
-        }
+        config.default_provider = Some(p.clone());
+    } else {
+        merge_provider_fallback(config, model_specified);
     }
+    if let Some(ref t) = file.thinking_level {
+        config.thinking_level = (t != "off").then(|| t.clone());
+    }
+}
+
+fn merge_token_limits(config: &mut Config, file: &FileConfig) {
     if let Some(max_output_tokens) = file.max_output_tokens {
         config.max_output_tokens = Some(max_output_tokens);
     }
@@ -28,18 +41,30 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(c) = file.context_limit {
         config.context_limit = Some(c);
     }
-    if let Some(value) = file.context_window_messages {
-        config.context_window_messages = value;
+}
+
+fn merge_context_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(v) = file.context_window_messages {
+        config.context_window_messages = v;
     }
-    if let Some(value) = file.compaction_max_bytes {
-        config.compaction_max_bytes = value;
+    if let Some(v) = file.compaction_max_bytes {
+        config.compaction_max_bytes = v;
     }
-    if let Some(value) = file.reserve_tokens {
-        config.reserve_tokens = value;
+    if let Some(tokens) = file.context_injection_max_tokens {
+        config.context_injection_max_tokens = tokens;
     }
-    if let Some(value) = file.keep_recent_tokens {
-        config.keep_recent_tokens = value;
+}
+
+fn merge_reserve_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(v) = file.reserve_tokens {
+        config.reserve_tokens = v;
     }
+    if let Some(v) = file.keep_recent_tokens {
+        config.keep_recent_tokens = v;
+    }
+}
+
+fn merge_search_settings(config: &mut Config, file: &FileConfig) {
     if let Some(s) = file.search_min_interval_ms {
         config.search_min_interval_ms = s;
     }
@@ -49,6 +74,9 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(f) = file.fetch_timeout_sec {
         config.fetch_timeout_sec = f;
     }
+}
+
+fn merge_fetch_settings(config: &mut Config, file: &FileConfig) {
     if let Some(l) = file.fetch_limit {
         config.fetch_limit = l;
     }
@@ -61,8 +89,11 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(p) = file.allow_private_network {
         config.allow_private_network = p;
     }
-    if let Some(r) = file.region {
-        config.region = r;
+}
+
+fn merge_modes(config: &mut Config, file: &FileConfig) {
+    if let Some(ref r) = file.region {
+        config.region = r.clone();
     }
     if let Some(v) = file.show_label {
         config.show_label = v;
@@ -73,18 +104,18 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     if let Some(f) = file.follow_up_mode {
         config.follow_up_mode = f;
     }
-    if let Some(t) = file.thinking_level {
-        config.thinking_level = if t == "off" { None } else { Some(t) };
-    }
-    if let Some(theme) = file.theme {
-        config.theme = theme;
-    }
-    if let Some(tokens) = file.context_injection_max_tokens {
-        config.context_injection_max_tokens = tokens;
+}
+
+fn merge_theme_and_retention(config: &mut Config, file: &FileConfig) {
+    if let Some(ref theme) = file.theme {
+        config.theme = theme.clone();
     }
     if let Some(days) = file.session_retention_days {
-        config.session_retention_days = if days == 0 { None } else { Some(days) };
+        config.session_retention_days = (days != 0).then_some(days);
     }
+}
+
+fn merge_plugins_and_extensions(config: &mut Config, file: FileConfig) {
     if let Some(mcp) = file.mcp {
         config.mcp = mcp;
     }
@@ -93,4 +124,16 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     }
     config.plugins = file.plugins;
     config.providers = file.providers;
+}
+
+pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
+    merge_model_and_provider(config, &file);
+    merge_token_limits(config, &file);
+    merge_context_settings(config, &file);
+    merge_reserve_settings(config, &file);
+    merge_search_settings(config, &file);
+    merge_fetch_settings(config, &file);
+    merge_modes(config, &file);
+    merge_theme_and_retention(config, &file);
+    merge_plugins_and_extensions(config, file);
 }

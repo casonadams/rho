@@ -28,6 +28,27 @@ pub fn strip_meta_schema(schema: &Value) -> Value {
 
 /// Cloud Code Assist's Claude/GPT-OSS custom-tool bridge accepts only a
 /// protobuf `Schema` subset; anything else 400s with `Unknown name`.
+fn normalize_type_value(value: &Value) -> Option<Value> {
+    match value {
+        Value::String(s) => Some(json!(s)),
+        Value::Array(items) => items
+            .iter()
+            .find(|v| v.is_string() && v.as_str() != Some("null"))
+            .cloned(),
+        _ => None,
+    }
+}
+
+fn insert_normalized_field(out: &mut serde_json::Map<String, Value>, (key, value): (&str, &Value), allowed: &[&str]) {
+    if key == "type" {
+        if let Some(t) = normalize_type_value(value) {
+            out.insert("type".into(), t);
+        }
+    } else if (key == "properties" && value.is_object()) || allowed.contains(&key) {
+        out.insert(key.to_string(), normalize_custom_tool_schema(value));
+    }
+}
+
 pub fn normalize_custom_tool_schema(schema: &Value) -> Value {
     const ALLOWED: [&str; 5] = ["type", "description", "properties", "required", "items"];
     match schema {
@@ -35,23 +56,7 @@ pub fn normalize_custom_tool_schema(schema: &Value) -> Value {
         Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (key, value) in map {
-                if key == "type" {
-                    let t = match value {
-                        Value::String(s) => Some(json!(s)),
-                        Value::Array(items) => items
-                            .iter()
-                            .find(|v| v.is_string() && v.as_str() != Some("null"))
-                            .cloned(),
-                        _ => None,
-                    };
-                    if let Some(t) = t {
-                        out.insert("type".into(), t);
-                    }
-                } else if key == "properties" && value.is_object() {
-                    out.insert("properties".into(), normalize_custom_tool_schema(value));
-                } else if ALLOWED.contains(&key.as_str()) {
-                    out.insert(key.clone(), normalize_custom_tool_schema(value));
-                }
+                insert_normalized_field(&mut out, (key, value), &ALLOWED);
             }
             Value::Object(out)
         }

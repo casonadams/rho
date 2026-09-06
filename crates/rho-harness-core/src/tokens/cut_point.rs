@@ -19,6 +19,30 @@ pub fn is_user_turn_start(message: &Message) -> bool {
     }
 }
 
+fn scan_backwards_for_token_budget(messages: &[Message], keep_tokens: usize, model: &str) -> usize {
+    let mut accumulated: usize = 0;
+    let mut cut_idx = messages.len();
+    for i in (0..messages.len()).rev() {
+        accumulated = accumulated.saturating_add(estimate_message_tokens(&messages[i], model));
+        cut_idx = i;
+        if accumulated >= keep_tokens {
+            break;
+        }
+    }
+    cut_idx
+}
+
+fn adjust_for_tool_results(messages: &[Message], mut cut_idx: usize) -> usize {
+    while cut_idx > 0 && is_tool_result_message(&messages[cut_idx]) {
+        cut_idx -= 1;
+    }
+    cut_idx
+}
+
+fn determine_split_turn(messages: &[Message], cut_idx: usize) -> bool {
+    cut_idx > 0 && cut_idx < messages.len() && !is_user_turn_start(&messages[cut_idx])
+}
+
 pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, model: &str) -> CompactionCut {
     if messages.is_empty() {
         return CompactionCut {
@@ -28,33 +52,27 @@ pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, mod
         };
     }
 
-    let mut accumulated_tokens: usize = 0;
-    let mut cut_idx = messages.len();
-
-    for i in (0..messages.len()).rev() {
-        let msg_tokens = estimate_message_tokens(&messages[i], model);
-        accumulated_tokens = accumulated_tokens.saturating_add(msg_tokens);
-        cut_idx = i;
-        if accumulated_tokens >= keep_recent_tokens {
-            break;
-        }
-    }
-
-    while cut_idx > 0 && is_tool_result_message(&messages[cut_idx]) {
-        cut_idx -= 1;
-    }
-
-    let is_split_turn = if cut_idx == 0 || cut_idx >= messages.len() {
-        false
-    } else {
-        !is_user_turn_start(&messages[cut_idx])
-    };
+    let cut_idx = scan_backwards_for_token_budget(messages, keep_recent_tokens, model);
+    let cut_idx = adjust_for_tool_results(messages, cut_idx);
+    let is_split_turn = determine_split_turn(messages, cut_idx);
 
     CompactionCut {
         cut_index: cut_idx,
         is_split_turn,
         first_kept_node_id: None,
     }
+}
+
+fn flatten_node_messages(nodes: &[&TreeNodeData]) -> (Vec<Message>, Vec<String>) {
+    let mut messages = Vec::new();
+    let mut node_ids = Vec::new();
+    for node in nodes {
+        for msg in &node.messages {
+            messages.push(msg.clone());
+            node_ids.push(node.id.clone());
+        }
+    }
+    (messages, node_ids)
 }
 
 pub fn find_node_token_cut_point(nodes: &[&TreeNodeData], keep_recent_tokens: usize, model: &str) -> CompactionCut {
@@ -66,16 +84,7 @@ pub fn find_node_token_cut_point(nodes: &[&TreeNodeData], keep_recent_tokens: us
         };
     }
 
-    let mut messages = Vec::new();
-    let mut message_node_ids = Vec::new();
-
-    for node in nodes {
-        for msg in &node.messages {
-            messages.push(msg.clone());
-            message_node_ids.push(node.id.clone());
-        }
-    }
-
+    let (messages, message_node_ids) = flatten_node_messages(nodes);
     let mut cut = find_token_cut_point(&messages, keep_recent_tokens, model);
     if cut.cut_index < message_node_ids.len() {
         cut.first_kept_node_id = Some(message_node_ids[cut.cut_index].clone());

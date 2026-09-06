@@ -66,6 +66,49 @@ impl std::fmt::Debug for SessionManager {
     }
 }
 
+fn prepare_session_id(resume_id: Option<&str>) -> Result<String> {
+    let session_id = resume_id.map_or_else(new_session_id, str::to_string);
+    validate_session_id(&session_id)?;
+    Ok(session_id)
+}
+
+fn empty_store_state() -> StoreState {
+    StoreState {
+        next_sequence: 1,
+        messages: Vec::new(),
+        checkpoint: None,
+        events: Vec::new(),
+        tree: SessionTree::new(),
+        integrity: CanonicalHistory::new(),
+    }
+}
+
+fn load_or_create_state(path: &Path, session_id: &str, resume: bool) -> Result<StoreState> {
+    if resume {
+        set_private_file_permissions(path)?;
+        load_file(path, session_id)
+    } else {
+        create_session_file(path, session_id)?;
+        Ok(empty_store_state())
+    }
+}
+
+async fn record_cwd_if_present_async(sessions_dir: &Path, session_id: &str) {
+    if let Ok(cwd) = std::env::current_dir() {
+        let _ = SessionManager::record_session_for_cwd_async(sessions_dir, &cwd, session_id).await;
+    }
+}
+
+async fn load_or_create_state_async(path: &Path, session_id: &str, resume: bool) -> Result<StoreState> {
+    if resume {
+        set_private_file_permissions_async(path).await?;
+        load_file_async(path, session_id).await
+    } else {
+        create_session_file_async(path, session_id).await?;
+        Ok(empty_store_state())
+    }
+}
+
 impl SessionManager {
     pub fn new(sessions_dir: &Path, resume_id: Option<&str>) -> Result<Self> {
         Self::new_with_secrets(sessions_dir, resume_id, Vec::new())
@@ -78,27 +121,9 @@ impl SessionManager {
     pub fn new_with_secrets(sessions_dir: &Path, resume_id: Option<&str>, secrets: Vec<String>) -> Result<Self> {
         std::fs::create_dir_all(sessions_dir)?;
         set_private_directory_permissions(sessions_dir)?;
-        let session_id = resume_id.map_or_else(new_session_id, str::to_string);
-        validate_session_id(&session_id)?;
+        let session_id = prepare_session_id(resume_id)?;
         let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
-        let state = match resume_id {
-            Some(_) => {
-                set_private_file_permissions(&file_path)?;
-                load_file(&file_path, &session_id)?
-            }
-            None => {
-                create_session_file(&file_path, &session_id)?;
-                StoreState {
-                    next_sequence: 1,
-                    messages: Vec::new(),
-                    checkpoint: None,
-                    events: Vec::new(),
-                    tree: SessionTree::new(),
-                    integrity: CanonicalHistory::new(),
-                }
-            }
-        };
-        let secrets = Arc::new(SecretGuard::new(secrets));
+        let state = load_or_create_state(&file_path, &session_id, resume_id.is_some())?;
         if let Ok(cwd) = std::env::current_dir() {
             let _ = Self::record_session_for_cwd(sessions_dir, &cwd, &session_id);
         }
@@ -106,7 +131,7 @@ impl SessionManager {
             session_id,
             file_path,
             state: Arc::new(tokio::sync::Mutex::new(state)),
-            secrets,
+            secrets: Arc::new(SecretGuard::new(secrets)),
             memory_error: Arc::new(Mutex::new(None)),
         })
     }
@@ -118,35 +143,15 @@ impl SessionManager {
     ) -> Result<Self> {
         tokio::fs::create_dir_all(sessions_dir).await?;
         set_private_directory_permissions_async(sessions_dir).await?;
-        let session_id = resume_id.map_or_else(new_session_id, str::to_string);
-        validate_session_id(&session_id)?;
+        let session_id = prepare_session_id(resume_id)?;
         let file_path = sessions_dir.join(format!("{session_id}.jsonl"));
-        let state = match resume_id {
-            Some(_) => {
-                set_private_file_permissions_async(&file_path).await?;
-                load_file_async(&file_path, &session_id).await?
-            }
-            None => {
-                create_session_file_async(&file_path, &session_id).await?;
-                StoreState {
-                    next_sequence: 1,
-                    messages: Vec::new(),
-                    checkpoint: None,
-                    events: Vec::new(),
-                    tree: SessionTree::new(),
-                    integrity: CanonicalHistory::new(),
-                }
-            }
-        };
-        let secrets = Arc::new(SecretGuard::new(secrets));
-        if let Ok(cwd) = std::env::current_dir() {
-            let _ = Self::record_session_for_cwd_async(sessions_dir, &cwd, &session_id).await;
-        }
+        let state = load_or_create_state_async(&file_path, &session_id, resume_id.is_some()).await?;
+        record_cwd_if_present_async(sessions_dir, &session_id).await;
         Ok(Self {
             session_id,
             file_path,
             state: Arc::new(tokio::sync::Mutex::new(state)),
-            secrets,
+            secrets: Arc::new(SecretGuard::new(secrets)),
             memory_error: Arc::new(Mutex::new(None)),
         })
     }

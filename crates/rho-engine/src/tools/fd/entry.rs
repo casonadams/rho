@@ -35,6 +35,28 @@ pub struct FdFormat {
     pub show_stats: bool,
 }
 
+fn limit_notice(total: usize, limit: usize, hit_ceiling: bool) -> String {
+    if hit_ceiling {
+        format!(
+            "showing first {limit} of {FD_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
+        )
+    } else {
+        format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
+    }
+}
+
+fn render_fd_content(entries: Vec<FdEntry>, show_stats: bool) -> String {
+    if show_stats {
+        format_table(&entries)
+    } else {
+        entries
+            .into_iter()
+            .map(|entry| entry.relative)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResult {
     let FdFormat {
         hit_ceiling,
@@ -44,29 +66,13 @@ pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResul
     if entries.is_empty() {
         return ToolResult::success("No files found matching pattern");
     }
-    let total = entries.len();
     let mut notices: Vec<String> = Vec::new();
-    if total > limit {
-        notices.push(if hit_ceiling {
-            format!(
-                "showing first {limit} of {FD_COLLECTION_CEILING}+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type"
-            )
-        } else {
-            format!("showing first {limit} of {total} matches; narrow with a tighter pattern, path, or type")
-        });
+    if entries.len() > limit {
+        notices.push(limit_notice(entries.len(), limit, hit_ceiling));
         entries.truncate(limit);
     }
 
-    let content = if show_stats {
-        format_table(&entries)
-    } else {
-        entries
-            .into_iter()
-            .map(|entry| entry.relative)
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
+    let content = render_fd_content(entries, show_stats);
     let truncation = truncate_head(&content, usize::MAX, DEFAULT_MAX_BYTES);
     if truncation.truncated_by.is_some() {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));

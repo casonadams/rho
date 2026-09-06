@@ -198,6 +198,23 @@ pub fn detect_local_claude_credentials() -> Option<StoredCredential> {
     file_cred
 }
 
+async fn read_valid_file_credential_async(
+    creds_file: &std::path::Path,
+    config_file: &std::path::Path,
+) -> Option<StoredCredential> {
+    if !tokio::fs::try_exists(creds_file).await.unwrap_or(false) {
+        return None;
+    }
+    detect_credentials_from_paths_async(creds_file, Some(config_file)).await
+}
+
+async fn read_valid_keychain_credential_async(config_file: &std::path::Path) -> Option<StoredCredential> {
+    let raw_kc = read_keychain_credentials_async().await?;
+    let (access, refresh, exp) = parse_claude_credentials_json(&raw_kc)?;
+    let cred = StoredCredential::oauth(access, refresh, exp);
+    Some(enrich_metadata_async(cred, Some(config_file)).await)
+}
+
 pub async fn detect_local_claude_credentials_async() -> Option<StoredCredential> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -207,24 +224,10 @@ pub async fn detect_local_claude_credentials_async() -> Option<StoredCredential>
     let creds_file = home.join(".claude").join(".credentials.json");
     let config_file = home.join(".claude.json");
 
-    let file_cred = if tokio::fs::try_exists(&creds_file).await.unwrap_or(false) {
-        detect_credentials_from_paths_async(&creds_file, Some(&config_file)).await
-    } else {
-        None
-    };
-
-    if let Some(cred) = &file_cred
-        && !cred.is_expired(60)
-    {
-        return Some(cred.clone());
+    let file_cred = read_valid_file_credential_async(&creds_file, &config_file).await;
+    if file_cred.as_ref().is_some_and(|c| !c.is_expired(60)) {
+        return file_cred;
     }
 
-    if let Some(raw_kc) = read_keychain_credentials_async().await
-        && let Some((access, refresh, exp)) = parse_claude_credentials_json(&raw_kc)
-    {
-        let cred = StoredCredential::oauth(access, refresh, exp);
-        return Some(enrich_metadata_async(cred, Some(&config_file)).await);
-    }
-
-    file_cred
+    read_valid_keychain_credential_async(&config_file).await.or(file_cred)
 }

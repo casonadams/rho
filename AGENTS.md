@@ -37,5 +37,5 @@
 
 ## Completion
 
-- Run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
+- Run `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and
   `cargo test --workspace` before finishing.

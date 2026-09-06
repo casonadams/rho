@@ -1,5 +1,20 @@
 use std::path::Path;
 
+fn make_temp_path(parent: &Path, file_name: &str) -> std::path::PathBuf {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    parent.join(format!(".{file_name}.tmp.{}.{now}", std::process::id()))
+}
+
+struct Guard<'a>(&'a Path);
+impl Drop for Guard<'_> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.0);
+    }
+}
+
 pub fn write_binary_atomically(dest_path: &Path, content: &[u8]) -> std::io::Result<()> {
     let parent = dest_path
         .parent()
@@ -7,21 +22,7 @@ pub fn write_binary_atomically(dest_path: &Path, content: &[u8]) -> std::io::Res
     std::fs::create_dir_all(parent)?;
 
     let file_name = dest_path.file_name().and_then(|f| f.to_str()).unwrap_or("binary");
-    let tmp_path = parent.join(format!(
-        ".{file_name}.tmp.{}.{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-
-    struct Guard<'a>(&'a Path);
-    impl Drop for Guard<'_> {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(self.0);
-        }
-    }
+    let tmp_path = make_temp_path(parent, file_name);
     let guard = Guard(&tmp_path);
 
     std::fs::write(&tmp_path, content)?;

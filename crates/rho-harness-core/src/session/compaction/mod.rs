@@ -24,6 +24,24 @@ use super::tree::{TreeNodeData, TreeNodeKind};
 use crate::error::Result;
 use chrono::Utc;
 
+fn create_compaction_node(
+    parent_id: Option<String>,
+    summary: &str,
+    metadata: &CompactionMetadata,
+) -> Result<TreeNodeData> {
+    let summary_message = compaction_summary_message(summary);
+    let metadata_value = serde_json::to_value(metadata).map_err(|err| session_error(err.to_string()))?;
+    Ok(TreeNodeData {
+        id: uuid::Uuid::new_v4().to_string(),
+        parent_id,
+        timestamp: Utc::now(),
+        kind: TreeNodeKind::Compaction,
+        messages: vec![summary_message],
+        label: Some("Compaction".to_string()),
+        metadata: Some(metadata_value),
+    })
+}
+
 impl SessionManager {
     pub async fn append_compaction(&self, summary: &str, metadata: CompactionMetadata) -> Result<()> {
         self.reject_secrets(&summary)?;
@@ -34,19 +52,7 @@ impl SessionManager {
                 "pending run checkpoint must be continued before appending compaction",
             ));
         }
-        let parent_id = state.tree.active_leaf_id.clone();
-        let node_id = uuid::Uuid::new_v4().to_string();
-        let summary_message = compaction_summary_message(summary);
-        let metadata_value = serde_json::to_value(&metadata).map_err(|err| session_error(err.to_string()))?;
-        let node = TreeNodeData {
-            id: node_id,
-            parent_id,
-            timestamp: Utc::now(),
-            kind: TreeNodeKind::Compaction,
-            messages: vec![summary_message],
-            label: Some("Compaction".to_string()),
-            metadata: Some(metadata_value),
-        };
+        let node = create_compaction_node(state.tree.active_leaf_id.clone(), summary, &metadata)?;
         let record = SessionRecord::TreeNode {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),

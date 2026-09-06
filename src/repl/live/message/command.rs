@@ -1,6 +1,6 @@
 use super::super::batch::drain_ui_events;
 use super::super::turn::run_active_turn;
-use super::super::{ActiveTurn, LiveMessage};
+use super::super::{ActiveTurn, LiveIo, LiveMessage};
 use super::session_cmd::{SessionCommandIo, handle_session_command};
 use crate::engine::AgentEngine;
 use crate::error::Result;
@@ -11,6 +11,132 @@ use crate::ui::interactive::TerminalBackend;
 pub(super) struct LiveCommandContext<'a, 'b> {
     pub session: &'a mut ReplSession,
     pub engine: &'b mut AgentEngine,
+}
+
+async fn handle_theme_changed(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io_controller: &mut crate::ui::interactive::TerminalController<impl TerminalBackend>,
+    theme: &str,
+) {
+    let registry = crate::ui::theme::ThemeRegistry::new(Some(&ctx.session.config.config_dir));
+    if let Some(resolved) = registry.get(theme).cloned() {
+        ctx.session.config.theme = theme.to_string();
+        ctx.session.renderer.theme = resolved.clone();
+        let _ = io_controller.set_theme(resolved);
+        let _ = rho_harness_core::config::Config::set_file_value_async(
+            &ctx.session.config.config_dir,
+            "theme",
+            theme,
+        )
+        .await;
+        ctx.session
+            .renderer
+            .print_status(&format!("Theme: {theme}"));
+    }
+}
+
+async fn handle_selector_command(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io_controller: &mut crate::ui::interactive::TerminalController<impl TerminalBackend>,
+    action: &CommandResult,
+) -> Result<()> {
+    match action {
+        CommandResult::OpenModelSelector => super::super::modal::open_model_selector(ctx.session, io_controller),
+        CommandResult::OpenSettingsSelector => super::super::modal::open_settings_selector(io_controller),
+        CommandResult::OpenThemeSelector => super::super::modal::open_theme_selector(ctx.session, io_controller),
+        _ => {}
+    }
+    io_controller.redraw()?;
+    Ok(())
+}
+
+async fn handle_model_changed(ctx: &mut LiveCommandContext<'_, '_>, (new_model, new_provider): (&str, Option<&str>)) {
+    ctx.session.config.model = new_model.to_string();
+    if let Some(provider) = new_provider {
+        ctx.session.config.provider = provider.to_string();
+    }
+    let provider = ctx.session.config.provider.clone();
+    if let Err(err) = ctx.engine.switch_model(new_model, &provider).await {
+        ctx.session
+            .renderer
+            .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
+    }
+}
+
+async fn handle_compact<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+    instructions: Option<&str>,
+) {
+    ctx.session
+        .renderer
+        .print_notice("  [Compacting conversation context...]\n");
+    match ctx.engine.compact_session(instructions).await {
+        Ok(stats) => {
+            let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
+            let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
+            let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
+            ctx.session.renderer.print_notice(&format!(
+                "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
+            ));
+            super::super::turn::sync_turn_footer(io.controller, ctx.engine);
+            let _ = io.controller.redraw();
+        }
+        Err(err) => {
+            ctx.session
+                .renderer
+                .print_notice(&format!("  [Compaction failed: {err}]\n"));
+        }
+    }
+}
+
+
+async fn clear_engine_context(ctx: &mut LiveCommandContext<'_, '_>) -> Result<()> {
+    *ctx.engine = crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;
+    Ok(())
+}
+
+async fn handle_engine_command_rest<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+    result: &CommandResult,
+) -> Result<bool> {
+    match result {
+        CommandResult::ModelChanged {
+            new_model,
+            new_provider,
+        } => {
+            handle_model_changed(ctx, (new_model, new_provider.as_deref())).await;
+            Ok(true)
+        }
+        CommandResult::Reload => {
+            *ctx.engine = ctx.session.reload_engine(ctx.engine).await?;
+            Ok(true)
+        }
+        CommandResult::Compact { instructions } => {
+            handle_compact(ctx, io, instructions.as_deref()).await;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+async fn handle_engine_command<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+    result: &CommandResult,
+) -> Result<bool> {
+    match result {
+        CommandResult::OpenModelSelector
+        | CommandResult::OpenSettingsSelector
+        | CommandResult::OpenThemeSelector => {
+            handle_selector_command(ctx, io.controller, result).await?;
+        }
+        CommandResult::ThemeChanged { theme } => handle_theme_changed(ctx, io.controller, theme).await,
+        CommandResult::ClearContext => clear_engine_context(ctx).await?,
+        rest => return handle_engine_command_rest(ctx, io, rest).await,
+    }
+    Ok(true)
 }
 
 pub(super) async fn handle_live_command<B: TerminalBackend>(
@@ -24,101 +150,29 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
         message: _,
     } = live;
 
-    if handle_session_command(
-        &mut ctx,
-        SessionCommandIo {
-            controller: io.controller,
-            history: editor.history,
-            input: io.input,
-        },
-        result.clone(),
-    )
-    .await?
-    {
+    let session_io = SessionCommandIo {
+        controller: io.controller,
+        history: editor.history,
+        input: io.input,
+    };
+    if handle_session_command(&mut ctx, session_io, result.clone()).await? {
         drain_ui_events(io.controller, io.events, &mut None)?;
         return Ok(false);
     }
-
     if super::auth_cmd::handle_auth_command(&mut ctx, &mut io, &result).await? {
         drain_ui_events(io.controller, io.events, &mut None)?;
         return Ok(false);
     }
-
+    if handle_engine_command(&mut ctx, &mut io, &result).await? {
+        drain_ui_events(io.controller, io.events, &mut None)?;
+        return Ok(false);
+    }
     match result {
         CommandResult::Exit => return Ok(true),
-        CommandResult::OpenModelSelector => {
-            super::super::modal::open_model_selector(ctx.session, io.controller);
-            io.controller.redraw()?;
-        }
-        CommandResult::OpenSettingsSelector => {
-            super::super::modal::open_settings_selector(io.controller);
-            io.controller.redraw()?;
-        }
-        CommandResult::OpenThemeSelector => {
-            super::super::modal::open_theme_selector(ctx.session, io.controller);
-            io.controller.redraw()?;
-        }
-        CommandResult::ThemeChanged { theme } => {
-            let registry = crate::ui::theme::ThemeRegistry::new(Some(&ctx.session.config.config_dir));
-            if let Some(resolved) = registry.get(&theme).cloned() {
-                ctx.session.config.theme = theme.clone();
-                ctx.session.renderer.theme = resolved.clone();
-                let _ = io.controller.set_theme(resolved);
-                let _ = rho_harness_core::config::Config::set_file_value_async(
-                    &ctx.session.config.config_dir,
-                    "theme",
-                    &theme,
-                )
-                .await;
-                ctx.session.renderer.print_status(&format!("Theme: {theme}"));
-            }
-        }
-        CommandResult::ClearContext => {
-            *ctx.engine =
-                crate::platform::agent_engine(ctx.session.config.clone(), ctx.session.auth_store.clone(), None).await?;
-        }
-        CommandResult::ModelChanged {
-            new_model,
-            new_provider,
-        } => {
-            ctx.session.config.model = new_model.clone();
-            if let Some(provider) = new_provider.as_ref() {
-                ctx.session.config.provider = provider.clone();
-            }
-            let provider = ctx.session.config.provider.clone();
-            if let Err(err) = ctx.engine.switch_model(&new_model, &provider).await {
-                ctx.session
-                    .renderer
-                    .print_notice(&format!("\nWarning: Could not switch model: {err}\n"));
-            }
-        }
-        CommandResult::Reload => {
-            *ctx.engine = ctx.session.reload_engine(ctx.engine).await?;
-        }
-        CommandResult::Compact { instructions } => {
+        CommandResult::ExpandedPrompt { text } => {
             ctx.session
                 .renderer
-                .print_notice("  [Compacting conversation context...]\n");
-            match ctx.engine.compact_session(instructions.as_deref()).await {
-                Ok(stats) => {
-                    let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
-                    let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
-                    let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
-                    ctx.session.renderer.print_notice(&format!(
-                        "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
-                    ));
-                    super::super::turn::sync_turn_footer(io.controller, ctx.engine);
-                    let _ = io.controller.redraw();
-                }
-                Err(err) => {
-                    ctx.session
-                        .renderer
-                        .print_notice(&format!("  [Compaction failed: {err}]\n"));
-                }
-            }
-        }
-        CommandResult::ExpandedPrompt { text } => {
-            ctx.session.renderer.print_notice("  [Expanded template]\n");
+                .print_notice("  [Expanded template]\n");
             drain_ui_events(io.controller, io.events, &mut None)?;
             ctx.session.renderer.print_user_block(&text);
             run_active_turn(
@@ -135,7 +189,6 @@ pub(super) async fn handle_live_command<B: TerminalBackend>(
             ctx.engine.refresh_quota().await;
             return Ok(false);
         }
-        CommandResult::Continue => {}
         _ => {}
     }
     drain_ui_events(io.controller, io.events, &mut None)?;

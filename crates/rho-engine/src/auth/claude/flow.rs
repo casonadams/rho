@@ -1,5 +1,5 @@
 use super::client::{AUTHORIZE_URL, CLIENT_ID, REDIRECT_URI, SCOPES};
-use crate::auth::loopback::LoopbackServer;
+use crate::auth::loopback::{CallbackParams, LoopbackServer};
 use rho_harness_core::auth::OAuthLoginCallbacks;
 use rho_harness_core::error::{AppError, Result};
 use std::time::Duration;
@@ -14,20 +14,25 @@ pub fn build_authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> 
     )
 }
 
+fn parse_query_code_state(query: &str) -> (Option<String>, Option<String>) {
+    let mut code = None;
+    let mut state = None;
+    for pair in query.split('&') {
+        if let Some((k, v)) = pair.split_once('=') {
+            match k {
+                "code" => code = Some(v.to_string()),
+                "state" => state = Some(v.to_string()),
+                _ => {}
+            }
+        }
+    }
+    (code, state)
+}
+
 pub fn parse_auth_code_and_state(input: &str) -> (String, Option<String>) {
     let trimmed = input.trim();
     if let Some((_, query)) = trimmed.split_once('?') {
-        let mut code = None;
-        let mut state = None;
-        for pair in query.split('&') {
-            if let Some((k, v)) = pair.split_once('=') {
-                match k {
-                    "code" => code = Some(v.to_string()),
-                    "state" => state = Some(v.to_string()),
-                    _ => {}
-                }
-            }
-        }
+        let (code, state) = parse_query_code_state(query);
         if let Some(c) = code {
             return (c, state);
         }
@@ -53,35 +58,48 @@ async fn bind_listener() -> Result<LoopbackServer> {
     }
 }
 
-pub async fn acquire_auth_code(
+fn validate_browser_callback(callback: CallbackParams, state: &str) -> Result<String> {
+    if let Some(err) = callback.error {
+        let desc = callback.error_description.unwrap_or_default();
+        return Err(AppError::Auth(format!("OAuth failed: {err} {desc}")));
+    }
+    let code = callback
+        .code
+        .ok_or_else(|| AppError::Auth("No authorization code received from callback".to_string()))?;
+    if callback.state.as_deref() != Some(state) {
+        return Err(AppError::Auth("OAuth state mismatch".to_string()));
+    }
+    Ok(code)
+}
+
+async fn try_browser_flow(
+    callbacks: &dyn OAuthLoginCallbacks,
+    challenge: &str,
+    state: &str,
+) -> Result<Option<(String, String)>> {
+    if is_headless() {
+        return Ok(None);
+    }
+    let Ok(server) = bind_listener().await else {
+        return Ok(None);
+    };
+    let redirect_uri = server.redirect_uri("/callback");
+    let auth_url = build_authorize_url(&redirect_uri, challenge, state);
+    callbacks
+        .on_auth_url(&auth_url, Some("Complete Claude sign-in in your browser to finish."))
+        .await?;
+    callbacks.on_progress("Waiting for browser authorization...").await?;
+
+    let callback = server.wait_for_callback(CALLBACK_TIMEOUT).await?;
+    let code = validate_browser_callback(callback, state)?;
+    Ok(Some((code, redirect_uri)))
+}
+
+async fn acquire_manual_auth_code(
     callbacks: &dyn OAuthLoginCallbacks,
     challenge: &str,
     state: &str,
 ) -> Result<(String, String)> {
-    if !is_headless()
-        && let Ok(server) = bind_listener().await
-    {
-        let redirect_uri = server.redirect_uri("/callback");
-        let auth_url = build_authorize_url(&redirect_uri, challenge, state);
-        callbacks
-            .on_auth_url(&auth_url, Some("Complete Claude sign-in in your browser to finish."))
-            .await?;
-        callbacks.on_progress("Waiting for browser authorization...").await?;
-
-        let callback = server.wait_for_callback(CALLBACK_TIMEOUT).await?;
-        if let Some(err) = callback.error {
-            let desc = callback.error_description.unwrap_or_default();
-            return Err(AppError::Auth(format!("OAuth failed: {err} {desc}")));
-        }
-        let code = callback
-            .code
-            .ok_or_else(|| AppError::Auth("No authorization code received from callback".to_string()))?;
-        if callback.state.as_deref() != Some(state) {
-            return Err(AppError::Auth("OAuth state mismatch".to_string()));
-        }
-        return Ok((code, redirect_uri));
-    }
-
     let auth_url = build_authorize_url(REDIRECT_URI, challenge, state);
     callbacks
         .on_auth_url(
@@ -102,4 +120,15 @@ pub async fn acquire_auth_code(
         return Err(AppError::Auth("OAuth state mismatch".to_string()));
     }
     Ok((code, REDIRECT_URI.to_string()))
+}
+
+pub async fn acquire_auth_code(
+    callbacks: &dyn OAuthLoginCallbacks,
+    challenge: &str,
+    state: &str,
+) -> Result<(String, String)> {
+    if let Some(res) = try_browser_flow(callbacks, challenge, state).await? {
+        return Ok(res);
+    }
+    acquire_manual_auth_code(callbacks, challenge, state).await
 }

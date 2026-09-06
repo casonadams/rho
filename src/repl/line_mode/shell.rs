@@ -37,20 +37,14 @@ pub fn clear_submitted_input(input: &str) {
 }
 
 pub async fn handle_shell_command(input: &str, renderer: &TerminalRenderer) -> ShellAction {
-    if let Some(cmd) = input.strip_prefix("!!") {
-        let cmd = cmd.trim();
-        if !cmd.is_empty() {
-            execute_silent_shell(cmd, renderer).await;
-            return ShellAction::Handled;
-        }
+    if let Some(cmd) = input.strip_prefix("!!").map(str::trim).filter(|c| !c.is_empty()) {
+        execute_silent_shell(cmd, renderer).await;
+        return ShellAction::Handled;
     }
 
-    if let Some(cmd) = input.strip_prefix('!') {
-        let cmd = cmd.trim();
-        if !cmd.is_empty() {
-            let prompt = execute_turn_shell(cmd, renderer).await;
-            return ShellAction::Prompt(prompt);
-        }
+    if let Some(cmd) = input.strip_prefix('!').map(str::trim).filter(|c| !c.is_empty()) {
+        let prompt = execute_turn_shell(cmd, renderer).await;
+        return ShellAction::Prompt(prompt);
     }
 
     ShellAction::Passthrough

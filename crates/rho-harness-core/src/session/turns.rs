@@ -11,67 +11,91 @@ pub struct ConversationTurn {
     pub tool_calls_count: usize,
 }
 
-pub fn extract_turns(messages: &[Message]) -> Vec<ConversationTurn> {
-    let mut turns = Vec::new();
-    let mut current_prompt = String::new();
-    let mut current_assistant = String::new();
-    let mut current_tool_calls = 0;
-    let mut turn_num = 0;
+struct TurnAccumulator {
+    turns: Vec<ConversationTurn>,
+    prompt: String,
+    assistant: String,
+    tool_calls: usize,
+    turn_num: usize,
+}
 
-    for msg in messages {
+impl TurnAccumulator {
+    fn new() -> Self {
+        Self {
+            turns: Vec::new(),
+            prompt: String::new(),
+            assistant: String::new(),
+            tool_calls: 0,
+            turn_num: 0,
+        }
+    }
+
+    fn flush(&mut self) {
+        if !self.prompt.is_empty() || !self.assistant.is_empty() {
+            self.turn_num += 1;
+            self.turns.push(ConversationTurn {
+                turn_number: self.turn_num,
+                user_prompt: std::mem::take(&mut self.prompt),
+                assistant_preview: std::mem::take(&mut self.assistant),
+                tool_calls_count: std::mem::take(&mut self.tool_calls),
+            });
+        }
+    }
+
+    fn push_user_part(&mut self, part: &rig::message::UserContent) {
+        if let rig::message::UserContent::Text(t) = part {
+            if !self.prompt.is_empty() {
+                self.prompt.push(' ');
+            }
+            self.prompt.push_str(&t.text);
+        }
+    }
+
+    fn push_assistant_part(&mut self, part: &rig::message::AssistantContent) {
+        match part {
+            rig::message::AssistantContent::Text(t) => {
+                if !self.assistant.is_empty() {
+                    self.assistant.push(' ');
+                }
+                self.assistant.push_str(&t.text);
+            }
+            rig::message::AssistantContent::ToolCall(_) => self.tool_calls += 1,
+            _ => {}
+        }
+    }
+
+    fn process_message(&mut self, msg: &Message) {
         match msg {
             Message::User { content } => {
                 let has_text = content.iter().any(|c| matches!(c, rig::message::UserContent::Text(_)));
-                if has_text && (!current_prompt.is_empty() || !current_assistant.is_empty()) {
-                    turn_num += 1;
-                    turns.push(ConversationTurn {
-                        turn_number: turn_num,
-                        user_prompt: std::mem::take(&mut current_prompt),
-                        assistant_preview: std::mem::take(&mut current_assistant),
-                        tool_calls_count: current_tool_calls,
-                    });
-                    current_tool_calls = 0;
+                if has_text {
+                    self.flush();
                 }
                 for part in content {
-                    if let rig::message::UserContent::Text(t) = part {
-                        if !current_prompt.is_empty() {
-                            current_prompt.push(' ');
-                        }
-                        current_prompt.push_str(&t.text);
-                    }
+                    self.push_user_part(part);
                 }
             }
             Message::Assistant { content, .. } => {
                 for part in content {
-                    match part {
-                        rig::message::AssistantContent::Text(t) => {
-                            if !current_assistant.is_empty() {
-                                current_assistant.push(' ');
-                            }
-                            current_assistant.push_str(&t.text);
-                        }
-                        rig::message::AssistantContent::ToolCall(_) => {
-                            current_tool_calls += 1;
-                        }
-                        _ => {}
-                    }
+                    self.push_assistant_part(part);
                 }
             }
             Message::System { .. } => {}
         }
     }
+}
 
-    if !current_prompt.is_empty() || !current_assistant.is_empty() {
-        turn_num += 1;
-        turns.push(ConversationTurn {
-            turn_number: turn_num,
-            user_prompt: current_prompt,
-            assistant_preview: current_assistant,
-            tool_calls_count: current_tool_calls,
-        });
+pub fn extract_turns(messages: &[Message]) -> Vec<ConversationTurn> {
+    let mut acc = TurnAccumulator::new();
+    for msg in messages {
+        acc.process_message(msg);
     }
+    acc.flush();
+    acc.turns
+}
 
-    turns
+fn is_user_text_turn(msg: &Message) -> bool {
+    matches!(msg, Message::User { content } if content.iter().any(|c| matches!(c, rig::message::UserContent::Text(_))))
 }
 
 pub fn calculate_rewind_cutoff(messages: &[Message], target_turn: usize) -> usize {
@@ -79,8 +103,7 @@ pub fn calculate_rewind_cutoff(messages: &[Message], target_turn: usize) -> usiz
     let mut cutoff_idx = 0;
 
     for (i, msg) in messages.iter().enumerate() {
-        if matches!(msg, Message::User { content } if content.iter().any(|c| matches!(c, rig::message::UserContent::Text(_))))
-        {
+        if is_user_text_turn(msg) {
             user_turn_count += 1;
             if user_turn_count > target_turn {
                 break;

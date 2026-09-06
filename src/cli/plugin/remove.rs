@@ -43,36 +43,63 @@ pub struct RemovePluginContext<'a> {
     pub home_dir: Option<&'a Path>,
 }
 
+async fn handle_binary_removal(path: PathBuf, is_managed: bool, keep_binary: bool) -> Result<RemovalArtifactStatus> {
+    if !is_managed {
+        return Ok(RemovalArtifactStatus::PreservedExternal(path));
+    }
+    if keep_binary {
+        return Ok(RemovalArtifactStatus::Kept(path));
+    }
+    tokio::fs::remove_file(&path).await?;
+    Ok(RemovalArtifactStatus::Deleted(path))
+}
+
+async fn determine_artifact_status(
+    binary_path: Option<PathBuf>,
+    cargo_bin_dir: Option<&Path>,
+    keep_binary: bool,
+) -> Result<RemovalArtifactStatus> {
+    let Some(path) = binary_path.filter(|p| p.is_file()) else {
+        return Ok(RemovalArtifactStatus::NotFound);
+    };
+    let is_managed = cargo_bin_dir.is_some_and(|bin_dir| is_in_cargo_bin(&path, bin_dir));
+    handle_binary_removal(path, is_managed, keep_binary).await
+}
+
 pub async fn remove_plugin(ctx: RemovePluginContext<'_>, name: &str) -> Result<PluginRemovalResult> {
     let key = resolve_plugin_key(name, ctx.plugins).unwrap_or_else(|| name.to_string());
     let removed_config = Config::remove_plugin_async(ctx.config_dir, &key).await?;
 
     let binary_path = resolve_plugin_binary_path(&removed_config, ctx.cargo_bin_dir, ctx.home_dir);
-    let artifact_status = match binary_path {
-        Some(ref path) if path.is_file() => {
-            let is_managed = ctx
-                .cargo_bin_dir
-                .map(|bin_dir| is_in_cargo_bin(path, bin_dir))
-                .unwrap_or(false);
-
-            if is_managed {
-                if ctx.keep_binary {
-                    RemovalArtifactStatus::Kept(path.clone())
-                } else {
-                    tokio::fs::remove_file(path).await?;
-                    RemovalArtifactStatus::Deleted(path.clone())
-                }
-            } else {
-                RemovalArtifactStatus::PreservedExternal(path.clone())
-            }
-        }
-        _ => RemovalArtifactStatus::NotFound,
-    };
+    let artifact_status = determine_artifact_status(binary_path, ctx.cargo_bin_dir, ctx.keep_binary).await?;
 
     Ok(PluginRemovalResult {
         name: key,
         artifact_status,
     })
+}
+
+fn print_removal_status(name: &str, status: &RemovalArtifactStatus) {
+    match status {
+        RemovalArtifactStatus::Deleted(path) => {
+            println!("Removed plugin '{name}' and deleted binary at {}", path.display());
+        }
+        RemovalArtifactStatus::Kept(path) => {
+            println!(
+                "Removed plugin '{name}' from configuration (kept binary at {})",
+                path.display()
+            );
+        }
+        RemovalArtifactStatus::PreservedExternal(path) => {
+            println!(
+                "Removed plugin '{name}' from configuration (preserved external binary at {})",
+                path.display()
+            );
+        }
+        RemovalArtifactStatus::NotFound => {
+            println!("Removed plugin '{name}' from configuration");
+        }
+    }
 }
 
 pub async fn handle_remove(config: &Config, name: &str, keep_binary: bool) -> Result<PluginRemovalResult> {
@@ -90,33 +117,7 @@ pub async fn handle_remove(config: &Config, name: &str, keep_binary: bool) -> Re
     )
     .await?;
 
-    match &result.artifact_status {
-        RemovalArtifactStatus::Deleted(path) => {
-            println!(
-                "Removed plugin '{}' and deleted binary at {}",
-                result.name,
-                path.display()
-            );
-        }
-        RemovalArtifactStatus::Kept(path) => {
-            println!(
-                "Removed plugin '{}' from configuration (kept binary at {})",
-                result.name,
-                path.display()
-            );
-        }
-        RemovalArtifactStatus::PreservedExternal(path) => {
-            println!(
-                "Removed plugin '{}' from configuration (preserved external binary at {})",
-                result.name,
-                path.display()
-            );
-        }
-        RemovalArtifactStatus::NotFound => {
-            println!("Removed plugin '{}' from configuration", result.name);
-        }
-    }
-
+    print_removal_status(&result.name, &result.artifact_status);
     Ok(result)
 }
 

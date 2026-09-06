@@ -5,10 +5,7 @@ pub(crate) fn apply_env_overrides(config: &mut Config) -> Result<()> {
     apply_env_overrides_with(config, |name| std::env::var(name).ok())
 }
 
-pub(crate) fn apply_env_overrides_with<F>(config: &mut Config, get: F) -> Result<()>
-where
-    F: Fn(&str) -> Option<String>,
-{
+fn apply_model_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) {
     if let Some(val) = get("AI_MODEL").or_else(|| get("MODEL"))
         && !val.trim().is_empty()
     {
@@ -19,6 +16,12 @@ where
     {
         config.provider = val.trim().to_string();
     }
+    if let Some(val) = get("AI_THINKING_LEVEL") {
+        config.thinking_level = (val != "off").then_some(val);
+    }
+}
+
+fn apply_context_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
     if let Some(val) = get("AI_CONTEXT_LIMIT") {
         config.context_limit = Some(parse_positive("AI_CONTEXT_LIMIT", &val)?);
     }
@@ -31,6 +34,10 @@ where
     if let Some(val) = get("AI_RESERVE_TOKENS") {
         config.reserve_tokens = parse_positive("AI_RESERVE_TOKENS", &val)?;
     }
+    Ok(())
+}
+
+fn apply_token_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
     if let Some(val) = get("AI_KEEP_RECENT_TOKENS") {
         config.keep_recent_tokens = parse_positive("AI_KEEP_RECENT_TOKENS", &val)?;
     }
@@ -43,6 +50,22 @@ where
     if let Some(val) = get("AI_CONTEXT_INJECTION_MAX_TOKENS") {
         config.context_injection_max_tokens = parse_positive("AI_CONTEXT_INJECTION_MAX_TOKENS", &val)?;
     }
+    Ok(())
+}
+
+fn apply_retention_env_override<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
+    let Some(val) = get("AI_SESSION_RETENTION_DAYS").or_else(|| get("RHO_SESSION_RETENTION_DAYS")) else {
+        return Ok(());
+    };
+    config.session_retention_days = if val == "off" || val == "0" {
+        None
+    } else {
+        Some(parse_positive("AI_SESSION_RETENTION_DAYS", &val)?)
+    };
+    Ok(())
+}
+
+fn apply_runtime_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
     if let Some(val) = get("WEB_REGION") {
         config.region = val;
     }
@@ -55,16 +78,18 @@ where
     if let Some(val) = get("AI_FOLLOW_UP_MODE") {
         config.follow_up_mode = val.parse().map_err(AppError::Config)?;
     }
-    if let Some(val) = get("AI_THINKING_LEVEL") {
-        config.thinking_level = if val == "off" { None } else { Some(val) };
-    }
-    if let Some(val) = get("AI_SESSION_RETENTION_DAYS").or_else(|| get("RHO_SESSION_RETENTION_DAYS")) {
-        config.session_retention_days = if val == "off" || val == "0" {
-            None
-        } else {
-            Some(parse_positive("AI_SESSION_RETENTION_DAYS", &val)?)
-        };
-    }
+    apply_retention_env_override(config, get)?;
+    Ok(())
+}
+
+pub(crate) fn apply_env_overrides_with<F>(config: &mut Config, get: F) -> Result<()>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    apply_model_env_overrides(config, &get);
+    apply_context_env_overrides(config, &get)?;
+    apply_token_env_overrides(config, &get)?;
+    apply_runtime_env_overrides(config, &get)?;
     Ok(())
 }
 

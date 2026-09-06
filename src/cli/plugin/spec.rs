@@ -29,54 +29,58 @@ pub struct PluginSpec {
     pub executable_name: String,
 }
 
+fn split_raw_target(trimmed: &str) -> Result<(&str, Option<String>), PluginSpecError> {
+    if trimmed.is_empty() {
+        return Err(PluginSpecError::Empty);
+    }
+    if trimmed.starts_with("git@") {
+        return Err(PluginSpecError::UnsupportedHost(trimmed.to_string()));
+    }
+    match trimmed.split_once('@') {
+        Some((b, t)) => {
+            let tag_trimmed = t.trim();
+            if tag_trimmed.is_empty() {
+                return Err(PluginSpecError::EmptyTag);
+            }
+            if b.trim().is_empty() {
+                return Err(PluginSpecError::Empty);
+            }
+            Ok((b.trim(), Some(tag_trimmed.to_string())))
+        }
+        None => Ok((trimmed, None)),
+    }
+}
+
+fn resolve_repo_coords(raw_target: &str) -> Result<(String, String, Option<String>), PluginSpecError> {
+    if raw_target.starts_with("http://") {
+        return Err(PluginSpecError::InsecureHttp(raw_target.to_string()));
+    }
+    if let Some(url_str) = raw_target.strip_prefix("https://") {
+        return parse_github_url(url_str, raw_target);
+    }
+    if let Some(url_str) = raw_target.strip_prefix("github.com/") {
+        return parse_github_url(url_str, raw_target);
+    }
+    if raw_target.contains("://") {
+        return Err(PluginSpecError::UnsupportedHost(raw_target.to_string()));
+    }
+    let (o, r) = if raw_target.contains('/') {
+        parse_github_slug(raw_target)?
+    } else {
+        parse_bare_name(raw_target)?
+    };
+    Ok((o, r, None))
+}
+
 impl PluginSpec {
     pub fn parse(input: &str) -> Result<Self, PluginSpecError> {
-        let trimmed = input.trim();
-        if trimmed.is_empty() {
-            return Err(PluginSpecError::Empty);
-        }
-
-        if trimmed.starts_with("git@") {
-            return Err(PluginSpecError::UnsupportedHost(trimmed.to_string()));
-        }
-
-        let (raw_target, tag) = match trimmed.split_once('@') {
-            Some((b, t)) => {
-                let tag_trimmed = t.trim();
-                if tag_trimmed.is_empty() {
-                    return Err(PluginSpecError::EmptyTag);
-                }
-                (b.trim(), Some(tag_trimmed.to_string()))
-            }
-            None => (trimmed, None),
-        };
-
-        if raw_target.is_empty() {
-            return Err(PluginSpecError::Empty);
-        }
-
-        let (owner, repo, url_tag) = if raw_target.starts_with("http://") {
-            return Err(PluginSpecError::InsecureHttp(raw_target.to_string()));
-        } else if let Some(url_str) = raw_target.strip_prefix("https://") {
-            parse_github_url(url_str, raw_target)?
-        } else if raw_target.starts_with("github.com/") {
-            parse_github_url(raw_target, raw_target)?
-        } else if raw_target.contains("://") {
-            return Err(PluginSpecError::UnsupportedHost(raw_target.to_string()));
-        } else if raw_target.contains('/') {
-            let (o, r) = parse_github_slug(raw_target)?;
-            (o, r, None)
-        } else {
-            let (o, r) = parse_bare_name(raw_target)?;
-            (o, r, None)
-        };
-
+        let (raw_target, tag) = split_raw_target(input.trim())?;
+        let (owner, repo, url_tag) = resolve_repo_coords(raw_target)?;
         let tag = tag.or(url_tag);
         let executable_name = repo.clone();
-        let name = repo;
 
         Ok(Self {
-            name,
+            name: repo.clone(),
             owner,
             repo: executable_name.clone(),
             tag,

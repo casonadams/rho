@@ -30,32 +30,55 @@ pub fn prune_expired_sessions(sessions_dir: &Path, active_session_id: &str, rete
     Ok(count)
 }
 
+fn calculate_prune_cutoff(retention_days: u32) -> Option<SystemTime> {
+    if retention_days == 0 {
+        return None;
+    }
+    SystemTime::now().checked_sub(Duration::from_secs(retention_days as u64 * 86_400))
+}
+
+async fn sessions_dir_exists(sessions_dir: &Path) -> bool {
+    tokio::fs::try_exists(sessions_dir).await.unwrap_or(false)
+}
+
+async fn prune_single_entry_async(ctx: &PruneContext<'_>, entry: tokio::fs::DirEntry) -> bool {
+    let path = entry.path();
+    let metadata = entry.metadata().await.ok();
+    if ctx.should_prune_async(&path, metadata).await {
+        tokio::fs::remove_file(&path).await.is_ok()
+    } else {
+        false
+    }
+}
+
+async fn drain_prune_entries_async(ctx: &PruneContext<'_>, mut entries: tokio::fs::ReadDir) -> Result<usize> {
+    let mut count = 0;
+    while let Some(entry) = entries.next_entry().await? {
+        if prune_single_entry_async(ctx, entry).await {
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 pub async fn prune_expired_sessions_async(
     sessions_dir: &Path,
     active_session_id: &str,
     retention_days: u32,
 ) -> Result<usize> {
-    if retention_days == 0 || !tokio::fs::try_exists(sessions_dir).await.unwrap_or(false) {
-        return Ok(0);
-    }
-    let Some(cutoff) = SystemTime::now().checked_sub(Duration::from_secs(retention_days as u64 * 86_400)) else {
+    let Some(cutoff) = calculate_prune_cutoff(retention_days) else {
         return Ok(0);
     };
+    if !sessions_dir_exists(sessions_dir).await {
+        return Ok(0);
+    }
 
     let ctx = PruneContext {
         active_session_id,
         cutoff,
     };
-    let mut count = 0;
-    let mut entries = tokio::fs::read_dir(sessions_dir).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
-        let metadata = entry.metadata().await.ok();
-        if ctx.should_prune_async(&path, metadata).await && tokio::fs::remove_file(&path).await.is_ok() {
-            count += 1;
-        }
-    }
-    Ok(count)
+    let entries = tokio::fs::read_dir(sessions_dir).await?;
+    drain_prune_entries_async(&ctx, entries).await
 }
 
 impl PruneContext<'_> {

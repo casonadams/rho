@@ -43,12 +43,7 @@ pub enum ReadClassification {
     Docs { path: String },
 }
 
-pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification> {
-    let raw = args.get("path").and_then(|path| path.as_str())?;
-    let clean = raw.trim().trim_matches('"').trim_matches('\'');
-    let path = Path::new(clean);
-    let file_name = path.file_name()?.to_str()?;
-
+fn classify_skill(path: &Path, file_name: &str) -> Option<ReadClassification> {
     if file_name.eq_ignore_ascii_case("SKILL.md") {
         let skill_name = path
             .parent()
@@ -56,9 +51,13 @@ pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification
             .and_then(|f| f.to_str())
             .unwrap_or(file_name)
             .to_string();
-        return Some(ReadClassification::Skill { name: skill_name });
+        Some(ReadClassification::Skill { name: skill_name })
+    } else {
+        None
     }
+}
 
+fn classify_doc_or_resource(clean: &str, file_name: &str) -> Option<ReadClassification> {
     if file_name == "AGENTS.md"
         || file_name == "AGENTS.override.md"
         || file_name == "CLAUDE.md"
@@ -68,14 +67,20 @@ pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification
             path: to_relative_path(clean),
         });
     }
-
     if file_name.eq_ignore_ascii_case("README.md") || clean.contains("docs/") || clean.contains("examples/") {
         return Some(ReadClassification::Docs {
             path: to_relative_path(clean),
         });
     }
-
     None
+}
+
+pub fn classify_read_path(args: &serde_json::Value) -> Option<ReadClassification> {
+    let raw = args.get("path").and_then(|path| path.as_str())?;
+    let clean = raw.trim().trim_matches('"').trim_matches('\'');
+    let path = Path::new(clean);
+    let file_name = path.file_name()?.to_str()?;
+    classify_skill(path, file_name).or_else(|| classify_doc_or_resource(clean, file_name))
 }
 
 pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) {
@@ -97,105 +102,101 @@ pub fn read_summary_parts(args: &serde_json::Value) -> (String, Option<String>) 
     (path, Some(format!(":{start}-{end}")))
 }
 
+fn format_file_mutation_summary(name: &str, args: &serde_json::Value) -> String {
+    let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
+    let rel = to_relative_path(raw);
+    if name == "write" {
+        let bytes = args
+            .get("content")
+            .and_then(|c| c.as_str())
+            .map(|c| c.len())
+            .unwrap_or(0);
+        format!("{rel} ({bytes} bytes)")
+    } else {
+        let edits_count = args
+            .get("edits")
+            .and_then(|e| e.as_array())
+            .map(|e| e.len())
+            .unwrap_or(0);
+        format!("{rel} ({edits_count} edits)")
+    }
+}
+
+fn format_bash_summary(args: &serde_json::Value) -> String {
+    let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
+    let clean = clean_command_paths(raw_cmd);
+    let (preview, was_truncated) = truncate_preview(&clean, 60);
+    let cmd_str = if was_truncated { format!("{preview}...") } else { clean };
+    if let Some(timeout) = args
+        .get("timeout")
+        .and_then(|t| t.as_u64().or_else(|| t.as_f64().map(|f| f as u64)))
+    {
+        format!("{cmd_str} (timeout {timeout}s)")
+    } else {
+        cmd_str
+    }
+}
+
+fn format_read_summary(args: &serde_json::Value) -> String {
+    if let Some(ReadClassification::Skill { name }) = classify_read_path(args) {
+        format!("[skill] {name}")
+    } else {
+        let (path, range) = read_summary_parts(args);
+        format!("{path}{}", range.unwrap_or_default())
+    }
+}
+
+fn format_search_summary(name: &str, args: &serde_json::Value) -> String {
+    if name == "grep" || name == "rg" {
+        let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
+        let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+        let rel = to_relative_path(path);
+        let quoted_pat = quote_cli_arg(pattern);
+        if rel == "." || rel.is_empty() {
+            quoted_pat
+        } else {
+            format!("{quoted_pat} {}", quote_cli_arg(&rel))
+        }
+    } else {
+        format_fd_summary(args)
+    }
+}
+
+fn format_fd_summary(args: &serde_json::Value) -> String {
+    let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
+    let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+    let rel = to_relative_path(path);
+    let has_path = rel != "." && !rel.is_empty();
+    let has_pattern = !pattern.is_empty();
+    match (has_pattern, has_path) {
+        (true, true) => format!("{} {}", quote_cli_arg(pattern), quote_cli_arg(&rel)),
+        (true, false) => quote_cli_arg(pattern),
+        (false, true) => format!(". {}", quote_cli_arg(&rel)),
+        (false, false) => ".".to_string(),
+    }
+}
+
+fn format_outline_summary(args: &serde_json::Value) -> String {
+    let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+    let rel = to_relative_path(path);
+    let quoted_path = quote_cli_arg(&rel);
+    if let Some(query) = args.get("query").and_then(|q| q.as_str()).filter(|q| !q.is_empty()) {
+        format!("{quoted_path} (query: {query:?})")
+    } else {
+        quoted_path
+    }
+}
+
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
-        "read" => {
-            if let Some(ReadClassification::Skill { name }) = classify_read_path(args) {
-                format!("[skill] {name}")
-            } else {
-                let (path, range) = read_summary_parts(args);
-                format!("{path}{}", range.unwrap_or_default())
-            }
-        }
-        "write" => {
-            let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
-            let rel = to_relative_path(raw);
-            let bytes = args
-                .get("content")
-                .and_then(|c| c.as_str())
-                .map(|c| c.len())
-                .unwrap_or(0);
-            format!("{rel} ({bytes} bytes)")
-        }
-        "edit" => {
-            let raw = args.get("path").and_then(|p| p.as_str()).unwrap_or("");
-            let rel = to_relative_path(raw);
-            let edits_count = args
-                .get("edits")
-                .and_then(|e| e.as_array())
-                .map(|e| e.len())
-                .unwrap_or(0);
-            format!("{rel} ({edits_count} edits)")
-        }
-        "bash" => {
-            let raw_cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("");
-            let clean = clean_command_paths(raw_cmd);
-            let (preview, was_truncated) = truncate_preview(&clean, 60);
-            let cmd_str = if was_truncated { format!("{preview}...") } else { clean };
-            if let Some(timeout) = args
-                .get("timeout")
-                .and_then(|t| t.as_u64().or_else(|| t.as_f64().map(|f| f as u64)))
-            {
-                format!("{cmd_str} (timeout {timeout}s)")
-            } else {
-                cmd_str
-            }
-        }
-        "web_search" => {
-            let q = args.get("query").and_then(|q| q.as_str()).unwrap_or("");
-            format!("\"{q}\"")
-        }
-        "web_fetch" => {
-            let raw_url = args.get("url").and_then(|u| u.as_str()).unwrap_or("");
-            to_relative_path(raw_url)
-        }
-        "outline" => {
-            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
-            let rel = to_relative_path(path);
-            let quoted_path = quote_cli_arg(&rel);
-            if let Some(query) = args.get("query").and_then(|q| q.as_str()).filter(|q| !q.is_empty()) {
-                format!("{quoted_path} (query: {query:?})")
-            } else {
-                quoted_path
-            }
-        }
-        "grep" | "rg" => {
-            let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
-            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
-            let rel = to_relative_path(path);
-            let quoted_pat = quote_cli_arg(pattern);
-            if rel == "." || rel.is_empty() {
-                quoted_pat
-            } else {
-                let quoted_path = quote_cli_arg(&rel);
-                format!("{quoted_pat} {quoted_path}")
-            }
-        }
-        "fd" => {
-            let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
-            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
-            let rel = to_relative_path(path);
-            let has_path = rel != "." && !rel.is_empty();
-            let has_pattern = !pattern.is_empty();
-
-            match (has_pattern, has_path) {
-                (true, true) => {
-                    let quoted_pat = quote_cli_arg(pattern);
-                    let quoted_path = quote_cli_arg(&rel);
-                    format!("{quoted_pat} {quoted_path}")
-                }
-                (true, false) => quote_cli_arg(pattern),
-                (false, true) => {
-                    let quoted_path = quote_cli_arg(&rel);
-                    format!(". {quoted_path}")
-                }
-                (false, false) => ".".to_string(),
-            }
-        }
-        "ls" => {
-            let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
-            to_relative_path(path)
-        }
+        "read" => format_read_summary(args),
+        "write" | "edit" => format_file_mutation_summary(name, args),
+        "bash" => format_bash_summary(args),
+        "web_search" => format!("\"{}\"", args.get("query").and_then(|q| q.as_str()).unwrap_or("")),
+        "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
+        "outline" => format_outline_summary(args),
+        "grep" | "rg" | "fd" => format_search_summary(name, args),
+        "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
         _ => "".to_string(),
     }
 }

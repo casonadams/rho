@@ -31,78 +31,85 @@ pub struct DiscoveredModel {
     pub context_tokens: Option<usize>,
 }
 
-pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
-    match provider {
-        ProviderId::ChatGpt => Ok(chatgpt_codex_models()),
-        ProviderId::ClaudeCode => Ok(claude_preset_models()),
-        ProviderId::Copilot => Ok(copilot_models()),
-        ProviderId::Local => fetch::discover_ollama_models().await,
-        ProviderId::OpenAi => {
-            if let Some(key) = auth_store.get_key_sync("openai")? {
-                fetch::discover_openai_compatible("openai", "https://api.openai.com/v1", &key).await
-            } else {
-                Ok(openai_preset_models())
-            }
-        }
-        ProviderId::OpenRouter => {
-            if let Some(key) = auth_store.get_key_sync("openrouter")? {
-                fetch::discover_openai_compatible("openrouter", "https://openrouter.ai/api/v1", &key).await
-            } else {
-                Ok(openrouter_preset_models())
-            }
-        }
-        ProviderId::Groq => {
-            if let Some(key) = auth_store.get_key_sync("groq")? {
-                fetch::discover_openai_compatible("groq", "https://api.groq.com/openai/v1", &key).await
-            } else {
-                Ok(groq_preset_models())
-            }
-        }
-        ProviderId::DeepSeek => {
-            if let Some(key) = auth_store.get_key_sync("deepseek")? {
-                fetch::discover_openai_compatible("deepseek", "https://api.deepseek.com", &key).await
-            } else {
-                Ok(deepseek_preset_models())
-            }
-        }
-        ProviderId::Anthropic => {
-            if let Some(key) = auth_store.get_key_sync("anthropic")? {
-                fetch::discover_anthropic_models(&key).await
-            } else {
-                Ok(anthropic_preset_models())
-            }
-        }
-        ProviderId::Gemini => {
-            if let Some(key) = auth_store.get_key_sync("gemini")? {
-                fetch::discover_gemini_models(&key).await
-            } else {
-                Ok(gemini_preset_models())
-            }
-        }
-        ProviderId::Antigravity => {
-            if let Some(key) = auth_store.get_key_sync("antigravity")? {
-                let project_id = match auth_store.get_credential("antigravity") {
-                    Some(rho_harness_core::auth::StoredCredential::OAuth {
-                        account_id: Some(id), ..
-                    }) => id.clone(),
-                    _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
-                };
-                fetch::discover_antigravity_models(&key, &project_id).await
-            } else {
-                Ok(antigravity_preset_models())
-            }
-        }
-        ProviderId::Mistral => Ok(mistral_preset_models()),
-        ProviderId::XAi => Ok(xai_preset_models()),
-        ProviderId::Cohere => Ok(cohere_preset_models()),
-        ProviderId::OllamaCloud => {
-            if let Some(key) = auth_store.get_key_sync("ollama-cloud")? {
-                fetch::discover_ollama_cloud_models(&key).await
-            } else {
-                Ok(ollama_cloud_preset_models())
-            }
-        }
+async fn discover_keyed_openai_compatible(
+    (name, url): (&str, &str),
+    auth_store: &AuthStore,
+) -> Result<Vec<DiscoveredModel>> {
+    if let Some(key) = auth_store.get_key_sync(name)? {
+        fetch::discover_openai_compatible(name, url, &key).await
+    } else {
+        Ok(default_presets_for(name))
     }
+}
+
+async fn discover_antigravity(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+    if let Some(key) = auth_store.get_key_sync("antigravity")? {
+        let project_id = match auth_store.get_credential("antigravity") {
+            Some(rho_harness_core::auth::StoredCredential::OAuth {
+                account_id: Some(id), ..
+            }) => id.clone(),
+            _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+        };
+        fetch::discover_antigravity_models(&key, &project_id).await
+    } else {
+        Ok(antigravity_preset_models())
+    }
+}
+
+async fn discover_anthropic(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+    if let Some(key) = auth_store.get_key_sync("anthropic")? {
+        fetch::discover_anthropic_models(&key).await
+    } else {
+        Ok(anthropic_preset_models())
+    }
+}
+
+async fn discover_gemini(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+    if let Some(key) = auth_store.get_key_sync("gemini")? {
+        fetch::discover_gemini_models(&key).await
+    } else {
+        Ok(gemini_preset_models())
+    }
+}
+
+async fn discover_ollama_cloud(auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+    if let Some(key) = auth_store.get_key_sync("ollama-cloud")? {
+        fetch::discover_ollama_cloud_models(&key).await
+    } else {
+        Ok(ollama_cloud_preset_models())
+    }
+}
+
+type DiscoveryFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<DiscoveredModel>>> + Send + 'a>>;
+
+fn keyed_discovery<'a>(
+    (name, base_url): (&'static str, &'static str),
+    auth_store: &'a AuthStore,
+) -> DiscoveryFuture<'a> {
+    Box::pin(discover_keyed_openai_compatible((name, base_url), auth_store))
+}
+
+fn dispatch_provider_discovery<'a>(provider: ProviderId, auth_store: &'a AuthStore) -> DiscoveryFuture<'a> {
+    match provider {
+        ProviderId::ChatGpt => Box::pin(async { Ok(chatgpt_codex_models()) }),
+        ProviderId::ClaudeCode => Box::pin(async { Ok(claude_preset_models()) }),
+        ProviderId::Copilot => Box::pin(async { Ok(copilot_models()) }),
+        ProviderId::Local => Box::pin(fetch::discover_ollama_models()),
+        ProviderId::OpenAi => keyed_discovery(("openai", "https://api.openai.com/v1"), auth_store),
+        ProviderId::OpenRouter => keyed_discovery(("openrouter", "https://openrouter.ai/api/v1"), auth_store),
+        ProviderId::Groq => keyed_discovery(("groq", "https://api.groq.com/openai/v1"), auth_store),
+        ProviderId::DeepSeek => keyed_discovery(("deepseek", "https://api.deepseek.com"), auth_store),
+        ProviderId::Anthropic => Box::pin(discover_anthropic(auth_store)),
+        ProviderId::Gemini => Box::pin(discover_gemini(auth_store)),
+        ProviderId::Antigravity => Box::pin(discover_antigravity(auth_store)),
+        ProviderId::OllamaCloud => Box::pin(discover_ollama_cloud(auth_store)),
+        _ => Box::pin(async move { Ok(default_presets_for(&provider.to_string())) }),
+    }
+}
+
+pub async fn discover_provider_models(provider: ProviderId, auth_store: &AuthStore) -> Result<Vec<DiscoveredModel>> {
+    dispatch_provider_discovery(provider, auth_store).await
 }
 
 pub async fn discover_custom_provider_models(

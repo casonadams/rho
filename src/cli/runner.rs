@@ -10,6 +10,41 @@ pub struct CliRunner {
     pub resume_target: Option<String>,
 }
 
+fn handle_turn_result(
+    res: rho_harness_core::error::Result<crate::engine::runner::TurnOutput>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match res {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Error: {e}");
+            rho_engine::process::kill_all_tracked_processes();
+            std::process::exit(1);
+        }
+    }
+}
+
+fn spawn_rpc_writer(
+    mut event_rx: tokio::sync::mpsc::UnboundedReceiver<rho_harness_core::rpc::protocol::RpcEvent>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
+        while let Some(event) = event_rx.recv().await {
+            let _ = writer.write_message(&event).await;
+        }
+    })
+}
+
+fn default_terminal_presenter() -> Arc<dyn rho_harness_core::presentation::Presenter> {
+    #[cfg(feature = "ui")]
+    {
+        Arc::new(crate::ui::TerminalRenderer::default())
+    }
+    #[cfg(not(feature = "ui"))]
+    {
+        Arc::new(rho_harness_core::presentation::StructuredPresenter::stdout())
+    }
+}
+
 impl CliRunner {
     pub fn new(config: Config, auth_store: AuthStore, resume_target: Option<String>) -> Self {
         Self {
@@ -20,33 +55,18 @@ impl CliRunner {
     }
 
     pub async fn run_json_turn(self, prompt: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (event_tx, mut event_rx) =
-            tokio::sync::mpsc::unbounded_channel::<rho_harness_core::rpc::protocol::RpcEvent>();
-        let presenter = crate::ui::render::RpcPresenter::new(event_tx);
-        let presenter_arc: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(presenter);
-
-        let writer_task = tokio::spawn(async move {
-            let mut writer = rho_harness_core::rpc::transport::JsonLinesWriter::new(tokio::io::stdout());
-            while let Some(event) = event_rx.recv().await {
-                let _ = writer.write_message(&event).await;
-            }
-        });
+        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
+            Arc::new(crate::ui::render::RpcPresenter::new(event_tx));
+        let writer_task = spawn_rpc_writer(event_rx);
 
         let engine = crate::platform::agent_engine(self.config, self.auth_store, self.resume_target.as_deref()).await?;
         let res = engine
-            .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter_arc.clone())
+            .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter.clone())
             .await;
-        drop(presenter_arc);
+        drop(presenter);
         let _ = writer_task.await;
-
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                eprintln!("Error: {e}");
-                rho_engine::process::kill_all_tracked_processes();
-                std::process::exit(1);
-            }
-        }
+        handle_turn_result(res)
     }
 
     pub async fn run_prompt_turn(
@@ -58,13 +78,7 @@ impl CliRunner {
         if let Some(name) = session_name {
             let _ = engine.session_manager.set_session_name(name).await;
         }
-        #[cfg(feature = "ui")]
-        let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
-            Arc::new(crate::ui::TerminalRenderer::default());
-        #[cfg(not(feature = "ui"))]
-        let presenter: Arc<dyn rho_harness_core::presentation::Presenter> =
-            Arc::new(rho_harness_core::presentation::StructuredPresenter::stdout());
-
+        let presenter = default_terminal_presenter();
         let res = engine
             .run_turn(crate::engine::runner::TurnRequest::new(prompt), presenter.clone())
             .await;
@@ -73,13 +87,6 @@ impl CliRunner {
         #[cfg(feature = "ui")]
         println!();
 
-        match res {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                eprintln!("Error: {e}");
-                rho_engine::process::kill_all_tracked_processes();
-                std::process::exit(1);
-            }
-        }
+        handle_turn_result(res)
     }
 }

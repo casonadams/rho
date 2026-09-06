@@ -34,21 +34,16 @@ impl<'a> TokenizerState<'a> {
         }
     }
 
-    fn run(&mut self) {
-        while self.index < self.len {
-            if self.skip_whitespace() {
-                continue;
-            }
-            if self.handle_backslash_newline() {
-                continue;
-            }
-            if self.handle_operator() {
-                continue;
-            }
-            if !self.handle_word() {
-                break;
-            }
+    fn step(&mut self) -> bool {
+        if self.skip_whitespace() || self.handle_backslash_newline() || self.handle_operator() {
+            true
+        } else {
+            self.handle_word()
         }
+    }
+
+    fn run(&mut self) {
+        while self.index < self.len && self.step() {}
     }
 
     fn skip_whitespace(&mut self) -> bool {

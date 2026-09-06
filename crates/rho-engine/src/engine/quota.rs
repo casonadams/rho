@@ -59,6 +59,18 @@ async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
     }
 }
 
+async fn resolve_antigravity_credentials(auth_store: &tokio::sync::Mutex<AuthStore>) -> Option<(String, String)> {
+    let mut store = auth_store.lock().await;
+    let token = store.get_key("antigravity").await.ok().flatten()?;
+    let project_id = match store.get_credential("antigravity") {
+        Some(StoredCredential::OAuth {
+            account_id: Some(id), ..
+        }) => id.clone(),
+        _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+    };
+    Some((token, project_id))
+}
+
 async fn do_refresh_antigravity_quota(
     auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
     quota: QuotaTracker,
@@ -67,22 +79,9 @@ async fn do_refresh_antigravity_quota(
     if !quota.should_fetch() {
         return;
     }
-    let (token, project_id) = {
-        let mut store = auth_store.lock().await;
-        let token = match store.get_key("antigravity").await {
-            Ok(Some(t)) => t,
-            _ => {
-                quota.record_failure();
-                return;
-            }
-        };
-        let project_id = match store.get_credential("antigravity") {
-            Some(StoredCredential::OAuth {
-                account_id: Some(id), ..
-            }) => id.clone(),
-            _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
-        };
-        (token, project_id)
+    let Some((token, project_id)) = resolve_antigravity_credentials(&auth_store).await else {
+        quota.record_failure();
+        return;
     };
     match crate::antigravity::fetch_quota(&token, &project_id, &target_model).await {
         Some(display) => quota.record_success(display),

@@ -107,29 +107,32 @@ impl AgentHook for TurnToolExecutionHook {
             .and_then(|s| s.current_provider())
             .unwrap_or_else(|| self.provider.clone());
         let (action, output) = gated_result(event.presentation, &provider);
-        let is_error = !event.raw_result.is_success();
         self.sink.tool_finished(ToolFinishDetails {
             name: event.tool_name,
             arguments: &arguments,
             output: &output,
-            is_error,
+            is_error: !event.raw_result.is_success(),
         });
 
-        if let Some(steering) = &self.steering {
-            let messages = steering.poll_steering().await;
-            if !messages.is_empty() {
-                self.set_steered(true);
-                let steering_text = format_steering_messages(&messages);
-                let augmented = attach_steering_to_output(&output, &steering_text);
-                return ToolResultAction::rewrite(augmented);
-            }
+        if let Some(steer_action) = self.check_steering_rewrite(&output).await {
+            return steer_action;
         }
-
         action
     }
 }
 
 impl TurnToolExecutionHook {
+    async fn check_steering_rewrite(&self, output: &str) -> Option<ToolResultAction> {
+        let steering = self.steering.as_ref()?;
+        let messages = steering.poll_steering().await;
+        if messages.is_empty() {
+            return None;
+        }
+        self.set_steered(true);
+        let steering_text = format_steering_messages(&messages);
+        let augmented = attach_steering_to_output(output, &steering_text);
+        Some(ToolResultAction::rewrite(augmented))
+    }
     async fn activate_path_from_arguments(&self, arguments: &serde_json::Value) {
         if let Some(path_str) = extract_path_argument(arguments)
             && let Some(ctx_cache) = &self.project_context

@@ -29,6 +29,23 @@ pub(super) struct GoogleTokenResponse {
     pub(super) expires_in: Option<i64>,
 }
 
+async fn parse_google_token_response(res: reqwest::Response) -> Result<GoogleTokenResponse> {
+    if !res.status().is_success() {
+        let body = res.text().await.unwrap_or_default();
+        return Err(AppError::Auth(format!("Google token exchange failed: {body}")));
+    }
+    let token: GoogleTokenResponse = res
+        .json()
+        .await
+        .map_err(|e| AppError::Auth(format!("Failed to parse Google token response: {e}")))?;
+    if token.refresh_token.is_none() {
+        return Err(AppError::Auth(
+            "No refresh token received. Re-run 'rho login antigravity' and allow offline access.".to_string(),
+        ));
+    }
+    Ok(token)
+}
+
 pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTokenResponse> {
     let client = http_client();
     let redirect_uri = format!("http://localhost:{REDIRECT_PORT}{REDIRECT_PATH}");
@@ -46,20 +63,7 @@ pub(super) async fn exchange_code(code: &str, verifier: &str) -> Result<GoogleTo
         .send()
         .await
         .map_err(|e| AppError::Auth(format!("Failed to exchange Google OAuth token: {e}")))?;
-    if !res.status().is_success() {
-        let body = res.text().await.unwrap_or_default();
-        return Err(AppError::Auth(format!("Google token exchange failed: {body}")));
-    }
-    let token: GoogleTokenResponse = res
-        .json()
-        .await
-        .map_err(|e| AppError::Auth(format!("Failed to parse Google token response: {e}")))?;
-    if token.refresh_token.is_none() {
-        return Err(AppError::Auth(
-            "No refresh token received. Re-run 'rho login antigravity' and allow offline access.".to_string(),
-        ));
-    }
-    Ok(token)
+    parse_google_token_response(res).await
 }
 
 pub(super) async fn fetch_user_email(access_token: &str) -> Option<String> {

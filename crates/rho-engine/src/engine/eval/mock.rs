@@ -13,6 +13,7 @@ use rho_harness_core::session::SessionManager;
 use rig::agent::ModelHandle;
 use rig::completion::Usage;
 use rig::test_utils::{MockCompletionModel, MockStreamEvent};
+use rig::tool::DynamicTool;
 use std::path::{Path, PathBuf};
 
 pub struct MockEngineConfig<'a> {
@@ -38,36 +39,23 @@ pub fn mock_engine(model: MockCompletionModel, config: MockEngineConfig<'_>) -> 
     mock_engine_with_session(model, cfg)
 }
 
-pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineConfig<'_>) -> AgentEngine {
-    let app_config = Config {
-        sessions_dir: config.base_dir.join("sessions"),
-        ..config.app_config.clone()
-    };
-    let session_manager = match config.session_manager {
-        Some(session_manager) => session_manager,
+fn resolve_mock_session_manager(config: &MockEngineConfig<'_>) -> SessionManager {
+    match config.session_manager.clone() {
+        Some(mgr) => mgr,
         None => SessionManager::new(&config.base_dir.join("sessions"), None).unwrap(),
-    };
-    let agent = build_coding_agent(
-        ModelHandle::new(model.clone()),
-        &app_config,
-        CodingRuntime {
-            base_dir: config.base_dir,
-            memory: session_manager.clone(),
-            built_in_tools: config.built_in_tools.clone(),
-        },
-    )
-    .unwrap();
-    let tool_names = config
-        .built_in_tools
-        .clone()
-        .unwrap_or_default()
-        .iter()
-        .map(|tool| tool.name().to_string())
-        .collect();
+    }
+}
+
+fn assemble_mock_engine(
+    app_config: Config,
+    (session_manager, tools): (SessionManager, Vec<DynamicTool>),
+    (agent, model_handle): (rig::agent::Agent, ModelHandle),
+) -> AgentEngine {
+    let tool_names = tools.iter().map(|tool| tool.name().to_string()).collect();
     AgentEngine {
         config: app_config,
         session_manager,
-        tools: config.built_in_tools.clone().unwrap_or_default(),
+        tools,
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(tool_names)),
         plugins: Vec::new(),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
@@ -77,8 +65,29 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         run_tracker: RunTracker::default(),
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
-        model: Some(ModelHandle::new(model)),
+        model: Some(model_handle),
     }
+}
+
+pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineConfig<'_>) -> AgentEngine {
+    let app_config = Config {
+        sessions_dir: config.base_dir.join("sessions"),
+        ..config.app_config.clone()
+    };
+    let session_manager = resolve_mock_session_manager(&config);
+    let model_handle = ModelHandle::new(model);
+    let agent = build_coding_agent(
+        model_handle.clone(),
+        &app_config,
+        CodingRuntime {
+            base_dir: config.base_dir,
+            memory: session_manager.clone(),
+            built_in_tools: config.built_in_tools.clone(),
+        },
+    )
+    .unwrap();
+    let tools = config.built_in_tools.unwrap_or_default();
+    assemble_mock_engine(app_config, (session_manager, tools), (agent, model_handle))
 }
 
 pub fn final_event(usage: Usage) -> MockStreamEvent {

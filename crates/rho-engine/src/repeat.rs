@@ -95,53 +95,76 @@ fn normalize_working_dir(working_dir: &Path) -> String {
         .into_owned()
 }
 
-fn normalize_shell_whitespace(command: &str) -> String {
-    let mut output = String::new();
-    let mut quote = None;
-    let mut escaped = false;
-    let mut pending_space = false;
-    for character in command.trim().chars() {
-        if escaped {
-            if pending_space && !output.is_empty() {
-                output.push(' ');
-                pending_space = false;
-            }
-            output.push(character);
-            escaped = false;
-            continue;
-        }
-        if character == '\\' && quote != Some('\'') {
-            if pending_space && !output.is_empty() {
-                output.push(' ');
-                pending_space = false;
-            }
-            output.push(character);
-            escaped = true;
-            continue;
-        }
-        if let Some(active) = quote {
-            output.push(character);
-            if character == active {
-                quote = None;
-            }
-            continue;
-        }
-        if matches!(character, '\'' | '"') {
-            if pending_space && !output.is_empty() {
-                output.push(' ');
-                pending_space = false;
-            }
-            quote = Some(character);
-            output.push(character);
-        } else if character.is_whitespace() {
-            pending_space = true;
-        } else {
-            if pending_space && !output.is_empty() {
-                output.push(' ');
-            }
-            pending_space = false;
-            output.push(character);
+struct ShellNormalizer {
+    output: String,
+    quote: Option<char>,
+    escaped: bool,
+    pending_space: bool,
+}
+
+impl ShellNormalizer {
+    fn new() -> Self {
+        Self {
+            output: String::new(),
+            quote: None,
+            escaped: false,
+            pending_space: false,
         }
     }
-    output
+
+    fn push_non_space(&mut self, c: char) {
+        if self.pending_space && !self.output.is_empty() {
+            self.output.push(' ');
+            self.pending_space = false;
+        }
+        self.output.push(c);
+    }
+
+    fn handle_quote_char(&mut self, c: char) -> bool {
+        if let Some(active) = self.quote {
+            self.output.push(c);
+            if c == active {
+                self.quote = None;
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn handle_escaped(&mut self, c: char) -> bool {
+        if self.escaped {
+            self.push_non_space(c);
+            self.escaped = false;
+            true
+        } else if c == '\\' && self.quote != Some('\'') {
+            self.push_non_space(c);
+            self.escaped = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn step(&mut self, c: char) {
+        if self.handle_escaped(c) || self.handle_quote_char(c) {
+            return;
+        }
+        if matches!(c, '\'' | '"') {
+            self.push_non_space(c);
+            self.quote = Some(c);
+        } else if c.is_whitespace() {
+            self.pending_space = true;
+        } else {
+            self.push_non_space(c);
+        }
+    }
+}
+
+fn normalize_shell_whitespace(command: &str) -> String {
+    let mut normalizer = ShellNormalizer::new();
+    for character in command.trim().chars() {
+        normalizer.step(character);
+    }
+    normalizer.output
 }

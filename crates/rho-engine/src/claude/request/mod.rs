@@ -27,6 +27,32 @@ pub fn resolve_thinking_budget(level: Option<&str>) -> Option<u64> {
     }
 }
 
+fn calculate_max_tokens(max_tokens: Option<u64>, thinking_budget: Option<u64>) -> u64 {
+    match (max_tokens, thinking_budget) {
+        (Some(max), Some(budget)) => max.max(budget + 1024),
+        (None, Some(budget)) => (budget + 4096).max(8192),
+        (Some(max), None) => max,
+        (None, None) => 8192,
+    }
+}
+
+fn attach_thinking_or_temp(body: &mut Value, budget: Option<u64>, temp: Option<f64>) {
+    if let Some(b) = budget {
+        body["thinking"] = json!({ "type": "enabled", "budget_tokens": b });
+    } else if let Some(temperature) = temp {
+        body["temperature"] = json!(temperature);
+    }
+}
+
+fn attach_tools_and_choice(body: &mut Value, request: &CompletionRequest) {
+    if !request.tools.is_empty() {
+        body["tools"] = json!(convert_tools(request));
+        if let Some(ref choice) = request.tool_choice {
+            body["tool_choice"] = convert_tool_choice(choice);
+        }
+    }
+}
+
 pub fn build_request_body(
     model: &str,
     thinking_level: Option<&str>,
@@ -34,12 +60,7 @@ pub fn build_request_body(
 ) -> Result<Value, CompletionError> {
     let normalized_model = normalize_model_alias(model);
     let thinking_budget = resolve_thinking_budget(thinking_level);
-    let max_tokens = match (request.max_tokens, thinking_budget) {
-        (Some(max), Some(budget)) => max.max(budget + 1024),
-        (None, Some(budget)) => (budget + 4096).max(8192),
-        (Some(max), None) => max,
-        (None, None) => 8192,
-    };
+    let max_tokens = calculate_max_tokens(request.max_tokens, thinking_budget);
 
     let mut body = json!({
         "model": normalized_model,
@@ -48,23 +69,11 @@ pub fn build_request_body(
         "stream": true,
     });
 
-    if let Some(budget) = thinking_budget {
-        body["thinking"] = json!({ "type": "enabled", "budget_tokens": budget });
-    } else if let Some(temperature) = request.temperature {
-        body["temperature"] = json!(temperature);
-    }
-
+    attach_thinking_or_temp(&mut body, thinking_budget, request.temperature);
     if let Some(system) = system_prompt(request) {
         body["system"] = json!(system);
     }
-
-    if !request.tools.is_empty() {
-        body["tools"] = json!(convert_tools(request));
-        if let Some(ref choice) = request.tool_choice {
-            body["tool_choice"] = convert_tool_choice(choice);
-        }
-    }
-
+    attach_tools_and_choice(&mut body, request);
     Ok(body)
 }
 

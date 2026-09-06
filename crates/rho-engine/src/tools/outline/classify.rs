@@ -8,12 +8,8 @@ pub struct SymbolCandidate<'a> {
     pub name_node: Option<Node<'a>>,
 }
 
-pub fn classify_kind_and_name(candidate: SymbolCandidate<'_>, source: &str) -> (SymbolKind, String) {
-    if candidate.tag == "impl" {
-        return (SymbolKind::Impl, extract_impl_name(candidate.decl, source));
-    }
-
-    let name = candidate
+fn resolve_candidate_name(candidate: &SymbolCandidate<'_>, source: &str) -> String {
+    candidate
         .name_node
         .map(|n| extract_identifier_name(n, source))
         .filter(|s| !s.is_empty())
@@ -24,35 +20,48 @@ pub fn classify_kind_and_name(candidate: SymbolCandidate<'_>, source: &str) -> (
                 .and_then(|n| n.utf8_text(source.as_bytes()).ok())
                 .map(|s| s.to_string())
         })
-        .unwrap_or_else(|| "<anonymous>".to_string());
+        .unwrap_or_else(|| "<anonymous>".to_string())
+}
 
-    match candidate.tag {
-        "function" => {
-            if is_method(candidate.decl) {
-                (SymbolKind::Method, name)
-            } else {
-                (SymbolKind::Function, name)
-            }
+fn classify_type_kind(decl: Node<'_>) -> SymbolKind {
+    if let Some(type_child) = decl.child_by_field_name("type") {
+        if type_child.kind() == "struct_type" {
+            return SymbolKind::Struct;
         }
-        "method" => (SymbolKind::Method, name),
-        "struct" => (SymbolKind::Struct, name),
-        "class" => (SymbolKind::Class, name),
-        "interface" => (SymbolKind::Interface, name),
-        "trait" => (SymbolKind::Trait, name),
-        "enum" => (SymbolKind::Enum, name),
-        "type" => {
-            if let Some(type_child) = candidate.decl.child_by_field_name("type") {
-                if type_child.kind() == "struct_type" {
-                    return (SymbolKind::Struct, name);
-                }
-                if type_child.kind() == "interface_type" {
-                    return (SymbolKind::Interface, name);
-                }
-            }
-            (SymbolKind::Type, name)
+        if type_child.kind() == "interface_type" {
+            return SymbolKind::Interface;
         }
-        _ => (SymbolKind::Function, name),
     }
+    SymbolKind::Type
+}
+
+fn classify_tag(tag: &str, decl: Node<'_>) -> SymbolKind {
+    match tag {
+        "function" => {
+            if is_method(decl) {
+                SymbolKind::Method
+            } else {
+                SymbolKind::Function
+            }
+        }
+        "method" => SymbolKind::Method,
+        "struct" => SymbolKind::Struct,
+        "class" => SymbolKind::Class,
+        "interface" => SymbolKind::Interface,
+        "trait" => SymbolKind::Trait,
+        "enum" => SymbolKind::Enum,
+        "type" => classify_type_kind(decl),
+        _ => SymbolKind::Function,
+    }
+}
+
+pub fn classify_kind_and_name(candidate: SymbolCandidate<'_>, source: &str) -> (SymbolKind, String) {
+    if candidate.tag == "impl" {
+        return (SymbolKind::Impl, extract_impl_name(candidate.decl, source));
+    }
+    let name = resolve_candidate_name(&candidate, source);
+    let kind = classify_tag(candidate.tag, candidate.decl);
+    (kind, name)
 }
 
 fn extract_identifier_name(node: Node, source: &str) -> String {

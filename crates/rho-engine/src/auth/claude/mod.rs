@@ -39,42 +39,35 @@ fn make_oauth_cred(
     cred
 }
 
-pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
-    if let Some(local_cred) = detect_local_claude_credentials_async().await {
-        let email = match &local_cred {
-            StoredCredential::OAuth {
-                account_email: Some(e), ..
-            } => e.clone(),
-            _ => "local installation".to_string(),
-        };
-        let options = [
-            SelectOption::new("import", format!("Import existing credentials ({email})")),
-            SelectOption::new("browser", "Sign in with a new browser session"),
-        ];
-        let choice = callbacks
-            .on_select(
-                &format!("Found existing Claude Code credentials for {email}. Import these credentials?"),
-                &options,
-            )
+async fn try_import_local_credentials(callbacks: &dyn OAuthLoginCallbacks) -> Result<Option<StoredCredential>> {
+    let Some(local_cred) = detect_local_claude_credentials_async().await else {
+        return Ok(None);
+    };
+    let email = match &local_cred {
+        StoredCredential::OAuth {
+            account_email: Some(e), ..
+        } => e.clone(),
+        _ => "local installation".to_string(),
+    };
+    let options = [
+        SelectOption::new("import", format!("Import existing credentials ({email})")),
+        SelectOption::new("browser", "Sign in with a new browser session"),
+    ];
+    let msg = format!("Found existing Claude Code credentials for {email}. Import these credentials?");
+    let choice = callbacks.on_select(&msg, &options).await?;
+    if choice.as_deref() == Some("import") {
+        callbacks
+            .on_progress("Imported existing Claude Code credentials.")
             .await?;
-        if choice.as_deref() == Some("import") {
-            callbacks
-                .on_progress("Imported existing Claude Code credentials.")
-                .await?;
-            return Ok(local_cred);
-        }
+        return Ok(Some(local_cred));
     }
+    Ok(None)
+}
 
-    let pkce = PkceChallenge::generate();
-    let state = generate_state();
-    let (code, redirect_uri) = acquire_auth_code(callbacks, &pkce.challenge, &state).await?;
-
-    callbacks
-        .on_progress("Exchanging authorization code for tokens...")
-        .await?;
-
-    let token = exchange_code_with_redirect(&code, &pkce.verifier, &redirect_uri).await?;
-    let profile = fetch_profile(&token.access_token).await;
+fn resolve_account_ids(
+    token: &ClaudeTokenResponse,
+    profile: &Option<ClaudeProfileResponse>,
+) -> (Option<String>, Option<String>) {
     let account_id = profile
         .as_ref()
         .and_then(|p| p.organization.as_ref())
@@ -86,8 +79,48 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
         .and_then(|p| p.account.as_ref())
         .and_then(|a| a.email_address.clone())
         .or_else(|| token.account.as_ref().and_then(|a| a.email_address.clone()));
+    (account_id, account_email)
+}
 
+async fn exchange_and_resolve_profile(code: &str, verifier: &str, redirect_uri: &str) -> Result<StoredCredential> {
+    let token = exchange_code_with_redirect(code, verifier, redirect_uri).await?;
+    let profile = fetch_profile(&token.access_token).await;
+    let (account_id, account_email) = resolve_account_ids(&token, &profile);
     Ok(make_oauth_cred(token, account_id, account_email))
+}
+
+pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
+    if let Some(cred) = try_import_local_credentials(callbacks).await? {
+        return Ok(cred);
+    }
+
+    let pkce = PkceChallenge::generate();
+    let state = generate_state();
+    let (code, redirect_uri) = acquire_auth_code(callbacks, &pkce.challenge, &state).await?;
+
+    callbacks
+        .on_progress("Exchanging authorization code for tokens...")
+        .await?;
+
+    exchange_and_resolve_profile(&code, &pkce.verifier, &redirect_uri).await
+}
+
+fn resolve_refreshed_ids(
+    token: &ClaudeTokenResponse,
+    (account_id, account_email): (Option<String>, Option<String>),
+) -> (Option<String>, Option<String>) {
+    let new_account_id = token
+        .organization
+        .as_ref()
+        .and_then(|o| o.uuid.clone())
+        .or_else(|| token.account.as_ref().and_then(|a| a.uuid.clone()))
+        .or(account_id);
+    let new_email = token
+        .account
+        .as_ref()
+        .and_then(|a| a.email_address.clone())
+        .or(account_email);
+    (new_account_id, new_email)
 }
 
 pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredCredential> {
@@ -107,17 +140,7 @@ pub async fn refresh_credential(credential: &StoredCredential) -> Result<StoredC
     if token.refresh_token.is_none() {
         token.refresh_token = Some(refresh.clone());
     }
-    let new_account_id = token
-        .organization
-        .as_ref()
-        .and_then(|o| o.uuid.clone())
-        .or_else(|| token.account.as_ref().and_then(|a| a.uuid.clone()))
-        .or_else(|| account_id.clone());
-    let new_email = token
-        .account
-        .as_ref()
-        .and_then(|a| a.email_address.clone())
-        .or_else(|| account_email.clone());
+    let (new_account_id, new_email) = resolve_refreshed_ids(&token, (account_id.clone(), account_email.clone()));
 
     Ok(make_oauth_cred(token, new_account_id, new_email))
 }

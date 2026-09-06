@@ -15,6 +15,41 @@ pub(crate) struct CanonicalHistory {
     seen_calls: HashSet<String>,
 }
 
+fn validate_assistant_content(
+    content: &[AssistantContent],
+    (seen_calls, batch_calls): (&HashSet<String>, &mut HashSet<String>),
+    pending: &mut Vec<(String, String)>,
+) -> Result<()> {
+    if content.is_empty() || !pending.is_empty() {
+        return Err(session_error("canonical message role ordering is invalid"));
+    }
+    for item in content {
+        if let AssistantContent::ToolCall(call) = item {
+            let call_id = call.id.to_string();
+            if seen_calls.contains(&call_id) || !batch_calls.insert(call_id.clone()) {
+                return Err(session_error("canonical tool-call id is duplicated"));
+            }
+            pending.push((call_id, call.function.name.clone()));
+        }
+    }
+    Ok(())
+}
+
+fn check_trailing_state(
+    pending: &[(String, String)],
+    (require_assistant_end, is_empty, last_was_assistant): (bool, bool, bool),
+) -> Result<()> {
+    if !pending.is_empty() {
+        return Err(session_error("canonical history contains a dangling tool call"));
+    }
+    if require_assistant_end && !is_empty && !last_was_assistant {
+        return Err(session_error(
+            "canonical history does not end with an assistant message",
+        ));
+    }
+    Ok(())
+}
+
 impl CanonicalHistory {
     pub(crate) fn new() -> Self {
         Self::default()
@@ -38,49 +73,50 @@ impl CanonicalHistory {
         self.check_history(messages, false).map(|_| ())
     }
 
+    fn scan_history_message(
+        &self,
+        message: &Message,
+        (pending, batch_calls, last_was_assistant): (&mut Vec<(String, String)>, &mut HashSet<String>, &mut bool),
+    ) -> Result<()> {
+        match message {
+            Message::System { .. } => Err(session_error("system messages are not canonical conversation memory")),
+            Message::User { content } => {
+                if content.is_empty() {
+                    return Err(session_error("canonical message role ordering is invalid"));
+                }
+                validate_user_content(content, pending)?;
+                *last_was_assistant = false;
+                Ok(())
+            }
+            Message::Assistant { content, .. } => {
+                validate_assistant_content(content, (&self.seen_calls, batch_calls), pending)?;
+                *last_was_assistant = true;
+                Ok(())
+            }
+        }
+    }
+
+    fn scan_history_messages(
+        &self,
+        messages: &[Message],
+        mut state: (&mut Vec<(String, String)>, &mut HashSet<String>, &mut bool),
+    ) -> Result<()> {
+        for message in messages {
+            self.scan_history_message(message, (&mut state.0, &mut state.1, &mut state.2))?;
+        }
+        Ok(())
+    }
+
     fn check_history(&self, messages: &[Message], require_assistant_end: bool) -> Result<HashSet<String>> {
         let mut pending: Vec<(String, String)> = Vec::new();
         let mut batch_calls = HashSet::new();
         let mut last_was_assistant = false;
 
-        for message in messages {
-            match message {
-                Message::System { .. } => {
-                    return Err(session_error("system messages are not canonical conversation memory"));
-                }
-                Message::User { content } => {
-                    if content.is_empty() {
-                        return Err(session_error("canonical message role ordering is invalid"));
-                    }
-                    validate_user_content(content, &mut pending)?;
-                    last_was_assistant = false;
-                }
-                Message::Assistant { content, .. } => {
-                    if content.is_empty() || !pending.is_empty() {
-                        return Err(session_error("canonical message role ordering is invalid"));
-                    }
-                    for item in content {
-                        if let AssistantContent::ToolCall(call) = item {
-                            let call_id = call.id.to_string();
-                            if self.seen_calls.contains(&call_id) || !batch_calls.insert(call_id.clone()) {
-                                return Err(session_error("canonical tool-call id is duplicated"));
-                            }
-                            pending.push((call_id, call.function.name.clone()));
-                        }
-                    }
-                    last_was_assistant = true;
-                }
-            }
-        }
-
-        if !pending.is_empty() {
-            return Err(session_error("canonical history contains a dangling tool call"));
-        }
-        if require_assistant_end && !messages.is_empty() && !last_was_assistant {
-            return Err(session_error(
-                "canonical history does not end with an assistant message",
-            ));
-        }
+        self.scan_history_messages(messages, (&mut pending, &mut batch_calls, &mut last_was_assistant))?;
+        check_trailing_state(
+            &pending,
+            (require_assistant_end, messages.is_empty(), last_was_assistant),
+        )?;
         Ok(batch_calls)
     }
 }

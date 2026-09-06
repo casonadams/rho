@@ -42,23 +42,26 @@ impl UsageTracker {
         InFlightGuard(self)
     }
 
+    fn apply_in_flight_state(&self, in_flight: &InFlightUsage) {
+        if let Ok(mut totals) = self.totals.lock() {
+            totals.add_totals(&in_flight.turn_step_totals);
+        }
+        if in_flight.turn_step_elapsed_ms > 0 {
+            self.record_generation(in_flight.turn_step_totals.total_output, in_flight.turn_step_elapsed_ms);
+        }
+        if let Some(ctx) = in_flight.latest_context
+            && let Ok(mut latest) = self.latest.lock()
+        {
+            *latest = Some(ctx);
+        }
+    }
+
     pub fn commit_in_flight_partial(&self) {
-        let mut in_flight = match self.in_flight.lock() {
-            Ok(guard) => guard,
-            Err(_) => return,
+        let Ok(mut in_flight) = self.in_flight.lock() else {
+            return;
         };
         if in_flight.turn_step_totals.has_values() {
-            if let Ok(mut totals) = self.totals.lock() {
-                totals.add_totals(&in_flight.turn_step_totals);
-            }
-            if in_flight.turn_step_elapsed_ms > 0 {
-                self.record_generation(in_flight.turn_step_totals.total_output, in_flight.turn_step_elapsed_ms);
-            }
-            if let Some(ctx) = in_flight.latest_context
-                && let Ok(mut latest) = self.latest.lock()
-            {
-                *latest = Some(ctx);
-            }
+            self.apply_in_flight_state(&in_flight);
         }
         *in_flight = InFlightUsage::default();
     }

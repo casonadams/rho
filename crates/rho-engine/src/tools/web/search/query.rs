@@ -1,52 +1,49 @@
 use url::Url;
 
+fn parse_host_str(input: &str) -> Option<String> {
+    if let Ok(parsed) = Url::parse(input)
+        && let Some(host) = parsed.host_str()
+    {
+        return Some(host.to_string());
+    }
+    if let Ok(parsed) = Url::parse(&format!("https://{input}"))
+        && let Some(host) = parsed.host_str()
+    {
+        return Some(host.to_string());
+    }
+    let part = input.split('/').next()?.split(':').next()?;
+    Some(part.to_string())
+}
+
 pub fn normalize_domain(raw: &str) -> Option<String> {
-    let mut input = raw.trim().to_lowercase();
+    let input = raw.trim().trim_start_matches('-').trim().to_lowercase();
     if input.is_empty() {
         return None;
     }
-    if let Some(stripped) = input.strip_prefix('-') {
-        input = stripped.trim().to_string();
-    }
-    if input.is_empty() {
-        return None;
-    }
-    if let Ok(parsed) = Url::parse(&input) {
-        if let Some(host) = parsed.host_str() {
-            input = host.to_string();
+    let host = parse_host_str(&input)?;
+    let trimmed = host.trim_start_matches("www.").trim_matches('.').to_string();
+    (trimmed.contains('.') && !trimmed.contains(' ')).then_some(trimmed)
+}
+
+fn insert_domain_filter(raw: &str, (allowed, blocked): (&mut Vec<String>, &mut Vec<String>)) {
+    let Some(domain) = normalize_domain(raw) else {
+        return;
+    };
+    if raw.trim().starts_with('-') {
+        if !blocked.contains(&domain) {
+            blocked.push(domain);
         }
-    } else if let Ok(parsed) = Url::parse(&format!("https://{input}")) {
-        if let Some(host) = parsed.host_str() {
-            input = host.to_string();
-        }
-    } else {
-        input = input.split('/').next()?.split(':').next()?.to_string();
-    }
-    let trimmed = input.trim_start_matches("www.").trim_matches('.').to_string();
-    if trimmed.contains('.') && !trimmed.contains(' ') {
-        Some(trimmed)
-    } else {
-        None
+    } else if !allowed.contains(&domain) {
+        allowed.push(domain);
     }
 }
 
 pub fn normalize_domain_filters(domains: Option<&[String]>) -> (Vec<String>, Vec<String>) {
     let mut allowed = Vec::new();
     let mut blocked = Vec::new();
-    let Some(domains) = domains else {
-        return (allowed, blocked);
-    };
-
-    for raw in domains {
-        let is_blocked = raw.trim().starts_with('-');
-        if let Some(domain) = normalize_domain(raw) {
-            if is_blocked {
-                if !blocked.contains(&domain) {
-                    blocked.push(domain);
-                }
-            } else if !allowed.contains(&domain) {
-                allowed.push(domain);
-            }
+    if let Some(list) = domains {
+        for raw in list {
+            insert_domain_filter(raw, (&mut allowed, &mut blocked));
         }
     }
     (allowed, blocked)
@@ -71,6 +68,31 @@ pub fn matches_domain_filters(host: &str, allowed: &[String], blocked: &[String]
     !blocked.iter().any(|domain| matches_site(host, domain))
 }
 
+fn append_allowed_sites(parts: &mut Vec<String>, allowed: &[String]) {
+    if parts[0].to_lowercase().contains("site:") {
+        return;
+    }
+    if allowed.len() == 1 {
+        parts.push(format!("site:{}", allowed[0]));
+    } else if allowed.len() > 1 {
+        let sites = allowed
+            .iter()
+            .map(|d| format!("site:{d}"))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        parts.push(sites);
+    }
+}
+
+fn append_blocked_sites(parts: &mut Vec<String>, blocked: &[String]) {
+    for b in blocked {
+        let neg = format!("-site:{b}");
+        if !parts[0].contains(&neg) {
+            parts.push(neg);
+        }
+    }
+}
+
 pub fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) -> String {
     let cleaned = query.split_whitespace().collect::<Vec<_>>().join(" ");
     let (allowed, blocked) = normalize_domain_filters(domains);
@@ -79,24 +101,8 @@ pub fn build_search_query_with_filters(query: &str, domains: Option<&[String]>) 
     }
 
     let mut parts = vec![cleaned];
-    if allowed.len() == 1 && !parts[0].to_lowercase().contains("site:") {
-        parts.push(format!("site:{}", allowed[0]));
-    } else if allowed.len() > 1 && !parts[0].to_lowercase().contains("site:") {
-        let sites = allowed
-            .iter()
-            .map(|d| format!("site:{d}"))
-            .collect::<Vec<_>>()
-            .join(" OR ");
-        parts.push(sites);
-    }
-
-    for b in blocked {
-        let neg = format!("-site:{b}");
-        if !parts[0].contains(&neg) {
-            parts.push(neg);
-        }
-    }
-
+    append_allowed_sites(&mut parts, &allowed);
+    append_blocked_sites(&mut parts, &blocked);
     parts.join(" ").trim().to_string()
 }
 

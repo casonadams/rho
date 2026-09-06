@@ -20,6 +20,43 @@ pub struct CallbackParams {
     pub error_description: Option<String>,
 }
 
+const SUCCESS_HTML: &str = "<!DOCTYPE html><html><head><title>Authentication Successful</title></head>\
+<body style='font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:60px 20px;background:#121212;color:#eee;'>\
+<div style='max-width:480px;margin:0 auto;background:#1e1e1e;border-radius:12px;padding:32px;border:1px solid #333;'>\
+<h2 style='color:#10a37f;margin-top:0;'>Authentication Successful!</h2>\
+<p style='color:#aaa;line-height:1.6;'>You can close this tab and return to <strong>rho</strong> in your terminal.</p>\
+</div></body></html>";
+
+const FAILED_HTML: &str = "<!DOCTYPE html><html><head><title>Authentication Failed</title></head>\
+<body style='font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:60px 20px;background:#121212;color:#eee;'>\
+<div style='max-width:480px;margin:0 auto;background:#1e1e1e;border-radius:12px;padding:32px;border:1px solid #333;'>\
+<h2 style='color:#ef4444;margin-top:0;'>Authentication Failed</h2>\
+<p style='color:#aaa;'>Please check your terminal for details.</p>\
+</div></body></html>";
+
+async fn read_request_string(socket: &mut tokio::net::TcpStream) -> Result<String> {
+    let mut buffer = [0u8; 4096];
+    let n = socket
+        .read(&mut buffer)
+        .await
+        .map_err(|e| AppError::Auth(format!("Failed to read callback request: {e}")))?;
+    Ok(String::from_utf8_lossy(&buffer[..n]).to_string())
+}
+
+async fn send_callback_response(socket: &mut tokio::net::TcpStream, success: bool) {
+    let (status, body) = if success {
+        ("200 OK", SUCCESS_HTML)
+    } else {
+        ("400 Bad Request", FAILED_HTML)
+    };
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = socket.write_all(response.as_bytes()).await;
+    let _ = socket.flush().await;
+}
+
 impl LoopbackServer {
     pub async fn bind() -> Result<Self> {
         Self::bind_port(0).await
@@ -63,44 +100,9 @@ impl LoopbackServer {
             .await
             .map_err(|e| AppError::Auth(format!("Loopback connection failed: {e}")))?;
 
-        let mut buffer = [0u8; 4096];
-        let bytes_read = socket
-            .read(&mut buffer)
-            .await
-            .map_err(|e| AppError::Auth(format!("Failed to read callback request: {e}")))?;
-        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-
+        let request = read_request_string(&mut socket).await?;
         let params = parse_http_get_params(&request);
-
-        let (status, body) = if params.code.is_some() {
-            (
-                "200 OK",
-                "<!DOCTYPE html><html><head><title>Authentication Successful</title></head>\
-                 <body style='font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:60px 20px;background:#121212;color:#eee;'>\
-                 <div style='max-width:480px;margin:0 auto;background:#1e1e1e;border-radius:12px;padding:32px;border:1px solid #333;'>\
-                 <h2 style='color:#10a37f;margin-top:0;'>Authentication Successful!</h2>\
-                 <p style='color:#aaa;line-height:1.6;'>You can close this tab and return to <strong>rho</strong> in your terminal.</p>\
-                 </div></body></html>",
-            )
-        } else {
-            (
-                "400 Bad Request",
-                "<!DOCTYPE html><html><head><title>Authentication Failed</title></head>\
-                 <body style='font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:60px 20px;background:#121212;color:#eee;'>\
-                 <div style='max-width:480px;margin:0 auto;background:#1e1e1e;border-radius:12px;padding:32px;border:1px solid #333;'>\
-                 <h2 style='color:#ef4444;margin-top:0;'>Authentication Failed</h2>\
-                 <p style='color:#aaa;'>Please check your terminal for details.</p>\
-                 </div></body></html>",
-            )
-        };
-
-        let response = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        let _ = socket.write_all(response.as_bytes()).await;
-        let _ = socket.flush().await;
-
+        send_callback_response(&mut socket, params.code.is_some()).await;
         Ok(params)
     }
 }

@@ -55,6 +55,55 @@ impl CodingCompactor {
     }
 }
 
+struct RunCompactionParams<'a> {
+    carry: Option<String>,
+    new_messages: &'a [Message],
+    absorbed_hashes: Vec<String>,
+}
+
+impl CodingCompactor {
+    async fn execute_compaction(&self, params: RunCompactionParams<'_>) -> Result<CodingArtifact, MemoryError> {
+        let mut template_input = Vec::with_capacity(params.new_messages.len() + usize::from(params.carry.is_some()));
+        if let Some(previous) = params.carry.as_ref() {
+            template_input.push(Message::System {
+                content: previous.clone(),
+            });
+        }
+        template_input.extend(params.new_messages.iter().cloned());
+        let template = self.template.compact("rho", &template_input, None).await?;
+        let artifact = build_artifact(ArtifactParams {
+            carry: params.carry.as_deref(),
+            messages: params.new_messages,
+            template: template.as_str(),
+            max_bytes: self.max_bytes(),
+        });
+        let artifact = self.session.redact_credentials(&artifact);
+        self.persist_state(&CompactionState {
+            version: 1,
+            absorbed_hashes: params.absorbed_hashes,
+            artifact: artifact.clone(),
+        })?;
+        Ok(CodingArtifact(artifact))
+    }
+
+    fn check_cached_artifact(
+        stored: &Option<CompactionState>,
+        carry_over: Option<&CodingArtifact>,
+        hashes: &[String],
+    ) -> Option<CodingArtifact> {
+        if carry_over.is_none()
+            && stored
+                .as_ref()
+                .is_some_and(|state| state.version == 1 && state.absorbed_hashes == hashes)
+        {
+            let artifact = stored.as_ref().map(|state| state.artifact.clone()).unwrap_or_default();
+            Some(CodingArtifact(artifact))
+        } else {
+            None
+        }
+    }
+}
+
 impl Compactor for CodingCompactor {
     type Artifact = CodingArtifact;
 
@@ -67,13 +116,8 @@ impl Compactor for CodingCompactor {
         Box::pin(async move {
             let hashes = message_hashes(evicted)?;
             let stored = self.load_state()?;
-            if carry_over.is_none()
-                && stored
-                    .as_ref()
-                    .is_some_and(|state| state.version == 1 && state.absorbed_hashes == hashes)
-            {
-                let artifact = stored.map(|state| state.artifact).unwrap_or_default();
-                return Ok(CodingArtifact(artifact));
+            if let Some(cached) = Self::check_cached_artifact(&stored, carry_over, &hashes) {
+                return Ok(cached);
             }
 
             let (carry, new_messages, absorbed_hashes) = compaction_input(CompactionInputParams {
@@ -82,27 +126,12 @@ impl Compactor for CodingCompactor {
                 evicted,
                 hashes: &hashes,
             });
-            let mut template_input = Vec::with_capacity(new_messages.len() + usize::from(carry.is_some()));
-            if let Some(previous) = carry.as_ref() {
-                template_input.push(Message::System {
-                    content: previous.clone(),
-                });
-            }
-            template_input.extend(new_messages.iter().cloned());
-            let template = self.template.compact("rho", &template_input, None).await?;
-            let artifact = build_artifact(ArtifactParams {
-                carry: carry.as_deref(),
-                messages: new_messages,
-                template: template.as_str(),
-                max_bytes: self.max_bytes(),
-            });
-            let artifact = self.session.redact_credentials(&artifact);
-            self.persist_state(&CompactionState {
-                version: 1,
+            self.execute_compaction(RunCompactionParams {
+                carry,
+                new_messages,
                 absorbed_hashes,
-                artifact: artifact.clone(),
-            })?;
-            Ok(CodingArtifact(artifact))
+            })
+            .await
         })
     }
 }
