@@ -22,11 +22,56 @@ fn pop_and_cancel<B: TerminalBackend>(controller: &mut TerminalController<B>, pe
     }
 }
 
-fn select_j_or_k<B: TerminalBackend>(controller: &mut TerminalController<B>, key: &KeyEvent) {
-    if key.code == KeyCode::Char('j') {
-        controller.state_mut().select_next_modal_option();
+fn is_horizontal<B: TerminalBackend>(controller: &TerminalController<B>) -> bool {
+    controller
+        .state()
+        .active_modal()
+        .is_some_and(|m| m.option_layout == crate::ui::interactive::OptionLayout::Horizontal)
+}
+
+fn scroll_modal_up<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        modal.scroll_body_up();
+    }
+}
+
+fn scroll_modal_down<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    let width = controller.terminal_width();
+    let inner_width = width.saturating_sub(4).max(1);
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        let total = crate::ui::interactive::wrap_to_width(&modal.body, inner_width).len();
+        modal.scroll_body_down(total.saturating_sub(1));
+    }
+}
+
+fn handle_horizontal_char_nav<B: TerminalBackend>(controller: &mut TerminalController<B>, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('h') => controller.state_mut().select_previous_modal_option(),
+        KeyCode::Char('l') => controller.state_mut().select_next_modal_option(),
+        KeyCode::Char('k') => scroll_modal_up(controller),
+        KeyCode::Char('j') => scroll_modal_down(controller),
+        _ => return false,
+    }
+    true
+}
+
+fn handle_vertical_char_nav<B: TerminalBackend>(controller: &mut TerminalController<B>, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('k') => controller.state_mut().select_previous_modal_option(),
+        KeyCode::Char('j') => controller.state_mut().select_next_modal_option(),
+        _ => return false,
+    }
+    true
+}
+
+fn dispatch_nav_char<B: TerminalBackend>(controller: &mut TerminalController<B>, code: KeyCode) -> bool {
+    if captures_typing(controller) {
+        return false;
+    }
+    if is_horizontal(controller) {
+        handle_horizontal_char_nav(controller, code)
     } else {
-        controller.state_mut().select_previous_modal_option();
+        handle_vertical_char_nav(controller, code)
     }
 }
 
@@ -43,8 +88,7 @@ fn insert_modal_character(modal: &mut crate::ui::interactive::ModalState, c: cha
 }
 
 fn handle_char_key<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent) {
-    if matches!(key.code, KeyCode::Char('j') | KeyCode::Char('k')) && !captures_typing(controller) {
-        select_j_or_k(controller, &key);
+    if dispatch_nav_char(controller, key.code) {
         return;
     }
     if let InputAction::Edit(UiAction::Insert(c)) = map_key(key)
@@ -96,15 +140,36 @@ fn handle_plain_select_key<B: TerminalBackend>(
     Ok(())
 }
 
+fn handle_arrow_key<B: TerminalBackend>(controller: &mut TerminalController<B>, code: KeyCode) {
+    if is_horizontal(controller) {
+        match code {
+            KeyCode::Left => controller.state_mut().select_previous_modal_option(),
+            KeyCode::Right => controller.state_mut().select_next_modal_option(),
+            KeyCode::Up => scroll_modal_up(controller),
+            KeyCode::Down => scroll_modal_down(controller),
+            _ => {}
+        }
+    } else {
+        match code {
+            KeyCode::Up => controller.state_mut().select_previous_modal_option(),
+            KeyCode::Down => controller.state_mut().select_next_modal_option(),
+            _ => {}
+        }
+    }
+}
+
 pub(super) fn handle_select_mode_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
     pending: &mut Option<PendingModal>,
 ) -> Result<ModalKeyResult> {
     match key.code {
-        KeyCode::Up | KeyCode::BackTab => controller.state_mut().select_previous_modal_option(),
-        KeyCode::Down | KeyCode::Tab => controller.state_mut().select_next_modal_option(),
-        KeyCode::Char('j') | KeyCode::Char('k') => handle_char_key(controller, key),
+        KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down => handle_arrow_key(controller, key.code),
+        KeyCode::BackTab => controller.state_mut().select_previous_modal_option(),
+        KeyCode::Tab => controller.state_mut().select_next_modal_option(),
+        KeyCode::Char('h') | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('l') => {
+            handle_char_key(controller, key);
+        }
         KeyCode::Esc => pop_and_cancel(controller, pending),
         KeyCode::Char('c') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
             if clear_filter_or_cancel(controller, pending)? {

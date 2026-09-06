@@ -113,7 +113,7 @@ fn collect_modal_content(
     (inner_width, body_space, opt_space): (usize, usize, usize),
     has_draft: bool,
 ) -> Vec<String> {
-    let mut lines = render_in_input_body(&input.modal.body, inner_width, body_space);
+    let mut lines = render_in_input_body(input.modal, inner_width, body_space);
     if opt_space > 0 {
         lines.extend(render_modal_options(
             input.modal,
@@ -176,18 +176,31 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
     (lines, cursor.0, cursor.1)
 }
 
-fn render_in_input_body(body: &str, inner_width: usize, space: usize) -> Vec<String> {
-    if body.trim().is_empty() || space == 0 {
-        return Vec::new();
-    }
-    let wrapped = wrap_to_width(body, inner_width);
+fn format_scroll_indicator(current_line: usize, total_lines: usize) -> String {
+    format!("  \x1b[2m↑/↓ scroll (line {current_line}/{total_lines})\x1b[0m")
+}
+
+fn render_horizontal_body_lines(wrapped: Vec<String>, body_scroll: usize, space: usize) -> Vec<String> {
     let total = wrapped.len();
-    if total == 0 {
-        return Vec::new();
+    if space == 1 {
+        return vec![format_scroll_indicator(1, total)];
     }
-    if total <= space {
-        wrapped.into_iter().map(|line| format!("  {line}")).collect()
-    } else if space == 1 {
+    let visible_count = space - 1;
+    let max_scroll = total.saturating_sub(visible_count);
+    let scroll = body_scroll.min(max_scroll);
+    let mut lines: Vec<String> = wrapped
+        .into_iter()
+        .skip(scroll)
+        .take(visible_count)
+        .map(|l| format!("  {l}"))
+        .collect();
+    lines.push(format_scroll_indicator(scroll + 1, total));
+    lines
+}
+
+fn render_vertical_omission_lines(wrapped: Vec<String>, space: usize) -> Vec<String> {
+    let total = wrapped.len();
+    if space == 1 {
         vec![format_omission_line(total)]
     } else {
         let visible = space - 1;
@@ -195,6 +208,24 @@ fn render_in_input_body(body: &str, inner_width: usize, space: usize) -> Vec<Str
         let mut lines: Vec<String> = wrapped.into_iter().take(visible).map(|l| format!("  {l}")).collect();
         lines.push(format_omission_line(omitted));
         lines
+    }
+}
+
+fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) -> Vec<String> {
+    if modal.body.trim().is_empty() || space == 0 {
+        return Vec::new();
+    }
+    let wrapped = wrap_to_width(&modal.body, inner_width);
+    let total = wrapped.len();
+    if total == 0 {
+        return Vec::new();
+    }
+    if total <= space {
+        wrapped.into_iter().map(|line| format!("  {line}")).collect()
+    } else if modal.option_layout == OptionLayout::Horizontal {
+        render_horizontal_body_lines(wrapped, modal.body_scroll, space)
+    } else {
+        render_vertical_omission_lines(wrapped, space)
     }
 }
 
