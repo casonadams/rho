@@ -1,3 +1,4 @@
+pub(crate) mod horizontal;
 pub(crate) mod in_input;
 pub(crate) mod options;
 

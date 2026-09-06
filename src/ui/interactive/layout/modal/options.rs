@@ -1,5 +1,5 @@
 use crate::ui::interactive::layout::text::wrap_to_width;
-use crate::ui::interactive::{ModalOption, ModalState};
+use crate::ui::interactive::{ModalOption, ModalState, OptionLayout};
 
 pub(super) struct OptionFormat<'a> {
     pub is_selected: bool,
@@ -82,6 +82,8 @@ fn select_modal_hint(modal: &ModalState) -> &'static str {
     }
     if modal.is_searchable {
         "Enter to select • Esc to cancel"
+    } else if modal.option_layout == OptionLayout::Horizontal {
+        "←/→ or h/l select • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
     } else {
         fallback_select_hint(modal)
     }
@@ -95,7 +97,7 @@ pub(crate) fn modal_hint(modal: &ModalState) -> &'static str {
     }
 }
 
-pub(super) struct ModalOptionsLayout<'a> {
+pub(crate) struct ModalOptionsLayout<'a> {
     pub inner_width: usize,
     pub max_visible: usize,
     pub theme: &'a crate::ui::theme::Theme,
@@ -150,7 +152,10 @@ fn render_visible_options(
     lines
 }
 
-pub(super) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayout<'_>) -> Vec<String> {
+pub(crate) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayout<'_>) -> Vec<String> {
+    if modal.option_layout == OptionLayout::Horizontal {
+        return super::horizontal::render_horizontal_options(modal, &layout);
+    }
     let dimmed = layout.theme.dimmed;
     if modal.options.is_empty() {
         let msg = if modal.is_searchable {
