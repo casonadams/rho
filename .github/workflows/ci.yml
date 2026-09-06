@@ -31,7 +31,7 @@ jobs:
         run: cargo clippy --workspace --lib --bins -- -D warnings
 
       - name: Run clippy (tests)
-        run: cargo clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -- -D warnings
+        run: cargo clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -D warnings
 
   test:
     name: Test
