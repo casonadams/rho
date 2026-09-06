@@ -91,29 +91,21 @@ fn push_search_row(modal: &ModalState, width: usize, lines: &mut Vec<String>) ->
 
 fn push_modal_input_prompt(
     modal: &ModalState,
-    theme: &crate::ui::theme::Theme,
+    _theme: &crate::ui::theme::Theme,
     (width, max_input_lines, lines): (usize, usize, &mut Vec<String>),
 ) -> Option<(CursorPosition, bool)> {
-    let ModalMode::Input { prompt_label } = &modal.mode else {
+    let ModalMode::Input { .. } = &modal.mode else {
         return None;
     };
-    let highlight = theme.highlight;
-    let bold = anstyle::Style::new().bold();
-    let prefix = format!("  {highlight}{bold}{prompt_label}:{bold:#}{highlight:#} ");
-    let prefix_width = visible_width(&format!("  {prompt_label}: "));
-    let cont_prefix = " ".repeat(prefix_width);
+    let prefix_width = 2;
     let edit_width = width.saturating_sub(prefix_width).max(1);
 
     let (wrapped, cursor_pos) = wrap_editor(&modal.input, edit_width);
     let (windowed, cur) = window_editor(wrapped, cursor_pos, max_input_lines.max(1));
     let base_row = lines.len();
 
-    for (idx, line) in windowed.into_iter().enumerate() {
-        if idx == 0 {
-            lines.push(format!("{prefix}{line}"));
-        } else {
-            lines.push(format!("{cont_prefix}{line}"));
-        }
+    for line in windowed {
+        lines.push(format!("  {line}"));
     }
     let cursor = CursorPosition {
         row: base_row + cur.row,

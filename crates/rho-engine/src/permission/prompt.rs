@@ -49,7 +49,7 @@ fn build_permission_options(p: PermissionPromptParams<'_>, input_display: &str) 
         make_option(
             "Edit",
             "Edit tool arguments before running",
-            make_input("args", Some(p.formatted)),
+            make_input("edit", Some(p.formatted)),
         ),
         make_option("Always", &desc, make_input("pattern", Some(pattern))),
         make_option("Deny", "Deny tool execution", make_input("reason", None)),

@@ -9,7 +9,7 @@ impl TerminalBackend for HistoryTerminal {
     }
 
     fn size(&self) -> io::Result<(u16, u16)> {
-        Ok((20, 24))
+        Ok((80, 24))
     }
 
     fn hide_cursor(&mut self) -> io::Result<()> {

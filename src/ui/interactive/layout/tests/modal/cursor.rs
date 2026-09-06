@@ -36,7 +36,8 @@ fn modal_input_mode_cursor_with_body_truncation() {
     modal.input.set_text("test reason");
 
     let layout = modal_cursor_layout(&modal);
-    assert_modal_cursor_valid(&layout, "Reason:");
+    assert_modal_cursor_valid(&layout, "test reason");
+    assert!(layout.top_divider.contains("Reason"));
 }
 
 #[test]

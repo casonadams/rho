@@ -53,6 +53,17 @@ fn apply_modal_edit<B: TerminalBackend>(controller: &mut TerminalController<B>, 
     }
 }
 
+fn handle_vertical_move<B: TerminalBackend>(controller: &mut TerminalController<B>, down: bool) {
+    let width = controller.terminal_width().saturating_sub(2).max(1);
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        if down {
+            modal.input.move_down(width);
+        } else {
+            modal.input.move_up(width);
+        }
+    }
+}
+
 fn handle_plain_key<B: TerminalBackend>(controller: &mut TerminalController<B>, key: KeyEvent) {
     match map_key(key) {
         InputAction::Clear => {
@@ -60,6 +71,8 @@ fn handle_plain_key<B: TerminalBackend>(controller: &mut TerminalController<B>, 
                 modal.input.set_text("");
             }
         }
+        InputAction::HistoryPrevious => handle_vertical_move(controller, false),
+        InputAction::HistoryNext => handle_vertical_move(controller, true),
         InputAction::Edit(action) => apply_modal_edit(controller, action),
         _ => {}
     }

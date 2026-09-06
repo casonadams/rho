@@ -1,6 +1,8 @@
 use super::autocomplete::render_autocomplete_dropdown;
 use super::budget::{NormalBudgetInput, NormalLayoutBudget, compute_normal_budget};
-use super::chrome::{modal_top_divider, queued_lines_text, thinking_divider_style, top_divider, working_line_text};
+use super::chrome::{
+    modal_banner_title, modal_top_divider, queued_lines_text, thinking_divider_style, top_divider, working_line_text,
+};
 use super::editor::{window_editor, wrap_editor};
 use super::types::{CursorPosition, InteractiveLayout, LayoutInput};
 
@@ -29,7 +31,7 @@ fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str
 
 fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: (&str, &str)) -> String {
     match input.modal {
-        Some(modal) => modal_top_divider(width, &modal.title, style),
+        Some(modal) => modal_top_divider(width, modal_banner_title(modal), style),
         None => {
             let label = if input.footer.show_label {
                 concat!("rho ", env!("CARGO_PKG_VERSION"))

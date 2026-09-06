@@ -21,7 +21,7 @@ fn test_build_permission_prompt_inputs() {
         .iter()
         .map(|o| o.input.as_ref().map(|i| i.label.as_str()))
         .collect();
-    assert_eq!(input_labels, [None, Some("args"), Some("pattern"), Some("reason")]);
+    assert_eq!(input_labels, [None, Some("edit"), Some("pattern"), Some("reason")]);
     let pattern_value = prompt.options[2].input.as_ref().and_then(|i| i.value.as_deref());
     assert_eq!(pattern_value, Some("cargo test *"));
 }

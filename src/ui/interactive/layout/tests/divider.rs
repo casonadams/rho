@@ -136,3 +136,44 @@ fn top_divider_falls_back_to_plain_dashes_when_narrow() {
 
     assert!(!layout.top_divider.contains("rho"));
 }
+
+fn modal_layout_with_mode(
+    modal: &crate::ui::interactive::ModalState,
+) -> crate::ui::interactive::layout::InteractiveLayout {
+    layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: Some(modal),
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+    })
+}
+
+#[test]
+fn modal_top_divider_reflects_active_input_mode() {
+    let mut modal = crate::ui::interactive::ModalState::new("Permission Required", "body", vec![]);
+    assert!(
+        modal_layout_with_mode(&modal)
+            .top_divider
+            .contains("Permission Required")
+    );
+    let modes = [
+        ("edit", "edit"),
+        ("args", "edit"),
+        ("reason", "reason"),
+        ("pattern", "pattern"),
+    ];
+    for (mode_label, expected_title) in modes {
+        modal.mode = crate::ui::interactive::ModalMode::Input {
+            prompt_label: mode_label.to_string(),
+        };
+        let l = modal_layout_with_mode(&modal);
+        assert!(l.top_divider.contains(expected_title) && !l.top_divider.contains("Permission Required"));
+    }
+}

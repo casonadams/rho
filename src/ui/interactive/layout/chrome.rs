@@ -23,6 +23,16 @@ pub fn top_divider(width: usize, label: &str, (style, reset): (&str, &str)) -> S
     }
 }
 
+pub fn modal_banner_title(modal: &crate::ui::interactive::ModalState) -> &str {
+    match &modal.mode {
+        crate::ui::interactive::ModalMode::Input { prompt_label } => match prompt_label.as_str() {
+            "args" => "edit",
+            other => other,
+        },
+        crate::ui::interactive::ModalMode::Select => &modal.title,
+    }
+}
+
 pub fn modal_top_divider(width: usize, title: &str, (style, reset): (&str, &str)) -> String {
     let title = title.trim();
     if title.is_empty() {

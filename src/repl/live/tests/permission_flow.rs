@@ -27,6 +27,7 @@ impl PermDriver {
             },
             &mut pending,
         );
+        controller.redraw().unwrap();
         Self {
             controller,
             pending,
@@ -197,4 +198,64 @@ fn test_permission_prompt_compound_seams_prefills_and_renders_formatted() {
         .text()
         .to_string();
     assert_eq!(prefill, "git status &&\n  cargo test;\nls");
+}
+
+#[test]
+fn test_permission_prompt_input_mode_vertical_arrow_navigation() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+
+    driver
+        .controller
+        .state_mut()
+        .active_modal_mut()
+        .unwrap()
+        .input
+        .move_to_start();
+    let pos1 = driver.controller.state().active_modal().unwrap().input.cursor();
+    assert_eq!(pos1, 0);
+
+    driver.send(KeyCode::Down);
+    let pos2 = driver.controller.state().active_modal().unwrap().input.cursor();
+    assert!(pos2 > pos1);
+
+    driver.send(KeyCode::Down);
+    let pos3 = driver.controller.state().active_modal().unwrap().input.cursor();
+    assert!(pos3 > pos2);
+
+    driver.send(KeyCode::Up);
+    let pos_back = driver.controller.state().active_modal().unwrap().input.cursor();
+    assert_eq!(pos_back, pos2);
+}
+
+#[test]
+fn test_permission_prompt_banner_bar_transitions() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    assert!(
+        driver
+            .controller
+            .rendered()
+            .unwrap()
+            .top_divider
+            .contains("Permission Required")
+    );
+
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+    assert!(driver.controller.rendered().unwrap().top_divider.contains("edit"));
+
+    driver.send(KeyCode::Esc);
+    assert!(
+        driver
+            .controller
+            .rendered()
+            .unwrap()
+            .top_divider
+            .contains("Permission Required")
+    );
+
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+    assert!(driver.controller.rendered().unwrap().top_divider.contains("pattern"));
 }
