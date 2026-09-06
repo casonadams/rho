@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub enum RunStatus {
     Completed,
     ContentFiltered,
+    Compacted,
 }
 
 pub type UsageDetails = StructuralUsage;

@@ -61,7 +61,7 @@ fn sample_overflow_usage() -> Usage {
 }
 
 #[tokio::test]
-async fn test_context_overflow_auto_recovery_succeeds_on_retry() {
+async fn test_context_overflow_auto_recovery_halts_after_compaction() {
     let dir = std::env::temp_dir().join(format!("overflow_rec_{}", uuid::Uuid::new_v4()));
     let model = MockCompletionModel::from_stream_turns([
         vec![MockStreamEvent::Error(MockError::provider(
@@ -85,7 +85,8 @@ async fn test_context_overflow_auto_recovery_succeeds_on_retry() {
         )
         .await
         .unwrap();
-    assert_eq!(output.final_text, "recovered from overflow");
+    assert_eq!(output.status, crate::engine::runner::RunStatus::Compacted);
+    assert_eq!(output.final_text, "");
     assert_recovery_presenter(&presenter);
 }
 
@@ -102,8 +103,14 @@ async fn test_context_overflow_fails_if_overflow_persists() {
     populate_recovery_history(&engine.session_manager, &session_id).await;
 
     let presenter = Arc::new(CapturingPresenter::default());
-    let result = engine
+    let first = engine
+        .run_turn(TurnRequest::new("Persistent overflow prompt"), presenter.clone())
+        .await
+        .unwrap();
+    assert_eq!(first.status, crate::engine::runner::RunStatus::Compacted);
+
+    let second = engine
         .run_turn(TurnRequest::new("Persistent overflow prompt"), presenter)
         .await;
-    assert!(result.is_err());
+    assert!(second.is_err());
 }

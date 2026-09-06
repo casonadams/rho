@@ -10,11 +10,12 @@ pub enum TerminalStatus {
     BudgetExhausted,
     Cancelled,
     Failed,
+    Compacted,
 }
 
 impl TerminalStatus {
     pub fn is_success(self) -> bool {
-        matches!(self, Self::Completed | Self::ContentFiltered)
+        matches!(self, Self::Completed | Self::ContentFiltered | Self::Compacted)
     }
 }
 

@@ -42,13 +42,13 @@ impl TurnStreamState {
 }
 
 pub(super) enum StreamRunResult {
-    RetryOverflow,
+    Compacted,
     BudgetContinue,
     Complete(Box<TurnStreamState>),
 }
 
 enum StreamErrorAction {
-    RetryOverflow,
+    Compacted,
     BudgetContinue,
 }
 
@@ -133,6 +133,14 @@ fn handle_completion_stream_item(
     }
 }
 
+fn print_overflow_compaction_notices(presenter: &dyn Presenter, stats: &crate::engine::CompactionStats) {
+    presenter.print_notice(&format!(
+        "[Compacted context: {} -> {} tokens (saved {})]",
+        stats.tokens_before, stats.tokens_after, stats.saved_tokens
+    ));
+    presenter.print_notice("Context was compacted after overflow. Review context and re-submit prompt.");
+}
+
 impl AgentEngine {
     fn process_assistant_stream_item(
         &self,
@@ -171,13 +179,17 @@ impl AgentEngine {
 
     async fn try_recover_overflow(
         &self,
-        (presenter, sink): (&dyn Presenter, &Arc<TerminalApprovalSink>),
+        presenter: &dyn Presenter,
         (visible_history, checkpoint): (&mut Vec<Message>, &mut Option<Vec<Message>>),
     ) -> Result<bool> {
-        presenter.print_notice("[Context overflow detected: auto-compacting and retrying turn...]");
+        presenter.print_notice("[Context overflow detected: auto-compacting...]");
         let spinner = presenter.start_spinner("Compacting...");
         let stats = match self.compact_session(None).await {
-            Ok(s) => s,
+            Ok(s) if !s.summary.is_empty() => s,
+            Ok(_) => {
+                spinner.finish_and_clear();
+                return Ok(false);
+            }
             Err(e) => {
                 spinner.finish_and_clear();
                 eprintln!("Warning: Auto-compaction after context overflow failed: {e}");
@@ -185,15 +197,11 @@ impl AgentEngine {
             }
         };
         spinner.finish_and_clear();
-        presenter.print_notice(&format!(
-            "[Compacted context: {} -> {} tokens (saved {})]",
-            stats.tokens_before, stats.tokens_after, stats.saved_tokens
-        ));
+        print_overflow_compaction_notices(presenter, &stats);
         *visible_history = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
             .await
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
         *checkpoint = self.session_manager.load_checkpoint().await?;
-        sink.resume_model_spinner();
         Ok(true)
     }
 
@@ -210,13 +218,13 @@ impl AgentEngine {
 
     async fn try_context_overflow(
         &self,
-        (error, presenter, sink): (&StreamingError, &dyn Presenter, &Arc<TerminalApprovalSink>),
+        (error, presenter): (&StreamingError, &dyn Presenter),
         (visible_history, checkpoint, overflow_recovered): (&mut Vec<Message>, &mut Option<Vec<Message>>, &mut bool),
     ) -> Result<bool> {
         if !*overflow_recovered && crate::engine::compactor::is_context_overflow_error(error) {
             *overflow_recovered = true;
             return self
-                .try_recover_overflow((presenter, sink), (visible_history, checkpoint))
+                .try_recover_overflow(presenter, (visible_history, checkpoint))
                 .await;
         }
         Ok(false)
@@ -252,13 +260,10 @@ impl AgentEngine {
         sink.finish_spinner();
         sink.flush_display();
         if self
-            .try_context_overflow(
-                (&error, presenter, sink),
-                (visible_history, checkpoint, overflow_recovered),
-            )
+            .try_context_overflow((&error, presenter), (visible_history, checkpoint, overflow_recovered))
             .await?
         {
-            return Ok(StreamErrorAction::RetryOverflow);
+            return Ok(StreamErrorAction::Compacted);
         }
         if let Some(mem_err) = self.session_manager.take_memory_error() {
             let err = AppError::Session(mem_err);
@@ -297,7 +302,7 @@ impl AgentEngine {
                         )
                         .await?;
                     match action {
-                        StreamErrorAction::RetryOverflow => return Ok(StreamRunResult::RetryOverflow),
+                        StreamErrorAction::Compacted => return Ok(StreamRunResult::Compacted),
                         StreamErrorAction::BudgetContinue => return Ok(StreamRunResult::BudgetContinue),
                     }
                 }

@@ -22,23 +22,34 @@ use stream::StreamRunResult;
 use super::sink::TerminalApprovalSink;
 
 impl AgentEngine {
+    async fn handle_budget_continue(
+        &self,
+        (sink, presenter): (&Arc<TerminalApprovalSink>, &dyn Presenter),
+        loop_state: &mut TurnLoopState,
+    ) -> Result<Option<TurnOutput>> {
+        sink.resume_model_spinner();
+        loop_state.current_prompt = "Please continue where you left off and finish the task.".to_string();
+        loop_state.current_budget = 50;
+        let additional_tokens =
+            rho_harness_core::tokens::estimate_text_tokens(&loop_state.current_prompt, &self.config.model);
+        if self
+            .check_proactive_compaction(presenter, (&mut loop_state.visible_history, additional_tokens))
+            .await?
+            .is_some()
+        {
+            return self.compacted_turn_output().await.map(Some);
+        }
+        Ok(None)
+    }
+
     async fn handle_stream_run_result(
         &self,
         (res, sink, presenter): (StreamRunResult, &Arc<TerminalApprovalSink>, &dyn Presenter),
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
-            StreamRunResult::RetryOverflow => Ok(None),
-            StreamRunResult::BudgetContinue => {
-                sink.resume_model_spinner();
-                loop_state.current_prompt = "Please continue where you left off and finish the task.".to_string();
-                loop_state.current_budget = 50;
-                let additional_tokens =
-                    rho_harness_core::tokens::estimate_text_tokens(&loop_state.current_prompt, &self.config.model);
-                self.check_proactive_compaction(presenter, (&mut loop_state.visible_history, additional_tokens))
-                    .await?;
-                Ok(None)
-            }
+            StreamRunResult::Compacted => self.compacted_turn_output().await.map(Some),
+            StreamRunResult::BudgetContinue => self.handle_budget_continue((sink, presenter), loop_state).await,
             StreamRunResult::Complete(state) => {
                 let out = self
                     .finalize_turn_execution(*state, (sink, loop_state.checkpoint.as_deref()))
@@ -72,7 +83,10 @@ impl AgentEngine {
     }
 
     pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {
-        let mut prep = self.prepare_turn(request.prompt, &presenter).await?;
+        let mut prep = match self.prepare_turn(request.prompt, &presenter).await? {
+            prepare::PreparedTurnOutcome::Compacted(out) => return Ok(*out),
+            prepare::PreparedTurnOutcome::Ready(prep) => prep,
+        };
         let _in_flight_guard = self.usage.in_flight_guard();
         loop {
             if let Some(out) = self

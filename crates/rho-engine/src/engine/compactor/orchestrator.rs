@@ -4,9 +4,7 @@ use rho_harness_core::session::compaction::{
     extract_file_ops, render_file_lists_xml,
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
-use rho_harness_core::tokens::{
-    calculate_context_tokens, find_node_token_cut_point, is_tool_result_message, message_position_at,
-};
+use rho_harness_core::tokens::{calculate_context_tokens, find_token_cut_point, is_tool_result_message};
 use rig::message::Message;
 
 use super::llm::LlmCompactor;
@@ -52,10 +50,15 @@ fn noop_stats(tokens: usize) -> CompactionStats {
 
 fn resolve_prior_compaction<'a>(
     ancestor_nodes: &'a [&'a TreeNodeData],
-) -> (Option<String>, Option<CompactionDetails>, &'a [&'a TreeNodeData]) {
+) -> (
+    Option<String>,
+    Option<CompactionDetails>,
+    Option<usize>,
+    &'a [&'a TreeNodeData],
+) {
     let last_idx = ancestor_nodes.iter().rposition(|n| n.kind == TreeNodeKind::Compaction);
     let Some(idx) = last_idx else {
-        return (None, None, ancestor_nodes);
+        return (None, None, None, ancestor_nodes);
     };
     let comp_node = ancestor_nodes[idx];
     let meta = comp_node.compaction_metadata();
@@ -72,33 +75,29 @@ fn resolve_prior_compaction<'a>(
         .and_then(|m| m.first_kept_node_id.as_deref())
         .and_then(|id| ancestor_nodes.iter().position(|n| n.id == id))
         .unwrap_or(idx + 1);
-    (summary, details, &ancestor_nodes[start_idx..])
+    let kept_msg_idx = meta.as_ref().and_then(|m| m.first_kept_message_index);
+    (summary, details, kept_msg_idx, &ancestor_nodes[start_idx..])
 }
 
 fn calculate_effective_cut(
-    active_nodes: &[&TreeNodeData],
     all_msgs: &[Message],
+    positions: &[(String, usize)],
     (keep_tokens, model): (usize, &str),
 ) -> CompactionCut {
-    let raw = find_node_token_cut_point(active_nodes, keep_tokens, model);
-    if raw.cut_index != 0 || active_nodes.len() <= 1 {
-        return raw;
+    let mut cut = find_token_cut_point(all_msgs, keep_tokens, model);
+    if cut.cut_index == 0 && all_msgs.len() > 1 {
+        let mut adjusted_idx = all_msgs.len().saturating_sub(1);
+        while adjusted_idx > 0 && is_tool_result_message(&all_msgs[adjusted_idx]) {
+            adjusted_idx -= 1;
+        }
+        cut.cut_index = adjusted_idx;
     }
-    let last_node = active_nodes.last().unwrap();
-    let last_start = all_msgs.len().saturating_sub(last_node.messages.len());
-    let mut adjusted_idx = last_start.max(1);
-    while adjusted_idx > 0 && is_tool_result_message(&all_msgs[adjusted_idx]) {
-        adjusted_idx -= 1;
+    if cut.cut_index < positions.len() {
+        let (node_id, msg_idx) = &positions[cut.cut_index];
+        cut.first_kept_node_id = Some(node_id.clone());
+        cut.first_kept_message_index = Some(*msg_idx);
     }
-    let (node_id, msg_idx) = message_position_at(active_nodes, adjusted_idx)
-        .map(|(id, idx)| (Some(id), Some(idx)))
-        .unwrap_or_else(|| (Some(last_node.id.clone()), Some(0)));
-    CompactionCut {
-        cut_index: adjusted_idx,
-        is_split_turn: false,
-        first_kept_node_id: node_id,
-        first_kept_message_index: msg_idx,
-    }
+    cut
 }
 
 fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str) -> usize {
@@ -108,14 +107,28 @@ fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str) 
     calculate_context_tokens(&kept_with_summary, None, model).total_tokens
 }
 
-fn filter_conversation_nodes<'a>(nodes: &[&'a TreeNodeData]) -> (Vec<&'a TreeNodeData>, Vec<Message>) {
-    let conv: Vec<&'a TreeNodeData> = nodes
-        .iter()
-        .copied()
-        .filter(|n| n.kind != TreeNodeKind::Compaction)
-        .collect();
-    let msgs = conv.iter().flat_map(|n| n.messages.clone()).collect();
-    (conv, msgs)
+fn filter_conversation_messages(
+    nodes: &[&TreeNodeData],
+    first_node_msg_offset: usize,
+) -> (Vec<Message>, Vec<(String, usize)>) {
+    let mut msgs = Vec::new();
+    let mut positions = Vec::new();
+    let mut is_first = true;
+    for node in nodes {
+        if node.kind != TreeNodeKind::Compaction {
+            let offset = if is_first {
+                first_node_msg_offset.min(node.messages.len())
+            } else {
+                0
+            };
+            is_first = false;
+            for (idx, msg) in node.messages[offset..].iter().enumerate() {
+                msgs.push(msg.clone());
+                positions.push((node.id.clone(), offset + idx));
+            }
+        }
+    }
+    (msgs, positions)
 }
 
 impl AgentEngine {
@@ -136,12 +149,12 @@ impl AgentEngine {
         (tree, ancestor_nodes): (&rho_harness_core::session::SessionTree, &[&TreeNodeData]),
         instructions: Option<&str>,
     ) -> Result<CompactionStats> {
-        let (prior_sum, prior_det, active_nodes) = resolve_prior_compaction(ancestor_nodes);
-        let (conv_nodes, all_msgs) = filter_conversation_nodes(active_nodes);
+        let (prior_sum, prior_det, prior_msg_idx, active_nodes) = resolve_prior_compaction(ancestor_nodes);
+        let (all_msgs, positions) = filter_conversation_messages(active_nodes, prior_msg_idx.unwrap_or(0));
         let tokens_before = calculate_context_tokens(&tree.active_messages(), None, &self.config.model).total_tokens;
         let cut = calculate_effective_cut(
-            &conv_nodes,
             &all_msgs,
+            &positions,
             (self.config.keep_recent_tokens, &self.config.model),
         );
         if cut.cut_index == 0 || all_msgs.is_empty() {

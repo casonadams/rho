@@ -82,7 +82,10 @@ async fn test_proactive_auto_compaction_before_turn() {
         .run_turn(TurnRequest::new("Turn 3 request"), presenter.clone())
         .await
         .unwrap();
-    assert_eq!(output.final_text, "turn response");
+    assert_eq!(output.status, crate::engine::runner::RunStatus::Compacted);
+    assert_eq!(output.final_text, "");
+    assert_eq!(output.requests, 0);
+    assert_eq!(output.tool_calls_count, 0);
     assert_compaction_presenter(&presenter);
     assert_compaction_node_present(&engine.session_manager).await;
 }

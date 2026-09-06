@@ -147,6 +147,22 @@ impl AgentEngine {
             (usage, status, metrics),
         ))
     }
+
+    pub(super) async fn compacted_turn_output(&self) -> Result<TurnOutput> {
+        let metrics = self
+            .run_tracker
+            .terminate(&self.session_manager.session_id, TerminalStatus::Compacted);
+        self.record_run_summary(&metrics).await?;
+        Ok(TurnOutput {
+            final_text: String::new(),
+            tool_calls_count: 0,
+            tool_failures_count: 0,
+            requests: 0,
+            usage: None,
+            status: RunStatus::Compacted,
+            metrics,
+        })
+    }
 }
 
 fn determine_turn_status(response: &rig::agent::PromptResponse) -> (RunStatus, TerminalStatus) {

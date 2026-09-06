@@ -16,7 +16,12 @@ use rig::message::Message;
 use rig::tool::ToolContext;
 
 use super::tool_hook::TurnToolExecutionHook;
-use super::types::TurnRequest;
+use super::types::{TurnOutput, TurnRequest};
+
+pub(super) enum PreparedTurnOutcome {
+    Compacted(Box<TurnOutput>),
+    Ready(PreparedTurn),
+}
 
 pub(super) struct PreparedTurn {
     pub preamble: String,
@@ -59,35 +64,37 @@ impl AgentEngine {
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))
     }
 
-    async fn record_user_prompt(&self, prompt: &str) -> Result<String> {
-        let context = self.project_context().await?;
+    async fn check_turn_proactive_compaction(
+        &self,
+        (preamble, prompt): (&str, &str),
+        (presenter, history): (&dyn Presenter, &mut Vec<Message>),
+    ) -> Result<Option<TurnOutput>> {
+        let add_tokens = rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
+            rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
+        );
+        if self
+            .check_proactive_compaction(presenter, (history, add_tokens))
+            .await?
+            .is_some()
+        {
+            return self.compacted_turn_output().await.map(Some);
+        }
+        Ok(None)
+    }
+
+    async fn build_ready_turn(
+        &self,
+        (prompt, preamble): (&str, String),
+        (history, presenter): (Vec<Message>, &Arc<dyn Presenter>),
+    ) -> Result<PreparedTurn> {
         self.session_manager
             .append_event(SessionEventKind::UserMessage, serde_json::json!({ "prompt": prompt }))
             .await?;
-        Ok(context.build_system_prompt())
-    }
-
-    async fn load_turn_history(
-        &self,
-        (preamble, prompt): (&str, &str),
-        presenter: &dyn Presenter,
-    ) -> Result<(Vec<Message>, Option<Vec<Message>>, usize)> {
-        let mut history = self.load_initial_history().await?;
         let checkpoint = self.session_manager.load_checkpoint().await?;
-        let additional_tokens =
-            rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
-                rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
-            );
-        self.check_proactive_compaction(presenter, (&mut history, additional_tokens))
-            .await?;
-        Ok((history, checkpoint, additional_tokens))
-    }
-
-    pub(super) async fn prepare_turn(&self, prompt: &str, presenter: &Arc<dyn Presenter>) -> Result<PreparedTurn> {
-        let preamble = self.record_user_prompt(prompt).await?;
-        let (history, checkpoint, additional_tokens) =
-            self.load_turn_history((&preamble, prompt), presenter.as_ref()).await?;
-        self.start_turn_metrics(additional_tokens, &history);
+        let add_tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
+            rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
+        );
+        self.start_turn_metrics(add_tokens, &history);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
             visible_history: history,
@@ -101,6 +108,25 @@ impl AgentEngine {
             sink,
             loop_state,
         })
+    }
+
+    pub(super) async fn prepare_turn(
+        &self,
+        prompt: &str,
+        presenter: &Arc<dyn Presenter>,
+    ) -> Result<PreparedTurnOutcome> {
+        let context = self.project_context().await?;
+        let preamble = context.build_system_prompt();
+        let mut history = self.load_initial_history().await?;
+        if let Some(out) = self
+            .check_turn_proactive_compaction((&preamble, prompt), (presenter.as_ref(), &mut history))
+            .await?
+        {
+            return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
+        }
+        self.build_ready_turn((prompt, preamble), (history, presenter))
+            .await
+            .map(PreparedTurnOutcome::Ready)
     }
 
     async fn build_turn_hooks(
