@@ -52,6 +52,7 @@ async fn interaction_response_resolves_the_request() {
             initial_selection: 0,
             allow_custom: false,
             initial_text: None,
+            option_layout: Default::default(),
         })
         .await
     });
@@ -74,6 +75,7 @@ async fn dropping_responder_reports_a_closed_request() {
             initial_selection: 0,
             allow_custom: true,
             initial_text: None,
+            option_layout: Default::default(),
         })
         .await
     });
@@ -100,6 +102,7 @@ async fn writer_transport_is_line_oriented_and_rejects_interactions() {
             initial_selection: 0,
             allow_custom: false,
             initial_text: None,
+            option_layout: Default::default(),
         })
         .await;
 

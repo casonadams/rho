@@ -25,6 +25,14 @@ pub struct InteractionInput {
     pub value: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionLayout {
+    Horizontal,
+    #[default]
+    Vertical,
+}
+
 /// A generic modal request; deserializable straight from plugin `ui/prompt`
 /// params, so senders only need these fields.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +48,8 @@ pub struct InteractionPrompt {
     /// edit an existing value instead of retyping it.
     #[serde(default)]
     pub initial_text: Option<String>,
+    #[serde(default)]
+    pub option_layout: OptionLayout,
 }
 
 /// Serializes as `{"selected":n}` / `{"custom":"..."}` / `"cancelled"` — the
@@ -145,3 +155,6 @@ impl UiEnvelope {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

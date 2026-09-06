@@ -1,4 +1,5 @@
 use super::super::{InteractiveState, ModalOption, ModalState, QueueKind, UiAction};
+use crate::ui::interactive::OptionLayout;
 
 #[test]
 fn nested_modals_restore_each_saved_draft_without_changing_queue() {
@@ -49,4 +50,30 @@ fn modal_filter_fuzzy_matches_subsequences_ranked() {
 
     modal.set_filter("");
     assert_eq!(modal.options.len(), 4);
+}
+
+#[test]
+fn test_modal_state_layout_and_scroll_behavior() {
+    let mut modal = ModalState::new("Test", "body", vec![]);
+    assert_eq!(modal.option_layout, OptionLayout::Vertical);
+    assert_eq!(modal.body_scroll, 0);
+
+    let horizontal_modal = modal.clone().with_option_layout(OptionLayout::Horizontal);
+    assert_eq!(horizontal_modal.option_layout, OptionLayout::Horizontal);
+
+    modal.scroll_body_down(5);
+    assert_eq!(modal.body_scroll, 1);
+    modal.scroll_body_down(5);
+    assert_eq!(modal.body_scroll, 2);
+
+    modal.scroll_body_up();
+    assert_eq!(modal.body_scroll, 1);
+    modal.scroll_body_up();
+    assert_eq!(modal.body_scroll, 0);
+    modal.scroll_body_up();
+    assert_eq!(modal.body_scroll, 0);
+
+    modal.body_scroll = 10;
+    modal.clamp_body_scroll(4);
+    assert_eq!(modal.body_scroll, 4);
 }

@@ -3,6 +3,7 @@ pub mod option;
 pub use option::ModalOption;
 
 use super::editor::EditorState;
+use crate::ui::interactive::OptionLayout;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 
@@ -39,6 +40,8 @@ pub struct ModalState {
     /// Option whose inline input is being edited, if the input mode was
     /// entered by selecting an option carrying an input spec.
     pub input_option: Option<usize>,
+    pub option_layout: OptionLayout,
+    pub body_scroll: usize,
 }
 
 impl ModalState {
@@ -56,7 +59,26 @@ impl ModalState {
             filter_query: String::new(),
             is_searchable: false,
             input_option: None,
+            option_layout: OptionLayout::Vertical,
+            body_scroll: 0,
         }
+    }
+
+    pub fn with_option_layout(mut self, layout: OptionLayout) -> Self {
+        self.option_layout = layout;
+        self
+    }
+
+    pub fn scroll_body_up(&mut self) {
+        self.body_scroll = self.body_scroll.saturating_sub(1);
+    }
+
+    pub fn scroll_body_down(&mut self, max_scroll: usize) {
+        self.body_scroll = (self.body_scroll + 1).min(max_scroll);
+    }
+
+    pub fn clamp_body_scroll(&mut self, max_scroll: usize) {
+        self.body_scroll = self.body_scroll.min(max_scroll);
     }
 
     pub fn with_custom(mut self, allow_custom: bool) -> Self {

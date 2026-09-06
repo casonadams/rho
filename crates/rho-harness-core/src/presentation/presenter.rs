@@ -2,7 +2,9 @@
 //! presentation capability. Layout, styling, and terminal control stay on the
 //! presentation side; the engine only passes typed data.
 
-pub use super::types::{BlockDisplay, InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay};
+pub use super::types::{
+    BlockDisplay, InteractionPrompt, InteractionResponse, OptionLayout, SessionStatus, ToolLine, WelcomeDisplay,
+};
 use crate::presentation::stream::ToolStreamPort;
 use async_trait::async_trait;
 use serde_json::Value;

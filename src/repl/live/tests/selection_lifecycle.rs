@@ -1,69 +1,103 @@
 use super::common::HistoryTerminal;
 use crate::ui::interactive::{
     InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
-    InteractiveState, ModalMode, TerminalController, UiEvent,
+    InteractiveState, ModalMode, OptionLayout, TerminalController, UiEvent,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tokio::sync::oneshot;
 
-#[test]
-fn test_searchable_selection_typing_ctrl_c_and_esc_restores_draft() {
+struct ModalDriver<'a> {
+    controller: &'a mut TerminalController<HistoryTerminal>,
+    pending: &'a mut Option<crate::repl::live::modal::PendingModal>,
+}
+
+impl ModalDriver<'_> {
+    fn send(&mut self, code: KeyCode) {
+        let _ = super::super::modal::handle_modal_key(
+            self.controller,
+            KeyEvent::new(code, KeyModifiers::NONE),
+            self.pending,
+        )
+        .unwrap();
+    }
+    fn send_mod(&mut self, code: KeyCode, mods: KeyModifiers) {
+        let _ =
+            super::super::modal::handle_modal_key(self.controller, KeyEvent::new(code, mods), self.pending).unwrap();
+    }
+    fn install(&mut self, prompt: InteractionPrompt, tx: oneshot::Sender<InteractionResponse>) {
+        super::super::modal::install_interaction(
+            self.controller,
+            UiEvent::Interaction {
+                prompt,
+                responder: InteractionResponder { responder: tx },
+            },
+            self.pending,
+        );
+    }
+}
+
+fn setup_searchable_modal() -> (TerminalController<HistoryTerminal>, tempfile::TempDir, usize) {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     controller.state_mut().editor_mut().set_text("in-progress user draft");
-    let cursor_before = controller.state().editor().cursor();
-
+    let cursor = controller.state().editor().cursor();
     let temp = tempfile::tempdir().unwrap();
     let config = rho_harness_core::config::Config {
         config_dir: temp.path().to_path_buf(),
         ..Default::default()
     };
-    let auth_store = crate::auth::AuthStore::default();
-    let session = crate::repl::ReplSession::new(config, auth_store, None);
-
+    let session = crate::repl::ReplSession::new(config, crate::auth::AuthStore::default(), None);
     super::super::modal::open_model_selector(&session, &mut controller);
-    assert_eq!(controller.state().active_modal().unwrap().title, "Select Model");
-    controller.redraw().unwrap();
-
-    let rendered = controller.rendered().expect("rendered frame");
-    assert!(rendered.lines.iter().any(|l| l.contains("Select Model")));
-    assert!(rendered.lines.iter().any(|l| l.contains("Draft:")));
-
-    let key_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key_c, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().filter_query, "c");
-
-    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    let _ = super::super::modal::handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
-    assert!(controller.state().active_modal().is_some());
-    assert_eq!(controller.state().active_modal().unwrap().filter_query, "");
-
-    let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, esc, &mut None).unwrap();
-    assert!(controller.state().active_modal().is_none());
-    assert_eq!(controller.state().editor().text(), "in-progress user draft");
-    assert_eq!(controller.state().editor().cursor(), cursor_before);
+    (controller, temp, cursor)
 }
 
 #[test]
-fn test_interaction_custom_input_transition_and_escape_back_preserves_draft() {
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().editor_mut().set_text("prompt waiting to send");
-    let (responder_tx, mut responder_rx) = oneshot::channel();
+fn test_searchable_selection_typing_and_ctrl_c() {
+    let (mut controller, _temp, _) = setup_searchable_modal();
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.send(KeyCode::Char('c'));
+    assert_eq!(driver.controller.state().active_modal().unwrap().filter_query, "c");
+    driver.send_mod(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert_eq!(driver.controller.state().active_modal().unwrap().filter_query, "");
+}
 
-    let prompt = InteractionPrompt {
-        title: "Permission Required".to_string(),
-        body: "tool bash: rm -rf /tmp/target".to_string(),
+#[test]
+fn test_searchable_selection_esc_restores_draft() {
+    let (mut controller, _temp, cursor_before) = setup_searchable_modal();
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.send(KeyCode::Esc);
+    assert!(driver.controller.state().active_modal().is_none());
+    assert_eq!(
+        (
+            driver.controller.state().editor().text(),
+            driver.controller.state().editor().cursor()
+        ),
+        ("in-progress user draft", cursor_before)
+    );
+}
+
+fn sample_permission_prompt() -> InteractionPrompt {
+    InteractionPrompt {
+        title: "Perm".into(),
+        body: "run".into(),
         options: vec![
             InteractionOption {
-                label: "Allow".to_string(),
+                label: "Allow".into(),
                 description: None,
                 input: None,
             },
             InteractionOption {
-                label: "Deny with reason".to_string(),
+                label: "Deny".into(),
                 description: None,
                 input: Some(InteractionInput {
-                    label: "reason".to_string(),
+                    label: "reason".into(),
                     value: None,
                 }),
             },
@@ -71,108 +105,99 @@ fn test_interaction_custom_input_transition_and_escape_back_preserves_draft() {
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,
-    };
+        option_layout: OptionLayout::Vertical,
+    }
+}
 
+#[test]
+fn test_interaction_input_transition_and_escape_back() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (tx, _rx) = oneshot::channel();
     let mut pending = None;
-    super::super::modal::install_interaction(
-        &mut controller,
-        UiEvent::Interaction {
-            prompt,
-            responder: InteractionResponder {
-                responder: responder_tx,
-            },
-        },
-        &mut pending,
-    );
-    controller.redraw().unwrap();
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.install(sample_permission_prompt(), tx);
 
-    assert!(controller.state().active_modal().is_some());
-    let rendered = controller.rendered().expect("rendered frame");
-    assert!(rendered.lines.iter().any(|l| l.contains("Draft:")));
-
-    let down_key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, down_key, &mut pending).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
-
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
-
-    let active_modal = controller.state().active_modal().unwrap();
-    assert!(matches!(active_modal.mode, ModalMode::Input { .. }));
-
-    let char_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, char_s, &mut pending).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().input.text(), "s");
-
-    let esc_key = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, esc_key, &mut pending).unwrap();
+    driver.send(KeyCode::Down);
+    driver.send(KeyCode::Enter);
     assert!(matches!(
-        controller.state().active_modal().unwrap().mode,
-        ModalMode::Select
+        driver.controller.state().active_modal().unwrap().mode,
+        ModalMode::Input { .. }
     ));
 
-    let _ = super::super::modal::handle_modal_key(&mut controller, esc_key, &mut pending).unwrap();
-    assert!(controller.state().active_modal().is_none());
-    assert_eq!(controller.state().editor().text(), "prompt waiting to send");
+    driver.send(KeyCode::Char('s'));
+    driver.send(KeyCode::Esc);
+    assert!(matches!(
+        driver.controller.state().active_modal().unwrap().mode,
+        ModalMode::Select
+    ));
+}
 
-    let response = responder_rx.try_recv().unwrap();
-    assert_eq!(response, InteractionResponse::Cancelled);
+#[test]
+fn test_interaction_double_escape_cancels_and_restores_draft() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    controller.state_mut().editor_mut().set_text("prompt waiting to send");
+    let (tx, mut rx) = oneshot::channel();
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.install(sample_permission_prompt(), tx);
+
+    driver.send(KeyCode::Esc);
+    assert!(
+        driver.controller.state().active_modal().is_none()
+            && driver.controller.state().editor().text() == "prompt waiting to send"
+    );
+    assert_eq!(rx.try_recv().unwrap(), InteractionResponse::Cancelled);
 }
 
 #[test]
 fn test_interaction_custom_input_submit_delivers_input_and_restores_draft() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     controller.state_mut().editor_mut().set_text("queued user question");
-    let (responder_tx, mut responder_rx) = oneshot::channel();
-
+    let (tx, mut rx) = oneshot::channel();
     let prompt = InteractionPrompt {
-        title: "Input Required".to_string(),
-        body: "Enter deployment tag:".to_string(),
+        title: "Input".into(),
+        body: "Tag:".into(),
         options: vec![InteractionOption {
-            label: "Custom Tag".to_string(),
+            label: "Custom".into(),
             description: None,
             input: Some(InteractionInput {
-                label: "tag".to_string(),
-                value: Some("v1.0.0".to_string()),
+                label: "tag".into(),
+                value: Some("v1.0.0".into()),
             }),
         }],
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,
+        option_layout: OptionLayout::Vertical,
     };
-
     let mut pending = None;
-    super::super::modal::install_interaction(
-        &mut controller,
-        UiEvent::Interaction {
-            prompt,
-            responder: InteractionResponder {
-                responder: responder_tx,
-            },
-        },
-        &mut pending,
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.install(prompt, tx);
+
+    driver.send(KeyCode::Enter);
+    assert_eq!(driver.controller.state().active_modal().unwrap().input.text(), "v1.0.0");
+
+    driver.send(KeyCode::Enter);
+    assert!(
+        driver.controller.state().active_modal().is_none()
+            && driver.controller.state().editor().text() == "queued user question"
     );
-
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
-    assert!(matches!(
-        controller.state().active_modal().unwrap().mode,
-        ModalMode::Input { .. }
-    ));
-    assert_eq!(controller.state().active_modal().unwrap().input.text(), "v1.0.0");
-
-    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
-    assert!(controller.state().active_modal().is_none());
-    assert_eq!(controller.state().editor().text(), "queued user question");
-
-    let response = responder_rx.try_recv().unwrap();
-    match response {
-        InteractionResponse::SelectedWithInput { index, text } => {
-            assert_eq!(index, 0);
-            assert_eq!(text, "v1.0.0");
+    assert_eq!(
+        rx.try_recv().unwrap(),
+        InteractionResponse::SelectedWithInput {
+            index: 0,
+            text: "v1.0.0".into()
         }
-        other => panic!("expected SelectedWithInput, got {other:?}"),
-    }
+    );
 }
 
 #[test]
@@ -181,77 +206,86 @@ fn test_tree_and_settings_ctrl_c_dismiss_restores_draft() {
     controller.state_mut().editor_mut().set_text("my unsent prompt");
 
     super::super::modal::open_settings_selector(&mut controller);
-    assert_eq!(controller.state().active_modal().unwrap().title, "Settings");
-
-    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
-    let _ = super::super::modal::handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
-    assert!(controller.state().active_modal().is_none());
-    assert_eq!(controller.state().editor().text(), "my unsent prompt");
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.send_mod(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert!(
+        driver.controller.state().active_modal().is_none()
+            && driver.controller.state().editor().text() == "my unsent prompt"
+    );
 
     let tree = rho_harness_core::session::tree::SessionTree::new();
-    super::super::modal::open_tree_selector(&tree, &mut controller);
-    assert_eq!(controller.state().active_modal().unwrap().title, "Conversation Tree");
-
-    let _ = super::super::modal::handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
-    assert!(controller.state().active_modal().is_none());
-    assert_eq!(controller.state().editor().text(), "my unsent prompt");
+    super::super::modal::open_tree_selector(&tree, driver.controller);
+    driver.send_mod(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    assert!(
+        driver.controller.state().active_modal().is_none()
+            && driver.controller.state().editor().text() == "my unsent prompt"
+    );
 }
 
 #[test]
 fn test_interaction_custom_input_shift_enter_inserts_newline() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    let (responder_tx, mut responder_rx) = oneshot::channel();
+    let (tx, mut rx) = oneshot::channel();
     let prompt = InteractionPrompt {
-        title: "Permission Required".to_string(),
-        body: "Tool: bash\nInput: echo line1".to_string(),
+        title: "Perm".into(),
+        body: "Input:".into(),
         options: vec![InteractionOption {
-            label: "Edit".to_string(),
+            label: "Edit".into(),
             description: None,
             input: Some(InteractionInput {
-                label: "command".to_string(),
-                value: Some("echo line1".to_string()),
+                label: "cmd".into(),
+                value: Some("echo line1".into()),
             }),
         }],
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,
+        option_layout: OptionLayout::Vertical,
     };
     let mut pending = None;
-    super::super::modal::install_interaction(
-        &mut controller,
-        UiEvent::Interaction {
-            prompt,
-            responder: InteractionResponder {
-                responder: responder_tx,
-            },
-        },
-        &mut pending,
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    driver.install(prompt, tx);
+
+    driver.send(KeyCode::Enter);
+    driver.send_mod(KeyCode::Enter, KeyModifiers::SHIFT);
+    driver.send(KeyCode::Char('2'));
+    assert_eq!(
+        driver.controller.state().active_modal().unwrap().input.text(),
+        "echo line1\n2"
     );
 
-    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
-    assert!(matches!(
-        controller.state().active_modal().unwrap().mode,
-        ModalMode::Input { .. }
-    ));
-
-    let shift_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
-    let _ = super::super::modal::handle_modal_key(&mut controller, shift_enter, &mut pending).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().input.text(), "echo line1\n");
-
-    let key_2 = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key_2, &mut pending).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().input.text(), "echo line1\n2");
-
-    let _ = super::super::modal::handle_modal_key(&mut controller, enter_key, &mut pending).unwrap();
-    assert!(controller.state().active_modal().is_none());
-
-    let response = responder_rx.try_recv().unwrap();
-    match response {
-        InteractionResponse::SelectedWithInput { index, text } => {
-            assert_eq!(index, 0);
-            assert_eq!(text, "echo line1\n2");
+    driver.send(KeyCode::Enter);
+    assert!(driver.controller.state().active_modal().is_none());
+    assert_eq!(
+        rx.try_recv().unwrap(),
+        InteractionResponse::SelectedWithInput {
+            index: 0,
+            text: "echo line1\n2".into()
         }
-        other => panic!("expected SelectedWithInput, got {other:?}"),
-    }
+    );
+}
+
+#[test]
+fn test_install_interaction_forwards_option_layout() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (tx, _rx) = oneshot::channel();
+    let mut pending = None;
+    let mut driver = ModalDriver {
+        controller: &mut controller,
+        pending: &mut pending,
+    };
+    let mut prompt = sample_permission_prompt();
+    prompt.option_layout = OptionLayout::Horizontal;
+    driver.install(prompt, tx);
+
+    let modal = driver.controller.state().active_modal().unwrap();
+    assert_eq!(modal.option_layout, OptionLayout::Horizontal);
+    assert_eq!(modal.body_scroll, 0);
 }

@@ -7,7 +7,9 @@ pub enum OutputEvent {
     Text(String),
 }
 
-pub use rho_harness_core::presentation::{InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse};
+pub use rho_harness_core::presentation::{
+    InteractionInput, InteractionOption, InteractionPrompt, InteractionResponse, OptionLayout,
+};
 
 #[derive(Debug, Error)]
 pub enum UiPortError {

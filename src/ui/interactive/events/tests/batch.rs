@@ -97,6 +97,7 @@ async fn pending_batch_exposes_newline_size_and_interaction_barriers() {
             initial_selection: 0,
             allow_custom: false,
             initial_text: None,
+            option_layout: Default::default(),
         })
         .await
     });

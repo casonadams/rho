@@ -7,3 +7,4 @@ mod matcher;
 mod mock;
 mod path;
 mod policy;
+mod prompt;

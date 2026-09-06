@@ -1,5 +1,5 @@
 use super::types::{HostUiConfirmParams, HostUiInputParams, HostUiSelectParams};
-use rho_harness_core::presentation::{InteractionOption, InteractionPrompt};
+use rho_harness_core::presentation::{InteractionOption, InteractionPrompt, OptionLayout};
 
 pub fn build_confirm_prompt(params: HostUiConfirmParams) -> InteractionPrompt {
     InteractionPrompt {
@@ -20,6 +20,7 @@ pub fn build_confirm_prompt(params: HostUiConfirmParams) -> InteractionPrompt {
         initial_selection: if params.default_yes { 0 } else { 1 },
         allow_custom: false,
         initial_text: None,
+        option_layout: OptionLayout::Vertical,
     }
 }
 
@@ -41,6 +42,7 @@ pub fn build_select_prompt(params: HostUiSelectParams) -> InteractionPrompt {
         initial_selection: params.initial_selection,
         allow_custom: params.allow_custom,
         initial_text: None,
+        option_layout: OptionLayout::Vertical,
     }
 }
 
@@ -56,5 +58,6 @@ pub fn build_input_prompt(params: HostUiInputParams) -> InteractionPrompt {
         initial_selection: 0,
         allow_custom: true,
         initial_text: params.value,
+        option_layout: OptionLayout::Vertical,
     }
 }

@@ -1,4 +1,4 @@
-use rho_harness_core::presentation::{InteractionInput, InteractionOption, InteractionPrompt};
+use rho_harness_core::presentation::{InteractionInput, InteractionOption, InteractionPrompt, OptionLayout};
 use serde_json::Value;
 
 use super::suggest::match_input;
@@ -27,9 +27,9 @@ fn build_permission_options(input_display: String, drafts: &[RuleDraft]) -> Vec<
                 value: Some(input_display),
             }),
         ),
-        make_option("Always allow", &always_desc, None),
+        make_option("Always", &always_desc, None),
         make_option(
-            "Deny with reason",
+            "Deny",
             "Deny tool execution",
             Some(InteractionInput {
                 label: "reason".to_string(),
@@ -49,6 +49,7 @@ pub fn build_permission_prompt(tool: &str, args: &Value, drafts: &[RuleDraft]) -
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,
+        option_layout: OptionLayout::Horizontal,
     }
 }
 

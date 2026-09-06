@@ -13,11 +13,36 @@ use select_mode::handle_select_mode_key;
 use super::ModalKeyResult;
 use crate::error::Result;
 use crate::ui::interactive::{
-    InteractionResponder, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController, UiEvent,
+    InteractionPrompt, InteractionResponder, ModalMode, ModalOption, ModalState, TerminalBackend, TerminalController,
+    UiEvent,
 };
 
 pub struct PendingModal {
     pub(crate) responder: InteractionResponder,
+}
+
+fn build_interaction_state(prompt: InteractionPrompt) -> ModalState {
+    let options = prompt
+        .options
+        .into_iter()
+        .map(|o| ModalOption {
+            label: o.label,
+            description: o.description,
+            input: o.input,
+        })
+        .collect::<Vec<_>>();
+    let is_empty = options.is_empty();
+    let mut state = ModalState::new(prompt.title, prompt.body, options)
+        .with_custom(prompt.allow_custom)
+        .with_option_layout(prompt.option_layout);
+    state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
+    if is_empty || (prompt.allow_custom && state.options.is_empty()) || prompt.initial_text.is_some() {
+        state.enter_input_mode("input");
+    }
+    if let Some(prefill) = prompt.initial_text {
+        state.input.set_text(prefill);
+    }
+    state
 }
 
 pub fn install_interaction<B: TerminalBackend>(
@@ -28,26 +53,7 @@ pub fn install_interaction<B: TerminalBackend>(
     let UiEvent::Interaction { prompt, responder } = event else {
         unreachable!("only interaction events create ordered barriers");
     };
-    let options = prompt
-        .options
-        .into_iter()
-        .map(|option| ModalOption {
-            label: option.label,
-            description: option.description,
-            input: option.input,
-        })
-        .collect::<Vec<_>>();
-    let is_empty_options = options.is_empty();
-    let mut state = ModalState::new(prompt.title, prompt.body, options).with_custom(prompt.allow_custom);
-    state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
-    if is_empty_options || (prompt.allow_custom && state.options.is_empty()) {
-        state.enter_input_mode("input");
-    }
-    if let Some(prefill) = prompt.initial_text {
-        state.enter_input_mode("input");
-        state.input.set_text(prefill);
-    }
-    controller.state_mut().push_modal(state);
+    controller.state_mut().push_modal(build_interaction_state(prompt));
     *modal = Some(PendingModal { responder });
 }
 
