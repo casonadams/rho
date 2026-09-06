@@ -10,6 +10,7 @@ mod history;
 mod idle_shortcuts;
 mod modal_navigation;
 mod modals;
+mod permission_flow;
 mod selection_lifecycle;
 mod session_modal;
 mod suspend;
