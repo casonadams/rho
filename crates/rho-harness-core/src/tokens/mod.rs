@@ -10,7 +10,8 @@ pub use cut_point::{find_node_token_cut_point, find_token_cut_point, is_tool_res
 
 pub const ESTIMATED_IMAGE_TOKENS: usize = 1200;
 pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
-pub const DEFAULT_RESERVE_TOKENS: usize = 16_384;
+pub const DEFAULT_RESERVE_TOKENS: usize = 0;
+pub const AUTOCOMPACT_THRESHOLD_PERCENT: usize = 96;
 pub const DEFAULT_KEEP_RECENT_TOKENS: usize = 20_000;
 
 const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
@@ -32,8 +33,13 @@ pub fn context_window_size(model: &str) -> usize {
 }
 
 pub fn should_compact(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
-    let effective_reserve = reserve_tokens.max(context_window / 5);
-    context_tokens > context_window.saturating_sub(effective_reserve)
+    let pct_threshold = context_window.saturating_mul(AUTOCOMPACT_THRESHOLD_PERCENT) / 100;
+    if reserve_tokens > 0 {
+        let reserve_threshold = context_window.saturating_sub(reserve_tokens);
+        context_tokens >= pct_threshold || context_tokens >= reserve_threshold
+    } else {
+        context_tokens >= pct_threshold
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

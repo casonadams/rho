@@ -24,7 +24,7 @@ use super::sink::TerminalApprovalSink;
 impl AgentEngine {
     async fn handle_stream_run_result(
         &self,
-        (res, sink): (StreamRunResult, &Arc<TerminalApprovalSink>),
+        (res, sink, presenter): (StreamRunResult, &Arc<TerminalApprovalSink>, &dyn Presenter),
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
@@ -33,6 +33,10 @@ impl AgentEngine {
                 sink.resume_model_spinner();
                 loop_state.current_prompt = "Please continue where you left off and finish the task.".to_string();
                 loop_state.current_budget = 50;
+                let additional_tokens =
+                    rho_harness_core::tokens::estimate_text_tokens(&loop_state.current_prompt, &self.config.model);
+                self.check_proactive_compaction(presenter, (&mut loop_state.visible_history, additional_tokens))
+                    .await?;
                 Ok(None)
             }
             StreamRunResult::Complete(state) => {
@@ -63,7 +67,8 @@ impl AgentEngine {
                 ),
             )
             .await?;
-        self.handle_stream_run_result((stream_res, sink), loop_state).await
+        self.handle_stream_run_result((stream_res, sink, presenter.as_ref()), loop_state)
+            .await
     }
 
     pub async fn run_turn(&self, request: TurnRequest<'_>, presenter: Arc<dyn Presenter>) -> Result<TurnOutput> {

@@ -60,21 +60,26 @@ fn search_file(
     (path, relative): (&Path, &str),
     matches: &Mutex<Vec<LineMatch>>,
 ) {
+    let mut file_matches = Vec::new();
     let mut sink = UTF8(|line_number, line| {
-        let mut list = matches.lock().unwrap_or_else(PoisonError::into_inner);
-        if list.len() >= RG_COLLECTION_CEILING {
-            return Ok(false);
-        }
         let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-        list.push(LineMatch {
+        file_matches.push(LineMatch {
             path: relative.to_string(),
             line: line_number,
             text: truncated.text,
             truncated: truncated.was_truncated,
         });
-        Ok(true)
+        Ok(file_matches.len() < RG_COLLECTION_CEILING)
     });
     let _ = searcher.search_path(matcher, path, &mut sink);
+    if !file_matches.is_empty() {
+        let mut list = matches.lock().unwrap_or_else(PoisonError::into_inner);
+        let remaining = RG_COLLECTION_CEILING.saturating_sub(list.len());
+        if remaining > 0 {
+            file_matches.truncate(remaining);
+            list.extend(file_matches);
+        }
+    }
 }
 
 impl RgQuery {

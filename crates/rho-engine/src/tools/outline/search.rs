@@ -10,6 +10,7 @@ use crate::tools::traversal::{search_root, walker_builder};
 use crate::tools::types::ToolResult;
 
 pub const MAX_SCAN_FILES: usize = 500;
+pub const MAX_OUTLINE_FILE_BYTES: u64 = 1_000_000;
 pub const DEFAULT_MAX_DEPTH: usize = 2;
 pub const MAX_DEPTH: usize = 5;
 
@@ -83,14 +84,15 @@ fn outline_single_file(
 
 fn process_directory_entry(
     entry: &ignore::DirEntry,
-    workspace: &Workspace,
-    options: &OutlineSearchOptions<'_>,
+    (workspace, options, lang): (&Workspace, &OutlineSearchOptions<'_>, SupportedLanguage),
 ) -> Option<FileOutline> {
     if !entry.file_type().is_some_and(|ft| ft.is_file()) {
         return None;
     }
+    if entry.metadata().ok()?.len() > MAX_OUTLINE_FILE_BYTES {
+        return None;
+    }
     let path = entry.path();
-    let lang = SupportedLanguage::from_path(path)?;
     let content = std::fs::read_to_string(path).ok()?;
     let symbols = parse_symbols(&content, lang).ok()?;
     let filtered: Vec<_> = symbols.into_iter().filter(|s| options.matches(s)).collect();
@@ -118,13 +120,15 @@ fn outline_directory(
     let mut hit_file_limit = false;
 
     for entry in walker_builder(dir_path, false).build().flatten() {
-        if entry.file_type().is_some_and(|ft| ft.is_file()) && SupportedLanguage::from_path(entry.path()).is_some() {
+        if entry.file_type().is_some_and(|ft| ft.is_file())
+            && let Some(lang) = SupportedLanguage::from_path(entry.path())
+        {
             scanned_files += 1;
             if scanned_files > MAX_SCAN_FILES {
                 hit_file_limit = true;
                 break;
             }
-            if let Some(outline) = process_directory_entry(&entry, workspace, options) {
+            if let Some(outline) = process_directory_entry(&entry, (workspace, options, lang)) {
                 outlines.push(outline);
             }
         }

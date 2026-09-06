@@ -33,15 +33,11 @@ pub(super) struct TurnLoopState {
 }
 
 impl AgentEngine {
-    fn start_turn_metrics(&self, (preamble, prompt): (&str, &str), history: &[Message]) {
+    fn start_turn_metrics(&self, additional_tokens: usize, history: &[Message]) {
         self.run_tracker.start();
-        let preamble_tokens = rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model);
-        let prompt_tokens = rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model);
         let hist_tokens =
             rho_harness_core::tokens::calculate_context_tokens(history, None, &self.config.model).total_tokens;
-        let est = preamble_tokens
-            .saturating_add(hist_tokens)
-            .saturating_add(prompt_tokens) as u64;
+        let est = additional_tokens.saturating_add(hist_tokens) as u64;
         self.usage.start_turn(Some(est));
     }
 
@@ -71,17 +67,27 @@ impl AgentEngine {
         Ok(context.build_system_prompt())
     }
 
-    async fn load_turn_history(&self, presenter: &dyn Presenter) -> Result<(Vec<Message>, Option<Vec<Message>>)> {
+    async fn load_turn_history(
+        &self,
+        (preamble, prompt): (&str, &str),
+        presenter: &dyn Presenter,
+    ) -> Result<(Vec<Message>, Option<Vec<Message>>, usize)> {
         let mut history = self.load_initial_history().await?;
         let checkpoint = self.session_manager.load_checkpoint().await?;
-        self.check_proactive_compaction(presenter, &mut history).await?;
-        Ok((history, checkpoint))
+        let additional_tokens =
+            rho_harness_core::tokens::estimate_text_tokens(preamble, &self.config.model).saturating_add(
+                rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
+            );
+        self.check_proactive_compaction(presenter, (&mut history, additional_tokens))
+            .await?;
+        Ok((history, checkpoint, additional_tokens))
     }
 
     pub(super) async fn prepare_turn(&self, prompt: &str, presenter: &Arc<dyn Presenter>) -> Result<PreparedTurn> {
         let preamble = self.record_user_prompt(prompt).await?;
-        let (history, checkpoint) = self.load_turn_history(presenter.as_ref()).await?;
-        self.start_turn_metrics((&preamble, prompt), &history);
+        let (history, checkpoint, additional_tokens) =
+            self.load_turn_history((&preamble, prompt), presenter.as_ref()).await?;
+        self.start_turn_metrics(additional_tokens, &history);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
             visible_history: history,

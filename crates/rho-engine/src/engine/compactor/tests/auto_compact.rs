@@ -83,3 +83,84 @@ async fn test_proactive_auto_compaction_before_turn() {
     let nodes = tree.ancestor_nodes(leaf_id);
     assert!(nodes.iter().any(|n| n.kind == TreeNodeKind::Compaction));
 }
+
+#[tokio::test]
+async fn test_proactive_auto_compaction_at_96_percent_threshold() {
+    let dir = std::env::temp_dir().join(format!("proactive_96_{}", uuid::Uuid::new_v4()));
+    let app_config = Config {
+        model: "mock-model".to_string(),
+        keep_recent_tokens: 5,
+        auth_file: dir.join("auth.json"),
+        ..Config::default()
+    };
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("response"), final_event(Usage::default())]]);
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &dir,
+            app_config,
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+
+    let session_id = engine.session_manager.session_id.clone();
+    ConversationMemory::append(
+        &engine.session_manager,
+        &session_id,
+        vec![Message::user("prior prompt"), Message::assistant("prior response")],
+    )
+    .await
+    .unwrap();
+
+    let sub_threshold_tokens = 122_000;
+    let at_threshold_tokens = 122_880;
+
+    engine.usage.record_turn(
+        crate::engine::tracking::TurnUsage::new(
+            Usage {
+                input_tokens: sub_threshold_tokens,
+                ..Default::default()
+            }
+            .into(),
+            Usage {
+                input_tokens: sub_threshold_tokens,
+                ..Default::default()
+            }
+            .into(),
+        ),
+        100,
+    );
+    let mut history = ConversationMemory::load(&engine.session_manager, &session_id)
+        .await
+        .unwrap();
+    let presenter = Arc::new(CapturingPresenter::default());
+    engine
+        .check_proactive_compaction(presenter.as_ref(), (&mut history, 0))
+        .await
+        .unwrap();
+    assert!(presenter.notices.lock().unwrap().is_empty());
+
+    engine.usage.record_turn(
+        crate::engine::tracking::TurnUsage::new(
+            Usage {
+                input_tokens: at_threshold_tokens,
+                ..Default::default()
+            }
+            .into(),
+            Usage {
+                input_tokens: at_threshold_tokens,
+                ..Default::default()
+            }
+            .into(),
+        ),
+        100,
+    );
+    engine
+        .check_proactive_compaction(presenter.as_ref(), (&mut history, 0))
+        .await
+        .unwrap();
+    let notices = presenter.notices.lock().unwrap().clone();
+    assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
+}

@@ -1,3 +1,5 @@
+use std::fmt::Write;
+
 use super::types::SymbolEntry;
 use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size, truncate_head};
 use crate::tools::types::ToolResult;
@@ -8,23 +10,19 @@ pub struct FileOutline {
     pub symbols: Vec<SymbolEntry>,
 }
 
-fn format_file_outline(file: &FileOutline) -> Option<String> {
-    if file.symbols.is_empty() {
-        return None;
-    }
-    let mut lines = Vec::with_capacity(file.symbols.len() + 1);
-    lines.push(format!("{}:", file.path));
+fn render_file_outline(out: &mut String, file: &FileOutline) {
+    let _ = writeln!(out, "{}:", file.path);
     for sym in &file.symbols {
         let indent = 2 + sym.depth * 2;
-        lines.push(format!(
+        let _ = writeln!(
+            out,
             "{:indent$}line {}: {}",
             "",
             sym.line,
             sym.signature,
             indent = indent
-        ));
+        );
     }
-    Some(lines.join("\n"))
 }
 
 fn collect_outline_notices(hit_file_limit: bool, has_truncation: bool) -> Vec<String> {
@@ -38,13 +36,27 @@ fn collect_outline_notices(hit_file_limit: bool, has_truncation: bool) -> Vec<St
     notices
 }
 
+fn render_outlines(active_files: &[&FileOutline]) -> String {
+    let mut rendered = String::with_capacity(active_files.len() * 256);
+    for (i, file) in active_files.iter().enumerate() {
+        if i > 0 {
+            rendered.push('\n');
+        }
+        render_file_outline(&mut rendered, file);
+    }
+    if rendered.ends_with('\n') {
+        rendered.pop();
+    }
+    rendered
+}
+
 pub fn format_outlines(outlines: &[FileOutline], hit_file_limit: bool) -> ToolResult {
-    let blocks: Vec<String> = outlines.iter().filter_map(format_file_outline).collect();
-    if blocks.is_empty() {
+    let active_files: Vec<&FileOutline> = outlines.iter().filter(|f| !f.symbols.is_empty()).collect();
+    if active_files.is_empty() {
         return ToolResult::success("No matching symbols found");
     }
 
-    let rendered = blocks.join("\n\n");
+    let rendered = render_outlines(&active_files);
     let truncation = truncate_head(&rendered, usize::MAX, DEFAULT_MAX_BYTES);
     let notices = collect_outline_notices(hit_file_limit, truncation.truncated_by.is_some());
     let mut output = truncation.content;

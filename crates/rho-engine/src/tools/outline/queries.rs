@@ -1,11 +1,46 @@
+use std::sync::LazyLock;
 use tree_sitter::Query;
 
 use super::grammar::SupportedLanguage;
 
-pub fn query_for_language(lang: SupportedLanguage) -> Result<Query, tree_sitter::QueryError> {
+fn compile(lang: SupportedLanguage) -> Result<Query, tree_sitter::QueryError> {
     let ts_lang = lang.tree_sitter_language();
     let query_str = query_string_for_language(lang);
     Query::new(&ts_lang, query_str)
+}
+
+static RUST_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Rust));
+static TS_Q: LazyLock<Result<Query, tree_sitter::QueryError>> =
+    LazyLock::new(|| compile(SupportedLanguage::TypeScript));
+static TSX_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Tsx));
+static JS_Q: LazyLock<Result<Query, tree_sitter::QueryError>> =
+    LazyLock::new(|| compile(SupportedLanguage::JavaScript));
+static PY_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Python));
+static GO_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Go));
+static JAVA_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Java));
+static C_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::C));
+static CPP_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Cpp));
+static CSHARP_Q: LazyLock<Result<Query, tree_sitter::QueryError>> =
+    LazyLock::new(|| compile(SupportedLanguage::CSharp));
+static RUBY_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Ruby));
+static PHP_Q: LazyLock<Result<Query, tree_sitter::QueryError>> = LazyLock::new(|| compile(SupportedLanguage::Php));
+
+pub fn query_for_language(lang: SupportedLanguage) -> Result<&'static Query, &'static tree_sitter::QueryError> {
+    let res = match lang {
+        SupportedLanguage::Rust => &*RUST_Q,
+        SupportedLanguage::TypeScript => &*TS_Q,
+        SupportedLanguage::Tsx => &*TSX_Q,
+        SupportedLanguage::JavaScript => &*JS_Q,
+        SupportedLanguage::Python => &*PY_Q,
+        SupportedLanguage::Go => &*GO_Q,
+        SupportedLanguage::Java => &*JAVA_Q,
+        SupportedLanguage::C => &*C_Q,
+        SupportedLanguage::Cpp => &*CPP_Q,
+        SupportedLanguage::CSharp => &*CSHARP_Q,
+        SupportedLanguage::Ruby => &*RUBY_Q,
+        SupportedLanguage::Php => &*PHP_Q,
+    };
+    res.as_ref()
 }
 
 pub fn query_string_for_language(lang: SupportedLanguage) -> &'static str {

@@ -49,11 +49,14 @@ fn render_fd_content(entries: Vec<FdEntry>, show_stats: bool) -> String {
     if show_stats {
         format_table(&entries)
     } else {
-        entries
-            .into_iter()
-            .map(|entry| entry.relative)
-            .collect::<Vec<_>>()
-            .join("\n")
+        let mut out = String::with_capacity(entries.len() * 32);
+        for (i, entry) in entries.into_iter().enumerate() {
+            if i > 0 {
+                out.push('\n');
+            }
+            out.push_str(&entry.relative);
+        }
+        out
     }
 }
 

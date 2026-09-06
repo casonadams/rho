@@ -49,7 +49,7 @@ pub fn parse_symbols(source: &str, language: SupportedLanguage) -> Result<Vec<Sy
     let query = query_for_language(language)?;
     let capture_names = query.capture_names();
     let mut cursor = QueryCursor::new();
-    let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
+    let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
 
     let mut entries = Vec::new();
     let mut seen = HashSet::new();

@@ -37,7 +37,7 @@ impl TreeNodeData {
         }
         self.metadata
             .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .and_then(|v| CompactionMetadata::deserialize(v).ok())
     }
 }
 
@@ -143,16 +143,16 @@ impl SessionTree {
 
     pub fn ancestor_nodes(&self, leaf_id: &str) -> Vec<&TreeNodeData> {
         let mut path = Vec::new();
-        let mut current_id = Some(leaf_id.to_string());
+        let mut current_id = Some(leaf_id);
         let mut visited = HashSet::new();
 
         while let Some(id) = current_id {
-            if !visited.insert(id.clone()) {
+            if !visited.insert(id) {
                 break;
             }
-            if let Some(node) = self.nodes.get(&id) {
+            if let Some(node) = self.nodes.get(id) {
                 path.push(node);
-                current_id = node.parent_id.clone();
+                current_id = node.parent_id.as_deref();
             } else {
                 break;
             }

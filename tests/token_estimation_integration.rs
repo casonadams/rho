@@ -24,10 +24,11 @@ fn test_context_window_ceilings_and_preflight_check() {
     assert_eq!(context_window_size("deepseek-chat"), 128_000);
 
     let window = context_window_size("claude-3-7-sonnet-20250219");
-    let reserve = 16_384;
 
-    assert!(!should_compact(100_000, window, reserve));
-    assert!(should_compact(190_000, window, reserve));
+    assert!(!should_compact(100_000, window, 0));
+    assert!(!should_compact(190_000, window, 0));
+    assert!(should_compact(192_000, window, 0));
+    assert!(should_compact(195_000, window, 0));
 }
 
 #[test]

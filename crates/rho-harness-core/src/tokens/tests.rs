@@ -50,9 +50,12 @@ fn test_calculate_context_tokens_and_should_compact() {
     assert_eq!(stats_anchored.usage_anchor_tokens, 500);
 
     let window = 200_000;
-    let reserve = 16_384;
+    let reserve = 0;
     assert!(!should_compact(50_000, window, reserve));
-    assert!(should_compact(190_000, window, reserve));
+    assert!(!should_compact(190_000, window, reserve));
+    assert!(should_compact(192_000, window, reserve));
+    assert!(should_compact(195_000, window, reserve));
+    assert!(should_compact(185_000, window, 20_000));
 }
 
 #[test]

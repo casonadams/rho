@@ -12,11 +12,15 @@ pub struct LineMatch {
 }
 
 pub fn render(matches: &[LineMatch]) -> String {
-    matches
-        .iter()
-        .map(|m| format!("{}:{}: {}", m.path, m.line, m.text))
-        .collect::<Vec<_>>()
-        .join("\n")
+    use std::fmt::Write;
+    let mut out = String::with_capacity(matches.len() * 64);
+    for (i, m) in matches.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let _ = write!(out, "{}:{}: {}", m.path, m.line, m.text);
+    }
+    out
 }
 
 fn rg_limit_notice(total: usize, limit: usize) -> String {

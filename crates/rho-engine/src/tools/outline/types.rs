@@ -49,7 +49,19 @@ pub enum OutlineParseError {
     #[error("Tree-sitter parser error: {0}")]
     Parser(#[from] tree_sitter::LanguageError),
     #[error("Tree-sitter query error: {0}")]
-    Query(#[from] tree_sitter::QueryError),
+    Query(String),
     #[error("Failed to parse source file")]
     FailedParse,
+}
+
+impl From<tree_sitter::QueryError> for OutlineParseError {
+    fn from(err: tree_sitter::QueryError) -> Self {
+        Self::Query(err.to_string())
+    }
+}
+
+impl From<&tree_sitter::QueryError> for OutlineParseError {
+    fn from(err: &tree_sitter::QueryError) -> Self {
+        Self::Query(err.to_string())
+    }
 }

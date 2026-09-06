@@ -72,10 +72,12 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs) -> ToolR
 }
 
 pub fn number_lines(content: &str, start_line: usize) -> String {
-    let mut output = String::new();
+    use std::fmt::Write;
+    let line_count = content.lines().count();
+    let mut output = String::with_capacity(content.len() + line_count * 8);
     for (idx, line) in content.lines().enumerate() {
         let line_num = start_line + idx;
-        output.push_str(&format!("{line_num:6}\t{line}\n"));
+        let _ = writeln!(output, "{line_num:6}\t{line}");
     }
     output
 }

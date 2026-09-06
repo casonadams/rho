@@ -32,10 +32,10 @@ impl AgentEngine {
         Ok(())
     }
 
-    pub(super) async fn check_proactive_compaction(
+    pub(crate) async fn check_proactive_compaction(
         &self,
         presenter: &dyn Presenter,
-        history: &mut Vec<Message>,
+        (history, additional_tokens): (&mut Vec<Message>, usize),
     ) -> Result<()> {
         let window = self
             .context_limit()
@@ -50,7 +50,7 @@ impl AgentEngine {
                     as usize
             })
             .unwrap_or(0);
-        let tokens = estimated.max(consumed);
+        let tokens = estimated.max(consumed).saturating_add(additional_tokens);
         if rho_harness_core::tokens::should_compact(tokens, window, self.config.reserve_tokens) {
             self.perform_proactive_compaction(presenter, history).await?;
         }
