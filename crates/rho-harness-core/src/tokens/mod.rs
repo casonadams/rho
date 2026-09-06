@@ -32,7 +32,8 @@ pub fn context_window_size(model: &str) -> usize {
 }
 
 pub fn should_compact(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
-    context_tokens > context_window.saturating_sub(reserve_tokens)
+    let effective_reserve = reserve_tokens.max(context_window / 5);
+    context_tokens > context_window.saturating_sub(effective_reserve)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

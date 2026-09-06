@@ -183,13 +183,18 @@ async fn handle_config_auth_result(
 }
 
 fn print_compaction_stats(session: &ReplSession, stats: &rho_engine::engine::CompactionStats) {
+    let before = crate::ui::interactive::footer::format_tokens(stats.tokens_before as u64);
+    let after = crate::ui::interactive::footer::format_tokens(stats.tokens_after as u64);
+    let saved = crate::ui::interactive::footer::format_tokens(stats.saved_tokens as u64);
     session.renderer.print_notice(&format!(
-        "  [Compacted context: {} -> {} tokens (saved {})]\n",
-        stats.tokens_before, stats.tokens_after, stats.saved_tokens
+        "  [Compacted context: {before} -> {after} tokens (saved {saved})]\n"
     ));
 }
 
 pub(crate) async fn compact_context(session: &ReplSession, engine: &AgentEngine, instructions: Option<&str>) {
+    session
+        .renderer
+        .print_notice("  [Compacting conversation context...]\n");
     match engine.compact_session(instructions).await {
         Ok(stats) => print_compaction_stats(session, &stats),
         Err(err) => {

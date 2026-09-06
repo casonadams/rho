@@ -70,7 +70,17 @@ impl AgentEngine {
         let window = self
             .context_limit()
             .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&self.config.model));
-        let tokens = rho_harness_core::tokens::calculate_context_tokens(history, None, &self.config.model).total_tokens;
+        let estimated =
+            rho_harness_core::tokens::calculate_context_tokens(history, None, &self.config.model).total_tokens;
+        let consumed = self
+            .usage
+            .latest()
+            .map(|u| {
+                (u.input_tokens + u.cached_input_tokens.unwrap_or(0) + u.cache_creation_input_tokens.unwrap_or(0))
+                    as usize
+            })
+            .unwrap_or(0);
+        let tokens = estimated.max(consumed);
         if rho_harness_core::tokens::should_compact(tokens, window, self.config.reserve_tokens) {
             self.perform_proactive_compaction(presenter, history).await?;
         }
