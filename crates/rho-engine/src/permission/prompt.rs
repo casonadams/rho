@@ -41,11 +41,16 @@ fn build_permission_options(input_display: String, drafts: &[RuleDraft]) -> Vec<
 
 pub fn build_permission_prompt(tool: &str, args: &Value, drafts: &[RuleDraft]) -> InteractionPrompt {
     let input_display = match_input(args);
-    let body = format!("Tool: {tool}\nInput: {input_display}");
+    let formatted_input = if tool == "bash" {
+        super::bash::format_command_lines(&input_display)
+    } else {
+        input_display
+    };
+    let body = format!("Tool: {tool}\nInput: {formatted_input}");
     InteractionPrompt {
         title: "Permission Required".to_string(),
         body,
-        options: build_permission_options(input_display, drafts),
+        options: build_permission_options(formatted_input, drafts),
         initial_selection: 0,
         allow_custom: false,
         initial_text: None,

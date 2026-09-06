@@ -2,44 +2,50 @@ use crate::permission::bash::lexer::tokenize;
 use crate::permission::bash::{analyze_bash_command, format_command_lines, has_file_redirection};
 
 #[test]
-fn bash_lexer_tokenization_and_quotes() {
+fn bash_lexer_tokenization_quotes() {
     let res = tokenize("echo 'hello world' \"foo $bar\"");
-    assert_eq!(res.tokens.len(), 3);
-    assert_eq!(res.tokens[0].text, "echo");
-    assert_eq!(res.tokens[1].text, "hello world");
-    assert_eq!(res.tokens[2].text, "foo $bar");
-    assert!(!res.suspicious);
-
-    assert!(tokenize("echo `whoami`").suspicious);
-    assert!(tokenize("echo $(id)").suspicious);
-    assert!(tokenize("echo 'unterminated").suspicious);
-    assert!(tokenize("diff <(ls) >(cat)").suspicious);
+    let actual = (
+        res.tokens.len(),
+        res.tokens[0].text.as_str(),
+        res.tokens[1].text.as_str(),
+        res.tokens[2].text.as_str(),
+        res.suspicious,
+    );
+    assert_eq!(actual, (3, "echo", "hello world", "foo $bar", false));
 }
 
 #[test]
-fn bash_analyzer_command_and_paths() {
+fn bash_lexer_suspicious_patterns() {
+    for cmd in ["echo `whoami`", "echo $(id)", "echo 'unterminated", "diff <(ls) >(cat)"] {
+        assert!(tokenize(cmd).suspicious, "{cmd}");
+    }
+}
+
+#[test]
+fn bash_analyzer_single_command() {
     let analysis = analyze_bash_command("grep \"a && b\" src/file.txt");
     assert_eq!(analysis.commands, vec!["grep \"a && b\" src/file.txt"]);
     assert_eq!(analysis.path_tokens, vec!["src/file.txt"]);
-    assert!(!analysis.suspicious);
+}
 
+#[test]
+fn bash_analyzer_env_and_timeout() {
     let analysis = analyze_bash_command("RUST_LOG=debug FOO=/tmp/x cargo test --nocapture");
     assert_eq!(analysis.commands, vec!["cargo test --nocapture"]);
     assert_eq!(analysis.path_tokens, vec!["/tmp/x"]);
-    assert!(!analysis.suspicious);
 
     let analysis = analyze_bash_command("time timeout 10s cargo test");
     assert_eq!(analysis.commands, vec!["cargo test"]);
-    assert!(!analysis.suspicious);
+}
 
+#[test]
+fn bash_analyzer_compound_and_redirect_commands() {
     let analysis = analyze_bash_command("cargo test > /tmp/out.log 2>&1");
     assert_eq!(analysis.commands, vec!["cargo test > /tmp/out.log 2>&1"]);
     assert_eq!(analysis.path_tokens, vec!["/tmp/out.log"]);
-    assert!(!analysis.suspicious);
 
     let analysis = analyze_bash_command("git status && cargo test");
     assert_eq!(analysis.commands, vec!["git status", "cargo test"]);
-    assert!(!analysis.suspicious);
 
     let analysis = analyze_bash_command("ls ~");
     assert_eq!(analysis.path_tokens, vec!["~"]);
@@ -47,17 +53,19 @@ fn bash_analyzer_command_and_paths() {
 
 #[test]
 fn complex_commands_format_multiline_for_display() {
-    assert_eq!(
-        format_command_lines("git status && cargo test || echo fallback ; ls -la"),
-        "git status\n  && cargo test\n  || echo fallback;\nls -la"
-    );
-    assert_eq!(format_command_lines("cat a ; cat b ; cat c"), "cat a;\ncat b;\ncat c");
-    assert_eq!(format_command_lines("cargo test --lib"), "cargo test --lib");
-    assert_eq!(
-        format_command_lines("grep \"a && b\" src/file.txt"),
-        "grep \"a && b\" src/file.txt"
-    );
-    assert_eq!(format_command_lines("ls\ncat foo"), "ls\ncat foo");
+    let cases = [
+        (
+            "git status && cargo test || echo fallback ; ls -la",
+            "git status &&\n  cargo test ||\n  echo fallback;\nls -la",
+        ),
+        ("cat a ; cat b ; cat c", "cat a;\ncat b;\ncat c"),
+        ("cargo test --lib", "cargo test --lib"),
+        ("grep \"a && b\" src/file.txt", "grep \"a && b\" src/file.txt"),
+        ("ls\ncat foo", "ls\ncat foo"),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(format_command_lines(input), expected);
+    }
 }
 
 #[test]

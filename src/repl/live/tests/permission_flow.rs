@@ -140,3 +140,20 @@ fn test_permission_prompt_scroll_multiline_body() {
     driver.send(KeyCode::Char('k'));
     assert_eq!(driver.controller.state().active_modal().unwrap().body_scroll, 0);
 }
+
+#[test]
+fn test_permission_prompt_compound_seams_prefills_and_renders_formatted() {
+    let prompt = build_permission_prompt("bash", &json!({ "command": "git status && cargo test ; ls" }), &[]);
+    let mut driver = PermDriver::new(prompt);
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+    let prefill = driver
+        .controller
+        .state()
+        .active_modal()
+        .unwrap()
+        .input
+        .text()
+        .to_string();
+    assert_eq!(prefill, "git status &&\n  cargo test;\nls");
+}

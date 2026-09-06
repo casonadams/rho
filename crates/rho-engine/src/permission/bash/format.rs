@@ -21,6 +21,11 @@ pub fn format_command_lines(command: &str) -> String {
     }
 }
 
+fn is_continuation_operator(line: &str) -> bool {
+    let trimmed = line.trim_end();
+    trimmed.ends_with("&&") || trimmed.ends_with("||") || trimmed.ends_with('|') || trimmed.ends_with('&')
+}
+
 fn indent_lines(lines: &[String]) -> String {
     let mut out: Vec<String> = Vec::new();
     let mut continuation = false;
@@ -30,7 +35,7 @@ fn indent_lines(lines: &[String]) -> String {
         } else {
             out.push(line.clone());
         }
-        continuation = !line.ends_with(';');
+        continuation = is_continuation_operator(line);
     }
     out.join("\n")
 }
@@ -73,11 +78,15 @@ impl LineBuilder {
 
     fn break_line(&mut self, raw: &str) {
         if !self.current.is_empty() {
-            self.lines.push(self.current.join(" "));
+            let mut line = self.current.join(" ");
+            if !raw.trim().is_empty() {
+                line.push(' ');
+                line.push_str(raw);
+            }
+            self.lines.push(line);
             self.current.clear();
-        }
-        if !raw.trim().is_empty() {
-            self.current.push(raw.to_string());
+        } else if !raw.trim().is_empty() {
+            self.lines.push(raw.to_string());
         }
     }
 
