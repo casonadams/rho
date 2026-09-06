@@ -4,58 +4,86 @@ use rho_harness_core::auth::StoredCredential;
 
 use super::AgentEngine;
 use crate::auth::AuthStore;
-use crate::engine::tracking::QuotaTracker;
+use crate::engine::tracking::{QuotaKey, QuotaTracker};
+
+pub(crate) fn canonical_quota_provider(provider: &str) -> Option<&'static str> {
+    let trimmed = provider.trim();
+    if trimmed.eq_ignore_ascii_case("ollama-cloud") {
+        Some("ollama-cloud")
+    } else if trimmed.eq_ignore_ascii_case("antigravity") || trimmed.eq_ignore_ascii_case("google-antigravity") {
+        Some("antigravity")
+    } else {
+        None
+    }
+}
 
 impl AgentEngine {
     pub async fn refresh_quota(&self) {
-        let provider = self.config.provider.trim();
-        if provider.eq_ignore_ascii_case("ollama-cloud") {
-            do_refresh_ollama_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
-        } else if provider.eq_ignore_ascii_case("antigravity") || provider.eq_ignore_ascii_case("google-antigravity") {
-            do_refresh_antigravity_quota(
-                Arc::clone(&self.auth_store),
-                self.quota.clone(),
-                self.config.model.clone(),
-            )
-            .await;
+        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
+            return;
+        };
+        match provider {
+            "ollama-cloud" => {
+                do_refresh_ollama_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
+            }
+            "antigravity" => {
+                do_refresh_antigravity_quota(
+                    Arc::clone(&self.auth_store),
+                    self.quota.clone(),
+                    self.config.model.clone(),
+                )
+                .await;
+            }
+            _ => {}
         }
     }
 
     pub fn spawn_refresh_quota(&self) {
-        let provider = self.config.provider.trim().to_string();
-        if provider.eq_ignore_ascii_case("ollama-cloud") {
-            let auth = Arc::clone(&self.auth_store);
-            let quota = self.quota.clone();
-            tokio::spawn(async move {
-                do_refresh_ollama_quota(auth, quota).await;
-            });
-        } else if provider.eq_ignore_ascii_case("antigravity") || provider.eq_ignore_ascii_case("google-antigravity") {
-            let auth = Arc::clone(&self.auth_store);
-            let quota = self.quota.clone();
-            let model = self.config.model.clone();
-            tokio::spawn(async move {
-                do_refresh_antigravity_quota(auth, quota, model).await;
-            });
+        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
+            return;
+        };
+        let auth = Arc::clone(&self.auth_store);
+        let quota = self.quota.clone();
+        match provider {
+            "ollama-cloud" => {
+                tokio::spawn(async move {
+                    do_refresh_ollama_quota(auth, quota).await;
+                });
+            }
+            "antigravity" => {
+                let model = self.config.model.clone();
+                tokio::spawn(async move {
+                    do_refresh_antigravity_quota(auth, quota, model).await;
+                });
+            }
+            _ => {}
         }
     }
 
     pub fn quota_display(&self) -> Option<String> {
-        self.quota.latest()
+        let provider = canonical_quota_provider(&self.config.provider)?;
+        let key = QuotaKey::new(provider, Some(&self.config.model));
+        self.quota.display_for(&key)
+    }
+
+    pub fn quota(&self) -> &QuotaTracker {
+        &self.quota
     }
 }
 
 async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {
-    if !quota.should_fetch() {
+    let key = QuotaKey::new("ollama-cloud", None::<String>);
+    if !quota.should_fetch(&key) {
         return;
     }
-    let key = auth_store.lock().await.get_key("ollama-cloud").await.ok().flatten();
-    let Some(key) = key else {
-        quota.record_failure();
+    let token = auth_store.lock().await.get_key("ollama-cloud").await.ok().flatten();
+    let Some(token) = token else {
+        quota.record_failure(&key);
         return;
     };
-    match crate::ollama::fetch_quota(&key).await {
-        Some(display) => quota.record_success(display),
-        None => quota.record_failure(),
+    match crate::ollama::fetch_quota(&token).await {
+        Some(display) => quota.record_success(&key, display),
+        None => quota.record_failure(&key),
     }
 }
 
@@ -76,15 +104,16 @@ async fn do_refresh_antigravity_quota(
     quota: QuotaTracker,
     target_model: String,
 ) {
-    if !quota.should_fetch() {
+    let key = QuotaKey::new("antigravity", Some(&target_model));
+    if !quota.should_fetch(&key) {
         return;
     }
     let Some((token, project_id)) = resolve_antigravity_credentials(&auth_store).await else {
-        quota.record_failure();
+        quota.record_failure(&key);
         return;
     };
     match crate::antigravity::fetch_quota(&token, &project_id, &target_model).await {
-        Some(display) => quota.record_success(display),
-        None => quota.record_failure(),
+        Some(display) => quota.record_success(&key, display),
+        None => quota.record_failure(&key),
     }
 }

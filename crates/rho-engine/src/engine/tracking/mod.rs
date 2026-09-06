@@ -9,7 +9,7 @@ mod usage;
 
 pub use context::ContextTracker;
 pub use in_flight::{InFlightGuard, InFlightUsage};
-pub use quota::QuotaTracker;
+pub use quota::{QuotaKey, QuotaTracker};
 pub use speed::SpeedTracker;
 pub use types::{SessionUsageTotals, TurnUsage};
 pub use usage::UsageTracker;

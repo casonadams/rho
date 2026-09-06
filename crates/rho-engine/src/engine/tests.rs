@@ -288,6 +288,55 @@ async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+fn mock_quota_engine(dir: &std::path::Path, provider: &str, model: &str) -> crate::engine::AgentEngine {
+    crate::engine::eval::mock::mock_engine(
+        rig::test_utils::MockCompletionModel::default(),
+        crate::engine::eval::mock::MockEngineConfig {
+            base_dir: dir,
+            app_config: Config {
+                provider: provider.to_string(),
+                model: model.to_string(),
+                ..Config::default()
+            },
+            session_manager: None,
+            built_in_tools: None,
+        },
+    )
+}
+
+#[tokio::test]
+async fn quota_display_omitted_for_unsupported_provider() {
+    let (_, dir) = test_config("quota_unsupported");
+    let mut engine = mock_quota_engine(&dir, "antigravity", "gemini-2.5-pro");
+    let ag_key = crate::engine::tracking::QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    engine.quota.record_success(&ag_key, "85% (3h22m)".to_string());
+    assert_eq!(engine.quota_display(), Some("85% (3h22m)".to_string()));
+
+    engine.config.provider = "local".to_string();
+    assert_eq!(engine.quota_display(), None);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn quota_display_isolated_across_providers_and_models() {
+    let (_, dir) = test_config("quota_isolation");
+    let mut engine = mock_quota_engine(&dir, "antigravity", "gemini-2.5-pro");
+    let ag_key = crate::engine::tracking::QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    engine.quota.record_success(&ag_key, "85% (3h22m)".to_string());
+
+    engine.config.provider = "ollama-cloud".to_string();
+    assert_eq!(engine.quota_display(), None);
+    let ollama_key = crate::engine::tracking::QuotaKey::new("ollama-cloud", None::<String>);
+    engine.quota.record_success(&ollama_key, "20% used".to_string());
+    assert_eq!(engine.quota_display(), Some("20% used".to_string()));
+
+    engine.config.provider = "google-antigravity".to_string();
+    assert_eq!(engine.quota_display(), Some("85% (3h22m)".to_string()));
+    engine.config.model = "claude-sonnet-4-6".to_string();
+    assert_eq!(engine.quota_display(), None);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn populate_ollama_model_store(config_dir: &std::path::Path) {
     let mut store = crate::provider::ModelStore::load(config_dir.join("models-store.json"));
     store

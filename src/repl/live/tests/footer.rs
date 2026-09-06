@@ -82,3 +82,41 @@ async fn update_footer_resets_activity_running_tool_and_active_tool() {
     assert_eq!(state.footer().running_tool, None);
     assert!(state.active_tool().is_none());
 }
+
+async fn test_quota_harness() -> (crate::engine::AgentEngine, crate::repl::ReplSession, tempfile::TempDir) {
+    let temp = tempfile::tempdir().unwrap();
+    let config = Config {
+        provider: "antigravity".to_string(),
+        model: "gemini-2.5-pro".to_string(),
+        sessions_dir: temp.path().join("sessions"),
+        ..Default::default()
+    };
+    let auth_store = AuthStore::default();
+    let engine = AgentEngineBuilder::new(config.clone(), auth_store.clone())
+        .build()
+        .await
+        .unwrap();
+    let session = crate::repl::ReplSession::new(config, auth_store, None);
+    (engine, session, temp)
+}
+
+#[tokio::test]
+async fn update_footer_clears_quota_when_switching_to_unsupported_provider() {
+    let (mut engine, mut session, _temp) = test_quota_harness().await;
+    let ag_key = rho_engine::engine::tracking::QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    engine.quota().record_success(&ag_key, "85% (3h22m)".to_string());
+
+    let mut state = InteractiveState::default();
+    update_footer(&mut state, &session, &engine);
+    assert_eq!(state.footer().quota, Some("85% (3h22m)".to_string()));
+
+    session.config.provider = "local".to_string();
+    engine.config.provider = "local".to_string();
+    update_footer(&mut state, &session, &engine);
+    assert_eq!(state.footer().quota, None);
+
+    session.config.provider = "ollama-cloud".to_string();
+    engine.config.provider = "ollama-cloud".to_string();
+    update_footer(&mut state, &session, &engine);
+    assert_eq!(state.footer().quota, None);
+}

@@ -66,16 +66,45 @@ fn speed_tracker_computes_rate_and_resets() {
 #[test]
 fn quota_tracker_caching_and_backoff() {
     let tracker = QuotaTracker::default();
-    assert!(tracker.should_fetch());
+    let key = QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    assert!(tracker.should_fetch(&key));
 
-    tracker.record_success("85% (3h22m)".to_string());
-    assert_eq!(tracker.latest(), Some("85% (3h22m)".to_string()));
-    assert!(!tracker.should_fetch());
+    tracker.record_success(&key, "85% (3h22m)".to_string());
+    assert_eq!(tracker.display_for(&key), Some("85% (3h22m)".to_string()));
+    assert!(!tracker.should_fetch(&key));
 
     let tracker_fail = QuotaTracker::default();
-    tracker_fail.record_failure();
-    // After failure, error_until is set in the future so should_fetch is false
-    assert!(!tracker_fail.should_fetch());
+    tracker_fail.record_failure(&key);
+    assert!(!tracker_fail.should_fetch(&key));
+}
+
+#[test]
+fn quota_tracker_multi_provider_isolation() {
+    let tracker = QuotaTracker::default();
+    let ag_key = QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    let local_key = QuotaKey::new("local", None::<String>);
+    let ollama_key = QuotaKey::new("ollama-cloud", None::<String>);
+
+    tracker.record_success(&ag_key, "85% (3h22m)".to_string());
+    assert_eq!(tracker.display_for(&ag_key), Some("85% (3h22m)".to_string()));
+    assert_eq!(tracker.display_for(&local_key), None);
+    assert_eq!(tracker.display_for(&ollama_key), None);
+    assert!(tracker.should_fetch(&ollama_key));
+}
+
+#[test]
+fn quota_tracker_fallback_and_failure_isolation() {
+    let tracker = QuotaTracker::default();
+    let ollama_key = QuotaKey::new("ollama-cloud", None::<String>);
+    let ollama_model_key = QuotaKey::new("ollama-cloud", Some("glm-5.3-flash"));
+    tracker.record_success(&ollama_key, "20% used".to_string());
+    assert_eq!(tracker.display_for(&ollama_key), Some("20% used".to_string()));
+    assert_eq!(tracker.display_for(&ollama_model_key), Some("20% used".to_string()));
+
+    let ag_fail_key = QuotaKey::new("antigravity", Some("claude-sonnet-4-6"));
+    tracker.record_failure(&ag_fail_key);
+    assert!(!tracker.should_fetch(&ag_fail_key));
+    assert!(!tracker.should_fetch(&ollama_key));
 }
 
 #[test]
