@@ -30,20 +30,42 @@ impl ToolRegistry {
     pub fn capability(name: &str) -> Option<ToolCapability> {
         Self::descriptor(name).map(|descriptor| descriptor.capability)
     }
+
+    pub fn prompt_snippet(name: &str) -> Option<&'static str> {
+        Self::descriptor(name).and_then(|descriptor| descriptor.prompt_snippet)
+    }
+
+    pub fn prompt_guidelines(name: &str) -> &'static [&'static str] {
+        Self::descriptor(name)
+            .map(|descriptor| descriptor.prompt_guidelines)
+            .unwrap_or(&[])
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn assert_registered_tool(name: &str) {
+        let desc = ToolRegistry::descriptor(name).unwrap();
+        assert!(!desc.description.is_empty());
+        assert!(!desc.prompt.is_empty());
+        assert!(ToolRegistry::capability(name).is_some());
+        assert!(ToolRegistry::prompt_snippet(name).is_some());
+    }
+
     #[test]
     fn descriptors_cover_every_registered_tool() {
         for name in ["read", "write", "edit", "bash", "fd", "rg", "web_search", "web_fetch"] {
-            let desc = ToolRegistry::descriptor(name).unwrap();
-            assert!(!desc.description.is_empty());
-            assert!(!desc.prompt.is_empty());
-            assert!(ToolRegistry::capability(name).is_some());
+            assert_registered_tool(name);
         }
+    }
+
+    #[test]
+    fn prompt_guidelines_returned_for_registered_tools() {
+        assert!(!ToolRegistry::prompt_guidelines("read").is_empty());
+        assert!(!ToolRegistry::prompt_guidelines("edit").is_empty());
+        assert!(ToolRegistry::prompt_guidelines("unknown").is_empty());
     }
 
     #[test]

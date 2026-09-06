@@ -1,4 +1,42 @@
 use super::ProjectContext;
+use super::guidelines::build_guidelines;
+
+fn format_tool_line(tool_name: &str) -> String {
+    if let Some(snippet) = crate::tools::ToolRegistry::prompt_snippet(tool_name) {
+        format!("- {tool_name}: {snippet}\n")
+    } else if let Some(desc) = crate::tools::ToolRegistry::descriptor(tool_name).map(|d| d.description) {
+        format!("- {tool_name}: {desc}\n")
+    } else {
+        format!("- {tool_name}\n")
+    }
+}
+
+fn append_available_tools(prompt: &mut String, active_tools: &[String]) {
+    prompt.push_str("Available tools:\n");
+    if active_tools.is_empty() {
+        prompt.push_str("(none)\n");
+        return;
+    }
+    for tool_name in active_tools {
+        prompt.push_str(&format_tool_line(tool_name));
+    }
+}
+
+pub fn assemble_base_system_prompt(active_tools: &[String]) -> String {
+    let mut prompt = String::with_capacity(1024);
+    prompt.push_str(
+        "You are an expert coding assistant operating inside rho, a coding agent harness. \
+         You help users by reading files, executing commands, editing code, and writing new files.\n\n",
+    );
+    append_available_tools(&mut prompt, active_tools);
+    prompt.push_str(
+        "\nIn addition to the tools above, you may have access to other custom tools depending on the project.\n\nGuidelines:\n",
+    );
+    for guideline in build_guidelines(active_tools) {
+        prompt.push_str(&format!("- {guideline}\n"));
+    }
+    prompt
+}
 
 fn append_instruction_files(prompt: &mut String, files: &[(String, String)]) {
     if files.is_empty() {
@@ -15,23 +53,40 @@ fn append_instruction_files(prompt: &mut String, files: &[(String, String)]) {
     prompt.push_str("</project_context>\n\n");
 }
 
-fn append_skills(prompt: &mut String, skills: &[rho_harness_core::skills::SkillMetadata]) {
-    if skills.is_empty() {
-        return;
+fn skill_reader_tool(active_tools: &[String]) -> Option<&'static str> {
+    if active_tools.iter().any(|t| t == "read") {
+        Some("the read tool")
+    } else if active_tools.iter().any(|t| t == "bash") {
+        Some("bash")
+    } else {
+        None
     }
+}
+
+fn format_skill_entry(prompt: &mut String, skill: &rho_harness_core::skills::SkillMetadata) {
+    prompt.push_str("  <skill>\n");
+    prompt.push_str(&format!("    <name>{}</name>\n", escape_xml(&skill.name)));
+    prompt.push_str(&format!(
+        "    <description>{}</description>\n",
+        escape_xml(&skill.description)
+    ));
+    prompt.push_str(&format!("    <location>{}</location>\n", escape_xml(&skill.location)));
+    prompt.push_str("  </skill>\n");
+}
+
+fn append_skills(prompt: &mut String, skills: &[rho_harness_core::skills::SkillMetadata], active_tools: &[String]) {
+    let visible: Vec<_> = skills.iter().filter(|s| !s.disable_model_invocation).collect();
+    let Some(reader) = skill_reader_tool(active_tools).filter(|_| !visible.is_empty()) else {
+        return;
+    };
     prompt.push_str("The following skills provide specialized instructions for specific tasks.\n");
-    prompt.push_str("Use the read tool to load a skill's file when the task matches its description.\n");
+    prompt.push_str(&format!(
+        "Use {reader} to load a skill's file when the task matches its description.\n"
+    ));
     prompt.push_str("When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n");
     prompt.push_str("<available_skills>\n");
-    for skill in skills {
-        prompt.push_str("  <skill>\n");
-        prompt.push_str(&format!("    <name>{}</name>\n", escape_xml(&skill.name)));
-        prompt.push_str(&format!(
-            "    <description>{}</description>\n",
-            escape_xml(&skill.description)
-        ));
-        prompt.push_str(&format!("    <location>{}</location>\n", escape_xml(&skill.location)));
-        prompt.push_str("  </skill>\n");
+    for skill in visible {
+        format_skill_entry(prompt, skill);
     }
     prompt.push_str("</available_skills>\n\n");
 }
@@ -54,7 +109,7 @@ pub fn build_system_prompt(ctx: &ProjectContext) -> String {
     prompt.push_str(ctx.base_system_prompt.trim());
     prompt.push_str("\n\n");
     append_instruction_files(&mut prompt, &ctx.instruction_files);
-    append_skills(&mut prompt, &ctx.skills);
+    append_skills(&mut prompt, &ctx.skills, &ctx.active_tools);
     append_environment_info(&mut prompt, ctx);
     prompt
 }

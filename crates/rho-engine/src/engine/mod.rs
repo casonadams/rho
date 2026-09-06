@@ -1,5 +1,6 @@
 pub use crate::repeat;
 pub use crate::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
+use std::path::Path;
 pub use tracking::{SessionUsageTotals, SpeedTracker};
 pub mod builder;
 pub use builder::{AgentEngineBuilder, create_engine_model};
@@ -71,13 +72,31 @@ impl AgentEngine {
         Ok(rebuilt)
     }
 
+    fn build_cached_context_dirs<'a>(
+        &'a self,
+        tools: &'a [String],
+        home_dir: Option<&'a Path>,
+    ) -> context::ContextDirs<'a> {
+        context::ContextDirs {
+            config_dir: Some(&self.config.config_dir),
+            home_dir,
+            system_prompt: self.config.system_prompt.as_deref(),
+            append_system_prompt: self.config.append_system_prompt.as_deref(),
+            active_tools: Some(tools),
+            no_context_files: self.config.no_context_files,
+        }
+    }
+
     pub async fn project_context(&self) -> Result<context::ProjectContext> {
         let cwd = std::env::current_dir()?;
         let mut cache = self.project_context.lock().await;
         if cache.as_ref().map(|(dir, _)| dir.as_path()) != Some(cwd.as_path()) {
+            let tools = self.tool_names();
+            let home = context::resolve_home_dir();
+            let dirs = self.build_cached_context_dirs(&tools, home.as_deref());
             *cache = Some((
                 cwd.clone(),
-                context::ProjectContext::discover_with_config(&cwd, &self.config).await,
+                context::ProjectContext::discover_with_dirs(&cwd, dirs).await,
             ));
         }
         let Some((_, cached)) = cache.as_mut() else {

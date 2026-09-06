@@ -22,6 +22,7 @@ fn skill_names_complete_from_prefix() {
             name: "plan".to_string(),
             description: "Planning workflow".to_string(),
             location: "/path".to_string(),
+            disable_model_invocation: false,
         },
         origin: rho_harness_core::skills::SkillOrigin::User,
     };

@@ -7,16 +7,21 @@ use std::path::Path;
 const SKILL_METADATA_PREFIX_BYTES: u64 = 4096;
 const FALLBACK_DESCRIPTION: &str = "Custom agent skill";
 
+#[derive(Default)]
+struct ParsedFrontmatter {
+    name: Option<String>,
+    description: Option<String>,
+    disable_model_invocation: bool,
+}
+
 pub fn parse_skill_file(path: &Path) -> Option<SkillMetadata> {
     let content = read_skill_prefix(path)?;
     let declared_name = if path.file_name().is_some_and(|name| name == "SKILL.md") {
-        // Directory skills: `<name>/SKILL.md` is named for the directory.
         path.parent()
             .and_then(|parent| parent.file_name())
             .and_then(|name| name.to_str())
             .map(str::to_string)
     } else {
-        // Flat files: `<name>.md` is named for its file stem.
         path.file_stem().and_then(|name| name.to_str()).map(str::to_string)
     };
     Some(build_metadata(path, declared_name, &content))
@@ -31,22 +36,35 @@ fn read_skill_prefix(path: &Path) -> Option<String> {
     Some(prefix)
 }
 
-fn parse_skill_frontmatter(content: &str, name: &mut String, description: &mut String) {
+fn parse_frontmatter_line(line: &str, out: &mut ParsedFrontmatter) {
+    if let Some(value) = line.strip_prefix("name:") {
+        out.name = Some(value.trim().trim_matches('"').trim_matches('\'').to_string());
+    } else if let Some(value) = line.strip_prefix("description:") {
+        out.description = Some(value.trim().trim_matches('"').trim_matches('\'').to_string());
+    } else if let Some(value) = line
+        .strip_prefix("disable-model-invocation:")
+        .or_else(|| line.strip_prefix("disable_model_invocation:"))
+    {
+        out.disable_model_invocation = value
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .eq_ignore_ascii_case("true");
+    }
+}
+
+fn parse_skill_frontmatter(content: &str) -> ParsedFrontmatter {
+    let mut out = ParsedFrontmatter::default();
     if !content.starts_with("---") {
-        return;
+        return out;
     }
     let parts: Vec<&str> = content.splitn(3, "---").collect();
-    if parts.len() < 3 {
-        return;
-    }
-    for line in parts[1].lines() {
-        let trimmed = line.trim();
-        if let Some(value) = trimmed.strip_prefix("name:") {
-            *name = value.trim().trim_matches('"').trim_matches('\'').to_string();
-        } else if let Some(value) = trimmed.strip_prefix("description:") {
-            *description = value.trim().trim_matches('"').trim_matches('\'').to_string();
+    if parts.len() >= 3 {
+        for line in parts[1].lines() {
+            parse_frontmatter_line(line.trim(), &mut out);
         }
     }
+    out
 }
 
 fn extract_body_description(content: &str) -> String {
@@ -59,15 +77,18 @@ fn extract_body_description(content: &str) -> String {
 }
 
 fn build_metadata(path: &Path, declared_name: Option<String>, content: &str) -> SkillMetadata {
-    let mut name = declared_name.unwrap_or_else(|| "skill".to_string());
-    let mut description = String::new();
-    parse_skill_frontmatter(content, &mut name, &mut description);
-    if description.is_empty() {
-        description = extract_body_description(content);
-    }
+    let frontmatter = parse_skill_frontmatter(content);
+    let name = frontmatter
+        .name
+        .or(declared_name)
+        .unwrap_or_else(|| "skill".to_string());
+    let description = frontmatter
+        .description
+        .unwrap_or_else(|| extract_body_description(content));
     SkillMetadata {
         name,
         description,
         location: path.display().to_string(),
+        disable_model_invocation: frontmatter.disable_model_invocation,
     }
 }

@@ -205,3 +205,29 @@ fn resolved_skills_with_home_respects_explicit_override() {
     assert_eq!(skill.origin, SkillOrigin::User);
     assert_eq!(skill.metadata.description, "Custom workflow");
 }
+
+#[test]
+fn disable_model_invocation_parsed_from_frontmatter() {
+    let fixture = fixture();
+    write_skill(
+        &fixture.home_dir.join(".agents/skills"),
+        "slash-only",
+        "---\nname: slash-only\ndescription: Slash command only\ndisable-model-invocation: true\n---\n# Slash only\n",
+    );
+    write_skill(
+        &fixture.home_dir.join(".agents/skills"),
+        "model-enabled",
+        "---\nname: model-enabled\ndescription: Model enabled\ndisable_model_invocation: false\n---\n# Model enabled\n",
+    );
+
+    let paths = SkillResolutionPaths {
+        project_dir: None,
+        home_dir: Some(&fixture.home_dir),
+    };
+    let resolved = resolved_skills_for_paths(paths);
+    let slash_only = resolved.iter().find(|s| s.metadata.name == "slash-only").unwrap();
+    assert!(slash_only.metadata.disable_model_invocation);
+
+    let model_enabled = resolved.iter().find(|s| s.metadata.name == "model-enabled").unwrap();
+    assert!(!model_enabled.metadata.disable_model_invocation);
+}

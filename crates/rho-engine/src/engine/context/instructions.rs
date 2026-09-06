@@ -7,6 +7,7 @@ pub struct ContextDirs<'a> {
     pub home_dir: Option<&'a Path>,
     pub system_prompt: Option<&'a str>,
     pub append_system_prompt: Option<&'a str>,
+    pub active_tools: Option<&'a [String]>,
     pub no_context_files: bool,
 }
 

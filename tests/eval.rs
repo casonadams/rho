@@ -132,6 +132,7 @@ fn eval_engine(dir: &Path, max_turns: usize, model: MockCompletionModel) -> rho:
             built_in_tools: builtin_tools_for(dir),
             app_config: rho::config::Config {
                 max_turns,
+                permission: rho::config::PermissionConfig { enabled: false },
                 ..Default::default()
             },
         },

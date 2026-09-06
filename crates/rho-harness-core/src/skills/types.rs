@@ -6,6 +6,7 @@ pub struct SkillMetadata {
     pub name: String,
     pub description: String,
     pub location: String,
+    pub disable_model_invocation: bool,
 }
 
 /// Where a resolved skill came from; `Project` overrides `User`

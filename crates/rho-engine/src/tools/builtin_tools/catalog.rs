@@ -158,7 +158,9 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         capability: BuiltinToolKind::ReadOnly,
         description: "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.",
         prompt: PROMPT_FD,
-        prompt_snippet: Some("Find files and directories by path pattern (gitignore-aware, bounded)"),
+        prompt_snippet: Some(
+            "Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)",
+        ),
         prompt_guidelines: &[
             "Use fd for file discovery instead of find, glob, or ls round-trips",
             "Use depth (1-10) with pattern '.' for a bounded workspace overview",
@@ -170,7 +172,9 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         capability: BuiltinToolKind::ReadOnly,
         description: "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded.",
         prompt: PROMPT_RG,
-        prompt_snippet: Some("Search file contents by pattern (gitignore-aware, bounded)"),
+        prompt_snippet: Some(
+            "Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)",
+        ),
         prompt_guidelines: &[
             "Use rg for content search instead of grep or bash pipelines",
             "Narrow with path or type when a pattern matches too much",

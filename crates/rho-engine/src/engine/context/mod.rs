@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub mod activation;
+pub mod guidelines;
 mod instructions;
 mod prompt;
 #[cfg(test)]
@@ -13,7 +14,7 @@ pub use activation::{MAX_DYNAMIC_INSTRUCTION_BYTES, MAX_DYNAMIC_INSTRUCTION_FILE
 pub use instructions::{
     ContextDirs, discover_ancestry_instructions, discover_instructions, discover_instructions_with_seen, find_repo_root,
 };
-pub use prompt::escape_xml;
+pub use prompt::{assemble_base_system_prompt, escape_xml};
 pub use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
 pub use transclusion::expand_transclusions;
 
@@ -23,6 +24,7 @@ pub struct ProjectContext {
     pub base_system_prompt: String,
     pub instruction_files: Vec<(String, String)>,
     pub skills: Vec<SkillMetadata>,
+    pub active_tools: Vec<String>,
     pub git_status: Option<String>,
     pub os_info: String,
     pub date_str: String,
@@ -83,6 +85,7 @@ impl ProjectContext {
                 system_prompt: config.system_prompt.as_deref(),
                 append_system_prompt: config.append_system_prompt.as_deref(),
                 no_context_files: config.no_context_files,
+                ..Default::default()
             },
         )
         .await
@@ -93,16 +96,17 @@ impl ProjectContext {
         let (instruction_files, seen_instruction_files) =
             instructions::discover_instructions_with_seen_async(base, dirs).await;
         let skills = resolve_skills(base, dirs.home_dir).await;
+        let active_tools = dirs.active_tools.map_or_else(default_tool_names, <[String]>::to_vec);
         let base_system_prompt = resolve_full_system_prompt(base, dirs).await;
         let git_status = get_git_summary(base).await;
-        let os_info = format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH);
-        let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+        let (os_info, date_str) = runtime_env_info();
 
         Self {
             current_dir: base.to_path_buf(),
             base_system_prompt,
             instruction_files,
             skills,
+            active_tools,
             git_status,
             os_info,
             date_str,
@@ -152,7 +156,7 @@ async fn get_git_summary(dir: &Path) -> Option<String> {
     None
 }
 
-fn resolve_home_dir() -> Option<PathBuf> {
+pub(crate) fn resolve_home_dir() -> Option<PathBuf> {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .ok()
@@ -180,15 +184,40 @@ async fn resolve_user_system_prompt(dirs: ContextDirs<'_>) -> Option<String> {
     try_read_system_md(dirs.home_dir, ".agents/SYSTEM.md").await
 }
 
+pub fn default_tool_names() -> Vec<String> {
+    crate::tools::ToolRegistry::descriptors()
+        .iter()
+        .map(|d| d.name.to_string())
+        .collect()
+}
+
+fn runtime_env_info() -> (String, String) {
+    let os_info = format!("{} ({})", std::env::consts::OS, std::env::consts::ARCH);
+    let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+    (os_info, date_str)
+}
+
+async fn resolve_custom_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> Option<String> {
+    if let Some(custom) = resolve_project_system_prompt(base).await {
+        return Some(custom);
+    }
+    resolve_user_system_prompt(dirs).await
+}
+
 async fn resolve_base_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {
     if let Some(prompt) = dirs.system_prompt {
         return prompt.to_string();
     }
-    if let Some(custom) = resolve_project_system_prompt(base).await {
+    if let Some(custom) = resolve_custom_system_prompt(base, dirs).await {
         return custom;
     }
-    if let Some(custom) = resolve_user_system_prompt(dirs).await {
-        return custom;
-    }
-    DEFAULT_SYSTEM_PROMPT.to_string()
+    let default_tools;
+    let tools = match dirs.active_tools {
+        Some(t) => t,
+        None => {
+            default_tools = default_tool_names();
+            &default_tools[..]
+        }
+    };
+    prompt::assemble_base_system_prompt(tools)
 }

@@ -49,6 +49,7 @@ fn sample_skill_completions(skills: &[(&str, &str)]) -> CompletionSet {
                 name: name.to_string(),
                 description: desc.to_string(),
                 location: "/path".to_string(),
+                disable_model_invocation: false,
             },
             origin: SkillOrigin::User,
         })
