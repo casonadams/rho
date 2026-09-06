@@ -98,6 +98,7 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
         total_editor_lines,
         autocomplete_desired: ac_desired,
         raw_footer_count: ft_lines.len(),
+        is_modal: input.modal.is_some(),
     });
     LayoutPieces {
         working,

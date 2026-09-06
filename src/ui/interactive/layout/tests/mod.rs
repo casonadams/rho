@@ -1,5 +1,6 @@
 mod activity;
 mod autocomplete;
+mod budget;
 mod divider;
 mod editor;
 mod modal;

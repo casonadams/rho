@@ -1,3 +1,5 @@
+pub const MAX_MODAL_HEIGHT_RATIO: f64 = 0.66;
+
 pub(crate) struct NormalBudgetInput {
     pub terminal_height: usize,
     pub raw_queued_count: usize,
@@ -5,6 +7,7 @@ pub(crate) struct NormalBudgetInput {
     pub raw_footer_count: usize,
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
+    pub is_modal: bool,
 }
 
 pub(crate) struct NormalLayoutBudget {
@@ -80,7 +83,11 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     let (mut surplus, queued_count) = calculate_surplus(budget, chrome, input.raw_queued_count);
     let demands = (input.total_editor_lines.saturating_sub(1), input.autocomplete_desired);
     let widget_count = allocate_widgets(input.raw_widgets_count, &mut surplus, demands);
-    let (autocomplete_max_lines, editor_max_lines) = allocate_editor_and_autocomplete(surplus, demands);
+    let (autocomplete_max_lines, mut editor_max_lines) = allocate_editor_and_autocomplete(surplus, demands);
+    if input.is_modal {
+        let max_modal = ((input.terminal_height as f64) * MAX_MODAL_HEIGHT_RATIO).round() as usize;
+        editor_max_lines = editor_max_lines.min(max_modal.max(1));
+    }
     let (show_spacer, show_activity_row, show_top_div, show_bot_div, footer_count) = chrome;
     NormalLayoutBudget {
         show_spacer,

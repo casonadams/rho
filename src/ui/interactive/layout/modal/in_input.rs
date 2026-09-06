@@ -1,13 +1,15 @@
 use super::options::{ModalOptionsLayout, render_modal_options};
 use crate::ui::interactive::layout::editor::{window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::{truncate_to_width, visible_width, wrap_to_width};
-use crate::ui::interactive::{CursorPosition, ModalMode, ModalState};
+use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
 
 fn options_desired_lines(modal: &ModalState) -> usize {
     if matches!(modal.mode, ModalMode::Input { .. }) {
         0
     } else if modal.options.is_empty() {
         usize::from(modal.is_searchable)
+    } else if modal.option_layout == OptionLayout::Horizontal {
+        1
     } else {
         modal.options.len().min(12)
     }
@@ -24,7 +26,7 @@ pub fn in_input_modal_desired_lines(modal: &ModalState, draft_text: &str, inner_
     let body = if modal.body.trim().is_empty() {
         0
     } else {
-        wrap_to_width(&modal.body, inner_width).len().min(8)
+        wrap_to_width(&modal.body, inner_width).len()
     };
     let options = options_desired_lines(modal);
     (search + input + draft + body + options).max(1)
@@ -37,9 +39,12 @@ pub struct InInputModalInput<'a> {
     pub theme: &'a crate::ui::theme::Theme,
 }
 
-fn calculate_content_space(modal: &ModalState, space_for_content: usize) -> (usize, usize) {
+pub(crate) fn calculate_content_space(modal: &ModalState, space_for_content: usize) -> (usize, usize) {
     if matches!(modal.mode, ModalMode::Input { .. }) || modal.options.is_empty() {
         (space_for_content, 0)
+    } else if modal.option_layout == OptionLayout::Horizontal {
+        let opt_space = 1.min(space_for_content);
+        (space_for_content.saturating_sub(opt_space), opt_space)
     } else if modal.body.trim().is_empty() || space_for_content <= 2 {
         (0, space_for_content)
     } else {
