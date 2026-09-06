@@ -76,11 +76,14 @@ args = []
 
 ## 3. Plugin Package & Artifact Management
 
-`rho` provides automated package management to install, inspect, update, and remove plugin binaries directly from GitHub Releases without requiring a local Rust toolchain or `cargo` CLI:
+`rho` provides automated package management to install, inspect, update, and
+remove plugin binaries directly from GitHub Releases without requiring a local
+Rust toolchain or `cargo` CLI:
 
 ### A. Installing Plugins
 
-Install prebuilt release binaries into `~/.cargo/bin` and register them in `~/.config/rho/config.toml`:
+Install prebuilt release binaries into `~/.cargo/bin` and register them in
+`~/.config/rho/config.toml`:
 
 ```bash
 # Bare plugin name (resolves to casonadams/rho-plugin-<name>)
@@ -99,11 +102,12 @@ rho install https://github.com/casonadams/rho-plugin-permission
 rho install permission --force
 ```
 
-*(Visible alias: `rho plugin install <target>`)*
+_(Visible alias: `rho plugin install <target>`)_
 
 ### B. Listing & Inspecting Plugins
 
-Audit all configured plugins, resolved binary locations, artifact health (`Installed (active)` vs `Missing`), and management origin:
+Audit all configured plugins, resolved binary locations, artifact health
+(`Installed (active)` vs `Missing`), and management origin:
 
 ```bash
 rho plugin ls
@@ -126,11 +130,12 @@ rho update all
 rho update permission
 ```
 
-*(Visible alias: `rho plugin update [target]`)*
+_(Visible alias: `rho plugin update [target]`)_
 
 ### D. Removing Plugins
 
-Remove plugin configuration and safely delete the executable from `~/.cargo/bin`:
+Remove plugin configuration and safely delete the executable from
+`~/.cargo/bin`:
 
 ```bash
 # Remove plugin and delete ~/.cargo/bin binary
@@ -140,9 +145,12 @@ rho remove permission
 rho remove permission --keep-binary
 ```
 
-*(Visible aliases: `rho uninstall <name>`, `rho plugin remove <name>`, `rho plugin rm <name>`)*
+_(Visible aliases: `rho uninstall <name>`, `rho plugin remove <name>`,
+`rho plugin rm <name>`)_
 
-> **Safety boundary**: Binary deletion is strictly confined to `~/.cargo/bin/<executable>`. Binaries located outside this directory (such as system tools or local scripts) are never unlinked.
+> **Safety boundary**: Binary deletion is strictly confined to
+> `~/.cargo/bin/<executable>`. Binaries located outside this directory (such as
+> system tools or local scripts) are never unlinked.
 
 ---
 
