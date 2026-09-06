@@ -8,6 +8,7 @@ pub(crate) struct NormalBudgetInput {
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
     pub is_modal: bool,
+    pub has_activity: bool,
 }
 
 pub(crate) struct NormalLayoutBudget {
@@ -77,9 +78,19 @@ fn calculate_surplus(budget: usize, chrome: (bool, bool, bool, bool, usize), que
     (surplus - queued, queued)
 }
 
+fn resolve_chrome(input: &NormalBudgetInput, raw: (bool, bool, bool, bool, usize)) -> (bool, bool, bool, bool, usize) {
+    if input.is_modal {
+        let show_spacer = (input.raw_widgets_count > 0 || input.raw_queued_count > 0) && raw.0;
+        let show_activity_row = input.has_activity && raw.1;
+        (show_spacer, show_activity_row, raw.2, raw.3, raw.4)
+    } else {
+        raw
+    }
+}
+
 pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBudget {
     let budget = input.terminal_height.max(1);
-    let chrome = compute_chrome(budget, input.raw_footer_count);
+    let chrome = resolve_chrome(input, compute_chrome(budget, input.raw_footer_count));
     let (mut surplus, queued_count) = calculate_surplus(budget, chrome, input.raw_queued_count);
     let demands = (input.total_editor_lines.saturating_sub(1), input.autocomplete_desired);
     let widget_count = allocate_widgets(input.raw_widgets_count, &mut surplus, demands);

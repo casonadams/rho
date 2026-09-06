@@ -9,6 +9,7 @@ fn sample_budget_input(terminal_height: usize, total_editor_lines: usize, is_mod
         total_editor_lines,
         autocomplete_desired: 0,
         is_modal,
+        has_activity: false,
     }
 }
 

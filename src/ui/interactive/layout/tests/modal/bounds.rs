@@ -89,13 +89,12 @@ fn modal_body_truncation_minimal_omitted_lines() {
 }
 
 #[test]
-fn modal_body_suppressed_on_minimal_terminal_height_8() {
+fn modal_body_fits_minimal_on_terminal_height_8() {
     let modal = sample_permission_modal(30);
     let layout_8 = modal_test_layout(&modal, 8);
     assert!(layout_8.lines.len() <= 8);
     assert!(layout_8.lines.iter().any(|l| l.contains("Allow")));
     assert!(layout_8.lines.iter().any(|l| l.contains("Deny")));
-    assert!(!layout_8.lines.iter().any(|l| l.contains("command argument line")));
 }
 
 #[test]
@@ -105,4 +104,5 @@ fn modal_body_suppressed_on_minimal_terminal_height_6() {
     assert!(layout_6.lines.len() <= 6);
     assert!(layout_6.lines.iter().any(|l| l.contains("Allow")));
     assert!(layout_6.bottom_divider.contains("─".repeat(80).as_str()));
+    assert!(!layout_6.lines.iter().any(|l| l.contains("command argument line")));
 }

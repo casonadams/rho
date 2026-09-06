@@ -77,3 +77,35 @@ fn searchable_modal_dismissal_synchronizes_cursor() {
     assert_eq!(cursor_row, editor_layout.cursor_row() as isize);
     assert_eq!(last_col, editor_layout.cursor.column);
 }
+
+fn sample_perm_options() -> Vec<ModalOption> {
+    vec![
+        ModalOption::from("Allow"),
+        ModalOption::from("Edit"),
+        ModalOption::from("Always"),
+        ModalOption::from("Deny"),
+    ]
+}
+
+#[test]
+fn modal_redraw_ticks_and_navigation_preserve_zero_scrollback_pollution() {
+    let body = (1..=10).map(|i| format!("cmd {i}")).collect::<Vec<_>>().join("\n");
+    let mut modal = ModalState::new("Permission Required", &body, sample_perm_options());
+    modal.option_layout = crate::ui::interactive::OptionLayout::Horizontal;
+    let (mut controller, operations, modal_height, _) = setup_transition_controller(modal);
+
+    assert_eq!(
+        controller.rendered().unwrap().lines[0],
+        controller.rendered().unwrap().top_divider
+    );
+    for _ in 0..10 {
+        controller.state_mut().select_next_modal_option();
+        controller.redraw().unwrap();
+        assert_eq!(controller.rendered().unwrap().height(), modal_height);
+    }
+    let ops = operations.borrow();
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(s) if s.contains("\r\n")))
+    );
+}

@@ -49,6 +49,6 @@ fn modal_searchable_cursor_with_body_truncation() {
     let modal = ModalState::new("Select Model", &body, vec![ModalOption::from("model-1")]).with_search(true);
 
     let layout = modal_cursor_layout(&modal);
-    assert_eq!(layout.cursor_row, 3);
+    assert_eq!(layout.cursor_row, 1);
     assert_modal_cursor_valid(&layout, ">");
 }
