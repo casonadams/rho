@@ -1,21 +1,30 @@
+use std::borrow::Cow;
+
+#[inline]
+fn is_filtered_char(c: char) -> bool {
+    let u = c as u32;
+    if u == 0x09 || u == 0x0A || u == 0x0D {
+        return false;
+    }
+    if u <= 0x1F {
+        return true;
+    }
+    (0xFFF9..=0xFFFB).contains(&u)
+}
+
 /// Sanitizes binary output to remove control characters and Unicode format characters
 /// that can crash or corrupt terminal rendering and string width calculations.
-pub fn sanitize_binary_output(text: &str) -> String {
-    text.chars()
-        .filter(|&c| {
-            let u = c as u32;
-            if u == 0x09 || u == 0x0A || u == 0x0D {
-                return true;
-            }
-            if u <= 0x1F {
-                return false;
-            }
-            if (0xFFF9..=0xFFFB).contains(&u) {
-                return false;
-            }
-            true
-        })
-        .collect()
+pub fn sanitize_binary_output(text: &str) -> Cow<'_, str> {
+    if !text.chars().any(is_filtered_char) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if !is_filtered_char(c) {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
 }
 
 #[cfg(test)]

@@ -37,11 +37,21 @@ impl SecretGuard {
     }
 
     pub(crate) fn redact(&self, value: &str) -> String {
+        if value.len() < MIN_SECRET_LEN {
+            return value.to_string();
+        }
         let Ok(secrets) = self.secrets.lock() else {
             return "[REDACTED]".to_string();
         };
+        if secrets.is_empty() || !secrets.iter().any(|secret| value.contains(secret)) {
+            return value.to_string();
+        }
         secrets.iter().fold(value.to_string(), |redacted, secret| {
-            redacted.replace(secret, "[REDACTED]")
+            if redacted.contains(secret) {
+                redacted.replace(secret, "[REDACTED]")
+            } else {
+                redacted
+            }
         })
     }
 

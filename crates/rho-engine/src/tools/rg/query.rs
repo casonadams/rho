@@ -9,7 +9,7 @@ use grep_searcher::sinks::UTF8;
 use ignore::WalkState;
 use ignore::types::Types;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -60,27 +60,31 @@ fn should_search_entry(entry: &ignore::DirEntry) -> bool {
 
 fn search_file(
     (searcher, matcher): (&mut grep_searcher::Searcher, &RegexMatcher),
-    (path, relative): (&Path, &str),
-    matches: &Mutex<Vec<LineMatch>>,
+    path: &Path,
+    ctx: &RgWalkContext<'_>,
 ) {
     let mut file_matches = Vec::new();
     let mut sink = UTF8(|line_number, line| {
         let truncated = truncate_line(line.trim_end_matches(['\n', '\r']));
-        file_matches.push(LineMatch {
-            path: relative.to_string(),
-            line: line_number,
-            text: truncated.text,
-            truncated: truncated.was_truncated,
-        });
-        Ok(file_matches.len() < RG_COLLECTION_CEILING)
+        file_matches.push((line_number, truncated.text.into_owned(), truncated.was_truncated));
+        Ok(ctx.match_count.load(Ordering::Relaxed) + file_matches.len() < RG_COLLECTION_CEILING)
     });
     let _ = searcher.search_path(matcher, path, &mut sink);
     if !file_matches.is_empty() {
-        let mut list = matches.lock().unwrap_or_else(PoisonError::into_inner);
+        let relative = resolve_rg_relative_path(path, (ctx.roots.0, ctx.roots.1), ctx.roots.2);
+        let mut list = ctx.matches.lock().unwrap_or_else(PoisonError::into_inner);
         let remaining = RG_COLLECTION_CEILING.saturating_sub(list.len());
         if remaining > 0 {
             file_matches.truncate(remaining);
-            list.extend(file_matches);
+            for (line_number, text, truncated) in file_matches {
+                list.push(LineMatch {
+                    path: relative.clone(),
+                    line: line_number,
+                    text,
+                    truncated,
+                });
+            }
+            ctx.match_count.store(list.len(), Ordering::Relaxed);
         }
     }
 }
@@ -89,6 +93,7 @@ fn search_file(
 struct RgWalkContext<'a> {
     roots: (&'a Path, &'a Path, Option<&'a str>),
     matches: &'a Mutex<Vec<LineMatch>>,
+    match_count: &'a AtomicUsize,
 }
 
 fn process_rg_walk_entry(
@@ -100,12 +105,11 @@ fn process_rg_walk_entry(
     if !should_search_entry(&entry) {
         return WalkState::Continue;
     }
-    if ctx.matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
+    if ctx.match_count.load(Ordering::Relaxed) >= RG_COLLECTION_CEILING {
         return WalkState::Quit;
     }
-    let relative = resolve_rg_relative_path(entry.path(), (ctx.roots.0, ctx.roots.1), ctx.roots.2);
-    search_file((searcher, matcher), (entry.path(), &relative), ctx.matches);
-    if ctx.matches.lock().unwrap_or_else(PoisonError::into_inner).len() >= RG_COLLECTION_CEILING {
+    search_file((searcher, matcher), entry.path(), ctx);
+    if ctx.match_count.load(Ordering::Relaxed) >= RG_COLLECTION_CEILING {
         WalkState::Quit
     } else {
         WalkState::Continue
@@ -113,7 +117,11 @@ fn process_rg_walk_entry(
 }
 
 impl RgQuery {
-    fn run_traversal(&self, builder: ignore::WalkBuilder, (matches, timed_out): (&Mutex<Vec<LineMatch>>, &AtomicBool)) {
+    fn run_traversal(
+        &self,
+        builder: ignore::WalkBuilder,
+        (matches, match_count, timed_out): (&Mutex<Vec<LineMatch>>, &AtomicUsize, &AtomicBool),
+    ) {
         let (w_root, s_root) = (self.workspace_root.as_path(), self.search_root.as_path());
         let (matcher, display) = (&self.matcher, self.search_path_display.as_deref());
         let cancellation = self.cancellation.as_deref();
@@ -125,6 +133,7 @@ impl RgQuery {
         let ctx = RgWalkContext {
             roots: (w_root, s_root, display),
             matches,
+            match_count,
         };
 
         builder.build_parallel().run(|| {
@@ -149,7 +158,8 @@ impl RgQuery {
 
         let timed_out = AtomicBool::new(false);
         let matches = Mutex::new(Vec::new());
-        self.run_traversal(builder, (&matches, &timed_out));
+        let match_count = AtomicUsize::new(0);
+        self.run_traversal(builder, (&matches, &match_count, &timed_out));
         if timed_out.load(Ordering::Relaxed) {
             let secs = self
                 .timeout

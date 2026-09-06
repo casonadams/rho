@@ -24,14 +24,16 @@ fn test_truncate_line_at_the_limit_is_unmarked() {
 
 #[test]
 fn test_truncate_line_caps_with_a_marked_suffix() {
-    let res = truncate_line(&"x".repeat(600));
+    let input = "x".repeat(600);
+    let res = truncate_line(&input);
     assert_eq!(res.text, format!("{}... [truncated]", "x".repeat(GREP_MAX_LINE_LENGTH)));
     assert!(res.was_truncated);
 }
 
 #[test]
 fn test_truncate_line_counts_multibyte_chars_individually() {
-    let res = truncate_line(&"é".repeat(600));
+    let input = "é".repeat(600);
+    let res = truncate_line(&input);
     assert!(res.was_truncated);
     assert_eq!(
         res.text.chars().count(),

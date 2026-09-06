@@ -97,10 +97,19 @@ async fn summarize_entry_async(entry: &tokio::fs::DirEntry) -> Option<SessionSum
     Some(make_session_summary(&stem, state, last_modified))
 }
 
-async fn drain_summaries_async(mut entries: tokio::fs::ReadDir) -> Result<Vec<SessionSummary>> {
-    let mut summaries = Vec::new();
+async fn collect_summary_set(mut entries: tokio::fs::ReadDir) -> Result<tokio::task::JoinSet<Option<SessionSummary>>> {
+    let mut set = tokio::task::JoinSet::new();
     while let Some(entry) = entries.next_entry().await? {
-        if let Some(summary) = summarize_entry_async(&entry).await {
+        set.spawn(async move { summarize_entry_async(&entry).await });
+    }
+    Ok(set)
+}
+
+async fn drain_summaries_async(entries: tokio::fs::ReadDir) -> Result<Vec<SessionSummary>> {
+    let mut set = collect_summary_set(entries).await?;
+    let mut summaries = Vec::new();
+    while let Some(res) = set.join_next().await {
+        if let Ok(Some(summary)) = res {
             summaries.push(summary);
         }
     }

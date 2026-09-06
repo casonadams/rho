@@ -40,11 +40,16 @@ impl SseParser {
     pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
         self.buffer.extend_from_slice(bytes);
         let mut events = Vec::new();
-        while let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
-            let line_bytes = self.buffer[..pos].to_vec();
-            self.buffer.drain(..=pos);
-            let line = String::from_utf8_lossy(&line_bytes);
+        let mut cursor = 0;
+        while let Some(rel) = memchr::memchr(b'\n', &self.buffer[cursor..]) {
+            let line_end = cursor + rel;
+            let line_bytes = &self.buffer[cursor..line_end];
+            cursor = line_end + 1;
+            let line = String::from_utf8_lossy(line_bytes).into_owned();
             self.interpret_line(line.trim_end_matches('\r'), &mut events);
+        }
+        if cursor > 0 {
+            self.buffer.drain(..cursor);
         }
         events
     }

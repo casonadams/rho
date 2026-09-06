@@ -94,13 +94,8 @@ pub(super) fn build_chatgpt_model((model, key): (&str, String), auth_store: &Aut
 }
 
 pub(super) fn build_gemini_model((model, key): (&str, String)) -> Result<ModelHandle> {
-    let http_client = reqwest::Client::builder()
-        .no_proxy()
-        .build()
-        .map_err(|e| AppError::Other(e.into()))?;
-
     let client = rig::providers::gemini::Client::builder()
-        .http_client(http_client)
+        .http_client(SHARED_HTTP_CLIENT.clone())
         .api_key(&key)
         .build()
         .map_err(|e| AppError::Provider(format!("Failed to initialize Gemini client: {e}")))?;

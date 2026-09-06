@@ -45,14 +45,34 @@ fn format_highlighted_ranges(ranges: &[(syntect::highlighting::Style, &str)], is
     out
 }
 
-pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> String {
-    let mut highlighter = resolve_highlighter(lang, theme.is_light());
-    if let Ok(ranges) = highlighter.highlight_line(line, &SYNTAX_SET) {
-        format_highlighted_ranges(&ranges, theme.is_ansi())
-    } else {
-        let d = theme.dimmed;
-        format!("{d}{line}{d:#}")
+pub struct CodeHighlighter<'a> {
+    highlighter: Option<HighlightLines<'a>>,
+    is_ansi: bool,
+}
+
+impl<'a> CodeHighlighter<'a> {
+    pub fn new(lang: Option<&str>, theme: &Theme) -> Self {
+        let highlighter = Some(resolve_highlighter(lang, theme.is_light()));
+        Self {
+            highlighter,
+            is_ansi: theme.is_ansi(),
+        }
     }
+
+    pub fn highlight_line(&mut self, line: &str, theme: &Theme) -> String {
+        if let Some(ref mut h) = self.highlighter
+            && let Ok(ranges) = h.highlight_line(line, &SYNTAX_SET)
+        {
+            format_highlighted_ranges(&ranges, self.is_ansi)
+        } else {
+            let d = theme.dimmed;
+            format!("{d}{line}{d:#}")
+        }
+    }
+}
+
+pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> String {
+    CodeHighlighter::new(lang, theme).highlight_line(line, theme)
 }
 
 fn grayscale_ansi(lightness: u16) -> &'static str {

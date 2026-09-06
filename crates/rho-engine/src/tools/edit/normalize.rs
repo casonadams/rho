@@ -8,7 +8,7 @@ pub fn detect_line_ending(content: &str) -> &'static str {
 /// Normalizes newlines in `text` to match `target_ending`.
 pub fn normalize_line_endings<'a>(text: &'a str, target_ending: &str) -> Cow<'a, str> {
     if target_ending == "\r\n" {
-        if !text.contains('\n') || (text.contains("\r\n") && !text.replace("\r\n", "").contains('\n')) {
+        if !text.contains('\n') || (text.contains("\r\n") && !has_isolated_lf(text)) {
             Cow::Borrowed(text)
         } else {
             let normalized = text.replace("\r\n", "\n").replace('\n', "\r\n");
@@ -20,6 +20,16 @@ pub fn normalize_line_endings<'a>(text: &'a str, target_ending: &str) -> Cow<'a,
         let normalized = text.replace("\r\n", "\n");
         Cow::Owned(normalized)
     }
+}
+
+fn has_isolated_lf(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' && (i == 0 || bytes[i - 1] != b'\r') {
+            return true;
+        }
+    }
+    false
 }
 
 /// Checks if `content` contains a sequence of lines that matches `old_text`
@@ -43,11 +53,24 @@ pub fn has_whitespace_relaxed_match(content: &str, old_text: &str) -> bool {
 }
 
 fn collapse_whitespace(s: &str) -> String {
-    s.lines()
-        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    let mut out = String::with_capacity(s.len());
+    let mut first_line = true;
+    for line in s.lines() {
+        let mut words = line.split_whitespace();
+        let Some(first_word) = words.next() else {
+            continue;
+        };
+        if !first_line {
+            out.push('\n');
+        }
+        first_line = false;
+        out.push_str(first_word);
+        for word in words {
+            out.push(' ');
+            out.push_str(word);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

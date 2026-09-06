@@ -65,13 +65,26 @@ fn apply_single_replacement(
     if normalized_old.is_empty() {
         return Err(ToolResult::error(format!("Edit #{}: oldText must not be empty", i + 1)));
     }
-    let matches: Vec<_> = current_content.match_indices(normalized_old.as_ref()).collect();
-    if matches.len() != 1 {
-        return Err(match_error(current_content, &edit.old_text, (i, matches.len())));
+    let mut indices = current_content.match_indices(normalized_old.as_ref());
+    let first = indices.next();
+    let second = indices.next();
+    match (first, second) {
+        (None, _) => Err(match_error(current_content, &edit.old_text, (i, 0))),
+        (Some(_), Some(_)) => {
+            let count = 2 + indices.count();
+            Err(match_error(current_content, &edit.old_text, (i, count)))
+        }
+        (Some((match_idx, _)), None) => {
+            let line_num = 1 + current_content[..match_idx].matches('\n').count();
+            let mut updated = String::with_capacity(
+                current_content.len() + normalized_new.len().saturating_sub(normalized_old.len()),
+            );
+            updated.push_str(&current_content[..match_idx]);
+            updated.push_str(normalized_new.as_ref());
+            updated.push_str(&current_content[match_idx + normalized_old.len()..]);
+            Ok((updated, line_num))
+        }
     }
-    let line_num = 1 + current_content[..matches[0].0].matches('\n').count();
-    let updated = current_content.replacen(normalized_old.as_ref(), normalized_new.as_ref(), 1);
-    Ok((updated, line_num))
 }
 
 fn apply_all_edits(content: &str, edits: &[EditReplacement]) -> std::result::Result<(String, Vec<usize>), ToolResult> {

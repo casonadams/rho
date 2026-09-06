@@ -17,9 +17,9 @@ pub struct RepeatedCallHook {
 
 impl RepeatedCallHook {
     pub fn new(working_dir: impl AsRef<Path>) -> Self {
-        Self {
-            working_dir: working_dir.as_ref().to_path_buf(),
-        }
+        let p = working_dir.as_ref();
+        let canonical = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        Self { working_dir: canonical }
     }
 }
 
@@ -88,11 +88,7 @@ fn normalize_web_search(arguments: &mut Value) {
 }
 
 fn normalize_working_dir(working_dir: &Path) -> String {
-    working_dir
-        .canonicalize()
-        .unwrap_or_else(|_| working_dir.to_path_buf())
-        .to_string_lossy()
-        .into_owned()
+    working_dir.to_string_lossy().into_owned()
 }
 
 struct ShellNormalizer {

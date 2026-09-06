@@ -30,6 +30,7 @@ pub struct ProjectContext {
     pub no_context_files: bool,
     pub dynamic_instructions_count: usize,
     pub dynamic_instructions_bytes: usize,
+    pub last_git_check: Option<std::time::Instant>,
 }
 
 async fn resolve_skills(base: &Path, home: Option<&Path>) -> Vec<SkillMetadata> {
@@ -109,6 +110,7 @@ impl ProjectContext {
             no_context_files: dirs.no_context_files,
             dynamic_instructions_count: 0,
             dynamic_instructions_bytes: 0,
+            last_git_check: Some(std::time::Instant::now()),
         }
     }
 
@@ -123,7 +125,11 @@ impl ProjectContext {
     /// Re-read only the per-turn volatile fields; files and skill metadata are
     /// cached by the caller for the lifetime of the working directory.
     pub async fn refresh_runtime_state(&mut self) {
-        self.git_status = get_git_summary(&self.current_dir).await;
+        const GIT_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+        if self.last_git_check.is_none_or(|t| t.elapsed() >= GIT_REFRESH_INTERVAL) {
+            self.git_status = get_git_summary(&self.current_dir).await;
+            self.last_git_check = Some(std::time::Instant::now());
+        }
         self.date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
     }
 

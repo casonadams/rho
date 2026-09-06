@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use rig::message::{Message, UserContent};
 
 use super::estimate_message_tokens;
@@ -19,11 +21,11 @@ pub fn is_user_turn_start(message: &Message) -> bool {
     }
 }
 
-fn scan_backwards_for_token_budget(messages: &[Message], keep_tokens: usize, model: &str) -> usize {
+fn scan_backwards_for_token_budget<M: Borrow<Message>>(messages: &[M], keep_tokens: usize, model: &str) -> usize {
     let mut accumulated: usize = 0;
     let mut cut_idx = messages.len();
     for i in (0..messages.len()).rev() {
-        accumulated = accumulated.saturating_add(estimate_message_tokens(&messages[i], model));
+        accumulated = accumulated.saturating_add(estimate_message_tokens(messages[i].borrow(), model));
         cut_idx = i;
         if accumulated >= keep_tokens {
             break;
@@ -32,18 +34,22 @@ fn scan_backwards_for_token_budget(messages: &[Message], keep_tokens: usize, mod
     cut_idx
 }
 
-fn adjust_for_tool_results(messages: &[Message], mut cut_idx: usize) -> usize {
-    while cut_idx > 0 && is_tool_result_message(&messages[cut_idx]) {
+fn adjust_for_tool_results<M: Borrow<Message>>(messages: &[M], mut cut_idx: usize) -> usize {
+    while cut_idx > 0 && is_tool_result_message(messages[cut_idx].borrow()) {
         cut_idx -= 1;
     }
     cut_idx
 }
 
-fn determine_split_turn(messages: &[Message], cut_idx: usize) -> bool {
-    cut_idx > 0 && cut_idx < messages.len() && !is_user_turn_start(&messages[cut_idx])
+fn determine_split_turn<M: Borrow<Message>>(messages: &[M], cut_idx: usize) -> bool {
+    cut_idx > 0 && cut_idx < messages.len() && !is_user_turn_start(messages[cut_idx].borrow())
 }
 
-pub fn find_token_cut_point(messages: &[Message], keep_recent_tokens: usize, model: &str) -> CompactionCut {
+pub fn find_token_cut_point<M: Borrow<Message>>(
+    messages: &[M],
+    keep_recent_tokens: usize,
+    model: &str,
+) -> CompactionCut {
     if messages.is_empty() {
         return CompactionCut {
             cut_index: 0,
@@ -86,7 +92,7 @@ pub fn find_node_token_cut_point(nodes: &[&TreeNodeData], keep_recent_tokens: us
         };
     }
 
-    let messages: Vec<Message> = nodes.iter().flat_map(|n| n.messages.clone()).collect();
+    let messages: Vec<&Message> = nodes.iter().flat_map(|n| &n.messages).collect();
     let mut cut = find_token_cut_point(&messages, keep_recent_tokens, model);
     if cut.cut_index < messages.len()
         && let Some((node_id, msg_idx)) = message_position_at(nodes, cut.cut_index)

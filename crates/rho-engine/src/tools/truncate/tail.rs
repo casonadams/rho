@@ -24,7 +24,7 @@ fn untruncated(
 }
 
 fn collect_tail_lines<'a>(
-    lines: &'a [&'a str],
+    lines: impl Iterator<Item = &'a str>,
     max_lines: usize,
     max_bytes: usize,
 ) -> (Vec<&'a str>, TruncatedBy, bool) {
@@ -33,7 +33,7 @@ fn collect_tail_lines<'a>(
     let mut truncated_by = TruncatedBy::Lines;
     let mut partial = false;
 
-    for line in lines.iter().rev() {
+    for line in lines {
         let add = line.len().saturating_add(usize::from(!out_rev.is_empty()));
         if bytes_count.saturating_add(add) > max_bytes {
             truncated_by = TruncatedBy::Bytes;
@@ -43,7 +43,7 @@ fn collect_tail_lines<'a>(
             }
             break;
         }
-        out_rev.push(*line);
+        out_rev.push(line);
         bytes_count = bytes_count.saturating_add(add);
         if out_rev.len() >= max_lines {
             break;
@@ -78,8 +78,7 @@ pub fn truncate_tail(content: &str, max_lines: usize, max_bytes: usize) -> Trunc
     if total_lines <= max_lines && total_bytes <= max_bytes {
         return untruncated(content, (total_lines, total_bytes), (max_lines, max_bytes));
     }
-    let lines: Vec<&str> = content.lines().collect();
-    let (out, truncated_by, partial) = collect_tail_lines(&lines, max_lines, max_bytes);
+    let (out, truncated_by, partial) = collect_tail_lines(content.lines().rev(), max_lines, max_bytes);
     let output_lines = out.len();
     let content = out.join("\n");
     build_tail_result(

@@ -1,11 +1,9 @@
 use std::sync::LazyLock;
 use url::Url;
 
-static BOILERPLATE_TAGS: LazyLock<Vec<regex::Regex>> = LazyLock::new(|| {
-    ["script", "style", "svg", "noscript", "nav", "footer", "header", "aside"]
-        .iter()
-        .filter_map(|tag| regex::Regex::new(&format!(r"(?is)<{tag}[^>]*>.*?</{tag}>")).ok())
-        .collect()
+static BOILERPLATE_TAGS: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?is)<(?:script|style|svg|noscript|nav|footer|header|aside)[^>]*>.*?</(?:script|style|svg|noscript|nav|footer|header|aside)>")
+        .expect("valid boilerplate tag pattern")
 });
 
 static MARKDOWN_LINK: LazyLock<regex::Regex> =
@@ -26,13 +24,10 @@ pub fn extract_html(html: &str, base_url: &str, mode: &str) -> String {
 }
 
 fn strip_boilerplate_tags(html: &str) -> String {
-    let mut out = html.to_string();
-    for re in BOILERPLATE_TAGS.iter() {
-        if re.is_match(&out) {
-            out = re.replace_all(&out, "").into_owned();
-        }
+    if !BOILERPLATE_TAGS.is_match(html) {
+        return html.to_string();
     }
-    out
+    BOILERPLATE_TAGS.replace_all(html, "").into_owned()
 }
 
 pub fn resolve_markdown_links(text: &str, base_url: &str) -> String {
@@ -46,11 +41,11 @@ pub fn resolve_markdown_links(text: &str, base_url: &str) -> String {
             let label = &caps[1];
             let href = &caps[2];
             if href.starts_with("http://") || href.starts_with("https://") || href.starts_with('#') {
-                format!("[{label}]({href})")
+                caps[0].to_string()
             } else if let Ok(resolved) = base.join(href) {
                 format!("[{label}]({resolved})")
             } else {
-                format!("[{label}]({href})")
+                caps[0].to_string()
             }
         })
         .to_string()

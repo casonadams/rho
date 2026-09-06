@@ -52,12 +52,12 @@ enum StreamErrorAction {
     BudgetContinue,
 }
 
-fn record_streaming_text(text: &str, model: &str, (usage, start): (&UsageTracker, &mut Option<Instant>)) {
+fn record_streaming_text(text: &str, _model: &str, (usage, start): (&UsageTracker, &mut Option<Instant>)) {
     if start.is_none() {
         *start = Some(Instant::now());
     }
-    let delta = rho_harness_core::tokens::estimate_text_tokens(text, model) as u64;
-    usage.record_streaming_chunk(delta);
+    let delta = rho_harness_core::tokens::estimate_char_tokens(text) as u64;
+    usage.record_streaming_chunk(delta.max(1));
 }
 
 fn handle_display_events(

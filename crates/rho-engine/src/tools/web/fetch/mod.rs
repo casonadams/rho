@@ -44,7 +44,11 @@ impl WebFetchTool {
         }
     }
 
-    async fn get_or_fetch_text(&self, url_str: &str, (mode, format): (&str, Option<&str>)) -> Result<String, AppError> {
+    async fn get_or_fetch_text(
+        &self,
+        url_str: &str,
+        (mode, format): (&str, Option<&str>),
+    ) -> Result<std::sync::Arc<str>, AppError> {
         let cache_key = format!("{url_str}:{mode}:{}", format.unwrap_or(""));
         if let Some(cached) = self.cache.get(&cache_key).await {
             return Ok(cached);
@@ -53,7 +57,7 @@ impl WebFetchTool {
             mode,
             format_override: format,
         };
-        let extracted = self.fetch_and_extract(url_str, options).await?;
+        let extracted: std::sync::Arc<str> = std::sync::Arc::from(self.fetch_and_extract(url_str, options).await?);
         self.cache.insert(cache_key, extracted.clone()).await;
         Ok(extracted)
     }

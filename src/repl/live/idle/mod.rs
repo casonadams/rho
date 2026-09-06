@@ -80,7 +80,9 @@ async fn handle_tick<B: TerminalBackend>(
     match tick {
         IdleTick::Frame => {
             let expired = controller.check_system_message_expiration();
-            batch.flush(controller, expired)?;
+            if !batch.ui.is_empty() || expired {
+                batch.flush(controller, expired)?;
+            }
         }
         IdleTick::Ui(event) => {
             if let Some(event) = event {

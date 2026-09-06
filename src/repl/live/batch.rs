@@ -106,6 +106,9 @@ impl LiveBatch {
         controller: &mut TerminalController<B>,
         redraw: bool,
     ) -> Result<()> {
+        if self.ui.is_empty() && !redraw {
+            return Ok(());
+        }
         let mut drained = self.ui.drain();
         let mut changed = self.apply_status_updates(controller, &mut drained)?;
         changed |= self.apply_tool_updates(controller, &mut drained)?;

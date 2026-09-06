@@ -21,15 +21,14 @@ async fn resolve_and_read_bytes(base_dir: &Path, clean_path: &str) -> std::resul
     let Some(path) = workspace.resolve(clean_path) else {
         return Err(ToolResult::error("Empty file path provided for read tool"));
     };
-    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        return Err(ToolResult::error(format!(
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => Ok(bytes),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ToolResult::error(format!(
             "File not found: {clean_path} (in working directory: {})",
             workspace.root().display()
-        )));
+        ))),
+        Err(e) => Err(ToolResult::error(format!("Failed to read {clean_path}: {e}"))),
     }
-    tokio::fs::read(&path)
-        .await
-        .map_err(|e| ToolResult::error(format!("Failed to read {clean_path}: {e}")))
 }
 
 fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<ToolResult> {

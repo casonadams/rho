@@ -21,6 +21,44 @@ impl Drop for TaskGuard {
     }
 }
 
+fn handle_utf8_slice(data: &[u8], leftover: &mut Vec<u8>, tx: &tokio::sync::mpsc::UnboundedSender<String>) -> bool {
+    match std::str::from_utf8(data) {
+        Ok(valid) => {
+            leftover.clear();
+            tx.send(valid.to_string()).is_ok()
+        }
+        Err(err) => {
+            let valid_up_to = err.valid_up_to();
+            if valid_up_to > 0
+                && tx
+                    .send(String::from_utf8_lossy(&data[..valid_up_to]).to_string())
+                    .is_err()
+            {
+                return false;
+            }
+            if let Some(error_len) = err.error_len() {
+                let start = valid_up_to + error_len;
+                leftover.clear();
+                leftover.extend_from_slice(&data[start..]);
+                tx.send("\u{FFFD}".to_string()).is_ok()
+            } else {
+                *leftover = data[valid_up_to..].to_vec();
+                true
+            }
+        }
+    }
+}
+
+fn process_read_buffer(buf: &[u8], leftover: &mut Vec<u8>, tx: &tokio::sync::mpsc::UnboundedSender<String>) -> bool {
+    if leftover.is_empty() {
+        handle_utf8_slice(buf, leftover, tx)
+    } else {
+        leftover.extend_from_slice(buf);
+        let data = std::mem::take(leftover);
+        handle_utf8_slice(&data, leftover, tx)
+    }
+}
+
 fn spawn_reader_task<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     mut reader: R,
     tx: tokio::sync::mpsc::UnboundedSender<String>,
@@ -28,14 +66,15 @@ fn spawn_reader_task<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     TaskGuard(Some(tokio::spawn(async move {
         use tokio::io::AsyncReadExt;
         let mut buf = [0u8; 4096];
+        let mut leftover = Vec::new();
         while let Ok(n) = reader.read(&mut buf).await {
-            if n == 0 {
+            if n == 0 || !process_read_buffer(&buf[..n], &mut leftover, &tx) {
                 break;
             }
-            let s = String::from_utf8_lossy(&buf[..n]).to_string();
-            if tx.send(s).is_err() {
-                break;
-            }
+        }
+        if !leftover.is_empty() {
+            let s = String::from_utf8_lossy(&leftover).to_string();
+            let _ = tx.send(s);
         }
     })))
 }

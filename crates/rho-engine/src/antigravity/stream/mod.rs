@@ -7,9 +7,9 @@ pub mod wire;
 mod tests;
 
 pub use wire::map_finish_reason;
-use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, StreamResponseBody, usage_from_metadata};
+use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, usage_from_metadata};
 
-use rig::completion::CompletionError;
+use rig::completion::{CompletionError, Usage};
 use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
 use serde_json::Value;
 
@@ -20,7 +20,7 @@ use super::request::sanitize_tool_call_id;
 /// Feed transport bytes; collect canonical rig events. Reasoning uses the
 /// constant minted identity gemini thought parts share (no wire id).
 pub struct SseParser {
-    buffer: String,
+    buffer: Vec<u8>,
     reasoning_open: bool,
     reasoning_text: String,
     reasoning_signature: Option<String>,
@@ -37,10 +37,18 @@ impl Default for SseParser {
 
 const REASONING_ID: StreamPartId = StreamPartId::minted(MintKind::Reasoning, 0);
 
+fn format_chunk_error(error: &wire::StreamError) -> String {
+    match &error.message {
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+        None => "unknown provider error".to_string(),
+    }
+}
+
 impl SseParser {
     pub fn new() -> Self {
         Self {
-            buffer: String::new(),
+            buffer: Vec::new(),
             reasoning_open: false,
             reasoning_text: String::new(),
             reasoning_signature: None,
@@ -50,30 +58,33 @@ impl SseParser {
 
     /// Consume one transport chunk into stream events.
     pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        self.buffer.push_str(&String::from_utf8_lossy(bytes));
+        self.buffer.extend_from_slice(bytes);
         let mut events: SseEvents = Vec::new();
-        while let Some(newline) = self.buffer.find('\n') {
-            let line = self.buffer[..newline].to_string();
-            self.buffer.drain(..=newline);
-            self.interpret_line(&line, &mut events);
+        let mut cursor = 0;
+        while let Some(rel) = memchr::memchr(b'\n', &self.buffer[cursor..]) {
+            let line_end = cursor + rel;
+            let line_bytes = &self.buffer[cursor..line_end];
+            cursor = line_end + 1;
+            let line = String::from_utf8_lossy(line_bytes).into_owned();
+            self.interpret_line(line.trim_end_matches('\r'), &mut events);
+        }
+        if cursor > 0 {
+            self.buffer.drain(..cursor);
         }
         events
     }
 
     fn handle_candidate(
         &mut self,
-        (candidate, body): (&StreamCandidate, &StreamResponseBody),
+        (candidate, usage): (&mut StreamCandidate, Usage),
         (json_line, events): (&str, &mut SseEvents),
     ) {
-        for part in candidate.content.as_ref().map(|c| c.parts.clone()).unwrap_or_default() {
-            self.interpret_part(part, events);
+        if let Some(content) = candidate.content.take() {
+            for part in content.parts {
+                self.interpret_part(part, events);
+            }
         }
         if let Some(reason) = &candidate.finish_reason {
-            let usage = body
-                .usage_metadata
-                .as_ref()
-                .map(usage_from_metadata)
-                .unwrap_or_default();
             self.close_reasoning(events);
             let mut final_response =
                 StreamFinal::new("antigravity", usage).with_finish_reason(map_finish_reason(reason));
@@ -93,18 +104,18 @@ impl SseParser {
         let Ok(chunk) = serde_json::from_str::<StreamChunk>(json_line) else {
             return;
         };
-        if let Some(error) = chunk.error {
-            let message = match error.message {
-                Some(Value::String(text)) => text,
-                Some(other) => other.to_string(),
-                None => "unknown provider error".to_string(),
-            };
-            events.push(Err(CompletionError::ProviderError(message)));
+        if let Some(ref error) = chunk.error {
+            events.push(Err(CompletionError::ProviderError(format_chunk_error(error))));
             return;
         }
-        let body = chunk.response.unwrap_or(chunk.direct);
-        for candidate in &body.candidates {
-            self.handle_candidate((candidate, &body), (json_line, events));
+        let mut body = chunk.response.unwrap_or(chunk.direct);
+        let usage = body
+            .usage_metadata
+            .as_ref()
+            .map(usage_from_metadata)
+            .unwrap_or_default();
+        for candidate in &mut body.candidates {
+            self.handle_candidate((candidate, usage), (json_line, events));
         }
     }
 

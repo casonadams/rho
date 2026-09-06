@@ -14,12 +14,19 @@ fn format_truncated_tool_text(text: String) -> String {
 }
 
 fn serialize_tool_result_content(result: &rig::message::ToolResult) -> String {
-    let text = result
-        .content
-        .iter()
-        .filter_map(|c| c.as_text())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut total_chars = 0;
+    let mut text = String::new();
+    for t in result.content.iter().filter_map(|c| c.as_text()) {
+        if !text.is_empty() {
+            text.push('\n');
+            total_chars += 1;
+        }
+        text.push_str(t);
+        total_chars += t.chars().count();
+        if total_chars > MAX_TOOL_RESULT_CHARS {
+            break;
+        }
+    }
     format_truncated_tool_text(text)
 }
 

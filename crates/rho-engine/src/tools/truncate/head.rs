@@ -38,16 +38,20 @@ fn first_line_oversized(total_lines: usize, total_bytes: usize, (max_lines, max_
     }
 }
 
-fn collect_head_lines<'a>(lines: &'a [&'a str], max_lines: usize, max_bytes: usize) -> (Vec<&'a str>, TruncatedBy) {
+fn collect_head_lines<'a>(
+    lines: impl Iterator<Item = &'a str>,
+    max_lines: usize,
+    max_bytes: usize,
+) -> (Vec<&'a str>, TruncatedBy) {
     let mut kept = Vec::new();
     let mut output_bytes = 0usize;
     let mut truncated_by = TruncatedBy::Lines;
-    for (i, line) in lines.iter().enumerate().take(max_lines) {
+    for (i, line) in lines.enumerate().take(max_lines) {
         let line_bytes = line.len() + usize::from(i > 0);
         if output_bytes + line_bytes > max_bytes {
             return (kept, TruncatedBy::Bytes);
         }
-        kept.push(*line);
+        kept.push(line);
         output_bytes += line_bytes;
     }
     if kept.len() >= max_lines && output_bytes <= max_bytes {
@@ -81,11 +85,12 @@ pub fn truncate_head(content: &str, max_lines: usize, max_bytes: usize) -> Trunc
     if total_lines <= max_lines && total_bytes <= max_bytes {
         return untruncated(content, (total_lines, total_bytes), (max_lines, max_bytes));
     }
-    let lines: Vec<&str> = content.lines().collect();
-    if lines.first().is_some_and(|l| l.len() > max_bytes) {
+    if let Some(first_line) = content.lines().next()
+        && first_line.len() > max_bytes
+    {
         return first_line_oversized(total_lines, total_bytes, (max_lines, max_bytes));
     }
-    let (kept, truncated_by) = collect_head_lines(&lines, max_lines, max_bytes);
+    let (kept, truncated_by) = collect_head_lines(content.lines(), max_lines, max_bytes);
     let out = kept.join("\n");
     build_truncated_result(
         (out, kept.len()),

@@ -38,10 +38,11 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
 fn format_preview_lines(lines: &[&str], (lang, gutter_width): (Option<&str>, usize), theme: &Theme) -> String {
     let mut out = String::new();
     let d = theme.dimmed;
+    let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
     for (idx, line) in lines.iter().enumerate() {
         let line_num = idx + 1;
         let no_tabs = line.replace('\t', "   ");
-        let highlighted = crate::ui::markdown::highlight_code_line(&no_tabs, lang, theme);
+        let highlighted = highlighter.highlight_line(&no_tabs, theme);
         out.push_str(&format!("{d}{line_num:>gutter_width$} │ {d:#}{highlighted}\n"));
     }
     out

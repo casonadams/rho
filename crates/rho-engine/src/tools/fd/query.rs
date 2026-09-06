@@ -7,7 +7,7 @@ use ignore::types::Types;
 use regex::Regex;
 use rho_harness_core::args::FdSort;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -61,13 +61,21 @@ fn check_stats_lines(path: &Path, min: Option<usize>, max: Option<usize>) -> Opt
     Some(s)
 }
 
-fn push_entry_under_ceiling(collected: &Mutex<Vec<FdEntry>>, hit_ceiling: &AtomicBool, entry: FdEntry) -> WalkState {
+fn push_entry_under_ceiling(
+    (collected, count, hit_ceiling): (&Mutex<Vec<FdEntry>>, &AtomicUsize, &AtomicBool),
+    entry: FdEntry,
+) -> WalkState {
+    if count.load(Ordering::Relaxed) >= FD_COLLECTION_CEILING {
+        return WalkState::Quit;
+    }
     let mut entries = collected.lock().unwrap_or_else(PoisonError::into_inner);
     if entries.len() >= FD_COLLECTION_CEILING {
         return WalkState::Quit;
     }
     entries.push(entry);
-    if entries.len() >= FD_COLLECTION_CEILING {
+    let len = entries.len();
+    count.store(len, Ordering::Relaxed);
+    if len >= FD_COLLECTION_CEILING {
         hit_ceiling.store(true, Ordering::Relaxed);
         return WalkState::Quit;
     }
@@ -101,12 +109,12 @@ fn process_walk_entry(
     (w_root, s_root): (&Path, &Path),
     (reg, ty, display, min_lines, max_lines, stats_needed): FdWalkFilters<'_>,
 ) -> Option<FdEntry> {
-    let relative = resolve_entry_relative_path(entry.path(), (w_root, s_root), display);
-    if relative.is_empty() || reg.is_some_and(|r| !r.is_match(&relative)) {
-        return None;
-    }
     let is_dir = entry.file_type().is_some_and(|ft| ft.is_dir());
     if is_dir && (ty.is_some() || min_lines.is_some() || max_lines.is_some()) {
+        return None;
+    }
+    let relative = resolve_entry_relative_path(entry.path(), (w_root, s_root), display);
+    if relative.is_empty() || reg.is_some_and(|r| !r.is_match(&relative)) {
         return None;
     }
     let stats = if stats_needed && !is_dir {
@@ -125,7 +133,7 @@ impl FdQuery {
     fn run_traversal(
         &self,
         builder: ignore::WalkBuilder,
-        (collected, hit_ceiling, timed_out): (&Mutex<Vec<FdEntry>>, &AtomicBool, &AtomicBool),
+        (collected, count, hit_ceiling, timed_out): (&Mutex<Vec<FdEntry>>, &AtomicUsize, &AtomicBool, &AtomicBool),
     ) {
         let (s_root, w_root) = (self.search_root.as_path(), self.workspace_root.as_path());
         let (reg, ty) = (self.regex.as_ref(), self.types.as_ref());
@@ -146,7 +154,7 @@ impl FdQuery {
                 let Some(fd_entry) = process_walk_entry(entry, (w_root, s_root), filters) else {
                     return WalkState::Continue;
                 };
-                push_entry_under_ceiling(collected, hit_ceiling, fd_entry)
+                push_entry_under_ceiling((collected, count, hit_ceiling), fd_entry)
             })
         });
     }
@@ -157,9 +165,13 @@ impl FdQuery {
             self.types.as_ref(),
             self.include_hidden,
         );
-        let (collected, hit_ceiling, timed_out) =
-            (Mutex::new(Vec::new()), AtomicBool::new(false), AtomicBool::new(false));
-        self.run_traversal(builder, (&collected, &hit_ceiling, &timed_out));
+        let (collected, count, hit_ceiling, timed_out) = (
+            Mutex::new(Vec::new()),
+            AtomicUsize::new(0),
+            AtomicBool::new(false),
+            AtomicBool::new(false),
+        );
+        self.run_traversal(builder, (&collected, &count, &hit_ceiling, &timed_out));
 
         if timed_out.load(Ordering::Relaxed) {
             let secs = self
