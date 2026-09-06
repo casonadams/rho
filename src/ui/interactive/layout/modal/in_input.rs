@@ -15,6 +15,28 @@ fn options_desired_lines(modal: &ModalState) -> usize {
     }
 }
 
+pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, (width, height): (usize, usize)) -> usize {
+    let inner_width = width.saturating_sub(4).max(1);
+    let total = wrap_to_width(&modal.body, inner_width).len();
+    if total == 0 {
+        return 0;
+    }
+    let desired = in_input_modal_desired_lines(modal, draft_text, inner_width);
+    let budget = crate::ui::interactive::layout::budget::compute_normal_budget(
+        &crate::ui::interactive::layout::budget::NormalBudgetInput {
+            terminal_height: height,
+            raw_queued_count: 0,
+            raw_widgets_count: 0,
+            raw_footer_count: 1,
+            total_editor_lines: desired,
+            autocomplete_desired: 0,
+            is_modal: true,
+        },
+    );
+    let (b_space, _, _, _) = modal_in_input_spaces(modal, draft_text, (budget.editor_max_lines, inner_width));
+    total.saturating_sub(b_space.saturating_sub(1))
+}
+
 pub fn in_input_modal_desired_lines(modal: &ModalState, draft_text: &str, inner_width: usize) -> usize {
     let search = usize::from(modal.is_searchable);
     let input = if matches!(modal.mode, ModalMode::Input { .. }) {

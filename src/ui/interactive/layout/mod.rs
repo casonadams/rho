@@ -10,6 +10,7 @@ pub mod text;
 pub mod types;
 pub mod widget;
 
+pub use modal::modal_body_max_scroll;
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width};
 pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};

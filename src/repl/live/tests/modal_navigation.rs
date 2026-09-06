@@ -104,6 +104,26 @@ fn test_horizontal_mode_up_and_k_scroll_body() {
 }
 
 #[test]
+fn test_scroll_down_caps_at_bottom_and_up_scrolls_immediately() {
+    let mut fix = NavFixture::new(OptionLayout::Horizontal);
+    for _ in 0..100 {
+        fix.send(KeyCode::Down);
+    }
+    let bottom_scroll = fix.controller.state().active_modal().unwrap().body_scroll;
+    assert!(bottom_scroll > 0);
+    fix.send(KeyCode::Down);
+    assert_eq!(
+        fix.controller.state().active_modal().unwrap().body_scroll,
+        bottom_scroll
+    );
+    fix.send(KeyCode::Up);
+    assert_eq!(
+        fix.controller.state().active_modal().unwrap().body_scroll,
+        bottom_scroll - 1
+    );
+}
+
+#[test]
 fn test_vertical_mode_jk_navigates_options_without_horizontal_scroll() {
     let mut fix = NavFixture::new(OptionLayout::Vertical);
     fix.send(KeyCode::Down);
