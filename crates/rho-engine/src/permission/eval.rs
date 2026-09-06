@@ -55,12 +55,8 @@ fn components(policy: &Policy, req: EvalRequest<'_>) -> Vec<Component> {
     }
 }
 
-fn decide_bash_cmd(rules: &[PolicyRule], cmd: &str) -> Decision {
-    let dec = decide_surface(
-        rules,
-        ("bash", std::slice::from_ref(&cmd.to_string())),
-        SurfaceKind::First,
-    );
+fn decide_bash_cmd(rules: &[PolicyRule], cmd: &String) -> Decision {
+    let dec = decide_surface(rules, ("bash", std::slice::from_ref(cmd)), SurfaceKind::First);
     if dec.matched_pattern.is_some() {
         map_surface_decision("bash", dec)
     } else if crate::permission::baseline::is_baseline_bash(cmd) {

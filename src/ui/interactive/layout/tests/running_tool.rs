@@ -120,3 +120,20 @@ fn running_tool_widget_large_output_with_soft_wrapping() {
     assert!(full.contains("earlier lines"));
     assert!(full.contains("line 56"));
 }
+
+#[test]
+fn running_tool_widget_starts_with_empty_line_pad() {
+    let theme = Theme::default();
+    let tool = RunningTool::new("bash", "echo hello", None);
+    let lines = render_running_tool_widget(RunningToolWidgetInput {
+        tool: &tool,
+        theme: &theme,
+        width: 60,
+        tools_expanded: false,
+    });
+    assert!(!lines.is_empty());
+    assert_eq!(
+        lines[0], "",
+        "running tool widget must start with an empty line to preserve padding between blocks"
+    );
+}

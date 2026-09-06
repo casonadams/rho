@@ -106,8 +106,7 @@ impl ThemeRegistry {
 
     pub fn list(&self) -> Vec<&ThemeMetadata> {
         let mut list = self.builtin_order();
-        let seen: std::collections::HashSet<String> = list.iter().map(|meta| meta.name.clone()).collect();
-        self.push_custom_themes(&mut list, &seen);
+        self.push_custom_themes(&mut list);
         list
     }
 
@@ -131,9 +130,9 @@ impl ThemeRegistry {
             .collect()
     }
 
-    fn push_custom_themes<'a>(&'a self, list: &mut Vec<&'a ThemeMetadata>, seen: &std::collections::HashSet<String>) {
+    fn push_custom_themes<'a>(&'a self, list: &mut Vec<&'a ThemeMetadata>) {
         for (name, (meta, _)) in &self.themes {
-            if !seen.contains(name.as_str()) && name != "ansi" && name != "catppuccin-mocha" {
+            if name != "ansi" && name != "catppuccin-mocha" && !list.iter().any(|m| m.name == *name) {
                 list.push(meta);
             }
         }

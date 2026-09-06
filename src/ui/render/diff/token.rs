@@ -45,31 +45,44 @@ pub(super) fn tokenize(text: &str) -> Vec<&str> {
     tokens
 }
 
-fn build_lcs_table(old_tokens: &[&str], new_tokens: &[&str]) -> Vec<Vec<usize>> {
+struct LcsTable {
+    stride: usize,
+    data: Vec<usize>,
+}
+
+impl LcsTable {
+    #[inline(always)]
+    fn get(&self, i: usize, j: usize) -> usize {
+        self.data[i * self.stride + j]
+    }
+}
+
+fn build_lcs_table(old_tokens: &[&str], new_tokens: &[&str]) -> LcsTable {
     let (n, m) = (old_tokens.len(), new_tokens.len());
-    let mut table = vec![vec![0_usize; m + 1]; n + 1];
+    let stride = m + 1;
+    let mut data = vec![0_usize; (n + 1) * stride];
     for i in 0..n {
         for j in 0..m {
-            if old_tokens[i] == new_tokens[j] {
-                table[i + 1][j + 1] = table[i][j] + 1;
+            data[(i + 1) * stride + (j + 1)] = if old_tokens[i] == new_tokens[j] {
+                data[i * stride + j] + 1
             } else {
-                table[i + 1][j + 1] = table[i + 1][j].max(table[i][j + 1]);
-            }
+                data[(i + 1) * stride + j].max(data[i * stride + (j + 1)])
+            };
         }
     }
-    table
+    LcsTable { stride, data }
 }
 
 fn backtrack_token_step<'a>(
     (old_tokens, new_tokens): (&[&'a str], &[&'a str]),
-    table: &[Vec<usize>],
+    table: &LcsTable,
     (i, j): (&mut usize, &mut usize),
 ) -> DiffToken<'a> {
     if *i > 0 && *j > 0 && old_tokens[*i - 1] == new_tokens[*j - 1] {
         *i -= 1;
         *j -= 1;
         DiffToken::Same(old_tokens[*i])
-    } else if *j > 0 && (*i == 0 || table[*i][*j - 1] >= table[*i - 1][*j]) {
+    } else if *j > 0 && (*i == 0 || table.get(*i, *j - 1) >= table.get(*i - 1, *j)) {
         *j -= 1;
         DiffToken::Added(new_tokens[*j])
     } else {

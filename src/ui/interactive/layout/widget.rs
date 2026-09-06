@@ -64,11 +64,7 @@ fn append_tool_output(content: &mut String, raw_output: &str, (expanded, width, 
     }
 }
 
-pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
-    if input.tool.preview.is_none() && input.tool.output.is_empty() && input.tool.name != "bash" {
-        return Vec::new();
-    }
-    let width = input.width.max(20);
+fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> String {
     let title = tool_title_style(false);
     let (accent, dim) = (input.theme.highlight, input.theme.dimmed);
     let display_name = normalize_tool_name(&input.tool.name);
@@ -87,9 +83,19 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         "\n\n{dim}Elapsed {}{dim:#}",
         format_elapsed(input.tool.elapsed())
     ));
+    content
+}
 
+pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<String> {
+    if input.tool.preview.is_none() && input.tool.output.is_empty() && input.tool.name != "bash" {
+        return Vec::new();
+    }
+    let width = input.width.max(20);
+    let content = format_widget_content(input, width);
     let block = BlockFormat::new(input.theme.tool_success_bg, width)
         .with_vertical_padding()
         .render_styled(&content);
-    block.lines().map(String::from).collect()
+    let mut lines = vec![String::new()];
+    lines.extend(block.lines().map(String::from));
+    lines
 }
