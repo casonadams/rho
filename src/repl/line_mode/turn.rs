@@ -10,11 +10,17 @@ async fn handle_turn_cancellation(engine: &AgentEngine, renderer: &TerminalRende
     Ok(())
 }
 
-fn handle_turn_completion(res: Result<crate::engine::runner::TurnOutput>, renderer: &TerminalRenderer) {
+pub(crate) fn handle_turn_completion(res: Result<crate::engine::runner::TurnOutput>, renderer: &TerminalRenderer) {
     renderer.flush();
     renderer.write_output("\n");
-    if let Err(error) = res {
-        renderer.write_output(&format!("\nError: {error}\n"));
+    match res {
+        Ok(out) if out.status == crate::engine::runner::RunStatus::Compacted => {
+            renderer.write_output("Context was compacted. Submit your prompt to proceed with compacted context.\n");
+        }
+        Err(error) => {
+            renderer.write_output(&format!("\nError: {error}\n"));
+        }
+        _ => {}
     }
 }
 

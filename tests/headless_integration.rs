@@ -88,3 +88,50 @@ fn headless_interactive_mode_diagnostic_message_is_actionable() {
     let res = rho::run_cli();
     drop((config, auth, res));
 }
+
+fn proactive_compaction_engine(workspace: &std::path::Path) -> rho_engine::engine::AgentEngine {
+    let model = MockCompletionModel::from_stream_turns([[
+        MockStreamEvent::text("should not run"),
+        final_event(rig::completion::Usage::new()),
+    ]]);
+    let config = Config {
+        reserve_tokens: 127_980,
+        keep_recent_tokens: 5,
+        sessions_dir: workspace.join("sessions"),
+        ..Config::default()
+    };
+    mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: workspace,
+            app_config: config,
+            session_manager: None,
+            built_in_tools: None,
+        },
+    )
+}
+
+#[tokio::test]
+async fn headless_run_turn_stops_on_proactive_compaction() {
+    let workspace = temp_workspace();
+    let engine = proactive_compaction_engine(&workspace);
+    let sid = engine.session_manager.session_id.clone();
+    let msgs = vec![
+        rig::message::Message::user("Old turn"),
+        rig::message::Message::assistant("Old response"),
+    ];
+    rig::memory::ConversationMemory::append(&engine.session_manager, &sid, msgs)
+        .await
+        .unwrap();
+
+    let recording = RecordingSink::default();
+    let presenter = Arc::new(StructuredPresenter::recording(recording.clone()));
+    let output = engine
+        .run_turn(TurnRequest::new("Prompt that triggers proactive compaction"), presenter)
+        .await
+        .unwrap();
+
+    assert_eq!(output.status, rho_engine::engine::runner::RunStatus::Compacted);
+    assert_eq!(output.final_text, "");
+    let _ = std::fs::remove_dir_all(&workspace);
+}

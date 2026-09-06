@@ -368,3 +368,25 @@ async fn test_turn_with_active_modal_advances_spinner() {
 
     h.run_turn("test").await;
 }
+
+#[tokio::test]
+async fn test_turn_finish_active_turn_handles_compacted_notice() {
+    let mut h = ActiveTurnHarness::new().await;
+    let out = crate::engine::runner::TurnOutput {
+        final_text: String::new(),
+        tool_calls_count: 0,
+        tool_failures_count: 0,
+        requests: 0,
+        usage: None,
+        status: crate::engine::runner::RunStatus::Compacted,
+        metrics: rho_engine::engine::metrics::RunMetrics::default(),
+    };
+    let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
+        h.engine.config.steering_mode,
+    ));
+    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
+    let mut loop_ctx =
+        super::runner::TurnLoop::new((&mut h.session, &h.engine), &mut h.controller, (steering, model_switch));
+    super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
+    assert_eq!(h.controller.state().footer().activity, Activity::Idle);
+}

@@ -155,3 +155,20 @@ async fn branch_summarization_records_structured_summary() {
     assert_branch_summary_recorded(&session_mgr, (&root_leaf, &branch_leaf, &summary)).await;
     let _ = std::fs::remove_dir_all(temp);
 }
+
+#[test]
+fn test_line_mode_turn_completion_compacted_notice() {
+    let (renderer, mut events) = collecting_renderer();
+    let out = crate::engine::runner::TurnOutput {
+        final_text: String::new(),
+        tool_calls_count: 0,
+        tool_failures_count: 0,
+        requests: 0,
+        usage: None,
+        status: crate::engine::runner::RunStatus::Compacted,
+        metrics: rho_engine::engine::metrics::RunMetrics::default(),
+    };
+    crate::repl::line_mode::turn::handle_turn_completion(Ok(out), &renderer);
+    let output = collected_output(&mut events);
+    assert!(output.contains("Context was compacted. Submit your prompt to proceed with compacted context."));
+}

@@ -29,6 +29,20 @@ pub(super) async fn cancel_active_turn<B: TerminalBackend>(
     lp.batch.flush(lp.controller, false)
 }
 
+fn notify_turn_interruption<B: TerminalBackend>(
+    lp: &mut TurnLoop<'_, B>,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    notice: &str,
+) -> Result<()> {
+    reset_controller_idle(lp.controller);
+    restore_queued_messages(lp.controller);
+    lp.session.renderer.print_notice(notice);
+    sync_turn_footer(lp.controller, lp.engine);
+    lp.batch.drain_events(lp.controller, ui_events)?;
+    reset_controller_idle(lp.controller);
+    lp.batch.flush(lp.controller, false)
+}
+
 pub(super) fn finish_active_turn<B: TerminalBackend>(
     lp: &mut TurnLoop<'_, B>,
     ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
@@ -39,14 +53,18 @@ pub(super) fn finish_active_turn<B: TerminalBackend>(
     sync_turn_footer(lp.controller, lp.engine);
     lp.batch.drain_events(lp.controller, ui_events)?;
     lp.batch.flush(lp.controller, false)?;
-    if let Err(error) = result {
-        reset_controller_idle(lp.controller);
-        restore_queued_messages(lp.controller);
-        lp.session.renderer.print_notice(&format!("\nError: {error}\n"));
-        sync_turn_footer(lp.controller, lp.engine);
-        lp.batch.drain_events(lp.controller, ui_events)?;
-        reset_controller_idle(lp.controller);
-        lp.batch.flush(lp.controller, false)?;
+    match result {
+        Ok(out) if out.status == crate::engine::runner::RunStatus::Compacted => {
+            notify_turn_interruption(
+                lp,
+                ui_events,
+                "Context was compacted. Submit your prompt to proceed with compacted context.\n",
+            )?;
+        }
+        Err(error) => {
+            notify_turn_interruption(lp, ui_events, &format!("\nError: {error}\n"))?;
+        }
+        _ => {}
     }
     Ok(())
 }

@@ -2,9 +2,10 @@ use rig::agent::{CompletionCall, PromptResponse};
 use rig::completion::{FinishReason, Usage};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalStatus {
+    #[default]
     Completed,
     ContentFiltered,
     BudgetExhausted,
@@ -89,7 +90,7 @@ impl From<&CompletionCall> for ModelCallMetrics {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RunMetrics {
     pub session_id: String,
     pub success: bool,
