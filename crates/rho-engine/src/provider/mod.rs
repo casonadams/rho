@@ -293,6 +293,7 @@ impl ProviderFactory {
             return Ok(build_antigravity_model(&request, auth_store));
         }
         if provider == ProviderId::ClaudeCode {
+            let _ = resolve_provider_key(provider, auth_store)?;
             return Ok(build_claude_code_model(&request, auth_store));
         }
         let key = resolve_provider_key(provider, auth_store)?;

@@ -58,8 +58,8 @@ fn resolve_repo_coords(raw_target: &str) -> Result<(String, String, Option<Strin
     if let Some(url_str) = raw_target.strip_prefix("https://") {
         return parse_github_url(url_str, raw_target);
     }
-    if let Some(url_str) = raw_target.strip_prefix("github.com/") {
-        return parse_github_url(url_str, raw_target);
+    if raw_target.starts_with("github.com/") {
+        return parse_github_url(raw_target, raw_target);
     }
     if raw_target.contains("://") {
         return Err(PluginSpecError::UnsupportedHost(raw_target.to_string()));

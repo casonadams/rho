@@ -14,7 +14,6 @@ pub struct LineMatch {
 pub fn render(matches: &[LineMatch]) -> String {
     matches
         .iter()
-        // pi's grep line format: `path:line: text` with a space before the text.
         .map(|m| format!("{}:{}: {}", m.path, m.line, m.text))
         .collect::<Vec<_>>()
         .join("\n")
@@ -30,16 +29,15 @@ fn rg_limit_notice(total: usize, limit: usize) -> String {
     }
 }
 
-fn collect_rg_notices(matches: &mut Vec<LineMatch>, limit: usize, has_byte_truncation: bool) -> Vec<String> {
+fn collect_rg_notices(total: usize, limit: usize, (has_bytes, has_lines): (bool, bool)) -> Vec<String> {
     let mut notices = Vec::new();
-    if matches.len() > limit {
-        notices.push(rg_limit_notice(matches.len(), limit));
-        matches.truncate(limit);
+    if total > limit {
+        notices.push(rg_limit_notice(total, limit));
     }
-    if has_byte_truncation {
+    if has_bytes {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
     }
-    if matches.iter().any(|m| m.truncated) {
+    if has_lines {
         notices.push(format!(
             "Some lines truncated to {GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines"
         ));
@@ -52,9 +50,14 @@ pub fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
         return ToolResult::success("No matches found");
     }
     matches.sort_by(|a, b| (&a.path, a.line).cmp(&(&b.path, b.line)));
+    let total = matches.len();
+    if total > limit {
+        matches.truncate(limit);
+    }
+    let lines_truncated = matches.iter().any(|m| m.truncated);
     let rendered = render(&matches);
     let truncation = truncate_head(&rendered, usize::MAX, DEFAULT_MAX_BYTES);
-    let notices = collect_rg_notices(&mut matches, limit, truncation.truncated_by.is_some());
+    let notices = collect_rg_notices(total, limit, (truncation.truncated_by.is_some(), lines_truncated));
     let mut output = truncation.content;
     if !notices.is_empty() {
         output.push_str(&format!("\n\n[{}]", notices.join(". ")));
