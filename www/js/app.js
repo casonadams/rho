@@ -48,9 +48,9 @@ function setTheme(theme) {
    ========================================================================= */
 const INSTALL_COMMANDS = {
   cargo: "cargo install rho",
-  curl: "curl -fsSL https://getrho.dev/install.sh | sh",
   brew: "brew install casonadams/tap/rho",
-  bin: "curl -L https://github.com/casonadams/rho/releases/latest/download/rho-macos.tar.gz | tar -xz"
+  bin: "gh release download -R casonadams/rho",
+  source: "git clone https://github.com/casonadams/rho.git && cd rho && cargo install --path ."
 };
 
 function initInstallSwitcher() {

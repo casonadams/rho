@@ -103,10 +103,18 @@
 
       <div class="code-block-wrapper">
         <div class="code-block-header">
-          <span>Quick Install Shell Script</span>
-          <button class="copy-btn" data-copy="curl -fsSL https://getrho.dev/install.sh | sh">Copy</button>
+          <span>Homebrew</span>
+          <button class="copy-btn" data-copy="brew install casonadams/tap/rho">Copy</button>
         </div>
-        <pre><code>curl -fsSL https://getrho.dev/install.sh | sh</code></pre>
+        <pre><code>brew install casonadams/tap/rho</code></pre>
+      </div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>GitHub Releases</span>
+          <button class="copy-btn" data-copy="gh release download -R casonadams/rho">Copy</button>
+        </div>
+        <pre><code>gh release download -R casonadams/rho</code></pre>
       </div>
 
       <h2 id="cli-commands">CLI Commands &amp; Options</h2>
@@ -173,10 +181,19 @@ rho remove permission</code></pre>
         <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs.</li>
       </ul>
 
-      <h2 id="providers">Providers &amp; Authentication</h2>
+      <h2 id="providers">Providers, Authentication &amp; Rolling Quotas</h2>
       <p>
-        rho supports both API keys and subscription OAuth. Configure globally in <code>~/.config/rho/config.toml</code> or per-project in <code>.rho/config.toml</code>:
+        rho supports both API keys and subscription OAuth. Run <code>rho login &lt;provider&gt;</code> to authenticate:
       </p>
+
+      <ul>
+        <li><strong>Subscription OAuth</strong>: <code>chatgpt</code>, <code>copilot</code>, <code>antigravity</code>, <code>claude</code>, <code>openrouter</code>.</li>
+        <li><strong>API Key Providers</strong>: <code>anthropic</code>, <code>openai</code>, <code>deepseek</code>, <code>gemini</code>, <code>groq</code>, <code>xai</code>, <code>mistral</code>, <code>cohere</code>, <code>ollama-cloud</code>.</li>
+        <li><strong>Local Models</strong>: <code>local</code> (runs Ollama locally via <code>OLLAMA_HOST</code>).</li>
+        <li><strong>Live Rolling Quotas</strong>: Interactive footer displays 5-hour and weekly remaining cooldowns for Antigravity and ChatGPT (e.g. <code>95% 4h23m 89% 3d21h</code>) and monthly quota for Ollama Cloud.</li>
+      </ul>
+
+      <p>Configure defaults globally in <code>~/.config/rho/config.toml</code> or per-project in <code>.rho/config.toml</code>:</p>
 
       <div class="code-block-wrapper">
         <div class="code-block-header">
@@ -219,7 +236,7 @@ api_key = "optional"</code></pre>
       </ul>
       <p>Use <code>rho --no-permission</code> to bypass permission modals for headless non-interactive CI environments.</p>
 
-      <h2 id="shortcuts">Keyboard Shortcuts</h2>
+      <h2 id="shortcuts">Keyboard Shortcuts &amp; Commands</h2>
       <table class="shortcuts-table">
         <thead>
           <tr>
@@ -230,29 +247,93 @@ api_key = "optional"</code></pre>
         </thead>
         <tbody>
           <tr>
-            <td><kbd class="kbd">Enter</kbd></td>
-            <td>Agent running</td>
-            <td>Steer agent immediately with interruption after current tool</td>
-          </tr>
-          <tr>
-            <td><kbd class="kbd">Alt+Enter</kbd></td>
-            <td>Agent running</td>
-            <td>Enqueue follow-up prompt to FIFO message queue</td>
+            <td><kbd class="kbd">Escape</kbd></td>
+            <td>Any</td>
+            <td>Cancel running turn, abort active tool execution, or dismiss modal popup</td>
           </tr>
           <tr>
             <td><kbd class="kbd">Ctrl+C</kbd></td>
+            <td>Editor / Modal</td>
+            <td>Clear draft input or search query (never interrupts turns or exits)</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Ctrl+D</kbd></td>
+            <td>Editor</td>
+            <td>Exit session when editor is empty</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Ctrl+L</kbd></td>
+            <td>Editor</td>
+            <td>Open interactive provider and model selector modal (fuzzy search)</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Shift+Tab</kbd></td>
+            <td>Editor</td>
+            <td>Cycle thinking effort (off &rarr; minimal &rarr; low &rarr; medium &rarr; high &rarr; xhigh &rarr; max)</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Ctrl+O</kbd></td>
+            <td>Editor</td>
+            <td>Open interactive session turn history DAG tree viewer</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Ctrl+S</kbd></td>
+            <td>Selector Modals</td>
+            <td>Save currently selected model or thinking level as default</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Enter</kbd></td>
+            <td>Agent running</td>
+            <td>Queue immediate steering message to execute after active tool</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Alt+Enter</kbd></td>
             <td>Any</td>
-            <td>Cancel running turn / abort tool execution</td>
+            <td>Enqueue follow-up prompt to FIFO message queue (or newline)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Slash Commands</h3>
+      <table class="shortcuts-table">
+        <thead>
+          <tr>
+            <th>Command</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/model</code></td>
+            <td>Open interactive model and provider switcher modal</td>
           </tr>
           <tr>
-            <td><kbd class="kbd">/model</kbd></td>
-            <td>Editor</td>
-            <td>Interactive provider and model switcher</td>
+            <td><code>/thinking</code></td>
+            <td>Open interactive thinking effort level selector</td>
           </tr>
           <tr>
-            <td><kbd class="kbd">/theme</kbd></td>
-            <td>Editor</td>
-            <td>Switch between 10 built-in terminal color themes</td>
+            <td><code>/theme</code></td>
+            <td>Open theme selector modal with live preview (10 built-in themes)</td>
+          </tr>
+          <tr>
+            <td><code>/plugin</code></td>
+            <td>List active MCP tool servers, plugins, and registration health</td>
+          </tr>
+          <tr>
+            <td><code>/reload</code></td>
+            <td>Reload configuration, skills, and tools without losing conversation history</td>
+          </tr>
+          <tr>
+            <td><code>/tokens</code></td>
+            <td>Display context window usage, turn counts, and cost breakdown</td>
+          </tr>
+          <tr>
+            <td><code>/tree</code></td>
+            <td>View session turn DAG tree and branch navigation</td>
+          </tr>
+          <tr>
+            <td><code>/exit</code></td>
+            <td>Exit the interactive session cleanly</td>
           </tr>
         </tbody>
       </table>
@@ -512,7 +593,7 @@ enabled = true</code></pre>
 
       <div class="footer-bottom">
         <span>© 2026 Cason Adams. MIT / Apache-2.0 License.</span>
-        <span>Hosted on Firebase · getrho</span>
+        <span>Hosted on GitHub Pages · casonadams/rho</span>
       </div>
     </div>
   </footer>
