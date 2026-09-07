@@ -206,6 +206,19 @@ async fn dispatch_session_or_node_result(
     }
 }
 
+async fn handle_theme_or_thinking_selected(
+    res: &ModalKeyResult,
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+) -> Result<Option<bool>> {
+    match res {
+        ModalKeyResult::ThemeSelected { theme } => Ok(Some(handle_theme_selected(ctx, theme.clone()).await?)),
+        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => Ok(Some(
+            handle_thinking_selected(ctx, (level.clone(), *save_as_default)).await?,
+        )),
+        _ => Ok(None),
+    }
+}
+
 async fn dispatch_modal_result_rest2(
     res: ModalKeyResult,
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
@@ -213,11 +226,11 @@ async fn dispatch_modal_result_rest2(
     if let Some(handled) = dispatch_session_or_node_result(&res, ctx).await? {
         return Ok(handled);
     }
+    if let Some(handled) = handle_theme_or_thinking_selected(&res, ctx).await? {
+        return Ok(handled);
+    }
     match res {
-        ModalKeyResult::ThemeSelected { theme } => handle_theme_selected(ctx, theme).await,
-        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
-            handle_thinking_selected(ctx, (level, save_as_default)).await
-        }
+        ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
         _ => Ok(false),
     }
 }
@@ -237,6 +250,30 @@ async fn dispatch_modal_result(
         ModalKeyResult::TreeNodeSelected { node_id } => handle_node_selected(ctx, node_id).await,
         rest => dispatch_modal_result_rest(rest, ctx).await,
     }
+}
+
+async fn handle_login_provider_selected(
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    provider: String,
+) -> Result<bool> {
+    ctx.controller.suspend()?;
+    let login_res = crate::cli::login_provider(Some(&provider), &ctx.session.config, &mut ctx.session.auth_store).await;
+    ctx.controller.resume()?;
+    match login_res {
+        Ok(()) => {
+            *ctx.engine = ctx
+                .engine
+                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
+                .await?;
+        }
+        Err(crate::error::AppError::Cancelled(_)) => {}
+        Err(err) => {
+            ctx.session.renderer.print_notice(&format!("  Login failed: {err}\n"));
+        }
+    }
+    update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
+    ctx.controller.redraw()?;
+    Ok(true)
 }
 
 pub(crate) async fn apply_modal_key_result<B: TerminalBackend>(

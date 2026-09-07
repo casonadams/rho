@@ -12,14 +12,11 @@ pub fn open_settings_selector<B: TerminalBackend>(controller: &mut TerminalContr
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
 
     let options = vec![
-        ModalOption::new(
-            "Thinking Blocks",
-            Some(format!("{thinking_status}  (press Enter to toggle)")),
-        ),
-        ModalOption::new("Tool Output", Some(format!("{tools_status}  (press Enter to toggle)"))),
+        ModalOption::new("Thinking Blocks   ", Some(thinking_status)),
+        ModalOption::new("Tool Output       ", Some(tools_status)),
     ];
 
-    let modal = ModalState::new("Settings", "Toggle runtime interface settings:", options);
+    let modal = ModalState::new("Settings", "", options);
     controller.state_mut().push_modal(modal);
 }
 
@@ -43,7 +40,7 @@ fn update_setting_description<B: TerminalBackend>(
     if let Some(modal) = controller.state_mut().active_modal_mut()
         && let Some(opt) = modal.options.get_mut(index)
     {
-        opt.description = Some(format!("{status}  (press Enter to toggle)"));
+        opt.description = Some(status.to_string());
     }
 }
 
@@ -58,23 +55,50 @@ fn is_settings_exit(key: &KeyEvent) -> bool {
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL))
 }
 
-fn handle_settings_nav<B: TerminalBackend>(controller: &mut TerminalController<B>, key: &KeyEvent) -> Result<()> {
+fn handle_digit_jump<B: TerminalBackend>(controller: &mut TerminalController<B>, c: char) {
+    let idx = (c as usize).saturating_sub('1' as usize);
+    let count = controller.state().active_modal().map_or(0, |m| m.options.len());
+    if idx < count
+        && let Some(modal) = controller.state_mut().active_modal_mut()
+    {
+        modal.selected = idx;
+    }
+}
+
+fn handle_arrow_nav<B: TerminalBackend>(controller: &mut TerminalController<B>, key: &KeyEvent) -> bool {
     match key.code {
         KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
             controller.state_mut().select_previous_modal_option();
+            true
         }
         KeyCode::Tab if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) => {
             controller.state_mut().select_previous_modal_option();
+            true
         }
         KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
             controller.state_mut().select_next_modal_option();
+            true
         }
-        KeyCode::Enter => {
-            let selected = controller.state().active_modal().map_or(0, |m| m.selected);
-            let (status, index) = toggle_selected_setting(controller, selected);
-            update_setting_description(controller, (status, index));
-        }
-        _ => {}
+        _ => false,
+    }
+}
+
+fn handle_settings_toggle<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    let selected = controller.state().active_modal().map_or(0, |m| m.selected);
+    let (status, index) = toggle_selected_setting(controller, selected);
+    update_setting_description(controller, (status, index));
+}
+
+fn handle_settings_nav<B: TerminalBackend>(controller: &mut TerminalController<B>, key: &KeyEvent) -> Result<()> {
+    if handle_arrow_nav(controller, key) {
+        // Navigated option
+    } else if key.code == KeyCode::Enter {
+        handle_settings_toggle(controller);
+    } else if let KeyCode::Char(c) = key.code
+        && c.is_ascii_digit()
+        && c != '0'
+    {
+        handle_digit_jump(controller, c);
     }
     controller.redraw()?;
     Ok(())

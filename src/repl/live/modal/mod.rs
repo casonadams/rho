@@ -1,4 +1,5 @@
 pub mod interaction;
+pub mod login;
 pub mod model;
 pub mod session;
 pub mod settings;
@@ -13,6 +14,7 @@ use crate::ui::interactive::{EditorState, TerminalBackend, TerminalController, U
 use crossterm::event::KeyEvent;
 
 pub use interaction::{PendingModal, install_interaction};
+pub use login::open_login_selector;
 pub use model::open_model_selector;
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
@@ -48,6 +50,9 @@ pub enum ModalKeyResult {
     ThinkingLevelSelected {
         level: Option<String>,
         save_as_default: bool,
+    },
+    LoginProviderSelected {
+        provider: String,
     },
 }
 
@@ -91,6 +96,7 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Select Model" => model::handle_model_key(controller, key),
         "Select Theme" => theme::handle_theme_key(controller, key),
         "Select Thinking Level" => thinking::handle_thinking_key(controller, key),
+        "Login Provider" => login::handle_login_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

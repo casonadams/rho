@@ -30,6 +30,9 @@ async fn login_is_dispatched_without_collecting_credentials() {
         let res = SlashCommandHandler::handle(&cmd, &mut context).await.unwrap();
         assert!(matches!(res, Some(CommandResult::Login { provider: Some(p) }) if p == provider));
     }
+
+    let bare_res = SlashCommandHandler::handle("/login", &mut context).await.unwrap();
+    assert_eq!(bare_res, Some(CommandResult::OpenLoginSelector));
 }
 
 #[tokio::test]

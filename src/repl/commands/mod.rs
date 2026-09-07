@@ -122,6 +122,15 @@ fn handle_simple_slash_commands(name: &str, ctx: &mut SlashCommandContext<'_>) -
     }
 }
 
+fn handle_login_cmd(parts: &[&str]) -> CommandResult {
+    match parts.get(1) {
+        Some(p) => CommandResult::Login {
+            provider: Some((*p).to_string()),
+        },
+        None => CommandResult::OpenLoginSelector,
+    }
+}
+
 async fn handle_async_slash_commands(
     name: &str,
     parts: &[&str],
@@ -133,9 +142,7 @@ async fn handle_async_slash_commands(
         "theme" => theme::handle_theme(ctx, parts),
         "skill" | "skills" => skill::handle_skill(ctx, parts).await,
         "plugin" | "plugins" => Ok(plugin::handle_plugins(ctx)),
-        "login" => Ok(Some(CommandResult::Login {
-            provider: parts.get(1).map(|v| (*v).to_string()),
-        })),
+        "login" => Ok(Some(handle_login_cmd(parts))),
         "logout" => Ok(Some(CommandResult::Logout {
             provider: parts.get(1).map(|v| (*v).to_string()),
         })),

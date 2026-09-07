@@ -142,13 +142,27 @@ async fn try_logout(provider: Option<&str>, session: &mut ReplSession, engine: &
     Ok(ok)
 }
 
+async fn try_login_action(
+    cmd_res: &CommandResult,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) -> Result<Option<bool>> {
+    match cmd_res {
+        CommandResult::Login { provider } => Ok(Some(try_login(provider.as_deref(), session, engine).await?)),
+        CommandResult::OpenLoginSelector => Ok(Some(try_login(None, session, engine).await?)),
+        _ => Ok(None),
+    }
+}
+
 async fn handle_auth_actions(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
 ) -> Result<bool> {
+    if let Some(handled) = try_login_action(cmd_res, session, engine).await? {
+        return Ok(handled);
+    }
     match cmd_res {
-        CommandResult::Login { provider } => try_login(provider.as_deref(), session, engine).await,
         CommandResult::Logout { provider } => try_logout(provider.as_deref(), session, engine).await,
         CommandResult::Reload => {
             *engine = session.reload_engine(engine).await?;

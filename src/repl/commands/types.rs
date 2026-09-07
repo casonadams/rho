@@ -34,6 +34,7 @@ pub enum CommandResult {
     OpenSettingsSelector,
     OpenThemeSelector,
     OpenThinkingSelector,
+    OpenLoginSelector,
     ThinkingChanged {
         level: Option<String>,
     },

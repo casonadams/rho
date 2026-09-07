@@ -36,6 +36,21 @@
   `cargo:rerun-if-changed` to prevent Cargo from invalidating incremental build
   caches on every invocation.
 
+## UX and modal guidelines
+
+- Standardize all interactive selectors on the clean `/thinking` modal pattern:
+  - Construct in-TUI popups using `ModalState` (`src/repl/live/modal/`) rather than suspending raw mode to run external CLI prompts (`inquire`).
+  - Title: Clear, concise Title Case (e.g., `"Select Thinking Level"`, `"Login Provider"`, `"Settings"`).
+  - Subtitle: Default to empty string `""` to avoid visual clutter in the modal frame.
+  - Option Labels: Format with fixed-width alignment (e.g. `format!("{id:14}")`) so descriptions line up vertically.
+  - Option Descriptions: Keep text concise and append an active indicator (`"  ✓"`) if the option is currently active or configured.
+  - Navigation: Support standard controls across all selectors: `Up`/`Down` arrows, `k`/`j`, `Tab`/`Shift+Tab`, `Enter` to select, and `Esc`/`Ctrl+C` to cancel. Support digit jump keys (`1..=9`) where lists are fixed and short.
+  - Search: Enable `.with_search(true)` on open-ended or longer lists so typing immediately fuzzy-filters candidates.
+- Keybinding semantics:
+  - `Escape`: Cancel/interrupt running execution, or dismiss active modals.
+  - `Ctrl+C`: Clear the current input draft or filter query (never interrupts running turns or kills the process).
+  - `Ctrl+D`: Exit when the prompt is empty.
+
 ## Completion
 
 - Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), and

@@ -40,6 +40,7 @@ async fn handle_selector_command(
         CommandResult::OpenSettingsSelector => super::super::modal::open_settings_selector(io_controller),
         CommandResult::OpenThemeSelector => super::super::modal::open_theme_selector(ctx.session, io_controller),
         CommandResult::OpenThinkingSelector => super::super::modal::open_thinking_selector(ctx.session, io_controller),
+        CommandResult::OpenLoginSelector => super::super::modal::open_login_selector(ctx.session, io_controller),
         _ => {}
     }
     io_controller.redraw()?;
@@ -159,7 +160,8 @@ async fn handle_engine_command<B: TerminalBackend>(
         CommandResult::OpenModelSelector
         | CommandResult::OpenSettingsSelector
         | CommandResult::OpenThemeSelector
-        | CommandResult::OpenThinkingSelector => {
+        | CommandResult::OpenThinkingSelector
+        | CommandResult::OpenLoginSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
         CommandResult::ThemeChanged { theme } => handle_theme_changed(ctx, io.controller, theme).await,
