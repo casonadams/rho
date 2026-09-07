@@ -141,7 +141,16 @@ fn format_footer_lines_emits_two_lines() {
 
 #[test]
 fn get_git_branch_discovers_branch_in_repo() {
-    let cwd = std::env::current_dir().unwrap();
-    let branch = get_git_branch(&cwd);
-    assert!(branch.is_some());
+    let temp = tempfile::tempdir().unwrap();
+    let git_dir = temp.path().join(".git");
+    std::fs::create_dir(&git_dir).unwrap();
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/feature-branch\n").unwrap();
+    assert_eq!(get_git_branch(temp.path()), Some("feature-branch".into()));
+
+    let nested = temp.path().join("a").join("b");
+    std::fs::create_dir_all(&nested).unwrap();
+    assert_eq!(get_git_branch(&nested), Some("feature-branch".into()));
+
+    let non_git = tempfile::tempdir().unwrap();
+    assert_eq!(get_git_branch(non_git.path()), None);
 }
