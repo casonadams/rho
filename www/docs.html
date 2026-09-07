@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation · rho CLI &amp; Plugin Architecture</title>
+  <meta name="description" content="Official documentation for rho: commands, configuration, providers, keyboard shortcuts, MCP servers, and the rho plugin daemon architecture.">
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/style.css">
+
+  <script>
+    (function() {
+      const saved = localStorage.getItem("rho:theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = saved || (prefersDark ? "dark" : "light");
+    })();
+  </script>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="./" class="brand">
+        <svg class="brand-icon" viewBox="0 0 100 100" fill="none">
+          <rect width="100" height="100" rx="20" fill="var(--bg-surface)"/>
+          <path d="M34 22V78M34 22H56C67.0457 22 76 30.9543 76 42C76 53.0457 67.0457 62 56 62H34" stroke="var(--accent-green)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="54" cy="42" r="6" fill="var(--accent-blue)"/>
+        </svg>
+        <span>rho</span>
+        <span class="brand-badge">v0.6.0</span>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="./" class="nav-link">Home</a></li>
+        <li><a href="packages.html" class="nav-link">Plugins &amp; Ecosystem</a></li>
+        <li><a href="docs.html" class="nav-link active">Documentation</a></li>
+        <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener" class="btn-sm" aria-label="GitHub Repository">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          <span>GitHub</span>
+        </a>
+
+        <button id="themeToggle" class="btn-icon" aria-label="Toggle dark/light theme">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Docs Content -->
+  <main class="container docs-layout">
+    <!-- Sidebar -->
+    <aside class="docs-sidebar">
+      <div class="docs-nav-group">
+        <div class="docs-nav-title">Getting Started</div>
+        <ul class="docs-nav-list">
+          <li class="docs-nav-item"><a href="#quickstart">Quick Start</a></li>
+          <li class="docs-nav-item"><a href="#installation">Installation</a></li>
+          <li class="docs-nav-item"><a href="#cli-commands">CLI Commands</a></li>
+          <li class="docs-nav-item"><a href="#built-in-tools">Built-in Tools</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-nav-group">
+        <div class="docs-nav-title">Configuration</div>
+        <ul class="docs-nav-list">
+          <li class="docs-nav-item"><a href="#providers">Providers &amp; Auth</a></li>
+          <li class="docs-nav-item"><a href="#permissions">Safety Guardrails</a></li>
+          <li class="docs-nav-item"><a href="#shortcuts">Keyboard Shortcuts</a></li>
+        </ul>
+      </div>
+
+      <div class="docs-nav-group">
+        <div class="docs-nav-title">Plugin Architecture</div>
+        <ul class="docs-nav-list">
+          <li class="docs-nav-item"><a href="#plugins">Plugins Subsystem</a></li>
+          <li class="docs-nav-item"><a href="#plugin-mgmt">Package Management</a></li>
+          <li class="docs-nav-item"><a href="#plugin-sdk">Developing in Rust</a></li>
+          <li class="docs-nav-item"><a href="#mcp">MCP Configuration</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <article class="docs-content">
+      <h1 id="quickstart">Getting Started with rho</h1>
+      <p>
+        <code>rho</code> is a fast, clean, minimal coding-agent CLI built in Rust. It delivers native performance, strict in-process safety boundaries, session persistence, and an extensible daemon plugin subsystem.
+      </p>
+
+      <h2 id="installation">Installation</h2>
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Cargo (Recommended)</span>
+          <button class="copy-btn" data-copy="cargo install rho">Copy</button>
+        </div>
+        <pre><code>cargo install rho</code></pre>
+      </div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Quick Install Shell Script</span>
+          <button class="copy-btn" data-copy="curl -fsSL https://getrho.dev/install.sh | sh">Copy</button>
+        </div>
+        <pre><code>curl -fsSL https://getrho.dev/install.sh | sh</code></pre>
+      </div>
+
+      <h2 id="cli-commands">CLI Commands &amp; Options</h2>
+      <p>
+        <code>rho</code> provides a focused set of subcommands and flags for agent execution, plugin management, and configuration:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>CLI Reference</span>
+          <button class="copy-btn" data-copy="rho --help">Copy</button>
+        </div>
+        <pre><code># Start interactive multiline REPL
+rho
+
+# Execute a one-shot prompt
+rho -p "Find and fix memory leaks in parser"
+
+# Continue the last session in the current directory
+rho -c
+
+# Interactively browse and select from previous sessions to resume
+rho -r
+
+# Resume a specific session by ID (including budget checkpoint)
+rho --resume &lt;SESSION_ID&gt;
+
+# Export session to HTML or Markdown
+rho --export session.html
+
+# Authenticate an AI provider (OAuth subscription or API key verification)
+rho login claude
+rho login chatgpt
+rho logout anthropic
+
+# List live provider models and context windows
+rho models
+
+# Inspect or edit configuration
+rho config
+rho config model.provider anthropic
+
+# Manage plugins
+rho install permission
+rho plugin ls
+rho plugin inspect tool:bash
+rho update all
+rho remove permission</code></pre>
+      </div>
+
+      <h2 id="built-in-tools">8 Built-in Native Tools</h2>
+      <p>
+        rho includes 8 fast, native tools designed specifically for coding agents:
+      </p>
+
+      <ul>
+        <li><strong><code>read</code></strong>: Safe file inspection with line numbers, chunk offsets, limit bounds, and image sniffing.</li>
+        <li><strong><code>write</code></strong>: Creates or overwrites files with automatic missing directory creation.</li>
+        <li><strong><code>edit</code></strong>: Targeted, exact text replacements verifying strict single-match semantics.</li>
+        <li><strong><code>bash</code></strong>: Process group cleanup, timeout watchdog, and binary output sanitization.</li>
+        <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching.</li>
+        <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines.</li>
+        <li><strong><code>web_search</code></strong>: Live web searching with domain filters and structured summaries.</li>
+        <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs.</li>
+      </ul>
+
+      <h2 id="providers">Providers &amp; Authentication</h2>
+      <p>
+        rho supports both API keys and subscription OAuth. Configure globally in <code>~/.config/rho/config.toml</code> or per-project in <code>.rho/config.toml</code>:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>~/.config/rho/config.toml</span>
+          <button class="copy-btn" data-copy="[model]
+provider = &quot;anthropic&quot;
+model = &quot;claude-3-7-sonnet-latest&quot;
+temperature = 0.0
+
+[general]
+max_turns = 1000
+context_window_messages = 24
+compaction_max_bytes = 8192">Copy</button>
+        </div>
+        <pre><code>[model]
+provider = "anthropic"
+model = "claude-3-7-sonnet-latest"
+temperature = 0.0
+
+[general]
+max_turns = 1000
+context_window_messages = 24
+compaction_max_bytes = 8192
+
+# Custom OpenAI-compatible endpoints
+[providers.my-local-endpoint]
+base_url = "http://127.0.0.1:8000/v1"
+api_key = "optional"</code></pre>
+      </div>
+
+      <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
+      <p>
+        rho isolates mutating operations (file writes, edits, shell commands) behind an interactive modal:
+      </p>
+      <ul>
+        <li><kbd class="kbd">[y] Allow</kbd>: Authorize this specific operation.</li>
+        <li><kbd class="kbd">[e] Edit</kbd>: Inspect and adjust command arguments interactively before execution.</li>
+        <li><kbd class="kbd">[a] Always</kbd>: Authorize this command or pattern for the remainder of the session.</li>
+        <li><kbd class="kbd">[n] Deny</kbd>: Reject execution and return helpful feedback to the model.</li>
+      </ul>
+      <p>Use <code>rho --no-permission</code> to bypass permission modals for headless non-interactive CI environments.</p>
+
+      <h2 id="shortcuts">Keyboard Shortcuts</h2>
+      <table class="shortcuts-table">
+        <thead>
+          <tr>
+            <th>Shortcut</th>
+            <th>Context</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><kbd class="kbd">Enter</kbd></td>
+            <td>Agent running</td>
+            <td>Steer agent immediately with interruption after current tool</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Alt+Enter</kbd></td>
+            <td>Agent running</td>
+            <td>Enqueue follow-up prompt to FIFO message queue</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">Ctrl+C</kbd></td>
+            <td>Any</td>
+            <td>Cancel running turn / abort tool execution</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">/model</kbd></td>
+            <td>Editor</td>
+            <td>Interactive provider and model switcher</td>
+          </tr>
+          <tr>
+            <td><kbd class="kbd">/theme</kbd></td>
+            <td>Editor</td>
+            <td>Switch between 10 built-in terminal color themes</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="plugins">The rho Plugin Daemon Subsystem</h2>
+      <p>
+        Plugins in rho are persistent daemon processes communicating via <strong>JSON-RPC 2.0 over standard I/O (stdio)</strong>. They observe agent execution, steer prompts, enforce guardrails, and invoke host UI services.
+      </p>
+
+      <h3>Event Lifecycle</h3>
+      <table class="shortcuts-table">
+        <thead>
+          <tr>
+            <th>Event</th>
+            <th>Payload</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>tool_call</code></td>
+            <td><code>{ tool_name, args }</code></td>
+            <td>Intercept tool calls before execution.</td>
+          </tr>
+          <tr>
+            <td><code>tool_result</code></td>
+            <td><code>{ tool_name, args, output, is_error }</code></td>
+            <td>Inspect or transform tool output after execution.</td>
+          </tr>
+          <tr>
+            <td><code>invalid_tool_call</code></td>
+            <td><code>{ tool_name, args, available_tools }</code></td>
+            <td>Intercept hallucinated or misspelled tools to repair dynamically.</td>
+          </tr>
+          <tr>
+            <td><code>completion_call</code></td>
+            <td><code>{ turn, prompt, history }</code></td>
+            <td>Audit or patch prompt before LLM completion.</td>
+          </tr>
+          <tr>
+            <td><code>completion_response</code></td>
+            <td><code>{ prompt, response }</code></td>
+            <td>Inspect raw model tokens and completion response.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 id="plugin-mgmt">Plugin Package Management</h2>
+      <p>
+        Install, update, and remove plugins directly through <code>rho</code> without compiling locally. rho fetches precompiled platform binaries from GitHub Releases and registers them in <code>~/.config/rho/config.toml</code>:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Plugin Commands</span>
+          <button class="copy-btn" data-copy="rho install permission">Copy</button>
+        </div>
+        <pre><code># Bare name (resolves to casonadams/rho-plugin-&lt;name&gt;)
+rho install permission
+
+# Pinned release tag
+rho install permission@v0.3.0
+
+# GitHub repository slug
+rho install owner/repo
+
+# List installed plugins, binary locations, and health
+rho plugin ls
+
+# Inspect active capability origins
+rho plugin inspect tool:bash
+
+# Update rho or installed plugins
+rho update all
+rho update permission
+
+# Safely remove plugin and delete binary from ~/.cargo/bin
+rho remove permission</code></pre>
+      </div>
+
+      <h2 id="plugin-sdk">Developing Plugins with rho-plugin-sdk</h2>
+      <p>
+        Build native plugins in Rust using the official <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener"><code>rho-plugin-sdk</code></a> crate. Plugins can intercept tools, repair invalid calls, and request host UI confirmation:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>src/main.rs</span>
+          <button class="copy-btn" data-copy="use async_trait::async_trait;
+use rho_plugin_sdk::{Flow, HostContext, Plugin, StepEvent, serve};
+
+struct RustGuard;
+
+#[async_trait]
+impl Plugin for RustGuard {
+    fn name(&self) -> &str {
+        &quot;rust-guard&quot;
+    }
+
+    fn subscriptions(&self) -> Vec<String> {
+        vec![&quot;tool_call&quot;.into(), &quot;invalid_tool_call&quot;.into()]
+    }
+
+    async fn on_event(&self, event: StepEvent, ctx: &HostContext) -> Flow {
+        match event {
+            StepEvent::ToolCall { tool_name, args } => {
+                if tool_name == &quot;bash&quot;
+                    &amp;&amp; args.get(&quot;command&quot;).and_then(|v| v.as_str()).unwrap_or(&quot;&quot;).contains(&quot;sudo&quot;)
+                {
+                    let allowed = ctx.confirm(&quot;Security Alert&quot;, &quot;Allow sudo execution?&quot;).await;
+                    if !allowed {
+                        ctx.block(&quot;Security Gate&quot;, &quot;Blocked unapproved sudo command&quot;, &quot;error&quot;).await;
+                        return Flow::skip(&quot;Permission denied by user.&quot;);
+                    }
+                }
+                ctx.set_status(&quot;security&quot;, Some(&quot;🔒 Guard Active&quot;)).await;
+                Flow::cont()
+            }
+            StepEvent::InvalidToolCall { tool_name, .. } => {
+                if tool_name == &quot;sh&quot; || tool_name == &quot;shell&quot; {
+                    return Flow::repair(&quot;bash&quot;);
+                }
+                Flow::cont()
+            }
+            _ => Flow::cont(),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    serve(RustGuard).await;
+}">Copy</button>
+        </div>
+        <pre><code>use async_trait::async_trait;
+use rho_plugin_sdk::{Flow, HostContext, Plugin, StepEvent, serve};
+
+struct RustGuard;
+
+#[async_trait]
+impl Plugin for RustGuard {
+    fn name(&self) -> &str {
+        "rust-guard"
+    }
+
+    fn subscriptions(&self) -> Vec<String> {
+        vec!["tool_call".into(), "invalid_tool_call".into()]
+    }
+
+    async fn on_event(&self, event: StepEvent, ctx: &HostContext) -> Flow {
+        match event {
+            StepEvent::ToolCall { tool_name, args } => {
+                if tool_name == "bash"
+                    && args.get("command").and_then(|v| v.as_str()).unwrap_or("").contains("sudo")
+                {
+                    let allowed = ctx.confirm("Security Alert", "Allow sudo execution?").await;
+                    if !allowed {
+                        ctx.block("Security Gate", "Blocked unapproved sudo command", "error").await;
+                        return Flow::skip("Permission denied by user.");
+                    }
+                }
+                ctx.set_status("security", Some("🔒 Guard Active")).await;
+                Flow::cont()
+            }
+            StepEvent::InvalidToolCall { tool_name, .. } => {
+                // Self-healing: automatically repair hallucinated tool aliases
+                if tool_name == "sh" || tool_name == "shell" {
+                    return Flow::repair("bash");
+                }
+                Flow::cont()
+            }
+            _ => Flow::cont(),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    serve(RustGuard).await;
+}</code></pre>
+      </div>
+
+      <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
+      <p>
+        MCP servers are tool providers configured in <code>~/.config/rho/config.toml</code> or <code>.rho/config.toml</code>. All exposed tools are automatically namespaced (e.g. <code>github</code> $\rightarrow$ <code>github_list_pull_requests</code>):
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>~/.config/rho/config.toml</span>
+          <button class="copy-btn" data-copy="[mcp]
+enabled = true
+
+[mcp.servers.filesystem]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;/Users/username/Desktop&quot;]
+enabled = true
+
+[mcp.servers.github]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-github&quot;]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = &quot;ghp_...&quot; }
+enabled = true">Copy</button>
+        </div>
+        <pre><code>[mcp]
+enabled = true
+
+[mcp.servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
+enabled = true
+
+[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
+enabled = true</code></pre>
+      </div>
+    </article>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="./" class="brand">
+            <svg class="brand-icon" viewBox="0 0 100 100" fill="none">
+              <rect width="100" height="100" rx="20" fill="var(--bg-surface)"/>
+              <path d="M34 22V78M34 22H56C67.0457 22 76 30.9543 76 42C76 53.0457 67.0457 62 56 62H34" stroke="var(--accent-green)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="54" cy="42" r="6" fill="var(--accent-blue)"/>
+            </svg>
+            <span>rho</span>
+          </a>
+          <p class="footer-desc">
+            Fast, clean, minimal coding-agent CLI in Rust. Open source and built for developers.
+          </p>
+        </div>
+
+        <div class="footer-links-group">
+          <div class="footer-col">
+            <span class="footer-col-title">Project</span>
+            <a href="packages.html">Plugins &amp; Ecosystem</a>
+            <a href="docs.html">Documentation</a>
+            <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
+            <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
+          </div>
+
+          <div class="footer-col">
+            <span class="footer-col-title">Resources</span>
+            <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener">Plugin SDK</a>
+            <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>© 2026 Cason Adams. MIT / Apache-2.0 License.</span>
+        <span>Hosted on Firebase · getrho</span>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="js/firebase-init.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

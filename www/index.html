@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rho · Minimal Agentic Coding CLI &amp; Plugin Ecosystem</title>
+  <meta name="description" content="A fast, clean, minimal coding-agent CLI in Rust. Native speed, 8 built-in tools, interactive telemetry, and a modular daemon plugin ecosystem.">
+  
+  <meta property="og:title" content="rho · Minimal Coding Agent CLI">
+  <meta property="og:description" content="Fast, clean, minimal coding-agent CLI in Rust with native plugin package management.">
+  <meta property="og:url" content="https://getrho.firebaseapp.com">
+  <meta property="og:type" content="website">
+
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/style.css">
+  
+  <script>
+    (function() {
+      const saved = localStorage.getItem("rho:theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.dataset.theme = saved || (prefersDark ? "dark" : "light");
+    })();
+  </script>
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="./" class="brand">
+        <svg class="brand-icon" viewBox="0 0 100 100" fill="none">
+          <rect width="100" height="100" rx="20" fill="var(--bg-surface)"/>
+          <path d="M34 22V78M34 22H56C67.0457 22 76 30.9543 76 42C76 53.0457 67.0457 62 56 62H34" stroke="var(--accent-green)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="54" cy="42" r="6" fill="var(--accent-blue)"/>
+        </svg>
+        <span>rho</span>
+        <span class="brand-badge">v0.6.0</span>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="./" class="nav-link active">Home</a></li>
+        <li><a href="packages.html" class="nav-link">Plugins &amp; Ecosystem</a></li>
+        <li><a href="docs.html" class="nav-link">Documentation</a></li>
+        <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener" class="btn-sm" aria-label="GitHub Repository">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+          <span>GitHub</span>
+        </a>
+
+        <button id="themeToggle" class="btn-icon" aria-label="Toggle dark/light theme">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero Section -->
+  <header class="hero-section">
+    <div class="container">
+      <div class="hero-pill">
+        <span class="hero-pill-indicator"></span>
+        <span>rho v0.6.0 · Built in Rust with Native Plugin Management</span>
+      </div>
+
+      <h1 class="hero-title">
+        The minimal coding agent <br>
+        <span class="hero-title-gradient">built for extensibility</span>.
+      </h1>
+
+      <p class="hero-subtitle">
+        Zero bloated runtimes. 8 native agent tools, live telemetry, interactive session picker, and a modular JSON-RPC plugin architecture with precompiled GitHub release distribution.
+      </p>
+
+      <!-- Multi-tab Install Switcher -->
+      <div class="install-box">
+        <div class="install-tabs" role="tablist">
+          <button class="install-tab active" data-install-tab="cargo">cargo</button>
+          <button class="install-tab" data-install-tab="curl">curl / sh</button>
+          <button class="install-tab" data-install-tab="brew">Homebrew</button>
+          <button class="install-tab" data-install-tab="bin">Prebuilt Binaries</button>
+        </div>
+        <div class="install-command-bar">
+          <div class="install-code">
+            <span class="install-prompt-symbol">$</span>
+            <span id="installCode">cargo install rho</span>
+          </div>
+          <button id="installCopyBtn" class="copy-btn" data-copy="cargo install rho" aria-label="Copy install command">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            <span>Copy</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Interactive Terminal Simulator -->
+      <div class="terminal-wrapper">
+        <div class="terminal-frame">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot dot-red"></span>
+              <span class="terminal-dot dot-yellow"></span>
+              <span class="terminal-dot dot-green"></span>
+            </div>
+            <span class="terminal-title">rho ~ agent-repl (main)</span>
+            <div class="terminal-actions">
+              <span class="terminal-chip">Rust Engine</span>
+            </div>
+          </div>
+
+          <div id="terminalSimBody" class="terminal-body">
+            <!-- Simulated steps stream here -->
+          </div>
+
+          <div class="terminal-footer-telemetry">
+            <div class="telemetry-row">
+              <div class="telemetry-item">
+                <span>Tokens:</span>
+                <span id="telemetryTokens" class="telemetry-val">1,420</span>
+              </div>
+              <div class="telemetry-item">
+                <span>Speed:</span>
+                <span id="telemetrySpeed" class="telemetry-val">142 tok/s</span>
+              </div>
+              <div class="telemetry-item">
+                <span>Est. Cost:</span>
+                <span id="telemetryCost" class="telemetry-val">$0.0038</span>
+              </div>
+              <div class="telemetry-item">
+                <span>Context:</span>
+                <span class="telemetry-bar"><span id="telemetryBar" class="telemetry-bar-fill"></span></span>
+              </div>
+              <div class="telemetry-item">
+                <span id="telemetryStatusBadge" style="display: none; background: rgba(82, 224, 150, 0.2); color: #52e096; padding: 1px 6px; border-radius: 3px; font-weight: 600;">🔒 Guard Active</span>
+                <span style="color: #60a5fa;">gemini-3.8-flash</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="terminal-controller-bar">
+          <span>Explore rho capabilities:</span>
+          <div class="terminal-scenario-select">
+            <button class="scenario-btn active" data-scenario="plugin">1. Daemon Plugin Hook</button>
+            <button class="scenario-btn" data-scenario="install">2. rho install &amp; plugin ls</button>
+            <button class="scenario-btn" data-scenario="resume">3. Session Resume (rho -r)</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Section: The rho Plugin Ecosystem -->
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-badge">Extensibility</span>
+        <h2 class="section-title">A true plugin ecosystem for coding agents</h2>
+        <p class="section-description">
+          rho plugins are long-running JSON-RPC 2.0 daemons operating over stdio. They intercept tool calls, repair invalid requests, audit results, and interact directly with the host terminal UI.
+        </p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon icon-purple">⚡</div>
+          <h3 class="card-title">Lifecycle Hooks &amp; Steering</h3>
+          <p class="card-desc">
+            Subscribe to <code>tool_call</code>, <code>tool_result</code>, <code>invalid_tool_call</code>, and <code>completion_call</code>. Return flow actions to continue, skip, rewrite arguments, repair tool names, or terminate turns.
+          </p>
+          <div class="card-footer">
+            <span>JSON-RPC 2.0 stdio</span>
+            <span>Flow::repair / Flow::skip</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-green">📦</div>
+          <h3 class="card-title">Precompiled Package Distribution</h3>
+          <p class="card-desc">
+            Install community plugins instantly with <code>rho install &lt;target&gt;</code>. rho downloads precompiled release binaries matching your OS/architecture directly from GitHub Releases into <code>~/.cargo/bin</code>.
+          </p>
+          <div class="card-footer">
+            <span>rho install &lt;name&gt;</span>
+            <span>Zero local toolchain required</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-blue">🖥</div>
+          <h3 class="card-title">Bidirectional Host UI API</h3>
+          <p class="card-desc">
+            Plugins can request host services: trigger Yes/No confirm modals (<code>ctx.confirm</code>), render informational UI blocks (<code>ctx.block</code>), or update the live terminal telemetry status bar.
+          </p>
+          <div class="card-footer">
+            <span>host/ui/confirm</span>
+            <span>host/ui/set_status</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section: Core CLI Capabilities -->
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-badge">Core Engine</span>
+        <h2 class="section-title">Built-in CLI capabilities</h2>
+        <p class="section-description">
+          rho ships with powerful command-line features for interactive coding, headless scripting, session recovery, and configuration management.
+        </p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <h3 class="card-title">Interactive Session Picker</h3>
+          <p class="card-desc">
+            Browse previous coding sessions interactively with <code>rho -r</code>, resume with <code>rho --resume &lt;id&gt;</code>, or continue the working directory's last session with <code>rho -c</code>.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code># Interactive picker
+rho -r
+
+# Continue last session
+rho -c</code></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Package &amp; Plugin Management</h3>
+          <p class="card-desc">
+            Manage your agent extensions directly through the CLI. Audit active vs missing binaries, check capability origins, and self-update rho and plugins.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code>rho install permission
+rho plugin ls
+rho plugin inspect tool:bash
+rho update all</code></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Model &amp; Config Inspection</h3>
+          <p class="card-desc">
+            Inspect live models and capabilities with <code>rho models</code>, view or edit configuration keys with <code>rho config</code>, or run one-shot prompts with <code>rho -p</code>.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code>rho models
+rho config
+rho -p "audit dependencies"</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section: 8 Built-in Tools -->
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-badge">Native Tooling</span>
+        <h2 class="section-title">8 native agent tools, zero setup</h2>
+        <p class="section-description">
+          rho includes native tools specifically designed and bounded for coding agents.
+        </p>
+      </div>
+
+      <div class="grid-4">
+        <div class="card">
+          <div class="card-icon icon-green">📖</div>
+          <h3 class="card-title">read</h3>
+          <p class="card-desc">Safe offset/limit chunking, line numbering, and automatic image sniffing.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-green">✏️</div>
+          <h3 class="card-title">write</h3>
+          <p class="card-desc">Creates or overwrites files with automatic missing directory creation.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-green">🎯</div>
+          <h3 class="card-title">edit</h3>
+          <p class="card-desc">Targeted, exact text replacements with strict single-match verification.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-amber">🐚</div>
+          <h3 class="card-title">bash</h3>
+          <p class="card-desc">Process group isolation, timeout watchdog, and binary output sanitization.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-blue">📂</div>
+          <h3 class="card-title">fd</h3>
+          <p class="card-desc">Fast gitignore-aware workspace file discovery with smart-case regex.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-blue">🔍</div>
+          <h3 class="card-title">rg</h3>
+          <p class="card-desc">Line-oriented content search, skips binaries, and bounds large result sets.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-purple">🌐</div>
+          <h3 class="card-title">web_search</h3>
+          <p class="card-desc">Structured web search results and domain-filtered URL discovery.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-purple">📥</div>
+          <h3 class="card-title">web_fetch</h3>
+          <p class="card-desc">Clean extraction of markdown, plain text, HTML, CSV, or feeds.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Section: Featured Plugins -->
+  <section class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-badge">Ecosystem Catalog</span>
+        <h2 class="section-title">Popular rho plugins</h2>
+        <p class="section-description">
+          Plugins published on GitHub and Crates.io that you can install immediately with <code>rho install</code>.
+        </p>
+      </div>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-icon icon-purple">🛡</div>
+          <h3 class="card-title">rho-plugin-permission</h3>
+          <p class="card-desc">
+            In-process guardrails and approval modals for file mutations, directory unlinking, and shell commands.
+          </p>
+          <div class="plugin-install-bar">
+            <code class="plugin-install-cmd">$ rho install permission</code>
+            <button class="copy-btn" data-copy="rho install permission">Copy</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-blue">🔒</div>
+          <h3 class="card-title">rust-guard</h3>
+          <p class="card-desc">
+            Demonstration security daemon that intercepts sudo execution, prompts via host UI, and sets terminal status line widgets.
+          </p>
+          <div class="plugin-install-bar">
+            <code class="plugin-install-cmd">$ rho install rust-guard</code>
+            <button class="copy-btn" data-copy="rho install rust-guard">Copy</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-green">⚙️</div>
+          <h3 class="card-title">rho-plugin-sdk</h3>
+          <p class="card-desc">
+            Official Rust crate for building stdio daemon plugins, handling lifecycle events, and invoking host UI modals.
+          </p>
+          <div class="plugin-install-bar">
+            <code class="plugin-install-cmd">$ cargo add rho-plugin-sdk</code>
+            <button class="copy-btn" data-copy="cargo add rho-plugin-sdk">Copy</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align: center; margin-top: 2.5rem;">
+        <a href="packages.html" class="btn-sm" style="font-size: 0.95rem; padding: 0.6rem 1.4rem; border-color: var(--accent-green);">
+          Browse All Plugins &amp; Packages →
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="./" class="brand">
+            <svg class="brand-icon" viewBox="0 0 100 100" fill="none">
+              <rect width="100" height="100" rx="20" fill="var(--bg-surface)"/>
+              <path d="M34 22V78M34 22H56C67.0457 22 76 30.9543 76 42C76 53.0457 67.0457 62 56 62H34" stroke="var(--accent-green)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="54" cy="42" r="6" fill="var(--accent-blue)"/>
+            </svg>
+            <span>rho</span>
+          </a>
+          <p class="footer-desc">
+            Fast, clean, minimal coding-agent CLI in Rust. Open source and built for developers.
+          </p>
+        </div>
+
+        <div class="footer-links-group">
+          <div class="footer-col">
+            <span class="footer-col-title">Project</span>
+            <a href="packages.html">Plugins &amp; Ecosystem</a>
+            <a href="docs.html">Documentation</a>
+            <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
+            <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
+          </div>
+
+          <div class="footer-col">
+            <span class="footer-col-title">Resources</span>
+            <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener">Plugin SDK</a>
+            <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>© 2026 Cason Adams. MIT / Apache-2.0 License.</span>
+        <span>Hosted on Firebase · getrho</span>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="js/firebase-init.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
