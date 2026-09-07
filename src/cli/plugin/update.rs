@@ -1,12 +1,12 @@
 use super::archive::extract_binary;
-use super::atomic::write_binary_atomically;
-use super::github::GitHubClient;
+use super::archive::write_binary_atomically;
+use super::install::GitHubClient;
 use super::install::InstallError;
 use super::paths::resolve_cargo_bin_dir;
 use super::platform::{Platform, match_platform_asset};
 use super::remove::resolve_plugin_key;
 use super::spec::PluginSpec;
-use super::version::is_update_available;
+use super::spec::is_update_available;
 use rho_harness_core::config::{Config, PluginConfig};
 use rho_harness_core::error::AppError;
 use std::collections::BTreeMap;
@@ -58,7 +58,7 @@ pub struct UpdatePluginContext<'a> {
 
 async fn download_and_extract_update(
     client: &GitHubClient,
-    release: &super::github::Release,
+    release: &super::install::Release,
     spec: &PluginSpec,
 ) -> Result<Vec<u8>, InstallError> {
     let platform = Platform::current().ok_or_else(|| {

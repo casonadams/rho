@@ -1,11 +1,71 @@
-//! Block-level element rendering (headers, lists, task items, quotes, and rules).
+//! Markdown line formatting for headers, list items, quotes, rules, and code fences.
 
-use crate::ui::markdown::elements::render_inline_elements;
+use super::elements::render_inline_elements;
+use super::highlight::highlight_code_line;
 use crate::ui::theme::Theme;
 use std::sync::LazyLock;
 
 static ORDERED_LIST: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^(\d+\.)\s+(.*)$").expect("valid ordered list pattern"));
+
+// ---------------------------------------------------------------------------
+// Render dispatch
+// ---------------------------------------------------------------------------
+
+pub fn render_line(line: &str, code_fence: &mut CodeFenceTracker, theme: &Theme) -> String {
+    let trimmed = line.trim();
+
+    if trimmed.starts_with("```") {
+        return code_fence.toggle(trimmed, theme);
+    }
+    if code_fence.in_code_block {
+        return highlight_code_line(line, code_fence.code_lang.as_deref(), theme);
+    }
+    if let Some(rule) = render_horizontal_rule(line, theme) {
+        return rule;
+    }
+    if let Some(header) = render_header(line, theme) {
+        return header;
+    }
+    if let Some(list_item) = render_list_item(line, theme) {
+        return list_item;
+    }
+    if let Some(quote) = render_quote(line, theme) {
+        return quote;
+    }
+
+    render_inline_elements(line, theme)
+}
+
+// ---------------------------------------------------------------------------
+// Code fence tracking
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+pub struct CodeFenceTracker {
+    pub in_code_block: bool,
+    pub code_lang: Option<String>,
+}
+
+impl CodeFenceTracker {
+    pub fn toggle(&mut self, trimmed: &str, theme: &Theme) -> String {
+        let tag = trimmed.trim_start_matches('`').trim();
+        let dim = theme.dimmed;
+        if self.in_code_block {
+            self.in_code_block = false;
+            self.code_lang = None;
+            format!("{dim}```{dim:#}")
+        } else {
+            self.in_code_block = true;
+            self.code_lang = (!tag.is_empty()).then(|| tag.to_string());
+            format!("{dim}```{tag}{dim:#}")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Block elements: headers, lists, task items, quotes, and rules
+// ---------------------------------------------------------------------------
 
 pub fn render_header(line: &str, theme: &Theme) -> Option<String> {
     let indent_len = line.len() - line.trim_start().len();
@@ -122,4 +182,48 @@ pub fn render_horizontal_rule(line: &str, theme: &Theme) -> Option<String> {
         return Some(format!("{d}{rule}{d:#}"));
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Line prefix buffering heuristics and spacing decisions
+// ---------------------------------------------------------------------------
+
+pub fn is_ordered_list_prefix_or_item(trimmed: &str) -> bool {
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return true;
+    }
+    let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
+    if digits > 0 {
+        let after = &trimmed[digits..];
+        if after == "." || after.starts_with(". ") {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn should_buffer_line(current_line: &str) -> bool {
+    let trimmed = current_line.trim_start();
+    trimmed.starts_with('|')
+        || trimmed.starts_with('#')
+        || trimmed.starts_with('`')
+        || trimmed.starts_with('>')
+        || trimmed == "-"
+        || trimmed.starts_with("- ")
+        || trimmed.starts_with("---")
+        || trimmed == "*"
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("***")
+        || trimmed.starts_with("___")
+        || is_ordered_list_prefix_or_item(trimmed)
+}
+
+pub fn needs_preceding_blank_line(trimmed: &str, in_code_block: bool) -> bool {
+    trimmed.starts_with('#')
+        || (trimmed.starts_with("```") && !in_code_block)
+        || trimmed.starts_with('>')
+        || is_horizontal_rule(trimmed)
 }

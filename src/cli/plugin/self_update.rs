@@ -1,9 +1,9 @@
 use super::archive::extract_binary;
-use super::atomic::write_binary_atomically;
-use super::github::GitHubClient;
+use super::archive::write_binary_atomically;
+use super::install::GitHubClient;
 use super::install::InstallError;
 use super::platform::{Platform, match_platform_asset};
-use super::version::is_update_available;
+use super::spec::is_update_available;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::AppError;
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ pub struct SelfUpdateContext<'a> {
 
 async fn download_and_install_self_binary(
     client: &GitHubClient,
-    release: &super::github::Release,
+    release: &super::install::Release,
     current_exe: &Path,
 ) -> Result<(), InstallError> {
     let platform = Platform::current().ok_or_else(|| {

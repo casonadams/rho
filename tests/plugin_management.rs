@@ -1,4 +1,4 @@
-use rho::cli::plugin::github::GitHubClient;
+use rho::cli::plugin::install::GitHubClient;
 use rho::cli::plugin::install::{InstallPluginContext, install_plugin};
 use rho::cli::plugin::listing::collect_plugin_listings;
 use rho::cli::plugin::paths::PluginEnvironment;
