@@ -56,6 +56,7 @@ pub fn parse_claude_json_metadata(raw: &str) -> (Option<String>, Option<String>)
     (org_uuid, email)
 }
 
+#[cfg(target_os = "macos")]
 fn decode_keychain_output(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if trimmed.starts_with('{') {
