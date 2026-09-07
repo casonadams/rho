@@ -84,16 +84,52 @@ enabled = false
 
 ### Permission Rules (`permission.toml`)
 
-Rules can be manually inspected or authored in `.rho/permission.toml`:
+Rules can be manually authored or inspected in `.rho/permission.toml`
+(project-scoped) or `~/.config/rho/permission.toml` (global).
+
+#### Basic Rules
 
 ```toml
-[tools.bash]
+[permission.bash]
 "cargo test *" = "allow"
 "npm run build" = "allow"
 "rm -rf *" = "deny"
 
-[tools.path]
+[permission.path]
 "/tmp/*" = "allow"
+```
+
+#### Custom Deny Reasons
+
+You can provide an explicit `reason` for any denied rule using inline tables.
+When triggered, the tool execution is skipped and the custom reason is returned
+directly to the agent:
+
+```toml
+[permission.path]
+"*.env*" = { action = "deny", reason = "Do not read or inspect environment secret files" }
+"/etc/*" = { action = "deny", reason = "Access to system configuration directories is forbidden" }
+
+[permission.bash]
+"cargo publish" = { action = "deny", reason = "Publishing to crates.io is not permitted from the agent" }
+"rm -rf *" = { action = "deny", reason = "Destructive command blocked by project safety policy" }
+"git push --force*" = { action = "deny", reason = "Force-pushing branches is strictly prohibited" }
+```
+
+#### Grouped Syntax
+
+Rules can also be grouped under top-level action tables:
+
+```toml
+[allow]
+bash = ["cargo test *", "npm test"]
+
+[deny]
+bash = ["rm -rf *", "git reset --hard *"]
+read = ["*.env*", "/etc/*"]
+
+[ask]
+bash = ["curl *", "docker run *"]
 ```
 
 ### External Permission Plugins
