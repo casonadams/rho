@@ -38,15 +38,39 @@ newlines grow the editor upward.
 
 ## Keyboard Controls & Navigation
 
-| Key           | Action                                                                     |
-| :------------ | :------------------------------------------------------------------------- |
-| `Enter`       | Submit prompt.                                                             |
-| `Shift+Enter` | Insert a newline without submitting.                                       |
-| `Ctrl+J`      | Insert a newline (compatible with terminals encoding it as raw line feed). |
-| `Alt+Enter`   | Submit with follow-up queueing (enters FIFO queue).                        |
-| `Ctrl+O`      | Toggle expand/collapse of tool output cards in the transcript.             |
-| `Ctrl+C`      | Interrupt running model generation or tool execution.                      |
-| `Escape`      | Clear idle input draft, or cancel active execution and restore queue.      |
+| Key                     | Action                                                                              |
+| :---------------------- | :---------------------------------------------------------------------------------- |
+| `Enter`                 | Submit prompt.                                                                      |
+| `Shift+Enter`           | Insert a newline without submitting.                                                |
+| `Ctrl+J`                | Insert a newline (compatible with terminals encoding it as raw line feed).          |
+| `Alt+Enter`             | Submit with follow-up queueing (enters FIFO queue).                                 |
+| `Alt+Up`                | Dequeue the most recently queued message back into the prompt editor.               |
+| `Escape`                | Interrupt running model generation or tool execution. When idle, clear input draft (double-press opens session tree). |
+| `Ctrl+C`                | Clear the current input prompt draft.                                               |
+| `Ctrl+D`                | Exit `rho` (when prompt is empty).                                                  |
+| `Ctrl+L`                | Open interactive model selector modal.                                              |
+| `Ctrl+P`                | Cycle to next model.                                                                |
+| `Shift+Ctrl+P` / `Alt+P`| Cycle to previous model.                                                            |
+| `Shift+Tab`             | Cycle thinking / reasoning effort level.                                            |
+| `Ctrl+T`                | Toggle thinking blocks visibility (visible / hidden).                               |
+| `Ctrl+O`                | Toggle expand/collapse of tool output cards in the transcript.                      |
+| `Ctrl+V`                | Paste image from clipboard into the session.                                        |
+| `Ctrl+X`                | Copy last assistant message to clipboard.                                           |
+| `Ctrl+G`                | Open current input draft in external editor (`$EDITOR`).                            |
+| `Ctrl+Z`                | Suspend process to background.                                                      |
+| `Tab`                   | Auto-complete slash commands, skill names, and file paths.                          |
+
+### Custom Keybindings
+
+Keybindings can be customized by adding a `keybindings.toml` (or `keybindings.json`) to `~/.config/rho/`:
+
+```toml
+[bindings]
+"app.interrupt" = ["escape"]
+"app.clear" = ["ctrl+c"]
+"app.model.select" = ["ctrl+l"]
+"app.thinking.cycle" = ["shift+tab"]
+```
 
 ### Message Queueing
 

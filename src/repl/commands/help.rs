@@ -29,9 +29,12 @@ const HELP_REFERENCE: &str = "\nCommands\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\
   Shift+Tab                   Cycle thinking level\n\
-  Ctrl+C                      Cancel the active operation\n\
+  Escape                      Cancel active execution / operation\n\
+  Ctrl+C                      Clear the input prompt\n\
   Ctrl+D                      Exit at an empty prompt\n\
+  Ctrl+L                      Select model\n\
   Ctrl+O                      Expand or collapse tool output\n\
+  Ctrl+T                      Toggle thinking blocks visibility\n\
 \nCurrent session\n";
 
 fn append_session_help(output: &mut String, config: &Config) {

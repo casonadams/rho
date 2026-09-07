@@ -65,7 +65,7 @@ fn format_mcp_items(mcp_groups: &BTreeMap<String, usize>) -> Vec<String> {
 pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
     let (highlight, dim) = (theme.highlight, theme.dimmed);
     let mut out = format!(
-        "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{dim}Type /help for commands, Tab to complete, Ctrl+C to cancel{dim:#}\n\n",
+        "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{dim}Type /help for commands, Tab to complete, Esc to cancel{dim:#}\n\n",
         welcome.version
     );
     append_welcome_section(&mut out, ("agents", &welcome.agents), dim);
