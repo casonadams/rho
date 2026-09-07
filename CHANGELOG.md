@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/casonadams/rho/compare/v0.5.0...v0.5.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **ci:** gate macos keychain helper and raise main recursion limit ([53a8c5c](https://github.com/casonadams/rho/commit/53a8c5c2d57e5d79617e309af72727b79afdabd1))
+* **session:** prevent cancellation desync on session append and align make test ([529c3d1](https://github.com/casonadams/rho/commit/529c3d12701793074c60490ec304dc352bcd23a9))
+
 ## [0.5.0](https://github.com/casonadams/rho/compare/v0.4.0...v0.5.0) (2026-09-07)
 
 
