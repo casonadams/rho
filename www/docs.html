@@ -91,6 +91,7 @@
       <p>
         <code>rho</code> is a fast, clean, minimal coding-agent CLI built in Rust. It delivers native performance, strict in-process safety boundaries, session persistence, and an extensible daemon plugin subsystem.
       </p>
+      <img src="assets/welcome.png" alt="rho startup screen with live quota in footer" class="doc-screenshot">
 
       <h2 id="installation">Installation</h2>
       <div class="code-block-wrapper">
@@ -192,6 +193,8 @@ rho remove permission</code></pre>
         <li><strong>Local Models</strong>: <code>local</code> (runs Ollama locally via <code>OLLAMA_HOST</code>).</li>
         <li><strong>Live Rolling Quotas</strong>: Interactive footer displays 5-hour and weekly remaining cooldowns for Antigravity and ChatGPT (e.g. <code>95% 4h23m 89% 3d21h</code>) and monthly quota for Ollama Cloud.</li>
       </ul>
+
+      <img src="assets/modal-login.png" alt="rho login provider selector modal" class="doc-screenshot">
 
       <p>Configure defaults globally in <code>~/.config/rho/config.toml</code> or per-project in <code>.rho/config.toml</code>:</p>
 
@@ -307,6 +310,13 @@ api_key = "optional"</code></pre>
             <td><code>/model</code></td>
             <td>Open interactive model and provider switcher modal</td>
           </tr>
+        </tbody>
+      </table>
+
+      <img src="assets/modal-model.png" alt="rho model selector modal with fuzzy search" class="doc-screenshot">
+
+      <table class="shortcuts-table">
+        <tbody>
           <tr>
             <td><code>/thinking</code></td>
             <td>Open interactive thinking effort level selector</td>
@@ -315,6 +325,13 @@ api_key = "optional"</code></pre>
             <td><code>/theme</code></td>
             <td>Open theme selector modal with live preview (10 built-in themes)</td>
           </tr>
+        </tbody>
+      </table>
+
+      <img src="assets/modal-theme.png" alt="rho theme selector previewing Solarized Dark" class="doc-screenshot">
+
+      <table class="shortcuts-table">
+        <tbody>
           <tr>
             <td><code>/plugin</code></td>
             <td>List active MCP tool servers, plugins, and registration health</td>

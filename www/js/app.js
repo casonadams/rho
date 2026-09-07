@@ -5,11 +5,61 @@ document.addEventListener("DOMContentLoaded", () => {
   initInstallSwitcher();
   initCopyButtons();
   initTerminalSimulator();
+  initGallery();
 });
 
 /* =========================================================================
-   Theme Management
+   UI Showcase Gallery
    ========================================================================= */
+function initGallery() {
+  const tabs = document.querySelectorAll(".gallery-tab");
+  const img = document.getElementById("galleryImage");
+  const caption = document.getElementById("galleryCaption");
+  if (!tabs.length || !img) return;
+
+  const galleryData = {
+    welcome: {
+      src: "assets/welcome.png",
+      alt: "rho startup welcome screen with live rolling quota",
+      caption: "Startup screen with active agents, skills, tools, and live rolling quota in footer (<code>93% 4h19m 1% 3d10h</code>)."
+    },
+    turn: {
+      src: "assets/chat.png",
+      alt: "rho interactive turn with reasoning block and speed telemetry",
+      caption: "Streaming assistant turn showing collapsible reasoning block, clean syntax, and live speed telemetry (<code>@43t/s</code>)."
+    },
+    model: {
+      src: "assets/modal-model.png",
+      alt: "rho interactive model selector with fuzzy search",
+      caption: "Interactive model switcher (<kbd>Ctrl+L</kbd> or <code>/model</code>) with live fuzzy search across local and subscription providers."
+    },
+    theme: {
+      src: "assets/modal-theme.png",
+      alt: "rho interactive theme switcher previewing Solarized Dark",
+      caption: "Real-time theme engine (<code>/theme</code>) previewing 10 built-in color schemes with live terminal ANSI sync."
+    },
+    login: {
+      src: "assets/modal-login.png",
+      alt: "rho login provider selector for OAuth and API keys",
+      caption: "Interactive provider login (<code>rho login</code>) supporting OAuth PKCE for Google Antigravity, ChatGPT, Claude, and Copilot."
+    }
+  };
+
+  tabs.forEach(tab => {
+    tab.addEventListener("click", () => {
+      tabs.forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      const key = tab.dataset.gallery || "welcome";
+      const item = galleryData[key];
+      if (item) {
+        img.src = item.src;
+        img.alt = item.alt;
+        if (caption) caption.innerHTML = item.caption;
+      }
+    });
+  });
+}
+
 function initTheme() {
   const root = document.documentElement;
   const storageKey = "rho:theme";
