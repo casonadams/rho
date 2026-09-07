@@ -334,6 +334,17 @@ async fn quota_display_isolated_across_providers_and_models() {
     assert_eq!(engine.quota_display(), Some("85% (3h22m)".to_string()));
     engine.config.model = "claude-sonnet-4-6".to_string();
     assert_eq!(engine.quota_display(), None);
+
+    engine.config.provider = "chatgpt".to_string();
+    engine.config.model = "gpt-5.4".to_string();
+    assert_eq!(engine.quota_display(), None);
+    let chatgpt_key = crate::engine::tracking::QuotaKey::new("chatgpt", None::<String>);
+    engine
+        .quota
+        .record_success(&chatgpt_key, "95% 4h23m 89% 3d21h".to_string());
+    assert_eq!(engine.quota_display(), Some("95% 4h23m 89% 3d21h".to_string()));
+    engine.config.provider = "openai-chatgpt".to_string();
+    assert_eq!(engine.quota_display(), Some("95% 4h23m 89% 3d21h".to_string()));
     std::fs::remove_dir_all(dir).unwrap();
 }
 

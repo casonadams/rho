@@ -3,8 +3,11 @@
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 
+mod summary;
 #[cfg(test)]
 mod tests;
+
+pub use summary::parse_quota_summary;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelQuota {
@@ -13,54 +16,71 @@ pub struct ModelQuota {
     pub reset_time: Option<DateTime<Utc>>,
 }
 
-/// Fetch available models from Antigravity and extract active quota display.
+/// Fetch available models or quota summary from Antigravity and extract active quota display.
 pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> Option<String> {
-    let response = super::client::post_metadata(
-        "/v1internal:fetchAvailableModels",
-        token,
-        serde_json::json!({ "project": project_id }),
-    )
-    .await?;
+    let body = project_request_body(project_id);
+    if let Some(display) = try_fetch_summary(token, &body, target_model).await {
+        return Some(display);
+    }
+    let response = super::client::post_metadata("/v1internal:fetchAvailableModels", token, body).await?;
     parse_quota(&response, target_model, Utc::now())
 }
 
-/// Parse `quotaInfo` from `fetchAvailableModels` JSON and format the status string.
+fn project_request_body(project_id: &str) -> Value {
+    if project_id.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::json!({ "project": project_id })
+    }
+}
+
+async fn try_fetch_summary(token: &str, body: &Value, target: &str) -> Option<String> {
+    let summary = super::client::post_metadata("/v1internal:retrieveUserQuotaSummary", token, body.clone()).await?;
+    parse_quota_summary(&summary, target, Utc::now())
+}
+
+/// Parse quota from JSON (either grouped quota summary or per-model catalog) and format status string.
 pub fn parse_quota(value: &Value, target_model: &str, now: DateTime<Utc>) -> Option<String> {
+    if let Some(summary) = parse_quota_summary(value, target_model, now) {
+        return Some(summary);
+    }
+    parse_models_quota(value, target_model, now)
+}
+
+fn extract_model_candidates(models_obj: &serde_json::Map<String, Value>) -> Vec<ModelQuota> {
+    models_obj
+        .iter()
+        .filter_map(|(id, info)| {
+            let qi = info.get("quotaInfo")?;
+            let remaining = qi.get("remainingFraction")?.as_f64()?;
+            let reset_time = qi
+                .get("resetTime")
+                .and_then(|v| v.as_str())
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&Utc));
+            Some(ModelQuota {
+                model_id: id.clone(),
+                remaining_fraction: remaining,
+                reset_time,
+            })
+        })
+        .collect()
+}
+
+fn parse_models_quota(value: &Value, target_model: &str, now: DateTime<Utc>) -> Option<String> {
     let models_obj = value.get("models")?.as_object()?;
-    let mut candidates = Vec::new();
-
-    for (model_id, info) in models_obj {
-        let Some(quota_info) = info.get("quotaInfo") else {
-            continue;
-        };
-        let Some(remaining) = quota_info.get("remainingFraction").and_then(|v| v.as_f64()) else {
-            continue;
-        };
-        let reset_time = quota_info
-            .get("resetTime")
-            .and_then(|v| v.as_str())
-            .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&Utc));
-
-        candidates.push(ModelQuota {
-            model_id: model_id.clone(),
-            remaining_fraction: remaining,
-            reset_time,
-        });
-    }
-
-    if candidates.is_empty() {
-        return None;
-    }
-
+    let candidates = extract_model_candidates(models_obj);
     let selected = select_model_quota(&candidates, target_model)?;
-    Some(format_model_quota(selected, now))
+    Some(format_quota_window(
+        selected.remaining_fraction,
+        selected.reset_time,
+        now,
+    ))
 }
 
 fn select_model_quota<'a>(candidates: &'a [ModelQuota], target: &str) -> Option<&'a ModelQuota> {
     let target_clean = target.trim().to_ascii_lowercase();
 
-    // 1. Exact match (case-insensitive)
     if let Some(exact) = candidates
         .iter()
         .find(|c| c.model_id.eq_ignore_ascii_case(&target_clean))
@@ -68,7 +88,6 @@ fn select_model_quota<'a>(candidates: &'a [ModelQuota], target: &str) -> Option<
         return Some(exact);
     }
 
-    // 2. Prefix / substring match with lowest remaining fraction
     let prefix_matches: Vec<&ModelQuota> = candidates
         .iter()
         .filter(|c| {
@@ -84,15 +103,18 @@ fn select_model_quota<'a>(candidates: &'a [ModelQuota], target: &str) -> Option<
         return Some(lowest);
     }
 
-    // 3. Fallback: candidate with lowest remaining fraction across all
     candidates
         .iter()
         .min_by(|a, b| a.remaining_fraction.total_cmp(&b.remaining_fraction))
 }
 
-fn format_model_quota(quota: &ModelQuota, now: DateTime<Utc>) -> String {
-    let pct = (quota.remaining_fraction * 100.0).round().clamp(0.0, 100.0) as u64;
-    let Some(reset_time) = quota.reset_time else {
+pub(crate) fn format_quota_window(
+    remaining_fraction: f64,
+    reset_time: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> String {
+    let pct = (remaining_fraction * 100.0).round().clamp(0.0, 100.0) as u64;
+    let Some(reset_time) = reset_time else {
         return format!("{pct}%");
     };
 
@@ -102,10 +124,19 @@ fn format_model_quota(quota: &ModelQuota, now: DateTime<Utc>) -> String {
     }
 
     let countdown = format_duration(duration);
-    format!("{pct}% ({countdown})")
+    format!("{pct}% {countdown}")
 }
 
-fn format_duration(duration: Duration) -> String {
+pub(crate) fn combine_windows(five_hour: Option<String>, weekly: Option<String>) -> Option<String> {
+    match (five_hour, weekly) {
+        (Some(h), Some(w)) => Some(format!("{h} {w}")),
+        (Some(h), None) => Some(h),
+        (None, Some(w)) => Some(w),
+        (None, None) => None,
+    }
+}
+
+pub(crate) fn format_duration(duration: Duration) -> String {
     let total_secs = duration.num_seconds().max(1);
     let days = duration.num_days();
     let hours = duration.num_hours();

@@ -12,6 +12,8 @@ pub(crate) fn canonical_quota_provider(provider: &str) -> Option<&'static str> {
         Some("ollama-cloud")
     } else if trimmed.eq_ignore_ascii_case("antigravity") || trimmed.eq_ignore_ascii_case("google-antigravity") {
         Some("antigravity")
+    } else if trimmed.eq_ignore_ascii_case("chatgpt") || trimmed.eq_ignore_ascii_case("openai-chatgpt") {
+        Some("chatgpt")
     } else {
         None
     }
@@ -34,6 +36,9 @@ impl AgentEngine {
                 )
                 .await;
             }
+            "chatgpt" => {
+                do_refresh_chatgpt_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
+            }
             _ => {}
         }
     }
@@ -54,6 +59,11 @@ impl AgentEngine {
                 let model = self.config.model.clone();
                 tokio::spawn(async move {
                     do_refresh_antigravity_quota(auth, quota, model).await;
+                });
+            }
+            "chatgpt" => {
+                tokio::spawn(async move {
+                    do_refresh_chatgpt_quota(auth, quota).await;
                 });
             }
             _ => {}
@@ -113,6 +123,33 @@ async fn do_refresh_antigravity_quota(
         return;
     };
     match crate::antigravity::fetch_quota(&token, &project_id, &target_model).await {
+        Some(display) => quota.record_success(&key, display),
+        None => quota.record_failure(&key),
+    }
+}
+
+async fn resolve_chatgpt_credentials(auth_store: &tokio::sync::Mutex<AuthStore>) -> Option<(String, Option<String>)> {
+    let mut store = auth_store.lock().await;
+    let token = store.get_key("chatgpt").await.ok().flatten()?;
+    let account_id = match store.get_credential("chatgpt") {
+        Some(StoredCredential::OAuth {
+            account_id: Some(id), ..
+        }) => Some(id.clone()),
+        _ => crate::auth::oauth::extract_chatgpt_account_id(&token),
+    };
+    Some((token, account_id))
+}
+
+async fn do_refresh_chatgpt_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {
+    let key = QuotaKey::new("chatgpt", None::<String>);
+    if !quota.should_fetch(&key) {
+        return;
+    }
+    let Some((token, account_id)) = resolve_chatgpt_credentials(&auth_store).await else {
+        quota.record_failure(&key);
+        return;
+    };
+    match crate::chatgpt::fetch_quota(&token, account_id.as_deref()).await {
         Some(display) => quota.record_success(&key, display),
         None => quota.record_failure(&key),
     }
