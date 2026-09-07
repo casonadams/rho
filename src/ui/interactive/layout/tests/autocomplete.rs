@@ -131,3 +131,38 @@ fn autocomplete_layout_bounded_by_terminal_height() {
     let layout_7 = test_ac_layout(&editor, &ac, 7);
     assert!(layout_7.height() <= 7 && !layout_7.lines.iter().any(|l| l.contains("/item")));
 }
+
+#[test]
+fn autocomplete_dropdown_default_theme_styling() {
+    let mut state = AutocompleteState::default();
+    state.open(vec![Completion {
+        value: "/model".to_string(),
+        description: Some("Switch model".to_string()),
+        replacement: Range { start: 0, end: 1 },
+    }]);
+
+    let default_theme = crate::ui::theme::Theme::default();
+    let default_lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &default_theme);
+    assert_eq!(default_lines.len(), 1);
+    assert!(!default_lines[0].contains("\x1b[48;5;236m"));
+    assert!(!default_lines[0].contains("\x1b[1;36m>"));
+    assert!(default_lines[0].contains('▸'));
+}
+
+#[test]
+fn autocomplete_dropdown_custom_palette_theme_styling() {
+    let mut state = AutocompleteState::default();
+    state.open(vec![Completion {
+        value: "/model".to_string(),
+        description: Some("Switch model".to_string()),
+        replacement: Range { start: 0, end: 1 },
+    }]);
+
+    let registry = crate::ui::theme::ThemeRegistry::default();
+    let catppuccin = registry.get("catppuccin").unwrap();
+    let cat_lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), catppuccin);
+    assert_eq!(cat_lines.len(), 1);
+    let bg = catppuccin.user_message_bg.render().to_string();
+    assert!(cat_lines[0].contains(&bg));
+    assert!(!cat_lines[0].contains("\x1b[48;5;236m"));
+}

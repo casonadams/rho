@@ -134,6 +134,41 @@ async fn handle_theme_selected(
     Ok(true)
 }
 
+async fn save_or_print_thinking(
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    level: Option<&str>,
+    save_as_default: bool,
+) {
+    let display = level.unwrap_or("off");
+    if save_as_default {
+        let _ =
+            rho_harness_core::config::Config::save_default_thinking_level_async(&ctx.session.config.config_dir, level)
+                .await;
+        ctx.session
+            .renderer
+            .print_status(&format!("Default thinking level: {display}"));
+    } else {
+        ctx.session.renderer.print_status(&format!("Thinking: {display}"));
+    }
+}
+
+async fn handle_thinking_selected(
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    (level, save_as_default): (Option<String>, bool),
+) -> Result<bool> {
+    ctx.session.config.thinking_level = level.clone();
+    ctx.engine.config.thinking_level = level.clone();
+    save_or_print_thinking(ctx, level.as_deref(), save_as_default).await;
+    if let Err(err) = ctx.engine.update_model().await {
+        ctx.session
+            .renderer
+            .print_notice(&format!("\nWarning: Could not update thinking level: {err}\n"));
+    }
+    update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
+    ctx.controller.redraw()?;
+    Ok(true)
+}
+
 async fn handle_session_deleted(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
     session_id: String,
@@ -156,14 +191,33 @@ async fn dispatch_modal_result_rest(
     }
 }
 
+async fn dispatch_session_or_node_result(
+    res: &ModalKeyResult,
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+) -> Result<Option<bool>> {
+    match res {
+        ModalKeyResult::NodeLabelUpdated { node_id, label } => Ok(Some(
+            handle_node_label_updated(ctx, (node_id.clone(), label.clone())).await?,
+        )),
+        ModalKeyResult::SessionDeleted { session_id } => {
+            Ok(Some(handle_session_deleted(ctx, session_id.clone()).await?))
+        }
+        _ => Ok(None),
+    }
+}
+
 async fn dispatch_modal_result_rest2(
     res: ModalKeyResult,
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
 ) -> Result<bool> {
+    if let Some(handled) = dispatch_session_or_node_result(&res, ctx).await? {
+        return Ok(handled);
+    }
     match res {
-        ModalKeyResult::NodeLabelUpdated { node_id, label } => handle_node_label_updated(ctx, (node_id, label)).await,
-        ModalKeyResult::SessionDeleted { session_id } => handle_session_deleted(ctx, session_id).await,
         ModalKeyResult::ThemeSelected { theme } => handle_theme_selected(ctx, theme).await,
+        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
+            handle_thinking_selected(ctx, (level, save_as_default)).await
+        }
         _ => Ok(false),
     }
 }

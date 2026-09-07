@@ -38,16 +38,25 @@ fn format_dropdown_item(
     (is_selected, inner_width): (bool, usize),
     theme: &crate::ui::theme::Theme,
 ) -> String {
-    let prefix = if is_selected { "\x1b[1;36m>\x1b[0m " } else { "  " };
-    let val_styled = if is_selected {
-        format!("\x1b[1;37m{}\x1b[0m", item.value)
+    let highlight = theme.highlight;
+    let prefix = if is_selected {
+        format!("{highlight}▸{highlight:#} ")
     } else {
-        format!("\x1b[36m{}\x1b[0m", item.value)
+        "  ".to_string()
+    };
+    let val_styled = if is_selected {
+        format!("{}{}{:#}", highlight.bold(), item.value, highlight.bold())
+    } else {
+        format!("{}{}{:#}", theme.prompt, item.value, theme.prompt)
     };
     let val_width = UnicodeWidthStr::width(item.value.as_str()) + 2;
-    let line = build_item_content((item, theme), (&val_styled, prefix), (val_width, inner_width));
+    let line = build_item_content((item, theme), (&val_styled, &prefix), (val_width, inner_width));
     if is_selected {
-        format!("\x1b[48;5;236m{line}\x1b[0m")
+        if theme.is_ansi() {
+            line
+        } else {
+            format!("{}{line}{:#}", theme.user_message_bg, theme.user_message_bg)
+        }
     } else {
         line
     }

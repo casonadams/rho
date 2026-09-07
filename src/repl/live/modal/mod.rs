@@ -5,6 +5,7 @@ pub mod settings;
 #[cfg(test)]
 mod tests;
 pub mod theme;
+pub mod thinking;
 pub mod tree;
 
 use crate::error::Result;
@@ -16,6 +17,7 @@ pub use model::open_model_selector;
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
 pub use theme::open_theme_selector;
+pub use thinking::open_thinking_selector;
 pub use tree::open_tree_selector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +44,10 @@ pub enum ModalKeyResult {
     },
     ThemeSelected {
         theme: String,
+    },
+    ThinkingLevelSelected {
+        level: Option<String>,
+        save_as_default: bool,
     },
 }
 
@@ -84,6 +90,7 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Conversation Tree" => tree::handle_tree_key(controller, key),
         "Select Model" => model::handle_model_key(controller, key),
         "Select Theme" => theme::handle_theme_key(controller, key),
+        "Select Thinking Level" => thinking::handle_thinking_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

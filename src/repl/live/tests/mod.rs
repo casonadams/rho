@@ -14,4 +14,5 @@ mod permission_flow;
 mod selection_lifecycle;
 mod session_modal;
 mod suspend;
+mod thinking_modal;
 mod tree_modal;

@@ -33,6 +33,10 @@ pub enum CommandResult {
     OpenSessionSelector,
     OpenSettingsSelector,
     OpenThemeSelector,
+    OpenThinkingSelector,
+    ThinkingChanged {
+        level: Option<String>,
+    },
     ThemeChanged {
         theme: String,
     },
@@ -69,6 +73,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/theme",
     "/resume",
     "/thinking",
+    "/think",
     "/skill",
     "/plugin",
     "/session",

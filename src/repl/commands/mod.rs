@@ -128,7 +128,7 @@ async fn handle_async_slash_commands(
     ctx: &mut SlashCommandContext<'_>,
 ) -> Result<Option<CommandResult>> {
     match name {
-        "thinking" => thinking::handle_thinking(ctx, parts),
+        "thinking" | "think" => thinking::handle_thinking(ctx, parts),
         "model" => model::handle_model(ctx, parts),
         "theme" => theme::handle_theme(ctx, parts),
         "skill" | "skills" => skill::handle_skill(ctx, parts).await,

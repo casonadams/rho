@@ -39,10 +39,27 @@ async fn handle_selector_command(
         CommandResult::OpenModelSelector => super::super::modal::open_model_selector(ctx.session, io_controller),
         CommandResult::OpenSettingsSelector => super::super::modal::open_settings_selector(io_controller),
         CommandResult::OpenThemeSelector => super::super::modal::open_theme_selector(ctx.session, io_controller),
+        CommandResult::OpenThinkingSelector => super::super::modal::open_thinking_selector(ctx.session, io_controller),
         _ => {}
     }
     io_controller.redraw()?;
     Ok(())
+}
+
+async fn handle_thinking_changed(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io_controller: &mut crate::ui::interactive::TerminalController<impl TerminalBackend>,
+    level: Option<&str>,
+) {
+    ctx.session.config.thinking_level = level.map(ToString::to_string);
+    ctx.engine.config.thinking_level = ctx.session.config.thinking_level.clone();
+    if let Err(err) = ctx.engine.update_model().await {
+        ctx.session
+            .renderer
+            .print_notice(&format!("\nWarning: Could not update thinking level: {err}\n"));
+    }
+    super::super::navigation::update_footer(io_controller.state_mut(), ctx.session, ctx.engine);
+    let _ = io_controller.redraw();
 }
 
 async fn handle_model_changed(ctx: &mut LiveCommandContext<'_, '_>, (new_model, new_provider): (&str, Option<&str>)) {
@@ -91,19 +108,36 @@ async fn clear_engine_context(ctx: &mut LiveCommandContext<'_, '_>) -> Result<()
     Ok(())
 }
 
-async fn handle_engine_command_rest<B: TerminalBackend>(
+async fn handle_model_or_thinking_command<B: TerminalBackend>(
     ctx: &mut LiveCommandContext<'_, '_>,
     io: &mut LiveIo<'_, B>,
     result: &CommandResult,
-) -> Result<bool> {
+) -> bool {
     match result {
         CommandResult::ModelChanged {
             new_model,
             new_provider,
         } => {
             handle_model_changed(ctx, (new_model, new_provider.as_deref())).await;
-            Ok(true)
+            true
         }
+        CommandResult::ThinkingChanged { level } => {
+            handle_thinking_changed(ctx, io.controller, level.as_deref()).await;
+            true
+        }
+        _ => false,
+    }
+}
+
+async fn handle_engine_command_rest<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+    result: &CommandResult,
+) -> Result<bool> {
+    if handle_model_or_thinking_command(ctx, io, result).await {
+        return Ok(true);
+    }
+    match result {
         CommandResult::Reload => {
             *ctx.engine = ctx.session.reload_engine(ctx.engine).await?;
             Ok(true)
@@ -122,7 +156,10 @@ async fn handle_engine_command<B: TerminalBackend>(
     result: &CommandResult,
 ) -> Result<bool> {
     match result {
-        CommandResult::OpenModelSelector | CommandResult::OpenSettingsSelector | CommandResult::OpenThemeSelector => {
+        CommandResult::OpenModelSelector
+        | CommandResult::OpenSettingsSelector
+        | CommandResult::OpenThemeSelector
+        | CommandResult::OpenThinkingSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
         CommandResult::ThemeChanged { theme } => handle_theme_changed(ctx, io.controller, theme).await,

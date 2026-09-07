@@ -54,6 +54,10 @@ const TITLE_HINTS: &[(&str, &str)] = &[
         "Select Model",
         "Enter to select • Ctrl+S to set as default • Esc to cancel",
     ),
+    (
+        "Select Thinking Level",
+        "Enter to select • Ctrl+S to set as default • Esc to cancel",
+    ),
     ("Select Theme", "↑/↓ preview • Enter select • Esc cancel"),
     (
         "Conversation Tree",

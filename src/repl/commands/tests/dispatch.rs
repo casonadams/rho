@@ -100,8 +100,20 @@ async fn test_new_and_thinking_commands() {
     let think_res = SlashCommandHandler::handle("/thinking high", &mut context)
         .await
         .unwrap();
-    assert_eq!(think_res, Some(CommandResult::Continue));
+    assert_eq!(
+        think_res,
+        Some(CommandResult::ThinkingChanged {
+            level: Some("high".to_string())
+        })
+    );
     assert_eq!(context.config.thinking_level.as_deref(), Some("high"));
+
+    let think_modal_res = SlashCommandHandler::handle("/thinking", &mut context).await.unwrap();
+    assert_eq!(think_modal_res, Some(CommandResult::OpenThinkingSelector));
+
+    let think_alias_res = SlashCommandHandler::handle("/think off", &mut context).await.unwrap();
+    assert_eq!(think_alias_res, Some(CommandResult::ThinkingChanged { level: None }));
+    assert_eq!(context.config.thinking_level.as_deref(), None);
 }
 
 #[test]
