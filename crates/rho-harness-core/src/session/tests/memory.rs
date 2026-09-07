@@ -53,6 +53,29 @@ async fn rejects_orphan_dangling_and_miscorrelated_tools() {
 }
 
 #[tokio::test]
+async fn tool_call_id_reused_across_turns_succeeds() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    let id = store.session_id.clone();
+    ConversationMemory::append(&store, &id, complete_tool_turn(&["call-1"]))
+        .await
+        .unwrap();
+    ConversationMemory::append(&store, &id, complete_tool_turn(&["call-1"]))
+        .await
+        .unwrap();
+    assert_eq!(ConversationMemory::load(&store, &id).await.unwrap().len(), 8);
+}
+
+#[tokio::test]
+async fn duplicate_tool_call_id_within_same_message_is_rejected() {
+    let dir = temp_dir();
+    let store = SessionManager::new(&dir, None).unwrap();
+    let id = store.session_id.clone();
+    let duplicate = complete_tool_turn(&["call-1", "call-1"]);
+    assert!(ConversationMemory::append(&store, &id, duplicate).await.is_err());
+}
+
+#[tokio::test]
 async fn memory_identity_failures_do_not_change_history() {
     let dir = temp_dir();
     let store = SessionManager::new(&dir, None).unwrap();
