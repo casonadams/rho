@@ -1,30 +1,24 @@
-use futures::StreamExt;
+mod body;
+mod dns;
+#[cfg(test)]
+mod tests;
+
+use body::{ReadLimitedParams, read_limited};
+use dns::assert_public_dns;
 use reqwest::Client;
 use rho_harness_core::error::{AppError, Result};
 pub use rho_harness_core::net::{
-    BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, validate_url,
+    BRAVE_CHROME_UA, DEFAULT_USER_AGENT, HttpRequest, LYNX_UA, is_private_host, is_private_ip, validate_url,
 };
 use std::sync::LazyLock;
 use std::time::Duration;
 use url::Url;
 
-#[cfg(test)]
-mod tests;
-
-async fn read_limited(response: reqwest::Response, max_bytes: usize) -> std::result::Result<Vec<u8>, reqwest::Error> {
-    let capacity = max_bytes.min(256 * 1024);
-    let mut body: Vec<u8> = Vec::with_capacity(capacity);
-    let mut stream = response.bytes_stream();
-    while body.len() < max_bytes {
-        let Some(chunk) = stream.next().await else {
-            break;
-        };
-        let chunk = chunk?;
-        let remaining = max_bytes - body.len();
-        let take = remaining.min(chunk.len());
-        body.extend_from_slice(&chunk[..take]);
-    }
-    Ok(body)
+#[derive(Clone, Debug)]
+pub struct HttpResponse<T> {
+    pub body: T,
+    pub content_type: String,
+    pub final_url: String,
 }
 
 static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
@@ -33,7 +27,7 @@ static PUBLIC_CLIENT: LazyLock<Client> = LazyLock::new(|| {
         .no_proxy()
         .timeout(Duration::from_secs(15))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 {
+            if attempt.previous().len() >= 10 {
                 return attempt.error("too many redirects");
             }
             if let Some(host) = attempt.url().host_str()
@@ -52,7 +46,7 @@ static PRIVATE_CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
         .no_proxy()
         .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::limited(5))
+        .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .expect("Failed to build private HTTP client")
 });
@@ -80,12 +74,11 @@ impl HttpClient {
         rho_harness_core::net::validate_url(raw_url, self.allow_private_network)
     }
 
-    async fn send_request_and_check(
-        &self,
-        request: &HttpRequest<'_>,
-        accept_headers: bool,
-    ) -> Result<reqwest::Response> {
+    async fn send_request(&self, request: &HttpRequest<'_>, accept_headers: bool) -> Result<reqwest::Response> {
         let valid_url = self.validate_url(request.url)?;
+        if !self.allow_private_network {
+            assert_public_dns(&valid_url).await?;
+        }
         let ua = request.user_agent.unwrap_or(DEFAULT_USER_AGENT);
         let mut req = self
             .client
@@ -106,37 +99,64 @@ impl HttpClient {
             .map_err(|e| AppError::Tool(format!("HTTP request failed for {}: {e}", request.url)))?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(AppError::Tool(format!("HTTP error {status} from {}", request.url)));
+            let suffix = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .map(|v| format!(" (retry-after: {v})"))
+                .unwrap_or_default();
+            return Err(AppError::Tool(format!(
+                "HTTP error {status}{suffix} from {}",
+                request.url
+            )));
         }
         Ok(resp)
     }
 
-    pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<(String, String)> {
-        let resp = self.send_request_and_check(&request, true).await?;
+    pub async fn get_text(&self, request: HttpRequest<'_>) -> Result<HttpResponse<String>> {
+        let resp = self.send_request(&request, true).await?;
+        let final_url = resp.url().as_str().to_string();
         let content_type = resp
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("text/html")
             .to_string();
-        let bytes = read_limited(resp, request.max_bytes)
-            .await
-            .map_err(|e| AppError::Tool(format!("Failed to read response body from {}: {e}", request.url)))?;
+        let bytes = read_limited(ReadLimitedParams {
+            response: resp,
+            content_type: &content_type,
+            max_bytes: request.max_bytes,
+            pdf_max_bytes: request.pdf_max_bytes,
+        })
+        .await?;
         let body = String::from_utf8_lossy(&bytes).to_string();
-        Ok((body, content_type))
+        Ok(HttpResponse {
+            body,
+            content_type,
+            final_url,
+        })
     }
 
-    pub async fn get_bytes(&self, request: HttpRequest<'_>) -> Result<(Vec<u8>, String)> {
-        let resp = self.send_request_and_check(&request, false).await?;
+    pub async fn get_bytes(&self, request: HttpRequest<'_>) -> Result<HttpResponse<Vec<u8>>> {
+        let resp = self.send_request(&request, false).await?;
+        let final_url = resp.url().as_str().to_string();
         let content_type = resp
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("application/octet-stream")
             .to_string();
-        let bytes = read_limited(resp, request.max_bytes)
-            .await
-            .map_err(|e| AppError::Tool(format!("Failed to read body from {}: {e}", request.url)))?;
-        Ok((bytes, content_type))
+        let bytes = read_limited(ReadLimitedParams {
+            response: resp,
+            content_type: &content_type,
+            max_bytes: request.max_bytes,
+            pdf_max_bytes: request.pdf_max_bytes,
+        })
+        .await?;
+        Ok(HttpResponse {
+            body: bytes,
+            content_type,
+            final_url,
+        })
     }
 }

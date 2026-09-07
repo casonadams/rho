@@ -29,16 +29,17 @@ pub async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, 
         "https://search.brave.com/search?q={}&source=web{tf_param}",
         urlencoding_encode(req.query)
     );
-    let (html, _) = req
+    let resp = req
         .http
         .get_text(HttpRequest {
             url: &url,
             user_agent: Some(BRAVE_CHROME_UA),
             timeout_sec: req.timeout_sec,
             max_bytes: 2_000_000,
+            pdf_max_bytes: None,
         })
         .await?;
-    Ok(parse_brave_html(&html))
+    Ok(parse_brave_html(&resp.body))
 }
 
 pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {

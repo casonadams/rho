@@ -28,6 +28,7 @@ fn add_web_tools(tools: &mut ToolSet, http: HttpClient) {
         WebFetchConfig {
             timeout_sec: 1,
             max_bytes: 1024,
+            pdf_max_bytes: 30 * 1024 * 1024,
             default_limit: 20,
         },
     ));

@@ -202,6 +202,7 @@ fn build_web_tools(config: &Config) -> Result<(DynamicTool, DynamicTool)> {
         WebFetchConfig {
             timeout_sec: config.fetch_timeout_sec,
             max_bytes: config.fetch_max_bytes,
+            pdf_max_bytes: 30 * 1024 * 1024,
             default_limit: config.fetch_limit,
         },
     );

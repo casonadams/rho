@@ -26,16 +26,17 @@ pub async fn search_yahoo(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, 
         "https://search.yahoo.com/search?p={}{age_param}",
         urlencoding_encode(req.query)
     );
-    let (html, _) = req
+    let resp = req
         .http
         .get_text(HttpRequest {
             url: &url,
             user_agent: Some(LYNX_UA),
             timeout_sec: req.timeout_sec,
             max_bytes: 2_000_000,
+            pdf_max_bytes: None,
         })
         .await?;
-    Ok(parse_yahoo_html(&html))
+    Ok(parse_yahoo_html(&resp.body))
 }
 
 pub fn decode_yahoo_url(raw: &str) -> String {

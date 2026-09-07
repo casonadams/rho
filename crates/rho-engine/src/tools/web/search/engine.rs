@@ -16,6 +16,17 @@ pub enum EngineKind {
     Firecrawl,
 }
 
+impl EngineKind {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Brave => "Brave",
+            Self::DuckDuckGoLite => "DuckDuckGo Lite",
+            Self::Yahoo => "Yahoo",
+            Self::Firecrawl => "Firecrawl",
+        }
+    }
+}
+
 pub struct EngineRequest<'a> {
     pub http: &'a HttpClient,
     pub timeout_sec: u64,
@@ -71,23 +82,26 @@ fn filter_result_by_domains(r: &SearchResult, allowed: &[String], blocked: &[Str
         .is_some_and(|host| matches_domain_filters(host, allowed, blocked))
 }
 
-fn filter_and_dedup(results: Vec<SearchResult>, (allowed, blocked): (&[String], &[String])) -> Vec<SearchResult> {
-    let filtered: Vec<_> = results
-        .into_iter()
-        .filter(|r| filter_result_by_domains(r, allowed, blocked))
-        .collect();
-    deduplicate_results(filtered)
-}
-
-async fn try_engine_round(
-    (engine, req): (EngineKind, &EngineRequest<'_>),
-    limiter: &SearchRateLimiter,
+async fn query_engine_filtered(
+    engine: EngineKind,
+    (req, limiter): (&EngineRequest<'_>, &SearchRateLimiter),
     filters: (&[String], &[String]),
-) -> Option<Vec<SearchResult>> {
+) -> Vec<SearchResult> {
     limiter.acquire().await;
-    let results = search_single_engine(engine, req).await.ok()?;
-    let deduplicated = filter_and_dedup(results, filters);
-    (!deduplicated.is_empty()).then_some(deduplicated)
+    if let Ok(results) = search_single_engine(engine, req).await {
+        results
+            .into_iter()
+            .map(|mut r| {
+                if r.source.is_none() {
+                    r.source = Some(engine.name().to_string());
+                }
+                r
+            })
+            .filter(|r| filter_result_by_domains(r, filters.0, filters.1))
+            .collect()
+    } else {
+        Vec::new()
+    }
 }
 
 pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchResult> {
@@ -101,11 +115,16 @@ pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchRes
         recency: params.recency,
     };
 
+    let mut accumulated: Vec<SearchResult> = Vec::new();
     for engine in engines {
-        if let Some(deduplicated) = try_engine_round((engine, &req), params.rate_limiter, (&allowed, &blocked)).await {
-            return deduplicated.into_iter().take(params.limit).collect();
+        let results = query_engine_filtered(engine, (&req, params.rate_limiter), (&allowed, &blocked)).await;
+        accumulated.extend(results);
+        let deduped = deduplicate_results(accumulated);
+        if deduped.len() >= params.limit {
+            return deduped.into_iter().take(params.limit).collect();
         }
+        accumulated = deduped;
     }
 
-    Vec::new()
+    accumulated.into_iter().take(params.limit).collect()
 }

@@ -37,6 +37,7 @@ html2text = "0.14"
 feed-rs = "2.3"
 quick-xml = "0.41"
 csv = "1.3"
+encoding_rs = "0.8"
 pdf-extract = "0.7"
 moka = { version = "0.12", features = ["future"] }
 regex = "1.11"

@@ -9,6 +9,7 @@ use rho_harness_core::error::AppError;
 use scraper::{Html, Selector};
 use url::Url;
 
+static TR_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("tr").expect("valid selector"));
 static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.result-link").expect("valid selector"));
 static SNIPPET_SEL: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("td.result-snippet").expect("valid selector"));
@@ -26,16 +27,17 @@ pub async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult
         urlencoding_encode(req.query),
         urlencoding_encode(req.region)
     );
-    let (html, _) = req
+    let resp = req
         .http
         .get_text(HttpRequest {
             url: &url,
             user_agent: Some(LYNX_UA),
             timeout_sec: req.timeout_sec,
             max_bytes: 2_000_000,
+            pdf_max_bytes: None,
         })
         .await?;
-    Ok(parse_ddg_lite_html(&html))
+    Ok(parse_ddg_lite_html(&resp.body))
 }
 
 pub fn decode_ddg_url(raw: &str) -> String {
@@ -58,33 +60,32 @@ fn normalize_ddg_href(href: &str) -> String {
     }
 }
 
-fn build_ddg_result(link: scraper::ElementRef<'_>, snippet: Option<&String>) -> Option<SearchResult> {
+fn parse_ddg_row(rows: &[scraper::ElementRef<'_>], idx: usize) -> Option<SearchResult> {
+    let row = rows.get(idx)?;
+    let link = row.select(&LINK_SEL).next()?;
     let href = link.value().attr("href")?;
     if href.is_empty() {
         return None;
     }
     let decoded = decode_ddg_url(&normalize_ddg_href(href));
     let title = link.text().collect::<Vec<_>>().join(" ").trim().to_string();
-    if !decoded.is_empty() && !title.is_empty() && decoded.starts_with("http") {
-        let abs = snippet.cloned().unwrap_or_default();
-        Some(SearchResult::new(title, abs, decoded))
-    } else {
-        None
+    if decoded.is_empty() || title.is_empty() || !decoded.starts_with("http") {
+        return None;
     }
+
+    let snippet = rows
+        .get(idx + 1)
+        .and_then(|next_row| next_row.select(&SNIPPET_SEL).next())
+        .map(|s| s.text().collect::<Vec<_>>().join(" ").trim().to_string())
+        .unwrap_or_default();
+
+    Some(SearchResult::new(title, snippet, decoded))
 }
 
 pub fn parse_ddg_lite_html(html: &str) -> Vec<SearchResult> {
     let document = Html::parse_document(html);
-    let snippets: Vec<String> = document
-        .select(&SNIPPET_SEL)
-        .map(|s| s.text().collect::<Vec<_>>().join(" ").trim().to_string())
-        .collect();
-
-    document
-        .select(&LINK_SEL)
-        .enumerate()
-        .filter_map(|(i, link)| build_ddg_result(link, snippets.get(i)))
-        .collect()
+    let rows: Vec<_> = document.select(&TR_SEL).collect();
+    (0..rows.len()).filter_map(|idx| parse_ddg_row(&rows, idx)).collect()
 }
 
 #[cfg(test)]

@@ -2547,6 +2547,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "csv",
+ "encoding_rs",
  "feed-rs",
  "futures",
  "grep-regex",

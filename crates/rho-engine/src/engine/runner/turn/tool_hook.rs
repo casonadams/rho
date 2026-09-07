@@ -65,6 +65,17 @@ impl TurnToolExecutionHook {
     }
 }
 
+fn resolve_tool_output<'a>(output: &'a str, raw: &rig::tool::ToolResult, storage: &'a mut String) -> &'a str {
+    if output.is_empty()
+        && let Some(err) = raw.error().or_else(|| raw.refusal())
+    {
+        *storage = err.to_string();
+        storage.as_str()
+    } else {
+        output
+    }
+}
+
 impl AgentHook for TurnToolExecutionHook {
     fn on_model_select(&self, _ctx: &HookContext, _event: ModelSelection<'_>) -> ModelSelectionAction {
         if let Some(switcher) = &self.model_switch
@@ -107,14 +118,16 @@ impl AgentHook for TurnToolExecutionHook {
             .and_then(|s| s.current_provider())
             .unwrap_or_else(|| self.provider.clone());
         let (action, output) = gated_result(event.presentation, &provider);
+        let mut err_storage = String::new();
+        let final_output = resolve_tool_output(&output, event.raw_result, &mut err_storage);
         self.sink.tool_finished(ToolFinishDetails {
             name: event.tool_name,
             arguments: &arguments,
-            output: &output,
+            output: final_output,
             is_error: !event.raw_result.is_success(),
         });
 
-        if let Some(steer_action) = self.check_steering_rewrite(&output).await {
+        if let Some(steer_action) = self.check_steering_rewrite(final_output).await {
             return steer_action;
         }
         action

@@ -15,6 +15,14 @@ pub struct HttpRequest<'a> {
     pub user_agent: Option<&'a str>,
     pub timeout_sec: u64,
     pub max_bytes: usize,
+    pub pdf_max_bytes: Option<usize>,
+}
+
+pub fn is_private_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => is_private_ipv4(v4),
+        std::net::IpAddr::V6(v6) => is_private_ipv6(v6),
+    }
 }
 
 pub fn is_private_host(host: &str) -> bool {
@@ -24,19 +32,16 @@ pub fn is_private_host(host: &str) -> bool {
         return true;
     }
     if let Ok(ip) = host.parse::<std::net::IpAddr>() {
-        return match ip {
-            std::net::IpAddr::V4(v4) => is_private_ipv4(v4),
-            std::net::IpAddr::V6(v6) => is_private_ipv6(v6),
-        };
+        return is_private_ip(ip);
     }
     false
 }
 
-fn is_private_ipv4(v4: std::net::Ipv4Addr) -> bool {
+pub fn is_private_ipv4(v4: std::net::Ipv4Addr) -> bool {
     v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.octets()[0] == 0
 }
 
-fn is_private_ipv6(v6: std::net::Ipv6Addr) -> bool {
+pub fn is_private_ipv6(v6: std::net::Ipv6Addr) -> bool {
     if v6.is_loopback() || v6.is_unspecified() {
         return true;
     }
@@ -61,6 +66,12 @@ pub fn validate_url(raw_url: &str, allow_private_network: bool) -> Result<Url> {
     match parsed.scheme() {
         "http" | "https" => {}
         other => return Err(AppError::Tool(format!("Unsupported URL scheme: '{other}'"))),
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(AppError::Tool(
+            "URLs containing credentials (username or password) are blocked for security".to_string(),
+        ));
     }
 
     if !allow_private_network
@@ -122,6 +133,8 @@ mod tests {
             ("http://[fd00::1]:8080", false, false),
             ("http://127.0.0.1:8080", true, true),
             ("file:///etc/passwd", false, false),
+            ("http://user:pass@example.com/data", false, false),
+            ("http://admin@example.com/", false, false),
         ];
         for (url, allow, ok) in cases {
             assert_eq!(validate_url(url, allow).is_ok(), ok);

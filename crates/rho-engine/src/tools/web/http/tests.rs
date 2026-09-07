@@ -23,20 +23,50 @@ fn blocks_private_urls_before_network_io() {
     }
 }
 
+#[test]
+fn blocks_credential_urls() {
+    let client = HttpClient::new(true).unwrap();
+    assert!(client.validate_url("http://user:pass@example.com/").is_err());
+    assert!(client.validate_url("https://admin@example.com/").is_err());
+}
+
 #[tokio::test]
-async fn response_body_respects_size_limit() {
+async fn response_body_rejects_oversized_content() {
     let url = spawn_response_server("abcdefgh", Duration::ZERO).await;
     let client = HttpClient::new(true).unwrap();
-    let (body, _) = client
+    let err = client
         .get_text(HttpRequest {
             url: &url,
             user_agent: None,
             timeout_sec: 2,
             max_bytes: 4,
+            pdf_max_bytes: None,
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("too large") || err.to_string().contains("exceeded"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn response_body_reads_under_size_limit() {
+    let url = spawn_response_server("hello", Duration::ZERO).await;
+    let client = HttpClient::new(true).unwrap();
+    let resp = client
+        .get_text(HttpRequest {
+            url: &url,
+            user_agent: None,
+            timeout_sec: 2,
+            max_bytes: 100,
+            pdf_max_bytes: None,
         })
         .await
         .unwrap();
-    assert_eq!(body, "abcd");
+    assert_eq!(resp.body, "hello");
+    assert_eq!(resp.content_type, "text/plain");
+    assert!(resp.final_url.starts_with("http://"));
 }
 
 #[tokio::test]
@@ -49,6 +79,7 @@ async fn request_respects_per_call_timeout() {
             user_agent: None,
             timeout_sec: 0,
             max_bytes: 100,
+            pdf_max_bytes: None,
         })
         .await
         .unwrap_err();

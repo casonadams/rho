@@ -67,38 +67,48 @@ fn test_relax_query() {
 }
 
 #[test]
-fn test_deduplicate_results() {
+fn test_deduplicate_results_canonical_url() {
     let results = vec![
-        SearchResult::new("Doc 1", "first", "https://docs.rs/crate/a"),
-        SearchResult::new("Doc 2", "duplicate domain", "https://docs.rs/crate/b"),
+        SearchResult::new("Doc 1", "first", "https://docs.rs/crate/a?utm_source=twitter"),
+        SearchResult::new("Doc 2", "second page", "https://docs.rs/crate/b"),
         SearchResult::new("Exact URL Dup", "dup", "https://docs.rs/crate/a"),
-        SearchResult::new("Repo", "rust repo", "https://github.com/rust-lang/rust"),
+        SearchResult::new(
+            "Repo Blob",
+            "rust repo",
+            "https://github.com/rust-lang/rust/blob/main/README.md",
+        ),
     ];
     let deduped = deduplicate_results(results);
-    assert_eq!(deduped.len(), 2);
-    assert_eq!(deduped[0].url, "https://docs.rs/crate/a");
-    assert_eq!(deduped[1].url, "https://github.com/rust-lang/rust");
+    let expected = [
+        ("https://docs.rs/crate/a", Some("documentation")),
+        ("https://docs.rs/crate/b", Some("documentation")),
+        (
+            "https://raw.githubusercontent.com/rust-lang/rust/main/README.md",
+            Some("GitHub"),
+        ),
+    ];
+    assert_eq!(deduped.len(), expected.len());
+    for (res, (url, hint)) in deduped.iter().zip(expected) {
+        assert_eq!(res.url, url);
+        assert_eq!(res.content_hint.as_deref(), hint);
+    }
 }
 
 #[test]
 fn test_format_search_results() {
     let results = vec![
-        SearchResult::new("Rust", "A systems programming language", "https://www.rust-lang.org/"),
-        SearchResult::new("Crates.io", "Registry", "https://crates.io/"),
+        SearchResult::new("Rust", "A systems language", "https://www.rust-lang.org/"),
+        SearchResult::new("Docs", "API Docs", "https://docs.rs/tokio")
+            .with_hint("documentation")
+            .with_source("Brave"),
     ];
     let formatted = format_search_results(FormatResultsParams {
         query: "rust lang",
         results: &results,
-        limit: 1,
+        limit: 2,
         today: "2026-09-03",
     });
-    for fragment in [
-        "**Search results for:** rust lang",
-        "1. Rust",
-        "URL: https://www.rust-lang.org/",
-        "Summary: A systems programming language",
-    ] {
-        assert!(formatted.contains(fragment));
-    }
-    assert!(!formatted.contains("Crates.io"));
+    assert!(formatted.contains("via Brave"));
+    assert!(formatted.contains("1. **Rust** (rust-lang.org)\n   URL: https://www.rust-lang.org/"));
+    assert!(formatted.contains("2. **Docs** (docs.rs | documentation | Brave)\n   URL: https://docs.rs/tokio"));
 }
