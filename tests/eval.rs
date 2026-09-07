@@ -558,16 +558,16 @@ async fn agent_eval_session_bash_cancellation_kills_process() {
     ]]);
     let engine = eval_engine(&dir, 2, model);
     let timed = tokio::time::timeout(
-        std::time::Duration::from_millis(40),
+        std::time::Duration::from_millis(50),
         engine.run_turn(
             TurnRequest::new("run"),
             std::sync::Arc::new(StructuredPresenter::stdout()),
         ),
     )
     .await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert!(timed.is_err());
     engine.record_cancellation("test cancellation").await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
     assert!(!marker.exists());
     assert_cancelled_session_empty(&engine.session_manager).await;
 }

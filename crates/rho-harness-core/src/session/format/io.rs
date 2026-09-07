@@ -59,32 +59,28 @@ fn serialize_record_line(record: &SessionRecord) -> Result<Vec<u8>> {
     Ok(line)
 }
 
-async fn flush_or_sync(file: &mut tokio::fs::File, durable: bool) -> Result<()> {
+fn write_record_sync(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
+    let line = serialize_record_line(record)?;
+    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+    file.write_all(&line)?;
     if durable {
-        file.sync_data().await?;
+        file.sync_data()?;
     } else {
-        file.flush().await?;
+        file.flush()?;
     }
     Ok(())
-}
-
-async fn write_record(path: &Path, record: &SessionRecord, durable: bool) -> Result<()> {
-    let line = serialize_record_line(record)?;
-    let mut file = tokio::fs::OpenOptions::new().append(true).open(path).await?;
-    file.write_all(&line).await?;
-    flush_or_sync(&mut file, durable).await
 }
 
 /// Append an audit event without an fsync; the JSONL loader drops a torn
 /// trailing line, so at most the newest unflushed events are lost on a crash.
 pub async fn append_record(path: &Path, record: &SessionRecord) -> Result<()> {
-    write_record(path, record, false).await
+    write_record_sync(path, record, false)
 }
 
 /// Append a canonical-history state transition and fsync it so a resumable
 /// session never replays a half-committed state change.
 pub async fn append_durable_record(path: &Path, record: &SessionRecord) -> Result<()> {
-    write_record(path, record, true).await
+    write_record_sync(path, record, true)
 }
 
 pub fn load_file(path: &Path, expected_id: &str) -> Result<StoreState> {
