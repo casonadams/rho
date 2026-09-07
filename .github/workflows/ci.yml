@@ -42,7 +42,14 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Run tests
-        run: cargo test --workspace --all-targets
+        run: |
+          cargo test --workspace --all-targets 2>&1 | tee /tmp/test.log || {
+            echo "## Test Failure" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            grep -E -B 2 -A 15 '(failures:|FAILED|panicked at)' /tmp/test.log | head -n 100 >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            exit 1
+          }
 
       - name: Run doc tests
         run: cargo test --workspace --doc
