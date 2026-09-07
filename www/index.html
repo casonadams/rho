@@ -92,61 +92,6 @@
           </button>
         </div>
       </div>
-
-      <!-- Interactive Terminal Simulator -->
-      <div class="terminal-wrapper">
-        <div class="terminal-frame">
-          <div class="terminal-header">
-            <div class="terminal-dots">
-              <span class="terminal-dot dot-red"></span>
-              <span class="terminal-dot dot-yellow"></span>
-              <span class="terminal-dot dot-green"></span>
-            </div>
-            <span class="terminal-title">rho ~ agent-repl (main)</span>
-            <div class="terminal-actions">
-              <span class="terminal-chip">Rust Engine</span>
-            </div>
-          </div>
-
-          <div id="terminalSimBody" class="terminal-body">
-            <!-- Simulated steps stream here -->
-          </div>
-
-          <div class="terminal-footer-telemetry">
-            <div class="telemetry-row">
-              <div class="telemetry-item">
-                <span>Tokens:</span>
-                <span id="telemetryTokens" class="telemetry-val">1,420</span>
-              </div>
-              <div class="telemetry-item">
-                <span>Speed:</span>
-                <span id="telemetrySpeed" class="telemetry-val">142 tok/s</span>
-              </div>
-              <div class="telemetry-item">
-                <span>Quota:</span>
-                <span class="telemetry-val" style="color: var(--accent-green);">95% 4h23m 89% 3d21h</span>
-              </div>
-              <div class="telemetry-item">
-                <span>Context:</span>
-                <span class="telemetry-bar"><span id="telemetryBar" class="telemetry-bar-fill"></span></span>
-              </div>
-              <div class="telemetry-item">
-                <span id="telemetryStatusBadge" style="display: none; background: rgba(82, 224, 150, 0.2); color: #52e096; padding: 1px 6px; border-radius: 3px; font-weight: 600;">🔒 Guard Active</span>
-                <span style="color: #60a5fa;">gemini-3.8-flash</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="terminal-controller-bar">
-          <span>Explore rho capabilities:</span>
-          <div class="terminal-scenario-select">
-            <button class="scenario-btn active" data-scenario="plugin">1. Daemon Plugin Hook</button>
-            <button class="scenario-btn" data-scenario="install">2. rho install &amp; plugin ls</button>
-            <button class="scenario-btn" data-scenario="resume">3. Session Resume (rho -r)</button>
-          </div>
-        </div>
-      </div>
     </div>
   </header>
 
