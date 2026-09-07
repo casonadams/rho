@@ -76,6 +76,11 @@ Comprehensive guides are organized in [`docs/`](docs/):
     [walh-shell](https://github.com/casonadams/walh-shell) ANSI syncing.
   - Fenced Mermaid diagram rendering.
 
+- **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**
+  - Comprehensive keybinding reference organized by session flow, queueing,
+    model controls, and editor navigation.
+  - Custom keybinding configuration (`~/.config/rho/keybindings.toml`).
+
 - **[Permissions & Safety](docs/permissions.md)**
   - In-process safety layer separating baseline safe inspection from mutating
     commands.

@@ -38,6 +38,10 @@ newlines grow the editor upward.
 
 ## Keyboard Controls & Navigation
 
+For the comprehensive reference categorized by lifecycle, prompt queueing,
+editor navigation, and custom keybinding configuration, see
+**[Keyboard Shortcuts & Controls](shortcuts.md)**.
+
 | Key                      | Action                                                                                                                |
 | :----------------------- | :-------------------------------------------------------------------------------------------------------------------- |
 | `Enter`                  | Submit prompt.                                                                                                        |
