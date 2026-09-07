@@ -38,7 +38,7 @@
 
       <ul class="nav-links">
         <li><a href="./" class="nav-link active">Home</a></li>
-        <li><a href="packages.html" class="nav-link">Plugins &amp; Ecosystem</a></li>
+        <li><a href="packages.html" class="nav-link">Ecosystem</a></li>
         <li><a href="docs.html" class="nav-link">Documentation</a></li>
         <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
       </ul>
@@ -331,38 +331,42 @@ rho -p "audit dependencies"</code></pre>
 
       <div class="grid-3">
         <div class="card">
-          <div class="card-icon icon-purple">🛡</div>
-          <h3 class="card-title">rho-plugin-permission</h3>
-          <p class="card-desc">
-            In-process guardrails and approval modals for file mutations, directory unlinking, and shell commands.
-          </p>
-          <div class="plugin-install-bar">
-            <code class="plugin-install-cmd">$ rho install permission</code>
-            <button class="copy-btn" data-copy="rho install permission">Copy</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-icon icon-blue">🔒</div>
-          <h3 class="card-title">rust-guard</h3>
-          <p class="card-desc">
-            Demonstration security daemon that intercepts sudo execution, prompts via host UI, and sets terminal status line widgets.
-          </p>
-          <div class="plugin-install-bar">
-            <code class="plugin-install-cmd">$ rho install rust-guard</code>
-            <button class="copy-btn" data-copy="rho install rust-guard">Copy</button>
-          </div>
-        </div>
-
-        <div class="card">
           <div class="card-icon icon-green">⚙️</div>
           <h3 class="card-title">rho-plugin-sdk</h3>
           <p class="card-desc">
-            Official Rust crate for building stdio daemon plugins, handling lifecycle events, and invoking host UI modals.
+            Official Rust crate for building stdio JSON-RPC daemon plugins, handling lifecycle events, and invoking host UI modals.
           </p>
           <div class="plugin-install-bar">
             <code class="plugin-install-cmd">$ cargo add rho-plugin-sdk</code>
             <button class="copy-btn" data-copy="cargo add rho-plugin-sdk">Copy</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-purple">🔌</div>
+          <h3 class="card-title">Model Context Protocol (MCP)</h3>
+          <p class="card-desc">
+            Connect any community MCP tool server (Filesystem, GitHub, Playwright, SQLite) via <code>[mcp.servers]</code> in <code>config.toml</code>.
+          </p>
+          <div class="plugin-install-bar">
+            <code class="plugin-install-cmd">[mcp.servers.github]</code>
+            <button class="copy-btn" data-copy="[mcp.servers.github]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-github&quot;]">Copy</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-icon icon-blue">🛡</div>
+          <h3 class="card-title">Lifecycle Example Daemons</h3>
+          <p class="card-desc">
+            Production-ready example daemons in <code>examples/plugins/</code> for security guardrails (Rust, Python), quota tracking, and notifications.
+          </p>
+          <div class="plugin-install-bar">
+            <code class="plugin-install-cmd">[plugins.rust_guard]</code>
+            <button class="copy-btn" data-copy="[plugins.rust_guard]
+enabled = true
+command = &quot;rust-guard&quot;">Copy</button>
           </div>
         </div>
       </div>
@@ -396,7 +400,7 @@ rho -p "audit dependencies"</code></pre>
         <div class="footer-links-group">
           <div class="footer-col">
             <span class="footer-col-title">Project</span>
-            <a href="packages.html">Plugins &amp; Ecosystem</a>
+            <a href="packages.html">Ecosystem &amp; Plugins</a>
             <a href="docs.html">Documentation</a>
             <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
             <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
@@ -418,7 +422,6 @@ rho -p "audit dependencies"</code></pre>
     </div>
   </footer>
 
-  <script type="module" src="js/firebase-init.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Package &amp; Plugin Catalog · rho</title>
-  <meta name="description" content="Discover and install extensions, MCP tool servers, and lifecycle plugins for the rho coding agent CLI.">
+  <title>Ecosystem &amp; Extensions · rho</title>
+  <meta name="description" content="Discover verified Model Context Protocol (MCP) servers, example lifecycle plugins, and SDK tooling for the rho coding agent.">
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
@@ -33,7 +33,7 @@
 
       <ul class="nav-links">
         <li><a href="./" class="nav-link">Home</a></li>
-        <li><a href="packages.html" class="nav-link active">Packages &amp; Plugins</a></li>
+        <li><a href="packages.html" class="nav-link active">Ecosystem</a></li>
         <li><a href="docs.html" class="nav-link">Documentation</a></li>
         <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
       </ul>
@@ -55,10 +55,10 @@
   <main class="container" style="padding-top: 3.5rem; padding-bottom: 5rem;">
     <div style="margin-bottom: 2.5rem;">
       <h1 style="font-size: 2.4rem; font-weight: 800; letter-spacing: -0.025em; margin-bottom: 0.5rem;">
-        Package &amp; Plugin Catalog
+        Extensions &amp; Ecosystem
       </h1>
       <p style="color: var(--text-secondary); font-size: 1.05rem; max-width: 760px;">
-        Discover and install extensions, MCP tool providers, and daemon plugins published to Crates.io and GitHub. Install with <code>rho install &lt;name&gt;</code>.
+        Verified Model Context Protocol (MCP) servers, example daemon plugins, and official developer SDK tooling for the <code>rho</code> coding agent.
       </p>
     </div>
 
@@ -66,31 +66,31 @@
     <div class="catalog-toolbar">
       <div class="search-field">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="pluginSearchInput" class="search-input" placeholder="Search packages by name, author, or keyword…" autocomplete="off">
+        <input type="search" id="pluginSearchInput" class="search-input" placeholder="Search extensions by name, runtime, or keyword…" autocomplete="off">
       </div>
 
       <div class="filter-group">
         <button class="filter-btn active" data-type="all">All</button>
-        <button class="filter-btn" data-type="plugin">Plugins</button>
         <button class="filter-btn" data-type="mcp">MCP Servers</button>
-        <button class="filter-btn" data-type="sdk">SDK</button>
+        <button class="filter-btn" data-type="plugin">Lifecycle Plugins</button>
+        <button class="filter-btn" data-type="sdk">Rust SDK</button>
       </div>
 
       <div>
         <select id="sortSelect" class="select-control">
-          <option value="downloads">Most Downloads</option>
-          <option value="stars">Most Stars</option>
+          <option value="default">Featured</option>
           <option value="name">Name (A-Z)</option>
+          <option value="type">Type</option>
         </select>
       </div>
     </div>
 
     <!-- Status / Count Bar -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; font-size: 0.84rem; color: var(--text-muted);">
-      <span id="pluginCount">Loading plugins from Crates.io &amp; GitHub…</span>
+      <span id="pluginCount">Loading extensions…</span>
       <span id="dataSourceIndicator" style="display: inline-flex; align-items: center; gap: 0.35rem;">
         <span style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--accent-green);"></span>
-        Free Live Registry
+        Verified Catalog
       </span>
     </div>
 
@@ -99,43 +99,45 @@
       <!-- Dynamically filled by plugins.js -->
     </div>
 
-    <!-- Publishing Guide Banner -->
-    <section class="publish-banner">
+    <!-- Extension Guide Banner -->
+    <section class="publish-banner" style="margin-top: 3.5rem;">
       <div>
-        <span class="section-badge">Free Plugin Publishing</span>
+        <span class="section-badge">Architecture &amp; Development</span>
         <h2 style="font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 0.4rem;">
-          How to Publish Your Plugin (100% Free &amp; Automatic)
+          How Extensions Work in rho
         </h2>
         <p style="color: var(--text-secondary); font-size: 0.95rem;">
-          No central submission form or paid hosting needed. Any package tagged for rho is automatically discovered by this directory and the rho CLI.
+          <code>rho</code> separates tool execution into two decoupled systems: out-of-process MCP tool servers and lifecycle event plugins.
         </p>
       </div>
 
       <div class="publish-steps">
         <div class="step-card">
-          <div class="step-number">Step 1 · Build on rho-plugin-sdk</div>
+          <div class="step-number">1 · Connect MCP Tool Servers</div>
           <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-            Write your plugin using standard JSON-RPC 2.0 over stdio or import the official Rust crate:
+            Add standard Model Context Protocol servers under <code>[mcp.servers]</code> in <code>~/.config/rho/config.toml</code>:
           </p>
-          <pre style="background: var(--bg-surface-raised); padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.78rem;"><code>cargo add rho-plugin-sdk</code></pre>
+          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>[mcp.servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]</code></pre>
         </div>
 
         <div class="step-card">
-          <div class="step-number">Step 2 · Tag on Crates.io</div>
+          <div class="step-number">2 · Build Lifecycle Plugins</div>
           <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-            In your <code>Cargo.toml</code>, specify the official keyword and prefix:
+            Write stdio JSON-RPC daemons in Rust using <code>rho-plugin-sdk</code> or script them in Python/Node:
           </p>
-          <pre style="background: var(--bg-surface-raised); padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.78rem;"><code>[package]
-name = "rho-plugin-&lt;name&gt;"
-keywords = ["rho-plugin"]</code></pre>
+          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>cargo add rho-plugin-sdk
+# Handles tool_call, tool_result, repair, & UI modals</code></pre>
         </div>
 
         <div class="step-card">
-          <div class="step-number">Step 3 · Tag on GitHub</div>
+          <div class="step-number">3 · Distribute via GitHub Releases</div>
           <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-            Add the GitHub topic <strong style="color: var(--accent-green);">rho-plugin</strong> under your repository settings. Users can install immediately:
+            Release binaries to GitHub Releases matching OS/arch. Users install directly into <code>~/.cargo/bin</code>:
           </p>
-          <pre style="background: var(--bg-surface-raised); padding: 0.4rem 0.6rem; border-radius: 4px; font-size: 0.78rem;"><code>rho install &lt;your-plugin&gt;</code></pre>
+          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>rho install &lt;owner&gt;/&lt;repo&gt;
+rho update all</code></pre>
         </div>
       </div>
     </section>
@@ -162,7 +164,7 @@ keywords = ["rho-plugin"]</code></pre>
         <div class="footer-links-group">
           <div class="footer-col">
             <span class="footer-col-title">Project</span>
-            <a href="packages.html">Packages &amp; Plugins</a>
+            <a href="packages.html">Ecosystem &amp; Plugins</a>
             <a href="docs.html">Documentation</a>
             <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
             <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
@@ -185,17 +187,16 @@ keywords = ["rho-plugin"]</code></pre>
     </div>
   </footer>
 
-  <script type="module" src="js/firebase-init.js"></script>
   <script src="js/app.js"></script>
 
   <!-- Live Packages Controller -->
   <script type="module">
-    import { loadAllPlugins, filterPlugins, renderPluginCard } from "/js/plugins.js";
+    import { loadAllPlugins, filterPlugins, renderPluginCard } from "./js/plugins.js";
 
     let allPlugins = [];
     let currentType = "all";
     let currentQuery = "";
-    let currentSort = "downloads";
+    let currentSort = "default";
 
     const gridEl = document.getElementById("pluginsGrid");
     const countEl = document.getElementById("pluginCount");
@@ -204,12 +205,8 @@ keywords = ["rho-plugin"]</code></pre>
     const filterBtns = document.querySelectorAll(".filter-btn");
 
     async function init() {
-      try {
-        allPlugins = await loadAllPlugins();
-        applyFilters();
-      } catch (err) {
-        countEl.textContent = "Failed to load live plugins. Showing local catalog.";
-      }
+      allPlugins = await loadAllPlugins();
+      applyFilters();
     }
 
     function applyFilters() {
@@ -219,13 +216,13 @@ keywords = ["rho-plugin"]</code></pre>
         sort: currentSort
       });
 
-      countEl.textContent = `Showing ${filtered.length} of ${allPlugins.length} packages`;
+      countEl.textContent = `Showing ${filtered.length} of ${allPlugins.length} verified extensions`;
 
       if (!filtered.length) {
         gridEl.innerHTML = `
           <div style="grid-column: 1 / -1; padding: 3rem; text-align: center; color: var(--text-muted); background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 8px;">
-            <p style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-primary);">No matching packages found</p>
-            <p style="font-size: 0.88rem;">Try searching for a different keyword or reset filters.</p>
+            <p style="font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text-primary);">No matching extensions found</p>
+            <p style="font-size: 0.88rem;">Try searching for a different keyword or reset category filters.</p>
           </div>
         `;
         return;
@@ -234,15 +231,19 @@ keywords = ["rho-plugin"]</code></pre>
       gridEl.innerHTML = filtered.map(renderPluginCard).join("");
     }
 
-    searchInput.addEventListener("input", (e) => {
-      currentQuery = e.target.value;
-      applyFilters();
-    });
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        currentQuery = e.target.value;
+        applyFilters();
+      });
+    }
 
-    sortSelect.addEventListener("change", (e) => {
-      currentSort = e.target.value;
-      applyFilters();
-    });
+    if (sortSelect) {
+      sortSelect.addEventListener("change", (e) => {
+        currentSort = e.target.value;
+        applyFilters();
+      });
+    }
 
     filterBtns.forEach(btn => {
       btn.addEventListener("click", () => {
