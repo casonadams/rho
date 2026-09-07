@@ -2,14 +2,18 @@
 
 ## Code structure
 
-- Keep files concise (~150 lines target). Treat growth beyond ~150 lines as a
-  signal to check cohesion and split along natural architectural seams when it
-  clarifies responsibilities.
-- Separate unit tests into sibling `tests.rs` or `tests/` submodules rather than
-  embedding large `#[cfg(test)]` blocks inside production source files when
-  files grow beyond ~150 lines.
-- Avoid premature fragmentation: do not break straightforward logic into tiny,
-  artificially separated helpers that obscure control flow.
+- Prioritize cohesion and natural readability over artificial file length limits.
+  Files up to ~300-400 lines are healthy and encouraged when they keep related
+  logic, data types, and tests together.
+- Avoid micro-fragmentation: do not shatter straightforward logic, argument
+  definitions, or tiny helpers into separate 10-50 line files or deep directory
+  hierarchies. Keep directory trees shallow (target <= 4-5 levels deep).
+- Prefer idiomatic Rust function signatures: use natural parameter lists (up to
+  6 arguments) or explicit domain config/context structs. Never pack parameters
+  into tuples (`(a, b): (&str, &str)`) to circumvent argument count thresholds.
+- Prefer standard in-file `#[cfg(test)] mod tests` for unit tests. Use a sibling
+  `tests.rs` only when a test suite is genuinely distinct or very large. Do not
+  create nested test directories (`tests/sub/mod.rs`) for unit tests.
 
 ## Lint policy
 
@@ -22,9 +26,8 @@
 
 - Use `cargo test --workspace` for test feedback during development (a bare
   `cargo test` only covers the root `rho` package, not the other crates).
-- Place unit tests in a dedicated `tests.rs` or `tests/` file
-  (`#[cfg(test)] mod tests;`) to keep production implementation files concise
-  and cleanly separated from test harnesses.
+- Write unit tests in in-file `#[cfg(test)] mod tests` blocks or sibling `tests.rs`
+  files, avoiding deep nested test module folders.
 - In HTTP client builders, always configure `.no_proxy()` or reuse static client
   singletons (`HttpClient` / `LazyLock`), and use `rustls-tls-webpki-roots`.
   Never build unconfigured `reqwest::Client` instances in hot paths or test
