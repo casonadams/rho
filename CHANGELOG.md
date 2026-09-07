@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.6.0](https://github.com/casonadams/rho/compare/v0.5.1...v0.6.0) (2026-09-07)
+
+
+### Features
+
+* **repl:** add interactive in-tui login modal and standardize modal ux in agents.md ([780169b](https://github.com/casonadams/rho/commit/780169b03e1667c3daa6564a7c159180c1456fa6))
+* **web:** achieve parity with web fetch and search capabilities ([a4dbc57](https://github.com/casonadams/rho/commit/a4dbc57a3390b889a3cc809b03261e607a8fed5b))
+
+
+### Bug Fixes
+
+* **ui:** make footer git branch discovery test hermetic ([7f91456](https://github.com/casonadams/rho/commit/7f91456844c96b4abd5224e41aac012d1f7f3b8e))
+
 ## [0.5.1](https://github.com/casonadams/rho/compare/v0.5.0...v0.5.1) (2026-09-07)
 
 
