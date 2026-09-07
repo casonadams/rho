@@ -1,3 +1,9 @@
+//! Agent engine: `AgentEngine` owns the turn loop (prepare → stream → tool
+//! dispatch → completion), usage tracking, and auto-compaction. Submodules:
+//! `builder` (construction), `runner` (turn/sink execution), `context`
+//! (instruction discovery), `compactor` (summarization), `tracking` (usage),
+//! `metrics`, `runtime`, and `eval` (deterministic mock harness).
+
 pub use crate::repeat;
 pub use crate::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
 use std::path::Path;

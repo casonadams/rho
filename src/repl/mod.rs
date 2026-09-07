@@ -1,3 +1,7 @@
+//! REPL frontends: `live` (raw-mode TUI with modals and streaming
+//! transcript), `line_mode` (readline fallback), and the shared command,
+//! completion, and coordination plumbing used by both.
+
 pub mod commands;
 pub mod completer;
 pub mod coordinator;

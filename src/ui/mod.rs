@@ -1,3 +1,6 @@
+//! Terminal UI: streaming markdown rendering, the interactive controller
+//! (transcript caching, redraw batching, keymaps), block painting, and themes.
+
 pub mod block;
 pub mod interactive;
 pub mod markdown;

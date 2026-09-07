@@ -1,3 +1,7 @@
+//! Built-in tools and shared plumbing. Each tool directory owns its argument
+//! schema (`rho_harness_core::args`), execution, and truncation behavior;
+//! `registry` wires declarations into the model-facing tool list.
+
 pub(crate) mod atomic;
 pub mod bash;
 pub mod builtin_tools;

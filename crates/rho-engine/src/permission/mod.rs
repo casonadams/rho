@@ -1,3 +1,7 @@
+//! Permission gate: policy evaluation, bash command analysis, baseline
+//! allowlists, and interactive approval. Decisions are allow/deny/edit with
+//! optional always-allow rule persistence.
+
 pub mod baseline;
 pub mod bash;
 pub mod eval;

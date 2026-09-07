@@ -1,3 +1,7 @@
+//! Model Context Protocol client: child process supervision, JSON-RPC stdio
+//! transport, tool discovery, and the gateway that merges MCP tools into the
+//! registry.
+
 pub mod client;
 pub mod gateway;
 pub mod manager;

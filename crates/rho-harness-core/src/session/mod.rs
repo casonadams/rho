@@ -1,3 +1,7 @@
+//! Durable session storage: append-only JSONL records, history tree with
+//! branching and checkpoints, compaction bookkeeping, secret redaction, and
+//! export. This module is the single source of truth for conversation state.
+
 mod branch;
 mod checkpoint;
 pub mod compaction;

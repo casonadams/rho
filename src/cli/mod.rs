@@ -1,3 +1,6 @@
+//! CLI subcommand routing: `run`/`auth`/`plugin`/`rpc` dispatch, credential
+//! flows, plugin install/update/remove lifecycle, and process cleanup guards.
+
 pub mod auth;
 mod commands;
 pub mod plugin;

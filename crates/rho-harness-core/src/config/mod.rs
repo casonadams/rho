@@ -1,3 +1,6 @@
+//! Layered configuration: defaults → config file → environment → CLI flags,
+//! with validation and atomic persistence for settings and plugin entries.
+
 pub mod cli;
 mod merge;
 mod storage;

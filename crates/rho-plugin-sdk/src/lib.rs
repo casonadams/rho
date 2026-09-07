@@ -1,3 +1,10 @@
+//! rho plugin SDK: build out-of-process rho plugins over stdio JSON-RPC.
+//!
+//! Plugins receive [`StepEvent`]s (tool calls, results, lifecycle hooks) and
+//! respond with [`Flow`]s that continue, repair, rewrite, or stop the agent.
+//! [`HostContext`] exposes host services (UI prompts, notices, status, tool
+//! metadata) back to the plugin.
+
 pub mod context;
 pub mod serve;
 pub mod types;
