@@ -38,31 +38,32 @@ newlines grow the editor upward.
 
 ## Keyboard Controls & Navigation
 
-| Key                     | Action                                                                              |
-| :---------------------- | :---------------------------------------------------------------------------------- |
-| `Enter`                 | Submit prompt.                                                                      |
-| `Shift+Enter`           | Insert a newline without submitting.                                                |
-| `Ctrl+J`                | Insert a newline (compatible with terminals encoding it as raw line feed).          |
-| `Alt+Enter`             | Submit with follow-up queueing (enters FIFO queue).                                 |
-| `Alt+Up`                | Dequeue the most recently queued message back into the prompt editor.               |
-| `Escape`                | Interrupt running model generation or tool execution. When idle, clear input draft (double-press opens session tree). |
-| `Ctrl+C`                | Clear the current input prompt draft.                                               |
-| `Ctrl+D`                | Exit `rho` (when prompt is empty).                                                  |
-| `Ctrl+L`                | Open interactive model selector modal.                                              |
-| `Ctrl+P`                | Cycle to next model.                                                                |
-| `Shift+Ctrl+P` / `Alt+P`| Cycle to previous model.                                                            |
-| `Shift+Tab`             | Cycle thinking / reasoning effort level.                                            |
-| `Ctrl+T`                | Toggle thinking blocks visibility (visible / hidden).                               |
-| `Ctrl+O`                | Toggle expand/collapse of tool output cards in the transcript.                      |
-| `Ctrl+V`                | Paste image from clipboard into the session.                                        |
-| `Ctrl+X`                | Copy last assistant message to clipboard.                                           |
-| `Ctrl+G`                | Open current input draft in external editor (`$EDITOR`).                            |
-| `Ctrl+Z`                | Suspend process to background.                                                      |
-| `Tab`                   | Auto-complete slash commands, skill names, and file paths.                          |
+| Key                      | Action                                                                                                                |
+| :----------------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| `Enter`                  | Submit prompt.                                                                                                        |
+| `Shift+Enter`            | Insert a newline without submitting.                                                                                  |
+| `Ctrl+J`                 | Insert a newline (compatible with terminals encoding it as raw line feed).                                            |
+| `Alt+Enter`              | Submit with follow-up queueing (enters FIFO queue).                                                                   |
+| `Alt+Up`                 | Dequeue the most recently queued message back into the prompt editor.                                                 |
+| `Escape`                 | Interrupt running model generation or tool execution. When idle, clear input draft (double-press opens session tree). |
+| `Ctrl+C`                 | Clear the current input prompt draft.                                                                                 |
+| `Ctrl+D`                 | Exit `rho` (when prompt is empty).                                                                                    |
+| `Ctrl+L`                 | Open interactive model selector modal.                                                                                |
+| `Ctrl+P`                 | Cycle to next model.                                                                                                  |
+| `Shift+Ctrl+P` / `Alt+P` | Cycle to previous model.                                                                                              |
+| `Shift+Tab`              | Cycle thinking / reasoning effort level.                                                                              |
+| `Ctrl+T`                 | Toggle thinking blocks visibility (visible / hidden).                                                                 |
+| `Ctrl+O`                 | Toggle expand/collapse of tool output cards in the transcript.                                                        |
+| `Ctrl+V`                 | Paste image from clipboard into the session.                                                                          |
+| `Ctrl+X`                 | Copy last assistant message to clipboard.                                                                             |
+| `Ctrl+G`                 | Open current input draft in external editor (`$EDITOR`).                                                              |
+| `Ctrl+Z`                 | Suspend process to background.                                                                                        |
+| `Tab`                    | Auto-complete slash commands, skill names, and file paths.                                                            |
 
 ### Custom Keybindings
 
-Keybindings can be customized by adding a `keybindings.toml` (or `keybindings.json`) to `~/.config/rho/`:
+Keybindings can be customized by adding a `keybindings.toml` (or
+`keybindings.json`) to `~/.config/rho/`:
 
 ```toml
 [bindings]
@@ -82,16 +83,32 @@ without losing context.
 
 ## REPL Slash Commands
 
-Type `/` in the editor to access built-in commands:
+Type `/` in the editor to access built-in commands (press `Tab` to
+autocomplete):
 
-| Command                     | Description                                                                      |
-| :-------------------------- | :------------------------------------------------------------------------------- |
-| `/theme`                    | Open interactive theme picker with live preview.                                 |
-| `/model [name]`             | Switch the active model or provider in place.                                    |
-| `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history. |
-| `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.           |
-| `/skill:<name>`             | Invoke a declarative skill workflow.                                             |
-| `/help`                     | Display command summary and keyboard shortcuts.                                  |
+| Command                     | Description                                                                                                       |
+| :-------------------------- | :---------------------------------------------------------------------------------------------------------------- |
+| `/help`                     | Display command summary and keyboard shortcuts.                                                                   |
+| `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                         |
+| `/theme [name]`             | Open interactive theme picker with live preview, or switch to a theme by name.                                    |
+| `/thinking [level]`         | Configure thinking effort (`off`, `minimal`, `low`, `medium`, `high`, `max`), or open selector (alias: `/think`). |
+| `/settings`                 | Open interactive runtime settings modal (display toggles, auto-compact, etc.).                                    |
+| `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                         |
+| `/session`                  | Display token capacity, cost, context window utilization, and diagnostics.                                        |
+| `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                        |
+| `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                                    |
+| `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                                     |
+| `/fork [turn\|id]`          | Fork session from a turn or node into a new session branch.                                                       |
+| `/clone`                    | Duplicate active branch into a new session.                                                                       |
+| `/name [name]`              | Assign a human-readable name to the current session.                                                              |
+| `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                                   |
+| `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                                    |
+| `/plugin`                   | List configured MCP tool servers and lifecycle plugins.                                                           |
+| `/login [provider]`         | Authenticate with an AI provider (OAuth PKCE or API key).                                                         |
+| `/logout [provider]`        | Remove stored credentials for a provider.                                                                         |
+| `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                                  |
+| `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.                                            |
+| `/exit`                     | Exit rho (alias: `/quit`).                                                                                        |
 
 ---
 
