@@ -15,7 +15,7 @@ fn options_desired_lines(modal: &ModalState) -> usize {
     }
 }
 
-pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, (width, height): (usize, usize)) -> usize {
+pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize, height: usize) -> usize {
     let inner_width = width.saturating_sub(4).max(1);
     let total = wrap_to_width(&modal.body, inner_width).len();
     if total == 0 {

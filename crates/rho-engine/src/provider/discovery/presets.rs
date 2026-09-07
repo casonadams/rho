@@ -14,7 +14,7 @@ pub fn format_context_tokens(ctx: usize) -> String {
     }
 }
 
-fn make_preset((id, name, provider, desc): (&str, &str, &str, &str)) -> DiscoveredModel {
+fn make_preset(id: &str, name: &str, provider: &str, desc: &str) -> DiscoveredModel {
     DiscoveredModel {
         context_tokens: None,
         id: id.to_string(),
@@ -25,7 +25,10 @@ fn make_preset((id, name, provider, desc): (&str, &str, &str, &str)) -> Discover
 }
 
 fn build_presets(table: &[(&str, &str, &str, &str)]) -> Vec<DiscoveredModel> {
-    table.iter().copied().map(make_preset).collect()
+    table
+        .iter()
+        .map(|&(id, name, provider, desc)| make_preset(id, name, provider, desc))
+        .collect()
 }
 
 const ANTIGRAVITY_PRESETS: &[(&str, &str, &str, &str)] = &[

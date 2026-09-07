@@ -41,7 +41,7 @@ fn record_identity_and_sequence(record: &SessionRecord) -> (u64, &str) {
     extract_record_ident!(record)
 }
 
-fn validate_record_ordering((sequence, session_id): (u64, &str), (expected_id, next_seq): (&str, u64)) -> Result<()> {
+fn validate_record_ordering(sequence: u64, session_id: &str, expected_id: &str, next_seq: u64) -> Result<()> {
     if session_id != expected_id {
         return Err(session_error("session record identity mismatch"));
     }
@@ -142,7 +142,8 @@ fn reset_canonical_state(state: &mut StoreState) {
 
 pub fn apply_record(state: &mut StoreState, record: SessionRecord, expected_id: &str) -> Result<()> {
     let ident = record_identity_and_sequence(&record);
-    validate_record_ordering(ident, (expected_id, state.next_sequence))?;
+    let (sequence, session_id) = ident;
+    validate_record_ordering(sequence, session_id, expected_id, state.next_sequence)?;
     match record {
         SessionRecord::CanonicalMessages {
             messages, timestamp, ..

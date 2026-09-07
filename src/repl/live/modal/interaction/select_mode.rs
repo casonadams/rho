@@ -33,7 +33,7 @@ fn scroll_modal_up<B: TerminalBackend>(controller: &mut TerminalController<B>) {
     let (w, h) = (controller.terminal_width(), controller.terminal_height());
     let draft = controller.state().editor().text().to_string();
     if let Some(modal) = controller.state_mut().active_modal_mut() {
-        let max_scroll = crate::ui::interactive::modal_body_max_scroll(modal, &draft, (w, h));
+        let max_scroll = crate::ui::interactive::modal_body_max_scroll(modal, &draft, w, h);
         modal.clamp_body_scroll(max_scroll);
         modal.scroll_body_up();
     }
@@ -43,7 +43,7 @@ fn scroll_modal_down<B: TerminalBackend>(controller: &mut TerminalController<B>)
     let (w, h) = (controller.terminal_width(), controller.terminal_height());
     let draft = controller.state().editor().text().to_string();
     if let Some(modal) = controller.state_mut().active_modal_mut() {
-        let max_scroll = crate::ui::interactive::modal_body_max_scroll(modal, &draft, (w, h));
+        let max_scroll = crate::ui::interactive::modal_body_max_scroll(modal, &draft, w, h);
         modal.scroll_body_down(max_scroll);
     }
 }

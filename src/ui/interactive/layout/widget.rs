@@ -52,7 +52,7 @@ fn format_collapsed_output(raw_output: &str, width: usize, dim: anstyle::Style) 
     out
 }
 
-fn append_tool_output(content: &mut String, raw_output: &str, (expanded, width, dim): (bool, usize, anstyle::Style)) {
+fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, width: usize, dim: anstyle::Style) {
     if raw_output.is_empty() {
         return;
     }
@@ -78,7 +78,7 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
         content.push_str(preview);
     }
     let raw_output = input.tool.output.trim_end().replace('\t', "   ");
-    append_tool_output(&mut content, &raw_output, (input.tools_expanded, width, dim));
+    append_tool_output(&mut content, &raw_output, input.tools_expanded, width, dim);
     content.push_str(&format!(
         "\n\n{dim}Elapsed {}{dim:#}",
         format_elapsed(input.tool.elapsed())

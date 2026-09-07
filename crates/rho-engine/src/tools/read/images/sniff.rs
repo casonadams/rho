@@ -92,7 +92,7 @@ fn is_animated_png(bytes: &[u8]) -> bool {
     false
 }
 
-fn validate_bmp_offsets((size, offset, dib_size): (u32, u32, u32)) -> bool {
+fn validate_bmp_offsets(size: u32, offset: u32, dib_size: u32) -> bool {
     if size != 0 && (size < 26 || offset >= size) {
         return false;
     }
@@ -113,11 +113,11 @@ fn is_bmp(bytes: &[u8]) -> bool {
     if bytes.len() < 26 {
         return false;
     }
-    let offsets = (read_u32_le(bytes, 2), read_u32_le(bytes, 10), read_u32_le(bytes, 14));
-    if !validate_bmp_offsets(offsets) {
+    let dib_size = read_u32_le(bytes, 14);
+    if !validate_bmp_offsets(read_u32_le(bytes, 2), read_u32_le(bytes, 10), dib_size) {
         return false;
     }
-    let Some((planes, bpp)) = read_bmp_dimensions(bytes, offsets.2) else {
+    let Some((planes, bpp)) = read_bmp_dimensions(bytes, dib_size) else {
         return false;
     };
     planes == 1 && matches!(bpp, 1 | 4 | 8 | 16 | 24 | 32)

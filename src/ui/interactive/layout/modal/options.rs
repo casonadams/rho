@@ -120,7 +120,7 @@ fn calculate_pagination(total: usize, selected: usize, max_visible: usize) -> (u
     }
 }
 
-fn push_model_extra(modal: &ModalState, (max_visible, dimmed): (usize, anstyle::Style), lines: &mut Vec<String>) {
+fn push_model_extra(modal: &ModalState, max_visible: usize, dimmed: anstyle::Style, lines: &mut Vec<String>) {
     if modal.title != "Select Model" || max_visible < 5 {
         return;
     }
@@ -175,7 +175,7 @@ pub(crate) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayou
     if show_pagination || start > 0 {
         lines.push(format!("    {dimmed}({}/{}){dimmed:#}", modal.selected + 1, total));
     }
-    push_model_extra(modal, (layout.max_visible, dimmed), &mut lines);
+    push_model_extra(modal, layout.max_visible, dimmed, &mut lines);
     lines.truncate(layout.max_visible);
     lines
 }

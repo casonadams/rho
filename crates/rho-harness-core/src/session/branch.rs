@@ -6,7 +6,7 @@ use chrono::Utc;
 use rig::message::Message;
 use std::path::Path;
 
-fn create_branch_summary_node((parent_id, source_leaf_id): (Option<String>, &str), summary: &str) -> TreeNodeData {
+fn create_branch_summary_node(parent_id: Option<String>, source_leaf_id: &str, summary: &str) -> TreeNodeData {
     let summary_message = Message::assistant(format!("[Branch Summary from {source_leaf_id}]: {summary}"));
     TreeNodeData {
         id: uuid::Uuid::new_v4().to_string(),
@@ -84,7 +84,7 @@ impl SessionManager {
     pub async fn append_branch_summary(&self, summary: &str, source_leaf_id: &str) -> Result<()> {
         self.reject_secrets(&summary)?;
         let mut state = self.state.lock().await;
-        let node = create_branch_summary_node((state.tree.active_leaf_id.clone(), source_leaf_id), summary);
+        let node = create_branch_summary_node(state.tree.active_leaf_id.clone(), source_leaf_id, summary);
         let record = SessionRecord::TreeNode {
             sequence: state.next_sequence,
             session_id: self.session_id.clone(),

@@ -1,9 +1,7 @@
 use super::*;
 use crate::engine::metrics::StructuralUsage;
 
-fn make_usage(tokens: (u64, u64), cache: (Option<u64>, Option<u64>)) -> StructuralUsage {
-    let (inp, out) = tokens;
-    let (cr, cw) = cache;
+fn make_usage(inp: u64, out: u64, cr: Option<u64>, cw: Option<u64>) -> StructuralUsage {
     StructuralUsage {
         input_tokens: inp,
         output_tokens: out,
@@ -18,9 +16,9 @@ fn make_usage(tokens: (u64, u64), cache: (Option<u64>, Option<u64>)) -> Structur
 #[test]
 fn usage_tracker_accumulates_totals_across_turns() {
     let tracker = UsageTracker::default();
-    let mut turn1 = make_usage((100, 50), (Some(20), Some(10)));
+    let mut turn1 = make_usage(100, 50, Some(20), Some(10));
     turn1.reasoning_tokens = Some(5);
-    let turn2 = make_usage((200, 80), (Some(40), None));
+    let turn2 = make_usage(200, 80, Some(40), None);
 
     tracker.record(turn1);
     tracker.record(turn2);
@@ -40,8 +38,8 @@ fn usage_tracker_accumulates_totals_across_turns() {
 #[test]
 fn usage_tracker_record_turn_differentiates_totals_from_latest_context() {
     let tracker = UsageTracker::default();
-    let total = make_usage((30_000, 1_200), (Some(5_000), None));
-    let final_ctx = make_usage((11_000, 400), (Some(5_000), None));
+    let total = make_usage(30_000, 1_200, Some(5_000), None);
+    let final_ctx = make_usage(11_000, 400, Some(5_000), None);
     tracker.record_turn(TurnUsage::new(total, final_ctx), 2000);
 
     let t = tracker.totals();
@@ -121,7 +119,7 @@ fn usage_tracker_in_flight_streaming() {
 #[test]
 fn usage_tracker_step_and_turn_reconciliation() {
     let tracker = UsageTracker::default();
-    let step = make_usage((520, 28), (Some(100), Some(50)));
+    let step = make_usage(520, 28, Some(100), Some(50));
     tracker.record_step(step, 500);
 
     let t = tracker.totals();
@@ -145,7 +143,7 @@ fn usage_tracker_in_flight_multi_step_progression() {
     let tracker = UsageTracker::default();
     tracker.start_turn(Some(1000));
     tracker.record_streaming_chunk(10);
-    tracker.record_step(make_usage((1000, 15), (None, None)), 200);
+    tracker.record_step(make_usage(1000, 15, None, None), 200);
     assert_eq!(
         (tracker.totals().total_input, tracker.totals().total_output),
         (1000, 15)
@@ -155,7 +153,7 @@ fn usage_tracker_in_flight_multi_step_progression() {
     tracker.record_streaming_chunk(20);
     assert_eq!(tracker.totals().total_output, 35);
 
-    tracker.record_step(make_usage((1200, 30), (None, None)), 300);
+    tracker.record_step(make_usage(1200, 30, None, None), 300);
     assert_eq!(
         (tracker.totals().total_input, tracker.totals().total_output),
         (2200, 45)

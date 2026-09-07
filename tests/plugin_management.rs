@@ -51,7 +51,7 @@ async fn serve_plugin_bytes(stream: &mut tokio::net::TcpStream, bytes: &[u8]) {
     let _ = stream.write_all(bytes).await;
 }
 
-async fn serve_download(stream: &mut tokio::net::TcpStream, req: &str, (v1, v2): (&[u8], &[u8])) -> bool {
+async fn serve_download(stream: &mut tokio::net::TcpStream, req: &str, v1: &[u8], v2: &[u8]) -> bool {
     if req.contains("/download/v1.tar.gz") {
         serve_plugin_bytes(stream, v1).await;
         return true;
@@ -65,7 +65,9 @@ async fn serve_download(stream: &mut tokio::net::TcpStream, req: &str, (v1, v2):
 
 async fn serve_release_metadata(
     stream: &mut tokio::net::TcpStream,
-    (turn, addr, asset): (usize, std::net::SocketAddr, &str),
+    turn: usize,
+    addr: std::net::SocketAddr,
+    asset: &str,
 ) {
     let body = release_body(turn, addr, asset);
     let resp = format!(
@@ -87,20 +89,19 @@ async fn spawn_github_release_server(asset_name: String) -> std::net::SocketAddr
             let mut buf = [0u8; 2048];
             let n = stream.read(&mut buf).await.unwrap_or(0);
             let req = String::from_utf8_lossy(&buf[..n]);
-            if serve_download(&mut stream, &req, (&v1, &v2)).await {
+            if serve_download(&mut stream, &req, &v1, &v2).await {
                 continue;
             }
             if req.contains("/releases/latest") {
                 turn += 1;
-                serve_release_metadata(&mut stream, (turn, addr, &asset_name)).await;
+                serve_release_metadata(&mut stream, turn, addr, &asset_name).await;
             }
         }
     });
     addr
 }
 
-async fn step_install(dirs: (&Path, &Path), gh: &GitHubClient) {
-    let (config_dir, bin_dir) = dirs;
+async fn step_install(config_dir: &Path, bin_dir: &Path, gh: &GitHubClient) {
     let empty = BTreeMap::new();
     let ctx = InstallPluginContext {
         config_dir,
@@ -117,8 +118,7 @@ async fn step_install(dirs: (&Path, &Path), gh: &GitHubClient) {
     );
 }
 
-async fn step_update(dirs: (&Path, &Path), gh: &GitHubClient, plugins: &BTreeMap<String, PluginConfig>) {
-    let (config_dir, bin_dir) = dirs;
+async fn step_update(config_dir: &Path, bin_dir: &Path, gh: &GitHubClient, plugins: &BTreeMap<String, PluginConfig>) {
     let ctx = UpdatePluginContext {
         config_dir,
         cargo_bin_dir: bin_dir,
@@ -179,8 +179,7 @@ async fn test_plugin_management_lifecycle_end_to_end() {
     let bin_dir = tempfile::tempdir().unwrap();
     let gh = GitHubClient::with_base_url(format!("http://{addr}"));
 
-    let dirs = (config_dir.path(), bin_dir.path());
-    step_install(dirs, &gh).await;
+    step_install(config_dir.path(), bin_dir.path(), &gh).await;
     let plugins = seed_e2e_plugins();
 
     let env = PluginEnvironment {
@@ -190,6 +189,6 @@ async fn test_plugin_management_lifecycle_end_to_end() {
     let listings = collect_plugin_listings(&plugins, env);
     assert_eq!((listings.len(), listings[0].name.as_str()), (1, "rho-plugin-e2e"));
 
-    step_update(dirs, &gh, &plugins).await;
+    step_update(config_dir.path(), bin_dir.path(), &gh, &plugins).await;
     step_remove(config_dir.path(), bin_dir.path(), &plugins).await;
 }

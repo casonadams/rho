@@ -128,7 +128,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             .to_string()
     }
 
-    fn repaint_item(&mut self, (idx, item, redraw_buffer): (usize, &TranscriptItem, &mut String)) -> io::Result<()> {
+    fn repaint_item(&mut self, idx: usize, item: &TranscriptItem, redraw_buffer: &mut String) -> io::Result<()> {
         let rendered = self.render_cached(idx, item);
         if rendered.is_empty() {
             return Ok(());
@@ -150,7 +150,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn repaint_history(&mut self, redraw_buffer: &mut String) -> io::Result<()> {
         let items = std::mem::take(&mut self.transcript);
         for (idx, item) in items.iter().enumerate() {
-            self.repaint_item((idx, item, redraw_buffer))?;
+            self.repaint_item(idx, item, redraw_buffer)?;
         }
         self.transcript = items;
         Ok(())

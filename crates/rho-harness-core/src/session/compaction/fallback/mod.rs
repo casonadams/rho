@@ -138,7 +138,7 @@ fn render_goal_section(out: &mut String, goal: &[String]) {
     }
 }
 
-fn render_progress_section((out, done): (&mut String, &[String]), (in_progress, blocked): (&[String], &[String])) {
+fn render_progress_section(out: &mut String, done: &[String], in_progress: &[String], blocked: &[String]) {
     out.push_str("## Progress\n### Done\n");
     if done.is_empty() {
         out.push_str("- [x] (none)\n\n");
@@ -190,7 +190,7 @@ fn render_structured_summary(state: &SummaryState) -> String {
     let mut out = String::new();
     render_goal_section(&mut out, &state.goal);
     render_bullets(&mut out, "## Constraints & Preferences", &state.constraints);
-    render_progress_section((&mut out, &state.done), (&state.in_progress, &state.blocked));
+    render_progress_section(&mut out, &state.done, &state.in_progress, &state.blocked);
     render_bullets(&mut out, "## Key Decisions", &state.decisions);
     render_next_steps(&mut out, &state.next_steps);
     render_critical_context(&mut out, &state.critical_context);

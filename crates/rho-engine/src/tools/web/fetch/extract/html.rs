@@ -101,7 +101,7 @@ fn format_main_output(tag: &str, text: &str, document: &Html) -> String {
     out
 }
 
-fn try_main_mode(document: &Html, (full_len, base_url, is_main): (usize, &str, bool)) -> Result<Option<String>> {
+fn try_main_mode(document: &Html, full_len: usize, base_url: &str, is_main: bool) -> Result<Option<String>> {
     if let Some((tag, main_text)) = find_semantic_main(document, full_len, base_url) {
         return Ok(Some(format_main_output(&tag, &main_text, document)));
     }
@@ -121,7 +121,7 @@ pub fn extract_html(html: &str, response_url: &str, mode: &str) -> Result<String
 
     let mode_lower = mode.to_lowercase();
     if mode_lower != "full"
-        && let Some(main_out) = try_main_mode(&document, (full_text.len(), &base_url, mode_lower == "main"))?
+        && let Some(main_out) = try_main_mode(&document, full_text.len(), &base_url, mode_lower == "main")?
     {
         return Ok(main_out);
     }

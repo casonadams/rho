@@ -73,7 +73,7 @@ fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui
     content.push_str(&highlighted.join("\n"));
 }
 
-fn append_output_lines(content: &mut String, clean: &str, (width, expanded, dim): (usize, bool, anstyle::Style)) {
+fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
     content.push_str("\n\n");
     if expanded {
         content.push_str(clean);
@@ -90,7 +90,7 @@ fn append_output_lines(content: &mut String, clean: &str, (width, expanded, dim)
     }
 }
 
-fn append_generic_output(content: &mut String, tool: &ToolItem, (width, expanded, dim): (usize, bool, anstyle::Style)) {
+fn append_generic_output(content: &mut String, tool: &ToolItem, width: usize, expanded: bool, dim: anstyle::Style) {
     let raw = if !tool.output.is_empty() {
         &tool.output
     } else {
@@ -98,14 +98,15 @@ fn append_generic_output(content: &mut String, tool: &ToolItem, (width, expanded
     };
     let clean = raw.trim_end().replace('\t', "   ");
     if !clean.is_empty() {
-        append_output_lines(content, &clean, (width, expanded, dim));
+        append_output_lines(content, &clean, width, expanded, dim);
     }
 }
 
 fn append_edit_or_write(
     content: &mut String,
     tool: &ToolItem,
-    (expanded, theme): (bool, &crate::ui::theme::Theme),
+    expanded: bool,
+    theme: &crate::ui::theme::Theme,
 ) -> bool {
     if !tool.is_error && tool.name == "edit" {
         if let Some(diff) = format_edit_diff(&tool.arguments, theme) {
@@ -127,16 +128,18 @@ fn append_edit_or_write(
 fn append_tool_details(
     content: &mut String,
     tool: &ToolItem,
-    (width, expanded, theme): (usize, bool, &crate::ui::theme::Theme),
+    width: usize,
+    expanded: bool,
+    theme: &crate::ui::theme::Theme,
 ) {
     if !tool.is_error && tool.name == "read" {
         if expanded {
             append_read_expanded(content, tool, theme);
         }
-    } else if !append_edit_or_write(content, tool, (expanded, theme))
+    } else if !append_edit_or_write(content, tool, expanded, theme)
         && (tool.name == "bash" || tool.is_error || expanded)
     {
-        append_generic_output(content, tool, (width, expanded, theme.dimmed));
+        append_generic_output(content, tool, width, expanded, theme.dimmed);
     }
     if tool.name == "bash"
         && let Some(duration_ms) = tool.duration_ms
@@ -153,7 +156,7 @@ pub fn render_tool_block(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> 
         input.theme.tool_success_bg
     };
     let mut content = format_tool_header(tool, input.theme);
-    append_tool_details(&mut content, tool, (input.width, input.tools_expanded, input.theme));
+    append_tool_details(&mut content, tool, input.width, input.tools_expanded, input.theme);
 
     BlockFormat::new(background, input.width)
         .with_vertical_padding()

@@ -52,7 +52,7 @@ enum StreamErrorAction {
     BudgetContinue,
 }
 
-fn record_streaming_text(text: &str, _model: &str, (usage, start): (&UsageTracker, &mut Option<Instant>)) {
+fn record_streaming_text(text: &str, _model: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
     if start.is_none() {
         *start = Some(Instant::now());
     }
@@ -63,16 +63,19 @@ fn record_streaming_text(text: &str, _model: &str, (usage, start): (&UsageTracke
 fn handle_display_events(
     events: Vec<DisplayEvent>,
     sink: &Arc<TerminalApprovalSink>,
-    (usage, model, start, tool_calls): (&UsageTracker, &str, &mut Option<Instant>, &mut usize),
+    usage: &UsageTracker,
+    model: &str,
+    start: &mut Option<Instant>,
+    tool_calls: &mut usize,
 ) {
     for event in events {
         match event {
             DisplayEvent::Text(text) => {
-                record_streaming_text(&text, model, (usage, start));
+                record_streaming_text(&text, model, usage, start);
                 sink.emit_text(&text);
             }
             DisplayEvent::Reasoning(text) => {
-                record_streaming_text(&text, model, (usage, start));
+                record_streaming_text(&text, model, usage, start);
                 sink.emit_reasoning(&text);
             }
             DisplayEvent::ToolCall { .. } => {
@@ -155,12 +158,10 @@ impl AgentEngine {
             handle_display_events(
                 events,
                 sink,
-                (
-                    &self.usage,
-                    active_model,
-                    &mut state.model_call_start,
-                    &mut state.total_tool_calls,
-                ),
+                &self.usage,
+                active_model,
+                &mut state.model_call_start,
+                &mut state.total_tool_calls,
             );
         }
     }

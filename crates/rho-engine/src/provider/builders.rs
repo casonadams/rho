@@ -64,7 +64,7 @@ fn chatgpt_client_headers(account_id: Option<&str>) -> reqwest::header::HeaderMa
     default_headers
 }
 
-pub(super) fn build_chatgpt_model((model, key): (&str, String), auth_store: &AuthStore) -> Result<ModelHandle> {
+pub(super) fn build_chatgpt_model(model: &str, key: String, auth_store: &AuthStore) -> Result<ModelHandle> {
     let account_id = match auth_store.get_credential("chatgpt") {
         Some(rho_harness_core::auth::StoredCredential::OAuth {
             account_id: Some(id), ..
@@ -93,7 +93,7 @@ pub(super) fn build_chatgpt_model((model, key): (&str, String), auth_store: &Aut
     ))
 }
 
-pub(super) fn build_gemini_model((model, key): (&str, String)) -> Result<ModelHandle> {
+pub(super) fn build_gemini_model(model: &str, key: String) -> Result<ModelHandle> {
     let client = rig::providers::gemini::Client::builder()
         .http_client(SHARED_HTTP_CLIENT.clone())
         .api_key(&key)

@@ -116,7 +116,7 @@ fn assert_rebuilt_meta(rebuilt: &AgentEngine, sid: &str, tool_count: usize) {
     assert_eq!(rebuilt.tool_names().len(), tool_count);
 }
 
-async fn assert_rebuilt_storage(rebuilt: &AgentEngine, (sid, history, jsonl): (&str, &[rig::message::Message], &[u8])) {
+async fn assert_rebuilt_storage(rebuilt: &AgentEngine, sid: &str, history: &[rig::message::Message], jsonl: &[u8]) {
     assert_eq!(rebuilt.session_manager.load(sid).await.unwrap(), history);
     assert_eq!(
         std::fs::read(rebuilt.config.sessions_dir.join(format!("{sid}.jsonl"))).unwrap(),
@@ -148,7 +148,7 @@ async fn rebuild_preserves_session_history_and_reattaches_tools() {
     let rebuilt = engine.rebuild(new_config, auth_store.clone()).await.unwrap();
 
     assert_rebuilt_meta(&rebuilt, &session_id, tools.len());
-    assert_rebuilt_storage(&rebuilt, (&session_id, &history_before, &jsonl_before)).await;
+    assert_rebuilt_storage(&rebuilt, &session_id, &history_before, &jsonl_before).await;
     std::fs::remove_dir_all(dir).unwrap();
 }
 

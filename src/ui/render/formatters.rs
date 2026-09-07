@@ -35,7 +35,7 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
     Some(out)
 }
 
-fn format_preview_lines(lines: &[&str], (lang, gutter_width): (Option<&str>, usize), theme: &Theme) -> String {
+fn format_preview_lines(lines: &[&str], lang: Option<&str>, gutter_width: usize, theme: &Theme) -> String {
     let mut out = String::new();
     let d = theme.dimmed;
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
@@ -58,7 +58,7 @@ pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expa
     let total = lines.len();
     let max = if expanded { total } else { 8.min(total) };
     let gutter_width = max.to_string().len().max(3);
-    let mut out = format_preview_lines(&lines[..max], (lang, gutter_width), theme);
+    let mut out = format_preview_lines(&lines[..max], lang, gutter_width, theme);
     if !expanded && total > 8 {
         let d = theme.dimmed;
         out.push_str(&format!("{d}... ({} more lines, {total} total){d:#}\n", total - 8));

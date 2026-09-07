@@ -34,7 +34,7 @@ async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::resu
         .map_err(|e| ToolResult::error(format!("Failed to read {clean_path}: {e}")))
 }
 
-fn match_error(content: &str, old_text: &str, (i, count): (usize, usize)) -> ToolResult {
+fn match_error(content: &str, old_text: &str, i: usize, count: usize) -> ToolResult {
     if count == 0 {
         let hint = if has_whitespace_relaxed_match(content, old_text) {
             "\n\nNote: A matching block with different whitespace or indentation was found. Verify exact indentation and line breaks."
@@ -58,7 +58,8 @@ fn match_error(content: &str, old_text: &str, (i, count): (usize, usize)) -> Too
 fn apply_single_replacement(
     current_content: &str,
     edit: &EditReplacement,
-    (i, line_ending): (usize, &str),
+    i: usize,
+    line_ending: &str,
 ) -> std::result::Result<(String, usize), ToolResult> {
     let normalized_old = normalize_line_endings(&edit.old_text, line_ending);
     let normalized_new = normalize_line_endings(&edit.new_text, line_ending);
@@ -69,10 +70,10 @@ fn apply_single_replacement(
     let first = indices.next();
     let second = indices.next();
     match (first, second) {
-        (None, _) => Err(match_error(current_content, &edit.old_text, (i, 0))),
+        (None, _) => Err(match_error(current_content, &edit.old_text, i, 0)),
         (Some(_), Some(_)) => {
             let count = 2 + indices.count();
-            Err(match_error(current_content, &edit.old_text, (i, count)))
+            Err(match_error(current_content, &edit.old_text, i, count))
         }
         (Some((match_idx, _)), None) => {
             let line_num = 1 + current_content[..match_idx].matches('\n').count();
@@ -92,7 +93,7 @@ fn apply_all_edits(content: &str, edits: &[EditReplacement]) -> std::result::Res
     let mut current = content.to_string();
     let mut line_numbers = Vec::with_capacity(edits.len());
     for (i, edit) in edits.iter().enumerate() {
-        let (updated, line_num) = apply_single_replacement(&current, edit, (i, line_ending))?;
+        let (updated, line_num) = apply_single_replacement(&current, edit, i, line_ending)?;
         current = updated;
         line_numbers.push(line_num);
     }
@@ -102,7 +103,9 @@ fn apply_all_edits(content: &str, edits: &[EditReplacement]) -> std::result::Res
 async fn write_edit_result(
     path: &Path,
     clean_path: &str,
-    (content, line_numbers, count): (String, Vec<usize>, usize),
+    content: String,
+    line_numbers: Vec<usize>,
+    count: usize,
 ) -> Result<ToolResult, AppError> {
     match atomic_write(path, content.as_bytes()).await {
         Ok(_) => Ok(ToolResult {
@@ -171,7 +174,7 @@ impl EditTool {
                 "Edit target moved outside the permitted workspace: {clean_path}"
             )));
         }
-        write_edit_result(&path, clean_path, (updated, lines, args.edits.len())).await
+        write_edit_result(&path, clean_path, updated, lines, args.edits.len()).await
     }
 }
 

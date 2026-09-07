@@ -138,7 +138,7 @@ impl SseParser {
         )));
     }
 
-    fn handle_part_thought(&mut self, (text, signature): (String, Option<String>), events: &mut SseEvents) {
+    fn handle_part_thought(&mut self, text: String, signature: Option<String>, events: &mut SseEvents) {
         if !self.reasoning_open {
             self.reasoning_open = true;
             events.push(Ok(RawStreamingChoice::ReasoningStart {
@@ -170,7 +170,7 @@ impl SseParser {
         }
         let Some(text) = text else { return };
         if thought == Some(true) {
-            self.handle_part_thought((text, thought_signature), events);
+            self.handle_part_thought(text, thought_signature, events);
         } else if text.trim().is_empty() {
             if let Some(signature) = thought_signature {
                 self.reasoning_signature = Some(signature);

@@ -23,7 +23,7 @@ fn entry_summary(entry: &feed_rs::model::Entry) -> &str {
         .unwrap_or("")
 }
 
-fn render_feed_entry(out: &mut String, (idx, entry): (usize, &feed_rs::model::Entry), base_url: &str) {
+fn render_feed_entry(out: &mut String, idx: usize, entry: &feed_rs::model::Entry, base_url: &str) {
     let title = entry.title.as_ref().map_or("Untitled", |t| t.content.as_str());
     let link = resolve_relative_url(select_entry_link(entry), base_url);
     let date = entry
@@ -55,7 +55,7 @@ fn render_feed(feed: feed_rs::model::Feed, base_url: &str) -> String {
     }
 
     for (i, entry) in feed.entries.iter().take(50).enumerate() {
-        render_feed_entry(&mut out, (i + 1, entry), base_url);
+        render_feed_entry(&mut out, i + 1, entry, base_url);
     }
     out.trim().to_string()
 }

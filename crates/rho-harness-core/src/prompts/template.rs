@@ -68,7 +68,7 @@ fn expand_slice_pattern(rest: &str, args: &[&str]) -> String {
     slice.join(" ")
 }
 
-fn expand_default_pattern((key, default_val): (&str, &str), args: &[&str], full_args: &str) -> String {
+fn expand_default_pattern(key: &str, default_val: &str, args: &[&str], full_args: &str) -> String {
     match key.trim() {
         "@" | "ARGUMENTS" => {
             if full_args.trim().is_empty() {
@@ -103,8 +103,8 @@ fn expand_positional_pattern(pattern: &str, args: &[&str], full_args: &str) -> S
 fn expand_braced_pattern(pattern: &str, args: &[&str], full_args: &str) -> String {
     if let Some(rest) = pattern.strip_prefix("@:") {
         expand_slice_pattern(rest, args)
-    } else if let Some(pattern_pair) = pattern.split_once(":-") {
-        expand_default_pattern(pattern_pair, args, full_args)
+    } else if let Some((k, d)) = pattern.split_once(":-") {
+        expand_default_pattern(k, d, args, full_args)
     } else {
         expand_positional_pattern(pattern, args, full_args)
     }

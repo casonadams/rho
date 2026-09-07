@@ -39,7 +39,7 @@ fn normalize_type_value(value: &Value) -> Option<Value> {
     }
 }
 
-fn insert_normalized_field(out: &mut serde_json::Map<String, Value>, (key, value): (&str, &Value), allowed: &[&str]) {
+fn insert_normalized_field(out: &mut serde_json::Map<String, Value>, key: &str, value: &Value, allowed: &[&str]) {
     if key == "type" {
         if let Some(t) = normalize_type_value(value) {
             out.insert("type".into(), t);
@@ -56,7 +56,7 @@ pub fn normalize_custom_tool_schema(schema: &Value) -> Value {
         Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (key, value) in map {
-                insert_normalized_field(&mut out, (key, value), &ALLOWED);
+                insert_normalized_field(&mut out, key, value, &ALLOWED);
             }
             Value::Object(out)
         }

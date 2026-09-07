@@ -84,7 +84,7 @@ fn grayscale_ansi(lightness: u16) -> &'static str {
     }
 }
 
-fn yellow_or_magenta((g, b): (u8, u8), is_bright: bool) -> Option<&'static str> {
+fn yellow_or_magenta(g: u8, b: u8, is_bright: bool) -> Option<&'static str> {
     if g.saturating_sub(b) > 30 {
         Some(if is_bright { "\x1b[93m" } else { "\x1b[33m" })
     } else if b.saturating_sub(g) > 30 {
@@ -94,8 +94,8 @@ fn yellow_or_magenta((g, b): (u8, u8), is_bright: bool) -> Option<&'static str> 
     }
 }
 
-fn red_dominant_ansi(pair: (u8, u8), is_bright: bool) -> &'static str {
-    if let Some(ansi) = yellow_or_magenta(pair, is_bright) {
+fn red_dominant_ansi(g: u8, b: u8, is_bright: bool) -> &'static str {
+    if let Some(ansi) = yellow_or_magenta(g, b, is_bright) {
         ansi
     } else if is_bright {
         "\x1b[91m"
@@ -104,7 +104,7 @@ fn red_dominant_ansi(pair: (u8, u8), is_bright: bool) -> &'static str {
     }
 }
 
-fn green_dominant_ansi((r, b): (u8, u8), is_bright: bool) -> &'static str {
+fn green_dominant_ansi(r: u8, b: u8, is_bright: bool) -> &'static str {
     if b > r && (b - r) > 30 {
         if is_bright { "\x1b[96m" } else { "\x1b[36m" }
     } else if is_bright {
@@ -124,9 +124,9 @@ fn syntect_color_to_ansi16(color: syntect::highlighting::Color) -> &'static str 
     }
     let is_bright = lightness > 256;
     if r >= g && r >= b {
-        red_dominant_ansi((g, b), is_bright)
+        red_dominant_ansi(g, b, is_bright)
     } else if g >= r && g >= b {
-        green_dominant_ansi((r, b), is_bright)
+        green_dominant_ansi(r, b, is_bright)
     } else if is_bright {
         "\x1b[94m"
     } else {

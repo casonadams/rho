@@ -2,7 +2,7 @@ use crate::tools::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, 
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::ReadArgs;
 
-fn build_truncation_notice(truncated_by: TruncatedBy, (start, end, total): (usize, usize, usize)) -> String {
+fn build_truncation_notice(truncated_by: TruncatedBy, start: usize, end: usize, total: usize) -> String {
     let next = end + 1;
     match truncated_by {
         TruncatedBy::Lines => format!("\n\n[Showing lines {start}-{end} of {total}. Use offset={next} to continue.]"),
@@ -13,7 +13,7 @@ fn build_truncation_notice(truncated_by: TruncatedBy, (start, end, total): (usiz
     }
 }
 
-fn build_user_limit_notice((start, limit, total): (usize, usize, usize)) -> Option<String> {
+fn build_user_limit_notice(start: usize, limit: usize, total: usize) -> Option<String> {
     let remaining = total.saturating_sub(start + limit);
     if remaining > 0 {
         let next = start + limit + 1;
@@ -25,7 +25,7 @@ fn build_user_limit_notice((start, limit, total): (usize, usize, usize)) -> Opti
     }
 }
 
-fn check_first_line_oversized(first_line: &str, (start_line, clean_path): (usize, &str)) -> ToolResult {
+fn check_first_line_oversized(first_line: &str, start_line: usize, clean_path: &str) -> ToolResult {
     ToolResult::success(format!(
         "[Line {start_line} is {}, exceeds {} limit. Use bash: sed -n '{start_line}p' {clean_path} | head -c {DEFAULT_MAX_BYTES}]",
         format_size(first_line.len()),
@@ -55,14 +55,14 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs) -> ToolR
     let start_line = start_idx + 1;
     if truncation.first_line_exceeds_limit {
         let first_line = content.lines().nth(start_idx).unwrap_or("");
-        return check_first_line_oversized(first_line, (start_line, clean_path));
+        return check_first_line_oversized(first_line, start_line, clean_path);
     }
     let mut output = number_lines(&truncation.content, start_line);
     if let Some(by) = truncation.truncated_by {
         let end_line = start_line + truncation.output_lines - 1;
-        output.push_str(&build_truncation_notice(by, (start_line, end_line, total_lines)));
+        output.push_str(&build_truncation_notice(by, start_line, end_line, total_lines));
     } else if let Some(limit) = args.limit
-        && let Some(notice) = build_user_limit_notice((start_idx, limit, total_lines))
+        && let Some(notice) = build_user_limit_notice(start_idx, limit, total_lines)
     {
         output.push_str(&notice);
     }

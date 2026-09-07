@@ -142,7 +142,7 @@ fn assert_permission_persisted(path: &std::path::Path, content: &str) {
     assert!(std::fs::read_to_string(&perm_file).unwrap().contains(content));
 }
 
-async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, (cmd, turns): (&str, usize)) -> String {
+async fn run_mock_agent_tool(dir: &std::path::Path, hook: PermissionHook, cmd: &str, turns: usize) -> String {
     let model = MockCompletionModel::new([
         MockTurn::tool_call("1", "bash", json!({"command": cmd})),
         MockTurn::tool_call("2", "bash", json!({"command": cmd})),
@@ -163,7 +163,7 @@ async fn test_ask_interactive_always_allow_persists_and_updates_policy() {
     let project_dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(2))));
     let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
-    let output = run_mock_agent_tool(project_dir.path(), hook, ("touch persist_test", 3)).await;
+    let output = run_mock_agent_tool(project_dir.path(), hook, "touch persist_test", 3).await;
     assert_eq!(output, "completed");
     assert_permission_persisted(global_dir.path(), "touch persist_test");
 
@@ -189,7 +189,7 @@ async fn test_ask_interactive_always_allow_custom_pattern_persists() {
         }),
     ));
     let hook = PermissionHook::new(Some(project_dir.path().to_path_buf()), presenter);
-    let output = run_mock_agent_tool(project_dir.path(), hook, ("touch custom_foo", 3)).await;
+    let output = run_mock_agent_tool(project_dir.path(), hook, "touch custom_foo", 3).await;
     assert_eq!(output, "completed");
     assert_permission_persisted(global_dir.path(), "touch custom_*");
 

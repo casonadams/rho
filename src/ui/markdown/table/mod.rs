@@ -53,14 +53,14 @@ fn compute_column_widths(rows: &[Vec<String>], col_count: usize, max_budget: usi
 }
 
 fn format_table_output(table: &TableFormat<'_>, rows: &[Vec<String>], divider_index: usize) -> String {
-    let mut out = format!("{}\n", table.border(('╭', '┬', '╮')));
+    let mut out = format!("{}\n", table.border('╭', '┬', '╮'));
     for (idx, row) in rows.iter().enumerate() {
         out.push_str(&table.row(row, idx < divider_index));
         if idx + 1 < rows.len() {
-            out.push_str(&format!("{}\n", table.border(('├', '┼', '┤'))));
+            out.push_str(&format!("{}\n", table.border('├', '┼', '┤')));
         }
     }
-    out.push_str(&format!("{}\n", table.border(('╰', '┴', '╯'))));
+    out.push_str(&format!("{}\n", table.border('╰', '┴', '╯')));
     out
 }
 

@@ -231,7 +231,9 @@ impl TerminalApprovalSink {
     fn finish_tool_presentation(
         &self,
         details: &ToolFinishDetails<'_>,
-        (arguments, output, duration_ms): (&Value, &str, Option<u64>),
+        arguments: &Value,
+        output: &str,
+        duration_ms: Option<u64>,
     ) {
         self.presenter.finish_tool_line(ToolLine {
             name: details.name.to_string(),
@@ -243,7 +245,7 @@ impl TerminalApprovalSink {
         });
     }
 
-    fn record_completed_tool(&self, state: &mut TerminalSinkState, (details, status): (ToolFinishDetails<'_>, &str)) {
+    fn record_completed_tool(&self, state: &mut TerminalSinkState, details: ToolFinishDetails<'_>, status: &str) {
         clear_spinner(state);
         state.last_display = DisplayKind::Tool;
         let duration_ms = state
@@ -253,7 +255,7 @@ impl TerminalApprovalSink {
             .map(|s| s.elapsed().as_millis() as u64);
         let arguments = redact_value(&self.session_manager, details.arguments);
         let output_redacted = self.session_manager.redact_credentials(details.output);
-        self.finish_tool_presentation(&details, (&arguments, &output_redacted, duration_ms));
+        self.finish_tool_presentation(&details, &arguments, &output_redacted, duration_ms);
         state.completed.push(CompletedTool {
             internal_call_id: uuid::Uuid::new_v4().to_string(),
             name: details.name.to_string(),
@@ -268,7 +270,7 @@ impl TerminalApprovalSink {
         let status = if details.is_error { "error" } else { "success" };
         self.run_tracker.tool_finished(status);
         if let Ok(mut state) = self.state.lock() {
-            self.record_completed_tool(&mut state, (details, status));
+            self.record_completed_tool(&mut state, details, status);
         }
     }
 

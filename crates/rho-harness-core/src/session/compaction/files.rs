@@ -38,7 +38,8 @@ fn is_write_or_edit_tool(name: &str) -> bool {
 
 fn populate_prior_files(
     prior: Option<&CompactionDetails>,
-    (read_set, modified_set): (&mut BTreeSet<String>, &mut BTreeSet<String>),
+    read_set: &mut BTreeSet<String>,
+    modified_set: &mut BTreeSet<String>,
 ) {
     let Some(prior) = prior else {
         return;
@@ -59,7 +60,8 @@ fn populate_prior_files(
 
 fn process_tool_call_file_op(
     call: &rig::message::ToolCall,
-    (read_set, modified_set): (&mut BTreeSet<String>, &mut BTreeSet<String>),
+    read_set: &mut BTreeSet<String>,
+    modified_set: &mut BTreeSet<String>,
 ) {
     let name = call.function.name.as_str();
     let Some(raw_path) = extract_path(&call.function.arguments) else {
@@ -76,13 +78,13 @@ fn process_tool_call_file_op(
     }
 }
 
-fn process_message_file_ops(msg: &Message, (read_set, modified_set): (&mut BTreeSet<String>, &mut BTreeSet<String>)) {
+fn process_message_file_ops(msg: &Message, read_set: &mut BTreeSet<String>, modified_set: &mut BTreeSet<String>) {
     let Message::Assistant { content, .. } = msg else {
         return;
     };
     for item in content {
         if let AssistantContent::ToolCall(call) = item {
-            process_tool_call_file_op(call, (read_set, modified_set));
+            process_tool_call_file_op(call, read_set, modified_set);
         }
     }
 }
@@ -91,9 +93,9 @@ pub fn extract_file_ops(messages: &[Message], prior: Option<&CompactionDetails>)
     let mut read_set = BTreeSet::new();
     let mut modified_set = BTreeSet::new();
 
-    populate_prior_files(prior, (&mut read_set, &mut modified_set));
+    populate_prior_files(prior, &mut read_set, &mut modified_set);
     for msg in messages {
-        process_message_file_ops(msg, (&mut read_set, &mut modified_set));
+        process_message_file_ops(msg, &mut read_set, &mut modified_set);
     }
     for file in &modified_set {
         read_set.remove(file);

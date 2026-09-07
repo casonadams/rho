@@ -33,7 +33,7 @@ fn rg_limit_notice(total: usize, limit: usize) -> String {
     }
 }
 
-fn collect_rg_notices(total: usize, limit: usize, (has_bytes, has_lines): (bool, bool)) -> Vec<String> {
+fn collect_rg_notices(total: usize, limit: usize, has_bytes: bool, has_lines: bool) -> Vec<String> {
     let mut notices = Vec::new();
     if total > limit {
         notices.push(rg_limit_notice(total, limit));
@@ -61,7 +61,7 @@ pub fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
     let lines_truncated = matches.iter().any(|m| m.truncated);
     let rendered = render(&matches);
     let truncation = truncate_head(&rendered, usize::MAX, DEFAULT_MAX_BYTES);
-    let notices = collect_rg_notices(total, limit, (truncation.truncated_by.is_some(), lines_truncated));
+    let notices = collect_rg_notices(total, limit, truncation.truncated_by.is_some(), lines_truncated);
     let mut output = truncation.content;
     if !notices.is_empty() {
         output.push_str(&format!("\n\n[{}]", notices.join(". ")));

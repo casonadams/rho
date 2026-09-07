@@ -51,7 +51,7 @@ fn is_html(ct_lower: &str, body: &str) -> bool {
         || body.trim_start().to_ascii_lowercase().starts_with("<html")
 }
 
-fn extract_override_text(fmt: &str, (body, url_str, mode): (&str, &str, &str)) -> Option<Result<String>> {
+fn extract_override_text(fmt: &str, body: &str, url_str: &str, mode: &str) -> Option<Result<String>> {
     match fmt.to_lowercase().as_str() {
         "json" => Some(Ok(extract_json(body))),
         "csv" | "tsv" => Some(Ok(extract_csv(body, if fmt == "tsv" { b'\t' } else { b',' }))),
@@ -76,7 +76,7 @@ fn extract_structured_text(body: &str, ct_lower: &str, url_str: &str) -> Option<
     }
 }
 
-fn extract_inferred_text((body, ct_lower): (&str, &str), (url_str, mode): (&str, &str)) -> Result<String> {
+fn extract_inferred_text(body: &str, ct_lower: &str, url_str: &str, mode: &str) -> Result<String> {
     if let Some(text) = extract_structured_text(body, ct_lower, url_str) {
         return Ok(text);
     }
@@ -93,9 +93,9 @@ fn extract_inferred_text((body, ct_lower): (&str, &str), (url_str, mode): (&str,
 pub fn extract_text(params: ExtractTextParams<'_>) -> Result<String> {
     let ct_lower = params.content_type.to_lowercase();
     if let Some(fmt) = params.format_override
-        && let Some(text_res) = extract_override_text(fmt, (params.body, params.url_str, params.mode))
+        && let Some(text_res) = extract_override_text(fmt, params.body, params.url_str, params.mode)
     {
         return text_res;
     }
-    extract_inferred_text((params.body, &ct_lower), (params.url_str, params.mode))
+    extract_inferred_text(params.body, &ct_lower, params.url_str, params.mode)
 }

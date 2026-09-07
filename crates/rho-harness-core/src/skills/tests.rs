@@ -82,7 +82,7 @@ fn user_skill_resolves_with_user_origin_and_content() {
     assert_eq!(std::fs::read_to_string(&plan.metadata.location).unwrap(), plan_content);
 }
 
-fn assert_skill_entry(skill: &ResolvedSkill, (origin, desc, marker): (SkillOrigin, &str, &str)) {
+fn assert_skill_entry(skill: &ResolvedSkill, origin: SkillOrigin, desc: &str, marker: &str) {
     assert_eq!((skill.origin, skill.metadata.description.as_str()), (origin, desc));
     assert!(
         std::fs::read_to_string(&skill.metadata.location)
@@ -120,10 +120,10 @@ fn project_override_beats_user_and_user_additions_survive() {
     };
     let resolved = resolved_skills_for_paths(paths);
     let plan = resolved.iter().find(|s| s.metadata.name == "plan").unwrap();
-    assert_skill_entry(plan, (SkillOrigin::Project, "Project plan", "# Project Plan"));
+    assert_skill_entry(plan, SkillOrigin::Project, "Project plan", "# Project Plan");
 
     let notes = resolved.iter().find(|s| s.metadata.name == "team-notes").unwrap();
-    assert_skill_entry(notes, (SkillOrigin::User, "User notes workflow", "# Notes"));
+    assert_skill_entry(notes, SkillOrigin::User, "User notes workflow", "# Notes");
 }
 
 #[test]

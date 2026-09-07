@@ -102,7 +102,7 @@ fn model_selector_selects_claude_model() {
     }
 }
 
-fn assert_model_switch_state(config: &Config, switch: &SharedModelSwitch, (m, p): (&str, &str)) {
+fn assert_model_switch_state(config: &Config, switch: &SharedModelSwitch, m: &str, p: &str) {
     assert_eq!((config.model.as_str(), config.provider.as_str()), (m, p));
     assert_eq!(
         (switch.current_model().as_deref(), switch.current_provider().as_deref()),
@@ -133,5 +133,5 @@ async fn turn_model_switch_applies_claude_model_and_creates_handle() {
     };
 
     apply_turn_model_switch(input).await.unwrap();
-    assert_model_switch_state(&config, &model_switch, ("claude-opus-4-6", "claude"));
+    assert_model_switch_state(&config, &model_switch, "claude-opus-4-6", "claude");
 }

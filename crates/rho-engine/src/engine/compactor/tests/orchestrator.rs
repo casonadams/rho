@@ -29,7 +29,7 @@ async fn test_engine(label: &str, model: Option<MockCompletionModel>) -> AgentEn
     builder.build().await.unwrap()
 }
 
-fn tool_turn((cid, tool, path): (&str, &str, &str), (user, done): (&str, &str)) -> Vec<Message> {
+fn tool_turn(cid: &str, tool: &str, path: &str, user: &str, done: &str) -> Vec<Message> {
     let call = ToolCall::new(
         ToolCallId::new_or_mint(cid),
         ToolFunction::new(tool.to_string(), serde_json::json!({"path": path})),
@@ -54,8 +54,8 @@ fn tool_turn((cid, tool, path): (&str, &str, &str), (user, done): (&str, &str)) 
 }
 
 async fn populate_test_turns(sm: &rho_harness_core::session::SessionManager, sid: &str) {
-    let turn1 = tool_turn(("c1", "read", "Cargo.toml"), ("Read config", "Done read"));
-    let turn2 = tool_turn(("c2", "write", "src/storage.rs"), ("Edit storage", "Done write"));
+    let turn1 = tool_turn("c1", "read", "Cargo.toml", "Read config", "Done read");
+    let turn2 = tool_turn("c2", "write", "src/storage.rs", "Edit storage", "Done write");
     for turn in [
         turn1,
         turn2,

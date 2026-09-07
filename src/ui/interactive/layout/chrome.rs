@@ -14,7 +14,7 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
     }
 }
 
-pub fn top_divider(width: usize, label: &str, (style, reset): (&str, &str)) -> String {
+pub fn top_divider(width: usize, label: &str, style: &str, reset: &str) -> String {
     if width >= label.len() + 4 {
         let lead = width - label.len() - 3;
         format!("{style}{}{label}{}{reset}", "─".repeat(lead), "─".repeat(3))
@@ -33,7 +33,7 @@ pub fn modal_banner_title(modal: &crate::ui::interactive::ModalState) -> &str {
     }
 }
 
-pub fn modal_top_divider(width: usize, title: &str, (style, reset): (&str, &str)) -> String {
+pub fn modal_top_divider(width: usize, title: &str, style: &str, reset: &str) -> String {
     let title = title.trim();
     if title.is_empty() {
         return format!("{style}{}{reset}", "─".repeat(width));

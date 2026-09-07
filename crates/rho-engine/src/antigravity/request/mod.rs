@@ -81,7 +81,8 @@ fn build_request_labels(runtime_model: &str, is_claude: bool) -> Value {
 
 fn build_tool_configuration(
     request: &CompletionRequest,
-    (is_claude, legacy_parameters): (bool, bool),
+    is_claude: bool,
+    legacy_parameters: bool,
 ) -> (Option<Value>, Option<Value>) {
     if !request.tools.is_empty() {
         let tools = convert_tools(request, legacy_parameters).expect("non-empty tools produce declarations");
@@ -96,7 +97,7 @@ fn build_tool_configuration(
     }
 }
 
-fn attach_tools(req: &mut Value, (tools, tool_config): (Option<Value>, Option<Value>)) {
+fn attach_tools(req: &mut Value, tools: Option<Value>, tool_config: Option<Value>) {
     if let Some(t) = tools {
         req["tools"] = t;
     }
@@ -125,10 +126,8 @@ pub fn build_request_body(
         "generationConfig": build_generation_config(runtime_model, target.effort, request),
     });
 
-    attach_tools(
-        &mut gemini_request,
-        build_tool_configuration(request, (is_claude, legacy_parameters)),
-    );
+    let (tools, tool_config) = build_tool_configuration(request, is_claude, legacy_parameters);
+    attach_tools(&mut gemini_request, tools, tool_config);
 
     Ok(json!({
         "project": target.project,

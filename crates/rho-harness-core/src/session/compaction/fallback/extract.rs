@@ -37,29 +37,29 @@ fn process_user_content_facts(part: &UserContent, state: &mut SummaryState) {
     }
 }
 
-fn record_tool_done_item(item: String, (seen_done, state): (&mut HashSet<String>, &mut SummaryState)) {
+fn record_tool_done_item(item: String, seen_done: &mut HashSet<String>, state: &mut SummaryState) {
     if seen_done.insert(item.clone()) && !state.done.contains(&item) {
         state.done.push(item);
     }
 }
 
-fn process_tool_call_facts(call: &rig::message::ToolCall, target: (&mut HashSet<String>, &mut SummaryState)) {
+fn process_tool_call_facts(call: &rig::message::ToolCall, seen_done: &mut HashSet<String>, state: &mut SummaryState) {
     let name = call.function.name.as_str();
     if is_file_mod_tool(name) {
         if let Some(path) = extract_path(&call.function.arguments) {
-            record_tool_done_item(format!("Modified `{path}`"), target);
+            record_tool_done_item(format!("Modified `{path}`"), seen_done, state);
         }
     } else if is_bash_tool(name)
         && let Some(cmd) = extract_command(&call.function.arguments)
     {
-        record_tool_done_item(format!("Ran command `{}`", truncate_str(&cmd, 60)), target);
+        record_tool_done_item(format!("Ran command `{}`", truncate_str(&cmd, 60)), seen_done, state);
     }
 }
 
-fn process_assistant_content_facts(item: &AssistantContent, target: (&mut HashSet<String>, &mut SummaryState)) {
+fn process_assistant_content_facts(item: &AssistantContent, seen_done: &mut HashSet<String>, state: &mut SummaryState) {
     match item {
-        AssistantContent::Text(text) => scan_text_lines(&text.text, target.1),
-        AssistantContent::ToolCall(call) => process_tool_call_facts(call, target),
+        AssistantContent::Text(text) => scan_text_lines(&text.text, state),
+        AssistantContent::ToolCall(call) => process_tool_call_facts(call, seen_done, state),
         _ => {}
     }
 }
@@ -75,7 +75,7 @@ pub fn extract_message_facts(messages: &[Message], state: &mut SummaryState) {
             }
             Message::Assistant { content, .. } => {
                 for item in content {
-                    process_assistant_content_facts(item, (&mut seen_done, state));
+                    process_assistant_content_facts(item, &mut seen_done, state);
                 }
             }
             Message::System { content } => scan_text_lines(content, state),

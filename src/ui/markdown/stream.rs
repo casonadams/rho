@@ -76,7 +76,7 @@ impl InlineStreamTracker {
         }
     }
 
-    fn handle_star(&mut self, (chars, i): (&[char], usize), out: &mut String) -> usize {
+    fn handle_star(&mut self, chars: &[char], i: usize, out: &mut String) -> usize {
         if i + 1 == chars.len() {
             self.pending_star = true;
             return 1;
@@ -95,7 +95,7 @@ impl InlineStreamTracker {
         1
     }
 
-    fn process_token_char(&mut self, (chars, i): (&[char], usize), (out, theme): (&mut String, &Theme)) -> usize {
+    fn process_token_char(&mut self, chars: &[char], i: usize, out: &mut String, theme: &Theme) -> usize {
         if chars[i] == '`' {
             self.toggle_code(out, theme);
             1
@@ -106,7 +106,7 @@ impl InlineStreamTracker {
             self.toggle_bold(out);
             2
         } else if chars[i] == '*' {
-            self.handle_star((chars, i), out)
+            self.handle_star(chars, i, out)
         } else {
             out.push(chars[i]);
             1
@@ -124,7 +124,7 @@ impl InlineStreamTracker {
         }
 
         while i < len {
-            i += self.process_token_char((&chars, i), (&mut out, theme));
+            i += self.process_token_char(&chars, i, &mut out, theme);
         }
         out
     }

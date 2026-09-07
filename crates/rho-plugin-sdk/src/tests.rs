@@ -30,7 +30,7 @@ impl Plugin for TestGuardPlugin {
             StepEvent::ToolCall { tool_name, args } => handle_tool_call(&tool_name, &args, ctx).await,
             StepEvent::InvalidToolCall { tool_name, .. } if tool_name == "sh" => Flow::repair("bash"),
             StepEvent::ToolResult { .. } => {
-                ctx.block(("Tool Result", "Success", "success")).await;
+                ctx.block("Tool Result", "Success", "success").await;
                 ctx.set_status("quota", Some("5h: 90%")).await;
                 Flow::cont()
             }

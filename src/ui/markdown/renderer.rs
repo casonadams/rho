@@ -124,7 +124,7 @@ impl MarkdownRenderer {
         None
     }
 
-    fn process_empty_line(&mut self, out: &mut String, (line, theme): (&str, &Theme)) {
+    fn process_empty_line(&mut self, out: &mut String, line: &str, theme: &Theme) {
         if self.code_fence.in_code_block {
             self.spacing.prepare_content(out);
             out.push_str(&highlight_code_line(line, self.code_fence.code_lang.as_deref(), theme));
@@ -135,7 +135,7 @@ impl MarkdownRenderer {
         }
     }
 
-    fn process_content_line(&mut self, out: &mut String, (line, theme): (&str, &Theme)) {
+    fn process_content_line(&mut self, out: &mut String, line: &str, theme: &Theme) {
         if needs_preceding_blank_line(line.trim(), self.code_fence.in_code_block) {
             self.spacing.ensure_preceding_blank(out);
         }
@@ -154,9 +154,9 @@ impl MarkdownRenderer {
         self.flush_buffered_blocks(&mut out, theme);
 
         if line.trim().is_empty() {
-            self.process_empty_line(&mut out, (line, theme));
+            self.process_empty_line(&mut out, line, theme);
         } else {
-            self.process_content_line(&mut out, (line, theme));
+            self.process_content_line(&mut out, line, theme);
         }
 
         out

@@ -109,10 +109,10 @@ impl ProviderFactory {
         }
         let key = resolve_provider_key(provider, auth_store)?;
         if provider == ProviderId::ChatGpt {
-            return build_chatgpt_model((model, key), auth_store);
+            return build_chatgpt_model(model, key, auth_store);
         }
         if provider == ProviderId::Gemini {
-            return build_gemini_model((model, key));
+            return build_gemini_model(model, key);
         }
         build_standard_client_model(provider, model, key)
     }

@@ -55,7 +55,7 @@ fn append_local_models(models: &mut Vec<ModelItem>, store: &ModelStore) {
     }
 }
 
-fn append_configured_provider_models(models: &mut Vec<ModelItem>, (store, auth_store): (&ModelStore, &AuthStore)) {
+fn append_configured_provider_models(models: &mut Vec<ModelItem>, store: &ModelStore, auth_store: &AuthStore) {
     let mut configured: Vec<String> = auth_store.list_configured_providers();
     for prov in store.providers() {
         if !configured.contains(prov) {
@@ -110,7 +110,7 @@ pub fn discover_models(config: &Config, auth_store: &AuthStore) -> Vec<ModelItem
     let model_store = ModelStore::load(config.config_dir.join("models-store.json"));
     append_active_model(&mut models, config, &model_store);
     append_local_models(&mut models, &model_store);
-    append_configured_provider_models(&mut models, (&model_store, auth_store));
+    append_configured_provider_models(&mut models, &model_store, auth_store);
     append_custom_provider_models(&mut models, config, &model_store);
     models
 }

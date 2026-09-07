@@ -107,7 +107,7 @@ async fn execute_user_input(
     Ok(())
 }
 
-async fn run_dispatch_turn(text: &str, (session, engine): (&mut ReplSession, &mut AgentEngine)) -> Result<bool> {
+async fn run_dispatch_turn(text: &str, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<bool> {
     run_agent_turn(engine, &session.renderer, crate::engine::runner::TurnRequest::new(text)).await?;
     engine.refresh_quota().await;
     Ok(true)
@@ -115,7 +115,8 @@ async fn run_dispatch_turn(text: &str, (session, engine): (&mut ReplSession, &mu
 
 async fn process_line_input(
     buffer: &str,
-    (session, engine): (&mut ReplSession, &mut AgentEngine),
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
     stdin_is_tty: bool,
 ) -> Result<bool> {
     let input = buffer.trim();
@@ -126,7 +127,7 @@ async fn process_line_input(
         return match outcome {
             DispatchOutcome::Continue => Ok(true),
             DispatchOutcome::Break => Ok(false),
-            DispatchOutcome::RunTurn(text) => run_dispatch_turn(&text, (session, engine)).await,
+            DispatchOutcome::RunTurn(text) => run_dispatch_turn(&text, session, engine).await,
         };
     }
     execute_user_input(input, (session, engine), stdin_is_tty).await?;
@@ -139,7 +140,7 @@ async fn handle_line_signal(
     stdin_is_tty: bool,
 ) -> Result<bool> {
     match sig {
-        Ok(Signal::Success(buffer)) => process_line_input(&buffer, (session, engine), stdin_is_tty).await,
+        Ok(Signal::Success(buffer)) => process_line_input(&buffer, session, engine, stdin_is_tty).await,
         Ok(Signal::CtrlC) => {
             session.renderer.write_output("\nCanceled input.\n");
             Ok(true)

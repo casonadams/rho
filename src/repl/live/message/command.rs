@@ -63,7 +63,7 @@ async fn handle_thinking_changed(
     let _ = io_controller.redraw();
 }
 
-async fn handle_model_changed(ctx: &mut LiveCommandContext<'_, '_>, (new_model, new_provider): (&str, Option<&str>)) {
+async fn handle_model_changed(ctx: &mut LiveCommandContext<'_, '_>, new_model: &str, new_provider: Option<&str>) {
     ctx.session.config.model = new_model.to_string();
     if let Some(provider) = new_provider {
         ctx.session.config.provider = provider.to_string();
@@ -119,7 +119,7 @@ async fn handle_model_or_thinking_command<B: TerminalBackend>(
             new_model,
             new_provider,
         } => {
-            handle_model_changed(ctx, (new_model, new_provider.as_deref())).await;
+            handle_model_changed(ctx, new_model, new_provider.as_deref()).await;
             true
         }
         CommandResult::ThinkingChanged { level } => {

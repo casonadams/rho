@@ -29,16 +29,16 @@ fn resolve_divider_style(input: &LayoutInput<'_>) -> (&'static str, &'static str
     }
 }
 
-fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: (&str, &str)) -> String {
+fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset: &str) -> String {
     match input.modal {
-        Some(modal) => modal_top_divider(width, modal_banner_title(modal), style),
+        Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
         None => {
             let label = if input.footer.show_label {
                 concat!("rho ", env!("CARGO_PKG_VERSION"))
             } else {
                 ""
             };
-            top_divider(width, label, style)
+            top_divider(width, label, style, reset)
         }
     }
 }
@@ -198,7 +198,7 @@ fn assemble_layout(
 
 fn resolve_chrome_dividers(input: &LayoutInput<'_>, width: usize) -> (String, String) {
     let (style, reset) = resolve_divider_style(input);
-    let top = resolve_top_divider(input, width, (style, reset));
+    let top = resolve_top_divider(input, width, style, reset);
     let bot = format!("{style}{}{reset}", "─".repeat(width));
     (top, bot)
 }

@@ -21,7 +21,7 @@ pub struct EntryDiffInput<'a> {
     pub start_line: Option<usize>,
 }
 
-fn push_edit_header(out: &mut String, (idx, start_line): (usize, Option<usize>), dim: anstyle::Style) {
+fn push_edit_header(out: &mut String, idx: usize, start_line: Option<usize>, dim: anstyle::Style) {
     if idx == 0 {
         return;
     }
@@ -34,8 +34,11 @@ fn push_edit_header(out: &mut String, (idx, start_line): (usize, Option<usize>),
 
 fn push_single_line_diff(
     out: &mut String,
-    (old_line, new_line): (&str, &str),
-    (start_line, gutter_width, theme): (Option<usize>, usize, &Theme),
+    old_line: &str,
+    new_line: &str,
+    start_line: Option<usize>,
+    gutter_width: usize,
+    theme: &Theme,
 ) {
     let (removed, added) = render_single_line_word_diff(old_line, new_line, theme);
     if let Some(line) = start_line {
@@ -50,9 +53,18 @@ fn push_single_line_diff(
 
 fn push_diff_lines(
     out: &mut String,
-    (lines, prefix, color): (&[&str], char, anstyle::Style),
-    (start_line, gutter_width, dim): (Option<usize>, usize, anstyle::Style),
+    lines: &[&str],
+    is_add: bool,
+    start_line: Option<usize>,
+    gutter_width: usize,
+    theme: &Theme,
 ) {
+    let (prefix, color) = if is_add {
+        ('+', theme.tool_ok)
+    } else {
+        ('-', theme.tool_err)
+    };
+    let dim = theme.dimmed;
     for (offset, line) in lines.iter().take(8).enumerate() {
         let clean = replace_tabs(line);
         if let Some(start) = start_line {
@@ -71,17 +83,19 @@ fn push_diff_lines(
 
 fn push_multi_line_diff(
     out: &mut String,
-    (old_lines, new_lines): (&[&str], &[&str]),
-    (start_line, gutter_width, theme): (Option<usize>, usize, &Theme),
+    old_lines: &[&str],
+    new_lines: &[&str],
+    start_line: Option<usize>,
+    gutter_width: usize,
+    theme: &Theme,
 ) {
-    let dim = theme.dimmed;
-    push_diff_lines(out, (old_lines, '-', theme.tool_err), (start_line, gutter_width, dim));
-    push_diff_lines(out, (new_lines, '+', theme.tool_ok), (start_line, gutter_width, dim));
+    push_diff_lines(out, old_lines, false, start_line, gutter_width, theme);
+    push_diff_lines(out, new_lines, true, start_line, gutter_width, theme);
 }
 
 pub fn format_entry_diff(input: EntryDiffInput<'_>) -> String {
     let mut out = String::new();
-    push_edit_header(&mut out, (input.idx, input.start_line), input.theme.dimmed);
+    push_edit_header(&mut out, input.idx, input.start_line, input.theme.dimmed);
 
     let old_lines: Vec<&str> = input.old_text.lines().collect();
     let new_lines: Vec<&str> = input.new_text.lines().collect();
@@ -94,14 +108,20 @@ pub fn format_entry_diff(input: EntryDiffInput<'_>) -> String {
     if old_lines.len() == 1 && new_lines.len() == 1 {
         push_single_line_diff(
             &mut out,
-            (old_lines[0], new_lines[0]),
-            (input.start_line, gutter_width, input.theme),
+            old_lines[0],
+            new_lines[0],
+            input.start_line,
+            gutter_width,
+            input.theme,
         );
     } else {
         push_multi_line_diff(
             &mut out,
-            (&old_lines, &new_lines),
-            (input.start_line, gutter_width, input.theme),
+            &old_lines,
+            &new_lines,
+            input.start_line,
+            gutter_width,
+            input.theme,
         );
     }
 

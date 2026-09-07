@@ -115,7 +115,7 @@ async fn setup_branching_session(sm: &SessionManager, sid: &str) -> (String, Str
     (root_leaf, branch_leaf)
 }
 
-async fn assert_branch_summary_recorded(sm: &SessionManager, (root, branch, summary): (&str, &str, &str)) {
+async fn assert_branch_summary_recorded(sm: &SessionManager, root: &str, branch: &str, summary: &str) {
     sm.switch_branch(Some(root.to_string())).await.unwrap();
     sm.append_branch_summary(summary, branch).await.unwrap();
     let tree = sm.load_tree().await.unwrap();
@@ -152,7 +152,7 @@ async fn branch_summarization_records_structured_summary() {
         .summarize_branch(&[Message::assistant("Explored alternative algorithm")])
         .await;
     assert_eq!(summary, mock_response);
-    assert_branch_summary_recorded(&session_mgr, (&root_leaf, &branch_leaf, &summary)).await;
+    assert_branch_summary_recorded(&session_mgr, &root_leaf, &branch_leaf, &summary).await;
     let _ = std::fs::remove_dir_all(temp);
 }
 

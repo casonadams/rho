@@ -52,7 +52,7 @@ impl WebSearchTool {
         }
     }
 
-    async fn try_relaxed_search(&self, query: &str, (limit, today): (usize, &str)) -> Option<ToolResult> {
+    async fn try_relaxed_search(&self, query: &str, limit: usize, today: &str) -> Option<ToolResult> {
         let relaxed = relax_query(query);
         if relaxed == query {
             return None;
@@ -97,7 +97,7 @@ impl WebSearchTool {
         (query, today): (&str, &str),
         (limit, no_filters): (usize, bool),
     ) -> ToolResult {
-        if no_filters && let Some(res) = self.try_relaxed_search(query, (limit, today)).await {
+        if no_filters && let Some(res) = self.try_relaxed_search(query, limit, today).await {
             return res;
         }
         ToolResult::success(format!(

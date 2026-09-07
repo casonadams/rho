@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use super::types::WelcomeItem;
 
-fn append_welcome_section(out: &mut String, (title, items): (&str, &[String]), dim: anstyle::Style) {
+fn append_welcome_section(out: &mut String, title: &str, items: &[String], dim: anstyle::Style) {
     if items.is_empty() {
         return;
     }
@@ -68,16 +68,16 @@ pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
         "\n{highlight}rho{highlight:#} {dim}v{}{dim:#}\n{dim}Type /help for commands, Tab to complete, Esc to cancel{dim:#}\n\n",
         welcome.version
     );
-    append_welcome_section(&mut out, ("agents", &welcome.agents), dim);
-    append_welcome_section(&mut out, ("skills", &welcome.skills), dim);
+    append_welcome_section(&mut out, "agents", &welcome.agents, dim);
+    append_welcome_section(&mut out, "skills", &welcome.skills, dim);
 
     let tools = classify_tools(&welcome.tools);
     let mut all_tools = tools.builtins;
     all_tools.extend(tools.custom);
-    append_welcome_section(&mut out, ("tools", &all_tools), dim);
+    append_welcome_section(&mut out, "tools", &all_tools, dim);
 
     let mcp = format_mcp_items(&tools.mcp_groups);
-    append_welcome_section(&mut out, ("mcp", &mcp), dim);
-    append_welcome_section(&mut out, ("plugins", &welcome.plugins), dim);
+    append_welcome_section(&mut out, "mcp", &mcp, dim);
+    append_welcome_section(&mut out, "plugins", &welcome.plugins, dim);
     out
 }

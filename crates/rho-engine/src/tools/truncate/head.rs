@@ -4,8 +4,10 @@ use super::{TruncatedBy, Truncation};
 /// file reads where the beginning matters.
 fn untruncated(
     content: &str,
-    (total_lines, total_bytes): (usize, usize),
-    (max_lines, max_bytes): (usize, usize),
+    total_lines: usize,
+    total_bytes: usize,
+    max_lines: usize,
+    max_bytes: usize,
 ) -> Truncation {
     Truncation {
         content: content.to_string(),
@@ -22,7 +24,7 @@ fn untruncated(
     }
 }
 
-fn first_line_oversized(total_lines: usize, total_bytes: usize, (max_lines, max_bytes): (usize, usize)) -> Truncation {
+fn first_line_oversized(total_lines: usize, total_bytes: usize, max_lines: usize, max_bytes: usize) -> Truncation {
     Truncation {
         content: String::new(),
         truncated: true,
@@ -60,15 +62,23 @@ fn collect_head_lines<'a>(
     (kept, truncated_by)
 }
 
-fn build_truncated_result(
-    (content, output_lines): (String, usize),
-    (total_lines, total_bytes): (usize, usize),
-    (max_lines, max_bytes, truncated_by): (usize, usize, TruncatedBy),
-) -> Truncation {
+pub fn truncate_head(content: &str, max_lines: usize, max_bytes: usize) -> Truncation {
+    let (total_bytes, total_lines) = (content.len(), content.lines().count());
+    if total_lines <= max_lines && total_bytes <= max_bytes {
+        return untruncated(content, total_lines, total_bytes, max_lines, max_bytes);
+    }
+    if let Some(first_line) = content.lines().next()
+        && first_line.len() > max_bytes
+    {
+        return first_line_oversized(total_lines, total_bytes, max_lines, max_bytes);
+    }
+    let (kept, truncated_by) = collect_head_lines(content.lines(), max_lines, max_bytes);
+    let output_lines = kept.len();
+    let out = kept.join("\n");
     Truncation {
-        output_bytes: content.len(),
+        output_bytes: out.len(),
         output_lines,
-        content,
+        content: out,
         truncated: true,
         truncated_by: Some(truncated_by),
         total_lines,
@@ -78,23 +88,4 @@ fn build_truncated_result(
         max_lines,
         max_bytes,
     }
-}
-
-pub fn truncate_head(content: &str, max_lines: usize, max_bytes: usize) -> Truncation {
-    let (total_bytes, total_lines) = (content.len(), content.lines().count());
-    if total_lines <= max_lines && total_bytes <= max_bytes {
-        return untruncated(content, (total_lines, total_bytes), (max_lines, max_bytes));
-    }
-    if let Some(first_line) = content.lines().next()
-        && first_line.len() > max_bytes
-    {
-        return first_line_oversized(total_lines, total_bytes, (max_lines, max_bytes));
-    }
-    let (kept, truncated_by) = collect_head_lines(content.lines(), max_lines, max_bytes);
-    let out = kept.join("\n");
-    build_truncated_result(
-        (out, kept.len()),
-        (total_lines, total_bytes),
-        (max_lines, max_bytes, truncated_by),
-    )
 }

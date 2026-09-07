@@ -78,7 +78,7 @@ impl DaemonHook {
     }
 }
 
-async fn call_hook_flow(daemon: &DaemonProcess, (hook, sub): (&str, &str), val: &Value) -> Option<PluginFlow> {
+async fn call_hook_flow(daemon: &DaemonProcess, hook: &str, sub: &str, val: &Value) -> Option<PluginFlow> {
     if !daemon.subscribes_to(sub) {
         return None;
     }
@@ -137,7 +137,7 @@ impl AgentHook for DaemonHook {
     ) -> Option<InvalidToolCallAction> {
         let val = invalid_tool_call_event(event);
         for daemon in &self.daemons {
-            if let Some(flow) = call_hook_flow(daemon, ("hook/invalid_tool_call", "invalid_tool_call"), &val).await {
+            if let Some(flow) = call_hook_flow(daemon, "hook/invalid_tool_call", "invalid_tool_call", &val).await {
                 let action = flow_to_invalid_tool_call_action(flow);
                 if action != InvalidToolCallAction::Fail {
                     return Some(action);
@@ -150,7 +150,7 @@ impl AgentHook for DaemonHook {
     async fn on_completion_call(&self, _ctx: &HookContext, event: CompletionCall<'_>) -> CompletionCallAction {
         let val = completion_call_event(event);
         for daemon in &self.daemons {
-            if let Some(flow) = call_hook_flow(daemon, ("hook/completion_call", "completion_call"), &val).await {
+            if let Some(flow) = call_hook_flow(daemon, "hook/completion_call", "completion_call", &val).await {
                 let action = flow_to_completion_call_action(flow);
                 if action != CompletionCallAction::continue_run() {
                     return action;
@@ -163,8 +163,7 @@ impl AgentHook for DaemonHook {
     async fn on_completion_response(&self, _ctx: &HookContext, event: CompletionResponse<'_>) -> ObservationAction {
         let val = completion_response_event(event);
         for daemon in &self.daemons {
-            if let Some(flow) = call_hook_flow(daemon, ("hook/completion_response", "completion_response"), &val).await
-            {
+            if let Some(flow) = call_hook_flow(daemon, "hook/completion_response", "completion_response", &val).await {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {
                     return action;
@@ -177,7 +176,7 @@ impl AgentHook for DaemonHook {
     async fn on_text_delta(&self, _ctx: &HookContext, event: rig::agent::hook::TextDelta<'_>) -> ObservationAction {
         let val = text_delta_event(event.delta);
         for daemon in &self.daemons {
-            if let Some(flow) = call_hook_flow(daemon, ("hook/text_delta", "text_delta"), &val).await {
+            if let Some(flow) = call_hook_flow(daemon, "hook/text_delta", "text_delta", &val).await {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {
                     return action;
@@ -194,7 +193,7 @@ impl AgentHook for DaemonHook {
     ) -> ObservationAction {
         let val = reasoning_delta_event(event.delta);
         for daemon in &self.daemons {
-            if let Some(flow) = call_hook_flow(daemon, ("hook/reasoning_delta", "reasoning_delta"), &val).await {
+            if let Some(flow) = call_hook_flow(daemon, "hook/reasoning_delta", "reasoning_delta", &val).await {
                 let action = flow_to_observation_action(flow);
                 if action != ObservationAction::continue_run() {
                     return action;

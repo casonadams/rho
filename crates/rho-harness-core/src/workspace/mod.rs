@@ -168,7 +168,7 @@ pub async fn list_relative_files_async(root: &Path, max_files: usize) -> Vec<Str
     files
 }
 
-fn process_sync_entry(root: &Path, path: PathBuf, (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>)) {
+fn process_sync_entry(root: &Path, path: PathBuf, dirs: &mut Vec<PathBuf>, files: &mut Vec<String>) {
     if path.is_dir() {
         dirs.push(path);
     } else if path.is_file()
@@ -178,23 +178,19 @@ fn process_sync_entry(root: &Path, path: PathBuf, (dirs, files): (&mut Vec<PathB
     }
 }
 
-fn step_sync_entry(root: &Path, entry: std::fs::DirEntry, (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>)) {
+fn step_sync_entry(root: &Path, entry: std::fs::DirEntry, dirs: &mut Vec<PathBuf>, files: &mut Vec<String>) {
     let file_name = entry.file_name();
     if !is_ignored_directory_or_file(&file_name.to_string_lossy()) {
-        process_sync_entry(root, entry.path(), (dirs, files));
+        process_sync_entry(root, entry.path(), dirs, files);
     }
 }
 
-fn drain_sync_dir(
-    (root, current): (&Path, &Path),
-    (dirs, files): (&mut Vec<PathBuf>, &mut Vec<String>),
-    max_files: usize,
-) {
+fn drain_sync_dir(root: &Path, current: &Path, dirs: &mut Vec<PathBuf>, files: &mut Vec<String>, max_files: usize) {
     let Ok(entries) = std::fs::read_dir(current) else {
         return;
     };
     for entry in entries.flatten() {
-        step_sync_entry(root, entry, (dirs, files));
+        step_sync_entry(root, entry, dirs, files);
         if files.len() >= max_files {
             break;
         }
@@ -205,7 +201,7 @@ pub fn list_relative_files(root: &Path, max_files: usize) -> Vec<String> {
     let mut files = Vec::new();
     let mut dirs = vec![root.to_path_buf()];
     while let Some(current) = dirs.pop() {
-        drain_sync_dir((root, &current), (&mut dirs, &mut files), max_files);
+        drain_sync_dir(root, &current, &mut dirs, &mut files, max_files);
         if files.len() >= max_files {
             break;
         }

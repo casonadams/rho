@@ -147,7 +147,7 @@ impl HostContext {
     /// Like `input`, but prefills the editable text buffer with `value` so the
     /// user modifies an existing input instead of retyping it. Older hosts
     /// ignore the extra field and behave like `input`.
-    pub async fn input_with_default(&self, (title, message): (&str, &str), value: &str) -> Option<String> {
+    pub async fn input_with_default(&self, title: &str, message: &str, value: &str) -> Option<String> {
         let params = json!({
             "title": title,
             "message": message,
@@ -165,7 +165,7 @@ impl HostContext {
         let _ = self.call_host("host/ui/notify", params).await;
     }
 
-    pub async fn block(&self, (title, content, style): (&str, &str, &str)) {
+    pub async fn block(&self, title: &str, content: &str, style: &str) {
         let params = json!({
             "title": title,
             "content": content,

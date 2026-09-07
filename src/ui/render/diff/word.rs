@@ -22,7 +22,7 @@ fn push_inverted_token(buf: &mut String, text: &str) {
     }
 }
 
-fn append_diff_token(token: DiffToken<'_>, (removed, added): (&mut String, &mut String)) {
+fn append_diff_token(token: DiffToken<'_>, removed: &mut String, added: &mut String) {
     match token {
         DiffToken::Same(text) => {
             removed.push_str(text);
@@ -43,7 +43,7 @@ pub fn render_single_line_word_diff(old_line: &str, new_line: &str, theme: &Them
     let (red, green) = (theme.tool_err, theme.tool_ok);
     let (mut removed_buf, mut added_buf) = (format!("{red}- "), format!("{green}+ "));
     for token in diff {
-        append_diff_token(token, (&mut removed_buf, &mut added_buf));
+        append_diff_token(token, &mut removed_buf, &mut added_buf);
     }
     removed_buf.push_str(&format!("{red:#}\n"));
     added_buf.push_str(&format!("{green:#}\n"));

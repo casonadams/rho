@@ -70,7 +70,8 @@ impl SseParser {
 
     fn handle_content_block_start(
         &mut self,
-        (index, content_block): (usize, ContentBlockStartPayload),
+        index: usize,
+        content_block: ContentBlockStartPayload,
         events: &mut SseEvents,
     ) {
         match content_block {
@@ -97,7 +98,7 @@ impl SseParser {
         }
     }
 
-    fn handle_content_block_delta(&mut self, (index, delta): (usize, ContentDeltaPayload), events: &mut SseEvents) {
+    fn handle_content_block_delta(&mut self, index: usize, delta: ContentDeltaPayload, events: &mut SseEvents) {
         match delta {
             ContentDeltaPayload::TextDelta { text } => {
                 events.push(Ok(RawStreamingChoice::Message(text)));
@@ -134,7 +135,7 @@ impl SseParser {
         events.push(Ok(RawStreamingChoice::FinalResponse(final_resp)));
     }
 
-    fn handle_message_delta(&mut self, (delta, usage): (wire::MessageDeltaPayload, Option<wire::MessageDeltaUsage>)) {
+    fn handle_message_delta(&mut self, delta: wire::MessageDeltaPayload, usage: Option<wire::MessageDeltaUsage>) {
         if let Some(reason) = delta.stop_reason {
             self.finish_reason = Some(map_finish_reason(&reason));
         }
@@ -151,13 +152,13 @@ impl SseParser {
                 }
             }
             SseMessage::ContentBlockStart { index, content_block } => {
-                self.handle_content_block_start((index, content_block), events);
+                self.handle_content_block_start(index, content_block, events);
             }
             SseMessage::ContentBlockDelta { index, delta } => {
-                self.handle_content_block_delta((index, delta), events);
+                self.handle_content_block_delta(index, delta, events);
             }
             SseMessage::ContentBlockStop { index } => self.handle_block_stop(index, events),
-            SseMessage::MessageDelta { delta, usage } => self.handle_message_delta((delta, usage)),
+            SseMessage::MessageDelta { delta, usage } => self.handle_message_delta(delta, usage),
             SseMessage::MessageStop => self.handle_message_stop(events),
             SseMessage::Error { error } => {
                 let msg = error.message.unwrap_or_else(|| "Anthropic streaming error".to_string());

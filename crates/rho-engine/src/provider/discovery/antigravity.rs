@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 /// Fold tiered runtime ids into one selectable family entry per model
 /// (`gemini-3.7-flash-{low,medium,high}` → `gemini-3.7-flash`); the thinking
 /// level then picks the variant at request time.
-fn make_discovered_model((base, levels): (String, Vec<Option<crate::antigravity::Effort>>)) -> DiscoveredModel {
+fn make_discovered_model(base: String, levels: &[Option<crate::antigravity::Effort>]) -> DiscoveredModel {
     let thinking = if levels.iter().any(|l| l.is_some()) {
         " · adaptive thinking"
     } else {
@@ -29,7 +29,10 @@ pub fn collapse_antigravity_catalog(runtime_ids: Vec<String>) -> Vec<DiscoveredM
         families.entry(base).or_default().push(level);
     }
 
-    let models: Vec<DiscoveredModel> = families.into_iter().map(make_discovered_model).collect();
+    let models: Vec<DiscoveredModel> = families
+        .into_iter()
+        .map(|(base, levels)| make_discovered_model(base, &levels))
+        .collect();
     sort_models_newest_first(models)
 }
 

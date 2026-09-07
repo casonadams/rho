@@ -14,7 +14,7 @@ pub use welcome::format_welcome_content;
 
 use crate::ui::render::format_thinking_block;
 
-fn render_assistant_text(text: &str, (width, theme): (usize, &crate::ui::theme::Theme)) -> String {
+fn render_assistant_text(text: &str, width: usize, theme: &crate::ui::theme::Theme) -> String {
     let mut md = crate::ui::markdown::MarkdownRenderer::default();
     md.set_width(width);
     let full = format!("{}{}", md.render_token(text, theme), md.flush(theme));
@@ -25,7 +25,7 @@ fn render_assistant_text(text: &str, (width, theme): (usize, &crate::ui::theme::
     }
 }
 
-fn render_thinking_text(text: &str, (hide_thinking, theme): (bool, &crate::ui::theme::Theme)) -> String {
+fn render_thinking_text(text: &str, hide_thinking: bool, theme: &crate::ui::theme::Theme) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         String::new()
@@ -42,8 +42,8 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
     match input.item {
         TranscriptItem::Welcome(welcome) => format_welcome_content(welcome, input.theme),
         TranscriptItem::UserMessage(text) => skill::render_user_message(text, &input),
-        TranscriptItem::AssistantText(text) => render_assistant_text(text, (input.width, input.theme)),
-        TranscriptItem::Thinking(text) => render_thinking_text(text, (input.hide_thinking, input.theme)),
+        TranscriptItem::AssistantText(text) => render_assistant_text(text, input.width, input.theme),
+        TranscriptItem::Thinking(text) => render_thinking_text(text, input.hide_thinking, input.theme),
         TranscriptItem::Tool(tool) => tool::render_tool_transcript(tool, &input),
         TranscriptItem::Notice(text) => text.clone(),
     }

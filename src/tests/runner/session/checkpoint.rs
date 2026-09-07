@@ -117,7 +117,7 @@ fn assert_requests_contain_probe(requests: &[rig::completion::CompletionRequest]
     }
 }
 
-async fn assert_retry_session_state(engine: &crate::engine::AgentEngine, (dir, id): (&std::path::Path, &str)) {
+async fn assert_retry_session_state(engine: &crate::engine::AgentEngine, dir: &std::path::Path, id: &str) {
     assert!(engine.session_manager.load_checkpoint().await.unwrap().is_none());
     assert_eq!(
         SessionManager::new(dir, Some(id))
@@ -153,5 +153,5 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
         .await
         .unwrap();
     assert_requests_contain_probe(&resumed_model.requests(), "checkpoint-probe-missing-3f9b");
-    assert_retry_session_state(&resumed, (&dir, &id)).await;
+    assert_retry_session_state(&resumed, &dir, &id).await;
 }

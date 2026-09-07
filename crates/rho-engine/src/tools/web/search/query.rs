@@ -25,7 +25,7 @@ pub fn normalize_domain(raw: &str) -> Option<String> {
     (trimmed.contains('.') && !trimmed.contains(' ')).then_some(trimmed)
 }
 
-fn insert_domain_filter(raw: &str, (allowed, blocked): (&mut Vec<String>, &mut Vec<String>)) {
+fn insert_domain_filter(raw: &str, allowed: &mut Vec<String>, blocked: &mut Vec<String>) {
     let Some(domain) = normalize_domain(raw) else {
         return;
     };
@@ -43,7 +43,7 @@ pub fn normalize_domain_filters(domains: Option<&[String]>) -> (Vec<String>, Vec
     let mut blocked = Vec::new();
     if let Some(list) = domains {
         for raw in list {
-            insert_domain_filter(raw, (&mut allowed, &mut blocked));
+            insert_domain_filter(raw, &mut allowed, &mut blocked);
         }
     }
     (allowed, blocked)

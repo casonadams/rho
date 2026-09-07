@@ -13,7 +13,7 @@ impl MatchScorer {
         }
     }
 
-    fn record_match(&mut self, (idx, char_len): (usize, usize), is_word_boundary: bool) {
+    fn record_match(&mut self, idx: usize, char_len: usize, is_word_boundary: bool) {
         if let Some(last_idx) = self.last_match_index {
             if last_idx + char_len == idx {
                 self.consecutive_matches += 1;
@@ -46,7 +46,7 @@ fn score_matching_chars(query: &str, target: &str) -> Option<i32> {
     for (i, target_char) in target.char_indices() {
         if query_chars.peek() == Some(&target_char) {
             query_chars.next();
-            scorer.record_match((i, target_char.len_utf8()), is_boundary(target, i));
+            scorer.record_match(i, target_char.len_utf8(), is_boundary(target, i));
         }
     }
 

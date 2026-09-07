@@ -48,9 +48,7 @@ fn pad_row(mut row: Vec<String>, col_count: usize) -> Vec<String> {
     row
 }
 
-fn format_notes(row_counts: (usize, usize), col_counts: (usize, usize)) -> Option<String> {
-    let (total_rows, shown_rows) = row_counts;
-    let (orig_cols, col_count) = col_counts;
+fn format_notes(total_rows: usize, shown_rows: usize, orig_cols: usize, col_count: usize) -> Option<String> {
     let mut notes = Vec::new();
     if total_rows > shown_rows {
         notes.push(format!("showing first {shown_rows} of {total_rows} data rows"));
@@ -82,7 +80,7 @@ pub fn extract_csv(raw: &str, delimiter: u8) -> String {
         out.push_str(&format!("| {} |\n", padded.join(" | ")));
     }
 
-    if let Some(notes) = format_notes((total_data, data_limit), (orig_cols, col_count)) {
+    if let Some(notes) = format_notes(total_data, data_limit, orig_cols, col_count) {
         out.push_str(&notes);
     }
     out.trim_end().to_string()

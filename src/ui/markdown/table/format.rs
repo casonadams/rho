@@ -11,7 +11,7 @@ pub(super) struct TableFormat<'a> {
 }
 
 impl TableFormat<'_> {
-    pub fn border(&self, (left, mid, right): (char, char, char)) -> String {
+    pub fn border(&self, left: char, mid: char, right: char) -> String {
         let mut border = String::from(left);
         for (index, width) in self.widths.iter().enumerate() {
             border.push_str(&"─".repeat(width + 2));
@@ -21,7 +21,7 @@ impl TableFormat<'_> {
         format!("{dim}{border}{dim:#}")
     }
 
-    fn render_row_subline(&self, wrapped: &[Vec<String>], (line_idx, header): (usize, bool)) -> String {
+    fn render_row_subline(&self, wrapped: &[Vec<String>], line_idx: usize, header: bool) -> String {
         let border = self.theme.dimmed;
         let bold = anstyle::Style::new().bold();
         let mut out = format!("{border}│{border:#} ");
@@ -50,7 +50,7 @@ impl TableFormat<'_> {
         let height = wrapped.iter().map(Vec::len).max().unwrap_or(1);
         let mut output = String::new();
         for line_idx in 0..height {
-            output.push_str(&self.render_row_subline(&wrapped, (line_idx, header)));
+            output.push_str(&self.render_row_subline(&wrapped, line_idx, header));
         }
         output
     }
