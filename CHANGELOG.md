@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.5.0](https://github.com/casonadams/rho/compare/v0.4.0...v0.5.0) (2026-09-07)
+
+
+### Features
+
+* **engine:** halt turn execution immediately after compaction ([d4d15a6](https://github.com/casonadams/rho/commit/d4d15a63a68ebba5be454588d89438601aa38967))
+* **engine:** optimize system prompt with dynamic tools and skill capability gating ([206267a](https://github.com/casonadams/rho/commit/206267a7de74d7fa66ef4b24db668846a509d346))
+* **engine:** trigger autocompact at 96% per turn and optimize hot paths ([0bd16d1](https://github.com/casonadams/rho/commit/0bd16d107bd275b7f187ad841f0f6193e1462ec5))
+* **layout:** expand modal height dynamically up to 66% terminal height ([9d566b4](https://github.com/casonadams/rho/commit/9d566b47e92064d0ab6476d8587d17204b68f3a3))
+* **layout:** render single-row horizontal modal options with overflow sliding window ([cdde5e3](https://github.com/casonadams/rho/commit/cdde5e3c3da7be93656b2d193bea55be220cd6fa))
+* **modal:** dynamic banner title and full multiline input navigation ([07f7a55](https://github.com/casonadams/rho/commit/07f7a5598519238ad0fb1b6d4750085f65c72015))
+* **modal:** support horizontal option layout in prompts and modal state ([cc34b90](https://github.com/casonadams/rho/commit/cc34b90b5f13991135c5e70d157389106bb6f225))
+* **permission:** baseline read-only bash commands and target global config ([e45ce9e](https://github.com/casonadams/rho/commit/e45ce9e0b6de4b879a24dd985f68abb245ad16ce))
+* **permission:** break bash commands at natural seams for prompt display and edit prefill ([196dac6](https://github.com/casonadams/rho/commit/196dac65c8a402203574f3a4300e032db3b3488d))
+* **permission:** prompt for custom pattern on always allow ([8f45ffd](https://github.com/casonadams/rho/commit/8f45ffde3f787683b4f504e864605cdf60a232cc))
+* **repl,layout:** support body viewport scrolling and horizontal modal key navigation ([9085b3a](https://github.com/casonadams/rho/commit/9085b3a8117c4bae730b184e39101603b7913b8b))
+* **repl:** handle turn compaction halts in line, live, and headless runners ([4a4a64d](https://github.com/casonadams/rho/commit/4a4a64de5bfff29bf15d859e973e91d95603ac7a))
+* **tokens:** adjust auto-compaction threshold and context tracking ([b7d730a](https://github.com/casonadams/rho/commit/b7d730a6ff27bb7242bf90eed10ea8c6a5cb2b54))
+
+
+### Bug Fixes
+
+* **ci:** correct clippy test flags in workflow ([606d168](https://github.com/casonadams/rho/commit/606d168496fd3d8929ed85a07a2b466bc1febc1c))
+* **compactor:** filter prior summaries and preserve intra-node message cuts ([130d477](https://github.com/casonadams/rho/commit/130d47755660dfe83718ae981cfd10fb982b4161))
+* **engine:** validate claude code key and format rg limit notices ([5f237cb](https://github.com/casonadams/rho/commit/5f237cbaf95c5fffb71a246950d8903e9be23b1e))
+* **layout:** eliminate blank line leakage during modal interaction ([bc6c8b6](https://github.com/casonadams/rho/commit/bc6c8b682c43456d5215f6c66736060b17d449b6))
+* **quota:** isolate usage quota caching and display per provider ([58c77e7](https://github.com/casonadams/rho/commit/58c77e7818f4c420cfd22f1eb92fb687e57c5c65))
+* **repl,ui:** scope shift+tab navigation to selection menus and modals ([e53d9de](https://github.com/casonadams/rho/commit/e53d9de75fcce0e3d9f57187f5211c6e3fd89635))
+* **repl:** clamp modal body scroll to visible content viewport boundary ([511aae2](https://github.com/casonadams/rho/commit/511aae2851bdcabdb0e38c6fdeb9e92f265b34dc))
+* **repl:** correct down-arrow navigation in autocomplete menu ([3bd5878](https://github.com/casonadams/rho/commit/3bd5878cd70dff137f1488639b6934a71c2dba12))
+* **session:** scope tool-call id uniqueness to assistant messages ([49dda4d](https://github.com/casonadams/rho/commit/49dda4de32fca2d779dcdfd13aa15fa6ce9ce409))
+* **tools,ui:** prevent traversal hangs and preserve html comment output ([e17b6f9](https://github.com/casonadams/rho/commit/e17b6f9365c12eb26d7130a49e0c70ef2520aba1))
+* **ui:** add interactive thinking modal and theme autocomplete dropdown ([3b00036](https://github.com/casonadams/rho/commit/3b00036e130e7d4450f635a5864c8b52c6c59728))
+
+
+### Performance Improvements
+
+* optimize hot paths across tools, streaming, and session storage ([6ce5fe2](https://github.com/casonadams/rho/commit/6ce5fe29bb1a2923c618391d0dbc98a63161f119))
+
 ## [0.4.0](https://github.com/casonadams/rho/compare/v0.3.0...v0.4.0) (2026-09-05)
 
 
