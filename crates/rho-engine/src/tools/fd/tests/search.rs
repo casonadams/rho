@@ -47,6 +47,12 @@ async fn type_filter_keeps_only_matching_extensions() {
         ["src/lib.rs", "src/main.rs", "src/ui/widget.rs"]
     );
 
+    let blank = find(&dir, ".", |args| args.file_type = Some("   ".to_string())).await;
+    assert_eq!(
+        blank.content,
+        "README.md\nsrc\nsrc/lib.rs\nsrc/main.rs\nsrc/ui\nsrc/ui/widget.rs"
+    );
+
     let unknown = find(&dir, ".", |args| args.file_type = Some("nosuchtype".to_string())).await;
     assert!(unknown.is_error);
     assert!(unknown.content.contains("unknown type"));

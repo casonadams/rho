@@ -57,7 +57,7 @@ pub fn walker_builder(search_root: &Path, include_hidden: bool) -> WalkBuilder {
 /// Selects a default file-type definition (e.g. 'rust', 'py'); unknown names
 /// are rejected with the existing fd/rg error phrasing.
 pub fn build_type_matcher(file_type: Option<&str>) -> Result<Option<Types>, String> {
-    let Some(file_type) = file_type else {
+    let Some(file_type) = file_type.map(str::trim).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
     let mut builder = TypesBuilder::new();
