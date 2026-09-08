@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/casonadams/rho/compare/v0.6.0...v0.6.1) (2026-09-08)
+
+
+### Features
+
+* **quota:** display 5h and weekly remaining limits for antigravity and chatgpt ([354abec](https://github.com/casonadams/rho/commit/354abecb14abbafe4bf6045d12ef8c7fa033ca8a))
+* **site:** add www website and GitHub Pages deployment workflow ([498cf85](https://github.com/casonadams/rho/commit/498cf85d9f4669153ac36f621595794ee1eb5363))
+
 ## [0.6.0](https://github.com/casonadams/rho/compare/v0.5.1...v0.6.0) (2026-09-07)
 
 
