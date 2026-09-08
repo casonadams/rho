@@ -1,4 +1,4 @@
-use super::terminal::{blend_fill, detect};
+use super::terminal::{blend_fill, detect, theme_from_colorfbg};
 use super::*;
 use anstyle::{AnsiColor, Color, RgbColor};
 use std::io::IsTerminal;
@@ -81,11 +81,13 @@ fn blend_fill_tints_background_toward_foreground() {
 #[test]
 fn detect_without_a_tty_returns_the_default_theme() {
     // Falls back to the default theme when stdin/stdout are not interactive
-    // TTYs; on a real TTY the query would run live and must not panic.
-    let detected = detect();
-    if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+    // TTYs; on a real TTY the query would run live and must not panic. When
+    // COLORFGBG announces a mode, detect() styles through the base-16 slots
+    // instead, so skip here and let the colorfbg tests cover it.
+    if std::env::var_os("COLORFGBG").is_some() || (std::io::stdin().is_terminal() && std::io::stdout().is_terminal()) {
         return;
     }
+    let detected = detect();
     assert_eq!(
         detected.block_fill.render().to_string(),
         Theme::default().block_fill.render().to_string()
@@ -98,4 +100,35 @@ fn tool_title_style_is_bold_and_red_on_error() {
     let theme = Theme::default();
     assert_eq!(theme.tool_title_style(false).render().to_string(), "\x1b[1m");
     assert_eq!(theme.tool_title_style(true).render().to_string(), "\x1b[1m\x1b[31m");
+}
+
+#[test]
+fn colorfbg_dark_announcement_styles_through_base_16_slots() {
+    let theme = theme_from_colorfbg("15;0").expect("dark theme");
+    assert!(!theme.is_light);
+    assert_eq!(theme.dimmed.render().to_string(), "\x1b[90m");
+    assert_eq!(theme.block_fill.render().to_string(), "\x1b[40m");
+    assert_eq!(theme.thinking, theme.dimmed);
+    assert_eq!(theme.heading_h3, theme.dimmed);
+    assert_eq!(theme.prompt, Theme::default().prompt);
+}
+
+#[test]
+fn colorfbg_light_announcement_styles_through_base_16_slots() {
+    let theme = theme_from_colorfbg("0;15").expect("light theme");
+    assert!(theme.is_light);
+    assert_eq!(theme.dimmed.render().to_string(), "\x1b[90m");
+    assert_eq!(theme.block_fill.render().to_string(), "\x1b[40m");
+}
+
+#[test]
+fn colorfbg_last_field_is_the_background_index() {
+    assert!(!theme_from_colorfbg("7;0").expect("dark").is_light);
+    assert!(theme_from_colorfbg("0;15").expect("light").is_light);
+}
+
+#[test]
+fn colorfbg_garbage_falls_through() {
+    assert_eq!(theme_from_colorfbg("nope"), None);
+    assert_eq!(theme_from_colorfbg(""), None);
 }

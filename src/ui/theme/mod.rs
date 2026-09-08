@@ -14,7 +14,7 @@ pub use terminal::detect;
 
 use anstyle::{AnsiColor, Color, Style};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     /// Detected terminal light/dark mode; selects syntect syntax colors.
     pub is_light: bool,

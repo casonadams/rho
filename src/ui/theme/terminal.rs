@@ -1,12 +1,14 @@
 //! Terminal foreground/background detection for block fills and dimmed text.
 //!
-//! Queries OSC 10/11 once at interactive startup and derives the container
-//! fill and the dimmed-foreground style from the reported colors, so both are
-//! visible and self-consistent on any palette. Falls back to the default
-//! theme's ANSI black fill and SGR 2 dim when the terminal is not a TTY or
-//! does not answer.
+//! Preference order: a `COLORFGBG` mode announcement (the ncurses/rxvt
+//! convention) styles rho through the terminal's base-16 palette, which
+//! theme switchers keep correct; otherwise an OSC 10/11 query derives the
+//! container fill and dimmed-foreground blend from the reported colors.
+//! Falls back to the default theme's ANSI black fill and SGR 2 dim when the
+//! terminal is not a TTY or does not answer.
 
 use super::Theme;
+use anstyle::Style;
 use std::io::IsTerminal;
 use terminal_colorsaurus::{QueryOptions, color_palette};
 
@@ -19,6 +21,11 @@ const DIM_TINT_PERCENT_DARK: u32 = 40;
 const DIM_TINT_PERCENT_LIGHT: u32 = 50;
 
 pub fn detect() -> Theme {
+    if let Ok(value) = std::env::var("COLORFGBG")
+        && let Some(theme) = theme_from_colorfbg(&value)
+    {
+        return theme;
+    }
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Theme::default();
     }
@@ -37,6 +44,24 @@ pub fn detect() -> Theme {
         block_fill: blend_fill(fg, bg),
         ..Theme::default()
     }
+}
+
+/// When the shell announces the palette mode, style through the terminal's
+/// base-16 palette: bright-black (slot 8) for dim text and black (slot 0)
+/// for the block fill -- the same slots vim and tmux use. The colors resolve
+/// live from the active palette, sidestepping OSC queries whose answers
+/// terminal multiplexers replace with their own tracked state.
+pub(crate) fn theme_from_colorfbg(value: &str) -> Option<Theme> {
+    let bg = value.rsplit(';').next()?.trim().parse::<u8>().ok()?;
+    let dim = Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::BrightBlack)));
+    Some(Theme {
+        is_light: bg >= 7,
+        dimmed: dim,
+        thinking: dim,
+        heading_h3: dim,
+        block_fill: Style::new().bg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black))),
+        ..Theme::default()
+    })
 }
 
 fn mix(a: u8, b: u8, percent: u32) -> u8 {
