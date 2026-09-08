@@ -26,10 +26,6 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.full_redraw()
     }
 
-    pub fn theme(&self) -> &crate::ui::theme::Theme {
-        &self.theme
-    }
-
     pub fn set_theme(&mut self, theme: crate::ui::theme::Theme) -> io::Result<()> {
         self.theme = theme;
         self.cache.clear();
@@ -133,11 +129,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if rendered.is_empty() {
             return Ok(());
         }
-        let formatted = terminal_newlines(&crate::ui::interactive::region::paint_region(
-            &rendered,
-            &self.theme,
-            self.width,
-        ));
+        let formatted = terminal_newlines(&rendered);
         self.output.update(&formatted);
         redraw_buffer.push_str(&formatted);
         if self.output.is_open() {
@@ -157,21 +149,20 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn full_redraw(&mut self) -> io::Result<()> {
-        let bg = crate::ui::interactive::region::bg_code(&self.theme);
         self.backend.hide_cursor()?;
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref(), &bg)?;
+        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
         self.rendered = None;
         self.backend.write_text(CSI_BEGIN_SYNC_UPDATE)?;
 
-        let redraw_result = self.run_full_redraw(&bg);
+        let redraw_result = self.run_full_redraw();
 
         let _ = self.backend.write_text(CSI_END_SYNC_UPDATE);
         redraw_result?;
         self.backend.flush()
     }
 
-    fn run_full_redraw(&mut self, bg: &str) -> io::Result<()> {
-        self.backend.write_text(&format!("{bg}\x1b[2J\x1b[H\x1b[3J\x1b[0m"))?;
+    fn run_full_redraw(&mut self) -> io::Result<()> {
+        self.backend.write_text("\x1b[2J\x1b[H\x1b[3J\x1b[0m")?;
         self.output.clear();
         let mut redraw_buffer = String::new();
         self.repaint_history(&mut redraw_buffer)?;

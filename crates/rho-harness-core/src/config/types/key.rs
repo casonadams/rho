@@ -22,7 +22,6 @@ pub(crate) enum ConfigKey {
     ReserveTokens,
     KeepRecentTokens,
     ThinkingLevel,
-    Theme,
     SessionRetentionDays,
 }
 
@@ -34,7 +33,6 @@ impl FromStr for ConfigKey {
             "model" | "default_model" => Ok(Self::Model),
             "provider" | "default_provider" => Ok(Self::Provider),
             "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Ok(Self::ThinkingLevel),
-            "theme" => Ok(Self::Theme),
             "max_output_tokens" => Ok(Self::MaxOutputTokens),
             "max_turns" => Ok(Self::MaxTurns),
             "context_limit" => Ok(Self::ContextLimit),
@@ -81,7 +79,6 @@ impl ConfigKey {
             Self::ReserveTokens => "reserve_tokens",
             Self::KeepRecentTokens => "keep_recent_tokens",
             Self::ThinkingLevel => "thinking_level",
-            Self::Theme => "theme",
             Self::SessionRetentionDays => "session_retention_days",
         }
     }

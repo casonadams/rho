@@ -50,16 +50,7 @@ fn format_dropdown_item(
         format!("{}{}{:#}", theme.prompt, item.value, theme.prompt)
     };
     let val_width = UnicodeWidthStr::width(item.value.as_str()) + 2;
-    let line = build_item_content((item, theme), (&val_styled, &prefix), (val_width, inner_width));
-    if is_selected {
-        if theme.is_ansi() {
-            line
-        } else {
-            format!("{}{line}{:#}", theme.user_message_bg, theme.user_message_bg)
-        }
-    } else {
-        line
-    }
+    build_item_content((item, theme), (&val_styled, &prefix), (val_width, inner_width))
 }
 
 pub(crate) fn render_autocomplete_dropdown(

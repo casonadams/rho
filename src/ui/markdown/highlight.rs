@@ -26,19 +26,10 @@ fn resolve_highlighter<'a>(lang: Option<&str>, is_light: bool) -> HighlightLines
     HighlightLines::new(syntax, syn_theme)
 }
 
-fn format_highlighted_ranges(ranges: &[(syntect::highlighting::Style, &str)], is_ansi: bool) -> String {
+fn format_highlighted_ranges(ranges: &[(syntect::highlighting::Style, &str)]) -> String {
     let mut out = String::new();
     for (style, text) in ranges {
-        if is_ansi {
-            out.push_str(syntect_color_to_ansi16(style.foreground));
-        } else {
-            use std::fmt::Write as _;
-            let _ = write!(
-                out,
-                "\x1b[38;2;{};{};{}m",
-                style.foreground.r, style.foreground.g, style.foreground.b
-            );
-        }
+        out.push_str(syntect_color_to_ansi16(style.foreground));
         out.push_str(text);
     }
     out.push_str("\x1b[0m");
@@ -47,23 +38,19 @@ fn format_highlighted_ranges(ranges: &[(syntect::highlighting::Style, &str)], is
 
 pub struct CodeHighlighter<'a> {
     highlighter: Option<HighlightLines<'a>>,
-    is_ansi: bool,
 }
 
 impl<'a> CodeHighlighter<'a> {
     pub fn new(lang: Option<&str>, theme: &Theme) -> Self {
-        let highlighter = Some(resolve_highlighter(lang, theme.is_light()));
-        Self {
-            highlighter,
-            is_ansi: theme.is_ansi(),
-        }
+        let highlighter = Some(resolve_highlighter(lang, theme.is_light));
+        Self { highlighter }
     }
 
     pub fn highlight_line(&mut self, line: &str, theme: &Theme) -> String {
         if let Some(ref mut h) = self.highlighter
             && let Ok(ranges) = h.highlight_line(line, &SYNTAX_SET)
         {
-            format_highlighted_ranges(&ranges, self.is_ansi)
+            format_highlighted_ranges(&ranges)
         } else {
             let d = theme.dimmed;
             format!("{d}{line}{d:#}")

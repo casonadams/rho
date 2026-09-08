@@ -92,7 +92,7 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
     }
     let width = input.width.max(20);
     let content = format_widget_content(input, width);
-    let block = BlockFormat::new(input.theme.tool_success_bg, width)
+    let block = BlockFormat::new(input.theme.block_fill, width)
         .with_vertical_padding()
         .render_styled(&content);
     let mut lines = vec![String::new()];

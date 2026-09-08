@@ -150,15 +150,10 @@ fn append_tool_details(
 }
 
 pub fn render_tool_block(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
-    let background = if tool.is_error {
-        input.theme.tool_error_bg
-    } else {
-        input.theme.tool_success_bg
-    };
     let mut content = format_tool_header(tool, input.theme);
     append_tool_details(&mut content, tool, input.width, input.tools_expanded, input.theme);
 
-    BlockFormat::new(background, input.width)
+    BlockFormat::new(input.theme.block_fill, input.width)
         .with_vertical_padding()
         .render_styled(&content)
 }

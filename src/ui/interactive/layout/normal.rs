@@ -181,7 +181,6 @@ fn assemble_layout(
     let footer = footer_lines.join("\n");
     InteractiveLayout {
         lines,
-        bg: String::new(),
         cursor,
         cursor_visible,
         cursor_row: start_row + cursor.row,

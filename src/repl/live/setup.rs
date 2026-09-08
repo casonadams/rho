@@ -33,16 +33,11 @@ pub(super) fn init_live_ui(
 )> {
     let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
     session.renderer = TerminalRenderer::with_ui(ui);
-    let registry = crate::ui::theme::ThemeRegistry::new(Some(&session.config.config_dir));
-    if let Some(initial_theme) = registry.get(&session.config.theme).cloned() {
-        session.renderer.theme = initial_theme;
-    }
+    session.renderer.theme = crate::ui::theme::detect();
     let mut state = InteractiveState::default();
     update_footer(&mut state, session, engine);
     let mut controller = TerminalController::stdout(state)?;
-    if let Some(initial_theme) = registry.get(&session.config.theme).cloned() {
-        let _ = controller.set_theme(initial_theme);
-    }
+    let _ = controller.set_theme(session.renderer.theme.clone());
     Ok((controller, ui_events))
 }
 

@@ -5,7 +5,6 @@ pub mod session;
 pub mod settings;
 #[cfg(test)]
 mod tests;
-pub mod theme;
 pub mod thinking;
 pub mod tree;
 
@@ -18,7 +17,6 @@ pub use login::open_login_selector;
 pub use model::open_model_selector;
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
-pub use theme::open_theme_selector;
 pub use thinking::open_thinking_selector;
 pub use tree::open_tree_selector;
 
@@ -43,9 +41,6 @@ pub enum ModalKeyResult {
     },
     SessionDeleted {
         session_id: String,
-    },
-    ThemeSelected {
-        theme: String,
     },
     ThinkingLevelSelected {
         level: Option<String>,
@@ -94,7 +89,6 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Resume Session" => session::handle_session_key(controller, key),
         "Conversation Tree" => tree::handle_tree_key(controller, key),
         "Select Model" => model::handle_model_key(controller, key),
-        "Select Theme" => theme::handle_theme_key(controller, key),
         "Select Thinking Level" => thinking::handle_thinking_key(controller, key),
         "Login Provider" => login::handle_login_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),

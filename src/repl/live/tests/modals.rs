@@ -98,62 +98,6 @@ fn settings_selector_modal_toggles_tools_expanded() {
     );
 }
 
-fn open_test_theme_modal() -> TerminalController<HistoryTerminal> {
-    let session = crate::repl::ReplSession::new(
-        rho_harness_core::config::Config::default(),
-        crate::auth::AuthStore::default(),
-        None,
-    );
-    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_theme_selector(&session, &mut controller);
-    controller
-}
-
-#[test]
-fn theme_selector_modal_navigation_and_selection() {
-    let mut controller = open_test_theme_modal();
-    let (title, count) = (
-        controller.state().active_modal().unwrap().title.clone(),
-        controller.state().active_modal().unwrap().options.len(),
-    );
-    assert_eq!((title.as_str(), count), ("Select Theme", 10));
-
-    let _ = send_modal_key(&mut controller, KeyCode::Down);
-    assert_eq!(
-        (
-            controller.state().active_modal().unwrap().selected,
-            controller.theme().name.as_str()
-        ),
-        (1, "catppuccin")
-    );
-
-    let res = send_modal_key(&mut controller, KeyCode::Enter);
-    assert_eq!(
-        res,
-        super::super::modal::ModalKeyResult::ThemeSelected {
-            theme: "catppuccin".to_string()
-        }
-    );
-    assert!(controller.state().active_modal().is_none());
-}
-
-#[test]
-fn theme_selector_modal_cancels_and_restores_original_theme() {
-    let mut controller = open_test_theme_modal();
-    assert_eq!(controller.theme().name, "default");
-    let _ = send_modal_key(&mut controller, KeyCode::Down);
-    assert_eq!(controller.theme().name, "catppuccin");
-
-    let _ = send_modal_key(&mut controller, KeyCode::Esc);
-    assert_eq!(
-        (
-            controller.theme().name.as_str(),
-            controller.state().active_modal().is_none()
-        ),
-        ("default", true)
-    );
-}
-
 fn release_key(code: KeyCode) -> KeyEvent {
     KeyEvent {
         code,

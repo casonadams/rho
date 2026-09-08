@@ -152,22 +152,6 @@ impl ReplSession {
 // Slash command execution
 // ---------------------------------------------------------------------------
 
-async fn handle_theme_changed(
-    ctx: &mut LiveCommandContext<'_, '_>,
-    io_controller: &mut TerminalController<impl TerminalBackend>,
-    theme: &str,
-) {
-    let registry = crate::ui::theme::ThemeRegistry::new(Some(&ctx.session.config.config_dir));
-    if let Some(resolved) = registry.get(theme).cloned() {
-        ctx.session.config.theme = theme.to_string();
-        ctx.session.renderer.theme = resolved.clone();
-        let _ = io_controller.set_theme(resolved);
-        let _ = rho_harness_core::config::Config::set_file_value_async(&ctx.session.config.config_dir, "theme", theme)
-            .await;
-        ctx.session.renderer.print_status(&format!("Theme: {theme}"));
-    }
-}
-
 async fn handle_selector_command(
     ctx: &mut LiveCommandContext<'_, '_>,
     io_controller: &mut TerminalController<impl TerminalBackend>,
@@ -176,7 +160,6 @@ async fn handle_selector_command(
     match action {
         CommandResult::OpenModelSelector => super::modal::open_model_selector(ctx.session, io_controller),
         CommandResult::OpenSettingsSelector => super::modal::open_settings_selector(io_controller),
-        CommandResult::OpenThemeSelector => super::modal::open_theme_selector(ctx.session, io_controller),
         CommandResult::OpenThinkingSelector => super::modal::open_thinking_selector(ctx.session, io_controller),
         CommandResult::OpenLoginSelector => super::modal::open_login_selector(ctx.session, io_controller),
         _ => {}
@@ -297,12 +280,10 @@ async fn handle_engine_command<B: TerminalBackend>(
     match result {
         CommandResult::OpenModelSelector
         | CommandResult::OpenSettingsSelector
-        | CommandResult::OpenThemeSelector
         | CommandResult::OpenThinkingSelector
         | CommandResult::OpenLoginSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
-        CommandResult::ThemeChanged { theme } => handle_theme_changed(ctx, io.controller, theme).await,
         CommandResult::ClearContext => clear_engine_context(ctx).await?,
         rest => return handle_engine_command_rest(ctx, io, rest).await,
     }

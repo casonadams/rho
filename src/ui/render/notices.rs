@@ -14,7 +14,6 @@ pub struct CacheMissNotice {
 
 fn resolve_block_bg(theme: &Theme, style: &str) -> anstyle::Style {
     match style {
-        "error" => theme.tool_error_bg,
         "warning" => {
             if let Some(fg) = theme.warning.get_fg_color() {
                 anstyle::Style::new()
@@ -26,8 +25,7 @@ fn resolve_block_bg(theme: &Theme, style: &str) -> anstyle::Style {
                     .fg_color(Some(anstyle::AnsiColor::Black.into()))
             }
         }
-        "success" => theme.tool_success_bg,
-        _ => theme.user_message_bg,
+        _ => theme.block_fill,
     }
 }
 

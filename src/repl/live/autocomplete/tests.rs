@@ -192,24 +192,3 @@ fn test_autocomplete_ignores_key_release_events() {
     assert!(matches!(res, AutocompleteKeyResult::Handled));
     assert_eq!(controller.state().autocomplete.selected, 0);
 }
-
-#[test]
-fn test_autocomplete_theme_command() {
-    let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new());
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().editor_mut().set_text("/them");
-    update_autocomplete_state_generic(&mut controller, &completions);
-    assert!(controller.state().autocomplete.visible);
-    assert_eq!(controller.state().autocomplete.selected_item().unwrap().value, "/theme");
-}
-
-#[test]
-fn test_autocomplete_theme_arguments() {
-    let completions = CompletionSet::from_sources(crate::repl::interactive::CompletionSources::new());
-    let mut controller = TerminalController::new(MockTerminal, InteractiveState::default()).unwrap();
-    controller.state_mut().editor_mut().set_text("/theme ");
-    update_autocomplete_state_generic(&mut controller, &completions);
-    assert!(controller.state().autocomplete.visible);
-    let items = &controller.state().autocomplete.items;
-    assert!(items.iter().any(|i| i.value == "/theme nord") && items.iter().any(|i| i.value == "/theme catppuccin"));
-}

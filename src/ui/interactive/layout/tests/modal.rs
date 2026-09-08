@@ -271,7 +271,7 @@ fn modal_hint_layout(theme: &crate::ui::theme::Theme) -> crate::ui::interactive:
 }
 
 #[test]
-fn modal_hint_matches_footer_dimmed_style_without_raw_faint_escape() {
+fn modal_hint_uses_native_sgr2_dim_style() {
     let theme = crate::ui::theme::Theme::default();
     let dimmed = theme.dimmed.render().to_string();
     let layout = modal_hint_layout(&theme);
@@ -283,7 +283,7 @@ fn modal_hint_matches_footer_dimmed_style_without_raw_faint_escape() {
     );
 
     let bottom_line = layout.lines.last().expect("bottom line exists");
-    assert!(bottom_line.contains(&dimmed) && !bottom_line.contains("\x1b[2m"));
+    assert!(bottom_line.contains(&dimmed) && dimmed == "\x1b[2m");
 }
 
 #[test]

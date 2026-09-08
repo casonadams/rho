@@ -33,7 +33,6 @@ pub(crate) struct FileConfig {
         alias = "default_thinking_level"
     )]
     pub thinking_level: Option<String>,
-    pub theme: Option<String>,
     pub context_injection_max_tokens: Option<usize>,
     #[serde(default, alias = "retention_days")]
     pub session_retention_days: Option<u32>,

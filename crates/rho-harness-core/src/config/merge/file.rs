@@ -106,10 +106,7 @@ fn merge_modes(config: &mut Config, file: &FileConfig) {
     }
 }
 
-fn merge_theme_and_retention(config: &mut Config, file: &FileConfig) {
-    if let Some(ref theme) = file.theme {
-        config.theme = theme.clone();
-    }
+fn merge_retention(config: &mut Config, file: &FileConfig) {
     if let Some(days) = file.session_retention_days {
         config.session_retention_days = (days != 0).then_some(days);
     }
@@ -134,6 +131,6 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_search_settings(config, &file);
     merge_fetch_settings(config, &file);
     merge_modes(config, &file);
-    merge_theme_and_retention(config, &file);
+    merge_retention(config, &file);
     merge_plugins_and_extensions(config, file);
 }

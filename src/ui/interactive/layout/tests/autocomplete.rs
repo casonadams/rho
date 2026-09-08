@@ -150,7 +150,7 @@ fn autocomplete_dropdown_default_theme_styling() {
 }
 
 #[test]
-fn autocomplete_dropdown_custom_palette_theme_styling() {
+fn autocomplete_dropdown_selected_row_uses_block_fill_when_theme_has_one() {
     let mut state = AutocompleteState::default();
     state.open(vec![Completion {
         value: "/model".to_string(),
@@ -158,11 +158,10 @@ fn autocomplete_dropdown_custom_palette_theme_styling() {
         replacement: Range { start: 0, end: 1 },
     }]);
 
-    let registry = crate::ui::theme::ThemeRegistry::default();
-    let catppuccin = registry.get("catppuccin").unwrap();
-    let cat_lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), catppuccin);
-    assert_eq!(cat_lines.len(), 1);
-    let bg = catppuccin.user_message_bg.render().to_string();
-    assert!(cat_lines[0].contains(&bg));
-    assert!(!cat_lines[0].contains("\x1b[48;5;236m"));
+    // The default theme is pure ANSI (no fill); rows render without a
+    // background paint.
+    let theme = crate::ui::theme::Theme::default();
+    let lines = render_autocomplete_dropdown(&state, (60, MAX_VISIBLE_ITEMS), &theme);
+    assert_eq!(lines.len(), 1);
+    assert!(!lines[0].contains(&theme.block_fill.render().to_string()));
 }

@@ -213,14 +213,10 @@ mod redraw {
         assert_ne!(initial_rendered, width_rendered);
     }
 
-    fn assert_nord_repaint(ops: &[Operation]) {
+    fn assert_repaint(ops: &[Operation]) {
         assert!(
             ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[2J\x1b[H\x1b[3J")))
-        );
-        assert!(
-            ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.starts_with("\x1b[48;2;46;52;64m\x1b[2J")))
+                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[3J\x1b[0m"))
         );
         assert!(
             ops.iter()
@@ -240,13 +236,14 @@ mod redraw {
             .push_transcript_item(TranscriptItem::UserMessage("theme test message".into()))
             .unwrap();
 
-        let registry = crate::ui::theme::ThemeRegistry::default();
-        let nord = registry.get("nord").unwrap().clone();
+        let custom = crate::ui::theme::Theme {
+            tool_ok: anstyle::Style::new().fg_color(Some(anstyle::Color::Rgb(anstyle::RgbColor(0x88, 0xc0, 0xd0)))),
+            ..crate::ui::theme::Theme::default()
+        };
 
         operations.borrow_mut().clear();
-        controller.set_theme(nord).unwrap();
+        controller.set_theme(custom).unwrap();
 
-        assert_eq!(controller.theme().name, "nord");
-        assert_nord_repaint(&operations.borrow());
+        assert_repaint(&operations.borrow());
     }
 }

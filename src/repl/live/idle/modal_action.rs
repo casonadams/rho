@@ -117,23 +117,6 @@ async fn handle_session_selected(
     Ok(true)
 }
 
-async fn handle_theme_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    theme: String,
-) -> Result<bool> {
-    let registry = crate::ui::theme::ThemeRegistry::new(Some(&ctx.session.config.config_dir));
-    if let Some(resolved) = registry.get(&theme).cloned() {
-        ctx.session.config.theme = theme.clone();
-        ctx.session.renderer.theme = resolved.clone();
-        let _ = ctx.controller.set_theme(resolved);
-        let _ = rho_harness_core::config::Config::set_file_value_async(&ctx.session.config.config_dir, "theme", &theme)
-            .await;
-        ctx.session.renderer.print_status(&format!("Theme: {theme}"));
-    }
-    ctx.controller.redraw()?;
-    Ok(true)
-}
-
 async fn save_or_print_thinking(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
     level: Option<&str>,
@@ -206,19 +189,6 @@ async fn dispatch_session_or_node_result(
     }
 }
 
-async fn handle_theme_or_thinking_selected(
-    res: &ModalKeyResult,
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-) -> Result<Option<bool>> {
-    match res {
-        ModalKeyResult::ThemeSelected { theme } => Ok(Some(handle_theme_selected(ctx, theme.clone()).await?)),
-        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => Ok(Some(
-            handle_thinking_selected(ctx, (level.clone(), *save_as_default)).await?,
-        )),
-        _ => Ok(None),
-    }
-}
-
 async fn dispatch_modal_result_rest2(
     res: ModalKeyResult,
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
@@ -226,10 +196,10 @@ async fn dispatch_modal_result_rest2(
     if let Some(handled) = dispatch_session_or_node_result(&res, ctx).await? {
         return Ok(handled);
     }
-    if let Some(handled) = handle_theme_or_thinking_selected(&res, ctx).await? {
-        return Ok(handled);
-    }
     match res {
+        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
+            handle_thinking_selected(ctx, (level, save_as_default)).await
+        }
         ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
         _ => Ok(false),
     }

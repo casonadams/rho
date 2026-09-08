@@ -90,7 +90,6 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
         }
-        ConfigKey::Theme => file_config.theme = Some(value.to_string()),
         ConfigKey::Region => file_config.region = Some(value.to_string()),
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),

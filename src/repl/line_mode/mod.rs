@@ -28,13 +28,6 @@ async fn apply_cli_session_name(engine: &AgentEngine, cli: Option<&crate::config
     }
 }
 
-fn apply_initial_theme(session: &mut ReplSession) {
-    let registry = crate::ui::theme::ThemeRegistry::new(Some(&session.config.config_dir));
-    if let Some(initial_theme) = registry.get(&session.config.theme).cloned() {
-        session.renderer.theme = initial_theme;
-    }
-}
-
 async fn init_line_mode(session: &mut ReplSession) -> Result<AgentEngine> {
     let engine = crate::platform::agent_engine(
         session.config.clone(),
@@ -45,7 +38,6 @@ async fn init_line_mode(session: &mut ReplSession) -> Result<AgentEngine> {
     apply_cli_session_name(&engine, session.cli.as_ref()).await;
     session.config = engine.config.clone();
     engine.refresh_quota().await;
-    apply_initial_theme(session);
     print_line_mode_welcome(session, &engine).await;
     Ok(engine)
 }

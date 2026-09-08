@@ -96,11 +96,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         );
         self.transcript.push(item);
 
-        let formatted = super::ansi::terminal_newlines(&crate::ui::interactive::region::paint_region(
-            &rendered,
-            &self.theme,
-            self.width,
-        ));
+        let formatted = super::ansi::terminal_newlines(&rendered);
         self.output.update(&formatted);
         if self.output.is_open() {
             self.output.update("\n");

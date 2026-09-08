@@ -31,7 +31,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if !self.active {
             return Ok(());
         }
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref(), "")?;
+        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
         self.rendered = None;
         self.output.clear();
         self.backend.show_cursor()?;
@@ -54,7 +54,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         if !self.active {
             return;
         }
-        let _ = paint::erase_live_region(&mut self.backend, self.rendered.as_ref(), "");
+        let _ = paint::erase_live_region(&mut self.backend, self.rendered.as_ref());
         self.rendered = None;
         let _ = self.backend.show_cursor();
         let _ = self.backend.set_raw_mode(false);

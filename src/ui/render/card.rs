@@ -95,14 +95,9 @@ fn append_card_body(content: &mut String, line: &ToolLine, theme: &Theme) {
 }
 
 pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> String {
-    let background = if line.is_error {
-        theme.tool_error_bg
-    } else {
-        theme.tool_success_bg
-    };
     let mut content = format_card_header(line, theme);
     append_card_body(&mut content, line, theme);
-    let block = BlockFormat::new(background, terminal_width())
+    let block = BlockFormat::new(theme.block_fill, terminal_width())
         .with_vertical_padding()
         .render_styled(&content);
     format!("\n{block}")

@@ -107,16 +107,6 @@ async fn handle_model_change(
     }
 }
 
-fn handle_theme_change(theme: &str, session: &mut ReplSession) {
-    let registry = crate::ui::theme::ThemeRegistry::new(Some(&session.config.config_dir));
-    if let Some(resolved) = registry.get(theme).cloned() {
-        session.config.theme = theme.to_string();
-        session.renderer.theme = resolved;
-        let _ = rho_harness_core::config::Config::set_file_value(&session.config.config_dir, "theme", theme);
-        session.renderer.print_status(&format!("Theme: {theme}"));
-    }
-}
-
 async fn rebuild_engine_on_auth(session: &mut ReplSession, engine: &mut AgentEngine) -> Result<()> {
     *engine = engine
         .rebuild(session.config.clone(), session.auth_store.clone())
@@ -190,7 +180,6 @@ async fn handle_config_auth_result(
         } => {
             handle_model_change((new_model, new_provider.as_deref()), session, engine).await;
         }
-        CommandResult::ThemeChanged { theme } => handle_theme_change(theme, session),
         _ => return Ok(false),
     }
     Ok(true)

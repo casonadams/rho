@@ -94,6 +94,14 @@ fn test_config_file_aliases_load_correctly() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+// Configs written before theming was removed may still carry a `theme` key;
+// serde must ignore it rather than reject the whole file.
+#[test]
+fn stale_theme_key_in_config_file_is_ignored() {
+    let file: FileConfig = toml::from_str("theme = \"nord\"\nmodel = \"gpt-test\"\n").unwrap();
+    assert_eq!(file.model.as_deref(), Some("gpt-test"));
+}
+
 #[test]
 fn test_set_file_value_persists_and_validates() {
     let dir = std::env::temp_dir().join(format!("rho_config_{}", uuid::Uuid::new_v4()));
@@ -101,11 +109,10 @@ fn test_set_file_value_persists_and_validates() {
 
     Config::set_file_value(&dir, "model", "gpt-test").unwrap();
     Config::set_file_value(&dir, "max_turns", "7").unwrap();
-    Config::set_file_value(&dir, "theme", "nord").unwrap();
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
-    let actual = (file.model.as_deref(), file.max_turns, file.theme.as_deref());
-    assert_eq!(actual, (Some("gpt-test"), Some(7), Some("nord")));
+    let actual = (file.model.as_deref(), file.max_turns);
+    assert_eq!(actual, (Some("gpt-test"), Some(7)));
     assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
     assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
 

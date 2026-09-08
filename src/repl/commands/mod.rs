@@ -6,7 +6,6 @@ mod model;
 mod plugin;
 mod session;
 mod skill;
-mod theme;
 mod thinking;
 mod types;
 
@@ -139,7 +138,6 @@ async fn handle_async_slash_commands(
     match name {
         "thinking" | "think" => thinking::handle_thinking(ctx, parts),
         "model" => model::handle_model(ctx, parts),
-        "theme" => theme::handle_theme(ctx, parts),
         "skill" | "skills" => skill::handle_skill(ctx, parts).await,
         "plugin" | "plugins" => Ok(plugin::handle_plugins(ctx)),
         "login" => Ok(Some(handle_login_cmd(parts))),
