@@ -1,5 +1,9 @@
-use super::super::formatters::{format_edit_diff, format_thinking_block, format_write_preview};
+use super::super::formatters::{
+    format_edit_diff, format_relative_time, format_session_status, format_thinking_block, format_write_preview,
+};
 use crate::ui::theme::Theme;
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use rho_harness_core::presentation::SessionStatus;
 
 fn assert_contains_all(s: &str, items: &[&str]) {
     for item in items {
@@ -132,4 +136,63 @@ fn test_format_edit_diff_locates_line_from_file_on_disk() {
     std::fs::write(&file_path, "line 1\nline 2\nline 3\nreplaced line\nline 5\n").unwrap();
     let diff_after = format_edit_diff(&args, &theme).unwrap();
     assert_contains_all(&diff_after, &["  4 │ ", "target", "replaced"]);
+}
+
+#[test]
+fn relative_time_buckets_and_boundaries() {
+    let now = Utc::now();
+    let old = now - ChronoDuration::days(40);
+    let cases: [(DateTime<Utc>, String); 15] = [
+        (now, "just now".to_string()),
+        (now - ChronoDuration::seconds(30), "just now".to_string()),
+        (now - ChronoDuration::seconds(59), "just now".to_string()),
+        (now - ChronoDuration::seconds(60), "1m ago".to_string()),
+        (now - ChronoDuration::minutes(5), "5m ago".to_string()),
+        (now - ChronoDuration::minutes(59), "59m ago".to_string()),
+        (now - ChronoDuration::minutes(60), "1h ago".to_string()),
+        (now - ChronoDuration::hours(3), "3h ago".to_string()),
+        (now - ChronoDuration::hours(23), "23h ago".to_string()),
+        (now - ChronoDuration::hours(24), "1d ago".to_string()),
+        (now - ChronoDuration::days(2), "2d ago".to_string()),
+        (now - ChronoDuration::days(4), "4d ago".to_string()),
+        (now - ChronoDuration::days(10), "10d ago".to_string()),
+        (now - ChronoDuration::days(29), "29d ago".to_string()),
+        (
+            now - ChronoDuration::days(30),
+            (now - ChronoDuration::days(30)).format("%Y-%m-%d").to_string(),
+        ),
+    ];
+    for (time, expected) in cases {
+        assert_eq!(format_relative_time(time), expected);
+    }
+    assert_eq!(format_relative_time(old), old.format("%Y-%m-%d").to_string());
+    assert!(format_relative_time(now - ChronoDuration::days(45)).contains('-'));
+}
+
+#[test]
+fn session_status_joins_model_context_and_optional_quota() {
+    let cases = [
+        ("claude-sonnet", "27.4% (1M)", None, "claude-sonnet | 27.4% (1M)"),
+        (
+            "claude-sonnet",
+            "27.4% (1M)",
+            Some("93% (3h22m)"),
+            "claude-sonnet | 27.4% (1M) | 93% (3h22m)",
+        ),
+        (
+            "qwen-日本語モデル",
+            "0% (376k)",
+            Some("80% quota"),
+            "qwen-日本語モデル | 0% (376k) | 80% quota",
+        ),
+    ];
+    for (model, context, quota, expected) in cases {
+        let session = SessionStatus {
+            model: model.to_string(),
+            provider: "test".to_string(),
+            context: context.to_string(),
+            quota: quota.map(str::to_string),
+        };
+        assert_eq!(format_session_status(&session), expected);
+    }
 }

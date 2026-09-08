@@ -1,3 +1,4 @@
+use crate::ui::markdown::CodeHighlighter;
 use crate::ui::markdown::highlight::highlight_code_line;
 use crate::ui::markdown::renderer::MarkdownRenderer;
 use crate::ui::theme::Theme;
@@ -72,6 +73,53 @@ fn code_blocks_show_fences_instead_of_code_bars() {
 
     let closing = md.render_line("```", &theme);
     assert!(closing.contains("```"));
+}
+
+#[test]
+fn multiline_comment_state_carries_across_streamed_code_lines() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let out = md.render_token(
+        "```rust\n/* unterminated comment\nstill inside\ncomment ends */\n```\n",
+        &theme,
+    );
+
+    let mut carried = CodeHighlighter::new(Some("rust"), &theme);
+    carried.highlight_line("/* unterminated comment", &theme);
+    let carried_second = carried.highlight_line("still inside", &theme);
+    let per_line = CodeHighlighter::new(Some("rust"), &theme).highlight_line("still inside", &theme);
+
+    assert_ne!(
+        carried_second, per_line,
+        "input must keep a different style when comment state spans lines"
+    );
+    assert!(out.contains(&carried_second), "streamed output: {out:?}");
+    assert!(!out.contains(&per_line), "streamed output: {out:?}");
+}
+
+#[test]
+fn fence_language_change_re_resolves_the_highlighter() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let out = md.render_token("```rust\nlet x = 1;\n```\n```python\nprint('x')\n```\n", &theme);
+
+    let python_line = CodeHighlighter::new(Some("python"), &theme).highlight_line("print('x')", &theme);
+    assert!(out.contains(&python_line), "streamed output: {out:?}");
+}
+
+#[test]
+fn flushed_unclosed_fence_matches_newline_terminated_rendering() {
+    let theme = Theme::default();
+    let mut md = MarkdownRenderer::new();
+
+    let streaming = md.render_token("```rust\nlet x = 1;\nlet y = 2;", &theme) + &md.flush(&theme);
+
+    let mut reference = MarkdownRenderer::new();
+    let terminated = reference.render_token("```rust\nlet x = 1;\nlet y = 2;\n", &theme);
+
+    assert_eq!(streaming, terminated);
 }
 
 #[test]

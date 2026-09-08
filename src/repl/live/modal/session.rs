@@ -1,27 +1,10 @@
 use crate::error::Result;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use chrono::{DateTime, Utc};
+use crate::ui::render::formatters::format_relative_time;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::path::Path;
 
 use super::ModalKeyResult;
-
-pub fn format_relative_time(time: DateTime<Utc>) -> String {
-    let now = Utc::now();
-    let diff = now.signed_duration_since(time);
-    let secs = diff.num_seconds();
-    if secs < 60 {
-        "just now".to_string()
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else if secs < 2592000 {
-        format!("{}d ago", secs / 86400)
-    } else {
-        time.format("%Y-%m-%d").to_string()
-    }
-}
 
 pub fn open_session_selector<B: TerminalBackend>(sessions_dir: &Path, controller: &mut TerminalController<B>) {
     let summaries = rho_harness_core::session::list_session_summaries(sessions_dir).unwrap_or_default();

@@ -2,8 +2,8 @@
 mod tests;
 
 use crate::ui::interactive::{ModalOption, ModalState, TerminalController};
+use crate::ui::render::formatters::format_relative_time;
 use crate::ui::theme::Theme;
-use chrono::{DateTime, Utc};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::error::Result;
 use rho_harness_core::session::{SessionManager, SessionSummary};
@@ -21,24 +21,6 @@ pub fn prompt_session_picker(sessions_dir: &Path, theme: &Theme) -> Result<Optio
     controller.redraw()?;
 
     key_loop(&mut controller)
-}
-
-/// Runs inside the live UI's Resume Session modal too; shared for identical labels.
-pub fn format_relative_time(time: DateTime<Utc>) -> String {
-    let now = Utc::now();
-    let diff = now.signed_duration_since(time);
-    let secs = diff.num_seconds();
-    if secs < 60 {
-        "just now".to_string()
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else if secs < 2592000 {
-        format!("{}d ago", secs / 86400)
-    } else {
-        time.format("%Y-%m-%d").to_string()
-    }
 }
 
 pub fn session_modal(summaries: &[SessionSummary]) -> ModalState {

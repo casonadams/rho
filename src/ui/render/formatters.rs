@@ -1,9 +1,10 @@
-//! Edit-diff, write-preview, and thinking-block formatters.
+//! Edit-diff, write-preview, thinking-block, session-status, and relative-time formatters.
 //!
 //! These are `pub(crate)` because they are only consumed by `renderer.rs`,
 //! but they remain exposed as module-private items so future tools can reuse them.
 
 use crate::ui::theme::Theme;
+use chrono::{DateTime, Utc};
 use rho_harness_core::presentation::SessionStatus;
 
 pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Option<String> {
@@ -66,12 +67,28 @@ pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expa
     Some(out)
 }
 
-pub fn format_session_status(session: &SessionStatus) -> String {
-    let mut parts = vec![session.model.clone(), session.context.to_string()];
-    if let Some(usage) = session.quota.as_deref() {
-        parts.push(usage.to_string());
+pub(crate) fn format_relative_time(time: DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let diff = now.signed_duration_since(time);
+    let secs = diff.num_seconds();
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else if secs < 2592000 {
+        format!("{}d ago", secs / 86400)
+    } else {
+        time.format("%Y-%m-%d").to_string()
     }
-    parts.join(" | ")
+}
+
+pub fn format_session_status(session: &SessionStatus) -> String {
+    match session.quota.as_deref() {
+        Some(quota) => format!("{} | {} | {quota}", session.model, session.context),
+        None => format!("{} | {}", session.model, session.context),
+    }
 }
 
 pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {

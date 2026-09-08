@@ -1,25 +1,6 @@
 use super::interaction::{is_input_trigger, prompt_label_for};
-use super::session::format_relative_time;
 use super::*;
 use crate::ui::interactive::EditorState;
-use chrono::{Duration, Utc};
-
-#[test]
-fn test_format_relative_time_intervals() {
-    let now = Utc::now();
-    let old = now - Duration::days(40);
-    let cases = [
-        (now, "just now".to_string()),
-        (now - Duration::seconds(30), "just now".to_string()),
-        (now - Duration::minutes(5), "5m ago".to_string()),
-        (now - Duration::hours(3), "3h ago".to_string()),
-        (now - Duration::days(4), "4d ago".to_string()),
-        (old, old.format("%Y-%m-%d").to_string()),
-    ];
-    for (time, expected) in cases {
-        assert_eq!(format_relative_time(time), expected);
-    }
-}
 
 #[test]
 fn test_is_input_trigger() {

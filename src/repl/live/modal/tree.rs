@@ -34,8 +34,8 @@ pub fn open_tree_selector<B: TerminalBackend>(tree: &SessionTree, controller: &m
 
 fn selected_tree_node_id<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
     let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let desc = opt.description.clone().unwrap_or_default();
-    Some(desc.split_whitespace().last().unwrap_or(&desc).to_string())
+    let desc = opt.description.as_deref().unwrap_or("");
+    Some(desc.split_whitespace().last().unwrap_or(desc).to_string())
 }
 
 fn pop_and_redraw_tree<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {

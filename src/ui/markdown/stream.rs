@@ -6,6 +6,7 @@ pub struct InlineStreamTracker {
     in_italic: bool,
     in_code: bool,
     pending_star: bool,
+    scratch: Vec<char>,
 }
 
 impl InlineStreamTracker {
@@ -115,7 +116,9 @@ impl InlineStreamTracker {
 
     pub fn render_inline_token(&mut self, token: &str, theme: &Theme) -> String {
         let mut out = String::new();
-        let chars: Vec<char> = token.chars().collect();
+        let mut chars = std::mem::take(&mut self.scratch);
+        chars.clear();
+        chars.extend(token.chars());
         let len = chars.len();
         let mut i = 0;
 
@@ -126,6 +129,8 @@ impl InlineStreamTracker {
         while i < len {
             i += self.process_token_char(&chars, i, &mut out, theme);
         }
+
+        self.scratch = chars;
         out
     }
 }

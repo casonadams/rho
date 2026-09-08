@@ -1,6 +1,6 @@
 //! Core `MarkdownRenderer` state machine with spacing normalization.
 
-use super::highlight::highlight_code_line;
+use super::highlight::CodeHighlighter;
 use super::line::{CodeFenceTracker, needs_preceding_blank_line, render_line, should_buffer_line};
 use super::mermaid::MermaidBlockTracker;
 use super::spacing::SpacingTracker;
@@ -11,6 +11,7 @@ use crate::ui::theme::Theme;
 #[derive(Default)]
 pub struct MarkdownRenderer {
     code_fence: CodeFenceTracker,
+    code_highlighter: Option<CodeHighlighter<'static>>,
     mermaid: MermaidBlockTracker,
     current_line: String,
     emitted_on_current_line: bool,
@@ -45,8 +46,10 @@ impl MarkdownRenderer {
                 self.emitted_on_current_line = false;
                 self.spacing.note_content();
             } else {
-                let line = std::mem::take(&mut self.current_line);
-                out.push_str(&self.process_line(&line, theme));
+                let mut line = std::mem::take(&mut self.current_line);
+                self.process_line(&mut out, &line, theme);
+                line.clear();
+                self.current_line = line;
             }
 
             remaining = &remaining[pos + 1..];
@@ -82,8 +85,10 @@ impl MarkdownRenderer {
         let mut out = String::new();
         self.flush_buffered_blocks(&mut out, theme);
         if !self.current_line.is_empty() && !self.emitted_on_current_line {
-            let line = std::mem::take(&mut self.current_line);
-            out.push_str(&self.process_line(&line, theme));
+            let mut line = std::mem::take(&mut self.current_line);
+            self.process_line(&mut out, &line, theme);
+            line.clear();
+            self.current_line = line;
         } else if self.emitted_on_current_line {
             out.push_str(&self.stream_tracker.reset_line());
             self.current_line.clear();
@@ -91,6 +96,7 @@ impl MarkdownRenderer {
             self.spacing.note_content();
         }
         self.emitted_on_current_line = false;
+        self.code_highlighter = None;
         out
     }
 
@@ -104,30 +110,30 @@ impl MarkdownRenderer {
         }
     }
 
-    fn try_buffer_block(&mut self, line: &str, theme: &Theme) -> Option<String> {
+    fn try_buffer_block(&mut self, out: &mut String, line: &str, theme: &Theme) -> bool {
         let trimmed = line.trim();
         if let Some(opt_rendered) = self.mermaid.try_render_fence(trimmed, theme) {
-            let mut out = String::new();
             if let Some(rendered) = opt_rendered {
-                self.spacing.append_block(&mut out, &rendered);
+                self.spacing.append_block(out, &rendered);
             }
-            return Some(out);
+            return true;
         }
         if self.mermaid.in_block() {
             self.mermaid.push_line(line);
-            return Some(String::new());
+            return true;
         }
         if is_table_line(trimmed) {
             self.table_lines.push(line.to_string());
-            return Some(String::new());
+            return true;
         }
-        None
+        false
     }
 
     fn process_empty_line(&mut self, out: &mut String, line: &str, theme: &Theme) {
-        if self.code_fence.in_code_block {
+        if let Some(highlighter) = self.sync_code_highlighter(theme) {
+            let highlighted = highlighter.highlight_line(line, theme);
             self.spacing.prepare_content(out);
-            out.push_str(&highlight_code_line(line, self.code_fence.code_lang.as_deref(), theme));
+            out.push_str(&highlighted);
             out.push('\n');
             self.spacing.note_content();
         } else {
@@ -140,29 +146,53 @@ impl MarkdownRenderer {
             self.spacing.ensure_preceding_blank(out);
         }
         self.spacing.prepare_content(out);
-        out.push_str(&render_line(line, &mut self.code_fence, theme));
+        let rendered = self.render_dispatch(line, theme);
+        out.push_str(&rendered);
         out.push('\n');
         self.spacing.note_content();
     }
 
-    fn process_line(&mut self, line: &str, theme: &Theme) -> String {
-        if let Some(buffered) = self.try_buffer_block(line, theme) {
-            return buffered;
+    fn render_dispatch(&mut self, line: &str, theme: &Theme) -> String {
+        if !line.trim().starts_with("```")
+            && let Some(highlighter) = self.sync_code_highlighter(theme)
+        {
+            return highlighter.highlight_line(line, theme);
+        }
+        let rendered = render_line(line, &mut self.code_fence, theme);
+        self.sync_code_highlighter(theme);
+        rendered
+    }
+
+    /// Drops the cached highlighter when no fence is open and re-resolves it
+    /// whenever the fence language changes, so syntect parse state persists
+    /// across the lines of one block.
+    fn sync_code_highlighter(&mut self, theme: &Theme) -> Option<&mut CodeHighlighter<'static>> {
+        if !self.code_fence.in_code_block {
+            self.code_highlighter = None;
+            return None;
+        }
+        let lang = self.code_fence.code_lang.as_deref();
+        if !self.code_highlighter.as_ref().is_some_and(|h| h.lang() == lang) {
+            self.code_highlighter = Some(CodeHighlighter::new(lang, theme));
+        }
+        self.code_highlighter.as_mut()
+    }
+
+    fn process_line(&mut self, out: &mut String, line: &str, theme: &Theme) {
+        if self.try_buffer_block(out, line, theme) {
+            return;
         }
 
-        let mut out = String::new();
-        self.flush_buffered_blocks(&mut out, theme);
+        self.flush_buffered_blocks(out, theme);
 
         if line.trim().is_empty() {
-            self.process_empty_line(&mut out, line, theme);
+            self.process_empty_line(out, line, theme);
         } else {
-            self.process_content_line(&mut out, line, theme);
+            self.process_content_line(out, line, theme);
         }
-
-        out
     }
 
     pub fn render_line(&mut self, line: &str, theme: &Theme) -> String {
-        render_line(line, &mut self.code_fence, theme)
+        self.render_dispatch(line, theme)
     }
 }

@@ -1,4 +1,4 @@
-use super::{PickerAction, format_relative_time, picker_action, session_modal};
+use super::{PickerAction, picker_action, session_modal};
 use crate::ui::interactive::ModalState;
 use chrono::{Duration as ChronoDuration, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
@@ -112,20 +112,4 @@ fn picker_action_ctrl_d_is_ignored() {
     let mut state = modal();
     picker_action(&mut state, &key(KeyCode::Char('d'), KeyModifiers::CONTROL));
     assert_eq!(state.filter_query, "");
-}
-
-#[test]
-fn relative_time_buckets() {
-    let now = Utc::now();
-    let cases = [
-        (now, "just now"),
-        (now - ChronoDuration::minutes(5), "5m ago"),
-        (now - ChronoDuration::hours(3), "3h ago"),
-        (now - ChronoDuration::days(2), "2d ago"),
-        (now - ChronoDuration::days(10), "10d ago"),
-    ];
-    for (time, expected) in cases {
-        assert_eq!(format_relative_time(time), expected);
-    }
-    assert!(format_relative_time(now - ChronoDuration::days(45)).contains('-'));
 }
