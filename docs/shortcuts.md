@@ -88,8 +88,8 @@ editor:
 
 ## Modals & Autocomplete Navigation
 
-When interacting with popups (slash command completion, theme picker, model
-selector, permission approvals):
+When interacting with popups (slash command completion, model selector,
+permission approvals):
 
 | Shortcut                   | Action            | Details                                                                             |
 | :------------------------- | :---------------- | :---------------------------------------------------------------------------------- |

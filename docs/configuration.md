@@ -72,8 +72,7 @@ lowest):
 ~/.config/rho/
 ├── auth.json       # Persisted credentials and OAuth tokens
 ├── config.toml     # Global application preferences and providers
-├── permission.toml # Persisted global permission rules
-└── themes/         # Custom color themes (*.toml)
+└── permission.toml # Persisted global permission rules
 ```
 
 Reload configuration at any time inside the REPL without dropping session

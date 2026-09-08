@@ -66,14 +66,14 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Hierarchical instruction loading (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`).
   - Declarative parameter-guided skills (`SKILL.md`).
 
-- **[Interactive UI & Theming](docs/ui.md)**
+- **[Interactive UI & Terminal Styling](docs/ui.md)**
   - Dynamic upward-expanding multiline editor with stable screen scrollback.
   - Live two-line footer telemetry: token count, context percentage, speed,
     cost, and active model.
   - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background
     turns.
-  - 10 built-in color themes, live selector (`/theme`), and dynamic
-    [walh-shell](https://github.com/casonadams/walh-shell) ANSI syncing.
+  - Universal native theme that adopts your terminal's 16-color palette, with
+    SGR-dim secondary text and terminal-detected card fills.
   - Fenced Mermaid diagram rendering.
 
 - **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**

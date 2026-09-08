@@ -1,8 +1,8 @@
-# Interactive UI & Theming
+# Interactive UI & Terminal Styling
 
 `rho` provides a terminal interface featuring inline streaming, an
-upward-expanding multiline editor, real-time performance telemetry, and
-customizable themes.
+upward-expanding multiline editor, real-time performance telemetry, and a
+universal native theme that adopts your terminal's own palette.
 
 ---
 
@@ -94,7 +94,6 @@ autocomplete):
 | :-------------------------- | :---------------------------------------------------------------------------------------------------------------- |
 | `/help`                     | Display command summary and keyboard shortcuts.                                                                   |
 | `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                         |
-| `/theme [name]`             | Open interactive theme picker with live preview, or switch to a theme by name.                                    |
 | `/thinking [level]`         | Configure thinking effort (`off`, `minimal`, `low`, `medium`, `high`, `max`), or open selector (alias: `/think`). |
 | `/settings`                 | Open interactive runtime settings modal (display toggles, auto-compact, etc.).                                    |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                         |
@@ -118,54 +117,33 @@ autocomplete):
 
 ## Theming & Terminal Styling
 
-`rho` includes 10 built-in themes (9 dark palettes, plus `catppuccin-latte` for
-light backgrounds).
+`rho` ships a single universal theme built from your terminal's own 16-color
+ANSI palette: cyan accents, blue tool headers, green success, red errors,
+yellow warnings, and magenta skill tags. There is no theme configuration; the
+interface always matches your terminal emulator, in dark or light mode.
 
-Run `/theme` to launch the theme selector with immediate live preview. Selection
-is saved to `~/.config/rho/config.toml`.
-
-### Custom Themes
-
-Create custom themes by adding TOML files to
-`~/.config/rho/themes/<theme_name>.toml`:
-
-```toml
-name = "my-custom-theme"
-background = "#181825"
-foreground = "#cdd6f4"
-
-# 16-color ANSI palette mapping
-color0  = "#11111b"
-color1  = "#f38ba8"
-color2  = "#a6e3a1"
-color3  = "#f9e2af"
-color4  = "#89b4fa"
-color5  = "#f5c2e7"
-color6  = "#94e2d5"
-color7  = "#bac2de"
-color8  = "#585b70"
-color9  = "#f38ba8"
-color10 = "#a6e3a1"
-color11 = "#f9e2af"
-color12 = "#89b4fa"
-color13 = "#f5c2e7"
-color14 = "#94e2d5"
-color15 = "#a6adc8"
-```
+- Secondary text (thinking blocks, footer telemetry, hints, diff context, and
+  table borders) uses the terminal's native dim (SGR 2) effect instead of a
+  fixed palette color, so it stays readable on any palette.
+- Tool cards, user messages, and notices keep their full-width container fill.
+  On startup `rho` asks the terminal for its foreground and background colors
+  (OSC 10/11) and blends a subtle fill from them; terminals that do not answer
+  fall back to the ANSI black background.
+- Code blocks are syntax highlighted and reduced to native ANSI-16 colors.
+- Diagrams use your terminal's ANSI foreground.
 
 ### Pairing with `walh-shell`
 
-The built-in `default` theme avoids hardcoded hex colors and emits native
-16-color ANSI escape codes. When paired with
-[walh-shell](https://github.com/casonadams/walh-shell), `rho` dynamically
-mirrors the shell's active wallpaper palette and surfaces.
+Because `rho` emits only native 16-color ANSI escape codes, pairing with
+[walh-shell](https://github.com/casonadams/walh-shell) mirrors the shell's
+active wallpaper palette and surfaces without any configuration.
 
 ### Mermaid Diagram Rendering
 
 Fenced Mermaid diagram blocks (` ```mermaid `) render in the terminal as
 monochrome diagrams. For best readability:
 
-- With the `default` theme, diagrams use your terminal's ANSI foreground.
+- Diagrams use your terminal's ANSI foreground.
 - Diagrams wider than your terminal viewport are safely clipped to the right
   margin to preserve box alignment; keep diagrams narrow or split complex
   topologies into multiple blocks.

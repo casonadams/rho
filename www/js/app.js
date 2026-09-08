@@ -32,11 +32,6 @@ function initGallery() {
       alt: "rho interactive model selector with fuzzy search",
       caption: "Interactive model switcher (<kbd>Ctrl+L</kbd> or <code>/model</code>) with live fuzzy search across local and subscription providers."
     },
-    theme: {
-      src: "assets/modal-theme.png",
-      alt: "rho interactive theme switcher previewing Solarized Dark",
-      caption: "Real-time theme engine (<code>/theme</code>) previewing 10 built-in color schemes with live terminal ANSI sync."
-    },
     login: {
       src: "assets/modal-login.png",
       alt: "rho login provider selector for OAuth and API keys",
