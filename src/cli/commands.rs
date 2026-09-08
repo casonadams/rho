@@ -106,8 +106,13 @@ fn print_provider_models(provider: ProviderId, config_model: &str) {
         ProviderId::Anthropic => {
             println!("  - claude-3-7-sonnet-20250219\n  - claude-3-5-sonnet-20241022\n  - claude-3-5-haiku-20241022");
         }
-        ProviderId::OpenAi => println!("  - gpt-4o\n  - gpt-4o-mini\n  - o1\n  - o3-mini"),
+        ProviderId::OpenAi => println!("  - gpt-6-astra\n  - gpt-4o\n  - gpt-4o-mini\n  - o1\n  - o3-mini"),
         ProviderId::Gemini => println!("  - gemini-2.0-flash\n  - gemini-1.5-pro\n  - gemini-1.5-flash"),
+        ProviderId::ChatGpt => {
+            for model in rho_engine::provider::discovery::chatgpt_codex_models() {
+                println!("  - {} ({})", model.id, model.description);
+            }
+        }
         ProviderId::Antigravity => {
             for model in rho_engine::provider::discovery::antigravity_preset_models() {
                 println!("  - {} ({})", model.id, model.description);

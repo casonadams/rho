@@ -68,6 +68,6 @@ impl AgentEngine {
     }
 
     pub fn context_limit(&self) -> Option<usize> {
-        self.context.limit_for(&self.config.model)
+        self.context.limit_for(&self.config.model, &self.config.provider)
     }
 }

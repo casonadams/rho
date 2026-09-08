@@ -19,10 +19,24 @@ pub const DEFAULT_KEEP_RECENT_TOKENS: usize = 20_000;
 const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
     (&["gemini-1.5-pro", "gemini-2.5-pro"], 2_000_000),
     (&["gemini"], 1_000_000),
+    (&["gpt-6-astra"], 1_050_000),
     (&["gpt-5.6", "luna", "terra", "sol"], 372_000),
     (&["gpt-5.4", "gpt-5.5"], 272_000),
     (&["claude", "o1", "o3"], 200_000),
 ];
+
+pub fn context_window_size_for_provider(model: &str, provider: &str) -> usize {
+    if model.eq_ignore_ascii_case("gpt-6-astra") {
+        return if provider.eq_ignore_ascii_case("openai") {
+            1_050_000
+        } else if provider.eq_ignore_ascii_case("chatgpt") {
+            372_000
+        } else {
+            128_000
+        };
+    }
+    context_window_size(model)
+}
 
 pub fn context_window_size(model: &str) -> usize {
     let lower = model.to_lowercase();

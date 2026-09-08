@@ -38,9 +38,9 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         (history, additional_tokens): (&mut Vec<Message>, usize),
     ) -> Result<Option<crate::engine::CompactionStats>> {
-        let window = self
-            .context_limit()
-            .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&self.config.model));
+        let window = self.context_limit().unwrap_or_else(|| {
+            rho_harness_core::tokens::context_window_size_for_provider(&self.config.model, &self.config.provider)
+        });
         let estimated =
             rho_harness_core::tokens::calculate_context_tokens(history, None, &self.config.model).total_tokens;
         let consumed = self

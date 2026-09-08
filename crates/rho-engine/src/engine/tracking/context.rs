@@ -8,10 +8,12 @@ impl ContextTracker {
         Self { configured_limit }
     }
 
-    pub fn limit_for(&self, model: &str) -> Option<usize> {
+    pub fn limit_for(&self, model: &str, provider: &str) -> Option<usize> {
         if let Some(limit) = self.configured_limit {
             return Some(limit);
         }
-        Some(rho_harness_core::tokens::context_window_size(model))
+        Some(rho_harness_core::tokens::context_window_size_for_provider(
+            model, provider,
+        ))
     }
 }

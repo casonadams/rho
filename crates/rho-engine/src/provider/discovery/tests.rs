@@ -1,7 +1,9 @@
 use super::DiscoveredModel;
 use super::antigravity::{antigravity_display_name, model_recency_key, sort_models_newest_first};
 use super::fetch::ollama_context_from_info;
-use super::presets::{default_presets_for, format_context_tokens, ollama_cloud_preset_models};
+use super::presets::{
+    chatgpt_codex_models, default_presets_for, format_context_tokens, ollama_cloud_preset_models, openai_preset_models,
+};
 
 #[test]
 fn test_model_recency_key_parsing() {
@@ -77,6 +79,36 @@ fn ollama_cloud_presets_carry_real_context_lengths() {
             .any(|m| m.id == "glm-5.3-flash" && m.context_tokens == Some(1_048_576))
     );
     assert!(models.iter().all(|m| m.context_tokens.is_some()));
+}
+
+#[test]
+fn chatgpt_codex_presets_include_gpt_6_astra() {
+    let astra = chatgpt_codex_models()
+        .into_iter()
+        .find(|model| model.id == "gpt-6-astra");
+    assert_eq!(
+        astra.map(|model| (model.name, model.provider, model.description)),
+        Some((
+            "GPT-6 Astra".into(),
+            "chatgpt".into(),
+            "372k ctx · deep reasoning".into(),
+        ))
+    );
+}
+
+#[test]
+fn openai_presets_include_gpt_6_astra() {
+    let astra = openai_preset_models()
+        .into_iter()
+        .find(|model| model.id == "gpt-6-astra");
+    assert_eq!(
+        astra.map(|model| (model.name, model.provider, model.description)),
+        Some((
+            "GPT-6 Astra".into(),
+            "openai".into(),
+            "1.05M ctx · deep reasoning".into(),
+        ))
+    );
 }
 
 #[test]
