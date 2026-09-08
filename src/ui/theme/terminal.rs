@@ -13,8 +13,10 @@ use terminal_colorsaurus::{QueryOptions, color_palette};
 /// Fraction of the foreground mixed into the background for the block fill.
 const FG_TINT_PERCENT: u32 = 12;
 /// Fraction of the way the foreground is washed toward the background for
-/// dimmed text.
-const DIM_TINT_PERCENT: u32 = 40;
+/// dimmed text. A given wash reads heavier on light backgrounds, so light
+/// palettes get a stronger wash.
+const DIM_TINT_PERCENT_DARK: u32 = 40;
+const DIM_TINT_PERCENT_LIGHT: u32 = 50;
 
 pub fn detect() -> Theme {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
@@ -26,7 +28,7 @@ pub fn detect() -> Theme {
     let is_light = palette.theme_mode() == terminal_colorsaurus::ThemeMode::Light;
     let fg = anstyle::RgbColor::from(palette.foreground);
     let bg = anstyle::RgbColor::from(palette.background);
-    let dim = dimmed_foreground(fg, bg);
+    let dim = dimmed_foreground(fg, bg, is_light);
     Theme {
         is_light,
         dimmed: dim,
@@ -53,12 +55,13 @@ pub(crate) fn blend_fill(fg: anstyle::RgbColor, bg: anstyle::RgbColor) -> anstyl
 /// Secondary-text color: the foreground washed toward the background, so
 /// dimmed text is muted on dark palettes and lightened (never darkened) on
 /// light ones.
-pub(crate) fn dimmed_foreground(fg: anstyle::RgbColor, bg: anstyle::RgbColor) -> anstyle::Style {
-    let dimmed = anstyle::RgbColor(
-        mix(fg.0, bg.0, DIM_TINT_PERCENT),
-        mix(fg.1, bg.1, DIM_TINT_PERCENT),
-        mix(fg.2, bg.2, DIM_TINT_PERCENT),
-    );
+pub(crate) fn dimmed_foreground(fg: anstyle::RgbColor, bg: anstyle::RgbColor, is_light: bool) -> anstyle::Style {
+    let tint = if is_light {
+        DIM_TINT_PERCENT_LIGHT
+    } else {
+        DIM_TINT_PERCENT_DARK
+    };
+    let dimmed = anstyle::RgbColor(mix(fg.0, bg.0, tint), mix(fg.1, bg.1, tint), mix(fg.2, bg.2, tint));
     anstyle::Style::new().fg_color(Some(anstyle::Color::Rgb(dimmed)))
 }
 
@@ -116,7 +119,8 @@ mod tests {
     fn equal_colors_stay_put() {
         let same = RgbColor(0x40, 0x40, 0x40);
         assert_eq!(fill_rgb(blend_fill(same, same)), same);
-        assert_eq!(dim_rgb(dimmed_foreground(same, same)), same);
+        assert_eq!(dim_rgb(dimmed_foreground(same, same, false)), same);
+        assert_eq!(dim_rgb(dimmed_foreground(same, same, true)), same);
     }
 
     #[test]
@@ -124,7 +128,7 @@ mod tests {
         // Catppuccin Mocha fg/bg: dim lands at ~4.3:1 contrast.
         let fg = RgbColor(0xcd, 0xd6, 0xf4);
         let bg = RgbColor(0x1e, 0x1e, 0x2e);
-        let dim = dim_rgb(dimmed_foreground(fg, bg));
+        let dim = dim_rgb(dimmed_foreground(fg, bg, false));
         assert_eq!(dim, RgbColor(0x87, 0x8d, 0xa5));
         assert!(
             dim.0 < fg.0 && dim.1 < fg.1 && dim.2 < fg.2,
@@ -135,11 +139,12 @@ mod tests {
     #[test]
     fn light_terminal_dim_is_lighter_than_the_foreground() {
         // walh-shell monokai-light: near-white background, dark charcoal text;
-        // dim lands at ~3.3:1 contrast instead of SGR 2's near-black.
+        // the stronger 50% light-mode wash lands at ~2.6:1 (matching walh's
+        // historical dim gray) instead of SGR 2's near-black.
         let fg = RgbColor(0x40, 0x3e, 0x41);
         let bg = RgbColor(0xf9, 0xf8, 0xf5);
-        let dim = dim_rgb(dimmed_foreground(fg, bg));
-        assert_eq!(dim, RgbColor(0x8a, 0x88, 0x89));
+        let dim = dim_rgb(dimmed_foreground(fg, bg, true));
+        assert_eq!(dim, RgbColor(0x9c, 0x9b, 0x9b));
         assert!(
             dim.0 > fg.0 && dim.1 > fg.1 && dim.2 > fg.2,
             "dim must wash out, not darken, on light palettes"
