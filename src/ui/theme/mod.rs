@@ -1,5 +1,5 @@
 //! Universal native theme: semantic ANSI-16 colors that adopt the user's
-//! terminal palette, plus the terminal's own dim effect for secondary text.
+//! terminal palette, plus a terminal-derived dim for secondary text.
 //!
 //! `Theme::default()` is pure ANSI with no I/O. `detect()` (interactive
 //! startup only) queries the terminal's foreground/background via OSC 10/11
