@@ -6,7 +6,7 @@ use crate::ui::interactive::{InteractiveUi, OutputEvent, UiEvent};
 fn collect_output_events(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> String {
     let mut out = String::new();
     while let Ok(event) = events.try_recv() {
-        if let UiEvent::Output(OutputEvent::Text(text)) = event {
+        if let UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) = event {
             out.push_str(&text);
         }
     }

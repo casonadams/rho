@@ -75,6 +75,9 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn push_transcript_item(&mut self, item: TranscriptItem) -> io::Result<bool> {
+        if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
+            self.commit_streamed_output();
+        }
         if let TranscriptItem::Tool(ref tool) = item
             && self.state.active_tool().is_some()
         {
@@ -148,6 +151,17 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
+    fn repaint_streamed_output(&mut self, redraw_buffer: &mut String) {
+        if self.streamed_output.is_empty() {
+            return;
+        }
+        self.output.update(&self.streamed_output);
+        redraw_buffer.push_str(&self.streamed_output);
+        if self.output.is_open() {
+            redraw_buffer.push_str("\r\n");
+        }
+    }
+
     pub fn full_redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
         self.rendered = None;
@@ -165,6 +179,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.output.clear();
         let mut redraw_buffer = String::new();
         self.repaint_history(&mut redraw_buffer)?;
+        self.repaint_streamed_output(&mut redraw_buffer);
         if !redraw_buffer.is_empty() {
             self.backend.write_text(&redraw_buffer)?;
         }

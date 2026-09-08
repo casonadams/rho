@@ -20,11 +20,24 @@ fn drain_interactive_events(
                     hide_thinking: false,
                 },
             )),
-            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => output.push_str(&text),
             _ => {}
         }
     }
     (activity_events, output)
+}
+
+#[test]
+fn interactive_renderer_marks_assistant_tokens_as_stream_output() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.print_token("answer");
+
+    assert!(matches!(
+        events.try_recv(),
+        Ok(UiEvent::Output(OutputEvent::StreamText(text))) if text == "answer"
+    ));
 }
 
 #[test]
@@ -56,7 +69,7 @@ fn interactive_renderer_emits_formatted_output_and_activity_events() {
 fn drain_text_output(events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> String {
     let mut output = String::new();
     while let Ok(event) = events.try_recv() {
-        if let UiEvent::Output(OutputEvent::Text(text)) = event {
+        if let UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) = event {
             output.push_str(&text);
         }
     }

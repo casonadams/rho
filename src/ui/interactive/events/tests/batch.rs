@@ -15,8 +15,20 @@ fn pending_batch_preserves_text_and_keeps_the_latest_activity() {
 
     let drained = batch.drain();
     assert_eq!(drained.text.as_bytes(), b"one two");
+    assert!(drained.stream_text.is_empty());
     assert_eq!(drained.activity, Some(Activity::Working));
     assert!(batch.is_empty());
+}
+
+#[test]
+fn pending_batch_keeps_stream_output_separate_from_generic_output() {
+    let mut batch = PendingUiBatch::new(1024);
+    batch.push(UiEvent::Output(OutputEvent::Text("notice".into())));
+    batch.push(UiEvent::Output(OutputEvent::StreamText("response".into())));
+
+    let drained = batch.drain();
+    assert_eq!(drained.text, "notice");
+    assert_eq!(drained.stream_text, "response");
 }
 
 #[test]

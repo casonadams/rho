@@ -114,6 +114,11 @@ impl LiveBatch {
         changed |= self.apply_tool_updates(controller, &mut drained)?;
         let mut wrote_output = false;
 
+        if !drained.stream_text.is_empty() {
+            controller.write_stream_output(&drained.stream_text)?;
+            wrote_output = true;
+        }
+
         for item in drained.transcript_items {
             if controller.push_transcript_item(item)? {
                 wrote_output = true;

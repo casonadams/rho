@@ -70,6 +70,14 @@ impl TerminalRenderer {
         }
     }
 
+    pub fn stream_output(&self, text: String) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.output(OutputEvent::StreamText(text));
+        } else {
+            self.write_output(&text);
+        }
+    }
+
     pub fn print_token(&self, token: &str) {
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             buf.push_str(token);
@@ -79,12 +87,12 @@ impl TerminalRenderer {
             .lock()
             .map(|mut markdown| markdown.render_token(token, &self.theme))
             .unwrap_or_else(|_| token.to_string());
-        self.write_output(&rendered);
+        self.stream_output(rendered);
     }
 
     pub fn print_thinking_token(&self, token: &str) {
         let dim = self.theme.dimmed;
-        self.write_output(&format!("{dim}{token}{dim:#}"));
+        self.stream_output(format!("{dim}{token}{dim:#}"));
     }
 
     pub fn flush(&self) {
@@ -98,7 +106,7 @@ impl TerminalRenderer {
             })
             .unwrap_or_default();
         if !remaining.is_empty() {
-            self.write_output(&remaining);
+            self.stream_output(remaining);
         }
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             let full_text = std::mem::take(&mut *buf);

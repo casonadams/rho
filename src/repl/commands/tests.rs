@@ -13,7 +13,7 @@ pub(super) fn collecting_renderer() -> (TerminalRenderer, mpsc::UnboundedReceive
 pub(super) fn collected_output(events: &mut mpsc::UnboundedReceiver<UiEvent>) -> String {
     std::iter::from_fn(|| events.try_recv().ok())
         .filter_map(|event| match event {
-            UiEvent::Output(OutputEvent::Text(text)) => Some(text),
+            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => Some(text),
             UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(text)) => Some(text),
             UiEvent::SystemMessage(Some(text)) => Some(text),
             _ => None,

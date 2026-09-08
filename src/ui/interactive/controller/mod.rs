@@ -25,6 +25,7 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) height: usize,
     pub(super) rendered: Option<InteractiveLayout>,
     pub(super) output: OutputTracker,
+    pub(super) streamed_output: String,
     pub(super) spinner_frame: usize,
     pub(super) active: bool,
     pub(super) theme: crate::ui::theme::Theme,
@@ -57,6 +58,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             height,
             rendered: None,
             output: OutputTracker::new(),
+            streamed_output: String::new(),
             spinner_frame: 0,
             active: true,
             theme: crate::ui::theme::Theme::default(),
@@ -105,10 +107,24 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn write_output(&mut self, output: &str) -> io::Result<()> {
-        self.prepare_output_write()?;
         let output = terminal_newlines(output);
-        self.backend.write_text(&output)?;
-        self.output.update(&output);
+        self.write_normalized_output(&output)
+    }
+
+    pub fn write_stream_output(&mut self, output: &str) -> io::Result<()> {
+        let output = terminal_newlines(output);
+        self.streamed_output.push_str(&output);
+        self.write_normalized_output(&output)
+    }
+
+    pub fn commit_streamed_output(&mut self) {
+        self.streamed_output.clear();
+    }
+
+    fn write_normalized_output(&mut self, output: &str) -> io::Result<()> {
+        self.prepare_output_write()?;
+        self.backend.write_text(output)?;
+        self.output.update(output);
         if self.output.is_open() {
             self.backend.write_text("\r\n")?;
         }
@@ -125,7 +141,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         self.width = width;
         self.height = height;
-        if self.transcript.is_empty() {
+        if self.transcript.is_empty() && self.streamed_output.is_empty() {
             self.redraw()?;
         } else {
             self.full_redraw()?;

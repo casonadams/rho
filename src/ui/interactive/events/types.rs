@@ -5,6 +5,7 @@ use tokio::sync::oneshot;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputEvent {
     Text(String),
+    StreamText(String),
 }
 
 pub use rho_harness_core::presentation::{

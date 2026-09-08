@@ -44,7 +44,7 @@ fn collect_displayed_events(
     let mut displayed = String::new();
     while let Ok(event) = events.try_recv() {
         match event {
-            UiEvent::Output(OutputEvent::Text(text)) => displayed.push_str(&text),
+            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => displayed.push_str(&text),
             UiEvent::Transcript(item) => {
                 displayed.push_str(&crate::ui::interactive::render_transcript_item(
                     crate::ui::interactive::TranscriptRenderInput {

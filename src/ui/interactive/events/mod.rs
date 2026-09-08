@@ -51,7 +51,7 @@ impl InteractiveUi {
                     .lock()
                     .map_err(|_| io::Error::other("interactive UI writer lock poisoned"))?;
                 match event {
-                    OutputEvent::Text(text) => writer.write_all(text.as_bytes())?,
+                    OutputEvent::Text(text) | OutputEvent::StreamText(text) => writer.write_all(text.as_bytes())?,
                 }
                 writer.flush()?;
                 Ok(())

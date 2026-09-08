@@ -18,7 +18,7 @@ fn collect_rendered_output(
                     hide_thinking: false,
                 },
             )),
-            UiEvent::Output(OutputEvent::Text(text)) => output.push_str(&text),
+            UiEvent::Output(OutputEvent::Text(text) | OutputEvent::StreamText(text)) => output.push_str(&text),
             _ => {}
         }
     }

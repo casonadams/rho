@@ -165,6 +165,72 @@ mod redraw {
     use crate::ui::interactive::{InteractiveState, TranscriptItem};
 
     #[test]
+    fn resize_replays_in_flight_streamed_output() {
+        let (backend, operations, width) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::UserMessage("explain this".into()))
+            .unwrap();
+        controller.write_stream_output("partial streamed response").unwrap();
+        operations.borrow_mut().clear();
+
+        width.set(40);
+        assert!(controller.refresh_size().unwrap());
+
+        assert!(
+            operations
+                .borrow()
+                .iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("partial streamed response")))
+        );
+    }
+
+    #[test]
+    fn committed_assistant_output_is_not_replayed_after_resize() {
+        let (backend, operations, width) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::UserMessage("explain this".into()))
+            .unwrap();
+        controller.write_stream_output("completed response").unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::AssistantText("completed response".into()))
+            .unwrap();
+        operations.borrow_mut().clear();
+
+        width.set(40);
+        assert!(controller.refresh_size().unwrap());
+
+        let replay_count = operations
+            .borrow()
+            .iter()
+            .filter(|op| matches!(op, Operation::Write(text) if text.contains("completed response")))
+            .count();
+        assert_eq!(replay_count, 1);
+    }
+
+    #[test]
+    fn committed_thinking_output_is_not_replayed_after_resize() {
+        let (backend, operations, width) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller.write_stream_output("considering").unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::Thinking("considering".into()))
+            .unwrap();
+        operations.borrow_mut().clear();
+
+        width.set(40);
+        assert!(controller.refresh_size().unwrap());
+
+        let replay_count = operations
+            .borrow()
+            .iter()
+            .filter(|op| matches!(op, Operation::Write(text) if text.contains("considering")))
+            .count();
+        assert_eq!(replay_count, 1);
+    }
+
+    #[test]
     fn full_redraw_rerenders_all_transcript_items_on_resize() {
         let (backend, operations, width) = FakeTerminal::new(60);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
