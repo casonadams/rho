@@ -114,6 +114,85 @@ fn modal_body_suppressed_on_minimal_terminal_height_6() {
     assert!(!layout_6.lines.iter().any(|l| l.contains("command argument line")));
 }
 
+fn searchable_model_modal_with_draft(draft: &str) -> (ModalState, EditorState) {
+    let mut modal = ModalState::new(
+        "Select Model",
+        "",
+        (0..12)
+            .map(|i| ModalOption::new(format!("model-{i}"), Some("prov\t\t\t1M ctx")))
+            .collect(),
+    )
+    .with_search(true);
+    modal.selected = 1;
+    let mut editor = EditorState::default();
+    editor.set_text(draft);
+    (modal, editor)
+}
+
+// Region rows wider than the terminal wrap into extra physical rows and
+// desync the diff repaint's cursor accounting.
+fn assert_region_lines_fit_terminal_width(lines: &[String], width: usize) {
+    for line in lines {
+        assert!(
+            crate::ui::block::visible_width(line) <= width,
+            "region row exceeds terminal width {width}: {line:?}"
+        );
+    }
+}
+
+#[test]
+fn modal_region_rows_fit_terminal_width_with_long_draft() {
+    let draft = "a very long unsent prompt that was typed while reviewing the agent output".repeat(4);
+    for width in [80, 60, 45] {
+        let (modal, editor) = searchable_model_modal_with_draft(&draft);
+        let rendered = layout(LayoutInput {
+            editor: &editor,
+            modal: Some(&modal),
+            autocomplete: None,
+            footer: &FooterState::default(),
+            system_message: None,
+            queued_messages: &[],
+            widget_lines: &[],
+            terminal_width: width,
+            terminal_height: 24,
+            spinner_frame: 0,
+            theme: None,
+        });
+        assert!(
+            rendered.lines.iter().any(|l| l.contains("Draft: ")),
+            "draft row should render"
+        );
+        assert_region_lines_fit_terminal_width(&rendered.lines, width);
+    }
+}
+
+#[test]
+fn modal_search_row_truncates_long_filter_query() {
+    let query: String = "g".repeat(120);
+    for width in [80, 60, 45] {
+        let mut modal = ModalState::new("Select Model", "", vec![ModalOption::from("model-a")]).with_search(true);
+        modal.set_filter(&query);
+        let rendered = layout(LayoutInput {
+            editor: &EditorState::default(),
+            modal: Some(&modal),
+            autocomplete: None,
+            footer: &FooterState::default(),
+            system_message: None,
+            queued_messages: &[],
+            widget_lines: &[],
+            terminal_width: width,
+            terminal_height: 24,
+            spinner_frame: 0,
+            theme: None,
+        });
+        assert_region_lines_fit_terminal_width(&rendered.lines, width);
+        assert!(
+            rendered.lines.iter().any(|l| l.contains("\x1b[1m>\x1b[0m g")),
+            "truncated search row should keep its query prefix at width {width}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Cursor placement
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ mod fake;
 mod lifecycle;
 mod output;
 mod redraw;
+mod screen_sim;
 mod system_message;
 mod tools;
 mod transcript;

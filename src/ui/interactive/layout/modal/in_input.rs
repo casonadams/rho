@@ -82,11 +82,12 @@ pub(crate) fn calculate_content_space(modal: &ModalState, space_for_content: usi
 }
 
 fn push_search_row(modal: &ModalState, width: usize, lines: &mut Vec<String>) -> (CursorPosition, bool) {
+    let query = truncate_to_width(&modal.filter_query, width.saturating_sub(4));
     let cursor = CursorPosition {
         row: lines.len(),
-        column: (visible_width("  > ") + visible_width(&modal.filter_query)).min(width),
+        column: (visible_width("  > ") + visible_width(&query)).min(width),
     };
-    lines.push(format!("  \x1b[1m>\x1b[0m {}", modal.filter_query));
+    lines.push(format!("  \x1b[1m>\x1b[0m {query}"));
     (cursor, true)
 }
 
@@ -115,12 +116,15 @@ fn push_modal_input_prompt(
     Some((cursor, true))
 }
 
+// The diff repaint assumes one physical terminal row per layout line; a row
+// wider than the terminal wraps and desyncs its cursor arithmetic.
 fn format_draft_line(draft_text: &str, inner_width: usize, theme: &crate::ui::theme::Theme) -> String {
     let single_line = draft_text.trim().replace('\n', " ");
-    let max_preview = inner_width.saturating_sub(25).max(5);
+    let max_preview = inner_width.saturating_sub(29).max(5);
     let preview = truncate_to_width(&single_line, max_preview);
     let dimmed = theme.dimmed;
-    format!("  {dimmed}Draft: \"{preview}\" (restores on close){dimmed:#}")
+    let line = format!("  {dimmed}Draft: \"{preview}\" (restores on close){dimmed:#}");
+    wrap_to_width(&line, inner_width.saturating_add(2)).remove(0)
 }
 
 fn collect_modal_content(
