@@ -44,12 +44,13 @@ fn format_dropdown_item(
     } else {
         "  ".to_string()
     };
+    let value = truncate_width(&item.value, inner_width.saturating_add(1));
     let val_styled = if is_selected {
-        format!("{}{}{:#}", highlight.bold(), item.value, highlight.bold())
+        format!("{}{}{:#}", highlight.bold(), value, highlight.bold())
     } else {
-        format!("{}{}{:#}", theme.prompt, item.value, theme.prompt)
+        format!("{}{}{:#}", theme.prompt, value, theme.prompt)
     };
-    let val_width = UnicodeWidthStr::width(item.value.as_str()) + 2;
+    let val_width = UnicodeWidthStr::width(value.as_str()) + 2;
     build_item_content((item, theme), (&val_styled, &prefix), (val_width, inner_width))
 }
 

@@ -64,6 +64,40 @@ fn autocomplete_suppressed_when_fewer_than_two_rows_available() {
 }
 
 #[test]
+fn dropdown_rows_fit_terminal_width_with_long_values() {
+    let long_value =
+        "src/ui/interactive/layout/modal/this completion value is far longer than most terminals".to_string();
+    let mut state = AutocompleteState::default();
+    state.open(vec![Completion {
+        value: long_value.clone(),
+        description: None,
+        replacement: Range { start: 0, end: 1 },
+    }]);
+
+    for width in [80, 60, 45] {
+        let lines =
+            render_autocomplete_dropdown(&state, (width, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
+        assert_eq!(lines.len(), 1);
+        for line in &lines {
+            assert!(
+                crate::ui::block::visible_width(line) <= width,
+                "dropdown row exceeds terminal width {width}: {line:?}"
+            );
+        }
+    }
+
+    // Values that already fit keep their full text.
+    state.close();
+    state.open(vec![Completion {
+        value: long_value,
+        description: None,
+        replacement: Range { start: 0, end: 1 },
+    }]);
+    let lines = render_autocomplete_dropdown(&state, (200, MAX_VISIBLE_ITEMS), &crate::ui::theme::Theme::default());
+    assert!(lines[0].contains("this completion value is far longer than most terminals"));
+}
+
+#[test]
 fn autocomplete_scales_down_to_max_lines() {
     let mut state = AutocompleteState::default();
     state.open(make_items(10));

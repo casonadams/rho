@@ -359,4 +359,29 @@ mod regressions {
 
         arrow_down(&mut controller, 6);
     }
+
+    #[test]
+    fn long_completion_value_keeps_editor_repaints_aligned() {
+        use crate::repl::interactive::Completion;
+        let mut controller = controller_with_transcript((80, 24));
+        controller.state_mut().editor_mut().set_text("src/ui/int");
+        controller.state_mut().autocomplete.open(vec![
+            Completion {
+                value: "x".repeat(90),
+                description: None,
+                replacement: 0..10,
+            },
+            Completion {
+                value: "y".repeat(90),
+                description: None,
+                replacement: 0..10,
+            },
+        ]);
+        controller.redraw().unwrap();
+        assert_screen_region_aligned(&controller);
+
+        controller.state_mut().autocomplete.select_next();
+        controller.redraw().unwrap();
+        assert_screen_region_aligned(&controller);
+    }
 }
