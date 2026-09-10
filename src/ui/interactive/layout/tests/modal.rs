@@ -237,6 +237,50 @@ fn modal_input_mode_cursor_with_body_truncation() {
 }
 
 #[test]
+fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
+    let mut modal = ModalState::new(
+        "Permission Required",
+        "Tool: bash\nInput: cargo test --workspace",
+        vec![ModalOption::from("Allow"), ModalOption::from("Deny")],
+    )
+    .with_option_layout(crate::ui::interactive::OptionLayout::Horizontal);
+    modal.mode = crate::ui::interactive::ModalMode::Input {
+        prompt_label: "reason".to_string(),
+    };
+    modal.input.set_text("tests are flaky because they flake a lot");
+
+    for width in [80, 60, 45] {
+        let rendered = layout(LayoutInput {
+            editor: &EditorState::default(),
+            modal: Some(&modal),
+            autocomplete: None,
+            footer: &FooterState::default(),
+            system_message: None,
+            queued_messages: &[],
+            widget_lines: &[],
+            terminal_width: width,
+            terminal_height: 24,
+            spinner_frame: 0,
+            theme: None,
+        });
+        assert_region_lines_fit_terminal_width(&rendered.lines, width);
+        let prompt_row = rendered
+            .lines
+            .iter()
+            .find(|l| l.contains("tests are flaky"))
+            .expect("input row");
+        assert!(
+            prompt_row.contains("reason"),
+            "input row must carry its label: {prompt_row:?}"
+        );
+        assert!(
+            prompt_row.contains('\u{203a}'),
+            "input row must carry the prompt marker: {prompt_row:?}"
+        );
+    }
+}
+
+#[test]
 fn modal_searchable_cursor_with_body_truncation() {
     let body = (1..=30)
         .map(|i| format!("model detail line {i}"))
@@ -508,7 +552,7 @@ mod horizontal {
         modal.mode = ModalMode::Input {
             prompt_label: "cmd".into(),
         };
-        assert_eq!(modal_hint(&modal), "Enter submit • Esc back");
+        assert_eq!(modal_hint(&modal), "Enter submit • Shift+Enter newline • Esc back");
     }
 }
 

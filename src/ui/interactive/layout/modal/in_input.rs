@@ -3,6 +3,20 @@ use crate::ui::interactive::layout::editor::{window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::{truncate_to_width, visible_width, wrap_to_width};
 use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
 
+fn input_prompt_width(modal: &ModalState) -> usize {
+    let ModalMode::Input { prompt_label } = &modal.mode else {
+        return 0;
+    };
+    2 + visible_width(prompt_label) + 3
+}
+
+fn input_wrap_width(modal: &ModalState, inner_width: usize) -> usize {
+    inner_width
+        .saturating_add(4)
+        .saturating_sub(input_prompt_width(modal))
+        .max(1)
+}
+
 fn options_desired_lines(modal: &ModalState) -> usize {
     if matches!(modal.mode, ModalMode::Input { .. }) {
         0
@@ -41,7 +55,9 @@ pub fn modal_body_max_scroll(modal: &ModalState, draft_text: &str, width: usize,
 pub fn in_input_modal_desired_lines(modal: &ModalState, draft_text: &str, inner_width: usize) -> usize {
     let search = usize::from(modal.is_searchable);
     let input = if matches!(modal.mode, ModalMode::Input { .. }) {
-        wrap_to_width(modal.input.text(), inner_width).len().max(1)
+        wrap_to_width(modal.input.text(), input_wrap_width(modal, inner_width))
+            .len()
+            .max(1)
     } else {
         0
     };
@@ -91,23 +107,38 @@ fn push_search_row(modal: &ModalState, width: usize, lines: &mut Vec<String>) ->
     (cursor, true)
 }
 
+fn input_prompt_prefix(modal: &ModalState, theme: &crate::ui::theme::Theme) -> (String, usize) {
+    let ModalMode::Input { prompt_label } = &modal.mode else {
+        return (String::new(), 0);
+    };
+    let dim = theme.dimmed;
+    let accent = theme.highlight;
+    let styled = format!("  {dim}{prompt_label}{dim:#} {accent}›{accent:#} ");
+    (styled, input_prompt_width(modal))
+}
+
 fn push_modal_input_prompt(
     modal: &ModalState,
-    _theme: &crate::ui::theme::Theme,
+    theme: &crate::ui::theme::Theme,
     (width, max_input_lines, lines): (usize, usize, &mut Vec<String>),
 ) -> Option<(CursorPosition, bool)> {
     let ModalMode::Input { .. } = &modal.mode else {
         return None;
     };
-    let prefix_width = 2;
+    let (styled_prefix, prefix_width) = input_prompt_prefix(modal, theme);
     let edit_width = width.saturating_sub(prefix_width).max(1);
 
     let (wrapped, cursor_pos) = wrap_editor(&modal.input, edit_width);
     let (windowed, cur) = window_editor(wrapped, cursor_pos, max_input_lines.max(1));
     let base_row = lines.len();
 
-    for line in windowed {
-        lines.push(format!("  {line}"));
+    let continuation = " ".repeat(prefix_width);
+    for (offset, line) in windowed.into_iter().enumerate() {
+        if offset == 0 {
+            lines.push(format!("{styled_prefix}{line}"));
+        } else {
+            lines.push(format!("{continuation}{line}"));
+        }
     }
     let cursor = CursorPosition {
         row: base_row + cur.row,
@@ -158,7 +189,7 @@ fn modal_in_input_spaces(
     let has_search = modal.is_searchable && !matches!(modal.mode, ModalMode::Input { .. });
     let is_input = matches!(modal.mode, ModalMode::Input { .. });
     let input_lines = if is_input {
-        wrap_to_width(modal.input.text(), inner_width)
+        wrap_to_width(modal.input.text(), input_wrap_width(modal, inner_width))
             .len()
             .max(1)
             .min(max_lines.saturating_sub(2).max(1))
