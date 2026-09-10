@@ -120,19 +120,6 @@ fn calculate_pagination(total: usize, selected: usize, max_visible: usize) -> (u
     }
 }
 
-fn push_model_extra(modal: &ModalState, max_visible: usize, dimmed: anstyle::Style, lines: &mut Vec<String>) {
-    if modal.title != "Select Model" || max_visible < 5 {
-        return;
-    }
-    if let Some(opt) = modal.options.get(modal.selected)
-        && let Some(extra) = opt.description.as_deref().and_then(|d| d.split('\t').nth(3))
-        && !extra.is_empty()
-    {
-        lines.push(String::new());
-        lines.push(format!("  {dimmed}Model Name: {} ({extra}){dimmed:#}", opt.label));
-    }
-}
-
 fn render_visible_options(
     modal: &ModalState,
     layout: &ModalOptionsLayout<'_>,
@@ -175,7 +162,6 @@ pub(crate) fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayou
     if show_pagination || start > 0 {
         lines.push(format!("    {dimmed}({}/{}){dimmed:#}", modal.selected + 1, total));
     }
-    push_model_extra(modal, layout.max_visible, dimmed, &mut lines);
     lines.truncate(layout.max_visible);
     lines
 }
