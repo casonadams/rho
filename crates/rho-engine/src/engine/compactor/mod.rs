@@ -7,5 +7,5 @@ pub mod overflow;
 mod tests;
 
 pub use llm::LlmCompactor;
-pub use orchestrator::CompactionStats;
+pub use orchestrator::{CompactionStats, SessionCompactor};
 pub use overflow::{is_context_overflow_error, is_context_overflow_message};

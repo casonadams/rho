@@ -847,15 +847,16 @@ mod auto_compact {
     }
 
     #[tokio::test]
-    async fn test_proactive_auto_compaction_at_96_percent_threshold() {
-        let dir = std::env::temp_dir().join(format!("proactive_96_{}", uuid::Uuid::new_v4()));
+    async fn test_proactive_auto_compaction_at_reserve_threshold() {
+        let dir = std::env::temp_dir().join(format!("proactive_reserve_{}", uuid::Uuid::new_v4()));
         let engine = threshold_engine(&dir);
         let mut history = seed_threshold_history(&engine).await;
         let presenter = Arc::new(CapturingPresenter::default());
 
-        check_compaction_step(&engine, &presenter, &mut history, 122_000).await;
+        // Default reserve of 16,384 against a 128k window triggers at 111,617.
+        check_compaction_step(&engine, &presenter, &mut history, 111_616).await;
         assert!(presenter.notices.lock().unwrap().is_empty());
-        check_compaction_step(&engine, &presenter, &mut history, 122_880).await;
+        check_compaction_step(&engine, &presenter, &mut history, 111_617).await;
         let notices = presenter.notices.lock().unwrap().clone();
         assert!(notices.iter().any(|n| n.contains("Auto-compacted context")));
     }

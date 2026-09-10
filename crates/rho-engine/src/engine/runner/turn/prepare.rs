@@ -147,6 +147,14 @@ impl AgentEngine {
         if self.config.permission.enabled && !crate::permission::has_external_permission_plugin(&self.config.plugins) {
             hook_stack.push(crate::permission::PermissionHook::new(Some(cwd), presenter.clone()));
         }
+        hook_stack.push(super::auto_compact::AutoCompactHook::new(
+            self.session_compactor(),
+            presenter.clone(),
+            self.usage.clone(),
+            self.context,
+            &self.config.provider,
+            self.config.reserve_tokens,
+        ));
         hook_stack.push(
             TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
                 .with_model_switch(request.model_switch.clone())

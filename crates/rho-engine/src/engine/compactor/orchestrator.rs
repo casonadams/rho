@@ -5,11 +5,14 @@ use rho_harness_core::session::compaction::{
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 use rho_harness_core::tokens::{calculate_context_tokens, find_token_cut_point, is_tool_result_message};
+use rig::agent::ModelHandle;
 use rig::message::Message;
 
 use super::llm::LlmCompactor;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::StructuralUsage;
+use crate::engine::tracking::UsageTracker;
+use rho_harness_core::session::SessionManager;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompactionStats {
@@ -131,8 +134,49 @@ fn filter_conversation_messages(
     (msgs, positions)
 }
 
-impl AgentEngine {
-    pub async fn compact_session(&self, instructions: Option<&str>) -> Result<CompactionStats> {
+/// Compaction orchestration over the durable session tree. Shared by the
+/// engine's compaction entry points and the mid-run auto-compaction hook.
+pub struct SessionCompactor {
+    session_manager: SessionManager,
+    usage: UsageTracker,
+    model: Option<ModelHandle>,
+    model_name: String,
+    keep_recent_tokens: usize,
+}
+
+impl SessionCompactor {
+    pub fn new(
+        session_manager: SessionManager,
+        usage: UsageTracker,
+        model: Option<ModelHandle>,
+        (model_name, keep_recent_tokens): (&str, usize),
+    ) -> Self {
+        Self {
+            session_manager,
+            usage,
+            model,
+            model_name: model_name.to_string(),
+            keep_recent_tokens,
+        }
+    }
+
+    pub(crate) fn session_manager(&self) -> &SessionManager {
+        &self.session_manager
+    }
+
+    pub(crate) fn model(&self) -> Option<&ModelHandle> {
+        self.model.as_ref()
+    }
+
+    pub(crate) fn model_name(&self) -> &str {
+        &self.model_name
+    }
+
+    pub(crate) fn keep_recent_tokens(&self) -> usize {
+        self.keep_recent_tokens
+    }
+
+    pub async fn compact(&self, instructions: Option<&str>) -> Result<CompactionStats> {
         let tree = self.session_manager.load_tree().await?;
         let Some(active_leaf_id) = &tree.active_leaf_id else {
             return Ok(CompactionStats::empty());
@@ -151,12 +195,8 @@ impl AgentEngine {
     ) -> Result<CompactionStats> {
         let (prior_sum, prior_det, prior_msg_idx, active_nodes) = resolve_prior_compaction(ancestor_nodes);
         let (all_msgs, positions) = filter_conversation_messages(active_nodes, prior_msg_idx.unwrap_or(0));
-        let tokens_before = calculate_context_tokens(&tree.active_messages(), None, &self.config.model).total_tokens;
-        let cut = calculate_effective_cut(
-            &all_msgs,
-            &positions,
-            (self.config.keep_recent_tokens, &self.config.model),
-        );
+        let tokens_before = calculate_context_tokens(&tree.active_messages(), None, &self.model_name).total_tokens;
+        let cut = calculate_effective_cut(&all_msgs, &positions, (self.keep_recent_tokens, &self.model_name));
         if cut.cut_index == 0 || all_msgs.is_empty() {
             return Ok(noop_stats(tokens_before));
         }
@@ -234,7 +274,7 @@ impl AgentEngine {
         let summary = compose_compaction_summary(&md_summary, &render_file_lists_xml(&file_details));
         let final_summary = self.session_manager.redact_credentials(&summary);
 
-        let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.config.model);
+        let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name);
         let saved_tokens = tokens_before.saturating_sub(tokens_after);
         self.persist_compaction(
             (&final_summary, &file_details, kept_id, kept_msg_idx, plan.instructions),
@@ -248,5 +288,20 @@ impl AgentEngine {
             saved_tokens,
             summary: final_summary,
         })
+    }
+}
+
+impl AgentEngine {
+    pub(crate) fn session_compactor(&self) -> SessionCompactor {
+        SessionCompactor::new(
+            self.session_manager.clone(),
+            self.usage.clone(),
+            self.model.clone(),
+            (&self.config.model, self.config.keep_recent_tokens),
+        )
+    }
+
+    pub async fn compact_session(&self, instructions: Option<&str>) -> Result<CompactionStats> {
+        self.session_compactor().compact(instructions).await
     }
 }

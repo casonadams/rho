@@ -147,9 +147,18 @@ macro_rules! match_standard_provider {
 }
 
 fn build_rig_named_client(provider: ProviderId, model: &str, key: String) -> Result<ModelHandle> {
+    if provider == ProviderId::Anthropic {
+        let c = rig::providers::anthropic::Client::new(key)
+            .map_err(|e| AppError::Provider(format!("Failed to initialize Anthropic client: {e}")))?;
+        // pi.dev-style Anthropic prompt caching: cache_control markers on the
+        // static prefix (system prompt, tools) and the conversation tail.
+        return Ok(ModelHandle::named(
+            provider.as_str(),
+            c.completion_model(model).with_prompt_caching(),
+        ));
+    }
     match_standard_provider!(
         provider, model, key,
-        Anthropic => rig::providers::anthropic::Client,
         DeepSeek => rig::providers::deepseek::Client,
         Groq => rig::providers::groq::Client,
         OpenRouter => rig::providers::openrouter::Client,

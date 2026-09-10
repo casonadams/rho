@@ -54,11 +54,12 @@ fn test_calculate_context_tokens() {
 fn test_should_compact_thresholds() {
     let window = 200_000;
     let cases = [
-        (50_000, 0, false),
-        (190_000, 0, false),
-        (192_000, 0, true),
-        (195_000, 0, true),
-        (185_000, 20_000, true),
+        (50_000, 16_384, false),
+        (183_616, 16_384, false),
+        (183_617, 16_384, true),
+        (195_000, 16_384, true),
+        (180_000, 20_000, false),
+        (180_001, 20_000, true),
     ];
     for (tokens, reserve, expected) in cases {
         assert_eq!(should_compact(tokens, window, reserve), expected);

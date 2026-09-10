@@ -12,8 +12,7 @@ pub use cut_point::{
 
 pub const ESTIMATED_IMAGE_TOKENS: usize = 1200;
 pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
-pub const DEFAULT_RESERVE_TOKENS: usize = 0;
-pub const AUTOCOMPACT_THRESHOLD_PERCENT: usize = 96;
+pub const DEFAULT_RESERVE_TOKENS: usize = 16_384;
 pub const DEFAULT_KEEP_RECENT_TOKENS: usize = 20_000;
 
 const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
@@ -48,14 +47,10 @@ pub fn context_window_size(model: &str) -> usize {
     128_000
 }
 
+/// Auto-compaction triggers only when context tokens exceed the window minus
+/// the reserve kept for the model's response (mirrors pi.dev's compaction rule).
 pub fn should_compact(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
-    let pct_threshold = context_window.saturating_mul(AUTOCOMPACT_THRESHOLD_PERCENT) / 100;
-    if reserve_tokens > 0 {
-        let reserve_threshold = context_window.saturating_sub(reserve_tokens);
-        context_tokens >= pct_threshold || context_tokens >= reserve_threshold
-    } else {
-        context_tokens >= pct_threshold
-    }
+    context_tokens > context_window.saturating_sub(reserve_tokens)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
