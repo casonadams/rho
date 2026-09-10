@@ -9,9 +9,11 @@ pub struct ScreenBackend {
     pub width: usize,
     pub height: usize,
     pub grid: Vec<Vec<char>>,
+    pub filled: Vec<Vec<bool>>,
     pub row: usize,
     pub col: usize,
     pending_wrap: bool,
+    bg_active: bool,
 }
 
 impl ScreenBackend {
@@ -20,15 +22,19 @@ impl ScreenBackend {
             width,
             height,
             grid: vec![vec![' '; width]; height],
+            filled: vec![vec![false; width]; height],
             row: 0,
             col: 0,
             pending_wrap: false,
+            bg_active: false,
         }
     }
 
     fn scroll_up(&mut self) {
         self.grid.remove(0);
         self.grid.push(vec![' '; self.width]);
+        self.filled.remove(0);
+        self.filled.push(vec![false; self.width]);
     }
 
     fn newline(&mut self) {
@@ -41,11 +47,43 @@ impl ScreenBackend {
         }
     }
 
+    fn set_bg_active(&mut self, params: &str) {
+        if params.is_empty() {
+            self.bg_active = false;
+            return;
+        }
+        let mut parts = params.split(';');
+        while let Some(part) = parts.next() {
+            match part {
+                "48" => {
+                    self.bg_active = true;
+                    match parts.next() {
+                        Some("5") => {
+                            parts.next();
+                        }
+                        Some("2") => {
+                            parts.next();
+                            parts.next();
+                            parts.next();
+                        }
+                        _ => {}
+                    }
+                }
+                "40" | "41" | "42" | "43" | "44" | "45" | "46" | "47" => self.bg_active = true,
+                "0" | "49" => self.bg_active = false,
+                _ => {}
+            }
+        }
+    }
+
     fn put(&mut self, c: char, w: usize) {
         if self.pending_wrap {
             self.newline();
         }
         self.grid[self.row][self.col] = c;
+        if self.bg_active {
+            self.filled[self.row][self.col] = true;
+        }
         self.col += w;
         if self.col >= self.width {
             self.pending_wrap = true;
@@ -57,6 +95,20 @@ impl ScreenBackend {
             .iter()
             .map(|row| row.iter().collect::<String>().trim_end().to_string())
             .collect()
+    }
+
+    pub fn dump(&self) -> String {
+        let mut out = String::new();
+        for (i, row) in self.text().iter().enumerate() {
+            let any_fill = self.filled[i].iter().any(|&f| f);
+            let marker = if row.trim().is_empty() && !any_fill {
+                "BLANK"
+            } else {
+                "      "
+            };
+            out.push_str(&format!("{i:2} {marker}|{row}|\n", marker = marker));
+        }
+        out
     }
 
     fn run_text(&mut self, text: &str) {
@@ -149,26 +201,35 @@ impl ScreenBackend {
                             *cell = ' ';
                         }
                     }
+                    for row in self.filled.iter_mut() {
+                        for cell in row.iter_mut() {
+                            *cell = false;
+                        }
+                    }
                     self.pending_wrap = false;
                 }
             }
             'K' => match params.trim() {
                 "0" => {
-                    for cell in self.grid[self.row][self.col..].iter_mut() {
-                        *cell = ' ';
+                    for i in self.col..self.width {
+                        self.grid[self.row][i] = ' ';
+                        self.filled[self.row][i] = false;
                     }
                 }
                 "1" => {
-                    for cell in self.grid[self.row][..=self.col].iter_mut() {
-                        *cell = ' ';
+                    for i in 0..=self.col {
+                        self.grid[self.row][i] = ' ';
+                        self.filled[self.row][i] = false;
                     }
                 }
                 _ => {
-                    for cell in self.grid[self.row].iter_mut() {
-                        *cell = ' ';
+                    for i in 0..self.width {
+                        self.grid[self.row][i] = ' ';
+                        self.filled[self.row][i] = false;
                     }
                 }
             },
+            'm' => self.set_bg_active(params),
             _ => {}
         }
     }
@@ -383,5 +444,248 @@ mod regressions {
         controller.state_mut().autocomplete.select_next();
         controller.redraw().unwrap();
         assert_screen_region_aligned(&controller);
+    }
+
+    mod spacing {
+        use super::*;
+
+        /// The committed tool card renders `"\n" + block`, so the standard
+        /// separation is exactly one unfilled blank row between the preceding
+        /// content and the card's filled top padding.
+        fn assert_one_blank_above_committed_card(controller: &TerminalController<ScreenBackend>) {
+            let screen = controller.backend.text();
+            let header_row = screen
+                .iter()
+                .position(|l| l.contains("bash cargo test"))
+                .expect("committed bash card header");
+            let mut row = header_row - 1;
+            while row > 0 && screen[row].trim().is_empty() && controller.backend.filled[row].iter().any(|&f| f) {
+                row -= 1;
+            }
+            let mut blank_rows = 0;
+            loop {
+                let any_fill = controller.backend.filled[row].iter().any(|&f| f);
+                if !screen[row].trim().is_empty() || any_fill {
+                    break;
+                }
+                blank_rows += 1;
+                if row == 0 {
+                    break;
+                }
+                row -= 1;
+            }
+            assert_eq!(
+                blank_rows,
+                1,
+                "expected exactly one blank row above the card\n{}",
+                controller.backend.dump()
+            );
+        }
+
+        /// Drives the real presenter (markdown stream + tool events) through the
+        /// event channel with the same drain ordering the live batch uses.
+        fn drive_renderer_to_controller(
+            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            controller: &mut TerminalController<ScreenBackend>,
+        ) {
+            let mut pending = crate::ui::interactive::PendingUiBatch::new(16 * 1024);
+            while let Ok(event) = events.try_recv() {
+                pending.push(event);
+            }
+            let drained = pending.drain();
+            if let Some(activity) = drained.activity {
+                controller.state_mut().footer_mut().activity = activity;
+            }
+            if let Some(request) = drained.tool_start {
+                controller.start_tool(request).unwrap();
+            }
+            if !drained.tool_chunks.is_empty() {
+                controller
+                    .append_tool_chunks(drained.tool_chunks.iter().map(String::as_str))
+                    .unwrap();
+            }
+            for item in drained.transcript_items {
+                controller.push_transcript_item(item).unwrap();
+            }
+            if !drained.text.is_empty() {
+                controller.write_output(&drained.text).unwrap();
+            } else {
+                controller.redraw().unwrap();
+            }
+        }
+
+        fn commit_bash_after_stream(
+            controller: &mut TerminalController<ScreenBackend>,
+            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            renderer: &crate::ui::TerminalRenderer,
+        ) {
+            renderer.start_tool_run("bash", &serde_json::json!({"command": "cargo test"}));
+            renderer.tool_chunk("test result: ok");
+            renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
+                name: "bash".into(),
+                arguments: serde_json::json!({"command": "cargo test"}),
+                is_error: false,
+                output: "test result: ok".into(),
+                output_summary: "1 line".into(),
+                duration_ms: Some(1500),
+            });
+            drive_renderer_to_controller(events, controller);
+            controller.redraw().unwrap();
+        }
+
+        fn stream_through_presenter(
+            controller: &mut TerminalController<ScreenBackend>,
+            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            renderer: &crate::ui::TerminalRenderer,
+            message: &str,
+            thinking: &[&str],
+        ) {
+            // Mirror the approval sink: after thinking or a tool, text gets a prefix blank.
+            let mut after_tool_or_thinking = false;
+            for token in message.split_inclusive(' ') {
+                if after_tool_or_thinking {
+                    renderer.write_output("\n");
+                    drive_renderer_to_controller(events, controller);
+                    after_tool_or_thinking = false;
+                }
+                renderer.print_token(token);
+                drive_renderer_to_controller(events, controller);
+            }
+            renderer.flush();
+            drive_renderer_to_controller(events, controller);
+
+            if !thinking.is_empty() {
+                for token in thinking {
+                    renderer.print_thinking_token(token);
+                    drive_renderer_to_controller(events, controller);
+                }
+                renderer.write_output("\n");
+                drive_renderer_to_controller(events, controller);
+            }
+        }
+
+        fn real_presenter_scenario(message: &str, thinking: &[&str]) -> TerminalController<ScreenBackend> {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            controller.state_mut().editor_mut().set_text("");
+            stream_through_presenter(&mut controller, &mut events, &renderer, message, thinking);
+            commit_bash_after_stream(&mut controller, &mut events, &renderer);
+            controller
+        }
+
+        #[test]
+        fn committed_bash_card_keeps_single_blank_after_paragraph() {
+            let controller = real_presenter_scenario("Here is the plan step one.", &[]);
+            assert_one_blank_above_committed_card(&controller);
+            assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn committed_bash_card_keeps_single_blank_after_code_fence() {
+            let controller = real_presenter_scenario("Here is the plan:\n```sh\ncargo test\n```\n", &[]);
+            assert_one_blank_above_committed_card(&controller);
+            assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn committed_bash_card_keeps_single_blank_after_trailing_blank_line() {
+            let controller = real_presenter_scenario("Step one done.\n\n", &[]);
+            assert_one_blank_above_committed_card(&controller);
+            assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn committed_bash_card_keeps_single_blank_after_thinking() {
+            let controller = real_presenter_scenario("", &["Let me check the tests first. "]);
+            assert_one_blank_above_committed_card(&controller);
+            assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn committed_bash_card_keeps_single_blank_after_user_message_and_notice() {
+            let mut controller = controller_with_transcript((80, 24));
+            controller.state_mut().editor_mut().set_text("");
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("run the tests".into()))
+                .unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::Notice("Compaction: 1.2k tokens billed\n".into()))
+                .unwrap();
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            stream_through_presenter(&mut controller, &mut events, &renderer, "", &[]);
+            commit_bash_after_stream(&mut controller, &mut events, &renderer);
+            assert_one_blank_above_committed_card(&controller);
+            assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn committed_bash_card_keeps_single_blank_after_previous_bash_card() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            controller.state_mut().editor_mut().set_text("");
+            commit_bash_after_stream(&mut controller, &mut events, &renderer);
+            commit_bash_after_stream(&mut controller, &mut events, &renderer);
+            assert_one_blank_above_committed_card(&controller);
+            assert_screen_region_aligned(&controller);
+        }
+
+        /// The deny-reason input screen: selecting "Deny" (input spec) enters
+        /// input mode labeled "reason"; the typed reason must render on a
+        /// labeled prompt row, visually separated from the command body.
+        #[test]
+        fn deny_reason_input_screen() {
+            use crate::ui::interactive::InteractionInput;
+            let mut controller = controller_with_transcript((80, 24));
+            controller.state_mut().editor_mut().set_text("");
+            let options = vec![
+                ModalOption::new("Allow", Some("Run this tool call once")),
+                ModalOption::new("Edit", Some("Edit tool arguments")),
+                ModalOption::new("Always", Some("Save rule")),
+                ModalOption::new("Deny", Some("Deny tool execution")),
+            ];
+            let mut modal = ModalState::new(
+                "Permission Required",
+                "Tool: bash\nInput: cargo test --workspace",
+                options,
+            )
+            .with_option_layout(crate::ui::interactive::OptionLayout::Horizontal);
+            modal.selected = 3;
+            controller.state_mut().push_modal(modal);
+            let spec = InteractionInput {
+                label: "reason".into(),
+                value: None,
+            };
+            if let Some(active) = controller.state_mut().active_modal_mut() {
+                active.selected = 3;
+                active.input_option = Some(3);
+                active.enter_input_mode(&spec.label);
+                for c in "tests are flaky".chars() {
+                    active.input.insert(c);
+                }
+            }
+            controller.redraw().unwrap();
+            super::assert_screen_region_aligned(&controller);
+            println!("=== deny reason input screen ===\n{}", controller.backend.dump());
+            let screen = controller.backend.text();
+            let input_row = screen
+                .iter()
+                .find(|l| l.contains("tests are flaky"))
+                .expect("reason row");
+            assert!(
+                input_row.contains("reason"),
+                "reason row must carry its label: {input_row:?}"
+            );
+            assert!(
+                input_row.contains('\u{203a}'),
+                "reason row must carry the prompt marker: {input_row:?}"
+            );
+            assert!(
+                screen.iter().any(|l| l.contains("Shift+Enter newline")),
+                "hint must surface the newline key"
+            );
+        }
     }
 }
