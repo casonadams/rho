@@ -16,6 +16,7 @@ use crossterm::event::{Event, KeyEvent};
 pub(super) enum RawInput {
     Resize,
     Paste(String),
+    Focus(bool),
     Key(KeyEvent),
     Skip,
 }
@@ -24,6 +25,8 @@ pub(super) fn classify_event(event: Event) -> RawInput {
     match event {
         Event::Resize(_, _) => RawInput::Resize,
         Event::Paste(text) => RawInput::Paste(text),
+        Event::FocusGained => RawInput::Focus(true),
+        Event::FocusLost => RawInput::Focus(false),
         Event::Key(key) if key.kind != crossterm::event::KeyEventKind::Release => RawInput::Key(key),
         _ => RawInput::Skip,
     }
@@ -245,7 +248,25 @@ pub(super) async fn process_raw_input<B: TerminalBackend>(
         RawInput::Paste(text) => {
             handle_paste(controller, (batch, text, resources.completions)).map(|_| IdleInputResult::None)
         }
+        RawInput::Focus(focused) => {
+            if controller.focused() != focused {
+                controller.set_focused(focused);
+                batch.flush(controller, true)?;
+            }
+            Ok(IdleInputResult::None)
+        }
         RawInput::Key(key) => process_key_event(controller, (key, batch, resources, input, rest)).await,
         RawInput::Skip => Ok(IdleInputResult::None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_event_focus_events() {
+        assert!(matches!(classify_event(Event::FocusGained), RawInput::Focus(true)));
+        assert!(matches!(classify_event(Event::FocusLost), RawInput::Focus(false)));
     }
 }

@@ -31,6 +31,7 @@ pub struct TerminalController<B: TerminalBackend> {
     pub(super) transcript: Vec<super::TranscriptItem>,
     pub(super) cache: cache::TranscriptRenderCache,
     pub(super) system_message_expires_at: Option<std::time::Instant>,
+    pub(super) focused: bool,
 }
 
 fn init_terminal<B: TerminalBackend>(backend: &mut B) -> io::Result<(usize, usize)> {
@@ -62,12 +63,21 @@ impl<B: TerminalBackend> TerminalController<B> {
             transcript: Vec::new(),
             cache: cache::TranscriptRenderCache::new(),
             system_message_expires_at: None,
+            focused: true,
         };
         if let Err(error) = controller.redraw() {
             controller.restore();
             return Err(error);
         }
         Ok(controller)
+    }
+
+    pub fn focused(&self) -> bool {
+        self.focused
+    }
+
+    pub fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
     }
 
     pub fn redraw(&mut self) -> io::Result<()> {
@@ -168,6 +178,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             terminal_height: self.height,
             spinner_frame: self.spinner_frame,
             theme: Some(&self.theme),
+            focused: self.focused,
         })
     }
 }

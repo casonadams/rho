@@ -84,6 +84,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             terminal_height: self.height,
             spinner_frame: self.spinner_frame,
             theme: Some(&self.theme),
+            focused: self.focused,
         })
     }
 

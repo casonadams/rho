@@ -24,6 +24,7 @@ fn footer_contains_available_status_and_queue_count() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert!(layout.footer_lines[0].ends_with("80% quota"));
@@ -47,6 +48,7 @@ fn test_status_layout(
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 

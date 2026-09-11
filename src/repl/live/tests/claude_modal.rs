@@ -71,6 +71,7 @@ fn model_selector_displays_claude_tag() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
     assert!(rendered.editor_lines.iter().any(|l| l.contains("[claude]")));
 }

@@ -33,6 +33,7 @@ fn modal_test_layout(modal: &ModalState, terminal_height: usize) -> crate::ui::i
         terminal_height,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -89,6 +90,7 @@ fn modal_body_truncation_minimal_omitted_lines() {
         terminal_height: 15,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert!(layout.lines.len() <= 15);
@@ -157,6 +159,7 @@ fn modal_region_rows_fit_terminal_width_with_long_draft() {
             terminal_height: 24,
             spinner_frame: 0,
             theme: None,
+            focused: true,
         });
         assert!(
             rendered.lines.iter().any(|l| l.contains("Draft: ")),
@@ -184,6 +187,7 @@ fn modal_search_row_truncates_long_filter_query() {
             terminal_height: 24,
             spinner_frame: 0,
             theme: None,
+            focused: true,
         });
         assert_region_lines_fit_terminal_width(&rendered.lines, width);
         assert!(
@@ -210,6 +214,7 @@ fn modal_cursor_layout(modal: &ModalState) -> crate::ui::interactive::layout::In
         terminal_height: 15,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -262,6 +267,7 @@ fn modal_input_mode_prompt_row_carries_label_and_stays_in_width() {
             terminal_height: 24,
             spinner_frame: 0,
             theme: None,
+            focused: true,
         });
         assert_region_lines_fit_terminal_width(&rendered.lines, width);
         let prompt_row = rendered
@@ -346,6 +352,7 @@ fn build_layout_with_modal(
         terminal_height,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -390,6 +397,7 @@ fn modal_hint_layout(theme: &crate::ui::theme::Theme) -> crate::ui::interactive:
         terminal_height: 24,
         spinner_frame: 0,
         theme: Some(theme),
+        focused: true,
     })
 }
 
@@ -578,6 +586,7 @@ fn modal_preserves_widget_lines_when_budget_permits() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.widget_lines, widgets);
@@ -596,6 +605,7 @@ fn render_test_modal(modal: &ModalState, width: usize) -> crate::ui::interactive
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -658,6 +668,7 @@ fn modal_renders_docked_draft_when_editor_contains_text() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert!(layout.top_divider.contains("Select Model"));
@@ -688,6 +699,7 @@ fn modal_without_draft_omits_docked_draft_line() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert!(!layout.editor_lines.iter().any(|l| l.contains("Draft:")));
@@ -734,6 +746,7 @@ fn render_modal_layout(
         terminal_height,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -786,4 +799,50 @@ fn test_vertical_modal_retains_omitted_indicator() {
     let rendered = render_modal_layout(&modal, 15);
     assert!(rendered.lines.iter().any(|l| l.contains("lines omitted")));
     assert!(!rendered.lines.iter().any(|l| l.contains("↑/↓ scroll")));
+}
+
+#[test]
+fn test_unfocused_modal_suppresses_software_cursor() {
+    let mut modal = ModalState::new("Permission Required", "", vec![]);
+    modal.mode = crate::ui::interactive::ModalMode::Input {
+        prompt_label: "edit".to_string(),
+    };
+    modal.input.set_text("cargo test");
+
+    let ed = EditorState::default();
+    let ft = FooterState::default();
+
+    let focused = layout(LayoutInput {
+        editor: &ed,
+        modal: Some(&modal),
+        autocomplete: None,
+        footer: &ft,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+    assert!(focused.cursor_visible);
+    assert!(focused.lines.iter().any(|l| l.contains("\x1b[7m")));
+
+    let unfocused = layout(LayoutInput {
+        editor: &ed,
+        modal: Some(&modal),
+        autocomplete: None,
+        footer: &ft,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: false,
+    });
+    assert!(!unfocused.cursor_visible);
+    assert!(!unfocused.lines.iter().any(|l| l.contains("\x1b[7m")));
 }

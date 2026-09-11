@@ -18,6 +18,7 @@ fn layout_for_thinking(level: Option<&str>) -> crate::ui::interactive::layout::I
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -58,6 +59,7 @@ fn bash_mode_border_turns_amber() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert!(layout.top_divider.starts_with("\u{1b}[33m"));
@@ -83,6 +85,7 @@ fn top_divider_shows_name_and_version_when_label_enabled() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
@@ -108,6 +111,7 @@ fn top_divider_shows_nothing_by_default() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
@@ -132,6 +136,7 @@ fn top_divider_falls_back_to_plain_dashes_when_narrow() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert!(!layout.top_divider.contains("rho"));
@@ -152,6 +157,7 @@ fn modal_layout_with_mode(
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 

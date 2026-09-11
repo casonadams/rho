@@ -150,6 +150,7 @@ fn thinking_selector_layout_rendering_with_theme() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: Some(&crate::ui::theme::Theme::default()),
+        focused: true,
     });
 
     let full_text = rendered.lines.join("\n");

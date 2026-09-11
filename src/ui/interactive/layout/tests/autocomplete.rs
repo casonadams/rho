@@ -149,6 +149,7 @@ fn test_ac_layout(
         terminal_height,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 

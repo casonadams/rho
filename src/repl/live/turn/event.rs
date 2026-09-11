@@ -34,6 +34,20 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
             lp.batch.flush(lp.controller, true)?;
             Ok(false)
         }
+        Event::FocusGained => {
+            if !lp.controller.focused() {
+                lp.controller.set_focused(true);
+                lp.batch.flush(lp.controller, true)?;
+            }
+            Ok(false)
+        }
+        Event::FocusLost => {
+            if lp.controller.focused() {
+                lp.controller.set_focused(false);
+                lp.batch.flush(lp.controller, true)?;
+            }
+            Ok(false)
+        }
         Event::Key(key) if key.kind != KeyEventKind::Release => dispatch_key_event(lp, res, key).await,
         _ => Ok(false),
     }

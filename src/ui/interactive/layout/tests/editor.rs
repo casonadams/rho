@@ -16,6 +16,7 @@ fn empty_editor_layout(width: usize) -> crate::ui::interactive::layout::Interact
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -52,6 +53,7 @@ fn explicit_newlines_grow_the_editor() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.editor_lines, ["one", "two", "\x1b[7m \x1b[27m"]);
@@ -76,6 +78,7 @@ fn editor_layout_tracks_lines_and_dividers() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.editor_lines.len(), 1);
@@ -100,6 +103,7 @@ fn multiline_editor_height_matches_content() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.editor_lines.len(), 3);
@@ -162,6 +166,7 @@ fn test_window_layout(
         terminal_height,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 
@@ -215,6 +220,7 @@ fn minimal_terminal_height_graceful_degradation() {
             terminal_height: h,
             spinner_frame: 0,
             theme: None,
+            focused: true,
         });
         assert_minimal_height_layout(&l, h);
     }
@@ -241,6 +247,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.editor_lines, ["ab界", "c\x1b[7m \x1b[27m"]);
@@ -266,6 +273,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.editor_lines, ["abc", "d\x1b[7me\x1b[27mf"]);
@@ -289,6 +297,7 @@ fn full_final_line_adds_a_cursor_line() {
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     });
 
     assert_eq!(layout.editor_lines, ["界", "\x1b[7m \x1b[27m"]);
@@ -323,4 +332,45 @@ fn software_cursor_rendering_cases() {
     let mut line = "a界b".to_string();
     apply_software_cursor(&mut line, 1);
     assert_eq!(line, "a\x1b[7m界\x1b[27mb");
+}
+
+#[test]
+fn unfocused_editor_suppresses_software_cursor() {
+    let mut editor = EditorState::default();
+    editor.set_text("hello");
+
+    let focused = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+    assert!(focused.cursor_visible);
+    assert!(focused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
+
+    let unfocused = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: false,
+    });
+    assert!(!unfocused.cursor_visible);
+    assert!(!unfocused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
+    assert_eq!(unfocused.editor_lines, ["hello"]);
 }

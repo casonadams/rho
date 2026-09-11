@@ -15,6 +15,7 @@ fn layout_with(system_message: Option<&str>, footer: &FooterState) -> Interactiv
         terminal_height: 24,
         spinner_frame: 0,
         theme: None,
+        focused: true,
     })
 }
 

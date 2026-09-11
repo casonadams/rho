@@ -54,6 +54,7 @@ fn render_editor_area(
             draft_text: input.editor.text(),
             bounds: (width, ed_budget),
             theme,
+            focused: input.focused,
         });
     }
     let ac_lines = input.autocomplete.map_or_else(Vec::new, |ac| {
@@ -62,11 +63,15 @@ fn render_editor_area(
     let unused_ac = ac_budget.saturating_sub(ac_lines.len());
     let ed_max = ed_budget + unused_ac.min(all_ed_lines.len().saturating_sub(ed_budget));
     let (ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
-    let mut ed_lines = render_editor_lines(ed_lines, ed_cursor);
+    let mut ed_lines = if input.focused {
+        render_editor_lines(ed_lines, ed_cursor)
+    } else {
+        ed_lines
+    };
     if !ac_lines.is_empty() {
         ed_lines.extend(ac_lines);
     }
-    (ed_lines, ed_cursor, true)
+    (ed_lines, ed_cursor, input.focused)
 }
 
 struct LayoutPieces {
