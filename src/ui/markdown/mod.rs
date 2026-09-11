@@ -14,6 +14,7 @@
 //! `crate::ui::markdown::{MarkdownRenderer, render_inline_elements, ...}`.
 
 mod elements;
+pub(crate) mod flowchart;
 mod highlight;
 mod line;
 mod mermaid;

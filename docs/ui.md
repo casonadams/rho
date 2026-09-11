@@ -168,9 +168,16 @@ active wallpaper palette and surfaces without any configuration.
 ### Mermaid Diagram Rendering
 
 Fenced Mermaid diagram blocks (` ```mermaid `) render in the terminal as
-monochrome diagrams. For best readability:
+clean, compact Unicode box-drawing diagrams.
 
-- Diagrams use your terminal's ANSI foreground.
-- Diagrams wider than your terminal viewport are safely clipped to the right
-  margin to preserve box alignment; keep diagrams narrow or split complex
-  topologies into multiple blocks.
+- **Flowcharts (`graph TD` / `LR`):** Rendered natively with compact per-node
+  box sizing, true vertical top-down flow (`TD`/`TB`), and collision-free
+  perimeter routing for cycles and feedback loops.
+- **Decision Shapes:** Supports rectangles `[label]`, rounded boxes `(label)`,
+  and decision diamonds `{choice}`.
+- **Clean Display:** Rendered diagrams display directly without surrounding
+  fences. If a diagram contains parsing errors, it falls back to a clean
+  code block.
+- **Viewport Fitting:** Diagrams wider than your terminal viewport are safely
+  clipped to the right margin to preserve box alignment. Keep horizontal
+  chains concise or use `TD` for vertical stacking.
