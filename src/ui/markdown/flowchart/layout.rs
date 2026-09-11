@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone)]
 struct LayoutNode {
-    label: String,
+    lines: Vec<String>,
     shape: NodeShape,
     width: usize,
     height: usize,
@@ -113,10 +113,15 @@ impl<'a> FlowchartLayout<'a> {
 fn compute_node_sizes(nodes: &[Node]) -> HashMap<String, (usize, usize)> {
     let mut map = HashMap::new();
     for node in nodes {
-        let label_len = UnicodeWidthStr::width(node.label.as_str());
+        let max_line_w = node
+            .lines
+            .iter()
+            .map(|l| UnicodeWidthStr::width(l.as_str()))
+            .max()
+            .unwrap_or(4);
         let (w, h) = match node.shape {
-            NodeShape::Diamond => ((label_len + 6).max(8), 3),
-            NodeShape::Rectangle | NodeShape::Rounded => ((label_len + 4).max(6), 3),
+            NodeShape::Diamond => ((max_line_w + 6).max(8), node.lines.len() + 2),
+            NodeShape::Rectangle | NodeShape::Rounded => ((max_line_w + 4).max(6), node.lines.len() + 2),
         };
         map.insert(node.id.clone(), (w, h));
     }
@@ -166,12 +171,18 @@ fn layout_td_nodes(
         let rank_w = widths[r];
         let mut current_x = left_offset + (max_w.saturating_sub(rank_w)) / 2;
 
+        let rank_h = group
+            .iter()
+            .map(|n| sizes.get(&n.id).map(|s| s.1).unwrap_or(3))
+            .max()
+            .unwrap_or(3);
+
         for node in group {
             let (w, h) = *sizes.get(&node.id).unwrap_or(&(6, 3));
             nodes.insert(
                 node.id.clone(),
                 LayoutNode {
-                    label: node.label.clone(),
+                    lines: node.lines.clone(),
                     shape: node.shape,
                     width: w,
                     height: h,
@@ -186,7 +197,7 @@ fn layout_td_nodes(
         let has_label = forward_edges
             .iter()
             .any(|e| nodes.get(&e.from).is_some_and(|n| n.rank == r) && e.label.is_some());
-        current_y += 3 + if has_label { 3 } else { 2 };
+        current_y += rank_h + if has_label { 3 } else { 2 };
     }
 
     (nodes, current_y + 2)
@@ -213,7 +224,7 @@ fn layout_lr_nodes(
             nodes.insert(
                 node.id.clone(),
                 LayoutNode {
-                    label: node.label.clone(),
+                    lines: node.lines.clone(),
                     shape: node.shape,
                     width: w,
                     height: h,
@@ -239,13 +250,13 @@ fn draw_nodes<'a>(canvas: &mut Canvas, nodes: impl Iterator<Item = &'a LayoutNod
     for node in nodes {
         match node.shape {
             NodeShape::Rectangle => {
-                canvas.draw_rect_box(node.x, node.y, node.width, node.height, &node.label);
+                canvas.draw_rect_box(node.x, node.y, node.width, node.height, &node.lines);
             }
             NodeShape::Rounded => {
-                canvas.draw_rounded_box(node.x, node.y, node.width, node.height, &node.label);
+                canvas.draw_rounded_box(node.x, node.y, node.width, node.height, &node.lines);
             }
             NodeShape::Diamond => {
-                canvas.draw_diamond_box(node.x, node.y, node.width, node.height, &node.label);
+                canvas.draw_diamond_box(node.x, node.y, node.width, node.height, &node.lines);
             }
         }
     }
@@ -270,18 +281,19 @@ fn draw_td_forward_edges(canvas: &mut Canvas, nodes: &HashMap<String, LayoutNode
             canvas.draw_v_line(cx, from_by + 1, to_ty.saturating_sub(2));
             canvas.draw_arrow(cx, to_ty.saturating_sub(1), ArrowDir::Down);
             if let Some(label) = &edge.label {
-                let label_y = from_by + (to_ty.saturating_sub(from_by)) / 2;
+                let label_y = from_by + 1;
                 canvas.draw_text(cx + 2, label_y, label);
             }
         } else {
-            let mid_y = from_by + 1;
+            let mid_y = from_by + 2;
             canvas.draw_v_line(from_cx, from_by + 1, mid_y);
             canvas.draw_h_line(mid_y, from_cx, to_cx);
             canvas.draw_v_line(to_cx, mid_y, to_ty.saturating_sub(2));
             canvas.draw_arrow(to_cx, to_ty.saturating_sub(1), ArrowDir::Down);
             if let Some(label) = &edge.label {
-                let min_x = from_cx.min(to_cx);
-                canvas.draw_text(min_x + 2, mid_y.saturating_sub(1), label);
+                let label_y = from_by + 1;
+                let label_x = if to_cx < from_cx { to_cx + 1 } else { from_cx + 2 };
+                canvas.draw_text(label_x, label_y, label);
             }
         }
     }

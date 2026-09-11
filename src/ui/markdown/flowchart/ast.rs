@@ -18,7 +18,7 @@ pub enum NodeShape {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
     pub id: String,
-    pub label: String,
+    pub lines: Vec<String>,
     pub shape: NodeShape,
 }
 
@@ -40,7 +40,7 @@ impl Flowchart {
     pub fn parse(source: &str) -> Option<Self> {
         let mut direction = Direction::TopToBottom;
         let mut header_found = false;
-        let mut nodes_map: HashMap<String, (String, NodeShape)> = HashMap::new();
+        let mut nodes_map: HashMap<String, (Vec<String>, NodeShape)> = HashMap::new();
         let mut node_order: Vec<String> = Vec::new();
         let mut edges: Vec<Edge> = Vec::new();
 
@@ -83,8 +83,10 @@ impl Flowchart {
         let nodes = node_order
             .into_iter()
             .map(|id| {
-                let (label, shape) = nodes_map.remove(&id).unwrap_or((id.clone(), NodeShape::Rectangle));
-                Node { id, label, shape }
+                let (lines, shape) = nodes_map
+                    .remove(&id)
+                    .unwrap_or((vec![id.clone()], NodeShape::Rectangle));
+                Node { id, lines, shape }
             })
             .collect();
 
@@ -136,7 +138,7 @@ fn is_ignored_statement(s: &str) -> bool {
 
 fn parse_statement(
     s: &str,
-    nodes_map: &mut HashMap<String, (String, NodeShape)>,
+    nodes_map: &mut HashMap<String, (Vec<String>, NodeShape)>,
     node_order: &mut Vec<String>,
     edges: &mut Vec<Edge>,
 ) {
@@ -166,7 +168,7 @@ fn parse_statement(
 
 fn register_node(
     s: &str,
-    nodes_map: &mut HashMap<String, (String, NodeShape)>,
+    nodes_map: &mut HashMap<String, (Vec<String>, NodeShape)>,
     node_order: &mut Vec<String>,
 ) -> String {
     let s = s.trim();
@@ -174,63 +176,59 @@ fn register_node(
         return String::new();
     }
 
-    let (id, label_opt, shape) = parse_node_spec(s);
+    let (id, lines_opt, shape) = parse_node_spec(s);
     if id.is_empty() {
         return String::new();
     }
 
-    if let Some((existing_label, existing_shape)) = nodes_map.get_mut(&id) {
-        if let Some(new_label) = label_opt {
-            *existing_label = new_label;
+    if let Some((existing_lines, existing_shape)) = nodes_map.get_mut(&id) {
+        if let Some(new_lines) = lines_opt {
+            *existing_lines = new_lines;
             *existing_shape = shape;
         }
     } else {
-        let label = label_opt.unwrap_or_else(|| id.clone());
-        nodes_map.insert(id.clone(), (label, shape));
+        let lines = lines_opt.unwrap_or_else(|| vec![id.clone()]);
+        nodes_map.insert(id.clone(), (lines, shape));
         node_order.push(id.clone());
     }
 
     id
 }
 
-fn parse_node_spec(s: &str) -> (String, Option<String>, NodeShape) {
+fn parse_node_spec(s: &str) -> (String, Option<Vec<String>>, NodeShape) {
     let s = s.trim();
-    // Diamond: id{label}
     if let Some(open) = s.find('{')
         && let Some(close) = s.rfind('}')
         && close > open
     {
         let id = s[..open].trim().to_string();
-        let label = clean_label(&s[open + 1..close]);
-        return (id, Some(label), NodeShape::Diamond);
+        let lines = clean_label(&s[open + 1..close]);
+        return (id, Some(lines), NodeShape::Diamond);
     }
 
-    // Rounded: id(label)
     if let Some(open) = s.find('(')
         && let Some(close) = s.rfind(')')
         && close > open
     {
         let id = s[..open].trim().to_string();
         let inner = &s[open + 1..close];
-        let label = clean_label(inner.trim_start_matches('[').trim_end_matches(']'));
-        return (id, Some(label), NodeShape::Rounded);
+        let lines = clean_label(inner.trim_start_matches('[').trim_end_matches(']'));
+        return (id, Some(lines), NodeShape::Rounded);
     }
 
-    // Rect: id[label]
     if let Some(open) = s.find('[')
         && let Some(close) = s.rfind(']')
         && close > open
     {
         let id = s[..open].trim().to_string();
-        let label = clean_label(&s[open + 1..close]);
-        return (id, Some(label), NodeShape::Rectangle);
+        let lines = clean_label(&s[open + 1..close]);
+        return (id, Some(lines), NodeShape::Rectangle);
     }
 
-    // Bare ID
     (s.to_string(), None, NodeShape::Rectangle)
 }
 
-fn clean_label(s: &str) -> String {
+fn clean_label(s: &str) -> Vec<String> {
     let trimmed = s.trim();
     let unquoted = if (trimmed.starts_with('"') && trimmed.ends_with('"'))
         || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
@@ -239,7 +237,27 @@ fn clean_label(s: &str) -> String {
     } else {
         trimmed
     };
-    unquoted.replace("<br/>", " ").replace("<br>", " ").trim().to_string()
+    let normalized = unquoted
+        .replace("<br/>", "\n")
+        .replace("<br>", "\n")
+        .replace("<br />", "\n")
+        .replace("\\n", "\n");
+
+    let lines: Vec<String> = normalized
+        .split('\n')
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    if lines.is_empty() {
+        vec![s.trim().to_string()]
+    } else {
+        lines
+    }
+}
+
+fn clean_single_label(s: &str) -> String {
+    clean_label(s).join(" ")
 }
 
 fn split_edge_chain(s: &str) -> Vec<(String, Option<String>)> {
@@ -281,16 +299,15 @@ fn find_next_arrow(s: &str) -> Option<(&str, Option<String>, &str)> {
     let trimmed_after = after.trim_start();
     if let Some(rest_after) = trimmed_after.strip_prefix('|') {
         if let Some(close) = rest_after.find('|') {
-            let lbl = clean_label(&rest_after[..close]);
+            let lbl = clean_single_label(&rest_after[..close]);
             label = Some(lbl);
             let consumed = after.len() - trimmed_after.len() + 1 + close + 1;
             after = &after[consumed..];
         }
     } else if let Some(open) = before.rfind("--") {
-        // e.g. A -- Label --> B
         let candidate = before[open + 2..].trim();
         if !candidate.is_empty() && !candidate.starts_with('>') {
-            label = Some(clean_label(candidate));
+            label = Some(clean_single_label(candidate));
         }
     }
 

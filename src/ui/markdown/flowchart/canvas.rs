@@ -116,7 +116,7 @@ impl Canvas {
         self.put_char(x, y, ch, true);
     }
 
-    pub fn draw_rounded_box(&mut self, x: usize, y: usize, w: usize, h: usize, label: &str) {
+    pub fn draw_rounded_box(&mut self, x: usize, y: usize, w: usize, h: usize, lines: &[String]) {
         if w < 3 || h < 3 {
             return;
         }
@@ -145,12 +145,14 @@ impl Canvas {
         }
         self.put_char(x + w - 1, y + h - 1, '╯', true);
 
-        // Center label in middle row
-        let label_row = y + h / 2;
-        self.stamp_label(x + 1, label_row, w - 2, label);
+        for (i, line) in lines.iter().enumerate() {
+            if y + 1 + i < y + h - 1 {
+                self.stamp_label(x + 1, y + 1 + i, w - 2, line);
+            }
+        }
     }
 
-    pub fn draw_rect_box(&mut self, x: usize, y: usize, w: usize, h: usize, label: &str) {
+    pub fn draw_rect_box(&mut self, x: usize, y: usize, w: usize, h: usize, lines: &[String]) {
         if w < 3 || h < 3 {
             return;
         }
@@ -176,11 +178,14 @@ impl Canvas {
         }
         self.put_char(x + w - 1, y + h - 1, '┘', true);
 
-        let label_row = y + h / 2;
-        self.stamp_label(x + 1, label_row, w - 2, label);
+        for (i, line) in lines.iter().enumerate() {
+            if y + 1 + i < y + h - 1 {
+                self.stamp_label(x + 1, y + 1 + i, w - 2, line);
+            }
+        }
     }
 
-    pub fn draw_diamond_box(&mut self, x: usize, y: usize, w: usize, h: usize, label: &str) {
+    pub fn draw_diamond_box(&mut self, x: usize, y: usize, w: usize, h: usize, lines: &[String]) {
         if w < 4 || h < 3 {
             return;
         }
@@ -195,13 +200,14 @@ impl Canvas {
         self.put_char(x + w - 2, y, '\\', true);
         self.put_char(x + w - 1, y, ' ', true);
 
-        // Middle row with diamond points: < label >
-        let mid = y + h / 2;
-        self.put_char(x, mid, '<', true);
-        for col in (x + 1)..(x + w - 1) {
-            self.put_char(col, mid, ' ', true);
+        // Middle rows with diamond points: < line >
+        for row in (y + 1)..(y + h - 1) {
+            self.put_char(x, row, '<', true);
+            for col in (x + 1)..(x + w - 1) {
+                self.put_char(col, row, ' ', true);
+            }
+            self.put_char(x + w - 1, row, '>', true);
         }
-        self.put_char(x + w - 1, mid, '>', true);
 
         // Bottom angled floor: \───/
         let bot = y + h - 1;
@@ -213,7 +219,11 @@ impl Canvas {
         self.put_char(x + w - 2, bot, '/', true);
         self.put_char(x + w - 1, bot, ' ', true);
 
-        self.stamp_label(x + 1, mid, w - 2, label);
+        for (i, line) in lines.iter().enumerate() {
+            if y + 1 + i < y + h - 1 {
+                self.stamp_label(x + 1, y + 1 + i, w - 2, line);
+            }
+        }
     }
 
     pub fn draw_text(&mut self, x: usize, y: usize, text: &str) {
