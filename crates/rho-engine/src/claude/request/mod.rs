@@ -28,10 +28,27 @@ pub fn is_core_claude_tool(name: &str) -> bool {
 }
 
 pub fn to_claude_tool_name(name: &str) -> String {
-    if is_core_claude_tool(name) || name.starts_with("mcp__") {
-        name.to_string()
-    } else {
-        format!("mcp__rho__{name}")
+    let lower = name.to_ascii_lowercase();
+    match lower.as_str() {
+        "read" => "Read".to_string(),
+        "write" => "Write".to_string(),
+        "edit" => "Edit".to_string(),
+        "bash" => "Bash".to_string(),
+        "grep" => "Grep".to_string(),
+        "glob" => "Glob".to_string(),
+        "webfetch" | "web_fetch" => "WebFetch".to_string(),
+        "websearch" | "web_search" => "WebSearch".to_string(),
+        "askuserquestion" => "AskUserQuestion".to_string(),
+        "enterplanmode" => "EnterPlanMode".to_string(),
+        "exitplanmode" => "ExitPlanMode".to_string(),
+        "killshell" => "KillShell".to_string(),
+        "notebookedit" => "NotebookEdit".to_string(),
+        "skill" => "Skill".to_string(),
+        "task" => "Task".to_string(),
+        "taskoutput" => "TaskOutput".to_string(),
+        "todowrite" => "TodoWrite".to_string(),
+        _ if name.starts_with("mcp__") => name.to_string(),
+        _ => format!("mcp__rho__{name}"),
     }
 }
 
@@ -46,9 +63,28 @@ pub fn from_claude_tool_name(name: &str) -> &str {
         "edit"
     } else if name.eq_ignore_ascii_case("bash") {
         "bash"
+    } else if name.eq_ignore_ascii_case("glob") {
+        "glob"
+    } else if name.eq_ignore_ascii_case("grep") {
+        "grep"
+    } else if name.eq_ignore_ascii_case("webfetch") || name.eq_ignore_ascii_case("web_fetch") {
+        "web_fetch"
+    } else if name.eq_ignore_ascii_case("websearch") || name.eq_ignore_ascii_case("web_search") {
+        "web_search"
     } else {
         name
     }
+}
+
+fn sanitize_system_prompt(text: &str) -> String {
+    text.replace(
+        "operating inside rho, a coding agent harness",
+        "operating inside the cli",
+    )
+    .replace("inside rho, a coding agent harness", "inside the cli")
+    .replace("inside rho", "inside the cli")
+    .replace("rho itself", "the cli itself")
+    .replace("rho packages", "cli packages")
 }
 
 use rig::completion::{CompletionError, CompletionRequest};
@@ -120,13 +156,20 @@ pub fn build_request_body(
     });
 
     attach_thinking_or_temp(&mut body, thinking_budget, request.temperature);
+    let mut system_blocks = vec![json!({
+        "type": "text",
+        "text": "You are Claude Code, Anthropic's official CLI for Claude.",
+        "cache_control": { "type": "ephemeral" },
+    })];
     if let Some(system) = system_prompt(request) {
-        body["system"] = json!([{
+        let sanitized = sanitize_system_prompt(&system);
+        system_blocks.push(json!({
             "type": "text",
-            "text": system,
+            "text": sanitized,
             "cache_control": { "type": "ephemeral" },
-        }]);
+        }));
     }
+    body["system"] = json!(system_blocks);
     attach_tools_and_choice(&mut body, request);
     mark_cache_breakpoints(&mut body);
     Ok(body)

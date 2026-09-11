@@ -72,6 +72,7 @@ fn test_build_request_body_with_thinking_omits_temperature() {
     let actual = (
         body["model"].as_str(),
         body["system"][0]["text"].as_str(),
+        body["system"][1]["text"].as_str(),
         body["system"][0]["cache_control"]["type"].as_str(),
         body["thinking"]["type"].as_str(),
         body["thinking"]["budget_tokens"].as_u64(),
@@ -80,6 +81,7 @@ fn test_build_request_body_with_thinking_omits_temperature() {
         actual,
         (
             Some("claude-sonnet-4-5-20250514"),
+            Some("You are Claude Code, Anthropic's official CLI for Claude."),
             Some("system instructions"),
             Some("ephemeral"),
             Some("enabled"),
@@ -201,7 +203,12 @@ fn test_claude_headers_contains_required_fields() {
         headers.get("anthropic-beta").unwrap(),
         "claude-code-20250219,oauth-2025-04-20"
     );
-    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.226 (external, cli)");
+    assert_eq!(
+        headers.get("anthropic-dangerous-direct-browser-access").unwrap(),
+        "true"
+    );
+    assert_eq!(headers.get("x-app").unwrap(), "cli");
+    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.251");
 }
 
 #[test]

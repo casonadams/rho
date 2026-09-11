@@ -19,7 +19,7 @@ fn test_claude_constants() {
             "https://platform.claude.com/v1/oauth/token",
             "https://api.anthropic.com/api/oauth/profile",
             "https://platform.claude.com/oauth/code/callback",
-            "claude-cli/2.1.226 (external, cli)",
+            "claude-cli/2.1.251",
             60,
         )
     );
