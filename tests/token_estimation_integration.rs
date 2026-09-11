@@ -20,7 +20,8 @@ fn test_exact_bpe_token_calculation() {
 fn test_context_window_ceilings() {
     let cases = [
         ("gpt-5-luna", 372_000),
-        ("claude-3-7-sonnet-20250219", 200_000),
+        ("claude-3-7-sonnet-20250219", 1_000_000),
+        ("claude-3-haiku-20240307", 200_000),
         ("gemini-2.0-flash", 1_000_000),
         ("deepseek-chat", 128_000),
     ];
@@ -31,7 +32,7 @@ fn test_context_window_ceilings() {
 
 #[test]
 fn test_preflight_check_compaction() {
-    let window = context_window_size("claude-3-7-sonnet-20250219");
+    let window = context_window_size("claude-3-haiku-20240307");
     assert!(!should_compact(100_000, window, 0) && !should_compact(190_000, window, 0));
     assert!(should_compact(192_000, window, 0) && should_compact(195_000, window, 0));
 }
