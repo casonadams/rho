@@ -16,6 +16,12 @@ struct LayoutNode {
     rank: usize,
 }
 
+struct TdLayoutDim {
+    left_offset: usize,
+    max_w: usize,
+    h_gap: usize,
+}
+
 pub struct FlowchartLayout<'a> {
     flowchart: &'a Flowchart,
 }
@@ -35,11 +41,11 @@ impl<'a> FlowchartLayout<'a> {
     fn render_td(&self) -> String {
         let (forward_edges, back_edges) = partition_edges(&self.flowchart.nodes, &self.flowchart.edges);
         let ranks = compute_ranks(&self.flowchart.nodes, &forward_edges);
-        let rank_groups = group_by_rank(&self.flowchart.nodes, &ranks);
+        let rank_groups = group_by_rank(&self.flowchart.nodes, &ranks, &forward_edges);
         let node_sizes = compute_node_sizes(&self.flowchart.nodes);
 
-        const H_GAP: usize = 4;
-        let rank_widths = compute_td_rank_widths(&rank_groups, &node_sizes, H_GAP);
+        let h_gap = compute_max_label_gap(&forward_edges);
+        let rank_widths = compute_td_rank_widths(&rank_groups, &node_sizes, h_gap);
         let max_rank_width = rank_widths.iter().copied().max().unwrap_or(20);
 
         let left_gutter_needed = back_edges
@@ -47,14 +53,13 @@ impl<'a> FlowchartLayout<'a> {
             .any(|e| layout_nodes_rough_check(e, &rank_groups, &node_sizes, max_rank_width));
         let left_offset = if left_gutter_needed { 5 } else { 1 };
 
-        let (layout_nodes, canvas_h) = layout_td_nodes(
-            &rank_groups,
-            &rank_widths,
-            &node_sizes,
-            &forward_edges,
+        let dim = TdLayoutDim {
             left_offset,
-            max_rank_width,
-        );
+            max_w: max_rank_width,
+            h_gap,
+        };
+
+        let (layout_nodes, canvas_h) = layout_td_nodes(&rank_groups, &rank_widths, &node_sizes, &forward_edges, &dim);
 
         let rightmost = layout_nodes
             .values()
@@ -81,7 +86,7 @@ impl<'a> FlowchartLayout<'a> {
     fn render_lr(&self) -> String {
         let (forward_edges, back_edges) = partition_edges(&self.flowchart.nodes, &self.flowchart.edges);
         let ranks = compute_ranks(&self.flowchart.nodes, &forward_edges);
-        let rank_groups = group_by_rank(&self.flowchart.nodes, &ranks);
+        let rank_groups = group_by_rank(&self.flowchart.nodes, &ranks, &forward_edges);
         let node_sizes = compute_node_sizes(&self.flowchart.nodes);
 
         let col_widths: Vec<usize> = rank_groups
@@ -128,14 +133,55 @@ fn compute_node_sizes(nodes: &[Node]) -> HashMap<String, (usize, usize)> {
     map
 }
 
-fn group_by_rank(nodes: &[Node], ranks: &HashMap<String, usize>) -> Vec<Vec<Node>> {
+fn group_by_rank(nodes: &[Node], ranks: &HashMap<String, usize>, edges: &[Edge]) -> Vec<Vec<Node>> {
     let max_rank = ranks.values().copied().max().unwrap_or(0);
     let mut groups = vec![Vec::new(); max_rank + 1];
     for node in nodes {
         let r = *ranks.get(&node.id).unwrap_or(&0);
         groups[r].push(node.clone());
     }
+
+    let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
+    for edge in edges {
+        preds.entry(&edge.to).or_default().push(&edge.from);
+    }
+
+    for r in 1..=max_rank {
+        let prev_indices: HashMap<String, usize> = groups[r - 1]
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.id.clone(), i))
+            .collect();
+
+        groups[r].sort_by(|a, b| {
+            let bary_a = compute_barycenter(&a.id, &preds, &prev_indices);
+            let bary_b = compute_barycenter(&b.id, &preds, &prev_indices);
+            bary_a.partial_cmp(&bary_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
     groups
+}
+
+fn compute_max_label_gap(edges: &[Edge]) -> usize {
+    let mut out_labels: HashMap<&str, usize> = HashMap::new();
+    for edge in edges {
+        if let Some(lbl) = &edge.label {
+            *out_labels.entry(&edge.from).or_default() += UnicodeWidthStr::width(lbl.as_str()) / 2 + 2;
+        }
+    }
+    out_labels.values().copied().max().unwrap_or(4).clamp(4, 16)
+}
+
+fn compute_barycenter(node_id: &str, preds: &HashMap<&str, Vec<&str>>, prev_indices: &HashMap<String, usize>) -> f64 {
+    if let Some(pred_list) = preds.get(node_id) {
+        let positions: Vec<usize> = pred_list.iter().filter_map(|p| prev_indices.get(*p).copied()).collect();
+        if !positions.is_empty() {
+            let sum: usize = positions.iter().sum();
+            return sum as f64 / positions.len() as f64;
+        }
+    }
+    f64::INFINITY
 }
 
 fn compute_td_rank_widths(
@@ -160,16 +206,14 @@ fn layout_td_nodes(
     widths: &[usize],
     sizes: &HashMap<String, (usize, usize)>,
     forward_edges: &[Edge],
-    left_offset: usize,
-    max_w: usize,
+    dim: &TdLayoutDim,
 ) -> (HashMap<String, LayoutNode>, usize) {
     let mut nodes = HashMap::new();
     let mut current_y = 1;
-    const H_GAP: usize = 4;
 
     for (r, group) in groups.iter().enumerate() {
         let rank_w = widths[r];
-        let mut current_x = left_offset + (max_w.saturating_sub(rank_w)) / 2;
+        let mut current_x = dim.left_offset + (dim.max_w.saturating_sub(rank_w)) / 2;
 
         let rank_h = group
             .iter()
@@ -191,7 +235,7 @@ fn layout_td_nodes(
                     rank: r,
                 },
             );
-            current_x += w + H_GAP;
+            current_x += w + dim.h_gap;
         }
 
         let has_label = forward_edges
@@ -278,21 +322,26 @@ fn draw_td_forward_edges(canvas: &mut Canvas, nodes: &HashMap<String, LayoutNode
 
         if from_cx == to_cx || (from_cx as isize - to_cx as isize).abs() <= 1 {
             let cx = to_cx;
+            canvas.add_mask(from_cx, from_by, 1 << 1); // DIR_S
             canvas.draw_v_line(cx, from_by + 1, to_ty.saturating_sub(2));
             canvas.draw_arrow(cx, to_ty.saturating_sub(1), ArrowDir::Down);
+            canvas.add_mask(to_cx, to_ty, 1 << 0); // DIR_N
             if let Some(label) = &edge.label {
                 let label_y = from_by + 1;
                 canvas.draw_text(cx + 2, label_y, label);
             }
         } else {
             let mid_y = from_by + 2;
+            canvas.add_mask(from_cx, from_by, 1 << 1); // DIR_S
             canvas.draw_v_line(from_cx, from_by + 1, mid_y);
             canvas.draw_h_line(mid_y, from_cx, to_cx);
             canvas.draw_v_line(to_cx, mid_y, to_ty.saturating_sub(2));
             canvas.draw_arrow(to_cx, to_ty.saturating_sub(1), ArrowDir::Down);
+            canvas.add_mask(to_cx, to_ty, 1 << 0); // DIR_N
             if let Some(label) = &edge.label {
                 let label_y = from_by + 1;
-                let label_x = if to_cx < from_cx { to_cx + 1 } else { from_cx + 2 };
+                let label_w = UnicodeWidthStr::width(label.as_str());
+                let label_x = to_cx.saturating_sub(label_w / 2).max(1);
                 canvas.draw_text(label_x, label_y, label);
             }
         }
@@ -320,10 +369,12 @@ fn draw_td_back_edges(
         if from_cx < center_split {
             let gutter_x = 2 + left_gutter_idx * 3;
             left_gutter_idx += 1;
+            canvas.add_mask(from.x, from_mid_y, 1 << 3);
             canvas.draw_h_line(from_mid_y, gutter_x, from.x.saturating_sub(1));
             canvas.draw_v_line(gutter_x, from_mid_y, to_mid_y);
             canvas.draw_h_line(to_mid_y, gutter_x, to.x.saturating_sub(2));
             canvas.draw_arrow(to.x.saturating_sub(1), to_mid_y, ArrowDir::Right);
+            canvas.add_mask(to.x, to_mid_y, 1 << 3);
             if let Some(label) = &edge.label {
                 canvas.draw_text(gutter_x + 1, from_mid_y.saturating_sub(1), label);
             }
@@ -332,10 +383,12 @@ fn draw_td_back_edges(
             right_gutter_idx += 1;
             let from_rx = from.x + from.width - 1;
             let to_rx = to.x + to.width - 1;
+            canvas.add_mask(from_rx, from_mid_y, 1 << 2);
             canvas.draw_h_line(from_mid_y, from_rx + 1, gutter_x);
             canvas.draw_v_line(gutter_x, from_mid_y, to_mid_y);
             canvas.draw_h_line(to_mid_y, to_rx + 2, gutter_x);
             canvas.draw_arrow(to_rx + 1, to_mid_y, ArrowDir::Left);
+            canvas.add_mask(to_rx, to_mid_y, 1 << 2);
             if let Some(label) = &edge.label {
                 canvas.draw_text(from_rx + 2, from_mid_y.saturating_sub(1), label);
             }

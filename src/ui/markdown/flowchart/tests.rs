@@ -77,30 +77,30 @@ fn test_flowchart_clipped_to_render_width() {
 }
 
 #[test]
-fn test_image_2_complex_flowchart() {
+fn test_image_1_lifecycle_flowchart() {
     let source = r#"
 graph TD
-  UserInput[User Input / Prompt] --> PrepareContext[Prepare Context\nHierarchical AGENTS.md + Skills + Session History]
-  PrepareContext --> Stream[Stream from Provider\nToken-by-token rendering & metrics]
-  Stream --> ToolCalls{Tool calls requested?}
-  ToolCalls -->|No| DisplayAnswer[Display Final Answer]
-  ToolCalls -->|Yes| PermissionGate{Permission Gate}
-  PermissionGate -->|Approved| ExecTool[Execute Tool\nBuiltin, MCP, or Plugin]
-  PermissionGate -->|Denied| InjectReject[Inject Rejection / User Feedback]
-  DisplayAnswer --> AppendSession[Append Turn to Session JSONL]
-  AppendSession --> AwaitNext[Awaiting Next User Turn]
-  ExecTool --> AppendResult[Append Tool Result to History]
-  InjectReject --> AppendResult
-  AppendResult --> Stream
+  UserInput[User Input / Queue] --> REPL[Interactive REPL & TUI]
+  REPL --> ContextEngine[Context Engine & Session Manager]
+  ContextEngine --> ModelProvider[Model Provider\nAnthropic / OpenAI / Gemini / Ollama]
+  ModelProvider --> ModelOutput{Model Output}
+  ModelOutput -->|Assistant Resp| LiveMarkdown[Live Markdown Streaming & UI Render]
+  ModelOutput -->|Tool Call| PermCheck{Permission Check}
+  LiveMarkdown --> UserInput
+  PermCheck -->|Auto-Approved| ToolRuntime[Tool Runtime\nBuilt-in / MCP / Plugins]
+  PermCheck -->|Mutating Action| ApprovalModal[Interactive Approval Modal\nAllow / Edit / Always / Deny]
+  ApprovalModal -->|Approved| ToolRuntime
+  ApprovalModal -->|Denied| DenialReason[Return Denial Reason to Model]
+  ToolRuntime --> OutputTrim[Capture Tool Output & Trim]
+  DenialReason --> ContextEngine
+  OutputTrim --> ContextEngine
 "#;
-    let rendered = render_flowchart(source).expect("should render image 2 diagram");
-    assert!(rendered.contains("User Input / Prompt"));
-    assert!(rendered.contains("Prepare Context"));
-    assert!(rendered.contains("Hierarchical AGENTS.md + Skills + Session History"));
-    assert!(rendered.contains("Tool calls requested?"));
-    assert!(rendered.contains("No"));
-    assert!(rendered.contains("Yes"));
-    assert!(rendered.contains("Append Tool Result to History"));
+    let rendered = render_flowchart(source).expect("should render image 1 diagram");
+    assert!(rendered.contains("User Input / Queue"));
+    assert!(rendered.contains("Context Engine & Session Manager"));
+    assert!(rendered.contains("Model Output"));
+    assert!(rendered.contains("Live Markdown Streaming & UI Render"));
+    assert!(rendered.contains("Interactive Approval Modal"));
 }
 
 #[test]

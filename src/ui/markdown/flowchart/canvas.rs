@@ -123,27 +123,35 @@ impl Canvas {
         self.ensure_size(x + w, y + h);
 
         // Top border
-        self.put_char(x, y, '╭', true);
+        self.put_char(x, y, '╭', false);
+        self.masks[y][x] = DIR_S | DIR_E;
         for col in (x + 1)..(x + w - 1) {
-            self.put_char(col, y, '─', true);
+            self.put_char(col, y, '─', false);
+            self.masks[y][col] = DIR_E | DIR_W;
         }
-        self.put_char(x + w - 1, y, '╮', true);
+        self.put_char(x + w - 1, y, '╮', false);
+        self.masks[y][x + w - 1] = DIR_S | DIR_W;
 
         // Sides
         for row in (y + 1)..(y + h - 1) {
-            self.put_char(x, row, '│', true);
+            self.put_char(x, row, '│', false);
+            self.masks[row][x] = DIR_N | DIR_S;
             for col in (x + 1)..(x + w - 1) {
                 self.put_char(col, row, ' ', true);
             }
-            self.put_char(x + w - 1, row, '│', true);
+            self.put_char(x + w - 1, row, '│', false);
+            self.masks[row][x + w - 1] = DIR_N | DIR_S;
         }
 
         // Bottom border
-        self.put_char(x, y + h - 1, '╰', true);
+        self.put_char(x, y + h - 1, '╰', false);
+        self.masks[y + h - 1][x] = DIR_N | DIR_E;
         for col in (x + 1)..(x + w - 1) {
-            self.put_char(col, y + h - 1, '─', true);
+            self.put_char(col, y + h - 1, '─', false);
+            self.masks[y + h - 1][col] = DIR_E | DIR_W;
         }
-        self.put_char(x + w - 1, y + h - 1, '╯', true);
+        self.put_char(x + w - 1, y + h - 1, '╯', false);
+        self.masks[y + h - 1][x + w - 1] = DIR_N | DIR_W;
 
         for (i, line) in lines.iter().enumerate() {
             if y + 1 + i < y + h - 1 {
@@ -158,25 +166,33 @@ impl Canvas {
         }
         self.ensure_size(x + w, y + h);
 
-        self.put_char(x, y, '┌', true);
+        self.put_char(x, y, '┌', false);
+        self.masks[y][x] = DIR_S | DIR_E;
         for col in (x + 1)..(x + w - 1) {
-            self.put_char(col, y, '─', true);
+            self.put_char(col, y, '─', false);
+            self.masks[y][col] = DIR_E | DIR_W;
         }
-        self.put_char(x + w - 1, y, '┐', true);
+        self.put_char(x + w - 1, y, '┐', false);
+        self.masks[y][x + w - 1] = DIR_S | DIR_W;
 
         for row in (y + 1)..(y + h - 1) {
-            self.put_char(x, row, '│', true);
+            self.put_char(x, row, '│', false);
+            self.masks[row][x] = DIR_N | DIR_S;
             for col in (x + 1)..(x + w - 1) {
                 self.put_char(col, row, ' ', true);
             }
-            self.put_char(x + w - 1, row, '│', true);
+            self.put_char(x + w - 1, row, '│', false);
+            self.masks[row][x + w - 1] = DIR_N | DIR_S;
         }
 
-        self.put_char(x, y + h - 1, '└', true);
+        self.put_char(x, y + h - 1, '└', false);
+        self.masks[y + h - 1][x] = DIR_N | DIR_E;
         for col in (x + 1)..(x + w - 1) {
-            self.put_char(col, y + h - 1, '─', true);
+            self.put_char(col, y + h - 1, '─', false);
+            self.masks[y + h - 1][col] = DIR_E | DIR_W;
         }
-        self.put_char(x + w - 1, y + h - 1, '┘', true);
+        self.put_char(x + w - 1, y + h - 1, '┘', false);
+        self.masks[y + h - 1][x + w - 1] = DIR_N | DIR_W;
 
         for (i, line) in lines.iter().enumerate() {
             if y + 1 + i < y + h - 1 {
