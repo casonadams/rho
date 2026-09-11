@@ -73,6 +73,30 @@ fn footer_carries_no_spinner_or_activity_label_when_busy() {
 }
 
 #[test]
+fn unfocused_controller_preserves_working_line_and_suppresses_software_cursor() {
+    let (backend, operations, _) = FakeTerminal::new(60);
+    let mut state = InteractiveState::default();
+    state.footer_mut().activity = Activity::Working;
+    let mut controller = TerminalController::new(backend, state).unwrap();
+    controller.set_focused(false);
+    operations.borrow_mut().clear();
+
+    controller.tick().unwrap();
+
+    let ops = operations.borrow();
+    assert!(
+        ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("Working..."))),
+        "working line with spinner text must remain visible when unfocused"
+    );
+    assert!(
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[7m"))),
+        "software cursor must be suppressed when unfocused"
+    );
+}
+
+#[test]
 fn idle_footer_is_rendered_dimmed() {
     let (backend, operations, _) = FakeTerminal::new(20);
     let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();

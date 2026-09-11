@@ -167,3 +167,69 @@ fn busy_activity_under_modal_shows_working_line_when_budget_permits() {
     assert!(!layout.working_line.is_empty());
     assert!(layout.lines.iter().any(|l| l.contains("Working...")));
 }
+
+#[test]
+fn busy_activity_retains_working_line_when_unfocused() {
+    let default_editor = EditorState::default();
+    let footer = FooterState {
+        activity: Activity::Working,
+        model: "model".into(),
+        context: None,
+        quota: None,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: false,
+    });
+
+    assert!(!layout.working_line.is_empty());
+    assert!(layout.working_line.contains("Working..."));
+    assert!(layout.lines.iter().any(|l| l.contains("Working...")));
+    assert!(!layout.cursor_visible);
+}
+
+#[test]
+fn busy_activity_under_modal_retains_working_line_when_unfocused() {
+    let default_editor = EditorState::default();
+    let footer = FooterState {
+        activity: Activity::Working,
+        model: "model".into(),
+        context: None,
+        quota: None,
+        ..FooterState::default()
+    };
+    let modal = ModalState::new(
+        "Permission Required",
+        "tool   bash\nscope  cargo test",
+        vec![ModalOption::from("Allow")],
+    );
+    let layout = layout(LayoutInput {
+        editor: &default_editor,
+        modal: Some(&modal),
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: false,
+    });
+
+    assert!(!layout.working_line.is_empty());
+    assert!(layout.lines.iter().any(|l| l.contains("Working...")));
+    assert!(!layout.cursor_visible);
+}

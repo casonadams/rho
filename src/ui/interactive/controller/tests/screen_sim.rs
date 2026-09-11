@@ -507,6 +507,9 @@ mod regressions {
             for item in drained.transcript_items {
                 controller.push_transcript_item(item).unwrap();
             }
+            if !drained.stream_text.is_empty() {
+                controller.write_stream_output(&drained.stream_text).unwrap();
+            }
             if !drained.text.is_empty() {
                 controller.write_output(&drained.text).unwrap();
             } else {
@@ -630,6 +633,21 @@ mod regressions {
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
             assert_one_blank_above_committed_card(&controller);
             assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn screen_sim_unfocused_working_spinner() {
+            let mut controller = controller_with_transcript((80, 24));
+            controller.state_mut().footer_mut().activity = crate::ui::interactive::Activity::Working;
+            controller.redraw().unwrap();
+            let screen_focused = controller.backend.text();
+
+            controller.set_focused(false);
+            controller.redraw().unwrap();
+            let screen_unfocused = controller.backend.text();
+
+            assert!(screen_focused.iter().any(|l| l.contains("Working...")));
+            assert!(screen_unfocused.iter().any(|l| l.contains("Working...")));
         }
 
         /// The deny-reason input screen: selecting "Deny" (input spec) enters
