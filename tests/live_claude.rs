@@ -22,7 +22,7 @@ fn temp_dir(name: &str) -> PathBuf {
 fn live_config(workspace: &std::path::Path) -> Config {
     Config {
         provider: "claude".to_string(),
-        model: std::env::var("RHO_LIVE_CLAUDE_MODEL").unwrap_or_else(|_| "claude-sonnet-4-5".to_string()),
+        model: std::env::var("RHO_LIVE_CLAUDE_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string()),
         auth_file: workspace.join("auth.json"),
         sessions_dir: workspace.join("sessions"),
         max_turns: 4,

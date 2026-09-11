@@ -41,7 +41,7 @@ fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
     let config = Config {
         config_dir,
         auth_file,
-        model: "claude-sonnet-4-5".into(),
+        model: "claude-sonnet-4-6".into(),
         provider: "claude".into(),
         ..Config::default()
     };
@@ -56,7 +56,7 @@ fn model_selector_displays_claude_tag() {
     let modal = controller.state().active_modal().unwrap();
     assert_eq!(modal.title, "Select Model");
 
-    let claude_opt = modal.options.iter().find(|o| o.label == "claude-sonnet-4-5").unwrap();
+    let claude_opt = modal.options.iter().find(|o| o.label == "claude-sonnet-4-6").unwrap();
     assert!(claude_opt.description.as_deref().unwrap().starts_with("claude\t"));
 
     let rendered = layout(LayoutInput {
@@ -96,7 +96,7 @@ fn model_selector_selects_claude_model() {
         } => {
             assert_eq!(
                 (model.as_str(), provider.as_str(), save_as_default),
-                ("claude-sonnet-4-5", "claude", false)
+                ("claude-sonnet-4-6", "claude", false)
             );
         }
         _ => panic!("expected ModelSelected"),

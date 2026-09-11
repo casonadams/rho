@@ -243,7 +243,7 @@ fn claude_provider_builds_model_handle() {
 
     let request = ModelRequest {
         provider: ProviderId::ClaudeCode,
-        model: "claude-sonnet-4-5",
+        model: "claude-sonnet-4-6",
         thinking_level: Some("high"),
         shared_auth: None,
     };
@@ -261,7 +261,7 @@ fn claude_provider_fails_without_credentials() {
 
     let request = ModelRequest {
         provider: ProviderId::ClaudeCode,
-        model: "claude-sonnet-4-5",
+        model: "claude-sonnet-4-6",
         thinking_level: None,
         shared_auth: None,
     };

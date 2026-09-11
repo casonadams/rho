@@ -29,13 +29,18 @@ fn sample_request() -> CompletionRequest {
 #[test]
 fn test_model_alias_normalization() {
     let cases = [
-        ("default", "claude-sonnet-4-5-20250514"),
-        ("sonnet", "claude-sonnet-4-5-20250514"),
+        ("default", "claude-sonnet-4-6"),
+        ("sonnet", "claude-sonnet-4-6"),
+        ("claude-sonnet-4-6", "claude-sonnet-4-6"),
         ("claude-sonnet-4-5", "claude-sonnet-4-5-20250514"),
         ("opus", "claude-opus-4-6"),
         ("claude-opus-4-6", "claude-opus-4-6"),
         ("haiku", "claude-haiku-4-5"),
         ("claude-haiku-4-5", "claude-haiku-4-5"),
+        ("sonnet-5", "claude-sonnet-5"),
+        ("claude-sonnet-5", "claude-sonnet-5"),
+        ("opus-5", "claude-opus-5"),
+        ("claude-opus-5", "claude-opus-5"),
         ("claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219"),
     ];
     for (alias, expected) in cases {

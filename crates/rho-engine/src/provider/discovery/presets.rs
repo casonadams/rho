@@ -193,10 +193,10 @@ pub fn cohere_preset_models() -> Vec<DiscoveredModel> {
 
 const CLAUDE_PRESETS: &[(&str, &str, &str, &str, usize)] = &[
     (
-        "claude-sonnet-4-5",
-        "Claude Sonnet 4.5",
+        "claude-sonnet-4-6",
+        "Claude Sonnet 4.6",
         "claude",
-        "1M ctx · reasoning",
+        "1M ctx · fast & intelligent",
         1_000_000,
     ),
     (
@@ -212,6 +212,20 @@ const CLAUDE_PRESETS: &[(&str, &str, &str, &str, usize)] = &[
         "claude",
         "200k ctx · fast",
         200_000,
+    ),
+    (
+        "claude-sonnet-5",
+        "Claude Sonnet 5",
+        "claude",
+        "1M ctx · frontier intelligence",
+        1_000_000,
+    ),
+    (
+        "claude-opus-5",
+        "Claude Opus 5",
+        "claude",
+        "1M ctx · complex coding",
+        1_000_000,
     ),
 ];
 
