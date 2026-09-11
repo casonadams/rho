@@ -1,4 +1,6 @@
-use crate::ui::interactive::layout::budget::{MAX_MODAL_HEIGHT_RATIO, NormalBudgetInput, compute_normal_budget};
+use crate::ui::interactive::layout::budget::{
+    MAX_MODAL_HEIGHT_RATIO, MAX_WIDGET_HEIGHT_RATIO, NormalBudgetInput, compute_normal_budget,
+};
 
 fn sample_budget_input(terminal_height: usize, total_editor_lines: usize, is_modal: bool) -> NormalBudgetInput {
     NormalBudgetInput {
@@ -48,4 +50,26 @@ fn test_modal_budget_minimum_allocation_on_tiny_terminal() {
         let budget = compute_normal_budget(&input);
         assert!(budget.editor_max_lines >= 1);
     }
+}
+
+#[test]
+fn test_max_widget_height_ratio_constant() {
+    assert_eq!(MAX_WIDGET_HEIGHT_RATIO, 0.60);
+}
+
+#[test]
+fn test_widget_budget_caps_at_60_percent_terminal_height() {
+    let mut input = sample_budget_input(30, 1, false);
+    input.raw_widgets_count = 50;
+    let budget = compute_normal_budget(&input);
+    let expected_cap = (30.0 * MAX_WIDGET_HEIGHT_RATIO).round() as usize;
+    assert_eq!(budget.widget_count, expected_cap);
+}
+
+#[test]
+fn test_collapsed_widget_budget_unaffected_by_cap() {
+    let mut input = sample_budget_input(30, 1, false);
+    input.raw_widgets_count = 8;
+    let budget = compute_normal_budget(&input);
+    assert_eq!(budget.widget_count, 8);
 }

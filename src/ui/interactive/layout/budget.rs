@@ -1,4 +1,5 @@
 pub const MAX_MODAL_HEIGHT_RATIO: f64 = 0.66;
+pub const MAX_WIDGET_HEIGHT_RATIO: f64 = 0.60;
 
 pub(crate) struct NormalBudgetInput {
     pub terminal_height: usize,
@@ -51,16 +52,24 @@ fn compute_chrome(budget: usize, raw_footer_count: usize) -> ChromeVisibility {
     }
 }
 
-fn allocate_widgets(raw_widgets: usize, surplus: &mut usize, extra_ed: usize, ac_desired: usize) -> usize {
+fn allocate_widgets(
+    raw_widgets: usize,
+    surplus: &mut usize,
+    extra_ed: usize,
+    ac_desired: usize,
+    terminal_height: usize,
+) -> usize {
     if raw_widgets == 0 {
         return 0;
     }
+    let max_widget = ((terminal_height as f64) * MAX_WIDGET_HEIGHT_RATIO).round() as usize;
+    let bounded_raw = raw_widgets.min(max_widget.max(8));
     let ac_min = if ac_desired >= 2 { 2 } else { 0 };
     let needed = extra_ed + ac_min;
     let grant = if *surplus >= needed {
-        raw_widgets.min(*surplus - needed)
+        bounded_raw.min(*surplus - needed)
     } else {
-        (*surplus / 3).min(raw_widgets)
+        (*surplus / 3).min(bounded_raw)
     };
     *surplus -= grant;
     grant
@@ -107,7 +116,13 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     let (mut surplus, queued_count) = calculate_surplus(budget, chrome, input.raw_queued_count);
     let extra_ed = input.total_editor_lines.saturating_sub(1);
     let ac_desired = input.autocomplete_desired;
-    let widget_count = allocate_widgets(input.raw_widgets_count, &mut surplus, extra_ed, ac_desired);
+    let widget_count = allocate_widgets(
+        input.raw_widgets_count,
+        &mut surplus,
+        extra_ed,
+        ac_desired,
+        input.terminal_height,
+    );
     let (autocomplete_max_lines, mut editor_max_lines) =
         allocate_editor_and_autocomplete(surplus, extra_ed, ac_desired);
     if input.is_modal {

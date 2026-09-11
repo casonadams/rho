@@ -59,13 +59,15 @@ async fn handle_edit_action<B: TerminalBackend>(
 
 fn handle_display_toggle<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) {
     if *action == InputAction::ToggleExpandTools {
-        let expanded = ctx.controller.toggle_tools_expanded().unwrap_or(false);
+        let expanded = !ctx.controller.tools_expanded();
         let state = if expanded { "expanded" } else { "collapsed" };
-        ctx.session.renderer.print_status(&format!("Tool output: {state}"));
+        ctx.controller.set_system_message(format!("Tool output: {state}"));
+        let _ = ctx.controller.set_tools_expanded(expanded);
     } else {
-        let hide = ctx.controller.toggle_thinking().unwrap_or(false);
+        let hide = !ctx.controller.hide_thinking();
         let state = if hide { "hidden" } else { "visible" };
-        ctx.session.renderer.print_status(&format!("Thinking blocks: {state}"));
+        ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
+        let _ = ctx.controller.set_hide_thinking(hide);
     }
 }
 

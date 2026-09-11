@@ -59,14 +59,20 @@ impl<B: crate::ui::interactive::TerminalBackend> BashRun<'_, B> {
 
     fn apply_ui_toggle(&mut self, action: InputAction) -> Result<()> {
         let (label, expanded) = if action == InputAction::ToggleExpandTools {
-            ("Tool output", self.controller.toggle_tools_expanded()?)
+            let expanded = !self.controller.tools_expanded();
+            ("Tool output", expanded)
         } else {
-            let hidden = self.controller.toggle_thinking()?;
+            let hidden = !self.controller.hide_thinking();
             ("Thinking blocks", !hidden)
         };
         let state = if expanded { "expanded" } else { "collapsed" };
-        self.renderer.print_status(&format!("{label}: {state}"));
-        self.drain_and_flush(true)
+        self.controller.set_system_message(format!("{label}: {state}"));
+        if action == InputAction::ToggleExpandTools {
+            self.controller.set_tools_expanded(expanded)?;
+        } else {
+            self.controller.set_hide_thinking(!expanded)?;
+        }
+        Ok(())
     }
 
     fn handle_chunk(&mut self, chunk: String, stream: &mut StreamBuffers) -> Result<()> {

@@ -150,7 +150,6 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn full_redraw(&mut self) -> io::Result<()> {
         self.backend.hide_cursor()?;
-        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
         self.rendered = None;
         self.backend.write_text(CSI_BEGIN_SYNC_UPDATE)?;
 
@@ -162,7 +161,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn run_full_redraw(&mut self) -> io::Result<()> {
-        self.backend.write_text("\x1b[2J\x1b[H\x1b[3J\x1b[0m")?;
+        self.backend.write_text("\x1b[2J\x1b[H\x1b[0m")?;
         self.output.clear();
         let mut redraw_buffer = String::new();
         self.repaint_history(&mut redraw_buffer)?;

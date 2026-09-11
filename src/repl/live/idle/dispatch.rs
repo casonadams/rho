@@ -162,6 +162,7 @@ async fn handle_plain_or_shortcut<B: TerminalBackend>(
     }
     let (session, engine, last_escape_time) = rest;
     if !matches!(action, InputAction::EndOfInput | InputAction::Ignore) {
+        let is_display_toggle = matches!(action, InputAction::ToggleExpandTools | InputAction::ThinkingToggle);
         handle_shortcut_action(
             action.clone(),
             IdleShortcutContext {
@@ -173,7 +174,9 @@ async fn handle_plain_or_shortcut<B: TerminalBackend>(
             batch,
         )
         .await?;
-        batch.flush(controller, true)?;
+        if !is_display_toggle {
+            batch.flush(controller, true)?;
+        }
     }
     Ok(IdleInputResult::None)
 }

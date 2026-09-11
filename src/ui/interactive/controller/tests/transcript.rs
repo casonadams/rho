@@ -115,6 +115,47 @@ mod expansion {
         assert!(!controller.toggle_thinking().unwrap());
         assert!(!controller.hide_thinking() && !operations.borrow().is_empty());
     }
+
+    #[test]
+    fn toggle_tools_expanded_preserves_scrollback_without_esc_3j() {
+        let (backend, operations, _) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::UserMessage("hello".into()))
+            .unwrap();
+
+        operations.borrow_mut().clear();
+        controller.toggle_tools_expanded().unwrap();
+
+        let ops = operations.borrow();
+        assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[0m".into())));
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("\x1b[3J")))
+        );
+    }
+
+    #[test]
+    fn toggle_tools_expanded_repeated_cycles_preserve_cursor_and_layout() {
+        let (backend, _, _) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::UserMessage("first".into()))
+            .unwrap();
+
+        let initial_height = controller.current_layout().height();
+        let initial_cursor_row = controller.current_layout().cursor_row();
+
+        for _ in 0..5 {
+            controller.toggle_tools_expanded().unwrap();
+            assert!(controller.tools_expanded());
+
+            controller.toggle_tools_expanded().unwrap();
+            assert!(!controller.tools_expanded());
+            assert_eq!(controller.current_layout().height(), initial_height);
+            assert_eq!(controller.current_layout().cursor_row(), initial_cursor_row);
+        }
+    }
 }
 
 mod redraw {
@@ -136,7 +177,7 @@ mod redraw {
         assert!(controller.refresh_size().unwrap());
 
         let ops = operations.borrow();
-        assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[3J\x1b[0m".into())));
+        assert!(ops.contains(&Operation::Write("\x1b[2J\x1b[H\x1b[0m".into())));
         assert!(
             ops.iter()
                 .any(|op| matches!(op, Operation::Write(text) if text.contains("hello world message")))
@@ -150,7 +191,7 @@ mod redraw {
             .expect("CSI 2026h must be emitted");
         let clear_pos = ops
             .iter()
-            .position(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[3J\x1b[0m"))
+            .position(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
             .expect("screen clear must be emitted");
         let sync_end_pos = ops
             .iter()
@@ -216,7 +257,7 @@ mod redraw {
     fn assert_repaint(ops: &[Operation]) {
         assert!(
             ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[3J\x1b[0m"))
+                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
         );
         assert!(
             ops.iter()

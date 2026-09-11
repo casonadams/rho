@@ -95,13 +95,15 @@ fn toggle_output_or_thinking(
     action: &InputAction,
 ) -> Result<()> {
     if *action == InputAction::ToggleExpandTools {
-        let expanded = ctx.controller.toggle_tools_expanded()?;
+        let expanded = !ctx.controller.tools_expanded();
         let state = if expanded { "expanded" } else { "collapsed" };
-        ctx.session.renderer.print_status(&format!("Tool output: {state}"));
+        ctx.controller.set_system_message(format!("Tool output: {state}"));
+        ctx.controller.set_tools_expanded(expanded)?;
     } else {
-        let hidden = ctx.controller.toggle_thinking()?;
+        let hidden = !ctx.controller.hide_thinking();
         let state = if hidden { "hidden" } else { "visible" };
-        ctx.session.renderer.print_status(&format!("Thinking blocks: {state}"));
+        ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
+        ctx.controller.set_hide_thinking(hidden)?;
     }
     Ok(())
 }
