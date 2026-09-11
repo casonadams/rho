@@ -70,6 +70,7 @@
         <ul class="docs-nav-list">
           <li class="docs-nav-item"><a href="#providers">Providers &amp; Auth</a></li>
           <li class="docs-nav-item"><a href="#permissions">Safety Guardrails</a></li>
+          <li class="docs-nav-item"><a href="#privacy">Privacy &amp; Telemetry</a></li>
           <li class="docs-nav-item"><a href="#shortcuts">Keyboard Shortcuts</a></li>
         </ul>
       </div>
@@ -240,6 +241,18 @@ api_key = "optional"</code></pre>
         <li><kbd class="kbd">[n] Deny</kbd>: Reject execution and return helpful feedback to the model.</li>
       </ul>
       <p>Use <code>rho --no-permission</code> to bypass permission modals for headless non-interactive CI environments.</p>
+
+      <h2 id="privacy">Privacy &amp; Zero Telemetry</h2>
+      <p>
+        <strong>rho collects nothing.</strong> There is zero telemetry, zero background tracking, zero analytics, and zero phone-home pings built into the binary.
+      </p>
+      <ul>
+        <li><strong>Zero Telemetry &amp; Analytics:</strong> rho does not include any telemetry frameworks, crash reporters (such as Sentry), tracking pixels, or usage analytics. It never records, collects, or transmits your command history, tool invocations, prompts, or error traces to rho developers or third parties.</li>
+        <li><strong>Direct Provider Communication:</strong> Network requests are made strictly and directly to the model endpoints you configure (e.g. Anthropic, OpenAI, Google Gemini, local Ollama, or custom OpenAI-compatible endpoints). There are no intermediary proxy servers, hosted cloud backends, or data collection relays.</li>
+        <li><strong>Local-Only Storage:</strong> Your configuration files, API keys, session transcripts, branch trees, and context caches are stored strictly on your local disk in standard user config and data directories (<code>~/.config/rho</code>, <code>~/.local/share/rho</code>, and local workspace <code>.rho/</code>).</li>
+        <li><strong>Explicit Tool Networking:</strong> Network access by tools is bounded and explicit—only when you or the agent run web tools (<code>web_search</code>, <code>web_fetch</code>) or bash commands that perform network requests. Mutating and network-accessing tools can be audited and gated via <a href="#permissions">Safety Guardrails</a>.</li>
+        <li><strong>Open Source &amp; Auditable:</strong> The entire rho codebase is open source under MIT / Apache-2.0. You can inspect the source code and dependencies to verify that no tracking or telemetry code exists.</li>
+      </ul>
 
       <h2 id="shortcuts">Keyboard Shortcuts &amp; Commands</h2>
       <table class="shortcuts-table">

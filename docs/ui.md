@@ -1,7 +1,7 @@
 # Interactive UI & Terminal Styling
 
 `rho` provides a terminal interface featuring inline streaming, an
-upward-expanding multiline editor, real-time performance telemetry, and a
+upward-expanding multiline editor, real-time performance metrics, and a
 universal native theme that adopts your terminal's own palette.
 
 ---
@@ -9,7 +9,7 @@ universal native theme that adopts your terminal's own palette.
 ## The Interactive Editor & Status Footer
 
 When running in an interactive terminal, `rho` displays a pinned two-line
-telemetry footer at the bottom of the screen:
+metrics footer at the bottom of the screen:
 
 ```text
 agent output remains above in normal scrollback
@@ -23,7 +23,7 @@ newlines grow the editor upward.
 
 - **Top Status Line**: Displays the current working directory, active git
   branch, and session name.
-- **Bottom Telemetry Line**:
+- **Bottom Metrics Line**:
   - `↑`: Tokens sent (prompt + context).
   - `↓`: Tokens received (completion).
   - `R`/`W`: Cached prompt tokens read / written (when supported by provider).
@@ -33,6 +33,10 @@ newlines grow the editor upward.
   - Model and thinking level aligned to the right.
 - **Activity Spinner**: Animates in-place on the status line during inference or
   tool execution without causing scroll jitter.
+
+> **Local-Only Metrics**: All status footer counters (tokens, speeds, context
+> window usage, costs) are computed strictly in-memory on your local machine.
+> `rho` collects no telemetry and transmits no analytics.
 
 ---
 

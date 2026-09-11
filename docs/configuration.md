@@ -31,6 +31,10 @@ inference:
 Credentials and tokens are stored securely in `~/.config/rho/auth.json` (or
 `$RHO_HOME/auth.json`).
 
+> **Privacy Note**: `rho` collects no telemetry and stores all credentials and
+> session data strictly on your local machine. API requests are dispatched
+> directly to your configured provider endpoints with no intermediary servers.
+
 ### Custom OpenAI-Compatible Endpoints
 
 Connect any OpenAI-compatible provider at runtime without rebuilding. Add an

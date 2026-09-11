@@ -1,4 +1,4 @@
-# Permissions & Safety
+# Permissions, Privacy & Safety
 
 `rho` includes an in-process safety and permission system enabled by default to
 protect filesystems and external resources from unintended agent mutations.
@@ -137,3 +137,23 @@ bash = ["curl *", "docker run *"]
 If an external permission plugin (such as `rho-plugin-permission`) is installed
 and configured in `config.toml`, `rho`'s built-in permission engine
 automatically delegates policy enforcement to the plugin.
+
+---
+
+## Privacy & Zero Telemetry
+
+`rho` is built with a zero-telemetry architecture:
+
+- **Zero Data Collection**: `rho` collects **nothing**. There is no telemetry,
+  no usage statistics, no crash reporting, and no phone-home pings.
+- **Direct Provider Connection**: Prompts, tool calls, and model completions
+  travel directly and securely between your machine and your configured model
+  provider (Anthropic, OpenAI, Gemini, local Ollama, or custom endpoint). No
+  traffic is ever routed through rho servers, proxies, or cloud relays.
+- **Local-First Storage**: All authentication tokens (`auth.json`), user
+  preferences (`config.toml`), permission rules (`permission.toml`), and
+  session transcripts remain strictly on your local filesystem (`~/.config/rho`,
+  `~/.local/share/rho`, and project `.rho/`).
+- **Auditable Dependencies**: The repository contains zero analytics, tracking,
+  or telemetry crates. Every outbound network call is initiated strictly by your
+  configured providers or explicit tool invocations (e.g. `web_search` or `web_fetch`).

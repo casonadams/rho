@@ -68,7 +68,7 @@ Comprehensive guides are organized in [`docs/`](docs/):
 
 - **[Interactive UI & Terminal Styling](docs/ui.md)**
   - Dynamic upward-expanding multiline editor with stable screen scrollback.
-  - Live two-line footer telemetry: token count, context percentage, speed,
+  - Live two-line footer metrics: token count, context percentage, speed,
     cost, and active model.
   - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background
     turns.
@@ -81,7 +81,8 @@ Comprehensive guides are organized in [`docs/`](docs/):
     model controls, and editor navigation.
   - Custom keybinding configuration (`~/.config/rho/keybindings.toml`).
 
-- **[Permissions & Safety](docs/permissions.md)**
+- **[Permissions, Privacy & Safety](docs/permissions.md)**
+  - Strict zero-telemetry policy: rho collects nothing, no analytics, no phone-home pings.
   - In-process safety layer separating baseline safe inspection from mutating
     commands.
   - Interactive approval modals: **Allow**, **Edit** (with multiline arrow
@@ -99,6 +100,17 @@ Comprehensive guides are organized in [`docs/`](docs/):
     [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk).
   - Built-in plugin package management (`rho install`, `rho update`,
     `rho remove`).
+
+---
+
+## Privacy & Zero Telemetry
+
+`rho` is built from the ground up with a strict privacy-first architecture:
+
+- **Zero Telemetry**: `rho` collects **nothing**. There are no analytics, no telemetry, no tracking pixels, no crash reporters, and no phone-home pings.
+- **Direct-to-Provider**: Network requests travel strictly and directly between your machine and your configured model provider (e.g. Anthropic, OpenAI, Gemini, local Ollama). No prompts, source code, or completions are ever routed through intermediary proxies or secondary servers.
+- **100% Local Storage**: All authentication credentials, session histories, transcripts, and context caches reside exclusively on your local filesystem (in `~/.config/rho`, `~/.local/share/rho`, and project `.rho/`).
+- **Open Source & Auditable**: The entire codebase is open source under MIT / Apache-2.0 and contains zero analytics SDKs or tracking dependencies.
 
 ---
 
