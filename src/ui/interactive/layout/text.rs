@@ -120,6 +120,57 @@ pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
     output
 }
 
+pub fn wrap_words_to_width(content: &str, max_width: usize) -> Vec<String> {
+    let max_width = max_width.max(1);
+    let mut output = Vec::new();
+    for line in content.split('\n') {
+        if line.trim().is_empty() {
+            output.push(String::new());
+            continue;
+        }
+        let mut current_line = String::new();
+        let mut current_width = 0;
+        for word in line.split_whitespace() {
+            let word_width = visible_width(word);
+            let space_width = usize::from(current_width > 0);
+            if current_width + space_width + word_width <= max_width {
+                if space_width > 0 {
+                    current_line.push(' ');
+                }
+                current_line.push_str(word);
+                current_width += space_width + word_width;
+            } else {
+                if current_width > 0 {
+                    output.push(current_line);
+                    current_line = String::new();
+                    current_width = 0;
+                }
+                if word_width <= max_width {
+                    current_line.push_str(word);
+                    current_width = word_width;
+                } else {
+                    let chunks = wrap_to_width(word, max_width);
+                    for (i, chunk) in chunks.iter().enumerate() {
+                        if i + 1 < chunks.len() {
+                            output.push(chunk.clone());
+                        } else {
+                            current_line = chunk.clone();
+                            current_width = visible_width(&current_line);
+                        }
+                    }
+                }
+            }
+        }
+        if !current_line.is_empty() {
+            output.push(current_line);
+        }
+    }
+    if output.is_empty() {
+        output.push(String::new());
+    }
+    output
+}
+
 pub(crate) fn truncate_to_width(value: &str, width: usize) -> String {
     let mut current_width = 0;
     let mut truncated = String::new();

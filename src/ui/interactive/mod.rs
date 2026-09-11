@@ -29,7 +29,7 @@ pub use keybinding_loader::{default_keybindings, load_keybindings};
 pub use keymap::{KeyAction, KeyChord, KeybindingMap};
 pub use layout::{
     CursorPosition, InteractiveLayout, LayoutInput, SPINNER_FRAMES, VisualTruncateResult, layout,
-    modal_body_max_scroll, truncate_to_visual_lines, wrap_to_width,
+    modal_body_max_scroll, truncate_to_visual_lines, wrap_to_width, wrap_words_to_width,
 };
 pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,

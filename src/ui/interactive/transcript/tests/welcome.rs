@@ -82,3 +82,39 @@ fn render_transcript_welcome_without_agents() {
     assert!(!rendered.contains("[skills]"));
     assert!(rendered.contains("[tools]"));
 }
+
+#[test]
+fn render_transcript_welcome_wraps_long_items_on_word_boundaries() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Welcome(WelcomeItem {
+        version: "0.6.2".into(),
+        model: "gpt-4".into(),
+        provider: "openai".into(),
+        resumed: false,
+        location: ".".into(),
+        agents: vec!["~/.agents/AGENTS.md".into(), "AGENTS.md".into()],
+        tools: vec!["read".into(), "write".into()],
+        skills: vec![
+            "dream-weiver".into(),
+            "google-agents-cli-adk-code".into(),
+            "google-agents-cli-deploy".into(),
+            "google-agents-cli-eval".into(),
+            "google-agents-cli-observability".into(),
+            "google-agents-cli-publish".into(),
+            "google-agents-cli-scaffold".into(),
+            "google-agents-cli-workflow".into(),
+            "plan".into(),
+            "spec".into(),
+        ],
+        plugins: vec!["playwright".into()],
+    });
+
+    let rendered = render_welcome(&item, &theme);
+    assert!(!rendered.contains("google-a\n"));
+    assert!(!rendered.contains("\n  gents-cli-eval"));
+    assert!(rendered.contains("google-agents-cli-eval"));
+    assert!(rendered.contains("google-agents-cli-observability"));
+    assert!(rendered.contains("google-agents-cli-publish"));
+    assert!(rendered.contains("google-agents-cli-scaffold"));
+    assert!(rendered.contains("google-agents-cli-workflow"));
+}

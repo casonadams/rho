@@ -1,4 +1,4 @@
-use crate::ui::interactive::layout::wrap_to_width;
+use crate::ui::interactive::layout::wrap_words_to_width;
 use crate::ui::theme::Theme;
 use std::collections::BTreeMap;
 
@@ -9,7 +9,7 @@ fn append_welcome_section(out: &mut String, title: &str, items: &[String], dim: 
         return;
     }
     let text = items.join(", ");
-    let wrapped = wrap_to_width(&text, 76);
+    let wrapped = wrap_words_to_width(&text, 76);
     out.push_str(&format!("{dim}[{title}]{dim:#}\n"));
     for line in wrapped {
         out.push_str(&format!("  {line}\n"));
