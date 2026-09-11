@@ -4,6 +4,53 @@ mod contents;
 
 pub use contents::convert_messages;
 
+pub fn is_core_claude_tool(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "read"
+            | "write"
+            | "edit"
+            | "bash"
+            | "grep"
+            | "glob"
+            | "askuserquestion"
+            | "enterplanmode"
+            | "exitplanmode"
+            | "killshell"
+            | "notebookedit"
+            | "skill"
+            | "task"
+            | "taskoutput"
+            | "todowrite"
+            | "webfetch"
+            | "websearch"
+    )
+}
+
+pub fn to_claude_tool_name(name: &str) -> String {
+    if is_core_claude_tool(name) || name.starts_with("mcp__") {
+        name.to_string()
+    } else {
+        format!("mcp__rho__{name}")
+    }
+}
+
+pub fn from_claude_tool_name(name: &str) -> &str {
+    if let Some(rest) = name.strip_prefix("mcp__rho__") {
+        rest
+    } else if name.eq_ignore_ascii_case("read") {
+        "read"
+    } else if name.eq_ignore_ascii_case("write") {
+        "write"
+    } else if name.eq_ignore_ascii_case("edit") {
+        "edit"
+    } else if name.eq_ignore_ascii_case("bash") {
+        "bash"
+    } else {
+        name
+    }
+}
+
 use rig::completion::{CompletionError, CompletionRequest};
 use rig::message::{Message, ToolChoice};
 use serde_json::{Value, json};
@@ -126,7 +173,7 @@ fn convert_tools(request: &CompletionRequest) -> Vec<Value> {
         .iter()
         .map(|t| {
             json!({
-                "name": t.name,
+                "name": to_claude_tool_name(&t.name),
                 "description": t.description,
                 "input_schema": t.parameters,
             })
@@ -140,7 +187,7 @@ fn convert_tool_choice(choice: &ToolChoice) -> Value {
         ToolChoice::Required => json!({ "type": "any" }),
         ToolChoice::Specific { function_names } => {
             if let Some(name) = function_names.first() {
-                json!({ "type": "tool", "name": name })
+                json!({ "type": "tool", "name": to_claude_tool_name(name) })
             } else {
                 json!({ "type": "auto" })
             }

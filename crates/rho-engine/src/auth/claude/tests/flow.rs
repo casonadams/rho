@@ -29,7 +29,11 @@ impl OAuthLoginCallbacks for MockCallbacks {
 
 #[test]
 fn test_build_authorize_url() {
-    let url = build_authorize_url("http://localhost:51122/callback", "challenge123", "state456");
+    let url = build_authorize_url(
+        "https://platform.claude.com/oauth/code/callback",
+        "challenge123",
+        "state456",
+    );
     assert!(url.starts_with(AUTHORIZE_URL));
     let fragments = [
         "client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e",
@@ -37,14 +41,11 @@ fn test_build_authorize_url() {
         "code_challenge_method=S256",
         "state=state456",
         "code=true",
+        "redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback",
     ];
     for f in fragments {
         assert!(url.contains(f));
     }
-    assert!(
-        url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A51122%2Fcallback")
-            || url.contains("redirect_uri=http://localhost:51122/callback")
-    );
 }
 
 #[test]

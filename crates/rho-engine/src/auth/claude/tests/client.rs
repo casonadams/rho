@@ -15,11 +15,11 @@ fn test_claude_constants() {
         urls,
         (
             "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-            "https://claude.ai/oauth/authorize",
+            "https://claude.com/cai/oauth/authorize",
             "https://platform.claude.com/v1/oauth/token",
             "https://api.anthropic.com/api/oauth/profile",
             "https://platform.claude.com/oauth/code/callback",
-            "claude-cli/2.1.62",
+            "claude-cli/2.1.226 (external, cli)",
             60,
         )
     );

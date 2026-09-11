@@ -31,7 +31,7 @@ impl PkceChallenge {
 }
 
 pub fn generate_state() -> String {
-    let mut random_bytes = [0u8; 16];
+    let mut random_bytes = [0u8; 32];
     rand::fill(&mut random_bytes);
     URL_SAFE_NO_PAD.encode(random_bytes)
 }

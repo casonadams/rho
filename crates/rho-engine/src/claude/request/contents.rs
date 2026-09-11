@@ -105,7 +105,7 @@ fn convert_assistant_content(item: &AssistantContent) -> Option<Value> {
         AssistantContent::ToolCall(call) => Some(json!({
             "type": "tool_use",
             "id": call.id.to_string(),
-            "name": call.function.name,
+            "name": super::to_claude_tool_name(&call.function.name),
             "input": call.function.arguments,
         })),
         _ => None,

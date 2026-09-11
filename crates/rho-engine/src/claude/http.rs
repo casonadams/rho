@@ -10,7 +10,7 @@ pub const PROVIDER_NAME: &str = "claude";
 
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub const ANTHROPIC_BETA: &str = "claude-code-20250219,oauth-2025-04-20";
-pub const USER_AGENT: &str = "claude-cli/2.1.62";
+pub const USER_AGENT: &str = "claude-cli/2.1.226 (external, cli)";
 
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     crate::install_crypto_provider();

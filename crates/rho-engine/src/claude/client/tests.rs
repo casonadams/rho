@@ -152,7 +152,7 @@ fn test_build_request_body_converts_messages_and_tools() {
         tools[0]["name"].as_str(),
         tools[0]["input_schema"]["type"].as_str(),
     );
-    assert_eq!(tool_info, (1, Some("test_tool"), Some("object")));
+    assert_eq!(tool_info, (1, Some("mcp__rho__test_tool"), Some("object")));
 }
 
 #[test]
@@ -196,7 +196,7 @@ fn test_claude_headers_contains_required_fields() {
         headers.get("anthropic-beta").unwrap(),
         "claude-code-20250219,oauth-2025-04-20"
     );
-    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.62");
+    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.226 (external, cli)");
 }
 
 #[test]

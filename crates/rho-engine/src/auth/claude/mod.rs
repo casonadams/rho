@@ -9,9 +9,7 @@ pub use client::{
     ClaudeTokenResponse, PROFILE_URL, REDIRECT_URI, SCOPES, TOKEN_TIMEOUT, USER_AGENT, exchange_code,
     exchange_code_with_redirect, fetch_profile, refresh_token,
 };
-pub use flow::{
-    CALLBACK_TIMEOUT, DEFAULT_LOOPBACK_PORT, acquire_auth_code, build_authorize_url, parse_auth_code_and_state,
-};
+pub use flow::{acquire_auth_code, build_authorize_url, parse_auth_code_and_state};
 pub use local::{detect_local_claude_credentials, detect_local_claude_credentials_async};
 
 use crate::auth::pkce::{PkceChallenge, generate_state};
@@ -82,8 +80,13 @@ fn resolve_account_ids(
     (account_id, account_email)
 }
 
-async fn exchange_and_resolve_profile(code: &str, verifier: &str, redirect_uri: &str) -> Result<StoredCredential> {
-    let token = exchange_code_with_redirect(code, verifier, redirect_uri).await?;
+async fn exchange_and_resolve_profile(
+    code: &str,
+    verifier: &str,
+    redirect_uri: &str,
+    state: Option<&str>,
+) -> Result<StoredCredential> {
+    let token = exchange_code_with_redirect(code, verifier, redirect_uri, state).await?;
     let profile = fetch_profile(&token.access_token).await;
     let (account_id, account_email) = resolve_account_ids(&token, &profile);
     Ok(make_oauth_cred(token, account_id, account_email))
@@ -102,7 +105,7 @@ pub async fn perform_login(callbacks: &dyn OAuthLoginCallbacks) -> Result<Stored
         .on_progress("Exchanging authorization code for tokens...")
         .await?;
 
-    exchange_and_resolve_profile(&code, &pkce.verifier, &redirect_uri).await
+    exchange_and_resolve_profile(&code, &pkce.verifier, &redirect_uri, Some(&state)).await
 }
 
 fn resolve_refreshed_ids(

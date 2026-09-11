@@ -196,9 +196,10 @@ impl SseParser {
         } else {
             serde_json::from_str(&tool.input_json).unwrap_or_else(|_| serde_json::json!({}))
         };
+        let canonical_name = crate::claude::request::from_claude_tool_name(&tool.name).to_string();
         events.push(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
             StreamPartId::wire(tool.id),
-            tool.name,
+            canonical_name,
             args,
         ))));
     }

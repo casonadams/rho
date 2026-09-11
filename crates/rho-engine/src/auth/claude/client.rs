@@ -4,13 +4,13 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-pub const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
+pub const AUTHORIZE_URL: &str = "https://claude.com/cai/oauth/authorize";
 pub const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 pub const PROFILE_URL: &str = "https://api.anthropic.com/api/oauth/profile";
 pub const REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
-pub const SCOPES: &str = "user:inference user:profile user:sessions:claude_code user:mcp_servers";
+pub const SCOPES: &str = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(60);
-pub const USER_AGENT: &str = "claude-cli/2.1.62";
+pub const USER_AGENT: &str = "claude-cli/2.1.226 (external, cli)";
 pub const ANTHROPIC_BETA: &str = "claude-code-20250219,oauth-2025-04-20";
 
 static CLAUDE_AUTH_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
@@ -68,7 +68,7 @@ pub struct ClaudeProfileOrganization {
 }
 
 pub async fn exchange_code(code: &str, verifier: &str) -> Result<ClaudeTokenResponse> {
-    exchange_code_with_redirect(code, verifier, REDIRECT_URI).await
+    exchange_code_with_redirect(code, verifier, REDIRECT_URI, None).await
 }
 
 async fn parse_claude_token_response(res: reqwest::Response) -> Result<ClaudeTokenResponse> {
@@ -88,15 +88,24 @@ pub async fn exchange_code_with_redirect(
     code: &str,
     verifier: &str,
     redirect_uri: &str,
+    state: Option<&str>,
 ) -> Result<ClaudeTokenResponse> {
-    let clean_code = code.split_once('#').map(|(c, _)| c).unwrap_or(code).trim();
-    let form = [
+    let (clean_code, code_state) = code
+        .split_once('#')
+        .map(|(c, s)| (c.trim(), Some(s.trim())))
+        .unwrap_or((code.trim(), None));
+    let effective_state = state.or(code_state);
+
+    let mut form = vec![
         ("grant_type", "authorization_code"),
         ("client_id", CLIENT_ID),
         ("code", clean_code),
         ("code_verifier", verifier),
         ("redirect_uri", redirect_uri),
     ];
+    if let Some(s) = effective_state {
+        form.push(("state", s));
+    }
     let res = claude_auth_client()
         .post(TOKEN_URL)
         .header(reqwest::header::USER_AGENT, USER_AGENT)
