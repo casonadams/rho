@@ -14,21 +14,31 @@ fn pending_batch_preserves_text_and_keeps_the_latest_activity() {
     batch.push(UiEvent::Activity(Activity::Working));
 
     let drained = batch.drain();
-    assert_eq!(drained.text.as_bytes(), b"one two");
-    assert!(drained.stream_text.is_empty());
+    assert_eq!(drained.text().as_bytes(), b"one two");
+    assert_eq!(
+        drained.outputs,
+        vec![OutputEvent::Text("one two".into())]
+    );
     assert_eq!(drained.activity, Some(Activity::Working));
     assert!(batch.is_empty());
 }
 
 #[test]
-fn pending_batch_keeps_stream_output_separate_from_generic_output() {
+fn pending_batch_preserves_order_and_coalesces_same_output_kinds() {
     let mut batch = PendingUiBatch::new(1024);
-    batch.push(UiEvent::Output(OutputEvent::Text("notice".into())));
-    batch.push(UiEvent::Output(OutputEvent::StreamText("response".into())));
+    batch.push(UiEvent::Output(OutputEvent::Text("notice\n".into())));
+    batch.push(UiEvent::Output(OutputEvent::StreamText("Com".into())));
+    batch.push(UiEvent::Output(OutputEvent::StreamText("mitted".into())));
 
     let drained = batch.drain();
-    assert_eq!(drained.text, "notice");
-    assert_eq!(drained.stream_text, "response");
+    assert_eq!(
+        drained.outputs,
+        vec![
+            OutputEvent::Text("notice\n".into()),
+            OutputEvent::StreamText("Committed".into()),
+        ]
+    );
+    assert_eq!(drained.text(), "notice\nCommitted");
 }
 
 #[test]
@@ -49,7 +59,7 @@ fn step_streaming_flood(
     (frame, since_frame, input_visible_at): (&mut usize, &mut usize, &mut Option<usize>),
 ) {
     if *since_frame == 64 || fragments.is_empty() {
-        output.push_str(&batch.drain().text);
+        output.push_str(&batch.drain().text());
         *frame += 1;
         *since_frame = 0;
         return;
@@ -64,7 +74,7 @@ fn step_streaming_flood(
         batch.push(UiEvent::Output(OutputEvent::Text(fragment))),
         BatchDecision::Flush(_)
     ) {
-        output.push_str(&batch.drain().text);
+        output.push_str(&batch.drain().text());
     }
     *since_frame += 1;
 }

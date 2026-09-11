@@ -57,7 +57,7 @@ fn many_stream_fragments_are_written_with_one_controller_flush() {
         pending.push(UiEvent::Output(OutputEvent::Text("token".into())));
     }
 
-    controller.write_output(&pending.drain().text).unwrap();
+    controller.write_output(&pending.drain().text()).unwrap();
 
     let operations = operations.borrow();
     assert_eq!(

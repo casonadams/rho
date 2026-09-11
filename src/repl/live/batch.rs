@@ -114,9 +114,17 @@ impl LiveBatch {
         changed |= self.apply_tool_updates(controller, &mut drained)?;
         let mut wrote_output = false;
 
-        if !drained.stream_text.is_empty() {
-            controller.write_stream_output(&drained.stream_text)?;
-            wrote_output = true;
+        for output in drained.outputs {
+            match output {
+                crate::ui::interactive::OutputEvent::Text(text) => {
+                    controller.write_output(&text)?;
+                    wrote_output = true;
+                }
+                crate::ui::interactive::OutputEvent::StreamText(text) => {
+                    controller.write_stream_output(&text)?;
+                    wrote_output = true;
+                }
+            }
         }
 
         for item in drained.transcript_items {
@@ -126,9 +134,7 @@ impl LiveBatch {
             changed = true;
         }
 
-        if !drained.text.is_empty() {
-            controller.write_output(&drained.text)?;
-        } else if (changed || redraw) && !wrote_output {
+        if (changed || redraw) && !wrote_output {
             controller.redraw()?;
         }
         Ok(())

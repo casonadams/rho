@@ -504,15 +504,22 @@ mod regressions {
                     .append_tool_chunks(drained.tool_chunks.iter().map(String::as_str))
                     .unwrap();
             }
+            let had_outputs = !drained.outputs.is_empty();
+            for output in drained.outputs {
+                match output {
+                    crate::ui::interactive::OutputEvent::Text(text) => {
+                        controller.write_output(&text).unwrap();
+                    }
+                    crate::ui::interactive::OutputEvent::StreamText(text) => {
+                        controller.write_stream_output(&text).unwrap();
+                    }
+                }
+            }
+            let had_transcript = !drained.transcript_items.is_empty();
             for item in drained.transcript_items {
                 controller.push_transcript_item(item).unwrap();
             }
-            if !drained.stream_text.is_empty() {
-                controller.write_stream_output(&drained.stream_text).unwrap();
-            }
-            if !drained.text.is_empty() {
-                controller.write_output(&drained.text).unwrap();
-            } else {
+            if !had_outputs && !had_transcript {
                 controller.redraw().unwrap();
             }
         }
@@ -633,6 +640,35 @@ mod regressions {
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
             assert_one_blank_above_committed_card(&controller);
             assert_screen_region_aligned(&controller);
+        }
+
+        #[test]
+        fn stream_after_tool_preserves_word_without_premature_newline() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            controller.state_mut().editor_mut().set_text("");
+
+            commit_bash_after_stream(&mut controller, &mut events, &renderer);
+
+            renderer.write_output("\n");
+            renderer.print_token("Com");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            renderer.print_token("mitted in 78d510a:\n");
+            renderer.print_token("• fix(ui): wrap welcome screen items on word boundaries\n");
+            renderer.flush();
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let lines = controller.backend.text();
+            assert!(
+                lines.iter().any(|l| l.contains("Committed in 78d510a:")),
+                "Expected 'Committed in 78d510a:' on a single line, but lines were:\n{lines:#?}"
+            );
+            assert!(
+                !lines.iter().any(|l| l.trim() == "Com"),
+                "'Com' was split onto its own line:\n{lines:#?}"
+            );
         }
 
         #[test]

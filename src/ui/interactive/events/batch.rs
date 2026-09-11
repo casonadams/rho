@@ -21,8 +21,8 @@ pub enum BatchDecision {
 
 #[derive(Debug)]
 pub struct PendingUiBatch {
-    text: String,
-    stream_text: String,
+    outputs: Vec<OutputEvent>,
+    total_output_bytes: usize,
     activity: Option<Activity>,
     running_tool: Option<Option<String>>,
     tool_start: Option<ToolStartRequest>,
@@ -36,8 +36,7 @@ pub struct PendingUiBatch {
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct PendingUiDrain {
-    pub text: String,
-    pub stream_text: String,
+    pub outputs: Vec<OutputEvent>,
     pub activity: Option<Activity>,
     pub running_tool: Option<Option<String>>,
     pub tool_start: Option<ToolStartRequest>,
@@ -48,11 +47,23 @@ pub struct PendingUiDrain {
     pub transcript_items: Vec<crate::ui::interactive::TranscriptItem>,
 }
 
+impl PendingUiDrain {
+    pub fn text(&self) -> String {
+        let mut text = String::new();
+        for output in &self.outputs {
+            match output {
+                OutputEvent::Text(s) | OutputEvent::StreamText(s) => text.push_str(s),
+            }
+        }
+        text
+    }
+}
+
 impl PendingUiBatch {
     pub fn new(max_text_bytes: usize) -> Self {
         Self {
-            text: String::new(),
-            stream_text: String::new(),
+            outputs: Vec::new(),
+            total_output_bytes: 0,
             activity: None,
             running_tool: None,
             tool_start: None,
@@ -65,10 +76,30 @@ impl PendingUiBatch {
         }
     }
 
+    fn push_output(&mut self, output: OutputEvent, len: usize) {
+        self.total_output_bytes += len;
+        match output {
+            OutputEvent::Text(text) => {
+                if let Some(OutputEvent::Text(existing)) = self.outputs.last_mut() {
+                    existing.push_str(&text);
+                } else {
+                    self.outputs.push(OutputEvent::Text(text));
+                }
+            }
+            OutputEvent::StreamText(text) => {
+                if let Some(OutputEvent::StreamText(existing)) = self.outputs.last_mut() {
+                    existing.push_str(&text);
+                } else {
+                    self.outputs.push(OutputEvent::StreamText(text));
+                }
+            }
+        }
+    }
+
     fn flush_barrier_for_text(&self, has_newline: bool) -> BatchDecision {
         if has_newline {
             BatchDecision::Flush(FlushBarrier::Newline)
-        } else if self.text.len() + self.stream_text.len() >= self.max_text_bytes {
+        } else if self.total_output_bytes >= self.max_text_bytes {
             BatchDecision::Flush(FlushBarrier::Size)
         } else {
             BatchDecision::Pending
@@ -103,14 +134,15 @@ impl PendingUiBatch {
 
     pub fn push(&mut self, event: UiEvent) -> BatchDecision {
         match event {
-            UiEvent::Output(OutputEvent::Text(text)) => {
-                let has_newline = text.contains('\n');
-                self.text.push_str(&text);
-                self.flush_barrier_for_text(has_newline)
-            }
-            UiEvent::Output(OutputEvent::StreamText(text)) => {
-                let has_newline = text.contains('\n');
-                self.stream_text.push_str(&text);
+            UiEvent::Output(output) => {
+                let (has_newline, len) = match &output {
+                    OutputEvent::Text(text) | OutputEvent::StreamText(text) => {
+                        (text.contains('\n'), text.len())
+                    }
+                };
+                if len > 0 {
+                    self.push_output(output, len);
+                }
                 self.flush_barrier_for_text(has_newline)
             }
             UiEvent::Activity(a) => {
@@ -135,9 +167,9 @@ impl PendingUiBatch {
     }
 
     pub fn drain(&mut self) -> PendingUiDrain {
+        self.total_output_bytes = 0;
         PendingUiDrain {
-            text: std::mem::take(&mut self.text),
-            stream_text: std::mem::take(&mut self.stream_text),
+            outputs: std::mem::take(&mut self.outputs),
             activity: self.activity.take(),
             running_tool: self.running_tool.take(),
             tool_start: self.tool_start.take(),
@@ -150,8 +182,7 @@ impl PendingUiBatch {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.text.is_empty()
-            && self.stream_text.is_empty()
+        self.outputs.is_empty()
             && self.activity.is_none()
             && self.running_tool.is_none()
             && self.tool_start.is_none()
