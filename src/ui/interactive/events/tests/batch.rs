@@ -15,10 +15,7 @@ fn pending_batch_preserves_text_and_keeps_the_latest_activity() {
 
     let drained = batch.drain();
     assert_eq!(drained.text().as_bytes(), b"one two");
-    assert_eq!(
-        drained.outputs,
-        vec![OutputEvent::Text("one two".into())]
-    );
+    assert_eq!(drained.outputs, vec![OutputEvent::Text("one two".into())]);
     assert_eq!(drained.activity, Some(Activity::Working));
     assert!(batch.is_empty());
 }

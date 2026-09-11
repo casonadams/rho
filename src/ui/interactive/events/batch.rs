@@ -136,9 +136,7 @@ impl PendingUiBatch {
         match event {
             UiEvent::Output(output) => {
                 let (has_newline, len) = match &output {
-                    OutputEvent::Text(text) | OutputEvent::StreamText(text) => {
-                        (text.contains('\n'), text.len())
-                    }
+                    OutputEvent::Text(text) | OutputEvent::StreamText(text) => (text.contains('\n'), text.len()),
                 };
                 if len > 0 {
                     self.push_output(output, len);

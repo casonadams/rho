@@ -227,6 +227,13 @@ const CLAUDE_PRESETS: &[(&str, &str, &str, &str, usize)] = &[
         "1M ctx · complex coding",
         1_000_000,
     ),
+    (
+        "claude-fable-5.1",
+        "Claude Fable 5.1",
+        "claude",
+        "1M ctx · reasoning & agents",
+        1_000_000,
+    ),
 ];
 
 pub fn claude_preset_models() -> Vec<DiscoveredModel> {

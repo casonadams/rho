@@ -99,6 +99,7 @@ pub fn normalize_model_alias(model: &str) -> &str {
         "haiku" | "claude-haiku-4-5" => "claude-haiku-4-5",
         "sonnet-5" | "claude-sonnet-5" => "claude-sonnet-5",
         "opus-5" | "claude-opus-5" => "claude-opus-5",
+        "fable" | "claude-fable" | "claude-fable-5" | "claude-fable-5.1" => "claude-fable-5.1",
         other => other,
     }
 }
