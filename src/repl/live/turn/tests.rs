@@ -390,3 +390,43 @@ async fn test_turn_finish_active_turn_handles_compacted_notice() {
     super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
     assert_eq!(h.controller.state().footer().activity, Activity::Idle);
 }
+
+#[tokio::test]
+async fn test_turn_paste_routes_to_active_modal() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, _, engine) = create_harness_engine(temp.path()).await;
+    let mut f = TurnTestFixture::new("background text");
+    let mut modal = crate::ui::interactive::ModalState::new("Permission Required", "", vec![]);
+    modal.enter_input_mode("edit");
+    f.controller.state_mut().push_modal(modal);
+
+    let steering = std::sync::Arc::new(f.steering.clone());
+    let mut lp = super::runner::TurnLoop::new(
+        (&mut f.session, &engine),
+        &mut f.controller,
+        (steering, f.model_switch.clone()),
+    );
+    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
+    let cancellation = crate::engine::runner::CancellationSignal::default();
+    let mut res = super::event::TurnInputResources {
+        history: &mut f.history,
+        completions: &f.completions,
+        ui_events: &mut ui_events,
+        cancellation: &cancellation,
+    };
+
+    let handled = super::event::dispatch_turn_input(
+        &mut lp,
+        &mut res,
+        crossterm::event::Event::Paste("pasted command".to_string()),
+    )
+    .await
+    .unwrap();
+    assert!(!handled);
+    assert_eq!(
+        f.controller.state().active_modal().unwrap().input.text(),
+        "pasted command"
+    );
+    f.controller.state_mut().pop_modal();
+    assert_eq!(f.controller.state().editor().text(), "background text");
+}

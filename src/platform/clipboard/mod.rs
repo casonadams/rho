@@ -68,6 +68,15 @@ pub fn get_text() -> Result<Option<String>> {
     Ok(get_os_clipboard_text())
 }
 
+pub fn get_text_or_image_path() -> Option<String> {
+    if let Ok(Some(img)) = get_image()
+        && let Ok(path) = save_image_to_temp_png(&img)
+    {
+        return Some(path.to_string_lossy().into_owned());
+    }
+    get_text().ok().flatten()
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn pipe_to_command(cmd: &mut Command, text: &str) -> bool {
     if let Ok(mut child) = cmd.stdin(Stdio::piped()).spawn() {

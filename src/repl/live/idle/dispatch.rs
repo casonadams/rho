@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
 use crate::repl::live::batch::LiveBatch;
-use crate::repl::live::modal::handle_modal_key;
+use crate::repl::live::modal::{handle_modal_key, handle_modal_paste};
 use crate::repl::live::navigation::{apply_completion, navigate_history_next, navigate_history_previous};
 use crate::ui::interactive::{
     InputAction, QueuedMessage, TerminalBackend, TerminalController, UiAction, UiEffect, map_key,
@@ -33,8 +33,10 @@ pub(super) fn handle_paste<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     (batch, text, completions): (&mut LiveBatch, String, &CompletionSet),
 ) -> Result<()> {
-    controller.state_mut().apply(UiAction::Paste(text));
-    update_autocomplete_state(controller, completions);
+    if !handle_modal_paste(controller, &text) {
+        controller.state_mut().apply(UiAction::Paste(text));
+        update_autocomplete_state(controller, completions);
+    }
     batch.flush(controller, true)
 }
 

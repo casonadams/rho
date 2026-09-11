@@ -10,7 +10,7 @@ pub mod thinking;
 pub mod tree;
 
 use crate::error::Result;
-use crate::ui::interactive::{EditorState, TerminalBackend, TerminalController, UiAction};
+use crate::ui::interactive::{EditorState, ModalMode, TerminalBackend, TerminalController, UiAction};
 use crossterm::event::KeyEvent;
 
 pub use interaction::{PendingModal, install_interaction};
@@ -70,10 +70,55 @@ pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {
         UiAction::MoveToEnd => input.move_to_end(),
         UiAction::DeleteWordBackward => input.delete_word_backward(),
         UiAction::DeleteWordForward => input.delete_word_forward(),
+        UiAction::DeleteToLineStart => input.delete_to_line_start(),
+        UiAction::DeleteToLineEnd => input.delete_to_line_end(),
         UiAction::Yank => input.yank(),
         UiAction::Undo => input.undo(),
+        UiAction::Paste(text) => input.handle_paste(&text),
         _ => {}
     }
+}
+
+pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalController<B>, text: &str) -> bool {
+    let Some(active) = controller.state().active_modal() else {
+        return false;
+    };
+    let is_input_mode = matches!(active.mode, ModalMode::Input { .. });
+    let is_searchable = active.is_searchable;
+    let allow_custom = active.allow_custom;
+    let title = active.title.clone();
+    let filter_query = active.filter_query.clone();
+    let selected = active.selected;
+    let option_input = active.options.get(selected).and_then(|o| o.input.clone());
+
+    if is_input_mode {
+        if let Some(modal) = controller.state_mut().active_modal_mut() {
+            apply_input_edit(&mut modal.input, UiAction::Paste(text.to_string()));
+        }
+    } else if is_searchable {
+        let mut query = filter_query;
+        query.push_str(text);
+        if let Some(modal) = controller.state_mut().active_modal_mut() {
+            modal.set_filter(&query);
+        }
+    } else if allow_custom {
+        let prompt = interaction::prompt_label_for(&title);
+        if let Some(modal) = controller.state_mut().active_modal_mut() {
+            modal.enter_input_mode(prompt);
+            apply_input_edit(&mut modal.input, UiAction::Paste(text.to_string()));
+        }
+    } else if let Some(spec) = option_input
+        && let Some(modal) = controller.state_mut().active_modal_mut()
+    {
+        modal.selected = selected;
+        modal.input_option = Some(selected);
+        modal.enter_input_mode(&spec.label);
+        if let Some(prefill) = spec.value {
+            modal.input.set_text(prefill);
+        }
+        apply_input_edit(&mut modal.input, UiAction::Paste(text.to_string()));
+    }
+    true
 }
 
 pub fn handle_modal_key<B: TerminalBackend>(

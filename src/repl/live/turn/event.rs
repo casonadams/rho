@@ -7,7 +7,7 @@ use super::runner::TurnLoop;
 use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
-use crate::repl::live::modal::{ModalKeyResult, handle_modal_key};
+use crate::repl::live::modal::{ModalKeyResult, handle_modal_key, handle_modal_paste};
 use crate::ui::interactive::{TerminalBackend, UiAction};
 
 pub(super) struct TurnInputResources<'a> {
@@ -28,7 +28,9 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
             Ok(false)
         }
         Event::Paste(text) => {
-            lp.controller.state_mut().apply(UiAction::Paste(text));
+            if !handle_modal_paste(lp.controller, &text) {
+                lp.controller.state_mut().apply(UiAction::Paste(text));
+            }
             lp.batch.flush(lp.controller, true)?;
             Ok(false)
         }

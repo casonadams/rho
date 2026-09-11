@@ -67,6 +67,13 @@ fn apply_tree_edit<B: TerminalBackend>(controller: &mut TerminalController<B>, k
                 modal.input.set_text("");
             }
         }
+        InputAction::ClipboardPasteImage => {
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
+                && let Some(modal) = controller.state_mut().active_modal_mut()
+            {
+                apply_input_edit(&mut modal.input, crate::ui::interactive::UiAction::Paste(text));
+            }
+        }
         InputAction::Edit(action) => {
             if let Some(modal) = controller.state_mut().active_modal_mut() {
                 apply_input_edit(&mut modal.input, action);
@@ -134,7 +141,7 @@ fn submit_tree_label<B: TerminalBackend>(controller: &mut TerminalController<B>)
     let input_text = controller
         .state()
         .active_modal()
-        .map(|m| m.input.text().trim().to_string())
+        .map(|m| m.input.expanded_text().trim().to_string())
         .unwrap_or_default();
     let Some(node_id) = selected_tree_node_id(controller) else {
         controller.state_mut().pop_modal();

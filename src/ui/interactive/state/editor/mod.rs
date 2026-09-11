@@ -37,6 +37,10 @@ impl EditorState {
         &self.pastes
     }
 
+    pub fn expanded_text(&self) -> String {
+        self.pastes.expand(&self.text)
+    }
+
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
         self.cursor = self.text.len();

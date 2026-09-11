@@ -43,6 +43,14 @@ impl PermDriver {
         )
         .unwrap();
     }
+
+    fn send_key(&mut self, key: KeyEvent) {
+        let _ = super::super::modal::handle_modal_key(&mut self.controller, key, &mut self.pending).unwrap();
+    }
+
+    fn paste(&mut self, text: &str) {
+        let _ = crate::repl::live::modal::handle_modal_paste(&mut self.controller, text);
+    }
 }
 
 fn sample_multiline_prompt() -> InteractionPrompt {
@@ -258,4 +266,75 @@ fn test_permission_prompt_banner_bar_transitions() {
     driver.send(KeyCode::Right);
     driver.send(KeyCode::Enter);
     assert!(driver.controller.rendered().unwrap().top_divider.contains("pattern"));
+}
+
+#[test]
+fn test_permission_prompt_paste_in_edit_flow() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+    driver.send_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+    assert_eq!(driver.controller.state().active_modal().unwrap().input.text(), "");
+
+    driver.paste("echo pasted_command");
+    assert_eq!(
+        driver.controller.state().active_modal().unwrap().input.text(),
+        "echo pasted_command"
+    );
+
+    driver.send(KeyCode::Enter);
+    assert!(driver.controller.state().active_modal().is_none());
+    match driver.rx.try_recv().unwrap() {
+        InteractionResponse::SelectedWithInput { index, text } => {
+            assert_eq!(index, 1);
+            assert_eq!(text, "echo pasted_command");
+        }
+        other => panic!("expected SelectedWithInput, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_permission_prompt_paste_in_select_mode_on_always() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Right);
+    assert_eq!(driver.controller.state().active_modal().unwrap().selected, 2);
+
+    driver.paste("custom_pattern *");
+    let active = driver.controller.state().active_modal().unwrap();
+    assert!(matches!(active.mode, crate::ui::interactive::ModalMode::Input { .. }));
+    assert!(active.input.text().contains("custom_pattern *"));
+
+    driver.send(KeyCode::Enter);
+    assert!(driver.controller.state().active_modal().is_none());
+    match driver.rx.try_recv().unwrap() {
+        InteractionResponse::SelectedWithInput { index, text } => {
+            assert_eq!(index, 2);
+            assert!(text.contains("custom_pattern *"));
+        }
+        other => panic!("expected SelectedWithInput, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_permission_prompt_large_paste_expanded_on_submit() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    driver.send(KeyCode::Right);
+    driver.send(KeyCode::Enter);
+    driver.send_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+    let big_paste = (1..=20)
+        .map(|i| format!("command_line_{i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    driver.paste(&big_paste);
+
+    driver.send(KeyCode::Enter);
+    match driver.rx.try_recv().unwrap() {
+        InteractionResponse::SelectedWithInput { index, text } => {
+            assert_eq!(index, 1);
+            assert_eq!(text, big_paste);
+        }
+        other => panic!("expected SelectedWithInput, got {other:?}"),
+    }
 }

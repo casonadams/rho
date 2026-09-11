@@ -3,7 +3,8 @@ mod prompt;
 mod select_mode;
 
 #[cfg(test)]
-pub use prompt::{is_input_trigger, prompt_label_for};
+pub use prompt::is_input_trigger;
+pub(crate) use prompt::prompt_label_for;
 
 use crossterm::event::KeyEvent;
 

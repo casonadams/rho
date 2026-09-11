@@ -37,7 +37,7 @@ fn submit_enter<B: TerminalBackend>(controller: &mut TerminalController<B>, pend
     let custom = controller
         .state()
         .active_modal()
-        .map(|m| m.input.text().trim().to_string())
+        .map(|m| m.input.expanded_text().trim().to_string())
         .unwrap_or_default();
     let input_option = controller.state().active_modal().and_then(|m| m.input_option);
     controller.state_mut().pop_modal();
@@ -73,6 +73,11 @@ fn handle_plain_key<B: TerminalBackend>(controller: &mut TerminalController<B>, 
         }
         InputAction::HistoryPrevious => handle_vertical_move(controller, false),
         InputAction::HistoryNext => handle_vertical_move(controller, true),
+        InputAction::ClipboardPasteImage => {
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path() {
+                apply_modal_edit(controller, UiAction::Paste(text));
+            }
+        }
         InputAction::Edit(action) => apply_modal_edit(controller, action),
         _ => {}
     }

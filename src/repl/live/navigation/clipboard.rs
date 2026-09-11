@@ -19,20 +19,12 @@ pub fn copy_last_message<B: TerminalBackend>(session: &ReplSession, controller: 
 }
 
 pub fn paste_clipboard<B: TerminalBackend>(
-    renderer: &crate::ui::TerminalRenderer,
+    _renderer: &crate::ui::TerminalRenderer,
     controller: &mut TerminalController<B>,
 ) {
-    if let Ok(Some(img)) = crate::platform::clipboard::get_image() {
-        match crate::platform::clipboard::save_image_to_temp_png(&img) {
-            Ok(path) => {
-                let path_str = path.to_string_lossy();
-                controller.state_mut().editor_mut().handle_paste(&path_str);
-            }
-            Err(error) => {
-                renderer.print_notice(&format!("  [Failed to save clipboard image: {error}]\n"));
-            }
-        }
-    } else if let Ok(Some(text)) = crate::platform::clipboard::get_text() {
+    if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
+        && !crate::repl::live::modal::handle_modal_paste(controller, &text)
+    {
         controller.state_mut().editor_mut().handle_paste(&text);
     }
 }

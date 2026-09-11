@@ -135,10 +135,18 @@ fn handle_plain_select_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     (key, pending): (KeyEvent, &mut Option<PendingModal>),
 ) -> Result<()> {
-    if let InputAction::Edit(UiAction::Insert(c)) = map_key(key)
-        && let Some(modal) = controller.state_mut().active_modal_mut()
-    {
-        insert_modal_character(modal, c);
+    match map_key(key) {
+        InputAction::ClipboardPasteImage => {
+            if let Some(text) = crate::platform::clipboard::get_text_or_image_path() {
+                super::super::handle_modal_paste(controller, &text);
+            }
+        }
+        InputAction::Edit(UiAction::Insert(c)) => {
+            if let Some(modal) = controller.state_mut().active_modal_mut() {
+                insert_modal_character(modal, c);
+            }
+        }
+        _ => {}
     }
     let _ = pending;
     Ok(())
