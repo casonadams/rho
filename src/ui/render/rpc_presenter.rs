@@ -1,20 +1,40 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use rho_harness_core::presentation::activity::ActivityToken;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::stream::ToolStreamPort;
-use rho_harness_core::presentation::{SessionStatus, ToolLine, WelcomeDisplay};
+use rho_harness_core::presentation::{InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay};
 use rho_harness_core::rpc::protocol::RpcEvent;
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc, oneshot};
+
+pub type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<InteractionResponse>>>>;
 
 #[derive(Clone)]
 pub struct RpcPresenter {
     event_tx: mpsc::UnboundedSender<RpcEvent>,
+    pending_approvals: PendingApprovals,
 }
 
 impl RpcPresenter {
     pub fn new(event_tx: mpsc::UnboundedSender<RpcEvent>) -> Self {
-        Self { event_tx }
+        Self {
+            event_tx,
+            pending_approvals: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn with_approvals(event_tx: mpsc::UnboundedSender<RpcEvent>, pending_approvals: PendingApprovals) -> Self {
+        Self {
+            event_tx,
+            pending_approvals,
+        }
+    }
+
+    pub fn pending_approvals(&self) -> PendingApprovals {
+        Arc::clone(&self.pending_approvals)
     }
 
     pub fn emit(&self, event: RpcEvent) {
@@ -77,7 +97,39 @@ impl Presenter for RpcPresenter {
     fn flush(&self) {}
 
     fn has_interactive_ui(&self) -> bool {
-        false
+        true
+    }
+
+    async fn request_interaction(&self, prompt: InteractionPrompt) -> Option<InteractionResponse> {
+        let approval_id = format!("appr-{}", uuid::Uuid::new_v4());
+        let (tx, rx) = oneshot::channel();
+        self.pending_approvals.lock().await.insert(approval_id.clone(), tx);
+
+        let arguments = serde_json::json!({
+            "body": prompt.body,
+            "options": prompt.options,
+            "initial_selection": prompt.initial_selection,
+            "initial_text": prompt.initial_text,
+        });
+
+        self.emit(RpcEvent::ToolApprovalRequest {
+            approval_id: approval_id.clone(),
+            tool: prompt.title,
+            arguments,
+            description: Some(prompt.body),
+        });
+        self.emit(RpcEvent::StatusChanged {
+            status: "waiting_approval".to_string(),
+        });
+
+        let response = match rx.await {
+            Ok(res) => Some(res),
+            Err(_) => Some(InteractionResponse::Cancelled),
+        };
+        self.emit(RpcEvent::StatusChanged {
+            status: "busy".to_string(),
+        });
+        response
     }
 
     fn start_spinner(&self, _message: &str) -> ActivityToken {

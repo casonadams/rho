@@ -26,7 +26,7 @@ pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
 pub use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
-pub use rpc_presenter::RpcPresenter;
+pub use rpc_presenter::{PendingApprovals, RpcPresenter};
 
 pub fn format_duration(duration: std::time::Duration) -> String {
     let secs = duration.as_secs();

@@ -198,7 +198,16 @@ async fn test_bash_cancellation_kills_process_group() {
 
     drop(future);
 
-    let content = std::fs::read_to_string(&pid_file).expect("read pid file");
+    let mut content = String::new();
+    for _ in 0..100 {
+        if let Ok(c) = std::fs::read_to_string(&pid_file)
+            && !c.trim().is_empty()
+        {
+            content = c;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     let pid: u32 = content.trim().parse().expect("parse pid");
     assert!(!crate::process::is_pid_tracked(pid));
     crate::process::wait_group_dead(pid).await;
