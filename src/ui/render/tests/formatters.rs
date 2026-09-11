@@ -86,8 +86,8 @@ fn test_format_write_preview_expansion_and_collapse() {
 fn test_format_thinking_block_renders_dimmed_with_trailing_breaks() {
     let theme = Theme::default();
     let formatted = format_thinking_block("analyzing the problem\nchecking tests", &theme);
-    assert!(formatted.contains("analyzing the problem"));
-    assert!(formatted.contains("checking tests"));
+    assert!(formatted.contains(" analyzing the problem"));
+    assert!(formatted.contains(" checking tests"));
     assert!(!formatted.contains("┌─ Thinking"));
     assert!(formatted.ends_with('\n'));
 }

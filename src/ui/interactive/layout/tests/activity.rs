@@ -35,7 +35,7 @@ fn busy_activity_renders_working_line_above_the_editor() {
     let layout = test_layout(&default_editor, &footer, None);
 
     assert!(
-        layout.working_line.contains('\u{280b}')
+        layout.working_line.starts_with(" \x1b[36m\u{280b}")
             && layout.working_line.contains("Working...")
             && layout.working_line.contains("\u{1b}[2m")
     );

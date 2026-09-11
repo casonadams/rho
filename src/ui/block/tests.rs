@@ -12,10 +12,11 @@ fn plain_blocks_wrap_and_pad_to_the_requested_width() {
         .with_vertical_padding()
         .render_plain("abcdefghij");
     let lines: Vec<&str> = rendered.lines().collect();
-    assert_eq!(lines.len(), 4);
+    assert_eq!(lines.len(), 5);
     assert!(lines.iter().all(|line| visible_width(line) == 6));
-    assert!(rendered.contains("abcdef"));
-    assert!(rendered.contains("ghij"));
+    assert!(rendered.contains("abcd"));
+    assert!(rendered.contains("efgh"));
+    assert!(rendered.contains("ij"));
 }
 
 #[test]
@@ -24,7 +25,8 @@ fn styled_blocks_wrap_to_full_width_and_preserve_active_color() {
     let lines: Vec<&str> = rendered.lines().collect();
     assert_eq!(lines.len(), 2);
     assert!(lines.iter().all(|line| visible_width(line) == 8));
-    assert!(lines[1].contains("\x1b[36mijkl"));
+    assert!(lines[0].starts_with("\x1b[40m \x1b[36m"));
+    assert!(lines[1].contains("\x1b[36mghijkl"));
 }
 
 #[test]
@@ -51,6 +53,9 @@ fn multiline_styled_blocks_preserve_background_across_resets_and_blank_lines() {
     let lines: Vec<&str> = rendered.lines().collect();
     assert_eq!(lines.len(), 5);
     assert_lines_padded_and_styled(&lines, 24, "\x1b[40m");
+    for line in &lines {
+        assert!(line.starts_with("\x1b[40m "));
+    }
     assert!(rendered.contains("\x1b[0m\x1b[40m extra"));
 }
 

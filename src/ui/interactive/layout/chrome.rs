@@ -83,6 +83,6 @@ pub fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usiz
         Activity::Compacting => "Compacting...",
         _ => "Working...",
     };
-    let full = format!("{accent}{spinner}{reset} {dim}{label}{reset}");
+    let full = format!(" {accent}{spinner}{reset} {dim}{label}{reset}");
     truncate_to_width(&full, width)
 }

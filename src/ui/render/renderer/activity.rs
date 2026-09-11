@@ -38,7 +38,7 @@ impl TerminalRenderer {
         let pb = ProgressBar::new_spinner();
         let style = ProgressStyle::default_spinner()
             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan} {msg} {elapsed:.dim}")
+            .template(" {spinner:.cyan} {msg} {elapsed:.dim}")
             .unwrap_or_else(|_| ProgressStyle::default_spinner());
         pb.set_style(style);
         pb.set_message(message.to_string());

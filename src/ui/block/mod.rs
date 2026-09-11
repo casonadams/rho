@@ -7,6 +7,8 @@ pub(crate) use wrap::{ANSI_PATTERN, visible_width};
 use anstyle::Style;
 use wrap::{wrap_plain_text, wrap_styled_line};
 
+const HORIZONTAL_PADDING: usize = 1;
+
 pub struct BlockFormat {
     style: Style,
     width: usize,
@@ -28,13 +30,13 @@ impl BlockFormat {
     }
 
     pub fn render_plain(&self, content: &str) -> String {
-        let inner_width = self.width.max(1);
+        let inner_width = self.inner_width();
         let lines = wrap_plain_text(content, inner_width);
         self.render_lines(&lines)
     }
 
     pub fn render_styled(&self, content: &str) -> String {
-        let inner_width = self.width.max(1);
+        let inner_width = self.inner_width();
         let lines: Vec<String> = content
             .lines()
             .flat_map(|line| wrap_styled_line(line, inner_width, self.style))
@@ -43,11 +45,15 @@ impl BlockFormat {
     }
 
     pub fn render_line(&self, content: &str) -> String {
-        let inner_width = self.width.max(1);
+        let inner_width = self.inner_width();
         let lines = wrap_styled_line(content, inner_width, self.style);
         let mut rendered = self.render_lines(&lines);
         rendered.pop();
         rendered
+    }
+
+    fn inner_width(&self) -> usize {
+        self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1)
     }
 
     fn render_lines(&self, lines: &[String]) -> String {
@@ -65,8 +71,14 @@ impl BlockFormat {
     }
 
     fn padded_line(&self, content: &str) -> String {
+        let pad = if self.width >= HORIZONTAL_PADDING * 2 {
+            HORIZONTAL_PADDING
+        } else {
+            0
+        };
         let visible = visible_width(content);
-        let trailing = self.width.saturating_sub(visible);
+        let occupied = pad.saturating_add(visible);
+        let trailing = self.width.saturating_sub(occupied);
         let style = self.style;
         let bg_str = style.render().to_string();
         let reset_str = if bg_str.is_empty() {
@@ -74,7 +86,11 @@ impl BlockFormat {
         } else {
             "\x1b[0m".to_string()
         };
-        format!("{style}{content}{style}{}{reset_str}\n", " ".repeat(trailing))
+        format!(
+            "{style}{}{content}{style}{}{reset_str}\n",
+            " ".repeat(pad),
+            " ".repeat(trailing)
+        )
     }
 }
 
