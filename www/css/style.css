@@ -322,14 +322,6 @@ code, pre {
   margin-bottom: 1.5rem;
 }
 
-.hero-pill-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--accent-green);
-  box-shadow: 0 0 10px var(--accent-green);
-}
-
 .hero-title {
   font-size: 3rem;
   font-weight: 800;
