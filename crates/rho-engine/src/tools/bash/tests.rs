@@ -264,14 +264,14 @@ async fn test_bash_sets_noninteractive_env_safeguards() {
     let tool = BashTool::new(std::env::current_dir().unwrap());
     let res = tool
         .execute(BashArgs {
-            command: "echo \"CI=$CI;GIT=$GIT_TERMINAL_PROMPT;PAGER=$PAGER\"".to_string(),
+            command: "echo \"CI=$CI;GIT=$GIT_TERMINAL_PROMPT;PAGER=$PAGER;NO_COLOR=$NO_COLOR;TERM=$TERM\"".to_string(),
             timeout: Some(5),
         })
         .await
         .unwrap();
 
     assert!(!res.is_error);
-    assert!(res.content.contains("CI=true;GIT=0;PAGER=cat"));
+    assert!(res.content.contains("CI=true;GIT=0;PAGER=cat;NO_COLOR=1;TERM=dumb"));
 }
 
 #[tokio::test]

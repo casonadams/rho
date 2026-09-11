@@ -133,25 +133,6 @@ pub struct WriteArgs {
     pub content: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ScriptStep {
-    /// Tool name to execute (e.g. 'read', 'bash', 'web_fetch')
-    pub tool: String,
-    /// Arguments for the tool as a JSON object
-    #[serde(default)]
-    pub args: serde_json::Value,
-    /// Optional regex filter to keep only matching lines from output
-    pub filter: Option<String>,
-    /// Surrounding lines around matches (default: 2, set 0 for matching lines only)
-    pub context: Option<usize>,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct ScriptArgs {
-    /// Ordered list of tool steps to execute sequentially
-    pub steps: Vec<ScriptStep>,
-}
-
 // Submodule aliases for backwards compatibility
 pub mod bash {
     pub use super::{BashArgs, DEFAULT_BASH_TIMEOUT_SEC};
@@ -176,7 +157,4 @@ pub mod web_search {
 }
 pub mod write {
     pub use super::WriteArgs;
-}
-pub mod script {
-    pub use super::{ScriptArgs, ScriptStep};
 }

@@ -12,15 +12,16 @@ fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>
     match (has_fd, has_rg) {
         (true, true) => {
             out.push(
-                "Use fd for file discovery and rg for content search instead of find, grep, glob, or ls round-trips",
+                "Use fd for file discovery and directory structure instead of find, glob, or ls; use depth for bounded overviews",
             );
-            out.push("Orient first: read README and manifests, run a shallow fd (depth 2) for layout, then targeted fd/rg searches, then read specific files");
+            out.push("Use rg for content search instead of grep or bash pipelines; narrow with path or type");
         }
         (true, false) => {
-            out.push("Use fd for file discovery instead of find, glob, or ls round-trips");
-            out.push("Orient first: read README and manifests, run a shallow fd (depth 2) for layout, then targeted searches, then read specific files");
+            out.push("Use fd for file discovery and directory structure instead of find, glob, or ls; use depth for bounded overviews");
         }
-        (false, true) => out.push("Use rg for content search instead of grep or bash pipelines"),
+        (false, true) => {
+            out.push("Use rg for content search instead of grep or bash pipelines; narrow with path or type")
+        }
         (false, false) if active_tools.iter().any(|t| t == "bash") => {
             out.push("Use bash for file operations like ls, rg, find");
         }
@@ -31,6 +32,10 @@ fn append_search_guidelines(active_tools: &[String], out: &mut Vec<&'static str>
 fn append_tool_guidelines(active_tools: &[String], out: &mut Vec<&'static str>) {
     if active_tools.iter().any(|t| t == "bash") {
         out.push("Commands run directly in the working directory; do not prefix commands with cd");
+        let has_inspectors = active_tools.iter().any(|t| matches!(t.as_str(), "fd" | "rg" | "read"));
+        if has_inspectors {
+            out.push("Never use bash for file inspection (ls, find, grep, cat); use fd, rg, and read instead");
+        }
     }
     if active_tools.iter().any(|t| t == "read") {
         out.push("Use read to examine files instead of cat or sed");
@@ -50,8 +55,6 @@ fn append_mutation_guidelines(active_tools: &[String], out: &mut Vec<&'static st
 }
 
 fn append_universal_guidelines(out: &mut Vec<&'static str>) {
-    out.push("Inspect the repository before asking about implementation details that the code can answer");
-    out.push("When requirements are ambiguous or critical architectural decisions need confirmation, ask clearly in your response and wait for the user's input");
     out.push("Be concise in your responses");
     out.push("Show file paths clearly when working with files");
 }

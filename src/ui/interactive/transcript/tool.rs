@@ -53,20 +53,10 @@ fn format_tool_header(tool: &ToolItem, theme: &crate::ui::theme::Theme) -> Strin
     let summary = format_tool_args_summary(&tool.name, &tool.arguments);
     let header_args = if tool.name == "bash" {
         format_bash_args_header(&summary, accent, theme.dimmed)
-    } else if tool.name == "script" {
-        format_script_args_header(&summary, accent, theme.dimmed)
     } else {
         format!("{accent}{summary}{accent:#}")
     };
     format!("{title}{display_name}{title:#} {header_args}")
-}
-
-fn format_script_args_header(summary: &str, accent: anstyle::Style, dimmed: anstyle::Style) -> String {
-    if let Some((before, after)) = summary.split_once(" | grep") {
-        format!("{accent}{before}{accent:#} {dimmed}| grep{dimmed:#}{accent}{after}{accent:#}")
-    } else {
-        format!("{accent}{summary}{accent:#}")
-    }
 }
 
 fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui::theme::Theme) {

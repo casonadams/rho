@@ -56,17 +56,7 @@ mod tests {
 
     #[test]
     fn descriptors_cover_every_registered_tool() {
-        for name in [
-            "read",
-            "write",
-            "edit",
-            "bash",
-            "fd",
-            "rg",
-            "web_search",
-            "web_fetch",
-            "script",
-        ] {
+        for name in ["read", "write", "edit", "bash", "fd", "rg", "web_search", "web_fetch"] {
             assert_registered_tool(name);
         }
     }

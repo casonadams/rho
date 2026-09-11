@@ -48,6 +48,8 @@ fn dynamic_tools_omits_unregistered_guidelines() {
             "Use edit for precise changes",
             "Use write only for new files",
             "Commands run directly in the working directory",
+            "Never use bash for file inspection",
+            "Use rg for content search",
         ],
     );
 }
@@ -73,7 +75,7 @@ fn custom_or_unknown_tools_render_gracefully() {
     let assembled = assemble_base_system_prompt(&custom_tools);
 
     assert!(assembled.contains("- custom_analyzer\n"));
-    assert!(assembled.contains("Inspect the repository before asking"));
+    assert!(assembled.contains("Be concise in your responses"));
 }
 
 #[test]

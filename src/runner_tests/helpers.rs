@@ -43,7 +43,7 @@ pub fn test_engine_with_session(
 }
 
 pub fn builtin_tools_for(base_dir: &std::path::Path) -> Option<Vec<rig::tool::DynamicTool>> {
-    rho_engine::tools::build_builtin_tools(
+    rho_engine::tools::build_all_builtin_tools(
         base_dir,
         &Config {
             sessions_dir: base_dir.join("sessions"),

@@ -40,7 +40,7 @@ fn render_feed_entry(out: &mut String, idx: usize, entry: &feed_rs::model::Entry
         out.push_str(&format!("URL: {link}\n"));
     }
     if !summary.is_empty() {
-        let plain = html2text::from_read(summary.as_bytes(), 100).unwrap_or_else(|_| summary.to_string());
+        let plain = super::html::html_to_text(summary, 100);
         out.push_str(&format!("{}\n", plain.trim()));
     }
     out.push('\n');
@@ -67,7 +67,7 @@ pub fn extract_feed_or_xml(raw: &str, base_url: &str) -> String {
     if raw.contains("<urlset") || raw.contains("<sitemapindex") {
         return extract_sitemap(raw);
     }
-    html2text::from_read(raw.as_bytes(), 100).unwrap_or_else(|_| raw.to_string())
+    super::html::html_to_text(raw, 100)
 }
 
 fn append_loc_text(e: &quick_xml::events::BytesText<'_>, seen: &mut HashSet<String>, urls: &mut Vec<String>) {

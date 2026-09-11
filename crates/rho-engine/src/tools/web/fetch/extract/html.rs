@@ -64,6 +64,29 @@ fn extract_meta(document: &Html) -> (Option<String>, Option<String>, Option<Stri
     (title, author, site)
 }
 
+pub fn html_to_text(html: &str, width: usize) -> String {
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        html2text::from_read(html.as_bytes(), width).ok()
+    }))
+    .ok()
+    .flatten()
+    .or_else(|| {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            html2text::from_read(html.as_bytes(), 10_000).ok()
+        }))
+        .ok()
+        .flatten()
+    });
+    std::panic::set_hook(prev_hook);
+
+    result.unwrap_or_else(|| {
+        let doc = Html::parse_fragment(html);
+        doc.root_element().text().collect::<Vec<_>>().join(" ")
+    })
+}
+
 fn find_semantic_main(document: &Html, full_text_len: usize, base_url: &str) -> Option<(String, String)> {
     let threshold = 400.min(120.max(full_text_len * 15 / 100));
     let mut best_text = String::new();
@@ -72,7 +95,7 @@ fn find_semantic_main(document: &Html, full_text_len: usize, base_url: &str) -> 
     for candidate in document.select(&MAIN_SEL) {
         let tag_name = candidate.value().name().to_string();
         let html_content = candidate.html();
-        let text = html2text::from_read(html_content.as_bytes(), 120).unwrap_or_default();
+        let text = html_to_text(&html_content, 120);
         let trimmed = text.trim().to_string();
         if trimmed.len() >= threshold && trimmed.len() > best_text.len() {
             best_text = resolve_markdown_links(&trimmed, base_url);
@@ -116,7 +139,7 @@ fn try_main_mode(document: &Html, full_len: usize, base_url: &str, is_main: bool
 pub fn extract_html(html: &str, response_url: &str, mode: &str) -> Result<String> {
     let document = Html::parse_document(html);
     let base_url = effective_base_url(&document, response_url);
-    let full_raw = html2text::from_read(html.as_bytes(), 120).unwrap_or_else(|_| html.to_string());
+    let full_raw = html_to_text(html, 120);
     let full_text = resolve_markdown_links(full_raw.trim(), &base_url);
 
     let mode_lower = mode.to_lowercase();

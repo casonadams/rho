@@ -21,7 +21,7 @@ fn builtin_tools_for(dir: &std::path::Path) -> Option<Vec<rig::tool::DynamicTool
         sessions_dir: dir.join("sessions"),
         ..rho::config::Config::default()
     };
-    rho_engine::tools::build_builtin_tools(dir, &config).ok()
+    rho_engine::tools::build_all_builtin_tools(dir, &config).ok()
 }
 use rho::presentation::StructuredPresenter;
 use rig::agent::AgentBuilder;

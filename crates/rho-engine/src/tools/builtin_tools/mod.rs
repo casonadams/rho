@@ -4,7 +4,7 @@ mod tests;
 
 pub use catalog::{
     BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG,
-    PROMPT_SCRIPT, PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
 };
 
 use crate::tools::bash::{BashArgs, BashTool};
@@ -186,122 +186,6 @@ fn build_fetch_dynamic_tool(f: WebFetchTool) -> DynamicTool {
     )
 }
 
-fn register_file_runners(
-    dispatcher: &mut crate::tools::script::ScriptDispatcher,
-    read: &Arc<ReadTool>,
-    write: &Arc<WriteTool>,
-    edit: &Arc<EditTool>,
-) {
-    let r_c = Arc::clone(read);
-    dispatcher.register(
-        "read",
-        Arc::new(move |args| {
-            let r = Arc::clone(&r_c);
-            async move {
-                let parsed: ReadArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = r.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-
-    let w_c = Arc::clone(write);
-    dispatcher.register(
-        "write",
-        Arc::new(move |args| {
-            let w = Arc::clone(&w_c);
-            async move {
-                let parsed: WriteArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = w.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-
-    let e_c = Arc::clone(edit);
-    dispatcher.register(
-        "edit",
-        Arc::new(move |args| {
-            let e = Arc::clone(&e_c);
-            async move {
-                let parsed: EditArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = e.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-}
-
-fn register_exec_and_search_runners(
-    dispatcher: &mut crate::tools::script::ScriptDispatcher,
-    bash: &Arc<BashTool>,
-    fd: &Arc<FdTool>,
-    rg: &Arc<RgTool>,
-) {
-    let b_c = Arc::clone(bash);
-    dispatcher.register(
-        "bash",
-        Arc::new(move |args| {
-            let b = Arc::clone(&b_c);
-            async move {
-                let parsed: BashArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = b.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-
-    let fd_c = Arc::clone(fd);
-    dispatcher.register(
-        "fd",
-        Arc::new(move |args| {
-            let fd = Arc::clone(&fd_c);
-            async move {
-                let parsed: FdArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = fd.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-
-    let rg_c = Arc::clone(rg);
-    dispatcher.register(
-        "rg",
-        Arc::new(move |args| {
-            let rg = Arc::clone(&rg_c);
-            async move {
-                let parsed: RgArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = rg.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-}
-
 fn build_web_tools(config: &Config) -> Result<(WebSearchTool, WebFetchTool)> {
     let http = HttpClient::new(config.allow_private_network)?;
     let search = WebSearchTool::new(
@@ -325,46 +209,6 @@ fn build_web_tools(config: &Config) -> Result<(WebSearchTool, WebFetchTool)> {
     Ok((search, fetch))
 }
 
-fn register_web_runners(
-    dispatcher: &mut crate::tools::script::ScriptDispatcher,
-    search: &WebSearchTool,
-    fetch: &WebFetchTool,
-) {
-    let s_c = search.clone();
-    dispatcher.register(
-        "web_search",
-        Arc::new(move |args| {
-            let s = s_c.clone();
-            async move {
-                let parsed: WebSearchArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = s.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-
-    let f_c = fetch.clone();
-    dispatcher.register(
-        "web_fetch",
-        Arc::new(move |args| {
-            let f = f_c.clone();
-            async move {
-                let parsed: WebFetchArgs = serde_json::from_value(args).map_err(|e| e.to_string())?;
-                let res = f.execute(parsed).await.map_err(|e| e.to_string())?;
-                if res.is_error {
-                    Err(res.content)
-                } else {
-                    Ok(res.content)
-                }
-            }
-        }),
-    );
-}
-
 pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
     let (search, fetch) = build_web_tools(config)?;
     let write = Arc::new(WriteTool::with_exclusions(
@@ -380,13 +224,6 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
     let fd = Arc::new(FdTool::new(base_dir));
     let rg = Arc::new(RgTool::new(base_dir));
 
-    let mut dispatcher = crate::tools::script::ScriptDispatcher::new();
-    register_file_runners(&mut dispatcher, &read, &write, &edit);
-    register_exec_and_search_runners(&mut dispatcher, &bash, &fd, &rg);
-    register_web_runners(&mut dispatcher, &search, &fetch);
-
-    let script = crate::tools::script::build_script_dynamic_tool(Arc::new(dispatcher), config.output_max_bytes);
-
     Ok(vec![
         build_read_dynamic_tool(read),
         build_write_dynamic_tool(write),
@@ -396,6 +233,9 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         build_rg_dynamic_tool(rg),
         build_search_dynamic_tool(search),
         build_fetch_dynamic_tool(fetch),
-        script,
     ])
+}
+
+pub fn build_all_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
+    build_builtin_tools(base_dir, config)
 }

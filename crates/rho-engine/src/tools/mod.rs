@@ -10,7 +10,6 @@ pub mod fd;
 pub mod read;
 pub mod registry;
 pub mod rg;
-pub mod script;
 mod traversal;
 pub mod truncate;
 pub mod types;
@@ -18,7 +17,9 @@ pub mod web;
 pub mod write;
 
 pub use bash::{BashArgs, BashTool};
-pub use builtin_tools::{BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_builtin_tools};
+pub use builtin_tools::{
+    BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_all_builtin_tools, build_builtin_tools,
+};
 pub use edit::{EditArgs, EditTool};
 pub use fd::{FdArgs, FdSort, FdTool};
 pub use read::{ReadArgs, ReadTool};

@@ -46,7 +46,7 @@ async fn headless_presentation_records_deterministic_event_sequence() {
     let path_str = file_path.to_str().unwrap();
     let model = setup_headless_model(path_str);
     let config = Config::default();
-    let built_in_tools = rho_engine::tools::build_builtin_tools(&workspace, &config).ok();
+    let built_in_tools = rho_engine::tools::build_all_builtin_tools(&workspace, &config).ok();
     let engine = mock_engine(
         model,
         MockEngineConfig {
