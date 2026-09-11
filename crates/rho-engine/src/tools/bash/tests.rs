@@ -189,7 +189,12 @@ async fn test_bash_cancellation_kills_process_group() {
 
     tokio::select! {
         _ = async {
-            while !pid_file.exists() {
+            loop {
+                if let Ok(c) = std::fs::read_to_string(&pid_file)
+                    && !c.trim().is_empty()
+                {
+                    break;
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         } => {}
