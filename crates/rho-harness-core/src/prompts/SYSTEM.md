@@ -9,6 +9,7 @@ Available tools:
 - rg: Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)
 - web_search: Search the web and return structured summaries and URLs
 - web_fetch: Fetch and extract clean text or markdown from URLs
+- script: Execute an ordered batch of tools with optional regex line filtering
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

@@ -7,6 +7,7 @@ use crate::tools::types::generated_schema;
 use crate::tools::web::fetch::WebFetchArgs;
 use crate::tools::web::search::WebSearchArgs;
 use crate::tools::write::WriteArgs;
+use rho_harness_core::args::ScriptArgs;
 
 pub static PROMPT_READ: &str = "\
 Read file contents with offset and limit safeguards.
@@ -79,12 +80,22 @@ Usage:
 - Use mode: 'full' when navigation or sidebars are needed.
 - Respects byte limits, caching, and rate limiting safeguards.";
 
+pub static PROMPT_SCRIPT: &str = "\
+Execute an ordered batch of tool calls sequentially in one turn with optional regex output filtering.
+
+Usage:
+- Batch multiple tool calls in a single turn to reduce round-trips.
+- Set filter (a regex pattern) on any step to extract only matching lines from the output.
+- Set context (default: 2, set 0 for match-only) to include surrounding lines around matches.
+- If any step fails or is denied, subsequent steps are halted immediately.";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinToolKind {
     ReadOnly,
     WorkspaceMutation,
     Network,
     Shell,
+    Composite,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -198,5 +209,16 @@ pub const DECLARATIONS: &[BuiltinToolDeclaration] = &[
         prompt_snippet: Some("Fetch and extract clean text or markdown from URLs"),
         prompt_guidelines: &[],
         schema: generated_schema::<WebFetchArgs>,
+    },
+    BuiltinToolDeclaration {
+        name: "script",
+        capability: BuiltinToolKind::Composite,
+        description: "Execute a sequential batch of tools in one turn with optional regex output filtering.",
+        prompt: PROMPT_SCRIPT,
+        prompt_snippet: Some("Execute an ordered batch of tools with optional regex line filtering"),
+        prompt_guidelines: &[
+            "Use script to batch multiple tool calls or filter large outputs (like web_fetch or read) with regex",
+        ],
+        schema: generated_schema::<ScriptArgs>,
     },
 ];

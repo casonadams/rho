@@ -183,9 +183,45 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "bash" => format_bash_summary(args),
         "web_search" => format!("\"{}\"", args.get("query").and_then(|q| q.as_str()).unwrap_or("")),
         "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
+        "script" => format_script_summary(args),
         "grep" | "rg" | "fd" => format_search_summary(name, args),
         "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
         _ => "".to_string(),
+    }
+}
+
+fn format_script_summary(args: &serde_json::Value) -> String {
+    let steps = args.get("steps").and_then(|s| s.as_array());
+    let Some(steps) = steps else {
+        return String::new();
+    };
+    if steps.is_empty() {
+        return "0 steps".to_string();
+    }
+    if steps.len() == 1 {
+        let step = &steps[0];
+        let tool = step.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
+        let inner_args = step.get("args").unwrap_or(&serde_json::Value::Null);
+        let inner_summary = format_tool_args_summary(tool, inner_args);
+        let filter = step.get("filter").and_then(|f| f.as_str());
+        let context = step.get("context").and_then(|c| c.as_u64()).map(|c| c as usize);
+        let pipe = if let Some(pattern) = filter {
+            let ctx = context.unwrap_or(2);
+            if ctx > 0 {
+                format!(" | grep -C {ctx} {pattern:?}")
+            } else {
+                format!(" | grep {pattern:?}")
+            }
+        } else {
+            String::new()
+        };
+        if inner_summary.is_empty() {
+            format!("{tool}{pipe}")
+        } else {
+            format!("{tool} {inner_summary}{pipe}")
+        }
+    } else {
+        format!("({} steps)", steps.len())
     }
 }
 

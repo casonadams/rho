@@ -76,6 +76,32 @@ fn format_tool_args_summary_rg() {
 }
 
 #[test]
+fn format_tool_args_summary_script() {
+    let single_filtered = serde_json::json!({
+        "steps": [
+            {
+                "tool": "web_fetch",
+                "args": { "url": "https://example.com" },
+                "filter": "pricing",
+                "context": 2
+            }
+        ]
+    });
+    assert_eq!(
+        format_tool_args_summary("script", &single_filtered),
+        "web_fetch https://example.com | grep -C 2 \"pricing\""
+    );
+
+    let multi_step = serde_json::json!({
+        "steps": [
+            { "tool": "read", "args": { "path": "Cargo.toml" } },
+            { "tool": "bash", "args": { "command": "cargo test" } }
+        ]
+    });
+    assert_eq!(format_tool_args_summary("script", &multi_step), "(2 steps)");
+}
+
+#[test]
 fn test_quote_cli_arg() {
     let cases = [
         ("", "''"),

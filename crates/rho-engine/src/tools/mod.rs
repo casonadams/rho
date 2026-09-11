@@ -10,6 +10,7 @@ pub mod fd;
 pub mod read;
 pub mod registry;
 pub mod rg;
+pub mod script;
 mod traversal;
 pub mod truncate;
 pub mod types;

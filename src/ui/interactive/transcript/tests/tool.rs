@@ -26,6 +26,41 @@ fn render_transcript_tool_collapsed_shows_preview() {
     assert!(rendered.contains("Took 150ms"));
 }
 
+#[test]
+fn render_transcript_script_tool_renders_pipe_syntax() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "script".into(),
+        arguments: serde_json::json!({
+            "steps": [
+                {
+                    "tool": "web_fetch",
+                    "args": { "url": "https://docs.rs/tokio" },
+                    "filter": "RuntimeBuilder",
+                    "context": 2
+                }
+            ]
+        }),
+        is_error: false,
+        output: "[Step 1: web_fetch | grep -C 2 \"RuntimeBuilder\"]\n13: let builder = RuntimeBuilder::new();".into(),
+        output_summary: "summary".into(),
+        duration_ms: Some(250),
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: true,
+        hide_thinking: false,
+    });
+
+    assert!(rendered.contains("script"));
+    assert!(rendered.contains("| grep -C 2"));
+    assert!(rendered.contains("RuntimeBuilder"));
+    assert!(rendered.contains("let builder = RuntimeBuilder::new();"));
+}
+
 fn assert_lines_within_width(rendered: &str, max_width: usize) {
     for line in rendered.lines() {
         assert!(crate::ui::block::visible_width(line) <= max_width);
