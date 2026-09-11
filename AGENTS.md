@@ -54,6 +54,10 @@
   - `Ctrl+C`: Clear the current input draft or filter query (never interrupts running turns or kills the process).
   - `Ctrl+D`: Exit when the prompt is empty.
 
+## Documentation and website synchronization
+
+- When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
+
 ## Completion
 
 - Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), and

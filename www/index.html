@@ -224,6 +224,46 @@ rho config
 rho -p "audit dependencies"</code></pre>
           </div>
         </div>
+
+        <div class="card">
+          <h3 class="card-title">Headless &amp; IDE RPC Server</h3>
+          <p class="card-desc">
+            Embed rho into IDE extensions or remote harnesses with <code>rho --mode rpc</code>. Concurrent JSON-lines server supporting streaming, mid-turn steering, and interactive tool approval dialogs.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code># Launch stdio RPC mode
+rho --mode rpc
+
+# Non-blocking concurrent turns</code></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Adaptive Context Compaction</h3>
+          <p class="card-desc">
+            Intelligent context monitoring that automatically triggers compaction before token exhaustion. Features atomic split-turn protection, cumulative file ledgers, and bounded summary limits.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code># Manual compaction command
+/compact "focus on tests"
+
+# Proactive auto-compact at threshold</code></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">Conversation Trees &amp; Branching</h3>
+          <p class="card-desc">
+            Explore conversation turn history with <code>/tree</code>, label key checkpoints, rewind to prior turns, or fork clean sub-branches with automatic abandoned-branch summarization.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code># Interactive history tree
+/tree
+
+# Rewind or branch from turn
+/rewind 4</code></pre>
+          </div>
+        </div>
       </div>
     </div>
   </section>

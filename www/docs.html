@@ -75,8 +75,10 @@
       </div>
 
       <div class="docs-nav-group">
-        <div class="docs-nav-title">Plugin Architecture</div>
+        <div class="docs-nav-title">Integration &amp; Runtime</div>
         <ul class="docs-nav-list">
+          <li class="docs-nav-item"><a href="#rpc-mode">Headless &amp; IDE RPC Mode</a></li>
+          <li class="docs-nav-item"><a href="#compaction">Context Compaction</a></li>
           <li class="docs-nav-item"><a href="#plugins">Plugins Subsystem</a></li>
           <li class="docs-nav-item"><a href="#plugin-mgmt">Package Management</a></li>
           <li class="docs-nav-item"><a href="#plugin-sdk">Developing in Rust</a></li>
@@ -348,6 +350,148 @@ api_key = "optional"</code></pre>
           </tr>
         </tbody>
       </table>
+
+      <h2 id="rpc-mode">Headless &amp; IDE RPC Server Mode</h2>
+      <p>
+        For editor extensions (VS Code, Neovim, Zed) and headless automation harnesses, <code>rho</code> provides a fully concurrent, non-blocking <strong>JSON-lines RPC server</strong> over standard I/O:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Starting RPC Mode</span>
+          <button class="copy-btn" data-copy="rho --mode rpc">Copy</button>
+        </div>
+        <pre><code>rho --mode rpc</code></pre>
+      </div>
+
+      <p>
+        Unlike synchronous wrappers, rho's RPC loop processes client commands concurrently while turns run. Clients can abort running tasks, steer execution at tool seams, resolve interactive permission prompts, and navigate conversation tree DAGs without blocking stdout.
+      </p>
+
+      <h3>RPC Commands Reference</h3>
+      <table class="shortcuts-table">
+        <thead>
+          <tr>
+            <th>Command</th>
+            <th>Parameters</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>prompt</code></td>
+            <td><code>{ "message": "..." }</code></td>
+            <td>Start an agent turn asynchronously. Emits streaming text, reasoning chunks, and tool events.</td>
+          </tr>
+          <tr>
+            <td><code>steer</code></td>
+            <td><code>{ "message": "..." }</code></td>
+            <td>Inject a steering prompt delivered immediately after the active tool finishes.</td>
+          </tr>
+          <tr>
+            <td><code>abort</code></td>
+            <td><code>{}</code></td>
+            <td>Interrupt active model generation or abort executing tool processes immediately.</td>
+          </tr>
+          <tr>
+            <td><code>tool_response</code></td>
+            <td><code>{ "approval_id": "...", "decision": "allow" | "deny" | "edit: &lt;cmd&gt;" | "always" }</code></td>
+            <td>Resolve a pending permission prompt emitted by <code>tool_approval_request</code>.</td>
+          </tr>
+          <tr>
+            <td><code>get_state</code></td>
+            <td><code>{}</code></td>
+            <td>Query active session ID, model, provider, thinking level, and status (<code>idle</code>, <code>busy</code>, <code>waiting_approval</code>).</td>
+          </tr>
+          <tr>
+            <td><code>get_tree</code></td>
+            <td><code>{}</code></td>
+            <td>Retrieve the complete conversation history DAG, checkpoints, active leaf ID, and entry previews.</td>
+          </tr>
+          <tr>
+            <td><code>switch_branch</code></td>
+            <td><code>{ "node_id": "..." }</code></td>
+            <td>Rewind or branch the conversation DAG to a previous turn or checkpoint.</td>
+          </tr>
+          <tr>
+            <td><code>set_node_label</code></td>
+            <td><code>{ "node_id": "...", "label": "..." }</code></td>
+            <td>Assign or clear a human-readable bookmark label on a tree node.</td>
+          </tr>
+          <tr>
+            <td><code>list_sessions</code></td>
+            <td><code>{}</code></td>
+            <td>Enumerate saved session files, turn counts, last modified timestamps, and titles.</td>
+          </tr>
+          <tr>
+            <td><code>resume_session</code></td>
+            <td><code>{ "session_id": "..." }</code></td>
+            <td>Switch the active engine to another saved session ID.</td>
+          </tr>
+          <tr>
+            <td><code>fork_session</code></td>
+            <td><code>{ "node_id": "..." }</code></td>
+            <td>Fork the active branch or checkpoint into an isolated new session file.</td>
+          </tr>
+          <tr>
+            <td><code>set_model</code></td>
+            <td><code>{ "model": "...", "provider": "..." }</code></td>
+            <td>Hot-swap the active inference model or provider at runtime.</td>
+          </tr>
+          <tr>
+            <td><code>set_thinking</code></td>
+            <td><code>{ "level": "off" | "minimal" | "low" | "medium" | "high" | "max" }</code></td>
+            <td>Dynamically adjust reasoning effort for supported reasoning models.</td>
+          </tr>
+          <tr>
+            <td><code>compact</code></td>
+            <td><code>{ "instructions": "..." }</code></td>
+            <td>Trigger manual context compaction, optionally passing custom focus instructions.</td>
+          </tr>
+          <tr>
+            <td><code>exit</code></td>
+            <td><code>{}</code></td>
+            <td>Cleanly terminate active tasks and shut down the daemon.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Interactive Tool Approval Flow</h3>
+      <p>
+        When a tool executes a mutating command requiring user consent, rho emits a <code>tool_approval_request</code> event and transitions to <code>status: "waiting_approval"</code>:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Tool Approval Event</span>
+        </div>
+        <pre><code>{"type":"tool_approval_request","approval_id":"appr-b618","tool":"bash","arguments":{"command":"cargo check"},"description":"Run cargo check"}
+{"type":"status_changed","status":"waiting_approval"}</code></pre>
+      </div>
+
+      <p>
+        The client displays a native UI modal and responds with <code>tool_response</code>:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Client Decision Response</span>
+        </div>
+        <pre><code>{"type":"tool_response","approval_id":"appr-b618","decision":"allow"}</code></pre>
+      </div>
+
+      <h2 id="compaction">Dynamic Context Compaction &amp; Token Budgeting</h2>
+      <p>
+        Long-running coding sessions inevitably encounter context window exhaustion. rho incorporates an adaptive, resilient compaction engine designed to preserve critical repository findings while reclaiming token capacity:
+      </p>
+
+      <ul>
+        <li><strong>Adaptive Context Threshold</strong>: Auto-compaction monitors token pressure against the active model's real context window, automatically scaling reserve budgets across both small local models (8k–32k) and massive cloud windows (200k–1M+).</li>
+        <li><strong>Atomic Split-Turn Preservation</strong>: Cut points never bisect tool calls from their corresponding tool results, preserving protocol validity for Anthropic and OpenAI schemas.</li>
+        <li><strong>Cumulative File Tracking</strong>: Across multiple compactions, rho records all modified and inspected workspace files in a durable <code>&lt;file-operations&gt;</code> XML ledger so file awareness is never lost.</li>
+        <li><strong>Resilient Deterministic Fallback</strong>: If upstream provider network timeouts or rate limits interrupt an LLM summarization call, rho automatically falls back to an offline deterministic fact extractor that constructs a structured summary node without dropping session state.</li>
+        <li><strong>Bounded Summary Enforcement</strong>: Compaction summaries are strictly clamped to <code>compaction_max_bytes</code> (default 8,192 bytes), preventing runaway summarizer recursion.</li>
+      </ul>
 
       <h2 id="plugins">The rho Plugin Daemon Subsystem</h2>
       <p>
