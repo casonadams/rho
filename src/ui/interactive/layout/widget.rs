@@ -1,7 +1,7 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::block::BlockFormat;
 use crate::ui::interactive::state::RunningTool;
-use crate::ui::render::tool_title_style;
+use crate::ui::render::{format_bash_args_header, tool_title_style};
 use crate::ui::theme::Theme;
 
 #[derive(Debug, Clone, Copy)]
@@ -69,10 +69,13 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
     let (accent, dim) = (input.theme.highlight, input.theme.dimmed);
     let display_name = normalize_tool_name(&input.tool.name);
 
-    let mut content = format!(
-        "{title}{display_name}{title:#} {accent}{}{accent:#}",
-        input.tool.args_summary
-    );
+    let args_header = if input.tool.name == "bash" {
+        format_bash_args_header(&input.tool.args_summary, accent, dim)
+    } else {
+        format!("{accent}{}{accent:#}", input.tool.args_summary)
+    };
+
+    let mut content = format!("{title}{display_name}{title:#} {args_header}");
     if let Some(preview) = &input.tool.preview {
         content.push_str("\n\n");
         content.push_str(preview);

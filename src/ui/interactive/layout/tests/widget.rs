@@ -65,6 +65,23 @@ fn running_tool_widget_expanded_shows_all() {
 }
 
 #[test]
+fn running_tool_widget_bash_with_timeout_styles_timeout_with_dimmed() {
+    let theme = Theme::default();
+    let mut tool = RunningTool::new("bash", "cargo test (timeout 300s)", None);
+    tool.append_chunk("running...\n");
+    let lines = render_running_tool_widget(RunningToolWidgetInput {
+        tool: &tool,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+    });
+    let full = lines.join("\n");
+    let dim = theme.dimmed;
+    assert!(full.contains(&format!("{dim}(timeout 300s){dim:#}")));
+    assert!(full.contains(&format!("{dim}Elapsed")));
+}
+
+#[test]
 fn running_tool_widget_with_preview_renders_diff_card() {
     let preview = Some("+ line added\n- line removed".to_string());
     let tool = RunningTool::new("edit", "src/main.rs", preview);

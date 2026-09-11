@@ -13,6 +13,20 @@ fn bash_summary_formats_timeout_inline() {
 }
 
 #[test]
+fn format_bash_args_header_styles_timeout_part_as_dim() {
+    let accent = anstyle::Style::new().bold();
+    let dim = anstyle::Style::new().dimmed();
+    let styled = crate::ui::render::format_bash_args_header("cargo build (timeout 30s)", accent, dim);
+    assert_eq!(
+        styled,
+        format!("{accent}cargo build{accent:#} {dim}(timeout 30s){dim:#}")
+    );
+
+    let plain = crate::ui::render::format_bash_args_header("cargo build", accent, dim);
+    assert_eq!(plain, format!("{accent}cargo build{accent:#}"));
+}
+
+#[test]
 fn test_classify_read_path() {
     assert_eq!(
         classify_read_path(&serde_json::json!({"path": "/path/to/skills/plan/SKILL.md"})),

@@ -52,3 +52,17 @@ pub fn detect_language_from_args(args: &serde_json::Value) -> Option<&str> {
 pub fn detect_language_from_path(path: &str) -> Option<&str> {
     std::path::Path::new(path).extension()?.to_str()
 }
+
+pub fn format_bash_args_header(summary: &str, accent: anstyle::Style, dim: anstyle::Style) -> String {
+    if let Some(idx) = summary.rfind(" (timeout ")
+        && summary.ends_with(')')
+    {
+        let timeout_part = &summary[idx + 1..];
+        let inner = &timeout_part["(timeout ".len()..timeout_part.len() - 1];
+        if inner.ends_with('s') && inner[..inner.len() - 1].chars().all(|c| c.is_ascii_digit()) {
+            let cmd = &summary[..idx];
+            return format!("{accent}{cmd}{accent:#} {dim}{timeout_part}{dim:#}");
+        }
+    }
+    format!("{accent}{summary}{accent:#}")
+}

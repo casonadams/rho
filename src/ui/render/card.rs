@@ -1,5 +1,5 @@
 use super::formatters::{format_edit_diff, format_write_preview};
-use super::preview::fetch_content_kind;
+use super::preview::{fetch_content_kind, format_bash_args_header};
 use crate::ui::block::{BlockFormat, terminal_width};
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
@@ -52,7 +52,12 @@ fn format_card_header(line: &ToolLine, theme: &Theme) -> String {
         return format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
     }
     let summary = format_tool_args_summary(&line.name, &line.arguments);
-    format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
+    let header_args = if line.name == "bash" {
+        format_bash_args_header(&summary, accent, theme.dimmed)
+    } else {
+        format!("{accent}{summary}{accent:#}")
+    };
+    format!("{title}{display_name}{title:#} {header_args}")
 }
 
 fn append_edit_write(content: &mut String, line: &ToolLine, theme: &Theme) -> bool {

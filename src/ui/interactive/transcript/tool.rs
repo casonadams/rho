@@ -1,7 +1,7 @@
 use crate::ui::block::BlockFormat;
 use crate::ui::render::{
-    detect_language_from_args, fetch_content_kind, format_duration_ms, format_edit_diff, format_tool_args_summary,
-    format_write_preview, read_summary_parts,
+    detect_language_from_args, fetch_content_kind, format_bash_args_header, format_duration_ms, format_edit_diff,
+    format_tool_args_summary, format_write_preview, read_summary_parts,
 };
 
 use super::types::{ToolItem, TranscriptRenderInput};
@@ -51,7 +51,12 @@ fn format_tool_header(tool: &ToolItem, theme: &crate::ui::theme::Theme) -> Strin
         return format!("{title}web_fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
     }
     let summary = format_tool_args_summary(&tool.name, &tool.arguments);
-    format!("{title}{display_name}{title:#} {accent}{summary}{accent:#}")
+    let header_args = if tool.name == "bash" {
+        format_bash_args_header(&summary, accent, theme.dimmed)
+    } else {
+        format!("{accent}{summary}{accent:#}")
+    };
+    format!("{title}{display_name}{title:#} {header_args}")
 }
 
 fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui::theme::Theme) {
