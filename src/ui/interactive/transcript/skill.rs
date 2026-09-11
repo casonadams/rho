@@ -1,5 +1,4 @@
 use super::types::TranscriptRenderInput;
-use crate::ui::block::BlockFormat;
 
 fn render_parsed_skill(
     (skill_name, skill_content, user_msg): (&str, &str, &str),
@@ -11,14 +10,18 @@ fn render_parsed_skill(
     } else {
         format!("{skill_tag}[skill]{skill_tag:#} {skill_name}")
     };
-    let skill_formatted = BlockFormat::new(input.theme.block_fill, input.width)
+    let skill_formatted = input
+        .theme
+        .agent_block(input.width)
         .with_vertical_padding()
         .render_styled(&skill_block_text);
     let user_trimmed = user_msg.trim();
     if user_trimmed.is_empty() {
         format!("\n{skill_formatted}")
     } else {
-        let user_formatted = BlockFormat::new(input.theme.block_fill, input.width)
+        let user_formatted = input
+            .theme
+            .user_block(input.width)
             .with_vertical_padding()
             .render_plain(user_trimmed);
         format!("\n{skill_formatted}\n{user_formatted}")
@@ -29,7 +32,9 @@ pub fn render_user_message(text: &str, input: &TranscriptRenderInput<'_>) -> Str
     if let Some((skill_name, skill_content, user_msg)) = parse_skill_block(text) {
         render_parsed_skill((&skill_name, &skill_content, &user_msg), input)
     } else {
-        let block = BlockFormat::new(input.theme.block_fill, input.width)
+        let block = input
+            .theme
+            .user_block(input.width)
             .with_vertical_padding()
             .render_plain(text);
         format!("\n{block}")

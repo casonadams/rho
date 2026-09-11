@@ -132,3 +132,44 @@ fn colorfbg_garbage_falls_through() {
     assert_eq!(theme_from_colorfbg("nope"), None);
     assert_eq!(theme_from_colorfbg(""), None);
 }
+
+#[test]
+fn parse_color_handles_names_and_hex() {
+    use super::parse_color;
+    assert_eq!(parse_color("red"), Some(Color::Ansi(AnsiColor::Red)));
+    assert_eq!(parse_color("green"), Some(Color::Ansi(AnsiColor::Green)));
+    assert_eq!(parse_color("blue"), Some(Color::Ansi(AnsiColor::Blue)));
+    assert_eq!(parse_color("gray"), Some(Color::Ansi(AnsiColor::BrightBlack)));
+    assert_eq!(parse_color("grey"), Some(Color::Ansi(AnsiColor::BrightBlack)));
+    assert_eq!(parse_color("#88c0d0"), Some(Color::Rgb(RgbColor(0x88, 0xc0, 0xd0))));
+    assert_eq!(parse_color("invalid_color"), None);
+}
+
+#[test]
+fn apply_ui_config_configures_border_mode_and_colors() {
+    let mut theme = Theme::default();
+    assert_eq!(theme.block_style, super::BlockStyle::Solid);
+
+    let ui = rho_harness_core::config::UiConfig {
+        block_style: Some("border".into()),
+        user_border: Some("gray".into()),
+        agent_border: Some("blue".into()),
+        tool_border: Some("cyan".into()),
+        bash_success_border: Some("green".into()),
+        bash_error_border: Some("red".into()),
+        agent_block_output: Some(true),
+    };
+    theme.apply_ui_config(&ui);
+    assert_eq!(theme.block_style, super::BlockStyle::Border);
+    assert!(theme.block_agent_output);
+
+    let user_rendered = theme.user_block(20).render_plain("user prompt");
+    assert!(user_rendered.contains('╭'));
+    assert!(user_rendered.contains('│'));
+
+    let bash_ok = theme.tool_block(true, false, 20).render_plain("ok");
+    assert!(bash_ok.contains("\x1b[32m"));
+
+    let bash_err = theme.tool_block(true, true, 20).render_plain("fail");
+    assert!(bash_err.contains("\x1b[31m"));
+}

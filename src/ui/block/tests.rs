@@ -72,3 +72,34 @@ fn compound_and_color_resets_negative() {
         assert!(!sgr_resets_background(s));
     }
 }
+
+#[test]
+fn border_blocks_render_with_outline_and_fit_requested_width() {
+    let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green)));
+    let rendered = BlockFormat::border(border_style, 20)
+        .with_vertical_padding()
+        .render_plain("hello border world");
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert!(lines.len() >= 3);
+    assert!(lines.iter().all(|line| visible_width(line) == 20));
+    assert!(lines.first().unwrap().contains('╭'));
+    assert!(lines.first().unwrap().contains('╮'));
+    assert!(lines.last().unwrap().contains('╰'));
+    assert!(lines.last().unwrap().contains('╯'));
+    assert!(lines[1].contains('│'));
+    assert!(lines[1].contains("hello border"));
+}
+
+#[test]
+fn border_blocks_render_styled_content_and_handle_narrow_widths() {
+    let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue)));
+    let rendered = BlockFormat::border(border_style, 10).render_styled("\x1b[32mok\x1b[0m");
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines.iter().all(|line| visible_width(line) == 10));
+
+    let narrow = BlockFormat::border(border_style, 2).render_plain("x");
+    let narrow_lines: Vec<&str> = narrow.lines().collect();
+    assert_eq!(narrow_lines.len(), 3);
+    assert!(narrow_lines.iter().all(|line| visible_width(line) == 2));
+}

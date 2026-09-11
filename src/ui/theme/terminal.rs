@@ -46,6 +46,12 @@ pub fn detect() -> Theme {
     }
 }
 
+pub fn detect_with_config(ui: &rho_harness_core::config::UiConfig) -> Theme {
+    let mut theme = detect();
+    theme.apply_ui_config(ui);
+    theme
+}
+
 /// When the shell announces the palette mode, style through the terminal's
 /// base-16 palette: bright-black (slot 8) for dim text and black (slot 0)
 /// for the block fill -- the same slots vim and tmux use. The colors resolve

@@ -10,9 +10,16 @@ pub mod terminal;
 #[cfg(test)]
 mod tests;
 
-pub use terminal::detect;
+pub use terminal::{detect, detect_with_config};
 
-use anstyle::{AnsiColor, Color, Style};
+use anstyle::{AnsiColor, Color, RgbColor, Style};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlockStyle {
+    #[default]
+    Solid,
+    Border,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
@@ -33,6 +40,13 @@ pub struct Theme {
     pub skill_tag: Style,
     /// Full-width container fill behind tool cards, user messages, and notices.
     pub block_fill: Style,
+    pub block_style: BlockStyle,
+    pub user_border: Style,
+    pub agent_border: Style,
+    pub tool_border: Style,
+    pub bash_success_border: Style,
+    pub bash_error_border: Style,
+    pub block_agent_output: bool,
 }
 
 impl Theme {
@@ -43,6 +57,116 @@ impl Theme {
             Style::new().bold()
         }
     }
+
+    pub fn block(&self, border_style: Style, width: usize) -> crate::ui::block::BlockFormat {
+        match self.block_style {
+            BlockStyle::Solid => crate::ui::block::BlockFormat::new(self.block_fill, width),
+            BlockStyle::Border => crate::ui::block::BlockFormat::border(border_style, width),
+        }
+    }
+
+    pub fn user_block(&self, width: usize) -> crate::ui::block::BlockFormat {
+        self.block(self.user_border, width)
+    }
+
+    pub fn tool_block(&self, is_bash: bool, is_error: bool, width: usize) -> crate::ui::block::BlockFormat {
+        let border = if is_bash {
+            if is_error {
+                self.bash_error_border
+            } else {
+                self.bash_success_border
+            }
+        } else if is_error {
+            self.tool_err
+        } else {
+            self.tool_border
+        };
+        self.block(border, width)
+    }
+
+    pub fn agent_block(&self, width: usize) -> crate::ui::block::BlockFormat {
+        self.block(self.agent_border, width)
+    }
+
+    pub fn apply_ui_config(&mut self, ui: &rho_harness_core::config::UiConfig) {
+        if let Some(ref style) = ui.block_style {
+            match style.trim().to_lowercase().as_str() {
+                "border" | "outline" => self.block_style = BlockStyle::Border,
+                "solid" | "fill" => self.block_style = BlockStyle::Solid,
+                _ => {}
+            }
+        }
+        if let Some(ref color) = ui.user_border
+            && let Some(c) = parse_color(color)
+        {
+            self.user_border = Style::new().fg_color(Some(c));
+        }
+        if let Some(ref color) = ui.agent_border
+            && let Some(c) = parse_color(color)
+        {
+            self.agent_border = Style::new().fg_color(Some(c));
+        }
+        if let Some(ref color) = ui.tool_border
+            && let Some(c) = parse_color(color)
+        {
+            self.tool_border = Style::new().fg_color(Some(c));
+        }
+        if let Some(ref color) = ui.bash_success_border
+            && let Some(c) = parse_color(color)
+        {
+            self.bash_success_border = Style::new().fg_color(Some(c));
+        }
+        if let Some(ref color) = ui.bash_error_border
+            && let Some(c) = parse_color(color)
+        {
+            self.bash_error_border = Style::new().fg_color(Some(c));
+        }
+        if let Some(val) = ui.agent_block_output {
+            self.block_agent_output = val;
+        }
+    }
+}
+
+pub fn parse_color(s: &str) -> Option<Color> {
+    let trimmed = s.trim();
+    if let Some(hex) = trimmed.strip_prefix('#') {
+        return parse_hex_color(hex);
+    }
+    match trimmed.to_lowercase().as_str() {
+        "black" => Some(Color::Ansi(AnsiColor::Black)),
+        "red" => Some(Color::Ansi(AnsiColor::Red)),
+        "green" => Some(Color::Ansi(AnsiColor::Green)),
+        "yellow" => Some(Color::Ansi(AnsiColor::Yellow)),
+        "blue" => Some(Color::Ansi(AnsiColor::Blue)),
+        "magenta" | "purple" => Some(Color::Ansi(AnsiColor::Magenta)),
+        "cyan" => Some(Color::Ansi(AnsiColor::Cyan)),
+        "white" => Some(Color::Ansi(AnsiColor::White)),
+        "bright_black" | "gray" | "grey" => Some(Color::Ansi(AnsiColor::BrightBlack)),
+        "bright_red" => Some(Color::Ansi(AnsiColor::BrightRed)),
+        "bright_green" => Some(Color::Ansi(AnsiColor::BrightGreen)),
+        "bright_yellow" => Some(Color::Ansi(AnsiColor::BrightYellow)),
+        "bright_blue" => Some(Color::Ansi(AnsiColor::BrightBlue)),
+        "bright_magenta" => Some(Color::Ansi(AnsiColor::BrightMagenta)),
+        "bright_cyan" => Some(Color::Ansi(AnsiColor::BrightCyan)),
+        "bright_white" => Some(Color::Ansi(AnsiColor::BrightWhite)),
+        _ => {
+            if trimmed.len() == 6 && trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+                parse_hex_color(trimmed)
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn parse_hex_color(hex: &str) -> Option<Color> {
+    if hex.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color::Rgb(RgbColor(r, g, b)))
 }
 
 fn foreground(color: AnsiColor) -> Style {
@@ -67,6 +191,13 @@ impl Default for Theme {
             warning: foreground(AnsiColor::Yellow),
             skill_tag: foreground(AnsiColor::Magenta).bold(),
             block_fill: Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black))),
+            block_style: BlockStyle::Solid,
+            user_border: Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))),
+            agent_border: foreground(AnsiColor::Blue),
+            tool_border: foreground(AnsiColor::Blue),
+            bash_success_border: foreground(AnsiColor::Green),
+            bash_error_border: foreground(AnsiColor::Red),
+            block_agent_output: false,
         }
     }
 }

@@ -19,6 +19,26 @@ fn render_transcript_user_message() {
 }
 
 #[test]
+fn render_transcript_user_message_with_border_style() {
+    let mut theme = Theme::default();
+    theme.block_style = crate::ui::theme::BlockStyle::Border;
+    theme.user_border = anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::BrightBlack)));
+    let item = TranscriptItem::UserMessage("hello bordered user message".into());
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 60,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    assert!(rendered.contains('╭'));
+    assert!(rendered.contains('╰'));
+    assert!(rendered.contains('│'));
+    assert!(rendered.contains("hello bordered user message"));
+    assert!(rendered.contains("\x1b[90m"));
+}
+
+#[test]
 fn render_transcript_thinking_collapsed_and_expanded() {
     let theme = Theme::default();
     let item = TranscriptItem::Thinking("Let me analyze the code step by step...".into());

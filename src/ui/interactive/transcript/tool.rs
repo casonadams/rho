@@ -1,4 +1,3 @@
-use crate::ui::block::BlockFormat;
 use crate::ui::render::{
     detect_language_from_args, fetch_content_kind, format_bash_args_header, format_duration_ms, format_edit_diff,
     format_tool_args_summary, format_write_preview, read_summary_parts,
@@ -158,7 +157,9 @@ pub fn render_tool_block(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> 
     let mut content = format_tool_header(tool, input.theme);
     append_tool_details(&mut content, tool, input.width, input.tools_expanded, input.theme);
 
-    BlockFormat::new(input.theme.block_fill, input.width)
+    input
+        .theme
+        .tool_block(tool.name == "bash", tool.is_error, input.width)
         .with_vertical_padding()
         .render_styled(&content)
 }

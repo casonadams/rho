@@ -10,7 +10,7 @@ pub fn resolve_resume_target(cli: &Cli, config: &Config) -> Result<Option<String
     if cli.resume_picker {
         Ok(crate::ui::interactive::session_picker::prompt_session_picker(
             &config.sessions_dir,
-            &crate::ui::theme::detect(),
+            &crate::ui::theme::detect_with_config(&config.ui),
         )?)
     } else if cli.r#continue {
         let cwd = std::env::current_dir()?;

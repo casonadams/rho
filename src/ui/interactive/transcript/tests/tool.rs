@@ -106,3 +106,31 @@ fn render_transcript_bash_with_timeout_styles_timeout_with_dimmed() {
     assert!(rendered.contains(&format!("{dim}(timeout 300s){dim:#}")));
     assert!(rendered.contains(&format!("{dim}Took 250ms{dim:#}")));
 }
+
+#[test]
+fn render_transcript_tool_with_border_style_uses_outline() {
+    let mut theme = Theme::default();
+    theme.block_style = crate::ui::theme::BlockStyle::Border;
+    theme.bash_success_border = anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Green)));
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "bash".into(),
+        arguments: serde_json::json!({"command": "cargo test"}),
+        is_error: false,
+        output: "ok".into(),
+        output_summary: "ok".into(),
+        duration_ms: Some(100),
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 40,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+
+    assert!(rendered.contains('╭'));
+    assert!(rendered.contains('╰'));
+    assert!(rendered.contains('│'));
+    assert!(rendered.contains("\x1b[32m"));
+}

@@ -35,10 +35,12 @@ pub struct ReplSession {
 
 impl ReplSession {
     pub fn new(config: Config, auth_store: AuthStore, resume_id: Option<String>) -> Self {
+        let mut renderer = TerminalRenderer::default();
+        renderer.theme.apply_ui_config(&config.ui);
         Self {
             config,
             auth_store,
-            renderer: TerminalRenderer::default(),
+            renderer,
             resume_id,
             cli: None,
         }
@@ -59,6 +61,7 @@ impl ReplSession {
         crate::repl::interactive::spawn_background_model_refresh(&config, &self.auth_store);
         let rebuilt = engine.rebuild(config.clone(), self.auth_store.clone()).await?;
         self.config = config;
+        self.renderer.theme.apply_ui_config(&self.config.ui);
 
         let skills: Vec<String> = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref())
             .into_iter()

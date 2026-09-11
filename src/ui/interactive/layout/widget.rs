@@ -1,5 +1,4 @@
 use super::text::truncate_to_visual_lines;
-use crate::ui::block::BlockFormat;
 use crate::ui::interactive::state::RunningTool;
 use crate::ui::render::{format_bash_args_header, tool_title_style};
 use crate::ui::theme::Theme;
@@ -95,7 +94,9 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
     }
     let width = input.width.max(20);
     let content = format_widget_content(input, width);
-    let block = BlockFormat::new(input.theme.block_fill, width)
+    let block = input
+        .theme
+        .tool_block(input.tool.name == "bash", false, width)
         .with_vertical_padding()
         .render_styled(&content);
     let mut lines = vec![String::new()];

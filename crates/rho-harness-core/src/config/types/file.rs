@@ -44,4 +44,6 @@ pub(crate) struct FileConfig {
     pub mcp: Option<McpConfig>,
     #[serde(default)]
     pub permission: Option<PermissionConfig>,
+    #[serde(default)]
+    pub ui: Option<super::UiConfig>,
 }

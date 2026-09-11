@@ -1,6 +1,6 @@
 use super::formatters::{format_edit_diff, format_write_preview};
 use super::preview::{fetch_content_kind, format_bash_args_header};
-use crate::ui::block::{BlockFormat, terminal_width};
+use crate::ui::block::terminal_width;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
 use rho_harness_core::presentation::summary::{
@@ -102,7 +102,8 @@ fn append_card_body(content: &mut String, line: &ToolLine, theme: &Theme) {
 pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> String {
     let mut content = format_card_header(line, theme);
     append_card_body(&mut content, line, theme);
-    let block = BlockFormat::new(theme.block_fill, terminal_width())
+    let block = theme
+        .tool_block(line.name == "bash", line.is_error, terminal_width())
         .with_vertical_padding()
         .render_styled(&content);
     format!("\n{block}")

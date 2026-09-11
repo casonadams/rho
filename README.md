@@ -73,7 +73,7 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background
     turns.
   - Universal native theme that adopts your terminal's 16-color palette, with
-    SGR-dim secondary text and terminal-detected card fills.
+    SGR-dim secondary text, terminal-detected card fills, or configurable outline borders.
   - Fenced Mermaid diagram rendering.
 
 - **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**

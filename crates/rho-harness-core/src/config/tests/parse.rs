@@ -123,3 +123,36 @@ fn parses_permission_config_empty_or_omitted() {
     let file_omitted: FileConfig = toml::from_str("model = \"claude\"\n").unwrap();
     assert_eq!(file_omitted.permission, None);
 }
+
+#[test]
+fn parses_ui_config_and_merges() {
+    let toml_str = r#"
+[ui]
+block_style = "border"
+user_border = "gray"
+agent_border = "blue"
+tool_border = "cyan"
+bash_success_border = "green"
+bash_error_border = "red"
+agent_block_output = true
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let ui = file.ui.clone().expect("ui config present");
+    assert_eq!(ui.block_style.as_deref(), Some("border"));
+    assert_eq!(ui.user_border.as_deref(), Some("gray"));
+    assert_eq!(ui.agent_border.as_deref(), Some("blue"));
+    assert_eq!(ui.tool_border.as_deref(), Some("cyan"));
+    assert_eq!(ui.bash_success_border.as_deref(), Some("green"));
+    assert_eq!(ui.bash_error_border.as_deref(), Some("red"));
+    assert_eq!(ui.agent_block_output, Some(true));
+
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert_eq!(config.ui.block_style.as_deref(), Some("border"));
+    assert_eq!(config.ui.user_border.as_deref(), Some("gray"));
+    assert_eq!(config.ui.agent_border.as_deref(), Some("blue"));
+    assert_eq!(config.ui.tool_border.as_deref(), Some("cyan"));
+    assert_eq!(config.ui.bash_success_border.as_deref(), Some("green"));
+    assert_eq!(config.ui.bash_error_border.as_deref(), Some("red"));
+    assert_eq!(config.ui.agent_block_output, Some(true));
+}

@@ -88,6 +88,27 @@ history:
 
 ---
 
+## UI & Block Framing
+
+Configure block framing styles and border colors in `~/.config/rho/config.toml`:
+
+```toml
+[ui]
+# Block framing: "border" (outline) or "solid" (fill, default)
+block_style = "border"
+
+# Border colors (ANSI color names or "#rrggbb" hex)
+user_border = "gray"           # User prompt blocks
+agent_border = "blue"          # Agent / sub-agent blocks
+tool_border = "cyan"           # General command / tool cards
+bash_success_border = "green"  # Successful bash commands
+bash_error_border = "red"      # Failed bash commands
+```
+
+Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
+
+---
+
 ## System Instructions (`AGENTS.md`)
 
 `rho` discovers instructions hierarchically and prepends them into the agent

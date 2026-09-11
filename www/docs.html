@@ -228,7 +228,16 @@ compaction_max_bytes = 8192
 # Custom OpenAI-compatible endpoints
 [providers.my-local-endpoint]
 base_url = "http://127.0.0.1:8000/v1"
-api_key = "optional"</code></pre>
+api_key = "optional"
+
+# UI block framing and border colors
+[ui]
+block_style = "border"           # "border" (outline) or "solid" (fill)
+user_border = "gray"             # User prompt blocks
+agent_border = "blue"            # Agent / sub-agent blocks
+tool_border = "cyan"             # Tool / command cards
+bash_success_border = "green"    # Successful bash commands
+bash_error_border = "red"        # Failed bash commands</code></pre>
       </div>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>

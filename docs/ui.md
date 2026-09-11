@@ -130,12 +130,34 @@ interface always matches your terminal emulator, in dark or light mode.
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and
   table borders) uses the terminal's native dim (SGR 2) effect instead of a
   fixed palette color, so it stays readable on any palette.
-- Tool cards, user messages, and notices keep their full-width container fill.
-  On startup `rho` asks the terminal for its foreground and background colors
-  (OSC 10/11) and blends a subtle fill from them; terminals that do not answer
-  fall back to the ANSI black background.
+- Tool cards, user messages, and notices keep their container block framing.
+  By default, `rho` uses a subtle solid container fill derived from your terminal palette.
+  You can replace the solid background with an outline/border and customize border colors
+  via the `[ui]` section in `~/.config/rho/config.toml`.
 - Code blocks are syntax highlighted and reduced to native ANSI-16 colors.
 - Diagrams use your terminal's ANSI foreground.
+
+### Block Styling & Outline Borders
+
+To replace the solid background fill on blocks with an outline/border, configure
+`block_style = "border"` in `~/.config/rho/config.toml` (or project `.rho/config.toml`):
+
+```toml
+[ui]
+# Block framing: "border" (outline) or "solid" (fill, default)
+block_style = "border"
+
+# Border colors (ANSI color names or "#rrggbb" hex)
+user_border = "gray"           # User prompt blocks
+agent_border = "blue"          # Agent / sub-agent skill blocks
+tool_border = "cyan"           # General command / tool cards
+bash_success_border = "green"  # Successful bash commands
+bash_error_border = "red"      # Failed bash commands
+```
+
+Border mode renders clean rounded box-drawing characters (`╭`, `─`, `╮`, `│`, `╯`, `╰`)
+in the chosen colors, eliminating solid background rectangles while maintaining visual
+distinction between user inputs, commands, and success/fail statuses.
 
 ### Pairing with `walh-shell`
 

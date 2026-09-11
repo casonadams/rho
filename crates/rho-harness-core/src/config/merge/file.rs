@@ -124,6 +124,12 @@ fn merge_plugins_and_extensions(config: &mut Config, file: FileConfig) {
     config.providers = file.providers;
 }
 
+fn merge_ui_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(ref ui) = file.ui {
+        config.ui.merge(ui);
+    }
+}
+
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_model_and_provider(config, &file);
     merge_token_limits(config, &file);
@@ -133,5 +139,6 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_fetch_settings(config, &file);
     merge_modes(config, &file);
     merge_retention(config, &file);
-    merge_plugins_and_extensions(config, file);
+    merge_plugins_and_extensions(config, file.clone());
+    merge_ui_settings(config, &file);
 }

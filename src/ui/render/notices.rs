@@ -75,9 +75,18 @@ impl TerminalRenderer {
             format!("{bold}{}{bold:#}\n\n", display.title)
         };
         let full_text = format!("{formatted_title}{}", display.content);
-        let rendered = BlockFormat::new(bg, terminal_width())
-            .with_vertical_padding()
-            .render_styled(&full_text);
+        let block_fmt = match self.theme.block_style {
+            crate::ui::theme::BlockStyle::Solid => BlockFormat::new(bg, terminal_width()),
+            crate::ui::theme::BlockStyle::Border => {
+                let border = if display.style == "warning" {
+                    self.theme.warning
+                } else {
+                    self.theme.agent_border
+                };
+                BlockFormat::border(border, terminal_width())
+            }
+        };
+        let rendered = block_fmt.with_vertical_padding().render_styled(&full_text);
         let block_output = format!("\n{rendered}\n");
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(block_output));

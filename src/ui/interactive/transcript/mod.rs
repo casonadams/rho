@@ -18,8 +18,12 @@ fn render_assistant_text(text: &str, width: usize, theme: &crate::ui::theme::The
     let mut md = crate::ui::markdown::MarkdownRenderer::default();
     md.set_width(width);
     let full = format!("{}{}", md.render_token(text, theme), md.flush(theme));
-    if full.trim().is_empty() {
+    let trimmed = full.trim();
+    if trimmed.is_empty() {
         String::new()
+    } else if theme.block_agent_output {
+        let block = theme.agent_block(width).with_vertical_padding().render_styled(trimmed);
+        format!("{OSC133_ZONE_START}\n{block}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
     } else {
         format!("{OSC133_ZONE_START}\n{full}{OSC133_ZONE_END}{OSC133_ZONE_FINAL}")
     }

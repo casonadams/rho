@@ -33,7 +33,7 @@ pub(super) fn init_live_ui(
 )> {
     let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
     session.renderer = TerminalRenderer::with_ui(ui);
-    session.renderer.theme = crate::ui::theme::detect();
+    session.renderer.theme = crate::ui::theme::detect_with_config(&session.config.ui);
     let mut state = InteractiveState::default();
     update_footer(&mut state, session, engine);
     let mut controller = TerminalController::stdout(state)?;
