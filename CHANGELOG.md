@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.6.2](https://github.com/casonadams/rho/compare/v0.6.1...v0.6.2) (2026-09-11)
+
+
+### Features
+
+* add GPT-6 Astra model support ([6935a33](https://github.com/casonadams/rho/commit/6935a33022fd72a97dfc8ea6a67f2f10a6f730a3))
+* **compaction:** adaptive threshold triggering and bounded summary enforcement ([3249719](https://github.com/casonadams/rho/commit/3249719e88255cddec4cd326712dfe721e6c66de))
+* **engine:** auto-compact mid-run and cache anthropic prompts ([96864ae](https://github.com/casonadams/rho/commit/96864ae77d55972362db68befffeb0f4b5903e4e))
+* **rpc:** concurrent turn loop, interactive tool approvals, and tree commands ([9f67de5](https://github.com/casonadams/rho/commit/9f67de5436592a83f2fa03b252925872f583b4a7))
+* **rpc:** protocol schema extensions for tree navigation, session lifecycle, and status events ([25b4456](https://github.com/casonadams/rho/commit/25b44569d5c0f2983df55c305e9a4e9fcaca0386))
+* **ui:** adopt COLORFGBG mode announcements through the base 16 palette ([b8d10f4](https://github.com/casonadams/rho/commit/b8d10f4ecddcb9c8595a71e829fe410ff31dcf64))
+* **ui:** derive dimmed text from detected terminal colors ([05eff0c](https://github.com/casonadams/rho/commit/05eff0c813aadefa069861bfe64fd75676cf73c1))
+* **ui:** label modal input rows with their prompt ([831c6e6](https://github.com/casonadams/rho/commit/831c6e695d439d2dca595d84dbd6e1522acf6691))
+* **ui:** strengthen the dim wash on light palettes ([bf0fc58](https://github.com/casonadams/rho/commit/bf0fc5894b6cf9340f903c3a30443817af090bd2))
+
+
+### Bug Fixes
+
+* **engine:** stream thinking output and cache prompts for all providers ([d34fa36](https://github.com/casonadams/rho/commit/d34fa365340e4df38d9a08f266a1378c29be9acf))
+* tolerate blank file type filters ([0506054](https://github.com/casonadams/rho/commit/0506054aa311649758ea225946a595f846ccf45c))
+* **ui:** keep modal live-region rows within terminal width ([1a6e8d5](https://github.com/casonadams/rho/commit/1a6e8d54baf9b2a01f2390d51013c3e41411d59d))
+* **ui:** truncate autocomplete values to terminal width ([f2f3746](https://github.com/casonadams/rho/commit/f2f3746ba472feee0170cf80194d3581dfe84718))
+* **ui:** wash dimmed text 40% of the way toward the background ([73df7ee](https://github.com/casonadams/rho/commit/73df7ee757f812a7642e77fce630c273c58b7273))
+
 ## [0.6.1](https://github.com/casonadams/rho/compare/v0.6.0...v0.6.1) (2026-09-08)
 
 
