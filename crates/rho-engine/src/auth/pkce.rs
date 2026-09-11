@@ -2,7 +2,6 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
@@ -15,7 +14,7 @@ pub struct PkceChallenge {
 impl PkceChallenge {
     pub fn generate() -> Self {
         let mut random_bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut random_bytes);
+        rand::fill(&mut random_bytes);
         let verifier = URL_SAFE_NO_PAD.encode(random_bytes);
 
         let mut hasher = Sha256::new();
@@ -33,7 +32,7 @@ impl PkceChallenge {
 
 pub fn generate_state() -> String {
     let mut random_bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut random_bytes);
+    rand::fill(&mut random_bytes);
     URL_SAFE_NO_PAD.encode(random_bytes)
 }
 

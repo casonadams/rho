@@ -1,5 +1,5 @@
 use super::interactive::{CompletionSet, CompletionSources};
-use reedline::{Completer, Span, Suggestion};
+use reedline::{Completer, CompletionResult, Span, Suggestion};
 
 #[derive(Clone)]
 pub struct RhoCompleter {
@@ -15,8 +15,9 @@ impl RhoCompleter {
 }
 
 impl Completer for RhoCompleter {
-    fn complete(&mut self, line: &str, pos: usize) -> Vec<Suggestion> {
-        self.completions
+    fn complete(&mut self, line: &str, pos: usize) -> CompletionResult {
+        let suggestions = self
+            .completions
             .complete(line, pos)
             .into_iter()
             .map(|completion| Suggestion {
@@ -26,7 +27,10 @@ impl Completer for RhoCompleter {
                 extra: None,
                 span: Span::new(completion.replacement.start, completion.replacement.end),
                 append_whitespace: true,
+                display_override: None,
+                match_indices: None,
             })
-            .collect()
+            .collect::<Vec<_>>();
+        CompletionResult::fresh(suggestions)
     }
 }

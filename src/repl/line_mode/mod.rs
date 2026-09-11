@@ -141,6 +141,7 @@ async fn handle_line_signal(
             session.renderer.write_output("\nBye.\n");
             Ok(false)
         }
+        Ok(_) => Ok(true),
         Err(err) => {
             session.renderer.write_output(&format!("Input error: {err}\n"));
             Ok(false)

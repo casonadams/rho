@@ -27,9 +27,8 @@ pub struct Envelope {
 }
 
 pub fn new_envelope() -> Envelope {
-    use rand::RngCore;
     let mut bytes = [0u8; 8];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::fill(&mut bytes);
     Envelope {
         request_id: format!(
             "agent/{}/{}",

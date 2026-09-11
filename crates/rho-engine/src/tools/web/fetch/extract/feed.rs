@@ -71,9 +71,7 @@ pub fn extract_feed_or_xml(raw: &str, base_url: &str) -> String {
 }
 
 fn append_loc_text(e: &quick_xml::events::BytesText<'_>, seen: &mut HashSet<String>, urls: &mut Vec<String>) {
-    if let Ok(decoded) = e.decode()
-        && let Ok(txt) = quick_xml::escape::unescape(&decoded)
-    {
+    if let Ok(txt) = quick_xml::escape::unescape(e) {
         let url = txt.trim().to_string();
         if !url.is_empty() && seen.insert(url.clone()) {
             urls.push(url);
@@ -92,8 +90,8 @@ fn drain_sitemap_urls(xml_str: &str) -> Vec<String> {
     while let Ok(event) = reader.read_event_into(&mut buf) {
         match event {
             quick_xml::events::Event::Eof => break,
-            quick_xml::events::Event::Start(e) => in_loc = e.name().as_ref() == b"loc",
-            quick_xml::events::Event::End(e) if e.name().as_ref() == b"loc" => in_loc = false,
+            quick_xml::events::Event::Start(e) => in_loc = e.name().as_ref() == "loc",
+            quick_xml::events::Event::End(e) if e.name().as_ref() == "loc" => in_loc = false,
             quick_xml::events::Event::Text(ref e) if in_loc => append_loc_text(e, &mut seen, &mut urls),
             _ => {}
         }

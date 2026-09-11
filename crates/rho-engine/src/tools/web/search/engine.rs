@@ -69,8 +69,7 @@ fn shuffled_engines() -> Vec<EngineKind> {
         EngineKind::Yahoo,
         EngineKind::Firecrawl,
     ];
-    let mut rng = rand::thread_rng();
-    list.shuffle(&mut rng);
+    list.shuffle(&mut rand::rng());
     list
 }
 

@@ -7,12 +7,12 @@ fn slash_commands_complete_from_a_prefix() {
     let sources = crate::repl::interactive::CompletionSources::new().with_templates(vec!["review".to_string()]);
     let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/mo", 3);
-    assert_eq!(suggestions.len(), 1);
-    assert_eq!(suggestions[0].value, "/model");
+    assert_eq!(suggestions.suggestions().len(), 1);
+    assert_eq!(suggestions.suggestions()[0].value, "/model");
 
     let tmpl_suggestions = completer.complete("/rev", 4);
-    assert_eq!(tmpl_suggestions.len(), 1);
-    assert_eq!(tmpl_suggestions[0].value, "/review");
+    assert_eq!(tmpl_suggestions.suggestions().len(), 1);
+    assert_eq!(tmpl_suggestions.suggestions()[0].value, "/review");
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn skill_names_complete_from_prefix() {
     let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill]);
     let mut completer = RhoCompleter::new(sources);
     let suggestions = completer.complete("/skill pl", 9);
-    assert!(suggestions.iter().any(|s| s.value == "/skill plan"));
+    assert!(suggestions.suggestions().iter().any(|s| s.value == "/skill plan"));
 }
 
 #[test]
