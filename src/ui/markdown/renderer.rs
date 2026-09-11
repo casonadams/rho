@@ -83,7 +83,6 @@ impl MarkdownRenderer {
 
     pub fn flush(&mut self, theme: &Theme) -> String {
         let mut out = String::new();
-        self.flush_buffered_blocks(&mut out, theme);
         if !self.current_line.is_empty() && !self.emitted_on_current_line {
             let mut line = std::mem::take(&mut self.current_line);
             self.process_line(&mut out, &line, theme);
@@ -95,6 +94,7 @@ impl MarkdownRenderer {
             out.push('\n');
             self.spacing.note_content();
         }
+        self.flush_buffered_blocks(&mut out, theme);
         self.emitted_on_current_line = false;
         self.code_highlighter = None;
         out

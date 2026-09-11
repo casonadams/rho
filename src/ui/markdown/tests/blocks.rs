@@ -7,10 +7,14 @@ use crate::ui::theme::Theme;
 fn test_mermaid_rendering() {
     let theme = Theme::default();
     let mut md = MarkdownRenderer::new();
-
-    let chunk = "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n";
-    let out = md.render_token(chunk, &theme);
-    assert!(out.contains("mermaid diagram"));
+    let mut out = String::new();
+    for token in ["```", "mermaid\n", "graph LR\n  Input --> Process --> Output\n", "```"] {
+        out.push_str(&md.render_token(token, &theme));
+    }
+    out.push_str(&md.flush(&theme));
+    assert!(out.contains("Input"));
+    assert!(!out.contains("```mermaid"));
+    assert!(!out.contains("```"));
 }
 
 #[test]
@@ -46,7 +50,8 @@ fn mermaid_parse_fallback_lines_clip_too() {
             "fallback line too wide: {line:?}"
         );
     }
-    assert!(out.contains("│"));
+    assert!(out.contains("```mermaid"));
+    assert!(!out.contains('│'));
 }
 
 #[test]
