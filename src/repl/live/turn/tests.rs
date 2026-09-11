@@ -453,13 +453,13 @@ async fn test_turn_focus_events_toggle_focused_state() {
         cancellation: &cancellation,
     };
 
-    lp.controller.state_mut().footer_mut().activity = Activity::Working;
     super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
         .await
         .unwrap();
     assert!(!lp.controller.focused());
     let unfocused_layout = lp.controller.rendered().unwrap();
     assert!(unfocused_layout.working_line.contains("Working..."));
+    assert!(unfocused_layout.lines.iter().any(|l| l.contains("Working...")));
     assert!(!unfocused_layout.cursor_visible);
 
     super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusGained)
@@ -469,4 +469,40 @@ async fn test_turn_focus_events_toggle_focused_state() {
     let focused_layout = lp.controller.rendered().unwrap();
     assert!(focused_layout.working_line.contains("Working..."));
     assert!(focused_layout.cursor_visible);
+}
+
+#[tokio::test]
+async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_line() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, _, engine) = create_harness_engine(temp.path()).await;
+    let mut f = TurnTestFixture::new("text");
+    let steering = std::sync::Arc::new(f.steering.clone());
+    let mut lp = super::runner::TurnLoop::new(
+        (&mut f.session, &engine),
+        &mut f.controller,
+        (steering, f.model_switch.clone()),
+    );
+    assert_eq!(lp.controller.state().footer().activity, Activity::Working);
+
+    let (tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
+    let cancellation = crate::engine::runner::CancellationSignal::default();
+    let mut res = super::event::TurnInputResources {
+        history: &mut f.history,
+        completions: &f.completions,
+        ui_events: &mut ui_events,
+        cancellation: &cancellation,
+    };
+
+    tx.send(crate::ui::interactive::UiEvent::Activity(Activity::Idle))
+        .unwrap();
+    lp.drain_ui_batch(res.ui_events).unwrap();
+    assert_eq!(lp.controller.state().footer().activity, Activity::Working);
+
+    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
+        .await
+        .unwrap();
+    assert!(!lp.controller.focused());
+    let unfocused_layout = lp.controller.rendered().unwrap();
+    assert!(unfocused_layout.working_line.contains("Working..."));
+    assert!(!unfocused_layout.cursor_visible);
 }

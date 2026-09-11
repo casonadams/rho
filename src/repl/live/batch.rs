@@ -1,6 +1,6 @@
 use super::modal::{PendingModal, install_interaction};
 use crate::error::Result;
-use crate::ui::interactive::{BatchDecision, PendingUiBatch, PendingUiDrain, TerminalController, UiEvent};
+use crate::ui::interactive::{Activity, BatchDecision, PendingUiBatch, PendingUiDrain, TerminalController, UiEvent};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -11,6 +11,7 @@ pub const SPINNER_FRAME_INTERVALS: usize = 5;
 pub struct LiveBatch {
     pub(crate) ui: PendingUiBatch,
     pub(crate) modal: Option<PendingModal>,
+    pub(crate) active_turn: bool,
 }
 
 impl LiveBatch {
@@ -18,6 +19,15 @@ impl LiveBatch {
         Self {
             ui: PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES),
             modal: None,
+            active_turn: false,
+        }
+    }
+
+    pub fn turn() -> Self {
+        Self {
+            ui: PendingUiBatch::new(MAX_PENDING_OUTPUT_BYTES),
+            modal: None,
+            active_turn: true,
         }
     }
 
@@ -55,8 +65,15 @@ impl LiveBatch {
     ) -> Result<bool> {
         let mut changed = false;
         if let Some(activity) = drained.activity.take() {
-            controller.state_mut().footer_mut().activity = activity;
-            changed = true;
+            let activity = if self.active_turn && matches!(activity, Activity::Idle) {
+                Activity::Working
+            } else {
+                activity
+            };
+            if controller.state().footer().activity != activity {
+                controller.state_mut().footer_mut().activity = activity;
+                changed = true;
+            }
         }
         if let Some(extra) = drained.extra_status.take() {
             controller.state_mut().footer_mut().extra_status = extra;

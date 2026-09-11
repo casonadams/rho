@@ -180,10 +180,29 @@ impl<B: crate::ui::interactive::TerminalBackend> BashStreamState<'_, '_, B> {
     }
 
     async fn handle_key_event(&mut self, event: Option<std::io::Result<Event>>) -> Result<bool> {
-        let Some(Ok(Event::Key(key))) = event else {
+        let Some(Ok(event)) = event else {
             return Ok(false);
         };
-        self.run.handle_input_action(map_key(key), &mut self.running).await
+        match event {
+            Event::FocusGained => {
+                if !self.run.controller.focused() {
+                    self.run.controller.set_focused(true);
+                    self.run.drain_and_flush(true)?;
+                }
+                Ok(false)
+            }
+            Event::FocusLost => {
+                if self.run.controller.focused() {
+                    self.run.controller.set_focused(false);
+                    self.run.drain_and_flush(true)?;
+                }
+                Ok(false)
+            }
+            Event::Key(key) if key.kind != crossterm::event::KeyEventKind::Release => {
+                self.run.handle_input_action(map_key(key), &mut self.running).await
+            }
+            _ => Ok(false),
+        }
     }
 
     async fn select_next(&mut self) -> StreamStep {

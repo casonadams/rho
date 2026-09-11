@@ -149,6 +149,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     let renderer = std::sync::Arc::new(session.renderer.clone());
     let cancellation = Arc::new(CancellationSignal::default());
     let (mut ctx, request) = build_turn_context((session, engine), &mut turn, &cancellation);
+    ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
     let mut run = Box::pin(engine.run_turn(request, renderer));
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

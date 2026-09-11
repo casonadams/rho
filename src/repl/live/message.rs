@@ -10,7 +10,7 @@ use crate::repl::commands::{CommandResult, SlashCommandContext, SlashCommandHand
 use crate::repl::input_reader::TerminalInputReader;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{TerminalBackend, TerminalController};
+use crate::ui::interactive::{Activity, TerminalBackend, TerminalController};
 use rho_harness_core::session::TreeNodeKind;
 
 // ---------------------------------------------------------------------------
@@ -110,6 +110,7 @@ async fn run_prompt_turn<B: TerminalBackend>(
     live: LiveMessage<'_, B>,
     effective: String,
 ) -> Result<bool> {
+    live.io.controller.state_mut().footer_mut().activity = Activity::Working;
     session.renderer.print_user_block(&effective);
     run_active_turn(
         session,
@@ -345,6 +346,7 @@ async fn run_live_command_tail<B: TerminalBackend>(
         CommandResult::ExpandedPrompt { text } => {
             ctx.session.renderer.print_notice("  [Expanded template]\n");
             flush_after_command(&mut io)?;
+            io.controller.state_mut().footer_mut().activity = Activity::Working;
             ctx.session.renderer.print_user_block(&text);
             run_active_turn(
                 ctx.session,

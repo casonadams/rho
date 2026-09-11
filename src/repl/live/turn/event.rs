@@ -8,7 +8,7 @@ use crate::engine::runner::CancellationSignal;
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::modal::{ModalKeyResult, handle_modal_key, handle_modal_paste};
-use crate::ui::interactive::{TerminalBackend, UiAction};
+use crate::ui::interactive::{Activity, TerminalBackend, UiAction};
 
 pub(super) struct TurnInputResources<'a> {
     pub history: &'a mut InteractiveHistory,
@@ -37,6 +37,10 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
         Event::FocusGained => {
             if !lp.controller.focused() {
                 lp.controller.set_focused(true);
+                let _ = lp.drain_ui_batch(res.ui_events);
+                if matches!(lp.controller.state().footer().activity, Activity::Idle) {
+                    lp.controller.state_mut().footer_mut().activity = Activity::Working;
+                }
                 lp.batch.flush(lp.controller, true)?;
             }
             Ok(false)
@@ -44,6 +48,10 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
         Event::FocusLost => {
             if lp.controller.focused() {
                 lp.controller.set_focused(false);
+                let _ = lp.drain_ui_batch(res.ui_events);
+                if matches!(lp.controller.state().footer().activity, Activity::Idle) {
+                    lp.controller.state_mut().footer_mut().activity = Activity::Working;
+                }
                 lp.batch.flush(lp.controller, true)?;
             }
             Ok(false)

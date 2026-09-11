@@ -33,6 +33,7 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
             Arc<rho_engine::engine::runner::SharedModelSwitch>,
         ),
     ) -> Self {
+        controller.state_mut().footer_mut().activity = Activity::Working;
         sync_turn_footer(controller, engine);
         Self {
             session,
@@ -40,7 +41,7 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
             controller,
             steering,
             model_switch,
-            batch: LiveBatch::new(),
+            batch: LiveBatch::turn(),
             spinner_tick: 0,
         }
     }
@@ -52,7 +53,11 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         let expired = self.controller.check_system_message_expiration();
         let footer = sync_turn_footer(self.controller, self.engine);
         self.batch
-            .flush(self.controller, spinner || footer || expired || steering)
+            .flush(self.controller, spinner || footer || expired || steering)?;
+        if matches!(self.controller.state().footer().activity, Activity::Idle) {
+            self.controller.state_mut().footer_mut().activity = Activity::Working;
+        }
+        Ok(())
     }
 
     fn tick_spinner(&mut self) -> bool {
@@ -73,6 +78,9 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         let footer = sync_turn_footer(self.controller, self.engine);
         if dirty || footer || steering {
             self.batch.flush(self.controller, footer || steering)?;
+        }
+        if matches!(self.controller.state().footer().activity, Activity::Idle) {
+            self.controller.state_mut().footer_mut().activity = Activity::Working;
         }
         Ok(())
     }
