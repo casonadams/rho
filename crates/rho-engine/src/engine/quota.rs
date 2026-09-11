@@ -14,6 +14,8 @@ pub(crate) fn canonical_quota_provider(provider: &str) -> Option<&'static str> {
         Some("antigravity")
     } else if trimmed.eq_ignore_ascii_case("chatgpt") || trimmed.eq_ignore_ascii_case("openai-chatgpt") {
         Some("chatgpt")
+    } else if trimmed.eq_ignore_ascii_case("claude") || trimmed.eq_ignore_ascii_case("claude-code") {
+        Some("claude")
     } else {
         None
     }
@@ -38,6 +40,14 @@ impl AgentEngine {
             }
             "chatgpt" => {
                 do_refresh_chatgpt_quota(Arc::clone(&self.auth_store), self.quota.clone()).await;
+            }
+            "claude" => {
+                do_refresh_claude_quota(
+                    Arc::clone(&self.auth_store),
+                    self.quota.clone(),
+                    self.config.model.clone(),
+                )
+                .await;
             }
             _ => {}
         }
@@ -64,6 +74,12 @@ impl AgentEngine {
             "chatgpt" => {
                 tokio::spawn(async move {
                     do_refresh_chatgpt_quota(auth, quota).await;
+                });
+            }
+            "claude" => {
+                let model = self.config.model.clone();
+                tokio::spawn(async move {
+                    do_refresh_claude_quota(auth, quota, model).await;
                 });
             }
             _ => {}
@@ -150,6 +166,26 @@ async fn do_refresh_chatgpt_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>
         return;
     };
     match crate::chatgpt::fetch_quota(&token, account_id.as_deref()).await {
+        Some(display) => quota.record_success(&key, display),
+        None => quota.record_failure(&key),
+    }
+}
+
+async fn do_refresh_claude_quota(
+    auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
+    quota: QuotaTracker,
+    target_model: String,
+) {
+    let key = QuotaKey::new("claude", Some(&target_model));
+    if !quota.should_fetch(&key) {
+        return;
+    }
+    let token = auth_store.lock().await.get_key("claude").await.ok().flatten();
+    let Some(token) = token else {
+        quota.record_failure(&key);
+        return;
+    };
+    match crate::claude::quota::fetch_quota(&token, Some(&target_model)).await {
         Some(display) => quota.record_success(&key, display),
         None => quota.record_failure(&key),
     }

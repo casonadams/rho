@@ -4,6 +4,7 @@
 pub mod client;
 pub mod completion;
 pub mod http;
+pub mod quota;
 pub mod request;
 pub mod stream;
 
