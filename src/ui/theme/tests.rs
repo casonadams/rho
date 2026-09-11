@@ -173,3 +173,17 @@ fn apply_ui_config_configures_border_mode_and_colors() {
     let bash_err = theme.tool_block(true, true, 20).render_plain("fail");
     assert!(bash_err.contains("\x1b[31m"));
 }
+
+#[test]
+fn default_border_colors_are_grey() {
+    let theme = Theme::default();
+    let grey = anstyle::Color::Ansi(anstyle::AnsiColor::BrightBlack);
+    assert_eq!(theme.user_border.get_fg_color(), Some(grey));
+    assert_eq!(theme.agent_border.get_fg_color(), Some(grey));
+    assert_eq!(theme.tool_border.get_fg_color(), Some(grey));
+    assert_eq!(theme.bash_success_border.get_fg_color(), Some(grey));
+    assert_eq!(
+        theme.bash_error_border.get_fg_color(),
+        Some(anstyle::Color::Ansi(anstyle::AnsiColor::Red))
+    );
+}

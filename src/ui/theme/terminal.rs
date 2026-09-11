@@ -42,6 +42,10 @@ pub fn detect() -> Theme {
         thinking: dim,
         heading_h3: dim,
         block_fill: blend_fill(fg, bg),
+        user_border: dim,
+        agent_border: dim,
+        tool_border: dim,
+        bash_success_border: dim,
         ..Theme::default()
     }
 }
@@ -66,6 +70,10 @@ pub(crate) fn theme_from_colorfbg(value: &str) -> Option<Theme> {
         thinking: dim,
         heading_h3: dim,
         block_fill: Style::new().bg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black))),
+        user_border: dim,
+        agent_border: dim,
+        tool_border: dim,
+        bash_success_border: dim,
         ..Theme::default()
     })
 }

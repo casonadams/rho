@@ -175,6 +175,7 @@ fn foreground(color: AnsiColor) -> Style {
 
 impl Default for Theme {
     fn default() -> Self {
+        let grey = Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack)));
         Self {
             is_light: false,
             prompt: foreground(AnsiColor::Cyan),
@@ -192,10 +193,10 @@ impl Default for Theme {
             skill_tag: foreground(AnsiColor::Magenta).bold(),
             block_fill: Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black))),
             block_style: BlockStyle::Solid,
-            user_border: Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))),
-            agent_border: foreground(AnsiColor::Blue),
-            tool_border: foreground(AnsiColor::Blue),
-            bash_success_border: foreground(AnsiColor::Green),
+            user_border: grey,
+            agent_border: grey,
+            tool_border: grey,
+            bash_success_border: grey,
             bash_error_border: foreground(AnsiColor::Red),
             block_agent_output: false,
         }
