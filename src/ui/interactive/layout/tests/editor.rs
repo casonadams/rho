@@ -22,7 +22,7 @@ fn empty_editor_layout(width: usize) -> crate::ui::interactive::layout::Interact
 #[test]
 fn empty_editor_has_one_line_and_fixed_chrome() {
     let layout = empty_editor_layout(8);
-    assert_eq!(layout.editor_lines, [""]);
+    assert_eq!(layout.editor_lines, ["\x1b[7m \x1b[27m"]);
     let actual = (
         layout.top_divider.as_str(),
         layout.footer_lines.len(),
@@ -54,7 +54,7 @@ fn explicit_newlines_grow_the_editor() {
         theme: None,
     });
 
-    assert_eq!(layout.editor_lines, ["one", "two", ""]);
+    assert_eq!(layout.editor_lines, ["one", "two", "\x1b[7m \x1b[27m"]);
     assert_eq!(layout.cursor, CursorPosition { row: 2, column: 0 });
     assert_eq!(layout.height(), 9);
 }
@@ -188,7 +188,8 @@ fn multiline_editor_cursor_tracking_within_window() {
 
     let layout = test_window_layout(&editor, 15);
     assert!(layout.height() <= 15 && layout.cursor_row() < layout.height());
-    assert!(layout.lines[layout.cursor_row()].contains("line_25"));
+    let stripped = crate::ui::block::ANSI_PATTERN.replace_all(&layout.lines[layout.cursor_row()], "");
+    assert!(stripped.contains("line_25"));
 }
 
 fn assert_minimal_height_layout(l: &crate::ui::interactive::layout::InteractiveLayout, h: usize) {
@@ -242,7 +243,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
         theme: None,
     });
 
-    assert_eq!(layout.editor_lines, ["ab界", "c"]);
+    assert_eq!(layout.editor_lines, ["ab界", "c\x1b[7m \x1b[27m"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 1 });
 }
 
@@ -267,7 +268,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
         theme: None,
     });
 
-    assert_eq!(layout.editor_lines, ["abc", "def"]);
+    assert_eq!(layout.editor_lines, ["abc", "d\x1b[7me\x1b[27mf"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 1 });
 }
 
@@ -290,6 +291,36 @@ fn full_final_line_adds_a_cursor_line() {
         theme: None,
     });
 
-    assert_eq!(layout.editor_lines, ["界", ""]);
+    assert_eq!(layout.editor_lines, ["界", "\x1b[7m \x1b[27m"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 0 });
+}
+
+#[test]
+fn software_cursor_rendering_cases() {
+    use crate::ui::interactive::layout::editor::apply_software_cursor;
+
+    // Case 1: Empty line
+    let mut line = String::new();
+    apply_software_cursor(&mut line, 0);
+    assert_eq!(line, "\x1b[7m \x1b[27m");
+
+    // Case 2: End of line
+    let mut line = "hello".to_string();
+    apply_software_cursor(&mut line, 5);
+    assert_eq!(line, "hello\x1b[7m \x1b[27m");
+
+    // Case 3: Start of line
+    let mut line = "hello".to_string();
+    apply_software_cursor(&mut line, 0);
+    assert_eq!(line, "\x1b[7mh\x1b[27mello");
+
+    // Case 4: Mid-line character
+    let mut line = "hello".to_string();
+    apply_software_cursor(&mut line, 2);
+    assert_eq!(line, "he\x1b[7ml\x1b[27mlo");
+
+    // Case 5: Wide Unicode character
+    let mut line = "a界b".to_string();
+    apply_software_cursor(&mut line, 1);
+    assert_eq!(line, "a\x1b[7m界\x1b[27mb");
 }

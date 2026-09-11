@@ -46,6 +46,7 @@ impl<B: TerminalBackend> TerminalController<B> {
             return Ok(());
         }
         self.backend.set_raw_mode(true)?;
+        self.backend.hide_cursor()?;
         self.active = true;
         self.redraw()
     }

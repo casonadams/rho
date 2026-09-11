@@ -108,14 +108,6 @@ fn render_initial_layout<B: TerminalBackend>(backend: &mut B, next: &Interactive
     move_cursor_to_target(backend, next.lines.len(), next)
 }
 
-fn apply_cursor_visibility<B: TerminalBackend>(backend: &mut B, visible: bool) -> io::Result<()> {
-    if visible {
-        backend.show_cursor()
-    } else {
-        backend.hide_cursor()
-    }
-}
-
 pub fn render_live_diff<B: TerminalBackend>(
     backend: &mut B,
     prev: Option<&InteractiveLayout>,
@@ -128,7 +120,6 @@ pub fn render_live_diff<B: TerminalBackend>(
     } else {
         render_initial_layout(backend, next)?;
     }
-    apply_cursor_visibility(backend, next.cursor_visible)?;
     backend.write_text(CSI_END_SYNC_UPDATE)?;
     backend.flush()
 }

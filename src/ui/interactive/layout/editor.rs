@@ -103,3 +103,36 @@ pub(crate) fn window_editor(
     };
     (windowed, new_cursor)
 }
+
+pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize) {
+    let mut current_col = 0;
+    let mut byte_offset = None;
+    let mut char_len = 0;
+
+    for (idx, ch) in line.char_indices() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current_col == target_column || (cw > 1 && target_column > current_col && target_column < current_col + cw) {
+            byte_offset = Some(idx);
+            char_len = ch.len_utf8();
+            break;
+        }
+        current_col += cw;
+    }
+
+    if let Some(offset) = byte_offset {
+        let before = &line[..offset];
+        let ch_str = &line[offset..offset + char_len];
+        let after = &line[offset + char_len..];
+        *line = format!("{before}\x1b[7m{ch_str}\x1b[27m{after}");
+    } else {
+        line.push_str("\x1b[7m \x1b[27m");
+    }
+}
+
+pub(crate) fn render_editor_lines(lines: Vec<String>, cursor: CursorPosition) -> Vec<String> {
+    let mut lines = lines;
+    if cursor.row < lines.len() {
+        apply_software_cursor(&mut lines[cursor.row], cursor.column);
+    }
+    lines
+}

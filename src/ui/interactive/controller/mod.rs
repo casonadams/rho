@@ -35,9 +35,11 @@ pub struct TerminalController<B: TerminalBackend> {
 
 fn init_terminal<B: TerminalBackend>(backend: &mut B) -> io::Result<(usize, usize)> {
     backend.set_raw_mode(true)?;
+    backend.hide_cursor()?;
     match backend.size() {
         Ok((w, h)) => Ok((usize::from(w), usize::from(h))),
         Err(err) => {
+            let _ = backend.show_cursor();
             let _ = backend.set_raw_mode(false);
             Err(err)
         }
@@ -86,11 +88,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn finish_output_write(&mut self) -> io::Result<()> {
         let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
-        if rendered.cursor_visible {
-            self.backend.show_cursor()?;
-        } else {
-            self.backend.hide_cursor()?;
-        }
+        self.backend.hide_cursor()?;
         self.rendered = Some(rendered);
         self.backend.write_text(ansi::CSI_END_SYNC_UPDATE)?;
         self.backend.flush()

@@ -64,11 +64,7 @@ mod resize {
                 .iter()
                 .any(|op| matches!(op, Operation::Write(text) if text.contains("────────")))
         );
-        assert!(operations.ends_with(&[
-            Operation::Show,
-            Operation::Write("\x1b[?2026l".into()),
-            Operation::Flush,
-        ]));
+        assert!(operations.ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,]));
     }
 
     #[test]
@@ -83,11 +79,7 @@ mod resize {
 
     fn assert_resize_operations(operations: &[Operation]) {
         assert!(operations.contains(&Operation::Clear));
-        assert!(operations.ends_with(&[
-            Operation::Show,
-            Operation::Write("\x1b[?2026l".into()),
-            Operation::Flush,
-        ]));
+        assert!(operations.ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,]));
     }
 
     #[test]

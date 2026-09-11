@@ -3,7 +3,7 @@ use super::budget::{NormalBudgetInput, NormalLayoutBudget, compute_normal_budget
 use super::chrome::{
     modal_banner_title, modal_top_divider, queued_lines_text, thinking_divider_style, top_divider, working_line_text,
 };
-use super::editor::{window_editor, wrap_editor};
+use super::editor::{render_editor_lines, window_editor, wrap_editor};
 use super::types::{CursorPosition, InteractiveLayout, LayoutInput};
 
 fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
@@ -61,7 +61,8 @@ fn render_editor_area(
     });
     let unused_ac = ac_budget.saturating_sub(ac_lines.len());
     let ed_max = ed_budget + unused_ac.min(all_ed_lines.len().saturating_sub(ed_budget));
-    let (mut ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
+    let (ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
+    let mut ed_lines = render_editor_lines(ed_lines, ed_cursor);
     if !ac_lines.is_empty() {
         ed_lines.extend(ac_lines);
     }

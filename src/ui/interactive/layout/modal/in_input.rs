@@ -1,5 +1,5 @@
 use super::options::{ModalOptionsLayout, render_modal_options};
-use crate::ui::interactive::layout::editor::{window_editor, wrap_editor};
+use crate::ui::interactive::layout::editor::{render_editor_lines, window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::{truncate_to_width, visible_width, wrap_to_width};
 use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
 
@@ -98,12 +98,12 @@ pub(crate) fn calculate_content_space(modal: &ModalState, space_for_content: usi
 }
 
 fn push_search_row(modal: &ModalState, width: usize, lines: &mut Vec<String>) -> (CursorPosition, bool) {
-    let query = truncate_to_width(&modal.filter_query, width.saturating_sub(4));
+    let query = truncate_to_width(&modal.filter_query, width.saturating_sub(6));
     let cursor = CursorPosition {
         row: lines.len(),
         column: (visible_width("  > ") + visible_width(&query)).min(width),
     };
-    lines.push(format!("  \x1b[1m>\x1b[0m {query}"));
+    lines.push(format!("  \x1b[1m>\x1b[0m {query}\x1b[7m \x1b[27m"));
     (cursor, true)
 }
 
@@ -130,6 +130,7 @@ fn push_modal_input_prompt(
 
     let (wrapped, cursor_pos) = wrap_editor(&modal.input, edit_width);
     let (windowed, cur) = window_editor(wrapped, cursor_pos, max_input_lines.max(1));
+    let windowed = render_editor_lines(windowed, cur);
     let base_row = lines.len();
 
     let continuation = " ".repeat(prefix_width);

@@ -3,22 +3,18 @@ use crate::ui::interactive::InteractiveState;
 use crate::ui::interactive::controller::TerminalController;
 
 #[test]
-fn construction_positions_and_shows_the_editor_cursor() {
+fn construction_positions_and_hides_the_hardware_cursor() {
     let (backend, operations, _) = FakeTerminal::new(10);
 
     let _controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
 
     let operations = operations.borrow();
-    let show_index = operations
-        .iter()
-        .rposition(|operation| operation == &Operation::Show)
-        .unwrap();
     let flush_index = operations
         .iter()
         .rposition(|operation| operation == &Operation::Flush)
         .unwrap();
-    assert!(operations[..show_index].contains(&Operation::Hide));
-    assert!(show_index < flush_index);
+    assert!(operations[..flush_index].contains(&Operation::Hide));
+    assert!(!operations.contains(&Operation::Show));
 }
 
 #[test]
@@ -48,11 +44,11 @@ fn suspend_and_resume_restore_terminal_modes_around_legacy_prompts() {
     operations.borrow_mut().clear();
     controller.resume().unwrap();
     assert_eq!(operations.borrow().first(), Some(&Operation::Raw(true)));
-    assert!(operations.borrow().ends_with(&[
-        Operation::Show,
-        Operation::Write("\x1b[?2026l".into()),
-        Operation::Flush,
-    ]));
+    assert!(
+        operations
+            .borrow()
+            .ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,])
+    );
 }
 
 #[test]

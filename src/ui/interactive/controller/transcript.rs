@@ -172,11 +172,7 @@ impl<B: TerminalBackend> TerminalController<B> {
 
         let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
-        if rendered.cursor_visible {
-            self.backend.show_cursor()?;
-        } else {
-            self.backend.hide_cursor()?;
-        }
+        self.backend.hide_cursor()?;
         self.rendered = Some(rendered);
         Ok(())
     }
