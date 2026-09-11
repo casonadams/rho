@@ -90,7 +90,9 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Fail-closed execution in headless automation.
 
 - **[MCP Servers & Lifecycle Plugins](docs/plugins.md)**
-  - Standard Model Context Protocol (MCP) server integration for external tools.
+  - Full Model Context Protocol (MCP) support: `stdio` and `streamable-http` transports with OAuth 2.1 PKCE authorization.
+  - Workspace `.mcp.json` interoperability, MCP resources, prompts, and root boundary negotiation.
+  - Context budget tool gating (`direct` vs `gateway` vs `auto`), `/mcp` TUI modal, and `rho mcp` management suite.
   - JSON-RPC stdio daemon plugin architecture for custom lifecycle steering and
     guardrails.
   - Native Rust plugin development via

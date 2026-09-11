@@ -162,6 +162,7 @@ async fn handle_selector_command(
         CommandResult::OpenSettingsSelector => super::modal::open_settings_selector(io_controller),
         CommandResult::OpenThinkingSelector => super::modal::open_thinking_selector(ctx.session, io_controller),
         CommandResult::OpenLoginSelector => super::modal::open_login_selector(ctx.session, io_controller),
+        CommandResult::OpenMcpSelector => super::modal::open_mcp_selector(ctx.session, io_controller),
         _ => {}
     }
     io_controller.redraw()?;
@@ -281,7 +282,8 @@ async fn handle_engine_command<B: TerminalBackend>(
         CommandResult::OpenModelSelector
         | CommandResult::OpenSettingsSelector
         | CommandResult::OpenThinkingSelector
-        | CommandResult::OpenLoginSelector => {
+        | CommandResult::OpenLoginSelector
+        | CommandResult::OpenMcpSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
         CommandResult::ClearContext => clear_engine_context(ctx).await?,

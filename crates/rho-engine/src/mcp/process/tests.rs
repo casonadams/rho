@@ -22,12 +22,7 @@ fn test_resolve_env_with_indirection() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_spawn_mcp_process() {
-    let config = McpServerConfig {
-        command: "/bin/sh".to_string(),
-        args: vec!["-c".to_string(), "sleep 30 & wait".to_string()],
-        env: BTreeMap::new(),
-        enabled: true,
-    };
+    let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), "sleep 30 & wait".to_string()]);
     let (_stdin, _stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
     let pid = handle.id().expect("handle has pid");
     assert!(pid > 1);

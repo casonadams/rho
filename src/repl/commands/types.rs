@@ -34,6 +34,7 @@ pub enum CommandResult {
     OpenSettingsSelector,
     OpenThinkingSelector,
     OpenLoginSelector,
+    OpenMcpSelector,
     ThinkingChanged {
         level: Option<String>,
     },
@@ -72,6 +73,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/think",
     "/skill",
     "/plugin",
+    "/mcp",
     "/session",
     "/compact",
     "/tree",

@@ -69,6 +69,10 @@ pub async fn handle_command(
     if handle_basic_commands(&cmd, (config, auth_store)).await? {
         return Ok(());
     }
+    if let Commands::Mcp { action } = cmd {
+        super::mcp::handle_mcp(action, config, auth_store).await?;
+        return Ok(());
+    }
     handle_plugin_commands(cmd, config).await?;
     Ok(())
 }

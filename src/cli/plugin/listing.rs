@@ -141,10 +141,12 @@ pub fn handle_inspect(config: &Config, capability: Option<&str>) {
         println!("  (none configured)");
     } else {
         for (name, server) in &config.mcp.servers {
-            println!(
-                "  - [mcp] {name}: command='{}' enabled={}",
-                server.command, server.enabled
-            );
+            let target = server
+                .command
+                .as_deref()
+                .or(server.url.as_deref())
+                .unwrap_or("<unspecified>");
+            println!("  - [mcp] {name}: target='{target}' enabled={}", server.enabled);
         }
         for (name, plugin) in &config.plugins {
             let target = plugin

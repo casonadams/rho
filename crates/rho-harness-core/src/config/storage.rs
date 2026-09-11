@@ -2,7 +2,7 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
-use super::types::{ConfigKey, FileConfig, PluginConfig};
+use super::types::{ConfigKey, FileConfig, McpServerConfig, PluginConfig};
 
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
@@ -70,6 +70,29 @@ impl super::Config {
             .ok_or_else(|| AppError::Config(format!("plugin '{name}' is not configured")))?;
         write_file_config_async(&path, &file_config).await?;
         Ok(plugin)
+    }
+
+    pub fn add_mcp_server(config_dir: &Path, name: &str, server: McpServerConfig) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config(&path)?;
+        let mcp = file_config.mcp.get_or_insert_with(Default::default);
+        mcp.servers.insert(name.to_string(), server);
+        write_file_config(&path, &file_config)
+    }
+
+    pub fn remove_mcp_server(config_dir: &Path, name: &str) -> Result<McpServerConfig> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config(&path)?;
+        let mcp = file_config
+            .mcp
+            .as_mut()
+            .ok_or_else(|| AppError::Config(format!("MCP server '{name}' is not configured")))?;
+        let server = mcp
+            .servers
+            .remove(name)
+            .ok_or_else(|| AppError::Config(format!("MCP server '{name}' is not configured")))?;
+        write_file_config(&path, &file_config)?;
+        Ok(server)
     }
 }
 

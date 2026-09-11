@@ -13,29 +13,77 @@
 
 ## 1. Configuring MCP Servers
 
-MCP servers can be configured globally in `~/.config/rho/config.toml` or
-per-project in `.rho/config.toml`:
+MCP servers can be configured globally in `~/.config/rho/config.toml`,
+per-project in `.rho/config.toml`, or via standard `.mcp.json` at the workspace root:
 
 ```toml
 [mcp]
 enabled = true
 
+# Local stdio subprocess
 [mcp.servers.filesystem]
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
+mode = "direct" # "direct" | "gateway" | "auto"
 enabled = true
 
-[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
-enabled = true
-
-[mcp.servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp", "--headless", "--isolated"]
+# Remote Streamable HTTP endpoint with OAuth or Bearer token
+[mcp.servers.remote_jira]
+url = "https://mcp.atlassian.example.com/mcp"
+transport = "streamable-http" # "streamable-http" | "sse"
+headers = { Authorization = "Bearer env:JIRA_API_TOKEN" }
+mode = "gateway"
+include_tools = ["search_issues", "create_issue"]
 enabled = true
 ```
+
+### Standard `.mcp.json` Compatibility
+
+`rho` transparently reads standard workspace `.mcp.json` files:
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp", "--headless"],
+      "env": { "HEADLESS": "true" }
+    },
+    "cloud": {
+      "url": "https://mcp.example.com/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+### Tool Exposure & Context Optimization
+
+- `mode = "direct"`: Tools are exposed directly in the agent's active toolset.
+- `mode = "gateway"`: Tools are searched and called dynamically via the `mcp` gateway tool to conserve token budget.
+- `mode = "auto"` (default): Uses direct exposure if tool count $\le$ 5, gateway if $> 5$.
+- `include_tools` & `exclude_tools`: Allowlist or denylist specific tool names.
+
+### MCP Management CLI & Interactive REPL
+
+Manage MCP servers directly from the terminal:
+
+```bash
+# List configured servers and statuses
+rho mcp list
+
+# Test connection, handshake latency, tools, resources, and prompts
+rho mcp test filesystem
+
+# Authenticate with a remote OAuth 2.1 MCP server
+rho mcp login remote_jira
+
+# Add or remove servers
+rho mcp add db "https://mcp.db.internal/mcp"
+rho mcp remove db
+```
+
+In the interactive REPL, press `/mcp` to open the clean management modal to toggle servers on and off dynamically.
 
 ### Tool Namespacing
 

@@ -1,7 +1,6 @@
 use super::*;
 use crate::mcp::process::McpProcess;
 use rho_harness_core::config::McpServerConfig;
-use std::collections::BTreeMap;
 
 #[test]
 fn test_mcp_tool_result_as_text() {
@@ -49,12 +48,7 @@ fn mock_mcp_script() -> &'static str {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_mcp_client_handshake_and_tools_list() {
-    let config = McpServerConfig {
-        command: "/bin/sh".to_string(),
-        args: vec!["-c".to_string(), mock_mcp_script().to_string()],
-        env: BTreeMap::new(),
-        enabled: true,
-    };
+    let config = McpServerConfig::stdio("/bin/sh", vec!["-c".to_string(), mock_mcp_script().to_string()]);
     let (stdin, stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
     let client = McpClient::new("mock", McpTransport::new(stdin, stdout, handle));
 
@@ -62,4 +56,33 @@ async fn test_mcp_client_handshake_and_tools_list() {
     assert!(init_resp.get("serverInfo").is_some());
     let tools = client.list_tools().await.unwrap();
     assert_eq!((tools.len(), tools[0].name.as_str()), (1, "mock_tool"));
+}
+
+fn mock_mcp_extended_script() -> &'static str {
+    "read l; id=$(echo \"$l\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\necho \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":$id,\\\"result\\\":{\\\"protocolVersion\\\":\\\"2025-11-25\\\",\\\"capabilities\\\":{\\\"resources\\\":{},\\\"prompts\\\":{}},\\\"serverInfo\\\":{\\\"name\\\":\\\"extended-mock\\\"}}}\"\nread n\nread l; id=$(echo \"$l\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\necho \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":$id,\\\"result\\\":{\\\"resources\\\":[{\\\"uri\\\":\\\"memo://notes\\\",\\\"name\\\":\\\"Notes\\\"}]}}\"\nread l; id=$(echo \"$l\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\necho \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":$id,\\\"result\\\":{\\\"contents\\\":[{\\\"uri\\\":\\\"memo://notes\\\",\\\"text\\\":\\\"sample memo content\\\"}]}}\"\nread l; id=$(echo \"$l\" | grep -o '\"id\":[0-9]*' | cut -d: -f2)\necho \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":$id,\\\"result\\\":{\\\"prompts\\\":[{\\\"name\\\":\\\"review\\\",\\\"description\\\":\\\"Review PR\\\",\\\"arguments\\\":[]}]}}\"\n"
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn test_mcp_client_resources_and_prompts() {
+    let config = McpServerConfig::stdio(
+        "/bin/sh",
+        vec!["-c".to_string(), mock_mcp_extended_script().to_string()],
+    );
+    let (stdin, stdout, handle) = McpProcess::spawn(&config, &std::env::temp_dir()).unwrap();
+    let client = McpClient::new("mock", McpTransport::new(stdin, stdout, handle));
+
+    let _ = client.initialize().await.unwrap();
+
+    let resources = client.list_resources().await.unwrap();
+    assert_eq!(resources.len(), 1);
+    assert_eq!(resources[0].uri, "memo://notes");
+
+    let contents = client.read_resource("memo://notes").await.unwrap();
+    assert_eq!(contents.len(), 1);
+    assert_eq!(contents[0].text.as_deref(), Some("sample memo content"));
+
+    let prompts = client.list_prompts().await.unwrap();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].name, "review");
 }

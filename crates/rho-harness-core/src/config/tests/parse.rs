@@ -62,8 +62,8 @@ fn parses_mcp_config() {
     let filesystem = &mcp.servers["filesystem"];
     assert_eq!((mcp.enabled, mcp.servers.len()), (true, 2));
     assert_eq!(
-        (filesystem.command.as_str(), mcp.servers["linear"].command.as_str()),
-        ("npx", "npx"),
+        (filesystem.command.as_deref(), mcp.servers["linear"].command.as_deref()),
+        (Some("npx"), Some("npx")),
     );
     assert_eq!(
         filesystem.args,

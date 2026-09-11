@@ -25,12 +25,7 @@ fn mcp_fs_config(script: &std::path::Path) -> Config {
     let mut servers = BTreeMap::new();
     servers.insert(
         "filesystem".to_string(),
-        McpServerConfig {
-            command: script.to_str().unwrap().to_string(),
-            args: Vec::new(),
-            env: BTreeMap::new(),
-            enabled: true,
-        },
+        McpServerConfig::stdio(script.to_str().unwrap(), Vec::new()),
     );
     Config {
         mcp: McpConfig { enabled: true, servers },

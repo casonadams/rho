@@ -140,6 +140,16 @@ async fn handle_async_slash_commands(
         "model" => model::handle_model(ctx, parts),
         "skill" | "skills" => skill::handle_skill(ctx, parts).await,
         "plugin" | "plugins" => Ok(plugin::handle_plugins(ctx)),
+        "mcp" => {
+            if parts.get(1) == Some(&"login") {
+                let target = parts.get(2).map(|s| format!("mcp:{s}"));
+                Ok(Some(CommandResult::Login { provider: target }))
+            } else if ctx.renderer.has_interactive_ui() {
+                Ok(Some(CommandResult::OpenMcpSelector))
+            } else {
+                Ok(plugin::handle_plugins(ctx))
+            }
+        }
         "login" => Ok(Some(handle_login_cmd(parts))),
         "logout" => Ok(Some(CommandResult::Logout {
             provider: parts.get(1).map(|v| (*v).to_string()),

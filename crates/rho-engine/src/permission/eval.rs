@@ -125,10 +125,32 @@ fn generic_tool_component(rules: &[PolicyRule], req: &EvalRequest<'_>) -> Compon
     }
 }
 
+fn mcp_direct_components(rules: &[PolicyRule], tool: &str) -> Option<Component> {
+    let (server, tool_name) = tool.split_once('_')?;
+    let targets = vec![
+        format!("{server}:{tool_name}"),
+        format!("{server}:*"),
+        server.to_string(),
+        "*".to_string(),
+    ];
+    let dec = decide_surface(rules, ("mcp", &targets), SurfaceKind::First);
+    if dec.matched_pattern.is_some() {
+        Some(Component {
+            surface: "mcp".into(),
+            value: format!("{server}:{tool_name}"),
+            decision: map_surface_decision("mcp", dec),
+        })
+    } else {
+        None
+    }
+}
+
 fn non_bash_components(rules: &[PolicyRule], req: EvalRequest<'_>) -> Vec<Component> {
     let mut components = Vec::new();
     if req.tool == "mcp" {
         components.push(mcp_components(rules, req.args));
+    } else if let Some(mcp_comp) = mcp_direct_components(rules, req.tool) {
+        components.push(mcp_comp);
     } else {
         components.push(generic_tool_component(rules, &req));
     }

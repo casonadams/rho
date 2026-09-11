@@ -7,11 +7,12 @@ pub fn handle_plugins(ctx: &SlashCommandContext<'_>) -> Option<CommandResult> {
         out.push_str("  (none configured)\n");
     } else {
         for (name, server) in &ctx.config.mcp.servers {
-            let _ = writeln!(
-                out,
-                "  - [mcp] {name}: {} (enabled: {})",
-                server.command, server.enabled
-            );
+            let target = server
+                .command
+                .as_deref()
+                .or(server.url.as_deref())
+                .unwrap_or("<unspecified>");
+            let _ = writeln!(out, "  - [mcp] {name}: {target} (enabled: {})", server.enabled);
         }
         for (name, plugin) in &ctx.config.plugins {
             let target = plugin

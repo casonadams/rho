@@ -29,15 +29,7 @@ fn write_fast_mcp_server(workspace: &std::path::Path) -> PathBuf {
 
 fn build_mcp_test_config(workspace: &std::path::Path, server_name: &str, cmd: &str) -> Config {
     let mut servers = BTreeMap::new();
-    servers.insert(
-        server_name.to_string(),
-        McpServerConfig {
-            command: cmd.to_string(),
-            args: Vec::new(),
-            env: BTreeMap::new(),
-            enabled: true,
-        },
-    );
+    servers.insert(server_name.to_string(), McpServerConfig::stdio(cmd, Vec::new()));
     Config {
         mcp: McpConfig { enabled: true, servers },
         config_dir: workspace.to_path_buf(),

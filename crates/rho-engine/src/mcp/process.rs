@@ -26,8 +26,12 @@ impl McpChildHandle {
 
 pub struct McpProcess;
 
-fn build_mcp_command(config: &McpServerConfig, working_dir: &Path) -> Command {
-    let mut cmd = Command::new(&config.command);
+fn build_mcp_command(config: &McpServerConfig, working_dir: &Path) -> Result<Command> {
+    let command_str = config
+        .command
+        .as_deref()
+        .ok_or_else(|| AppError::Plugin("No command specified for stdio MCP server".to_string()))?;
+    let mut cmd = Command::new(command_str);
     cmd.args(&config.args);
     cmd.current_dir(working_dir);
     cmd.stdin(Stdio::piped());
@@ -38,7 +42,7 @@ fn build_mcp_command(config: &McpServerConfig, working_dir: &Path) -> Command {
     for (key, val) in resolve_env(&config.env) {
         cmd.env(key, val);
     }
-    cmd
+    Ok(cmd)
 }
 
 fn spawn_stderr_reader(stderr: ChildStderr) -> Arc<Mutex<String>> {
@@ -75,10 +79,11 @@ fn take_process_stdio(child: &mut tokio::process::Child) -> Result<(ChildStdin, 
 
 impl McpProcess {
     pub fn spawn(config: &McpServerConfig, working_dir: &Path) -> Result<(ChildStdin, ChildStdout, McpChildHandle)> {
-        let mut cmd = build_mcp_command(config, working_dir);
+        let command_name = config.command.as_deref().unwrap_or("<unspecified>");
+        let mut cmd = build_mcp_command(config, working_dir)?;
         let mut child = cmd
             .spawn()
-            .map_err(|error| AppError::Plugin(format!("Failed to spawn MCP server '{}': {error}", config.command)))?;
+            .map_err(|error| AppError::Plugin(format!("Failed to spawn MCP server '{command_name}': {error}")))?;
 
         let (stdin, stdout, stderr) = take_process_stdio(&mut child)?;
         let stderr_buffer = spawn_stderr_reader(stderr);

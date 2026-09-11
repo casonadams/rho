@@ -276,3 +276,26 @@ fn default_policy_asks_for_unknown_bash() {
         assert_eq!(check_default_bash(cmd), Decision::Ask);
     }
 }
+
+#[test]
+fn mcp_direct_tool_permission_evaluation() {
+    let scope = crate::permission::policy::parse_scope_from_str(
+        "[allow]\nmcp = [\"github:*\"]\n[deny]\nmcp = [\"postgres:drop_db\"]\n",
+    )
+    .unwrap();
+    let policy = crate::permission::policy::build_policy(Some(scope), None);
+
+    let allow_req = EvalRequest {
+        tool: "github_create_issue",
+        args: &json!({"title": "Bug"}),
+        working_dir: None,
+    };
+    assert_eq!(decide_tool_call(&policy, allow_req), Decision::Allow);
+
+    let deny_req = EvalRequest {
+        tool: "postgres_drop_db",
+        args: &json!({}),
+        working_dir: None,
+    };
+    assert!(matches!(decide_tool_call(&policy, deny_req), Decision::Deny(_)));
+}

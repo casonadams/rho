@@ -201,6 +201,16 @@ async fn dispatch_modal_result_rest2(
             handle_thinking_selected(ctx, (level, save_as_default)).await
         }
         ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
+        ModalKeyResult::McpServerToggled { server } => {
+            if let Some(cfg) = ctx.session.config.mcp.servers.get_mut(&server) {
+                cfg.enabled = !cfg.enabled;
+                let status = if cfg.enabled { "enabled" } else { "disabled" };
+                ctx.session
+                    .renderer
+                    .print_notice(&format!("\nMCP server '{server}' {status}.\n"));
+            }
+            Ok(true)
+        }
         _ => Ok(false),
     }
 }

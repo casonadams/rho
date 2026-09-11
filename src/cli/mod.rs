@@ -3,6 +3,7 @@
 
 pub mod auth;
 mod commands;
+pub mod mcp;
 pub mod plugin;
 pub mod rpc;
 mod runner;

@@ -1,5 +1,6 @@
 pub mod interaction;
 pub mod login;
+pub mod mcp;
 pub mod model;
 pub mod session;
 pub mod settings;
@@ -14,6 +15,7 @@ use crossterm::event::KeyEvent;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use login::open_login_selector;
+pub use mcp::open_mcp_selector;
 pub use model::open_model_selector;
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
@@ -48,6 +50,9 @@ pub enum ModalKeyResult {
     },
     LoginProviderSelected {
         provider: String,
+    },
+    McpServerToggled {
+        server: String,
     },
 }
 
@@ -90,6 +95,7 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Conversation Tree" => tree::handle_tree_key(controller, key),
         "Select Model" => model::handle_model_key(controller, key),
         "Select Thinking Level" => thinking::handle_thinking_key(controller, key),
+        "Model Context Protocol" => mcp::handle_mcp_key(controller, key),
         "Login Provider" => login::handle_login_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }

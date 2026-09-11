@@ -114,7 +114,8 @@ fn merge_retention(config: &mut Config, file: &FileConfig) {
 
 fn merge_plugins_and_extensions(config: &mut Config, file: FileConfig) {
     if let Some(mcp) = file.mcp {
-        config.mcp = mcp;
+        config.mcp.enabled = mcp.enabled;
+        config.mcp.servers.extend(mcp.servers);
     }
     if let Some(permission) = file.permission {
         config.permission = permission;

@@ -333,6 +333,10 @@ api_key = "optional"</code></pre>
             <td>List active MCP tool servers, plugins, and registration health</td>
           </tr>
           <tr>
+            <td><code>/mcp</code></td>
+            <td>Open the interactive Model Context Protocol modal and toggle servers</td>
+          </tr>
+          <tr>
             <td><code>/reload</code></td>
             <td>Reload configuration, skills, and tools without losing conversation history</td>
           </tr>
@@ -673,8 +677,22 @@ async fn main() {
 
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
       <p>
-        MCP servers are tool providers configured in <code>~/.config/rho/config.toml</code> or <code>.rho/config.toml</code>. All exposed tools are automatically namespaced (e.g. <code>github</code> $\rightarrow$ <code>github_list_pull_requests</code>):
+        MCP servers are tool providers configured in <code>~/.config/rho/config.toml</code>, <code>.rho/config.toml</code>, or standard workspace <code>.mcp.json</code>. <code>rho</code> supports both local <code>stdio</code> child processes and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
       </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>CLI &amp; Interactive Commands</span>
+        </div>
+        <pre><code># Inspect, test, and manage MCP servers
+rho mcp list
+rho mcp test filesystem
+rho mcp login remote-jira
+rho mcp add db "https://mcp.db.example.com/mcp"
+
+# In the interactive REPL:
+/mcp</code></pre>
+      </div>
 
       <div class="code-block-wrapper">
         <div class="code-block-header">

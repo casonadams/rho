@@ -58,15 +58,7 @@ done
 
 fn with_mock_mcp(mut config: Config, command: String) -> Config {
     let mut servers = BTreeMap::new();
-    servers.insert(
-        "mock".to_string(),
-        McpServerConfig {
-            command,
-            args: Vec::new(),
-            env: BTreeMap::new(),
-            enabled: true,
-        },
-    );
+    servers.insert("mock".to_string(), McpServerConfig::stdio(command, Vec::new()));
     config.mcp = McpConfig { enabled: true, servers };
     config
 }

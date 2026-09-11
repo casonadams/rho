@@ -2,6 +2,7 @@
 //! with validation and atomic persistence for settings and plugin entries.
 
 pub mod cli;
+pub mod mcp;
 mod merge;
 mod storage;
 mod types;
@@ -11,8 +12,8 @@ mod validate;
 mod tests;
 
 pub use types::{
-    Config, DEFAULT_MAX_TURNS, McpConfig, McpServerConfig, PermissionConfig, PluginConfig, ProviderConfig,
-    default_config_dir, dirs_fallback,
+    Config, DEFAULT_MAX_TURNS, McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig,
+    PluginConfig, ProviderConfig, default_config_dir, dirs_fallback,
 };
 
 use crate::error::{AppError, Result};
@@ -41,6 +42,10 @@ impl Config {
                 && let Ok(project_file_cfg) = toml::from_str::<FileConfig>(&content)
             {
                 merge::merge_file(&mut config, project_file_cfg);
+            }
+
+            if let Ok(Some(project_mcp)) = mcp::load_project_mcp_config(&cwd) {
+                config.mcp.servers.extend(project_mcp.servers);
             }
         }
 

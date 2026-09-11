@@ -7,7 +7,7 @@ mod subcommands;
 #[cfg(test)]
 mod tests;
 
-pub use subcommands::{Commands, PluginCommands};
+pub use subcommands::{Commands, McpCommands, PluginCommands};
 
 #[derive(Parser, Debug, Clone)]
 #[command(
