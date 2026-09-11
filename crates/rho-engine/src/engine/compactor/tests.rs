@@ -401,6 +401,36 @@ mod orchestrator {
         assert!(comp_node.compaction_metadata().unwrap().first_kept_node_id.is_some());
         assert_preamble_omitted(&tree.active_messages());
     }
+
+    #[tokio::test]
+    async fn test_compact_session_respects_compaction_max_bytes() {
+        let dir = std::env::temp_dir().join(format!("orchestrator_max_bytes_{}", uuid::Uuid::new_v4()));
+        let config = Config {
+            sessions_dir: dir.join("sessions"),
+            auth_file: dir.join("auth.json"),
+            keep_recent_tokens: 5,
+            compaction_max_bytes: 120,
+            ..Default::default()
+        };
+        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+        let engine = AgentEngineBuilder::new(config, auth_store)
+            .base_dir(dir.clone())
+            .tools(Vec::new())
+            .build()
+            .await
+            .unwrap();
+
+        let sid = &engine.session_manager.session_id;
+        let messages = vec![
+            Message::user("Please build an entire large subsystem with lots of details."),
+            Message::assistant("I will now write multiple files and refactor the architecture comprehensively."),
+        ];
+        engine.session_manager.append(sid, messages).await.unwrap();
+
+        let stats = engine.compact_session(None).await.unwrap();
+        assert!(stats.summary.len() <= 120);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 mod overflow {

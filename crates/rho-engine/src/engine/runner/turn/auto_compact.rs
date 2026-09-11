@@ -155,6 +155,15 @@ impl AutoCompactHook {
             )
             .await;
         let summary = self.compactor.session_manager().redact_credentials(&summary);
+        let summary = if self.compactor.max_bytes() > 0 && summary.len() > self.compactor.max_bytes() {
+            let mut end = self.compactor.max_bytes();
+            while end > 0 && !summary.is_char_boundary(end) {
+                end -= 1;
+            }
+            summary[..end].to_string()
+        } else {
+            summary
+        };
         let summary_message = compaction_summary_message(&summary);
         let mut kept_with_summary = vec![summary_message.clone()];
         kept_with_summary.extend_from_slice(&history[cut.cut_index..]);

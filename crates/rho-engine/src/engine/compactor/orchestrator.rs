@@ -142,6 +142,7 @@ pub struct SessionCompactor {
     model: Option<ModelHandle>,
     model_name: String,
     keep_recent_tokens: usize,
+    max_bytes: usize,
 }
 
 impl SessionCompactor {
@@ -149,7 +150,7 @@ impl SessionCompactor {
         session_manager: SessionManager,
         usage: UsageTracker,
         model: Option<ModelHandle>,
-        (model_name, keep_recent_tokens): (&str, usize),
+        (model_name, keep_recent_tokens, max_bytes): (&str, usize, usize),
     ) -> Self {
         Self {
             session_manager,
@@ -157,6 +158,7 @@ impl SessionCompactor {
             model,
             model_name: model_name.to_string(),
             keep_recent_tokens,
+            max_bytes,
         }
     }
 
@@ -174,6 +176,10 @@ impl SessionCompactor {
 
     pub(crate) fn keep_recent_tokens(&self) -> usize {
         self.keep_recent_tokens
+    }
+
+    pub(crate) fn max_bytes(&self) -> usize {
+        self.max_bytes
     }
 
     pub async fn compact(&self, instructions: Option<&str>) -> Result<CompactionStats> {
@@ -272,7 +278,16 @@ impl SessionCompactor {
             .await;
         let file_details = extract_file_ops(to_sum, plan.prior_details);
         let summary = compose_compaction_summary(&md_summary, &render_file_lists_xml(&file_details));
-        let final_summary = self.session_manager.redact_credentials(&summary);
+        let redacted_summary = self.session_manager.redact_credentials(&summary);
+        let final_summary = if self.max_bytes > 0 && redacted_summary.len() > self.max_bytes {
+            let mut end = self.max_bytes;
+            while end > 0 && !redacted_summary.is_char_boundary(end) {
+                end -= 1;
+            }
+            redacted_summary[..end].to_string()
+        } else {
+            redacted_summary
+        };
 
         let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name);
         let saved_tokens = tokens_before.saturating_sub(tokens_after);
@@ -297,7 +312,11 @@ impl AgentEngine {
             self.session_manager.clone(),
             self.usage.clone(),
             self.model.clone(),
-            (&self.config.model, self.config.keep_recent_tokens),
+            (
+                &self.config.model,
+                self.config.keep_recent_tokens,
+                self.config.compaction_max_bytes,
+            ),
         )
     }
 
