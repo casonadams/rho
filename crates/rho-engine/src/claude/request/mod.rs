@@ -71,10 +71,44 @@ pub fn build_request_body(
 
     attach_thinking_or_temp(&mut body, thinking_budget, request.temperature);
     if let Some(system) = system_prompt(request) {
-        body["system"] = json!(system);
+        body["system"] = json!([{
+            "type": "text",
+            "text": system,
+            "cache_control": { "type": "ephemeral" },
+        }]);
     }
     attach_tools_and_choice(&mut body, request);
+    mark_cache_breakpoints(&mut body);
     Ok(body)
+}
+
+/// Prompt caching: one breakpoint per static prefix block (system prompt,
+/// last tool) plus the conversation tail. The Messages API allows at most
+/// four cache breakpoints per request; three are used here.
+fn mark_cache_breakpoints(body: &mut Value) {
+    if let Some(last_tool) = body
+        .get_mut("tools")
+        .and_then(Value::as_array_mut)
+        .and_then(|tools| tools.last_mut())
+    {
+        last_tool["cache_control"] = json!({ "type": "ephemeral" });
+    }
+    let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for message in messages.iter_mut().rev() {
+        let Some(parts) = message.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        if let Some(last_tool_result) = parts
+            .iter_mut()
+            .rev()
+            .find(|part| part.get("type").and_then(Value::as_str) == Some("tool_result"))
+        {
+            last_tool_result["cache_control"] = json!({ "type": "ephemeral" });
+            return;
+        }
+    }
 }
 
 fn system_prompt(request: &CompletionRequest) -> Option<String> {

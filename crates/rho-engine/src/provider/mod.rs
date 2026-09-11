@@ -1,9 +1,11 @@
 mod builders;
 pub mod capabilities;
 pub mod discovery;
+mod extras;
 pub mod store;
 
 pub use capabilities::supports_tool_result_images;
+pub use extras::provider_request_extras;
 pub use store::ModelStore;
 
 use crate::auth::AuthStore;

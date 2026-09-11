@@ -66,7 +66,8 @@ fn test_build_request_body_with_thinking_omits_temperature() {
     let body = build_request_body("claude-sonnet-4-5", Some("medium"), &req).unwrap();
     let actual = (
         body["model"].as_str(),
-        body["system"].as_str(),
+        body["system"][0]["text"].as_str(),
+        body["system"][0]["cache_control"]["type"].as_str(),
         body["thinking"]["type"].as_str(),
         body["thinking"]["budget_tokens"].as_u64(),
     );
@@ -75,6 +76,7 @@ fn test_build_request_body_with_thinking_omits_temperature() {
         (
             Some("claude-sonnet-4-5-20250514"),
             Some("system instructions"),
+            Some("ephemeral"),
             Some("enabled"),
             Some(4096)
         )
@@ -151,6 +153,38 @@ fn test_build_request_body_converts_messages_and_tools() {
         tools[0]["input_schema"]["type"].as_str(),
     );
     assert_eq!(tool_info, (1, Some("test_tool"), Some("object")));
+}
+
+#[test]
+fn test_build_request_body_marks_cache_breakpoints() {
+    let req = request_with_tool_and_history();
+    let body = build_request_body("default", None, &req).unwrap();
+
+    assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+    assert_eq!(body["tools"][0]["cache_control"]["type"], "ephemeral");
+    let messages = body["messages"].as_array().unwrap();
+    let tool_result = messages
+        .iter()
+        .rev()
+        .find_map(|m| {
+            m["content"]
+                .as_array()
+                .and_then(|parts| parts.iter().find(|p| p["type"] == "tool_result"))
+        })
+        .unwrap();
+    assert_eq!(tool_result["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn test_build_request_body_leaves_history_uncached_without_tool_results() {
+    let req = sample_request();
+    let body = build_request_body("default", None, &req).unwrap();
+
+    for message in body["messages"].as_array().unwrap() {
+        for part in message["content"].as_array().unwrap() {
+            assert!(part.get("cache_control").is_none());
+        }
+    }
 }
 
 #[test]
