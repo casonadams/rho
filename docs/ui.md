@@ -147,11 +147,11 @@ To replace the solid background fill on blocks with an outline/border, configure
 # Block framing: "border" (outline) or "solid" (fill, default)
 block_style = "border"
 
-# Border colors (ANSI color names or "#rrggbb" hex)
+# Border colors (ANSI color names or "#rrggbb" hex; defaults to "gray")
 user_border = "gray"           # User prompt blocks
-agent_border = "blue"          # Agent / sub-agent skill blocks
-tool_border = "cyan"           # General command / tool cards
-bash_success_border = "green"  # Successful bash commands
+agent_border = "gray"          # Agent / sub-agent skill blocks
+tool_border = "gray"           # General command / tool cards
+bash_success_border = "gray"   # Successful bash commands
 bash_error_border = "red"      # Failed bash commands
 ```
 
