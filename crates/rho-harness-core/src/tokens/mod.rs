@@ -19,6 +19,7 @@ const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
     (&["gemini-1.5-pro", "gemini-2.5-pro"], 2_000_000),
     (&["gemini"], 1_000_000),
     (&["gpt-6-astra"], 1_050_000),
+    (&["sonnet", "opus", "fable"], 1_000_000),
     (&["gpt-5.6", "luna", "terra", "sol"], 372_000),
     (&["gpt-5.4", "gpt-5.5"], 272_000),
     (&["claude", "o1", "o3"], 200_000),
