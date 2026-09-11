@@ -28,6 +28,26 @@ pub enum RpcCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         provider: Option<String>,
     },
+    SetThinking {
+        level: String,
+    },
+    GetTree,
+    SwitchBranch {
+        node_id: String,
+    },
+    SetNodeLabel {
+        node_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+    },
+    ListSessions,
+    ResumeSession {
+        session_id: String,
+    },
+    ForkSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        node_id: Option<String>,
+    },
     GetState,
     Exit,
 }
@@ -125,6 +145,9 @@ pub enum RpcEvent {
     TurnEnd {
         stop_reason: String,
     },
+    StatusChanged {
+        status: String,
+    },
     Error {
         code: String,
         message: String,
@@ -158,5 +181,61 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(json, r#"{"type":"text_chunk","content":"Hello world"}"#);
+    }
+
+    #[test]
+    fn test_rpc_extended_commands_parsing() {
+        let set_thinking: RpcRequest = serde_json::from_str(r#"{"type":"set_thinking","level":"high"}"#).unwrap();
+        assert_eq!(
+            set_thinking.command,
+            RpcCommand::SetThinking {
+                level: "high".to_string()
+            }
+        );
+
+        let get_tree: RpcRequest = serde_json::from_str(r#"{"type":"get_tree"}"#).unwrap();
+        assert_eq!(get_tree.command, RpcCommand::GetTree);
+
+        let switch_branch: RpcRequest =
+            serde_json::from_str(r#"{"type":"switch_branch","node_id":"node-123"}"#).unwrap();
+        assert_eq!(
+            switch_branch.command,
+            RpcCommand::SwitchBranch {
+                node_id: "node-123".to_string()
+            }
+        );
+
+        let set_label: RpcRequest =
+            serde_json::from_str(r#"{"type":"set_node_label","node_id":"node-1","label":"v1.0"}"#).unwrap();
+        assert_eq!(
+            set_label.command,
+            RpcCommand::SetNodeLabel {
+                node_id: "node-1".to_string(),
+                label: Some("v1.0".to_string())
+            }
+        );
+
+        let list_sessions: RpcRequest = serde_json::from_str(r#"{"type":"list_sessions"}"#).unwrap();
+        assert_eq!(list_sessions.command, RpcCommand::ListSessions);
+
+        let resume: RpcRequest = serde_json::from_str(r#"{"type":"resume_session","session_id":"sess-abc"}"#).unwrap();
+        assert_eq!(
+            resume.command,
+            RpcCommand::ResumeSession {
+                session_id: "sess-abc".to_string()
+            }
+        );
+
+        let fork: RpcRequest = serde_json::from_str(r#"{"type":"fork_session"}"#).unwrap();
+        assert_eq!(fork.command, RpcCommand::ForkSession { node_id: None });
+    }
+
+    #[test]
+    fn test_rpc_status_changed_event() {
+        let event = RpcEvent::StatusChanged {
+            status: "waiting_approval".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, r#"{"type":"status_changed","status":"waiting_approval"}"#);
     }
 }
