@@ -16,8 +16,8 @@ use anstyle::{AnsiColor, Color, RgbColor, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlockStyle {
-    #[default]
     Solid,
+    #[default]
     Border,
 }
 
@@ -192,8 +192,8 @@ impl Default for Theme {
             warning: foreground(AnsiColor::Yellow),
             skill_tag: foreground(AnsiColor::Magenta).bold(),
             block_fill: Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black))),
-            block_style: BlockStyle::Solid,
-            user_border: grey,
+            block_style: BlockStyle::Border,
+            user_border: foreground(AnsiColor::Blue),
             agent_border: grey,
             tool_border: grey,
             bash_success_border: grey,

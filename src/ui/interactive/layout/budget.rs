@@ -9,12 +9,10 @@ pub(crate) struct NormalBudgetInput {
     pub total_editor_lines: usize,
     pub autocomplete_desired: usize,
     pub is_modal: bool,
-    pub has_activity: bool,
 }
 
 pub(crate) struct NormalLayoutBudget {
     pub show_spacer: bool,
-    pub show_activity_row: bool,
     pub show_top_div: bool,
     pub show_bot_div: bool,
     pub footer_count: usize,
@@ -27,25 +25,22 @@ pub(crate) struct NormalLayoutBudget {
 #[derive(Debug, Clone, Copy)]
 struct ChromeVisibility {
     show_spacer: bool,
-    show_activity_row: bool,
     show_top_div: bool,
     show_bot_div: bool,
     footer_count: usize,
 }
 
 fn compute_chrome(budget: usize, raw_footer_count: usize) -> ChromeVisibility {
-    let (s, a, t, b, f) = match budget {
-        0..=1 => (false, false, false, false, 0),
-        2 => (false, false, true, false, 0),
-        3 => (false, false, true, true, 0),
-        4 => (false, false, true, true, raw_footer_count.min(1)),
-        5 => (false, false, true, true, raw_footer_count.min(2)),
-        6 => (false, true, true, true, raw_footer_count.min(2)),
-        _ => (true, true, true, true, raw_footer_count.min(2)),
+    let (s, t, b, f) = match budget {
+        0..=1 => (false, false, false, 0),
+        2 => (false, true, false, 0),
+        3 => (false, true, true, 0),
+        4 => (false, true, true, raw_footer_count.min(1)),
+        5 => (false, true, true, raw_footer_count.min(2)),
+        _ => (true, true, true, raw_footer_count.min(2)),
     };
     ChromeVisibility {
         show_spacer: s,
-        show_activity_row: a,
         show_top_div: t,
         show_bot_div: b,
         footer_count: f,
@@ -92,7 +87,6 @@ fn allocate_editor_and_autocomplete(surplus: usize, extra_ed: usize, ac_desired:
 
 fn calculate_surplus(budget: usize, chrome: ChromeVisibility, queued_raw: usize) -> (usize, usize) {
     let reserved = usize::from(chrome.show_spacer)
-        + usize::from(chrome.show_activity_row)
         + usize::from(chrome.show_top_div)
         + usize::from(chrome.show_bot_div)
         + chrome.footer_count
@@ -105,7 +99,6 @@ fn calculate_surplus(budget: usize, chrome: ChromeVisibility, queued_raw: usize)
 fn resolve_chrome(input: &NormalBudgetInput, mut chrome: ChromeVisibility) -> ChromeVisibility {
     if input.is_modal {
         chrome.show_spacer = (input.raw_widgets_count > 0 || input.raw_queued_count > 0) && chrome.show_spacer;
-        chrome.show_activity_row = input.has_activity && chrome.show_activity_row;
     }
     chrome
 }
@@ -131,7 +124,6 @@ pub(crate) fn compute_normal_budget(input: &NormalBudgetInput) -> NormalLayoutBu
     }
     NormalLayoutBudget {
         show_spacer: chrome.show_spacer,
-        show_activity_row: chrome.show_activity_row,
         show_top_div: chrome.show_top_div,
         show_bot_div: chrome.show_bot_div,
         footer_count: chrome.footer_count,

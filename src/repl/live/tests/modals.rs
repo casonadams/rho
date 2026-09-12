@@ -69,10 +69,10 @@ fn settings_selector_modal_toggles_block_style() {
     assert_eq!(
         res,
         super::super::modal::ModalKeyResult::BlockStyleToggled {
-            style: "border".to_string()
+            style: "solid".to_string()
         }
     );
-    assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
+    assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
 }
 
 #[test]

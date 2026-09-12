@@ -183,3 +183,139 @@ fn modal_top_divider_reflects_active_input_mode() {
         assert!(l.top_divider.contains(expected_title) && !l.top_divider.contains("Permission Required"));
     }
 }
+
+#[test]
+fn top_divider_busy_renders_spinner_and_activity_matching_thinking_color() {
+    let footer = FooterState {
+        activity: crate::ui::interactive::Activity::Working,
+        thinking_level: Some("medium".into()),
+        show_label: true,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 60,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(layout.top_divider.starts_with("\x1b[36m"));
+    assert!(layout.top_divider.contains("working"));
+    assert!(layout.top_divider.contains('\u{280b}'));
+    assert!(layout.top_divider.contains("── \u{280b} working "));
+    let label = concat!("rho ", env!("CARGO_PKG_VERSION"));
+    assert!(layout.top_divider.contains(label));
+    assert!(layout.top_divider.contains("───"));
+    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
+    assert_eq!(stripped, 60, "busy divider must match terminal width");
+}
+
+#[test]
+fn top_divider_busy_drops_version_badge_when_width_is_tight() {
+    let footer = FooterState {
+        activity: crate::ui::interactive::Activity::Working,
+        show_label: true,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 20,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(layout.top_divider.contains("working"));
+    assert!(layout.top_divider.contains('\u{280b}'));
+    assert!(layout.top_divider.contains("── \u{280b} working "));
+    assert!(!layout.top_divider.contains("rho"));
+    let stripped = crate::ui::interactive::footer::visible_width(&layout.top_divider);
+    assert_eq!(stripped, 20);
+}
+
+#[test]
+fn top_divider_busy_gracefully_degrades_on_very_narrow_widths() {
+    let footer = FooterState {
+        activity: crate::ui::interactive::Activity::Working,
+        show_label: true,
+        ..FooterState::default()
+    };
+    let narrow = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 10,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(narrow.top_divider.contains('\u{280b}'));
+    assert!(!narrow.top_divider.contains("working"));
+    assert_eq!(crate::ui::interactive::footer::visible_width(&narrow.top_divider), 10);
+
+    let tiny = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 5,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert_eq!(crate::ui::interactive::footer::visible_width(&tiny.top_divider), 5);
+    assert!(!tiny.top_divider.contains('\u{280b}'));
+}
+
+#[test]
+fn top_divider_busy_on_tight_terminal_shows_spinner_only() {
+    let footer = FooterState {
+        activity: crate::ui::interactive::Activity::Working,
+        show_label: true,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 7,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(layout.top_divider.contains("── \u{280b} ──"));
+    assert!(!layout.top_divider.contains("working"));
+    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 7);
+}

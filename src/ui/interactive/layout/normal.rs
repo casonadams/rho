@@ -38,7 +38,8 @@ fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset
             } else {
                 ""
             };
-            top_divider(width, label, style, reset)
+            let activity = super::chrome::active_activity_status(input.footer, input.spinner_frame);
+            top_divider(width, label, activity, style, reset)
         }
     }
 }
@@ -99,7 +100,6 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
     let ed_wrapped = wrap_editor(input.editor, width);
     let ac_desired = desired_autocomplete_count(input, width);
     let (total_editor_lines, ft_lines) = estimate_layout_demands(input, width, ed_wrapped.0.len());
-    let has_activity = !working.is_empty();
     let budget = compute_normal_budget(&NormalBudgetInput {
         terminal_height: input.terminal_height,
         raw_widgets_count: input.widget_lines.len(),
@@ -108,7 +108,6 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
         autocomplete_desired: ac_desired,
         raw_footer_count: ft_lines.len(),
         is_modal: input.modal.is_some(),
-        has_activity,
     });
     LayoutPieces {
         working,
@@ -173,8 +172,8 @@ fn visible_widgets_and_queued(
 
 fn push_pre_editor_lines(
     lines: &mut Vec<String>,
-    (budget, is_modal): (&NormalLayoutBudget, bool),
-    (widgets, queued, working): (&[String], &[String], &str),
+    budget: &NormalLayoutBudget,
+    (widgets, queued): (&[String], &[String]),
 ) {
     if !widgets.is_empty() {
         lines.extend_from_slice(widgets);
@@ -184,9 +183,6 @@ fn push_pre_editor_lines(
     }
     if !queued.is_empty() {
         lines.extend_from_slice(queued);
-    }
-    if budget.show_activity_row && (!is_modal || !working.is_empty()) {
-        lines.push(working.to_string());
     }
 }
 
@@ -244,11 +240,11 @@ fn resolve_chrome_dividers(input: &LayoutInput<'_>, width: usize) -> (String, St
 
 fn init_layout_lines(
     budget: &NormalLayoutBudget,
-    (widgets, queued, working): (&[String], &[String], &str),
-    (top_div, is_modal): (&str, bool),
+    (widgets, queued): (&[String], &[String]),
+    top_div: &str,
 ) -> Vec<String> {
     let mut lines = Vec::new();
-    push_pre_editor_lines(&mut lines, (budget, is_modal), (widgets, queued, working));
+    push_pre_editor_lines(&mut lines, budget, (widgets, queued));
     if budget.show_top_div {
         lines.push(top_div.to_string());
     }
@@ -273,10 +269,6 @@ fn render_editor_and_bottom(
     ((ed_cursor, ed_vis, editor_start_row), ed_lines)
 }
 
-fn active_working_text(show: bool, working: String) -> String {
-    if show { working } else { String::new() }
-}
-
 pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout {
     let width = input.terminal_width.max(1);
     let pieces = prepare_layout_pieces(&input, width);
@@ -285,8 +277,7 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
     let theme = input.theme.unwrap_or(&default_theme);
     let (vis_w, vis_q) = visible_widgets_and_queued(input.widget_lines, &pieces.queued, &pieces.budget);
 
-    let is_modal = input.modal.is_some();
-    let mut lines = init_layout_lines(&pieces.budget, (&vis_w, &vis_q, &pieces.working), (&top_div, is_modal));
+    let mut lines = init_layout_lines(&pieces.budget, (&vis_w, &vis_q), &top_div);
     let (cursor_info, ed_lines) = render_editor_and_bottom(
         (&input, pieces.ed_wrapped),
         (width, &pieces.budget, theme, &bot_div),
@@ -297,11 +288,10 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
         (&pieces.ft_lines, pieces.budget.footer_count),
         (theme.dimmed, width),
     );
-    let working = active_working_text(pieces.budget.show_activity_row, pieces.working);
 
     assemble_layout(
         lines,
         cursor_info,
-        (vis_q, vis_w, working, top_div, ed_lines, bot_div, vis_ft),
+        (vis_q, vis_w, pieces.working, top_div, ed_lines, bot_div, vis_ft),
     )
 }

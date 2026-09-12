@@ -36,11 +36,13 @@ fn busy_activity_renders_working_line_above_the_editor() {
 
     assert!(
         layout.working_line.starts_with(" \x1b[36m\u{280b}")
-            && layout.working_line.contains("Working...")
+            && layout.working_line.contains("working")
             && layout.working_line.contains("\u{1b}[2m")
     );
     assert!(layout.footer_lines[1].ends_with("model"));
-    assert_eq!(layout.height(), 7);
+    assert!(layout.top_divider.contains("working"));
+    assert!(layout.top_divider.contains('\u{280b}'));
+    assert_eq!(layout.height(), 6);
 }
 
 #[test]
@@ -69,7 +71,7 @@ fn thinking_activity_also_renders_the_working_line() {
     });
 
     assert!(layout.working_line.contains('\u{280b}'));
-    assert!(layout.working_line.contains("Working..."));
+    assert!(layout.working_line.contains("working"));
 }
 
 #[test]
@@ -98,8 +100,8 @@ fn compacting_activity_renders_compacting_label() {
     });
 
     assert!(layout.working_line.contains('\u{280b}'));
-    assert!(layout.working_line.contains("Compacting..."));
-    assert!(!layout.working_line.contains("Working..."));
+    assert!(layout.working_line.contains("compacting"));
+    assert!(!layout.working_line.contains("working"));
 }
 
 #[test]
@@ -128,7 +130,7 @@ fn idle_activity_renders_no_working_line() {
     });
 
     assert_eq!(layout.working_line, "");
-    assert_eq!(layout.height(), 7);
+    assert_eq!(layout.height(), 6);
 }
 
 #[test]
@@ -148,7 +150,7 @@ fn busy_activity_does_not_change_layout_height_or_cursor_row() {
 }
 
 #[test]
-fn busy_activity_under_modal_shows_working_line_when_budget_permits() {
+fn busy_activity_under_modal_suppresses_spinner_and_shows_modal_title() {
     let default_editor = EditorState::default();
     let footer = FooterState {
         activity: Activity::Working,
@@ -164,8 +166,9 @@ fn busy_activity_under_modal_shows_working_line_when_budget_permits() {
     );
     let layout = test_layout(&default_editor, &footer, Some(&modal));
 
-    assert!(!layout.working_line.is_empty());
-    assert!(layout.lines.iter().any(|l| l.contains("Working...")));
+    assert!(layout.top_divider.contains("Permission Required"));
+    assert!(!layout.top_divider.contains("working"));
+    assert!(!layout.lines.iter().any(|l| l.contains("working")));
 }
 
 #[test]
@@ -194,13 +197,13 @@ fn busy_activity_retains_working_line_when_unfocused() {
     });
 
     assert!(!layout.working_line.is_empty());
-    assert!(layout.working_line.contains("Working..."));
-    assert!(layout.lines.iter().any(|l| l.contains("Working...")));
+    assert!(layout.working_line.contains("working"));
+    assert!(layout.lines.iter().any(|l| l.contains("working")));
     assert!(!layout.cursor_visible);
 }
 
 #[test]
-fn busy_activity_under_modal_retains_working_line_when_unfocused() {
+fn busy_activity_under_modal_suppresses_spinner_when_unfocused() {
     let default_editor = EditorState::default();
     let footer = FooterState {
         activity: Activity::Working,
@@ -229,7 +232,8 @@ fn busy_activity_under_modal_retains_working_line_when_unfocused() {
         focused: false,
     });
 
-    assert!(!layout.working_line.is_empty());
-    assert!(layout.lines.iter().any(|l| l.contains("Working...")));
+    assert!(layout.top_divider.contains("Permission Required"));
+    assert!(!layout.top_divider.contains("working"));
+    assert!(!layout.lines.iter().any(|l| l.contains("working")));
     assert!(!layout.cursor_visible);
 }

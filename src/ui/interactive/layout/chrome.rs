@@ -14,10 +14,45 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
     }
 }
 
-pub fn top_divider(width: usize, label: &str, style: &str, reset: &str) -> String {
-    if width >= label.len() + 4 {
-        let lead = width - label.len() - 3;
-        format!("{style}{}{label}{}{reset}", "─".repeat(lead), "─".repeat(3))
+fn busy_top_divider(width: usize, label: &str, (act_label, spinner): (&str, char), style: &str, reset: &str) -> String {
+    let act_tag = format!("── {spinner} {act_label} ");
+    let act_len = act_tag.chars().count();
+    let has_version = !label.is_empty();
+    let ver_len = if has_version { label.chars().count() + 5 } else { 0 };
+
+    if has_version && width > act_len + ver_len {
+        let middle = width - act_len - ver_len;
+        format!("{style}{act_tag}{} {label} ───{reset}", "─".repeat(middle))
+    } else if width >= act_len + 3 {
+        let trail = width - act_len;
+        format!("{style}{act_tag}{}{reset}", "─".repeat(trail))
+    } else if width >= 7 {
+        let trail = width - 5;
+        format!("{style}── {spinner} {}{reset}", "─".repeat(trail))
+    } else {
+        format!("{style}{}{reset}", "─".repeat(width))
+    }
+}
+
+pub fn active_activity_status(footer: &FooterState, spinner_frame: usize) -> Option<(&'static str, char)> {
+    if matches!(footer.activity, Activity::Idle) && footer.running_tool.as_deref().is_none() {
+        None
+    } else {
+        let label = match footer.activity {
+            Activity::Compacting => "compacting",
+            _ => "working",
+        };
+        let spinner = FRAMES[spinner_frame % FRAMES.len()];
+        Some((label, spinner))
+    }
+}
+
+pub fn top_divider(width: usize, label: &str, activity: Option<(&str, char)>, style: &str, reset: &str) -> String {
+    if let Some(act) = activity {
+        busy_top_divider(width, label, act, style, reset)
+    } else if !label.is_empty() && width >= label.len() + 6 {
+        let lead = width - label.len() - 5;
+        format!("{style}{} {label} ───{reset}", "─".repeat(lead))
     } else {
         format!("{style}{}{reset}", "─".repeat(width))
     }
@@ -80,8 +115,8 @@ pub fn working_line_text(footer: &FooterState, spinner_frame: usize, width: usiz
     let reset = "\x1b[0m";
     let dim = "\x1b[2m";
     let label = match activity {
-        Activity::Compacting => "Compacting...",
-        _ => "Working...",
+        Activity::Compacting => "compacting",
+        _ => "working",
     };
     let full = format!(" {accent}{spinner}{reset} {dim}{label}{reset}");
     truncate_to_width(&full, width)

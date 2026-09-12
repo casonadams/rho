@@ -578,6 +578,7 @@ mod regressions {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
             let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             stream_through_presenter(&mut controller, &mut events, &renderer, message, thinking);
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
@@ -615,6 +616,7 @@ mod regressions {
         #[test]
         fn committed_bash_card_keeps_single_blank_after_user_message_and_notice() {
             let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             controller
                 .push_transcript_item(TranscriptItem::UserMessage("run the tests".into()))
@@ -635,6 +637,7 @@ mod regressions {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
             let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
@@ -647,6 +650,7 @@ mod regressions {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
             let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
             controller.state_mut().editor_mut().set_text("");
 
             commit_bash_after_stream(&mut controller, &mut events, &renderer);
@@ -682,8 +686,8 @@ mod regressions {
             controller.redraw().unwrap();
             let screen_unfocused = controller.backend.text();
 
-            assert!(screen_focused.iter().any(|l| l.contains("Working...")));
-            assert!(screen_unfocused.iter().any(|l| l.contains("Working...")));
+            assert!(screen_focused.iter().any(|l| l.contains("working")));
+            assert!(screen_unfocused.iter().any(|l| l.contains("working")));
         }
 
         /// The deny-reason input screen: selecting "Deny" (input spec) enters

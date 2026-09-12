@@ -117,6 +117,8 @@ fn thinking_followed_by_tool_closes_line_cleanly() {
 
 #[test]
 fn bash_with_output_transcript_card_has_empty_block_break() {
+    let mut theme = crate::ui::theme::Theme::default();
+    theme.block_style = crate::ui::theme::BlockStyle::Solid;
     let input = crate::ui::interactive::TranscriptRenderInput {
         item: &crate::ui::interactive::TranscriptItem::Tool(crate::ui::interactive::ToolItem {
             name: "bash".to_string(),
@@ -126,7 +128,7 @@ fn bash_with_output_transcript_card_has_empty_block_break() {
             output_summary: "test result: ok".to_string(),
             duration_ms: Some(150),
         }),
-        theme: &crate::ui::theme::Theme::default(),
+        theme: &theme,
         width: 80,
         tools_expanded: false,
         hide_thinking: false,

@@ -65,7 +65,7 @@ fn active_tool_status_updates_and_cleans_up_on_end() {
     start_bash(&mut controller, "cargo test");
     assert_eq!(controller.state().footer().running_tool.as_deref(), Some("bash"));
     let writes = operations_writes(&operations.borrow());
-    assert!(writes.contains("Working...") && writes.contains("bash") && writes.contains("cargo test"));
+    assert!(writes.contains("working") && writes.contains("bash") && writes.contains("cargo test"));
 
     operations.borrow_mut().clear();
     controller.end_tool().unwrap();
@@ -146,7 +146,7 @@ fn tool_completion_in_place_preserves_editor_row_and_output_continuity() {
     assert!(controller.state().active_tool().is_none() && controller.transcript().len() == 1);
 
     let rendered = controller.rendered.as_ref().expect("rendered layout exists");
-    assert_eq!((rendered.cursor_row(), rendered.lines.len()), (3, 7));
+    assert_eq!((rendered.cursor_row(), rendered.lines.len()), (2, 6));
 
     operations.borrow_mut().clear();
     controller.write_output("Done.\n").unwrap();
@@ -181,7 +181,7 @@ fn consecutive_tools_commit_in_place_without_cumulative_drift() {
         (2, true)
     );
     let rendered = controller.rendered.as_ref().unwrap();
-    assert_eq!((rendered.cursor_row(), rendered.lines.len()), (3, 7));
+    assert_eq!((rendered.cursor_row(), rendered.lines.len()), (2, 6));
 }
 
 #[test]

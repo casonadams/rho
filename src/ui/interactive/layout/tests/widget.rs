@@ -29,8 +29,8 @@ fn widget_lines_affect_height_and_cursor_row() {
     });
 
     assert_eq!(layout.widget_lines.len(), 3);
-    assert_eq!(layout.height(), 10);
-    assert_eq!(layout.cursor_row(), 6);
+    assert_eq!(layout.height(), 9);
+    assert_eq!(layout.cursor_row(), 5);
 }
 
 fn render_test_widget(tool: &RunningTool, expanded: bool) -> String {

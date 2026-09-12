@@ -16,7 +16,7 @@ fn busy_working_line_renders_above_the_editor() {
     let working_index = ops.iter().position(|op| {
         matches!(
             op,
-            Operation::Write(text) if text.contains("Thinking...") || text.contains("Working...")
+            Operation::Write(text) if text.contains("thinking") || text.contains("working")
         )
     });
     let divider_index = ops
@@ -40,9 +40,8 @@ fn busy_working_line_disappears_when_idle() {
 
     let ops = operations.borrow();
     assert!(
-        !ops.iter().any(
-            |op| matches!(op, Operation::Write(text) if text.contains("Working...") || text.contains("Thinking..."))
-        )
+        !ops.iter()
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("working") || text.contains("thinking")))
     );
 }
 
@@ -62,14 +61,9 @@ fn footer_carries_no_spinner_or_activity_label_when_busy() {
         ops.iter()
             .any(|op| matches!(op, Operation::Write(text) if text.contains("model") && text.contains("\u{1b}[2m")))
     );
-    assert!(
-        !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("working")))
-    );
-    assert!(
-        !ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("thinking")))
-    );
+    let rendered_footer = &controller.rendered.as_ref().unwrap().footer;
+    assert!(!rendered_footer.contains("working"));
+    assert!(!rendered_footer.contains("thinking"));
 }
 
 #[test]
@@ -86,7 +80,7 @@ fn unfocused_controller_preserves_working_line_and_suppresses_software_cursor() 
     let ops = operations.borrow();
     assert!(
         ops.iter()
-            .any(|op| matches!(op, Operation::Write(text) if text.contains("Working..."))),
+            .any(|op| matches!(op, Operation::Write(text) if text.contains("working"))),
         "working line with spinner text must remain visible when unfocused"
     );
     assert!(

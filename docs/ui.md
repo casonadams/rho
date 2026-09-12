@@ -31,8 +31,8 @@ newlines grow the editor upward.
   - `%/window`: Context window utilization percentage and capacity.
   - `@t/s`: Token generation velocity.
   - Model and thinking level aligned to the right.
-- **Activity Spinner**: Animates in-place on the status line during inference or
-  tool execution without causing scroll jitter.
+- **Activity Spinner**: Animates in-place on the top divider of the input frame during inference or
+  tool execution without causing scroll jitter or changing layout height.
 
 > **Local-Only Metrics**: All status footer counters (tokens, speeds, context
 > window usage, costs) are computed strictly in-memory on your local machine.
@@ -137,16 +137,16 @@ interface always matches your terminal emulator, in dark or light mode.
 
 ### Block Styling & Outline Borders
 
-To replace the solid background fill on blocks with an outline/border, configure
-`block_style = "border"` in `~/.config/rho/config.toml` (or project `.rho/config.toml`):
+`rho` defaults to outline borders (`block_style = "border"`). You can switch between
+outline borders and solid background fills in `~/.config/rho/config.toml` (or project `.rho/config.toml`):
 
 ```toml
 [ui]
-# Block framing: "border" (outline) or "solid" (fill, default)
+# Block framing: "border" (outline, default) or "solid" (fill)
 block_style = "border"
 
-# Border colors (ANSI color names or "#rrggbb" hex; defaults to "gray")
-user_border = "gray"           # User prompt blocks
+# Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
+user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent skill blocks
 tool_border = "gray"           # General command / tool cards
 bash_success_border = "gray"   # Successful bash commands

@@ -16,6 +16,9 @@ fn render_transcript_user_message() {
         hide_thinking: false,
     });
     assert!(rendered.contains("hello world"));
+    assert!(rendered.contains('╭'));
+    assert!(rendered.contains('╰'));
+    assert!(rendered.contains("\x1b[34m"));
 }
 
 #[test]

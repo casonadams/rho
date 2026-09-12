@@ -458,8 +458,8 @@ async fn test_turn_focus_events_toggle_focused_state() {
         .unwrap();
     assert!(!lp.controller.focused());
     let unfocused_layout = lp.controller.rendered().unwrap();
-    assert!(unfocused_layout.working_line.contains("Working..."));
-    assert!(unfocused_layout.lines.iter().any(|l| l.contains("Working...")));
+    assert!(unfocused_layout.working_line.contains("working"));
+    assert!(unfocused_layout.lines.iter().any(|l| l.contains("working")));
     assert!(!unfocused_layout.cursor_visible);
 
     super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusGained)
@@ -467,7 +467,7 @@ async fn test_turn_focus_events_toggle_focused_state() {
         .unwrap();
     assert!(lp.controller.focused());
     let focused_layout = lp.controller.rendered().unwrap();
-    assert!(focused_layout.working_line.contains("Working..."));
+    assert!(focused_layout.working_line.contains("working"));
     assert!(focused_layout.cursor_visible);
 }
 
@@ -503,6 +503,6 @@ async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_
         .unwrap();
     assert!(!lp.controller.focused());
     let unfocused_layout = lp.controller.rendered().unwrap();
-    assert!(unfocused_layout.working_line.contains("Working..."));
+    assert!(unfocused_layout.working_line.contains("working"));
     assert!(!unfocused_layout.cursor_visible);
 }

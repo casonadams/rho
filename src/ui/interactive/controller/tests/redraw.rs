@@ -45,7 +45,7 @@ mod resize {
         let ops = operations.borrow();
         assert!(
             ops.iter()
-                .any(|op| matches!(op, Operation::Write(text) if text.contains("Working...")))
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("working")))
         );
     }
 

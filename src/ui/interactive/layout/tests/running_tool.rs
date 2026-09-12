@@ -82,7 +82,8 @@ fn running_tool_widget_large_output_with_soft_wrapping() {
 
 #[test]
 fn running_tool_widget_starts_with_empty_line_pad() {
-    let theme = Theme::default();
+    let mut theme = Theme::default();
+    theme.block_style = crate::ui::theme::BlockStyle::Solid;
     let tool = RunningTool::new("bash", "echo hello", None);
     let lines = render_running_tool_widget(RunningToolWidgetInput {
         tool: &tool,

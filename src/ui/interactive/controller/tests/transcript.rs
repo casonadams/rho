@@ -362,22 +362,23 @@ mod redraw {
             .push_transcript_item(TranscriptItem::UserMessage("hello world".into()))
             .unwrap();
 
-        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
+        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
         let initial_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+        assert!(initial_rendered.contains('╭'));
 
         operations.borrow_mut().clear();
-        let switched = controller
+        let switched = controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
+        assert_eq!(switched, crate::ui::theme::BlockStyle::Solid);
+        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
+
+        let solid_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+        assert_ne!(initial_rendered, solid_rendered);
+        assert!(!solid_rendered.contains('╭'));
+
+        let reverted = controller
             .set_block_style(crate::ui::theme::BlockStyle::Border)
             .unwrap();
-        assert_eq!(switched, crate::ui::theme::BlockStyle::Border);
+        assert_eq!(reverted, crate::ui::theme::BlockStyle::Border);
         assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
-
-        let border_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
-        assert_ne!(initial_rendered, border_rendered);
-        assert!(border_rendered.contains('╭'));
-
-        let reverted = controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
-        assert_eq!(reverted, crate::ui::theme::BlockStyle::Solid);
-        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
     }
 }

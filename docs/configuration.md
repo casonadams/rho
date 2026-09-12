@@ -99,11 +99,11 @@ Configure block framing styles and border colors in `~/.config/rho/config.toml`:
 
 ```toml
 [ui]
-# Block framing: "border" (outline) or "solid" (fill, default)
+# Block framing: "border" (outline, default) or "solid" (fill)
 block_style = "border"
 
-# Border colors (ANSI color names or "#rrggbb" hex; defaults to "gray")
-user_border = "gray"           # User prompt blocks
+# Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
+user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent blocks
 tool_border = "gray"           # General command / tool cards
 bash_success_border = "gray"   # Successful bash commands
