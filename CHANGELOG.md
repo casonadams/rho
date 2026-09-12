@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.7.0](https://github.com/casonadams/rho/compare/v0.6.2...v0.7.0) (2026-09-12)
+
+
+### Features
+
+* **claude:** add claude-fable-5.1 preset and alias with 1M context ([c8ade12](https://github.com/casonadams/rho/commit/c8ade12aa8ea760471959f126168f83725feb042))
+* **claude:** add oauth rate limit and usage quota tracking ([b9bf293](https://github.com/casonadams/rho/commit/b9bf29314720ce5ab3c356481cf2471531fba1c8))
+* **claude:** update model presets to include latest Claude models ([56c36b4](https://github.com/casonadams/rho/commit/56c36b406375081ddc33282ad3da9d17076320d3))
+* **mcp:** enhance MCP support with streamable HTTP, OAuth 2.1, .mcp.json, and TUI modal ([65e07ee](https://github.com/casonadams/rho/commit/65e07ee0565feaeb32c3407f292bc61f47986014))
+* **repl:** expand /settings modal and add interactive /help modal ([48e3b75](https://github.com/casonadams/rho/commit/48e3b755a9348a77d6e25ee2dcfe9a1d209c26f2))
+* **tokens:** recognize 1M context windows for sonnet, opus, and fable models ([e47b4df](https://github.com/casonadams/rho/commit/e47b4df74ac37bf3d52abf3ade7f5e8875f26410))
+* **tools:** add script tool for sequential batching with regex output filtering ([310a25c](https://github.com/casonadams/rho/commit/310a25c91e91efaba127bed9b74d194cfc9858b5))
+* **ui:** add 1-space horizontal padding to block outputs, spinners, and thinking ([dfec297](https://github.com/casonadams/rho/commit/dfec297479f6db2e1ee91ca27a20f7c7856efe95))
+* **ui:** add barycenter crossing reduction and dynamic branch label spacing ([361867d](https://github.com/casonadams/rho/commit/361867d05ae6bfcbe8517fb4dafa6a0e4e75a253))
+* **ui:** add configurable outline border style for blocks and cards ([635c31b](https://github.com/casonadams/rho/commit/635c31b4088374de40e9ade2dc473f90b1d0f02b))
+* **ui:** add native terminal flowchart renderer with collision-free loop routing ([1fbf5b3](https://github.com/casonadams/rho/commit/1fbf5b32f2f0fb9ee23f9667ef5395e538323798))
+* **ui:** default block style to border and user messages to blue ([7dfa038](https://github.com/casonadams/rho/commit/7dfa0383cf87756362d7b8da0933e229d0a930c6))
+* **ui:** default border styles to grey/dim palette ([f3d332e](https://github.com/casonadams/rho/commit/f3d332eba788a1fbd1f3d75c6e7434e562b93767))
+* **ui:** implement flicker-free software block cursor ([75d2275](https://github.com/casonadams/rho/commit/75d2275c44f835a42e360f53736c5ec1601bc946))
+* **ui:** preserve word boundaries when wrapping styled blocks, tables, and layouts ([73f0ebc](https://github.com/casonadams/rho/commit/73f0ebcd9327bee53bb654156af2aa8e51df4546))
+* **ui:** standardize line number gutter across read, edit, and write ([c2f7b9e](https://github.com/casonadams/rho/commit/c2f7b9e6ba978a4b5511b4a7b90d0eee6ca09f47))
+* **ui:** support multiline labels and collision-free edge label spacing in flowchart renderer ([1ab4ebc](https://github.com/casonadams/rho/commit/1ab4ebca0930d4ba5b5dc848744a69db78af6bf3))
+* **ui:** suppress software cursor on terminal focus loss ([4902f7c](https://github.com/casonadams/rho/commit/4902f7c1667d7782f7def3520d2e804bdccd4a9c))
+* **ui:** toggle block style with ctrl+s and autosave to config ([fb6e03a](https://github.com/casonadams/rho/commit/fb6e03aaf00f0bc1b038291a1d06fbe791338560))
+* **ui:** unify streaming render, transcript commitment, and in-flight resize reflow ([af0fe9c](https://github.com/casonadams/rho/commit/af0fe9c358b009e702843582e68ed8c517b01b42))
+
+
+### Bug Fixes
+
+* **bash:** eliminate race condition in process group cancellation test ([ee21a0f](https://github.com/casonadams/rho/commit/ee21a0fc2bf36749d63b38d15848f112528487f5))
+* **bash:** sanitize ansi escapes split across chunk boundaries ([2ec76c1](https://github.com/casonadams/rho/commit/2ec76c1e1d0a8bc2d7de9900fe9d34607f648062))
+* **claude:** align request payload and headers with Claude Code subscription requirements ([ea7f848](https://github.com/casonadams/rho/commit/ea7f84835c1788e2cf92c4bf0ff2b750fb7c9249))
+* **claude:** fix oauth flow and map tools for subscription use ([6df5697](https://github.com/casonadams/rho/commit/6df56979e8d14f49255232122bbdb972ba4a454a))
+* **markdown:** render mermaid blocks without fences and fix flush order ([88910ae](https://github.com/casonadams/rho/commit/88910ae69c701fad050100f842b6a7e2a6fee766))
+* **modal:** support pasting into modal inputs and permission entries ([d25a3ba](https://github.com/casonadams/rho/commit/d25a3ba7b3064ba1a40c07de7ac147c82a3ae84c))
+* preserve streamed output on terminal resize ([fbae4f2](https://github.com/casonadams/rho/commit/fbae4f2107e6203c824cc9cf47cc675126bf09f6))
+* **repl:** retain working activity and handle terminal focus in turn loop ([3142707](https://github.com/casonadams/rho/commit/31427077c158e0ee26ef0830f3663530f7c3974f))
+* **ui:** handle terminal resize reactively and redraw cleanly across interactive loops ([8d934d2](https://github.com/casonadams/rho/commit/8d934d217c26c78f7fd9e942c15236bcf7f43ada))
+* **ui:** parse node bracket delimiters by earliest opening token ([4064883](https://github.com/casonadams/rho/commit/4064883687c7664af925ae82485219d63002fd74))
+* **ui:** preserve output event ordering across stream and standard text batches ([f04721c](https://github.com/casonadams/rho/commit/f04721cb1b933964d6c4e681411e5f13358e90d7))
+* **ui:** remove blank lines between bordered cards and window bash widgets ([940340d](https://github.com/casonadams/rho/commit/940340d7d543489bb8ac82cbec3782ef0cda1a78))
+* **ui:** reset terminal attributes before border padding and terminate diff lines with sgr reset ([0202b16](https://github.com/casonadams/rho/commit/0202b1642b4bce828304611d4a8e7333258bed9e))
+* **ui:** stabilize ctrl+o tool expansion and prevent layout cutoff ([9a9c192](https://github.com/casonadams/rho/commit/9a9c192de4e72db1931e5d87eebed48469f03fb5))
+* **ui:** synchronize pty dimensions reactively and heal unnotified terminal resizes ([c652c30](https://github.com/casonadams/rho/commit/c652c30967e37b025f556a21da4805b17c616670))
+* **ui:** wrap welcome screen items on word boundaries ([78d510a](https://github.com/casonadams/rho/commit/78d510a7f6d530c2e8540b077839996d27ad157b))
+
+
+### Performance Improvements
+
+* **deps:** align base64, sha2, and quick-xml to eliminate duplicate crates ([82d783f](https://github.com/casonadams/rho/commit/82d783f0cc31ff31dfe8220255939079555f1a81))
+
+
+### Documentation
+
+* synchronize positioning across docs and website ([323e5b2](https://github.com/casonadams/rho/commit/323e5b250172354b8e55ffdb06eebde956ccce63))
+
 ## [0.6.2](https://github.com/casonadams/rho/compare/v0.6.1...v0.6.2) (2026-09-11)
 
 
