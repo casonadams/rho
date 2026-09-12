@@ -105,12 +105,20 @@ impl TerminalRenderer {
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             buf.push_str(token);
         }
+        let width = self.width.load(Ordering::Relaxed);
         let rendered = self
             .markdown
             .lock()
-            .map(|mut markdown| markdown.render_token(token, &self.theme))
+            .map(|mut markdown| {
+                if markdown.width() == 0 && width > 0 {
+                    markdown.set_width(width);
+                }
+                markdown.render_token(token, &self.theme)
+            })
             .unwrap_or_else(|_| token.to_string());
-        self.stream_output(rendered);
+        if !rendered.is_empty() {
+            self.stream_output(rendered);
+        }
     }
 
     pub fn print_thinking_token(&self, token: &str) {
@@ -140,7 +148,12 @@ impl TerminalRenderer {
             .lock()
             .map(|mut markdown| {
                 let out = markdown.flush(&self.theme);
-                *markdown = MarkdownRenderer::new();
+                let w = markdown.width();
+                let mut new_md = MarkdownRenderer::new();
+                if w > 0 {
+                    new_md.set_width(w);
+                }
+                *markdown = new_md;
                 out
             })
             .unwrap_or_default();

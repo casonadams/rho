@@ -37,7 +37,13 @@ fn spawn_rpc_writer(
 fn default_terminal_presenter() -> Arc<dyn rho_harness_core::presentation::Presenter> {
     #[cfg(feature = "ui")]
     {
-        Arc::new(crate::ui::TerminalRenderer::default())
+        let renderer = crate::ui::TerminalRenderer::default();
+        if std::io::IsTerminal::is_terminal(&std::io::stdout())
+            && let Ok((cols, _)) = crossterm::terminal::size()
+        {
+            renderer.set_width(cols as usize);
+        }
+        Arc::new(renderer)
     }
     #[cfg(not(feature = "ui"))]
     {

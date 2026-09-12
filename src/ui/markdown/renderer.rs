@@ -4,7 +4,7 @@ use super::highlight::CodeHighlighter;
 use super::line::{CodeFenceTracker, needs_preceding_blank_line, render_line, should_buffer_line};
 use super::mermaid::MermaidBlockTracker;
 use super::spacing::SpacingTracker;
-use super::stream::InlineStreamTracker;
+use super::stream::{InlineStreamTracker, StreamWordWrapper};
 use super::table::{is_table_line, render_markdown_table};
 use crate::ui::theme::Theme;
 
@@ -17,6 +17,7 @@ pub struct MarkdownRenderer {
     emitted_on_current_line: bool,
     table_lines: Vec<String>,
     stream_tracker: InlineStreamTracker,
+    stream_wrapper: StreamWordWrapper,
     spacing: SpacingTracker,
     width: usize,
 }
@@ -30,6 +31,11 @@ impl MarkdownRenderer {
     pub fn set_width(&mut self, width: usize) {
         self.width = width;
         self.mermaid.set_width(width);
+        self.stream_wrapper.set_width(width);
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
     }
 
     pub fn render_text(&mut self, text: &str, theme: &Theme) -> String {
@@ -52,9 +58,9 @@ impl MarkdownRenderer {
             self.current_line.push_str(chunk);
 
             if self.emitted_on_current_line {
-                out.push_str(&self.stream_tracker.render_inline_token(chunk, theme));
-                out.push_str(&self.stream_tracker.reset_line());
-                out.push('\n');
+                let inline = self.stream_tracker.render_inline_token(chunk, theme);
+                let reset = self.stream_tracker.reset_line();
+                out.push_str(&self.stream_wrapper.process_chunk(&format!("{inline}{reset}\n")));
                 self.current_line.clear();
                 self.emitted_on_current_line = false;
                 self.spacing.note_content();
@@ -78,7 +84,8 @@ impl MarkdownRenderer {
     fn handle_trailing_chunk(&mut self, remaining: &str, theme: &Theme) -> String {
         self.current_line.push_str(remaining);
         if self.emitted_on_current_line {
-            return self.stream_tracker.render_inline_token(remaining, theme);
+            let inline = self.stream_tracker.render_inline_token(remaining, theme);
+            return self.stream_wrapper.process_chunk(&inline);
         }
         if self.code_fence.in_code_block
             || self.mermaid.in_block()
@@ -90,7 +97,8 @@ impl MarkdownRenderer {
         self.emitted_on_current_line = true;
         let mut out = String::new();
         self.spacing.prepare_content(&mut out);
-        out.push_str(&self.stream_tracker.render_inline_token(&self.current_line, theme));
+        let inline = self.stream_tracker.render_inline_token(&self.current_line, theme);
+        out.push_str(&self.stream_wrapper.process_chunk(&inline));
         out
     }
 
@@ -102,11 +110,14 @@ impl MarkdownRenderer {
             line.clear();
             self.current_line = line;
         } else if self.emitted_on_current_line {
-            out.push_str(&self.stream_tracker.reset_line());
+            let reset = self.stream_tracker.reset_line();
+            out.push_str(&self.stream_wrapper.process_chunk(&reset));
+            out.push_str(&self.stream_wrapper.flush());
             self.current_line.clear();
             out.push('\n');
             self.spacing.note_content();
         }
+        out.push_str(&self.stream_wrapper.flush());
         self.flush_buffered_blocks(&mut out, theme);
         self.emitted_on_current_line = false;
         self.code_highlighter = None;
@@ -299,5 +310,48 @@ mod tests {
         assert!(lines[0].contains("•"));
         assert!(lines[0].contains("alpha beta gamma"));
         assert_eq!(lines[1], "delta epsilon");
+    }
+
+    #[test]
+    fn markdown_streamed_prose_wraps_on_word_boundaries() {
+        let theme = Theme::default();
+        let mut md = MarkdownRenderer::new();
+        md.set_width(20);
+
+        let mut output = String::new();
+        let tokens = [
+            "The ", "quick ", "brown ", "fox ", "jumps ", "over ", "the ", "lazy ", "dog.",
+        ];
+        for token in tokens {
+            output.push_str(&md.render_token(token, &theme));
+        }
+        output.push_str(&md.flush(&theme));
+
+        let lines: Vec<&str> = output.trim().lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "The quick brown fox");
+        assert_eq!(lines[1], "jumps over the lazy");
+        assert_eq!(lines[2], "dog.");
+    }
+
+    #[test]
+    fn markdown_streamed_prose_styled_wraps_preserving_ansi() {
+        let theme = Theme::default();
+        let mut md = MarkdownRenderer::new();
+        md.set_width(12);
+
+        let mut output = String::new();
+        let tokens = ["alpha ", "**beta ", "gamma** ", "delta."];
+        for token in tokens {
+            output.push_str(&md.render_token(token, &theme));
+        }
+        output.push_str(&md.flush(&theme));
+
+        let lines: Vec<&str> = output.trim().lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("alpha"));
+        assert!(lines[0].contains("beta"));
+        assert!(lines[1].contains("gamma"));
+        assert!(lines[1].contains("delta"));
     }
 }

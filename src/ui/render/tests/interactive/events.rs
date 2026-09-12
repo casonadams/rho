@@ -125,3 +125,25 @@ fn fast_tools_emit_footer_status_without_live_widget_bounce() {
     renderer.start_tool_run("bash", &serde_json::json!({"command": "cargo test"}));
     assert!(matches!(events.try_recv(), Ok(UiEvent::ToolStart(req)) if req.name == "bash"));
 }
+
+#[test]
+fn interactive_renderer_wraps_streamed_assistant_tokens_on_word_boundaries() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    renderer.set_width(20);
+
+    let tokens = [
+        "The ", "quick ", "brown ", "fox ", "jumps ", "over ", "the ", "lazy ", "dog.",
+    ];
+    for token in tokens {
+        renderer.print_token(token);
+    }
+    renderer.flush();
+
+    let output = drain_text_output(&mut events);
+    let lines: Vec<&str> = output.trim().lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], "The quick brown fox");
+    assert_eq!(lines[1], "jumps over the lazy");
+    assert_eq!(lines[2], "dog.");
+}
