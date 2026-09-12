@@ -11,7 +11,7 @@ pub use rho_harness_core::args::BashArgs;
 use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 pub use runner::{DEFAULT_BASH_TIMEOUT_SEC, run_command_streaming};
-pub use sanitize::sanitize_binary_output;
+pub use sanitize::{sanitize_binary_output, split_at_incomplete_ansi};
 pub use shell::resolve_shell_command;
 use std::path::{Path, PathBuf};
 

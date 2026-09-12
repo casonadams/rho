@@ -62,6 +62,18 @@ fn test_output_accumulator_creates_temp_file_when_truncated() {
     let _ = std::fs::remove_file(path);
 }
 
+#[test]
+fn test_output_accumulator_strips_ansi_escapes_split_across_chunks() {
+    let mut acc = OutputAccumulator::new();
+    acc.append(b"starting \x1b[4");
+    acc.append(b"0mblack background\x1b[0m ending");
+    acc.finish();
+
+    let snap = acc.snapshot();
+    assert_eq!(snap.formatted_text, "starting black background ending");
+    assert!(!snap.formatted_text.contains("[40m"));
+}
+
 #[tokio::test]
 async fn test_bash_preserves_error_message_at_end_of_large_output() {
     let tool = BashTool::new(std::env::current_dir().unwrap());

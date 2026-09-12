@@ -10,6 +10,7 @@ pub struct RunningTool {
     pub started: Instant,
     pub output: String,
     pub preview: Option<String>,
+    pending_ansi: String,
 }
 
 impl RunningTool {
@@ -23,6 +24,7 @@ impl RunningTool {
             started: Instant::now(),
             output: String::new(),
             preview,
+            pending_ansi: String::new(),
         }
     }
 
@@ -30,18 +32,33 @@ impl RunningTool {
         if chunk.is_empty() {
             return;
         }
-        let chunk = if chunk.len() > Self::MAX_RUNNING_BUFFER_BYTES * 2 {
-            let mut start = chunk.len().saturating_sub(Self::MAX_RUNNING_BUFFER_BYTES * 2);
-            while start < chunk.len() && !chunk.is_char_boundary(start) {
-                start += 1;
-            }
-            &chunk[start..]
+        let text = if self.pending_ansi.is_empty() {
+            chunk.to_string()
         } else {
-            chunk
+            let mut s = std::mem::take(&mut self.pending_ansi);
+            s.push_str(chunk);
+            s
         };
-        self.output.push_str(chunk);
-        if self.output.len() > Self::MAX_RUNNING_BUFFER_BYTES {
-            self.trim_tail();
+        let (complete, pending) = rho_engine::tools::bash::split_at_incomplete_ansi(&text);
+        if !pending.is_empty() {
+            self.pending_ansi = pending.to_string();
+        }
+        if !complete.is_empty() {
+            let sanitized = rho_engine::tools::bash::sanitize_binary_output(complete);
+            let sanitized_str: &str = &sanitized;
+            let to_append = if sanitized_str.len() > Self::MAX_RUNNING_BUFFER_BYTES * 2 {
+                let mut start = sanitized_str.len().saturating_sub(Self::MAX_RUNNING_BUFFER_BYTES * 2);
+                while start < sanitized_str.len() && !sanitized_str.is_char_boundary(start) {
+                    start += 1;
+                }
+                &sanitized_str[start..]
+            } else {
+                sanitized_str
+            };
+            self.output.push_str(to_append);
+            if self.output.len() > Self::MAX_RUNNING_BUFFER_BYTES {
+                self.trim_tail();
+            }
         }
     }
 

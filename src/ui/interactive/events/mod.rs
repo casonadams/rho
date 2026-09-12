@@ -29,12 +29,13 @@ enum Transport {
 impl InteractiveUi {
     pub fn channel() -> (Self, mpsc::UnboundedReceiver<UiEvent>) {
         let (sender, receiver) = mpsc::unbounded_channel();
-        (
-            Self {
-                transport: Arc::new(Transport::Channel(sender)),
-            },
-            receiver,
-        )
+        (Self::from_sender(sender), receiver)
+    }
+
+    pub fn from_sender(sender: mpsc::UnboundedSender<UiEvent>) -> Self {
+        Self {
+            transport: Arc::new(Transport::Channel(sender)),
+        }
     }
 
     pub fn writer(writer: impl Write + Send + 'static) -> Self {

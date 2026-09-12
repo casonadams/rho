@@ -41,6 +41,31 @@ pub fn sanitize_binary_output(text: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+pub fn split_at_incomplete_ansi(text: &str) -> (&str, &str) {
+    let Some(esc_idx) = text.rfind('\x1b') else {
+        return (text, "");
+    };
+    let tail = &text[esc_idx..];
+    if tail.len() > 64 || is_complete_escape_tail(tail) {
+        (text, "")
+    } else {
+        (&text[..esc_idx], tail)
+    }
+}
+
+fn is_complete_escape_tail(tail: &str) -> bool {
+    let bytes = tail.as_bytes();
+    if bytes.len() < 2 {
+        return false;
+    }
+    match bytes[1] {
+        b'[' => bytes[2..].iter().any(|&b| (0x40..=0x7E).contains(&b)),
+        b']' => tail[2..].contains('\x07') || tail[2..].contains("\x1b\\"),
+        b'@'..=b'_' => true,
+        _ => bytes.len() >= 3,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -65,5 +90,17 @@ mod tests {
             sanitize_binary_output(input),
             "Finished dev profile [unoptimized + debuginfo]"
         );
+    }
+
+    #[test]
+    fn test_split_at_incomplete_ansi_handles_split_csi_sequence() {
+        assert_eq!(split_at_incomplete_ansi("hello \x1b[4"), ("hello ", "\x1b[4"));
+        assert_eq!(split_at_incomplete_ansi("hello \x1b"), ("hello ", "\x1b"));
+        assert_eq!(split_at_incomplete_ansi("hello \x1b[40m"), ("hello \x1b[40m", ""));
+        assert_eq!(
+            split_at_incomplete_ansi("hello \x1b[40mworld"),
+            ("hello \x1b[40mworld", "")
+        );
+        assert_eq!(split_at_incomplete_ansi("plain text"), ("plain text", ""));
     }
 }

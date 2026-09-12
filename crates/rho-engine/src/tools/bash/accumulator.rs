@@ -27,6 +27,7 @@ pub struct OutputAccumulator {
     temp_file_path: Option<PathBuf>,
     temp_file_writer: Option<BufWriter<File>>,
     raw_chunks: Vec<Vec<u8>>,
+    pending_ansi: String,
 }
 
 impl Default for OutputAccumulator {
@@ -80,6 +81,7 @@ impl OutputAccumulator {
             temp_file_path: None,
             temp_file_writer: None,
             raw_chunks: Vec::new(),
+            pending_ansi: String::new(),
         }
     }
 
@@ -88,9 +90,21 @@ impl OutputAccumulator {
             return;
         }
         self.total_raw_bytes = self.total_raw_bytes.saturating_add(data.len());
-        let text = String::from_utf8_lossy(data);
-        let sanitized = super::sanitize::sanitize_binary_output(&text);
-        self.append_decoded_text(&sanitized);
+        let text = if self.pending_ansi.is_empty() {
+            String::from_utf8_lossy(data).into_owned()
+        } else {
+            let mut s = std::mem::take(&mut self.pending_ansi);
+            s.push_str(&String::from_utf8_lossy(data));
+            s
+        };
+        let (complete, pending) = super::sanitize::split_at_incomplete_ansi(&text);
+        if !pending.is_empty() {
+            self.pending_ansi = pending.to_string();
+        }
+        if !complete.is_empty() {
+            let sanitized = super::sanitize::sanitize_binary_output(complete);
+            self.append_decoded_text(&sanitized);
+        }
 
         if self.temp_file_writer.is_some() || self.should_use_temp_file() {
             self.ensure_temp_file();
@@ -107,6 +121,11 @@ impl OutputAccumulator {
             return;
         }
         self.finished = true;
+        if !self.pending_ansi.is_empty() {
+            let leftover = std::mem::take(&mut self.pending_ansi);
+            let sanitized = super::sanitize::sanitize_binary_output(&leftover);
+            self.append_decoded_text(&sanitized);
+        }
         if self.should_use_temp_file() {
             self.ensure_temp_file();
         }
