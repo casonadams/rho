@@ -54,6 +54,9 @@ rho mcp list
 # Test connection and tool discovery
 rho mcp test filesystem
 
+# Log in to an authenticated remote MCP server
+rho mcp login remote_jira
+
 # Add an MCP server to global config (~/.agents/mcp.json)
 rho mcp add db "https://mcp.db.example.com/mcp"
 

@@ -56,7 +56,7 @@ Or switch in the REPL with `/model custom_endpoint:my-model-id`.
 
 > **Security Note**: `base_url` requires `http` or `https`. Requests to private
 > or loopback IP ranges are rejected unless explicitly allowed with
-> `allow_private_network = true` under the provider config.
+> `allow_private_network = true` in `config.toml` (or `WEB_ALLOW_PRIVATE_NETWORK=true`).
 
 ---
 
@@ -68,7 +68,8 @@ lowest):
 1. **CLI Flags** (`--model`, `--provider`, `--thinking`, `--no-permission`,
    etc.)
 2. **Environment Variables** (`AI_MODEL`, `AI_PROVIDER`, `AI_THINKING_LEVEL`,
-   `RHO_HOME`)
+   `AI_MAX_OUTPUT_TOKENS`, `AI_MAX_TURNS`, `AI_CONTEXT_WINDOW_MESSAGES`,
+   `AI_COMPACTION_MAX_BYTES`, `RHO_HOME`)
 3. **Project Configuration** (`.rho/config.toml`)
 4. **Global Configuration** (`~/.config/rho/config.toml`)
 
@@ -120,7 +121,8 @@ bash_error_border = "red"      # Failed bash commands
 ```
 
 Top-level preferences:
-- `show_label = true`: Display the version banner and agent branding in the divider.
+- `allow_private_network = true`: Permit connections to loopback and private network addresses.
+- `show_label = true`: Display the agent branding banner in the divider.
 
 All adjustments made in the interactive `/settings` modal (Block Style, Box Responses, Model, Thinking Effort, Thinking Output, Tool Output, and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
 

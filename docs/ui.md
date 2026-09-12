@@ -98,9 +98,10 @@ autocomplete):
 | :-------------------------- | :---------------------------------------------------------------------------------------------------------------- |
 | `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                            |
 | `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                         |
+| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).                    |
 | `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles).         |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                         |
-| `/session`                  | Display token capacity, cost, context window utilization, and diagnostics.                                        |
+| `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).                     |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                        |
 | `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                                    |
 | `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                                     |

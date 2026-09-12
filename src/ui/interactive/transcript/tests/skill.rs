@@ -6,7 +6,7 @@ fn render_transcript_skill_read_collapsed() {
     let theme = Theme::default();
     let item = TranscriptItem::Tool(crate::ui::interactive::transcript::ToolItem {
         name: "read".into(),
-        arguments: serde_json::json!({"path": "/Users/cadams/.pi/agent/skills/plan/SKILL.md"}),
+        arguments: serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
         is_error: false,
         output: "# Plan Skill\n\nFull instructions here...".into(),
         output_summary: "summary".into(),
@@ -30,7 +30,7 @@ fn render_transcript_skill_read_expanded() {
     let theme = Theme::default();
     let item = TranscriptItem::Tool(crate::ui::interactive::transcript::ToolItem {
         name: "read".into(),
-        arguments: serde_json::json!({"path": "/Users/cadams/.pi/agent/skills/plan/SKILL.md"}),
+        arguments: serde_json::json!({"path": "/Users/cadams/.agents/skills/plan/SKILL.md"}),
         is_error: false,
         output: "# Plan Skill\n\nFull instructions here...".into(),
         output_summary: "summary".into(),

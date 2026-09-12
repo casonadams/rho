@@ -17,7 +17,7 @@ use rig::memory::ConversationMemory;
 use rig::message::Message;
 
 /// Provider-anchored context size: input, output, and cache reads/writes of the
-/// latest model call (mirrors pi.dev's `calculateContextTokens`).
+/// latest model call.
 fn usage_anchor_tokens(usage: &StructuralUsage) -> usize {
     (usage.input_tokens
         + usage.output_tokens
@@ -64,10 +64,10 @@ struct HookState {
     patch: Option<PatchPlan>,
 }
 
-/// pi.dev-style auto-compaction boundary: after tools finish and before the
-/// next assistant response, compact when the context exceeds the window minus
-/// the response reserve, and continue the same run on the compacted context
-/// via a per-call history patch.
+/// Auto-compaction boundary: after tools finish and before the next assistant
+/// response, compact when the context exceeds the window minus the response
+/// reserve, and continue the same run on the compacted context via a per-call
+/// history patch.
 pub(crate) struct AutoCompactHook {
     compactor: SessionCompactor,
     presenter: Arc<dyn Presenter>,

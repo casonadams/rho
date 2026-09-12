@@ -49,7 +49,7 @@ pub fn context_window_size(model: &str) -> usize {
 }
 
 /// Auto-compaction triggers only when context tokens exceed the window minus
-/// the reserve kept for the model's response (mirrors pi.dev's compaction rule).
+/// the reserve kept for the model's response.
 pub fn should_compact(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
     let effective_reserve = if reserve_tokens == 0 {
         (context_window as f64 * 0.045).round() as usize

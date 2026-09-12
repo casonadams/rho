@@ -1,8 +1,8 @@
 use clap::Parser;
 
-pub mod help;
 #[cfg(test)]
-mod pi_alignment_tests;
+mod alignment_tests;
+pub mod help;
 mod subcommands;
 #[cfg(test)]
 mod tests;

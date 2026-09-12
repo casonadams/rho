@@ -117,3 +117,9 @@ cargo test --workspace
 make clippy
 cargo fmt --all -- --check
 ```
+
+---
+
+## Acknowledgments
+
+Special thanks to [pi.dev](https://pi.dev) for inspiring aspects of rho's design and ergonomics.

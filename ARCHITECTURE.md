@@ -132,7 +132,7 @@ tool call ─▶ PermissionHook (engine/permission/)
   arguments so rules can target paths rather than raw strings.
 - `Always allow` persists rules to the project permission surface and hot-
   reloads the in-memory policy.
-- Headless/`--print` runs fail closed: any required prompt denies the call.
+- Headless/non-interactive runs (e.g. `--prompt` or `--mode json`) fail closed: any required prompt denies the call.
 
 ## Providers and MCP
 
