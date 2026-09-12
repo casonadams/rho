@@ -93,6 +93,19 @@ impl InteractiveState {
         &mut self.footer
     }
 
+    pub fn show_label(&self) -> bool {
+        self.footer.show_label
+    }
+
+    pub fn set_show_label(&mut self, show: bool) {
+        self.footer.show_label = show;
+    }
+
+    pub fn toggle_show_label(&mut self) -> bool {
+        self.footer.show_label = !self.footer.show_label;
+        self.footer.show_label
+    }
+
     pub fn queue_len(&self) -> usize {
         self.queue.len()
     }

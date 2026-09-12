@@ -96,10 +96,9 @@ autocomplete):
 
 | Command                     | Description                                                                                                       |
 | :-------------------------- | :---------------------------------------------------------------------------------------------------------------- |
-| `/help`                     | Display command summary and keyboard shortcuts.                                                                   |
+| `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                            |
 | `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                         |
-| `/thinking [level]`         | Configure thinking effort (`off`, `minimal`, `low`, `medium`, `high`, `max`), or open selector (alias: `/think`). |
-| `/settings`                 | Open interactive runtime settings modal (display toggles, auto-compact, etc.).                                    |
+| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles).         |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                         |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics.                                        |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                        |

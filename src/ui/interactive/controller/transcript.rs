@@ -80,6 +80,33 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(style)
     }
 
+    pub fn toggle_block_style(&mut self) -> io::Result<crate::ui::theme::BlockStyle> {
+        let next = match self.theme.block_style {
+            crate::ui::theme::BlockStyle::Solid => crate::ui::theme::BlockStyle::Border,
+            crate::ui::theme::BlockStyle::Border => crate::ui::theme::BlockStyle::Solid,
+        };
+        self.set_block_style(next)
+    }
+
+    pub fn block_agent_output(&self) -> bool {
+        self.theme.block_agent_output
+    }
+
+    pub fn set_block_agent_output(&mut self, enabled: bool) -> io::Result<bool> {
+        if self.theme.block_agent_output == enabled {
+            return Ok(enabled);
+        }
+        self.theme.block_agent_output = enabled;
+        self.cache.clear();
+        self.redraw_transcript_or_live()?;
+        Ok(enabled)
+    }
+
+    pub fn toggle_block_agent_output(&mut self) -> io::Result<bool> {
+        let next = !self.theme.block_agent_output;
+        self.set_block_agent_output(next)
+    }
+
     pub(super) fn redraw_transcript_or_live(&mut self) -> io::Result<()> {
         if self.transcript.is_empty() {
             self.redraw()

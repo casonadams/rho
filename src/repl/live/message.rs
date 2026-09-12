@@ -160,8 +160,12 @@ async fn handle_selector_command(
 ) -> Result<()> {
     match action {
         CommandResult::OpenModelSelector => super::modal::open_model_selector(ctx.session, io_controller),
-        CommandResult::OpenSettingsSelector => super::modal::open_settings_selector(io_controller),
-        CommandResult::OpenThinkingSelector => super::modal::open_thinking_selector(ctx.session, io_controller),
+        CommandResult::OpenSettingsSelector => super::modal::open_settings_selector(
+            Some(&ctx.session.config.model),
+            ctx.session.config.thinking_level.as_deref(),
+            io_controller,
+        ),
+        CommandResult::OpenHelpSelector => super::modal::open_help_selector(io_controller),
         CommandResult::OpenLoginSelector => super::modal::open_login_selector(ctx.session, io_controller),
         CommandResult::OpenMcpSelector => super::modal::open_mcp_selector(ctx.session, io_controller),
         _ => {}
@@ -282,7 +286,7 @@ async fn handle_engine_command<B: TerminalBackend>(
     match result {
         CommandResult::OpenModelSelector
         | CommandResult::OpenSettingsSelector
-        | CommandResult::OpenThinkingSelector
+        | CommandResult::OpenHelpSelector
         | CommandResult::OpenLoginSelector
         | CommandResult::OpenMcpSelector => {
             handle_selector_command(ctx, io.controller, result).await?;

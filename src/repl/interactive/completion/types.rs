@@ -12,10 +12,12 @@ pub const THINKING_LEVELS: &[(&str, &str)] = &[
 
 pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("help", "Show reference of available commands and shortcuts"),
-    ("settings", "Configure runtime interface settings"),
+    (
+        "settings",
+        "Configure runtime interface settings (thinking effort, display toggles)",
+    ),
     ("model", "Select model (opens selector UI) <provider/model>"),
     ("resume", "Resume a previous session (opens session selector)"),
-    ("thinking", "Set thinking level <level>"),
     ("skill", "List, inspect, or invoke declarative skills"),
     ("mcp", "Inspect and manage Model Context Protocol servers"),
     ("session", "Display token capacity and session diagnostics"),

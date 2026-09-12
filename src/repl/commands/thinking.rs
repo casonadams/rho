@@ -38,7 +38,7 @@ pub fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Res
         return Ok(Some(apply_explicit_level(ctx, &level)));
     }
     if ctx.renderer.has_interactive_ui() {
-        return Ok(Some(CommandResult::OpenThinkingSelector));
+        return Ok(Some(CommandResult::OpenSettingsSelector));
     }
     Ok(Some(prompt_line_thinking(ctx).unwrap_or(CommandResult::Continue)))
 }

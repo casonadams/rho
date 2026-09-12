@@ -32,7 +32,7 @@ pub enum CommandResult {
     },
     OpenSessionSelector,
     OpenSettingsSelector,
-    OpenThinkingSelector,
+    OpenHelpSelector,
     OpenLoginSelector,
     OpenMcpSelector,
     ThinkingChanged {
@@ -69,8 +69,6 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/settings",
     "/model",
     "/resume",
-    "/thinking",
-    "/think",
     "/skill",
     "/mcp",
     "/session",

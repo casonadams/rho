@@ -92,7 +92,7 @@ fn handle_settings_command(has_ui: bool, renderer: &crate::ui::TerminalRenderer)
     if has_ui {
         CommandResult::OpenSettingsSelector
     } else {
-        renderer.print_notice("  Settings: thinking blocks, tool outputs\n");
+        renderer.print_notice("  Settings: thinking effort, thinking blocks, tool outputs\n");
         CommandResult::Continue
     }
 }
@@ -100,8 +100,12 @@ fn handle_settings_command(has_ui: bool, renderer: &crate::ui::TerminalRenderer)
 fn handle_simple_slash_commands(name: &str, ctx: &mut SlashCommandContext<'_>) -> Option<CommandResult> {
     match name {
         "help" => {
-            print_help(ctx.config, ctx.renderer);
-            Some(CommandResult::Continue)
+            if ctx.renderer.has_interactive_ui() {
+                Some(CommandResult::OpenHelpSelector)
+            } else {
+                print_help(ctx.config, ctx.renderer);
+                Some(CommandResult::Continue)
+            }
         }
         "clear" | "reset" | "new" => {
             ctx.renderer.print_status("Context cleared");

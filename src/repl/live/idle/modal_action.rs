@@ -201,6 +201,26 @@ async fn dispatch_modal_result_rest2(
             handle_thinking_selected(ctx, (level, save_as_default)).await
         }
         ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
+        ModalKeyResult::HelpCommandSelected { command } => handle_help_command_selected(ctx, &command).await,
+        ModalKeyResult::OpenModelSelector => {
+            super::super::modal::open_model_selector(ctx.session, ctx.controller);
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
+        ModalKeyResult::BlockStyleToggled { style } => {
+            ctx.session.config.ui.block_style = Some(style);
+            Ok(true)
+        }
+        ModalKeyResult::AgentBoxToggled { boxed } => {
+            ctx.session.config.ui.agent_block_output = Some(boxed);
+            Ok(true)
+        }
+        ModalKeyResult::ShowLabelToggled { shown } => {
+            ctx.session.config.show_label = shown;
+            update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
         ModalKeyResult::McpServerToggled { server } => {
             if let Some(cfg) = ctx.session.config.mcp.servers.get_mut(&server) {
                 cfg.enabled = !cfg.enabled;
@@ -252,6 +272,41 @@ async fn handle_login_provider_selected(
         }
     }
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
+    ctx.controller.redraw()?;
+    Ok(true)
+}
+
+async fn handle_help_command_selected(
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    command: &str,
+) -> Result<bool> {
+    match command {
+        "/settings" => {
+            super::super::modal::open_settings_selector(
+                Some(&ctx.session.config.model),
+                ctx.session.config.thinking_level.as_deref(),
+                ctx.controller,
+            );
+        }
+        "/model" => {
+            super::super::modal::open_model_selector(ctx.session, ctx.controller);
+        }
+        "/resume" => {
+            super::super::modal::open_session_selector(&ctx.session.config.sessions_dir, ctx.controller);
+        }
+        "/tree" => {
+            if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
+                super::super::modal::open_tree_selector(&tree, ctx.controller);
+            }
+        }
+        "/mcp" => {
+            super::super::modal::open_mcp_selector(ctx.session, ctx.controller);
+        }
+        "/login" => {
+            super::super::modal::open_login_selector(ctx.session, ctx.controller);
+        }
+        _ => {}
+    }
     ctx.controller.redraw()?;
     Ok(true)
 }

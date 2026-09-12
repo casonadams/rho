@@ -9,7 +9,6 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /settings                   Interactive runtime interface settings\n\
   /model [model] [provider]   Inspect or switch the model\n\
   /resume [id]                Resume a prior session\n\
-  /thinking [level]           Configure thinking effort (off, minimal, low, medium, high, max)\n\
   /skill [name]               List or inspect skills\n\
   /mcp                        List configured MCP servers\n\
   /session                    Display token capacity and session diagnostics\n\

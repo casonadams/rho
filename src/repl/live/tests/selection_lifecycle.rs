@@ -209,7 +209,7 @@ fn test_tree_and_settings_ctrl_c_dismiss_restores_draft() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     controller.state_mut().editor_mut().set_text("my unsent prompt");
 
-    super::super::modal::open_settings_selector(&mut controller);
+    super::super::modal::open_settings_selector(None, None, &mut controller);
     let mut pending = None;
     let mut driver = ModalDriver {
         controller: &mut controller,
