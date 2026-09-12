@@ -107,7 +107,7 @@ fn handle_simple_slash_commands(name: &str, ctx: &mut SlashCommandContext<'_>) -
             ctx.renderer.print_status("Context cleared");
             Some(CommandResult::ClearContext)
         }
-        "session" => {
+        "session" | "tokens" => {
             session::handle_session(ctx);
             Some(CommandResult::Continue)
         }

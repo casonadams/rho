@@ -74,6 +74,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/skill",
     "/mcp",
     "/session",
+    "/tokens",
     "/compact",
     "/tree",
     "/rewind",
