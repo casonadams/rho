@@ -152,16 +152,6 @@ code, pre {
   flex-shrink: 0;
 }
 
-.brand-badge {
-  font-size: 0.72rem;
-  font-weight: 500;
-  padding: 0.15rem 0.45rem;
-  border-radius: var(--radius-sm);
-  background-color: var(--accent-green-dim);
-  color: var(--accent-green);
-  border: 1px solid rgba(82, 224, 150, 0.25);
-}
-
 .nav-links {
   display: flex;
   align-items: center;
@@ -785,6 +775,171 @@ code, pre {
   margin-bottom: 0.35rem;
 }
 
+/* pirho Callout & Equation */
+.pirho-callout {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, var(--bg-surface) 50%, rgba(248, 113, 113, 0.05) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.pirho-callout::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-amber), var(--accent-red), transparent);
+}
+
+.pirho-content {
+  flex: 1;
+  max-width: 640px;
+}
+
+.pirho-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: var(--radius-full);
+  background-color: var(--accent-amber-dim);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--accent-amber);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 1rem;
+}
+
+.pirho-title {
+  font-size: 1.85rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.85rem;
+  background: linear-gradient(135deg, var(--text-primary) 35%, var(--accent-amber) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.pirho-desc {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.65;
+  margin-bottom: 1.25rem;
+}
+
+.pirho-desc strong {
+  color: var(--text-primary);
+}
+
+.pirho-desc a {
+  color: var(--accent-amber);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.pirho-desc a:hover {
+  color: var(--accent-red);
+}
+
+.pirho-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pirho-tag {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pirho-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pirho-equation {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.eq-card {
+  background-color: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 1.25rem 1.1rem;
+  min-width: 92px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.25rem;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.eq-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-amber);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.15);
+}
+
+.eq-card-pi .eq-symbol {
+  color: var(--accent-blue);
+}
+
+.eq-card-rho .eq-symbol {
+  color: var(--accent-green);
+}
+
+.eq-card.eq-result {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: linear-gradient(180deg, var(--bg-surface-raised) 0%, rgba(245, 158, 11, 0.08) 100%);
+}
+
+.eq-symbol {
+  font-size: 2.1rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.eq-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.eq-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.eq-operator {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  user-select: none;
+}
+
 /* Footer */
 .footer {
   margin-top: auto;
@@ -1000,6 +1155,9 @@ code, pre {
   .publish-steps { grid-template-columns: 1fr; }
   .docs-layout { grid-template-columns: 1fr; }
   .docs-sidebar { display: none; }
+  .pirho-callout { flex-direction: column; text-align: center; gap: 2rem; padding: 2rem 1.5rem; }
+  .pirho-tags { justify-content: center; }
+  .pirho-equation { justify-content: center; }
 }
 
 @media (max-width: 640px) {
@@ -1009,4 +1167,7 @@ code, pre {
   .install-command-bar { flex-direction: column; align-items: stretch; }
   .copy-btn { justify-content: center; }
   .footer-links-group { flex-direction: column; gap: 1.5rem; }
+  .pirho-equation { gap: 0.4rem; }
+  .eq-card { min-width: 72px; padding: 0.85rem 0.6rem; }
+  .eq-symbol { font-size: 1.5rem; }
 }

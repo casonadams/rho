@@ -28,7 +28,6 @@
           <circle cx="54" cy="42" r="6" fill="var(--accent-blue)"/>
         </svg>
         <span>rho</span>
-        <span class="brand-badge">v0.6.0</span>
       </a>
 
       <ul class="nav-links">
@@ -59,6 +58,7 @@
         <div class="docs-nav-title">Getting Started</div>
         <ul class="docs-nav-list">
           <li class="docs-nav-item"><a href="#quickstart">Quick Start</a></li>
+          <li class="docs-nav-item"><a href="#pirho">The pirho Spirit (π + ρ)</a></li>
           <li class="docs-nav-item"><a href="#installation">Installation</a></li>
           <li class="docs-nav-item"><a href="#cli-commands">CLI Commands</a></li>
           <li class="docs-nav-item"><a href="#built-in-tools">Built-in Tools</a></li>
@@ -93,6 +93,28 @@
         <code>rho</code> is a fast, clean, local, private, and secure coding agent CLI built in Rust. It delivers native performance, strict in-process safety boundaries, session persistence, standard MCP tool servers, and lightweight lifecycle hooks.
       </p>
       <img src="assets/welcome.png" alt="rho startup screen with live quota in footer" class="doc-screenshot">
+
+      <!-- pirho Heritage Callout -->
+      <div class="pirho-callout" id="pirho" style="margin: 2rem 0;">
+        <div class="pirho-content">
+          <div class="pirho-badge">
+            <span>🔥 π + ρ = pirho</span>
+          </div>
+          <h3 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 0.6rem; color: var(--text-primary);">
+            The pirho Connection: For those who play with fire
+          </h3>
+          <p style="color: var(--text-secondary); font-size: 0.92rem; line-height: 1.6; margin-bottom: 0.75rem;">
+            In Greek, combining <strong>π</strong> (pi) and <strong>ρ</strong> (rho) spells <strong>πυρ</strong> (pyr) — <em>fire</em>. 
+            <code>rho</code> was built with deep appreciation for the minimalist terminal ergonomics of <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev</a>, 
+            forging that same clean spirit into bare-metal Rust. Together, π + ρ makes <strong>pirho</strong>: designed for developers who love playing with fire, moving at blazing native speed, and keeping zero runtime bloat between them and their code.
+          </p>
+          <ul style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; padding-left: 1.25rem;">
+            <li><strong>Aligned ergonomics:</strong> Identical thinking levels, slash commands (<code>/thinking</code>, <code>/skill:&lt;name&gt;</code>, <code>/new</code>), and positional prompts.</li>
+            <li><strong>Native Rust speed:</strong> Compiled binary with instant startup, zero node/python runtime prerequisites, and in-process tools.</li>
+            <li><strong>Safe fire handling:</strong> Fail-closed lifecycle hooks, process group isolation, and direct provider connections.</li>
+          </ul>
+        </div>
+      </div>
 
       <h2 id="installation">Installation</h2>
       <div class="code-block-wrapper">
@@ -204,22 +226,19 @@ rho update</code></pre>
       <div class="code-block-wrapper">
         <div class="code-block-header">
           <span>~/.config/rho/config.toml</span>
-          <button class="copy-btn" data-copy="[model]
-provider = &quot;anthropic&quot;
+          <button class="copy-btn" data-copy="provider = &quot;anthropic&quot;
 model = &quot;claude-3-7-sonnet-latest&quot;
-temperature = 0.0
-
-[general]
+thinking_level = &quot;high&quot;
 max_turns = 1000
 context_window_messages = 24
 compaction_max_bytes = 8192">Copy</button>
         </div>
-        <pre><code>[model]
+        <pre><code># Default provider, model, and thinking level
 provider = "anthropic"
 model = "claude-3-7-sonnet-latest"
-temperature = 0.0
+thinking_level = "high"
 
-[general]
+# Execution limits & context window
 max_turns = 1000
 context_window_messages = 24
 compaction_max_bytes = 8192
@@ -227,7 +246,7 @@ compaction_max_bytes = 8192
 # Custom OpenAI-compatible endpoints
 [providers.my-local-endpoint]
 base_url = "http://127.0.0.1:8000/v1"
-api_key = "optional"
+key_env = "LOCAL_API_KEY"
 
 # UI block framing, output toggles, and border colors (persisted automatically via /settings)
 [ui]
@@ -469,7 +488,7 @@ bash_error_border = "red"        # Failed bash commands</code></pre>
           </tr>
           <tr>
             <td><code>set_thinking</code></td>
-            <td><code>{ "level": "off" | "minimal" | "low" | "medium" | "high" | "max" }</code></td>
+            <td><code>{ "level": "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" }</code></td>
             <td>Dynamically adjust reasoning effort for supported reasoning models.</td>
           </tr>
           <tr>
@@ -672,6 +691,7 @@ rho mcp add db "https://mcp.db.example.com/mcp"
           <div class="footer-col">
             <span class="footer-col-title">Resources</span>
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
+            <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev (π)</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>
@@ -679,7 +699,7 @@ rho mcp add db "https://mcp.db.example.com/mcp"
 
       <div class="footer-bottom">
         <span>© 2026 Cason Adams. MIT / Apache-2.0 License.</span>
-        <span>Hosted on GitHub Pages · casonadams/rho</span>
+        <span>π + ρ = pirho 🔥 · For developers who play with fire</span>
       </div>
     </div>
   </footer>
