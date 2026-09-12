@@ -113,6 +113,9 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn commit_active_tool(&mut self, tool: ToolItem) -> io::Result<()> {
+        if self.output.is_open() {
+            self.write_output("\n")?;
+        }
         let (block, card_lines) = self.render_tool_lines(&tool);
         let budget =
             ((self.height as f64) * crate::ui::interactive::layout::budget::MAX_WIDGET_HEIGHT_RATIO).round() as usize;

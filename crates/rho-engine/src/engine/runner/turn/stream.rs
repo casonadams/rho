@@ -79,6 +79,7 @@ fn handle_display_events(
                 sink.emit_reasoning(&text);
             }
             DisplayEvent::ToolCall { .. } => {
+                sink.flush_reasoning();
                 sink.resume_model_spinner();
                 *tool_calls += 1;
             }
@@ -151,6 +152,7 @@ impl AgentEngine {
         (sink, state, active_model): (&Arc<TerminalApprovalSink>, &mut TurnStreamState, &str),
     ) {
         if let StreamedAssistantContent::ToolCallDelta { content, .. } = content {
+            sink.flush_reasoning();
             sink.resume_model_spinner();
             state.streaming_tool.handle_delta(content, sink);
         } else {

@@ -271,6 +271,8 @@ impl TerminalApprovalSink {
     pub fn tool_finished(&self, details: ToolFinishDetails<'_>) {
         let status = if details.is_error { "error" } else { "success" };
         self.run_tracker.tool_finished(status);
+        self.flush_reasoning();
+        self.presenter.flush();
         if let Ok(mut state) = self.state.lock() {
             self.record_completed_tool(&mut state, details, status);
         }

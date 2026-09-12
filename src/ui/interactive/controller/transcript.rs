@@ -119,6 +119,9 @@ impl<B: TerminalBackend> TerminalController<B> {
         if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
             self.commit_streamed_output();
         }
+        if self.output.is_open() && !matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
+            self.write_output("\n")?;
+        }
         if let TranscriptItem::Tool(ref tool) = item
             && self.state.active_tool().is_some()
         {

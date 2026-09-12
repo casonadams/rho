@@ -86,8 +86,9 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
         !output.contains("\n\n\n"),
         "Output contained excess newlines: {output:?}"
     );
-    assert!(output.contains("Paragraph 1."));
-    assert!(output.contains("Paragraph 2."));
+    let clean = crate::ui::block::ANSI_PATTERN.replace_all(&output, "");
+    assert!(clean.contains("Paragraph 1."));
+    assert!(clean.contains("Paragraph 2."));
     assert!(output.contains("\n\nAnswer."));
 }
 
@@ -112,6 +113,31 @@ fn thinking_followed_by_tool_closes_line_cleanly() {
         !output.contains("\n\n\n"),
         "Output contained excess newlines: {output:?}"
     );
+    assert!(output.ends_with('\n'), "Output should end with newline: {output:?}");
+}
+
+#[test]
+fn thinking_followed_by_skipped_tool_flushes_reasoning_and_closes_line() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let sink = TerminalApprovalSink::new(
+        &presenter(&renderer),
+        TerminalSinkConfig {
+            model_label: "model".to_string(),
+            run_tracker: crate::engine::metrics::RunTracker::default(),
+        },
+        terminal_session(),
+    );
+
+    sink.emit_reasoning("Let me read the file.\n\n\n");
+    sink.tool_finished(crate::engine::runner::ToolFinishDetails {
+        name: "bash",
+        arguments: &serde_json::json!({ "command": "rm -rf *" }),
+        output: "destructive command",
+        is_error: true,
+    });
+
+    let output = collect_output_events(&mut events);
     assert!(output.ends_with('\n'), "Output should end with newline: {output:?}");
 }
 
