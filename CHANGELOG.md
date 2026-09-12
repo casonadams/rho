@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/casonadams/rho/compare/v0.7.1...v0.7.2) (2026-09-12)
+
+
+### Features
+
+* **www:** introduce pirho wordplay and pi.dev heritage across site ([4886b57](https://github.com/casonadams/rho/commit/4886b578edf5ef87889d18a393e58a434f8ad8df))
+
 ## [0.7.1](https://github.com/casonadams/rho/compare/v0.7.0...v0.7.1) (2026-09-12)
 
 
