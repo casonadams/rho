@@ -197,29 +197,6 @@ async fn test_save_default_thinking_level_persists() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-#[tokio::test]
-async fn test_save_default_block_style_persists() {
-    let dir = std::env::temp_dir().join(format!("rho_save_block_style_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-
-    Config::save_default_block_style_async(&dir, "border").await.unwrap();
-
-    let block_style = {
-        let _guard = ENV_LOCK.lock().unwrap();
-        unsafe {
-            std::env::set_var("RHO_HOME", dir.to_str().unwrap());
-        }
-        let config = Config::load(None).unwrap();
-        unsafe {
-            std::env::remove_var("RHO_HOME");
-        }
-        config.ui.block_style
-    };
-    assert_eq!(block_style.as_deref(), Some("border"));
-
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
 #[test]
 fn test_config_file_model_infers_provider_when_unspecified() {
     let _guard = ENV_LOCK.lock().unwrap();

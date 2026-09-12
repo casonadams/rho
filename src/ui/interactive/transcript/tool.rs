@@ -166,5 +166,9 @@ pub fn render_tool_block(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> 
 
 pub fn render_tool_transcript(tool: &ToolItem, input: &TranscriptRenderInput<'_>) -> String {
     let block = render_tool_block(tool, input);
-    format!("\n{block}")
+    if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
+        block
+    } else {
+        format!("\n{block}")
+    }
 }

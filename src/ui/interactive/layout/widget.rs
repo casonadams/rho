@@ -99,7 +99,11 @@ pub fn render_running_tool_widget(input: RunningToolWidgetInput<'_>) -> Vec<Stri
         .tool_block(input.tool.name == "bash", false, width)
         .with_vertical_padding()
         .render_styled(&content);
-    let mut lines = vec![String::new()];
+    let mut lines = if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
+        Vec::new()
+    } else {
+        vec![String::new()]
+    };
     lines.extend(block.lines().map(String::from));
     lines
 }

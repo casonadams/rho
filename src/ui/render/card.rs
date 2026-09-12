@@ -106,5 +106,9 @@ pub(crate) fn render_headless_tool_card(line: &ToolLine, theme: &Theme) -> Strin
         .tool_block(line.name == "bash", line.is_error, terminal_width())
         .with_vertical_padding()
         .render_styled(&content);
-    format!("\n{block}")
+    if theme.block_style == crate::ui::theme::BlockStyle::Border {
+        block
+    } else {
+        format!("\n{block}")
+    }
 }

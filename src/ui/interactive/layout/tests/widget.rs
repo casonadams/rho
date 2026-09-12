@@ -112,3 +112,53 @@ fn running_tool_widget_empty_for_fast_tools_without_preview_or_output() {
     });
     assert!(lines_rg.is_empty(), "rg should not render a running widget card");
 }
+
+#[test]
+fn layout_windows_oversized_bordered_widget_preserving_box_integrity() {
+    let mut theme = Theme::default();
+    theme.block_style = crate::ui::theme::BlockStyle::Border;
+    let mut tool = RunningTool::new("bash", "git log -n 50", None);
+    for i in 1..=40 {
+        tool.append_chunk(&format!("commit line {i}\n"));
+    }
+    let widgets = render_running_tool_widget(RunningToolWidgetInput {
+        tool: &tool,
+        theme: &theme,
+        width: 60,
+        tools_expanded: true,
+    });
+    assert!(widgets.len() > 15);
+    assert!(widgets[0].contains('╭'));
+    assert!(widgets.last().unwrap().contains('╰'));
+
+    let default_editor = EditorState::default();
+    let default_footer = FooterState::default();
+    let l = layout(LayoutInput {
+        editor: &default_editor,
+        modal: None,
+        autocomplete: None,
+        footer: &default_footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &widgets,
+        terminal_width: 60,
+        terminal_height: 20,
+        spinner_frame: 0,
+        theme: Some(&theme),
+        focused: true,
+    });
+
+    assert!(l.widget_lines.len() <= 15);
+    assert!(
+        l.widget_lines.first().unwrap().contains('╭'),
+        "top border must be preserved"
+    );
+    assert!(
+        l.widget_lines[1].contains("bash") && l.widget_lines[1].contains("git log"),
+        "header must be preserved"
+    );
+    assert!(
+        l.widget_lines.last().unwrap().contains('╰'),
+        "bottom border must be preserved"
+    );
+}

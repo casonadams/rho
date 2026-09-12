@@ -17,14 +17,22 @@ fn render_parsed_skill(
         .render_styled(&skill_block_text);
     let user_trimmed = user_msg.trim();
     if user_trimmed.is_empty() {
-        format!("\n{skill_formatted}")
+        if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
+            skill_formatted
+        } else {
+            format!("\n{skill_formatted}")
+        }
     } else {
         let user_formatted = input
             .theme
             .user_block(input.width)
             .with_vertical_padding()
             .render_plain(user_trimmed);
-        format!("\n{skill_formatted}\n{user_formatted}")
+        if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
+            format!("{skill_formatted}{user_formatted}")
+        } else {
+            format!("\n{skill_formatted}\n{user_formatted}")
+        }
     }
 }
 
@@ -37,7 +45,11 @@ pub fn render_user_message(text: &str, input: &TranscriptRenderInput<'_>) -> Str
             .user_block(input.width)
             .with_vertical_padding()
             .render_plain(text);
-        format!("\n{block}")
+        if input.theme.block_style == crate::ui::theme::BlockStyle::Border {
+            block
+        } else {
+            format!("\n{block}")
+        }
     }
 }
 

@@ -65,7 +65,11 @@ impl<B: TerminalBackend> TerminalController<B> {
             hide_thinking: self.state.hide_thinking(),
         };
         let block = render_tool_block(tool, &input);
-        let mut card_lines = vec![String::new()];
+        let mut card_lines = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
+            Vec::new()
+        } else {
+            vec![String::new()]
+        };
         card_lines.extend(block.lines().map(String::from));
         (block, card_lines)
     }
@@ -90,7 +94,11 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     fn record_completed_tool(&mut self, tool: ToolItem, block: &str) {
         let item = TranscriptItem::Tool(tool);
-        let rendered = format!("\n{block}");
+        let rendered = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
+            block.to_string()
+        } else {
+            format!("\n{block}")
+        };
         self.cache.push(
             super::cache::target_slot(&item, self.state.tools_expanded(), self.state.hide_thinking()),
             &rendered,
@@ -106,6 +114,24 @@ impl<B: TerminalBackend> TerminalController<B> {
 
     pub fn commit_active_tool(&mut self, tool: ToolItem) -> io::Result<()> {
         let (block, card_lines) = self.render_tool_lines(&tool);
+        let budget =
+            ((self.height as f64) * crate::ui::interactive::layout::budget::MAX_WIDGET_HEIGHT_RATIO).round() as usize;
+        if card_lines.len() > budget || self.state.tools_expanded() {
+            let item = TranscriptItem::Tool(tool);
+            let rendered = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
+                block
+            } else {
+                format!("\n{block}")
+            };
+            self.clear_active_tool();
+            self.cache.push(
+                super::cache::target_slot(&item, self.state.tools_expanded(), self.state.hide_thinking()),
+                &rendered,
+            );
+            self.transcript.push(item);
+            self.write_output(&rendered)?;
+            return Ok(());
+        }
         let completed_layout = self.tool_layout(&card_lines);
         super::paint::render_live_diff(&mut self.backend, self.rendered.as_ref(), &completed_layout)?;
         self.record_completed_tool(tool, &block);

@@ -119,16 +119,50 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
     }
 }
 
+fn window_widget_lines(lines: &[String], budget: usize) -> Vec<String> {
+    if lines.len() <= budget {
+        return lines.to_vec();
+    }
+    if budget == 0 {
+        return Vec::new();
+    }
+    let has_borders = lines.first().is_some_and(|l| l.contains('╭')) && lines.last().is_some_and(|l| l.contains('╰'));
+    if has_borders && budget >= 3 {
+        let top_lines = 2.min(budget.saturating_sub(1));
+        let bottom_lines = 1;
+        let interior_budget = budget.saturating_sub(top_lines + bottom_lines);
+        let interior = &lines[top_lines..lines.len() - bottom_lines];
+        let mut result = Vec::with_capacity(budget);
+        result.extend_from_slice(&lines[..top_lines]);
+        if interior.len() > interior_budget {
+            result.extend_from_slice(&interior[interior.len() - interior_budget..]);
+        } else {
+            result.extend_from_slice(interior);
+        }
+        result.push(lines.last().unwrap().clone());
+        result
+    } else if budget >= 2 && !lines.is_empty() {
+        let mut result = Vec::with_capacity(budget);
+        result.push(lines[0].clone());
+        let tail_budget = budget - 1;
+        let tail = &lines[1..];
+        if tail.len() > tail_budget {
+            result.extend_from_slice(&tail[tail.len() - tail_budget..]);
+        } else {
+            result.extend_from_slice(tail);
+        }
+        result
+    } else {
+        lines[lines.len() - budget..].to_vec()
+    }
+}
+
 fn visible_widgets_and_queued(
     widget_lines: &[String],
     queued_lines: &[String],
     budget: &NormalLayoutBudget,
 ) -> (Vec<String>, Vec<String>) {
-    let vis_widgets = if widget_lines.len() > budget.widget_count {
-        widget_lines[widget_lines.len() - budget.widget_count..].to_vec()
-    } else {
-        widget_lines.to_vec()
-    };
+    let vis_widgets = window_widget_lines(widget_lines, budget.widget_count);
     let vis_queued = if budget.queued_count > 0 {
         queued_lines[..budget.queued_count.min(queued_lines.len())].to_vec()
     } else {

@@ -107,19 +107,6 @@ async fn toggle_output_or_thinking(
             ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
             ctx.controller.set_hide_thinking(hidden)?;
         }
-        InputAction::BlockStyleToggle => {
-            let new_style = ctx.controller.toggle_block_style()?;
-            let label = match new_style {
-                crate::ui::theme::BlockStyle::Border => "border",
-                crate::ui::theme::BlockStyle::Solid => "solid",
-            };
-            ctx.controller.set_system_message(format!("Block style: {label}"));
-            ctx.session.renderer.theme.block_style = new_style;
-            ctx.session.config.ui.block_style = Some(label.to_string());
-            let _ =
-                rho_harness_core::config::Config::save_default_block_style_async(&ctx.session.config.config_dir, label)
-                    .await;
-        }
         _ => {}
     }
     Ok(())
@@ -176,7 +163,7 @@ async fn dispatch_shortcut(
         InputAction::Cancel => {
             handle_clear_or_cancel(ctx, true).await?;
         }
-        InputAction::ToggleExpandTools | InputAction::ThinkingToggle | InputAction::BlockStyleToggle => {
+        InputAction::ToggleExpandTools | InputAction::ThinkingToggle => {
             toggle_output_or_thinking(ctx, action).await?;
         }
         InputAction::ModelSelect => open_selector(ctx, true)?,

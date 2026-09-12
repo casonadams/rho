@@ -71,22 +71,6 @@ async fn handle_display_toggle<B: TerminalBackend>(ctx: &mut TurnInputContext<'_
             ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
             let _ = ctx.controller.set_hide_thinking(hide);
         }
-        InputAction::BlockStyleToggle => {
-            if let Ok(new_style) = ctx.controller.toggle_block_style() {
-                let label = match new_style {
-                    crate::ui::theme::BlockStyle::Border => "border",
-                    crate::ui::theme::BlockStyle::Solid => "solid",
-                };
-                ctx.controller.set_system_message(format!("Block style: {label}"));
-                ctx.session.renderer.theme.block_style = new_style;
-                ctx.session.config.ui.block_style = Some(label.to_string());
-                let _ = rho_harness_core::config::Config::save_default_block_style_async(
-                    &ctx.session.config.config_dir,
-                    label,
-                )
-                .await;
-            }
-        }
         _ => {}
     }
 }
@@ -137,7 +121,7 @@ async fn model_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, act
 
 async fn view_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) -> Result<bool> {
     match action {
-        InputAction::ToggleExpandTools | InputAction::ThinkingToggle | InputAction::BlockStyleToggle => {
+        InputAction::ToggleExpandTools | InputAction::ThinkingToggle => {
             handle_display_toggle(ctx, action).await;
         }
         InputAction::ClipboardPasteImage => {

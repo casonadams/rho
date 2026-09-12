@@ -133,4 +133,56 @@ fn render_transcript_tool_with_border_style_uses_outline() {
     assert!(rendered.contains('╰'));
     assert!(rendered.contains('│'));
     assert!(rendered.contains("\x1b[32m"));
+    assert!(
+        !rendered.starts_with('\n'),
+        "border mode tool items should not have leading newline"
+    );
+}
+
+#[test]
+fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
+    let mut theme = Theme::default();
+    theme.block_style = crate::ui::theme::BlockStyle::Border;
+    let item1 = TranscriptItem::Tool(ToolItem {
+        name: "rg".into(),
+        arguments: serde_json::json!({"pattern": "foo"}),
+        is_error: false,
+        output: "match 1".into(),
+        output_summary: "1 match".into(),
+        duration_ms: Some(5),
+    });
+    let item2 = TranscriptItem::Tool(ToolItem {
+        name: "read".into(),
+        arguments: serde_json::json!({"path": "src/main.rs"}),
+        is_error: false,
+        output: "fn main() {}".into(),
+        output_summary: "1 line".into(),
+        duration_ms: Some(2),
+    });
+
+    let rendered1 = render_transcript_item(TranscriptRenderInput {
+        item: &item1,
+        theme: &theme,
+        width: 40,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    let rendered2 = render_transcript_item(TranscriptRenderInput {
+        item: &item2,
+        theme: &theme,
+        width: 40,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+
+    let combined = format!("{rendered1}{rendered2}");
+    assert!(
+        !combined.contains("╯\x1b[39m\n\n"),
+        "bordered tools must touch without an empty line between them"
+    );
+    let plain = crate::ui::block::ANSI_PATTERN.replace_all(&combined, "");
+    assert!(
+        plain.contains("╯\n╭"),
+        "bordered tools should transition directly from bottom to top border"
+    );
 }

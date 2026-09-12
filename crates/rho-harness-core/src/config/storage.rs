@@ -34,14 +34,6 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
-    pub async fn save_default_block_style_async(config_dir: &Path, block_style: &str) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let ui = file_config.ui.get_or_insert_with(Default::default);
-        ui.block_style = Some(block_style.to_string());
-        write_file_config_async(&path, &file_config).await
-    }
-
     pub fn add_mcp_server(target: &Path, name: &str, server: McpServerConfig) -> Result<()> {
         let path = if target.is_dir() {
             super::mcp::global_mcp_path(target)
