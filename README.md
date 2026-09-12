@@ -1,7 +1,6 @@
 # rho
 
-`rho` is a fast, clean, minimal coding-agent CLI built in Rust on
-[Rig](https://github.com/0xPlaygrounds/rig).
+`rho` is a fast, clean, local, private, and secure coding agent CLI built in Rust on [Rig](https://github.com/0xPlaygrounds/rig).
 
 ---
 
