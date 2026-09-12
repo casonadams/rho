@@ -87,11 +87,23 @@ fn test_format_write_preview_expansion_and_collapse() {
 #[test]
 fn test_format_thinking_block_renders_dimmed_with_trailing_breaks() {
     let theme = Theme::default();
-    let formatted = format_thinking_block("analyzing the problem\nchecking tests", &theme);
+    let formatted = format_thinking_block("analyzing the problem\nchecking tests", &theme, 80);
     assert!(formatted.contains(" analyzing the problem"));
     assert!(formatted.contains(" checking tests"));
     assert!(!formatted.contains("┌─ Thinking"));
     assert!(formatted.ends_with('\n'));
+}
+
+#[test]
+fn test_format_thinking_block_wraps_on_word_boundaries() {
+    let theme = Theme::default();
+    let text = "first second third fourth fifth";
+    let formatted = format_thinking_block(text, &theme, 15);
+    let lines: Vec<&str> = formatted.trim().lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("first second"));
+    assert!(lines[1].contains("third fourth"));
+    assert!(lines[2].contains("fifth"));
 }
 
 #[test]

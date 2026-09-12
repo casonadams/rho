@@ -16,8 +16,13 @@ use crate::ui::render::format_thinking_block;
 
 fn render_assistant_text(text: &str, width: usize, theme: &crate::ui::theme::Theme) -> String {
     let mut md = crate::ui::markdown::MarkdownRenderer::default();
-    md.set_width(width);
-    let full = format!("{}{}", md.render_token(text, theme), md.flush(theme));
+    let render_width = if theme.block_agent_output {
+        theme.agent_block(width).inner_width()
+    } else {
+        width
+    };
+    md.set_width(render_width);
+    let full = md.render_text(text, theme);
     let trimmed = full.trim();
     if trimmed.is_empty() {
         String::new()
@@ -29,7 +34,7 @@ fn render_assistant_text(text: &str, width: usize, theme: &crate::ui::theme::The
     }
 }
 
-fn render_thinking_text(text: &str, hide_thinking: bool, theme: &crate::ui::theme::Theme) -> String {
+fn render_thinking_text(text: &str, width: usize, hide_thinking: bool, theme: &crate::ui::theme::Theme) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         String::new()
@@ -37,7 +42,7 @@ fn render_thinking_text(text: &str, hide_thinking: bool, theme: &crate::ui::them
         let dim = theme.dimmed;
         format!("\n{dim}Thinking...{dim:#}\n")
     } else {
-        format_thinking_block(trimmed, theme)
+        format_thinking_block(trimmed, theme, width)
     }
 }
 
@@ -47,7 +52,7 @@ pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
         TranscriptItem::Welcome(welcome) => format_welcome_content(welcome, input.width, input.theme),
         TranscriptItem::UserMessage(text) => skill::render_user_message(text, &input),
         TranscriptItem::AssistantText(text) => render_assistant_text(text, input.width, input.theme),
-        TranscriptItem::Thinking(text) => render_thinking_text(text, input.hide_thinking, input.theme),
+        TranscriptItem::Thinking(text) => render_thinking_text(text, input.width, input.hide_thinking, input.theme),
         TranscriptItem::Tool(tool) => tool::render_tool_transcript(tool, &input),
         TranscriptItem::Notice(text) => text.clone(),
     }

@@ -152,11 +152,24 @@ pub fn format_session_status(session: &SessionStatus) -> String {
     }
 }
 
-pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme) -> String {
+pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: usize) -> String {
     let d = theme.dimmed;
     let mut out = String::from("\n");
+    let wrap_width = if width > 0 {
+        width.saturating_sub(1).max(10)
+    } else {
+        crossterm::terminal::size()
+            .map(|(w, _)| (w as usize).saturating_sub(1).max(10))
+            .unwrap_or(79)
+    };
     for line in thinking_text.trim().lines() {
-        out.push_str(&format!("{d} {line}{d:#}\n"));
+        if line.trim().is_empty() {
+            out.push_str(&format!("{d} {line}{d:#}\n"));
+            continue;
+        }
+        for wrapped in crate::ui::interactive::wrap_to_width(line, wrap_width) {
+            out.push_str(&format!("{d} {wrapped}{d:#}\n"));
+        }
     }
     out
 }

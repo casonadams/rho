@@ -42,6 +42,7 @@ struct LineWrapper<'a> {
     current_line: String,
     current_width: usize,
     active_ansi: String,
+    pending_ansi: String,
     pending_spaces: String,
     pending_spaces_width: usize,
     pending_word: String,
@@ -57,6 +58,7 @@ impl<'a> LineWrapper<'a> {
             current_line: String::new(),
             current_width: 0,
             active_ansi: String::new(),
+            pending_ansi: String::new(),
             pending_spaces: String::new(),
             pending_spaces_width: 0,
             pending_word: String::new(),
@@ -69,16 +71,33 @@ impl<'a> LineWrapper<'a> {
             && let Some(end) = self.line[self.offset..].find('m')
         {
             let seq = &self.line[self.offset..=self.offset + end];
-            if seq == "\x1b[0m" || seq == "\x1b[m" {
-                self.active_ansi.clear();
-            } else {
-                self.active_ansi.push_str(seq);
-            }
+            self.pending_ansi.push_str(seq);
             self.pending_word.push_str(seq);
             self.offset += end + 1;
             return true;
         }
         false
+    }
+
+    fn apply_pending_ansi(&mut self) {
+        if self.pending_ansi.is_empty() {
+            return;
+        }
+        let mut rem = self.pending_ansi.as_str();
+        while let Some(start) = rem.find('\x1b') {
+            if let Some(end) = rem[start..].find('m') {
+                let seq = &rem[start..=start + end];
+                if seq == "\x1b[0m" || seq == "\x1b[m" {
+                    self.active_ansi.clear();
+                } else {
+                    self.active_ansi.push_str(seq);
+                }
+                rem = &rem[start + end + 1..];
+            } else {
+                break;
+            }
+        }
+        self.pending_ansi.clear();
     }
 
     fn flush_current_line(&mut self, output: &mut Vec<String>) {
@@ -113,6 +132,7 @@ impl<'a> LineWrapper<'a> {
         self.current_width += self.pending_word_width;
         self.pending_word.clear();
         self.pending_word_width = 0;
+        self.apply_pending_ansi();
     }
 
     fn wrap(mut self, output: &mut Vec<String>) {
@@ -140,6 +160,7 @@ impl<'a> LineWrapper<'a> {
                     }
                     if self.pending_word_width + cw > self.max_width && self.pending_word_width > 0 {
                         self.current_line.push_str(&self.pending_word);
+                        self.apply_pending_ansi();
                         self.flush_current_line(output);
                         self.pending_word.clear();
                         self.pending_word_width = 0;

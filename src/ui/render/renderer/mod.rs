@@ -13,6 +13,7 @@ use crate::ui::render::presenter::InteractiveStreamSink;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::stream::ToolStreamPort;
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -21,6 +22,7 @@ pub struct TerminalRenderer {
     pub(crate) markdown: Arc<Mutex<MarkdownRenderer>>,
     pub(crate) ui: Option<InteractiveUi>,
     pub(crate) assistant_turn_buffer: Arc<Mutex<String>>,
+    pub(crate) width: Arc<AtomicUsize>,
 }
 
 impl Default for TerminalRenderer {
@@ -30,6 +32,7 @@ impl Default for TerminalRenderer {
             markdown: Arc::new(Mutex::new(MarkdownRenderer::new())),
             ui: None,
             assistant_turn_buffer: Arc::new(Mutex::new(String::new())),
+            width: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -71,8 +74,18 @@ impl TerminalRenderer {
     }
 
     pub fn set_width(&self, width: usize) {
+        self.width.store(width, Ordering::Relaxed);
         if let Ok(mut md) = self.markdown.lock() {
             md.set_width(width);
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        let w = self.width.load(Ordering::Relaxed);
+        if w > 0 {
+            w
+        } else {
+            crossterm::terminal::size().map(|(w, _)| w as usize).unwrap_or(80)
         }
     }
 
@@ -142,7 +155,7 @@ impl TerminalRenderer {
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string()));
         } else {
-            let formatted = format_thinking_block(trimmed, &self.theme);
+            let formatted = format_thinking_block(trimmed, &self.theme, self.width());
             self.write_output(&formatted);
         }
     }

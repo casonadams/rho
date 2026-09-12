@@ -67,6 +67,23 @@ fn render_transcript_thinking_collapsed_and_expanded() {
 }
 
 #[test]
+fn render_transcript_thinking_wraps_on_word_boundaries() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Thinking("alpha beta gamma delta epsilon zeta eta".into());
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 20,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    let lines: Vec<&str> = rendered.trim().lines().collect();
+    assert!(lines.len() >= 2);
+    assert!(lines[0].contains("alpha beta gamma"));
+    assert!(lines[1].contains("delta epsilon"));
+}
+
+#[test]
 fn render_transcript_assistant_text_emits_osc133_zones() {
     let theme = Theme::default();
     let item = TranscriptItem::AssistantText("Hello from assistant".into());
@@ -103,4 +120,22 @@ fn render_transcript_assistant_mermaid_clips_to_render_width() {
         .unwrap_or(0);
     assert!(widest > 0, "diagram boxes must be present");
     assert!(widest <= 50, "diagram exceeded render width: {widest}");
+}
+
+#[test]
+fn render_transcript_assistant_text_wraps_on_word_boundaries() {
+    let theme = Theme::default();
+    let text = "This is a long response from the assistant explaining the architecture in detail.";
+    let item = TranscriptItem::AssistantText(text.into());
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 30,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+    assert!(!rendered.contains("architec-\nture"));
+    assert!(rendered.contains("explaining"));
+    assert!(rendered.contains("architecture"));
+    assert!(rendered.contains("in detail."));
 }

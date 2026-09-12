@@ -91,7 +91,7 @@ impl BlockFormat {
         rendered
     }
 
-    fn inner_width(&self) -> usize {
+    pub fn inner_width(&self) -> usize {
         match self.mode {
             BlockMode::Fill => self.width.saturating_sub(HORIZONTAL_PADDING * 2).max(1),
             BlockMode::Border => self.width.saturating_sub(4).max(1),
