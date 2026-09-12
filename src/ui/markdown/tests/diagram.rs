@@ -134,7 +134,7 @@ fn test_viewport_clipping_bounds() {
 
     for line in rendered.lines() {
         assert!(
-            UnicodeWidthStr::width(line) <= 40,
+            crate::ui::interactive::footer::visible_width(line) <= 40,
             "line exceeded clip width of 40: {line:?}"
         );
     }

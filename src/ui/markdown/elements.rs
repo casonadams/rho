@@ -71,9 +71,10 @@ pub fn render_mermaid_block(source: &str, theme: &Theme, width: usize) -> String
     let dim = theme.dimmed;
 
     if let Some(rendered) = super::diagram::render_diagram(source, width) {
-        let mut out = String::new();
+        let mut out = format!("{dim}Mermaid{dim:#}\n");
         for line in rendered.lines() {
-            out.push_str(&clipped(line, width));
+            out.push(' ');
+            out.push_str(&clipped(line, width.saturating_sub(1)));
             out.push('\n');
         }
         if out.ends_with('\n') {

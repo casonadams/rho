@@ -833,13 +833,16 @@ mod regressions {
             let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
             let renderer = crate::ui::TerminalRenderer::with_ui(ui);
             let mut controller = controller_with_transcript((80, 24));
-            controller.set_block_style(crate::ui::theme::BlockStyle::Border).unwrap();
+            controller
+                .set_block_style(crate::ui::theme::BlockStyle::Border)
+                .unwrap();
             renderer.set_width(80);
             controller.state_mut().editor_mut().set_text("");
 
             let text = "without recording other staged changes.";
             renderer.print_thinking_token(text);
             renderer.finish_thinking(text);
+            renderer.write_output("\n");
             drive_renderer_to_controller(&mut events, &mut controller);
 
             renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
@@ -854,10 +857,19 @@ mod regressions {
 
             let screen = controller.backend.text();
             for line in &screen {
-                assert!(!line.contains("changes.╭"), "tool card box must not attach to unclosed thinking text: {line}");
+                assert!(
+                    !line.contains("changes.╭"),
+                    "tool card box must not attach to unclosed thinking text: {line}"
+                );
             }
-            let top_border = screen.iter().find(|l| l.contains('╭')).expect("box top border must exist");
-            assert!(top_border.starts_with('╭') || top_border.trim_start().starts_with('╭'), "top border must start at column 0: {top_border}");
+            let top_border = screen
+                .iter()
+                .find(|l| l.contains('╭'))
+                .expect("box top border must exist");
+            assert!(
+                top_border.starts_with('╭') || top_border.trim_start().starts_with('╭'),
+                "top border must start at column 0: {top_border}"
+            );
         }
 
         #[test]
