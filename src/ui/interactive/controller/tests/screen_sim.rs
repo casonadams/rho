@@ -828,6 +828,90 @@ mod regressions {
             );
         }
 
+        #[test]
+        fn streamed_thinking_followed_by_blocked_tool_starts_box_on_fresh_line() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Border).unwrap();
+            renderer.set_width(80);
+            controller.state_mut().editor_mut().set_text("");
+
+            let text = "without recording other staged changes.";
+            renderer.print_thinking_token(text);
+            renderer.finish_thinking(text);
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
+                name: "bash".into(),
+                arguments: serde_json::json!({"command": "rm -rf *"}),
+                is_error: true,
+                output: "destructive command".into(),
+                output_summary: "destructive command".into(),
+                duration_ms: None,
+            });
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            for line in &screen {
+                assert!(!line.contains("changes.╭"), "tool card box must not attach to unclosed thinking text: {line}");
+            }
+            let top_border = screen.iter().find(|l| l.contains('╭')).expect("box top border must exist");
+            assert!(top_border.starts_with('╭') || top_border.trim_start().starts_with('╭'), "top border must start at column 0: {top_border}");
+        }
+
+        #[test]
+        fn streamed_thinking_wraps_long_prose_on_word_boundaries_live() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((40, 24));
+            renderer.set_width(40);
+            controller.state_mut().editor_mut().set_text("");
+
+            let text =
+                "The initial step involves preparing to write the output, signaling the start of a synchronous update.";
+            renderer.print_thinking_token(text);
+            renderer.finish_thinking(text);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            assert!(screen.iter().any(|l| l.contains("The initial step")));
+            assert!(screen.iter().any(|l| l.contains("synchronous update.")));
+            for line in &screen {
+                assert!(!line.contains("synchro-"), "words must not be hyphen-split");
+                assert!(!line.contains("prepar-"), "words must not be split");
+            }
+        }
+
+        #[test]
+        fn streamed_thinking_token_by_token_wraps_on_word_boundaries() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((40, 24));
+            renderer.set_width(40);
+            controller.state_mut().editor_mut().set_text("");
+
+            let text =
+                "The initial step involves preparing to write the output, signaling the start of a synchronous update.";
+            for word in text.split(' ') {
+                renderer.print_thinking_token(word);
+                renderer.print_thinking_token(" ");
+                drive_renderer_to_controller(&mut events, &mut controller);
+            }
+            renderer.finish_thinking(text);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            assert!(screen.iter().any(|l| l.contains("The initial step")));
+            assert!(screen.iter().any(|l| l.contains("synchronous update.")));
+            for line in &screen {
+                assert!(!line.contains("synchro-"), "words must not be hyphen-split");
+                assert!(!line.contains("prepar-"), "words must not be split");
+            }
+        }
+
         fn drive_thinking_phase(
             renderer: &crate::ui::TerminalRenderer,
             events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,

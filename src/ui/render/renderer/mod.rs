@@ -1,10 +1,12 @@
 //! Central terminal presentation renderer.
 
 mod activity;
+mod thinking;
 mod tool;
 
 pub use super::notices::CacheMissNotice;
 pub use activity::RenderActivity;
+pub use thinking::ThinkingStreamTracker;
 
 use crate::ui::interactive::{InteractiveUi, OutputEvent};
 use crate::ui::markdown::MarkdownRenderer;
@@ -23,6 +25,7 @@ pub struct TerminalRenderer {
     pub(crate) ui: Option<InteractiveUi>,
     pub(crate) assistant_turn_buffer: Arc<Mutex<String>>,
     pub(crate) width: Arc<AtomicUsize>,
+    pub(crate) thinking_stream: Arc<Mutex<ThinkingStreamTracker>>,
 }
 
 impl Default for TerminalRenderer {
@@ -33,6 +36,7 @@ impl Default for TerminalRenderer {
             ui: None,
             assistant_turn_buffer: Arc::new(Mutex::new(String::new())),
             width: Arc::new(AtomicUsize::new(0)),
+            thinking_stream: Arc::new(Mutex::new(ThinkingStreamTracker::new())),
         }
     }
 }
@@ -110,11 +114,27 @@ impl TerminalRenderer {
     }
 
     pub fn print_thinking_token(&self, token: &str) {
-        let dim = self.theme.dimmed;
-        self.stream_output(format!("{dim}{token}{dim:#}"));
+        let width = self.width();
+        let rendered = self
+            .thinking_stream
+            .lock()
+            .map(|mut tracker| tracker.process_token(token, width, &self.theme))
+            .unwrap_or_else(|_| {
+                let dim = self.theme.dimmed;
+                format!("{dim}{token}{dim:#}")
+            });
+        if !rendered.is_empty() {
+            self.stream_output(rendered);
+        }
     }
 
     pub fn flush(&self) {
+        if let Ok(mut tracker) = self.thinking_stream.lock() {
+            let remaining = tracker.flush(&self.theme);
+            if !remaining.is_empty() {
+                self.stream_output(remaining);
+            }
+        }
         let remaining = self
             .markdown
             .lock()
@@ -138,6 +158,12 @@ impl TerminalRenderer {
     }
 
     pub fn finish_thinking(&self, thinking_text: &str) {
+        if let Ok(mut tracker) = self.thinking_stream.lock() {
+            let remaining = tracker.flush(&self.theme);
+            if !remaining.is_empty() {
+                self.stream_output(remaining);
+            }
+        }
         let trimmed = thinking_text.trim();
         if trimmed.is_empty() {
             return;
