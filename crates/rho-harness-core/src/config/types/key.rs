@@ -23,6 +23,7 @@ pub(crate) enum ConfigKey {
     KeepRecentTokens,
     ThinkingLevel,
     SessionRetentionDays,
+    BlockStyle,
 }
 
 impl FromStr for ConfigKey {
@@ -51,6 +52,7 @@ impl FromStr for ConfigKey {
             "reserve_tokens" => Ok(Self::ReserveTokens),
             "keep_recent_tokens" => Ok(Self::KeepRecentTokens),
             "session_retention_days" | "retention_days" => Ok(Self::SessionRetentionDays),
+            "block_style" | "ui.block_style" => Ok(Self::BlockStyle),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -80,6 +82,7 @@ impl ConfigKey {
             Self::KeepRecentTokens => "keep_recent_tokens",
             Self::ThinkingLevel => "thinking_level",
             Self::SessionRetentionDays => "session_retention_days",
+            Self::BlockStyle => "ui.block_style",
         }
     }
 }

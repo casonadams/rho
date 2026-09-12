@@ -69,6 +69,10 @@ fn editor_navigation_and_control_keys_are_mapped() {
             key(KeyCode::Char('t'), KeyModifiers::CONTROL),
             InputAction::ThinkingToggle,
         ),
+        (
+            key(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            InputAction::BlockStyleToggle,
+        ),
         (key(KeyCode::Char('x'), KeyModifiers::CONTROL), InputAction::MessageCopy),
         (
             key(KeyCode::Char('v'), KeyModifiers::CONTROL),

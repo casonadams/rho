@@ -51,13 +51,23 @@ impl<B: crate::ui::interactive::TerminalBackend> BashRun<'_, B> {
             running.cancel().await;
             return Ok(true);
         }
-        if let InputAction::ToggleExpandTools | InputAction::ThinkingToggle = action {
+        if let InputAction::ToggleExpandTools | InputAction::ThinkingToggle | InputAction::BlockStyleToggle = action {
             self.apply_ui_toggle(action)?;
         }
         Ok(false)
     }
 
     fn apply_ui_toggle(&mut self, action: InputAction) -> Result<()> {
+        if action == InputAction::BlockStyleToggle {
+            if let Ok(new_style) = self.controller.toggle_block_style() {
+                let label = match new_style {
+                    crate::ui::theme::BlockStyle::Border => "border",
+                    crate::ui::theme::BlockStyle::Solid => "solid",
+                };
+                self.controller.set_system_message(format!("Block style: {label}"));
+            }
+            return Ok(());
+        }
         let (label, expanded) = if action == InputAction::ToggleExpandTools {
             let expanded = !self.controller.tools_expanded();
             ("Tool output", expanded)

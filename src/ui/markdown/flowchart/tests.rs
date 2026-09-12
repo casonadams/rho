@@ -182,6 +182,30 @@ graph TD
 }
 
 #[test]
+fn test_image_2_complex_flowchart() {
+    let source = r#"
+graph TD
+  UserInput[User Input / Prompt] --> PrepareContext[Prepare Context\nHierarchical AGENTS.md + Skills + Session History]
+  PrepareContext --> Stream[Stream from Provider\nToken-by-token rendering & metrics]
+  Stream --> ToolCalls{Tool calls requested?}
+  ToolCalls -->|No| DisplayAnswer[Display Final Answer]
+  ToolCalls -->|Yes| PermissionGate{Permission Gate}
+  PermissionGate -->|Approved| ExecTool[Execute Tool\nBuiltin, MCP, or Plugin]
+  PermissionGate -->|Denied| InjectReject[Inject Rejection / User Feedback]
+  DisplayAnswer --> AppendSession[Append Turn to Session JSONL]
+  AppendSession --> AwaitNext[Awaiting Next User Turn]
+  ExecTool --> AppendResult[Append Tool Result to History]
+  InjectReject --> AppendResult
+  AppendResult --> Stream
+"#;
+    let rendered = render_flowchart(source).expect("should render image 2 diagram");
+    assert!(rendered.contains("User Input / Prompt"));
+    assert!(rendered.contains("Prepare Context"));
+    assert!(rendered.contains("Tool calls requested?"));
+    assert!(rendered.contains("Append Tool Result to History"));
+}
+
+#[test]
 fn test_non_flowchart_returns_none() {
     let source = "sequenceDiagram\n  Alice->>Bob: Hello";
     let result = render_flowchart(source);

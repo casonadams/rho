@@ -66,6 +66,28 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.set_hide_thinking(!self.state.hide_thinking())
     }
 
+    pub fn block_style(&self) -> crate::ui::theme::BlockStyle {
+        self.theme.block_style
+    }
+
+    pub fn set_block_style(&mut self, style: crate::ui::theme::BlockStyle) -> io::Result<crate::ui::theme::BlockStyle> {
+        if self.theme.block_style == style {
+            return Ok(style);
+        }
+        self.theme.block_style = style;
+        self.cache.clear();
+        self.redraw_transcript_or_live()?;
+        Ok(style)
+    }
+
+    pub fn toggle_block_style(&mut self) -> io::Result<crate::ui::theme::BlockStyle> {
+        let next = match self.theme.block_style {
+            crate::ui::theme::BlockStyle::Border => crate::ui::theme::BlockStyle::Solid,
+            crate::ui::theme::BlockStyle::Solid => crate::ui::theme::BlockStyle::Border,
+        };
+        self.set_block_style(next)
+    }
+
     pub(super) fn redraw_transcript_or_live(&mut self) -> io::Result<()> {
         if self.transcript.is_empty() {
             self.redraw()

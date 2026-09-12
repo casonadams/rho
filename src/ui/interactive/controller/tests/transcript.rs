@@ -353,4 +353,29 @@ mod redraw {
 
         assert_repaint(&operations.borrow());
     }
+
+    #[test]
+    fn toggle_block_style_switches_style_and_invalidates_cache() {
+        let (backend, operations, _) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller
+            .push_transcript_item(TranscriptItem::UserMessage("hello world".into()))
+            .unwrap();
+
+        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
+        let initial_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+
+        operations.borrow_mut().clear();
+        let toggled = controller.toggle_block_style().unwrap();
+        assert_eq!(toggled, crate::ui::theme::BlockStyle::Border);
+        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Border);
+
+        let border_rendered = controller.cache().entry(0).unwrap().standard.clone().unwrap();
+        assert_ne!(initial_rendered, border_rendered);
+        assert!(border_rendered.contains('╭'));
+
+        let reverted = controller.toggle_block_style().unwrap();
+        assert_eq!(reverted, crate::ui::theme::BlockStyle::Solid);
+        assert_eq!(controller.block_style(), crate::ui::theme::BlockStyle::Solid);
+    }
 }

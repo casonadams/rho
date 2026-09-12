@@ -19,6 +19,7 @@ const DEFAULT_KEYBINDING_DEFS: &[(&str, &[&str])] = &[
     ("app.model.cycleBackward", &["shift+ctrl+p", "alt+p"]),
     ("app.thinking.cycle", &["shift+tab"]),
     ("app.thinking.toggle", &["ctrl+t"]),
+    ("app.blockStyle.toggle", &["ctrl+s"]),
     ("app.tools.expand", &["ctrl+o"]),
     ("app.message.copy", &["ctrl+x"]),
     ("app.message.followUp", &["alt+enter"]),

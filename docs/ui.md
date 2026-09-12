@@ -159,6 +159,10 @@ Border mode renders clean rounded box-drawing characters (`╭`, `─`, `╮`, `
 in the chosen colors, eliminating solid background rectangles while maintaining visual
 distinction between user inputs, commands, and success/fail statuses.
 
+You can also toggle between `border` and `solid` block styles dynamically at any time
+by pressing `Ctrl+S` (action `app.blockStyle.toggle`). The active preference will
+automatically persist to your configuration file.
+
 ### Pairing with `walh-shell`
 
 Because `rho` emits only native 16-color ANSI escape codes, pairing with

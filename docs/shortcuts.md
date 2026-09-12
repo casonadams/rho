@@ -56,6 +56,7 @@ Shortcuts for inspecting tools and copying or pasting content:
 | Shortcut | Action                    | Details                                                                                    |
 | :------- | :------------------------ | :----------------------------------------------------------------------------------------- |
 | `Ctrl+O` | **Toggle Tool Outputs**   | Expands or collapses tool result cards (diffs, bash stdout, file reads) in the transcript. |
+| `Ctrl+S` | **Toggle Block Style**   | Toggles card rendering between bordered outlines and solid fills (autosaves to config).    |
 | `Ctrl+V` | **Paste Clipboard Image** | Detects an image in the system clipboard and attaches it to the session.                   |
 | `Ctrl+X` | **Copy Last Response**    | Copies the assistant's latest message to the system clipboard.                             |
 
@@ -134,6 +135,7 @@ You can remap default shortcuts or define custom combinations by creating
 | `app.model.cycleBackward`  | `shift+ctrl+p`, `alt+p` | Cycle model backward                |
 | `app.thinking.cycle`       | `shift+tab`             | Cycle thinking effort level         |
 | `app.thinking.toggle`      | `ctrl+t`                | Toggle thinking visibility          |
+| `app.blockStyle.toggle`    | `ctrl+s`                | Toggle block style (border ↔ solid) |
 | `app.tools.expand`         | `ctrl+o`                | Toggle tool card expansion          |
 | `app.message.copy`         | `ctrl+x`                | Copy last assistant message         |
 | `app.message.followUp`     | `alt+enter`             | Queue prompt as follow-up           |

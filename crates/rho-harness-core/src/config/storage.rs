@@ -34,6 +34,14 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_default_block_style_async(config_dir: &Path, block_style: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let ui = file_config.ui.get_or_insert_with(Default::default);
+        ui.block_style = Some(block_style.to_string());
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub fn add_plugin(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
         validate_plugin_args(name, &plugin)?;
         let path = config_dir.join("config.toml");
@@ -116,6 +124,10 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::Region => file_config.region = Some(value.to_string()),
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
+        ConfigKey::BlockStyle => {
+            let ui = file_config.ui.get_or_insert_with(Default::default);
+            ui.block_style = Some(value.to_string());
+        }
         _ => return Ok(false),
     }
     Ok(true)

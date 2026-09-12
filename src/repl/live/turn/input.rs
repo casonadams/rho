@@ -57,17 +57,37 @@ async fn handle_edit_action<B: TerminalBackend>(
     Ok(TurnKeyResult::Handled)
 }
 
-fn handle_display_toggle<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) {
-    if *action == InputAction::ToggleExpandTools {
-        let expanded = !ctx.controller.tools_expanded();
-        let state = if expanded { "expanded" } else { "collapsed" };
-        ctx.controller.set_system_message(format!("Tool output: {state}"));
-        let _ = ctx.controller.set_tools_expanded(expanded);
-    } else {
-        let hide = !ctx.controller.hide_thinking();
-        let state = if hide { "hidden" } else { "visible" };
-        ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
-        let _ = ctx.controller.set_hide_thinking(hide);
+async fn handle_display_toggle<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) {
+    match action {
+        InputAction::ToggleExpandTools => {
+            let expanded = !ctx.controller.tools_expanded();
+            let state = if expanded { "expanded" } else { "collapsed" };
+            ctx.controller.set_system_message(format!("Tool output: {state}"));
+            let _ = ctx.controller.set_tools_expanded(expanded);
+        }
+        InputAction::ThinkingToggle => {
+            let hide = !ctx.controller.hide_thinking();
+            let state = if hide { "hidden" } else { "visible" };
+            ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
+            let _ = ctx.controller.set_hide_thinking(hide);
+        }
+        InputAction::BlockStyleToggle => {
+            if let Ok(new_style) = ctx.controller.toggle_block_style() {
+                let label = match new_style {
+                    crate::ui::theme::BlockStyle::Border => "border",
+                    crate::ui::theme::BlockStyle::Solid => "solid",
+                };
+                ctx.controller.set_system_message(format!("Block style: {label}"));
+                ctx.session.renderer.theme.block_style = new_style;
+                ctx.session.config.ui.block_style = Some(label.to_string());
+                let _ = rho_harness_core::config::Config::save_default_block_style_async(
+                    &ctx.session.config.config_dir,
+                    label,
+                )
+                .await;
+            }
+        }
+        _ => {}
     }
 }
 
@@ -117,8 +137,8 @@ async fn model_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, act
 
 async fn view_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) -> Result<bool> {
     match action {
-        InputAction::ToggleExpandTools | InputAction::ThinkingToggle => {
-            handle_display_toggle(ctx, action);
+        InputAction::ToggleExpandTools | InputAction::ThinkingToggle | InputAction::BlockStyleToggle => {
+            handle_display_toggle(ctx, action).await;
         }
         InputAction::ClipboardPasteImage => {
             paste_clipboard(&ctx.session.renderer, ctx.controller);
