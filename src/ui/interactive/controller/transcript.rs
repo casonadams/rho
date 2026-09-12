@@ -214,8 +214,8 @@ impl<B: TerminalBackend> TerminalController<B> {
         let redraw_result = self.run_full_redraw();
 
         let _ = self.backend.write_text(CSI_END_SYNC_UPDATE);
-        redraw_result?;
-        self.backend.flush()
+        let flush_result = self.backend.flush();
+        redraw_result.and(flush_result)
     }
 
     fn run_full_redraw(&mut self) -> io::Result<()> {

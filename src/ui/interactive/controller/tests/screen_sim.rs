@@ -917,5 +917,44 @@ mod regressions {
             assert!(screen60.iter().any(|l| l.contains("test input draft")));
             super::assert_screen_region_aligned(&controller);
         }
+
+        #[test]
+        fn resize_to_detects_backend_dimension_changes_when_event_stale() {
+            let mut controller =
+                TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("test message".into()))
+                .unwrap();
+            controller.state_mut().editor_mut().set_text("input text");
+            controller.redraw().unwrap();
+
+            // Backend dimensions expand (e.g. going wide in tmux), but stale event carries old width
+            controller.backend.resize(120, 24);
+            assert!(controller.resize_to(80, 24).unwrap());
+            assert_eq!(controller.terminal_width(), 120);
+
+            let screen = controller.backend.text();
+            let top_border = screen.iter().find(|l| l.contains('╭')).expect("top border 120");
+            assert_eq!(top_border.chars().count(), 120);
+        }
+
+        #[test]
+        fn refresh_size_reflows_unnotified_width_expansion() {
+            let mut controller =
+                TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("test message".into()))
+                .unwrap();
+            controller.redraw().unwrap();
+
+            // Backend dimensions expand without an explicit event
+            controller.backend.resize(157, 24);
+            assert!(controller.refresh_size().unwrap());
+            assert_eq!(controller.terminal_width(), 157);
+
+            let screen = controller.backend.text();
+            let top_border = screen.iter().find(|l| l.contains('╭')).expect("top border 157");
+            assert_eq!(top_border.chars().count(), 157);
+        }
     }
 }

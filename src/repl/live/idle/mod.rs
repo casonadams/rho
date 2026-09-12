@@ -75,13 +75,17 @@ async fn handle_ui_event<B: TerminalBackend>(
 
 async fn handle_tick<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (batch, tick): (&mut LiveBatch, IdleTick),
+    (batch, tick, rest): (&mut LiveBatch, IdleTick, &mut KeyRest<'_, '_, '_>),
 ) -> Result<()> {
     match tick {
         IdleTick::Frame => {
             let expired = controller.check_system_message_expiration();
-            if !batch.ui.is_empty() || expired {
-                batch.flush(controller, expired)?;
+            let resized = controller.refresh_size()?;
+            if resized {
+                rest.0.renderer.set_width(controller.width());
+            }
+            if !batch.ui.is_empty() || expired || resized {
+                batch.flush(controller, expired || resized)?;
             }
         }
         IdleTick::Ui(event) => {
@@ -119,7 +123,7 @@ async fn drive_idle_loop<B: TerminalBackend>(
     let mut ui = IdleUi::new();
     loop {
         match next_idle_step(&mut ui.frame, input, ui_events).await {
-            IdleSource::Tick(tick) => handle_tick(controller, (&mut ui.batch, tick)).await?,
+            IdleSource::Tick(tick) => handle_tick(controller, (&mut ui.batch, tick, &mut *rest)).await?,
             IdleSource::Input(event) => {
                 let args = (event, &mut ui.batch, &mut *resources, &mut *input, &mut *rest);
                 match handle_input_source(controller, args).await? {

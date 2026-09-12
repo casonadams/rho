@@ -90,7 +90,11 @@ impl<B: crate::ui::interactive::TerminalBackend> BashRun<'_, B> {
 
     fn handle_frame_tick(&mut self, stream: &mut StreamBuffers) -> Result<()> {
         let expired = self.controller.check_system_message_expiration();
-        if stream.progress.on_tick(self.controller) || expired {
+        let resized = self.controller.refresh_size()?;
+        if resized {
+            self.renderer.set_width(self.controller.width());
+        }
+        if stream.progress.on_tick(self.controller) || expired || resized {
             self.drain_and_flush(true)?;
         }
         Ok(())
@@ -185,13 +189,20 @@ impl<B: crate::ui::interactive::TerminalBackend> BashStreamState<'_, '_, B> {
         };
         match event {
             Event::Resize(cols, rows) => {
-                self.run.controller.resize_to(usize::from(cols), usize::from(rows))?;
-                self.run.renderer.set_width(self.run.controller.width());
+                let resized = self.run.controller.resize_to(usize::from(cols), usize::from(rows))?
+                    || self.run.controller.refresh_size()?;
+                if resized {
+                    self.run.renderer.set_width(self.run.controller.width());
+                }
                 self.run.drain_and_flush(true)?;
                 Ok(false)
             }
             Event::FocusGained => {
-                if !self.run.controller.focused() {
+                let resized = self.run.controller.refresh_size()?;
+                if resized {
+                    self.run.renderer.set_width(self.run.controller.width());
+                }
+                if !self.run.controller.focused() || resized {
                     self.run.controller.set_focused(true);
                     self.run.drain_and_flush(true)?;
                 }

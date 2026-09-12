@@ -24,8 +24,11 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
 ) -> Result<bool> {
     match event {
         Event::Resize(cols, rows) => {
-            lp.controller.resize_to(usize::from(cols), usize::from(rows))?;
-            lp.session.renderer.set_width(lp.controller.width());
+            let resized =
+                lp.controller.resize_to(usize::from(cols), usize::from(rows))? || lp.controller.refresh_size()?;
+            if resized {
+                lp.session.renderer.set_width(lp.controller.width());
+            }
             lp.batch.flush(lp.controller, true)?;
             Ok(false)
         }

@@ -108,7 +108,11 @@ async fn next_turn_event(
 async fn handle_turn_event<B: TerminalBackend>(ctx: &mut TurnContext<'_, B>, ev: TurnEvent) -> Result<bool> {
     match ev {
         TurnEvent::Tick => {
+            let prev_w = ctx.loop_ctx.controller.width();
             ctx.loop_ctx.on_tick()?;
+            if ctx.loop_ctx.controller.width() != prev_w {
+                ctx.loop_ctx.session.renderer.set_width(ctx.loop_ctx.controller.width());
+            }
             Ok(false)
         }
         TurnEvent::Input(res) => handle_input_res(ctx, res).await,

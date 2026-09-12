@@ -51,9 +51,10 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         self.spinner_tick += 1;
         let spinner = self.tick_spinner();
         let expired = self.controller.check_system_message_expiration();
+        let resized = self.controller.refresh_size()?;
         let footer = sync_turn_footer(self.controller, self.engine);
         self.batch
-            .flush(self.controller, spinner || footer || expired || steering)?;
+            .flush(self.controller, spinner || footer || expired || steering || resized)?;
         if matches!(self.controller.state().footer().activity, Activity::Idle) {
             self.controller.state_mut().footer_mut().activity = Activity::Working;
         }

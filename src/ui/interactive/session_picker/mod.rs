@@ -106,9 +106,10 @@ fn key_loop(controller: &mut TerminalController<crate::ui::interactive::Crosster
     loop {
         match crossterm::event::read()? {
             Event::Resize(cols, rows) => {
-                controller.resize_to(usize::from(cols), usize::from(rows))?;
+                let _ = controller.resize_to(usize::from(cols), usize::from(rows))? || controller.refresh_size()?;
             }
             Event::Key(key) => {
+                let _ = controller.refresh_size()?;
                 if key.kind != crossterm::event::KeyEventKind::Press {
                     continue;
                 }

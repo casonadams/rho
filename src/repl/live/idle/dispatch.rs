@@ -245,22 +245,38 @@ pub(super) async fn process_raw_input<B: TerminalBackend>(
 ) -> Result<IdleInputResult> {
     match classify_event(event) {
         RawInput::Resize(cols, rows) => {
-            controller.resize_to(usize::from(cols), usize::from(rows))?;
-            rest.0.renderer.set_width(controller.width());
+            let resized = controller.resize_to(usize::from(cols), usize::from(rows))? || controller.refresh_size()?;
+            if resized {
+                rest.0.renderer.set_width(controller.width());
+            }
             batch.flush(controller, true)?;
             Ok(IdleInputResult::None)
         }
         RawInput::Paste(text) => {
+            if controller.refresh_size()? {
+                rest.0.renderer.set_width(controller.width());
+                batch.flush(controller, true)?;
+            }
             handle_paste(controller, (batch, text, resources.completions)).map(|_| IdleInputResult::None)
         }
         RawInput::Focus(focused) => {
-            if controller.focused() != focused {
+            let resized = controller.refresh_size()?;
+            if resized {
+                rest.0.renderer.set_width(controller.width());
+            }
+            if controller.focused() != focused || resized {
                 controller.set_focused(focused);
                 batch.flush(controller, true)?;
             }
             Ok(IdleInputResult::None)
         }
-        RawInput::Key(key) => process_key_event(controller, (key, batch, resources, input, rest)).await,
+        RawInput::Key(key) => {
+            if controller.refresh_size()? {
+                rest.0.renderer.set_width(controller.width());
+                batch.flush(controller, true)?;
+            }
+            process_key_event(controller, (key, batch, resources, input, rest)).await
+        }
         RawInput::Skip => Ok(IdleInputResult::None),
     }
 }

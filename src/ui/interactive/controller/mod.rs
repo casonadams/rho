@@ -132,7 +132,14 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     pub fn resize_to(&mut self, width: usize, height: usize) -> io::Result<bool> {
-        self.apply_size(width, height)
+        let (actual_w, actual_h) = self
+            .backend
+            .size()
+            .map(|(w, h)| (usize::from(w), usize::from(h)))
+            .unwrap_or((width, height));
+        let w = if actual_w != self.width { actual_w } else { width };
+        let h = if actual_h != self.height { actual_h } else { height };
+        self.apply_size(w, h)
     }
 
     pub fn refresh_size(&mut self) -> io::Result<bool> {
