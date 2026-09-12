@@ -2,6 +2,7 @@ pub mod brave;
 pub mod ddg_lite;
 pub mod engine;
 pub mod firecrawl;
+pub mod format;
 pub mod query;
 pub mod result;
 pub mod yahoo;
@@ -13,11 +14,12 @@ use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
 pub use engine::{EngineKind, EngineRequest, MultiEngineParams, search_multi_engine, search_single_engine};
+pub use format::{FormatResultsParams, format_search_results};
 pub use query::{
     build_search_query_with_filters, matches_domain_filters, matches_site, normalize_domain, normalize_domain_filters,
     relax_query,
 };
-pub use result::{FormatResultsParams, SearchResult, deduplicate_results, format_search_results};
+pub use result::{SearchResult, deduplicate_results};
 pub use rho_harness_core::args::{WebSearchArgs, WebSearchRecency};
 use rho_harness_core::error::AppError;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
