@@ -28,6 +28,7 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
 
     let expanded = render_tool_item(&item, &theme, true);
     assert!(expanded.contains("read") && expanded.contains("src/main.rs") && expanded.contains("println"));
+    assert!(expanded.contains("  1 │ "));
     assert!(expanded.contains("\x1b["));
 }
 

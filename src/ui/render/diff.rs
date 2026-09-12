@@ -218,6 +218,10 @@ fn push_edit_header(out: &mut String, idx: usize, start_line: Option<usize>, dim
     }
 }
 
+pub fn format_gutter_prefix(line_num: usize, gutter_width: usize, dim: anstyle::Style) -> String {
+    format!("{dim}{line_num:>gutter_width$} │ {dim:#}")
+}
+
 fn push_single_line_diff(
     out: &mut String,
     old_line: &str,
@@ -228,9 +232,9 @@ fn push_single_line_diff(
 ) {
     let (removed, added) = render_single_line_word_diff(old_line, new_line, theme);
     if let Some(line) = start_line {
-        let dim = theme.dimmed;
-        out.push_str(&format!("{dim}{line:>gutter_width$} │ {dim:#}{removed}"));
-        out.push_str(&format!("{dim}{line:>gutter_width$} │ {dim:#}{added}"));
+        let prefix = format_gutter_prefix(line, gutter_width, theme.dimmed);
+        out.push_str(&format!("{prefix}{removed}"));
+        out.push_str(&format!("{prefix}{added}"));
     } else {
         out.push_str(&removed);
         out.push_str(&added);
@@ -255,9 +259,8 @@ fn push_diff_lines(
         let clean = replace_tabs(line);
         if let Some(start) = start_line {
             let line_num = start + offset;
-            out.push_str(&format!(
-                "{dim}{line_num:>gutter_width$} │ {dim:#}{color}{prefix} {clean}{color:#}\n"
-            ));
+            let gutter = format_gutter_prefix(line_num, gutter_width, dim);
+            out.push_str(&format!("{gutter}{color}{prefix} {clean}{color:#}\n"));
         } else {
             out.push_str(&format!("{color}{prefix} {clean}{color:#}\n"));
         }

@@ -44,9 +44,70 @@ fn format_preview_lines(lines: &[&str], lang: Option<&str>, gutter_width: usize,
         let line_num = idx + 1;
         let no_tabs = line.replace('\t', "   ");
         let highlighted = highlighter.highlight_line(&no_tabs, theme);
-        out.push_str(&format!("{d}{line_num:>gutter_width$} │ {d:#}{highlighted}\n"));
+        let gutter = super::diff::format_gutter_prefix(line_num, gutter_width, d);
+        out.push_str(&format!("{gutter}{highlighted}\n"));
     }
     out
+}
+
+pub(crate) fn format_read_expanded(raw: &str, args: &serde_json::Value, theme: &Theme) -> Option<String> {
+    let clean = raw.trim_end();
+    if clean.is_empty() {
+        return None;
+    }
+    let lang = super::preview::detect_language_from_args(args);
+    let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
+    let lines: Vec<&str> = clean.lines().collect();
+
+    let has_tab_numbering = lines.iter().any(|l| parse_read_line(l).is_some());
+    let mut parsed: Vec<(Option<usize>, &str, bool)> = Vec::with_capacity(lines.len());
+    if has_tab_numbering {
+        for line in &lines {
+            if let Some((num, code)) = parse_read_line(line) {
+                parsed.push((Some(num), code, false));
+            } else {
+                let trimmed = line.trim();
+                let is_notice = trimmed.starts_with('[') && trimmed.ends_with(']');
+                parsed.push((None, line, is_notice));
+            }
+        }
+    } else {
+        let trimmed = clean.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') && !trimmed.contains('\n') {
+            parsed.push((None, clean, true));
+        } else {
+            let offset = args.get("offset").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+            for (idx, line) in lines.iter().enumerate() {
+                parsed.push((Some(offset + idx), line, false));
+            }
+        }
+    }
+
+    let max_line = parsed.iter().filter_map(|(num, _, _)| *num).max().unwrap_or(1);
+    let gutter_width = max_line.to_string().len().max(3);
+
+    let mut out = String::new();
+    let d = theme.dimmed;
+    for (num_opt, content, is_notice) in parsed {
+        if let Some(num) = num_opt {
+            let no_tabs = content.replace('\t', "   ");
+            let highlighted = highlighter.highlight_line(&no_tabs, theme);
+            let gutter = super::diff::format_gutter_prefix(num, gutter_width, d);
+            out.push_str(&format!("{gutter}{highlighted}\n"));
+        } else if is_notice {
+            out.push_str(&format!("{d}{content}{d:#}\n"));
+        } else {
+            out.push_str(content);
+            out.push('\n');
+        }
+    }
+    Some(out)
+}
+
+fn parse_read_line(line: &str) -> Option<(usize, &str)> {
+    let (prefix, rest) = line.split_once('\t')?;
+    let num = prefix.trim().parse::<usize>().ok()?;
+    Some((num, rest))
 }
 
 pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expanded: bool) -> Option<String> {

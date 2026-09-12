@@ -1,5 +1,5 @@
 use crate::ui::render::{
-    detect_language_from_args, fetch_content_kind, format_bash_args_header, format_duration_ms, format_edit_diff,
+    fetch_content_kind, format_bash_args_header, format_duration_ms, format_edit_diff, format_read_expanded,
     format_tool_args_summary, format_write_preview, read_summary_parts,
 };
 
@@ -64,17 +64,10 @@ fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui
     } else {
         &tool.output_summary
     };
-    let clean = raw.trim_end();
-    if clean.is_empty() {
-        return;
+    if let Some(formatted) = format_read_expanded(raw, &tool.arguments, theme) {
+        content.push_str("\n\n");
+        content.push_str(&formatted);
     }
-    content.push_str("\n\n");
-    let lang = detect_language_from_args(&tool.arguments);
-    let highlighted: Vec<String> = clean
-        .lines()
-        .map(|l| crate::ui::markdown::highlight_code_line(&l.replace('\t', "   "), lang, theme))
-        .collect();
-    content.push_str(&highlighted.join("\n"));
 }
 
 fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {

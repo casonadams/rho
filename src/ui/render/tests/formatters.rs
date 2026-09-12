@@ -1,5 +1,7 @@
+use super::super::diff::format_gutter_prefix;
 use super::super::formatters::{
-    format_edit_diff, format_relative_time, format_session_status, format_thinking_block, format_write_preview,
+    format_edit_diff, format_read_expanded, format_relative_time, format_session_status, format_thinking_block,
+    format_write_preview,
 };
 use crate::ui::theme::Theme;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -136,6 +138,79 @@ fn test_format_edit_diff_locates_line_from_file_on_disk() {
     std::fs::write(&file_path, "line 1\nline 2\nline 3\nreplaced line\nline 5\n").unwrap();
     let diff_after = format_edit_diff(&args, &theme).unwrap();
     assert_contains_all(&diff_after, &["  4 │ ", "target", "replaced"]);
+}
+
+#[test]
+fn test_format_gutter_prefix_formats_aligned_and_dimmed() {
+    let dim = anstyle::Style::new().dimmed();
+    let prefix = format_gutter_prefix(1, 3, dim);
+    assert_eq!(prefix, format!("{dim}  1 │ {dim:#}"));
+
+    let prefix_wide = format_gutter_prefix(1234, 4, dim);
+    assert_eq!(prefix_wide, format!("{dim}1234 │ {dim:#}"));
+}
+
+#[test]
+fn test_format_read_expanded_standard_numbered_lines() {
+    let theme = Theme::default();
+    let args = serde_json::json!({ "path": "src/main.rs" });
+    let raw = "     1\tfn main() {\n     2\t    println!(\"hello\");\n     3\t}\n";
+    let formatted = format_read_expanded(raw, &args, &theme).unwrap();
+    assert_contains_all(&formatted, &["  1 │ ", "  2 │ ", "  3 │ ", "main", "println"]);
+}
+
+#[test]
+fn test_format_read_expanded_with_continuation_notice() {
+    let theme = Theme::default();
+    let args = serde_json::json!({ "path": "src/main.rs" });
+    let raw =
+        "     1\tfn main() {\n     2\t    println!(\"hello\");\n\n[10 more lines in file. Use offset=3 to continue.]\n";
+    let formatted = format_read_expanded(raw, &args, &theme).unwrap();
+    assert_contains_all(
+        &formatted,
+        &["  1 │ ", "  2 │ ", "[10 more lines in file. Use offset=3 to continue.]"],
+    );
+    assert!(!formatted.contains("  3 │ [10 more lines"));
+}
+
+#[test]
+fn test_format_read_expanded_with_offset() {
+    let theme = Theme::default();
+    let args = serde_json::json!({ "path": "src/main.rs", "offset": 100 });
+    let raw = "   100\tlet a = 1;\n   101\tlet b = 2;\n";
+    let formatted = format_read_expanded(raw, &args, &theme).unwrap();
+    assert_contains_all(&formatted, &["100 │ ", "101 │ "]);
+}
+
+#[test]
+fn test_format_read_expanded_unlabelled_fallback() {
+    let theme = Theme::default();
+    let args = serde_json::json!({ "path": "src/main.rs" });
+    let raw = "fn main() {\n    println!(\"hello\");\n}\n";
+    let formatted = format_read_expanded(raw, &args, &theme).unwrap();
+    assert_contains_all(&formatted, &["  1 │ ", "  2 │ ", "  3 │ "]);
+}
+
+#[test]
+fn test_line_number_gutter_parity_across_read_edit_write() {
+    let theme = Theme::default();
+
+    let write_args = serde_json::json!({ "path": "example.rs", "content": "fn test() {}" });
+    let write_out = format_write_preview(&write_args, &theme, false).unwrap();
+
+    let edit_args = serde_json::json!({
+        "path": "example.rs",
+        "edits": [{ "oldText": "fn old() {}", "newText": "fn test() {}", "line": 1 }]
+    });
+    let edit_out = format_edit_diff(&edit_args, &theme).unwrap();
+
+    let read_args = serde_json::json!({ "path": "example.rs" });
+    let read_raw = "     1\tfn test() {}\n";
+    let read_out = format_read_expanded(read_raw, &read_args, &theme).unwrap();
+
+    assert!(write_out.contains("  1 │ "));
+    assert!(edit_out.contains("  1 │ "));
+    assert!(read_out.contains("  1 │ "));
 }
 
 #[test]
