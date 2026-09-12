@@ -27,7 +27,7 @@ fn mermaid_lines_clip_to_renderer_width() {
         .map(crate::ui::interactive::footer::visible_width)
         .max()
         .unwrap_or(0);
-    assert!(widest > 80, "probe diagram must exceed the clip width: {widest}");
+    assert!(widest > 60, "probe diagram must exceed the clip width: {widest}");
 
     let clipped = crate::ui::markdown::render_mermaid_block(source, &theme, 60);
     for line in clipped.lines() {

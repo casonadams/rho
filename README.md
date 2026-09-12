@@ -73,7 +73,7 @@ Comprehensive guides are organized in [`docs/`](docs/):
     turns.
   - Universal native theme that adopts your terminal's 16-color palette, with
     SGR-dim secondary text, terminal-detected card fills, or configurable outline borders.
-  - Fenced Mermaid diagram rendering.
+  - Fenced Mermaid diagram rendering (Flowcharts with subgraphs, Sequence, State, Class, ER).
 
 - **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**
   - Comprehensive keybinding reference organized by session flow, queueing,

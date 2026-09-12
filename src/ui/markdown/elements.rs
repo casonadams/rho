@@ -70,7 +70,7 @@ pub fn render_inline_elements(text: &str, theme: &Theme) -> String {
 pub fn render_mermaid_block(source: &str, theme: &Theme, width: usize) -> String {
     let dim = theme.dimmed;
 
-    if let Some(rendered) = super::flowchart::render_flowchart(source) {
+    if let Some(rendered) = super::diagram::render_diagram(source, width) {
         let mut out = String::new();
         for line in rendered.lines() {
             out.push_str(&clipped(line, width));
@@ -82,28 +82,13 @@ pub fn render_mermaid_block(source: &str, theme: &Theme, width: usize) -> String
         return out;
     }
 
-    match meraid::render(source, meraid::ThemeType::default()) {
-        Ok(rendered) => {
-            let mut out = String::new();
-            for line in rendered.lines() {
-                out.push_str(&clipped(line, width));
-                out.push('\n');
-            }
-            if out.ends_with('\n') {
-                out.pop();
-            }
-            out
-        }
-        Err(_) => {
-            let mut out = format!("{dim}```mermaid{dim:#}\n");
-            for line in source.lines() {
-                out.push_str(&clipped(line, width));
-                out.push('\n');
-            }
-            out.push_str(&format!("{dim}```{dim:#}"));
-            out
-        }
+    let mut out = format!("{dim}```mermaid{dim:#}\n");
+    for line in source.lines() {
+        out.push_str(&clipped(line, width));
+        out.push('\n');
     }
+    out.push_str(&format!("{dim}```{dim:#}"));
+    out
 }
 
 fn clipped(line: &str, width: usize) -> String {

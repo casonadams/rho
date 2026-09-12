@@ -13,8 +13,8 @@
 //! Public API is re-exported here so external callers continue to use
 //! `crate::ui::markdown::{MarkdownRenderer, render_inline_elements, ...}`.
 
+pub(crate) mod diagram;
 mod elements;
-pub(crate) mod flowchart;
 mod highlight;
 mod line;
 mod mermaid;

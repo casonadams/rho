@@ -177,14 +177,18 @@ active wallpaper palette and surfaces without any configuration.
 Fenced Mermaid diagram blocks (` ```mermaid `) render in the terminal as
 clean, compact Unicode box-drawing diagrams.
 
-- **Flowcharts (`graph TD` / `LR`):** Rendered natively with compact per-node
-  box sizing, true vertical top-down flow (`TD`/`TB`), and collision-free
-  perimeter routing for cycles and feedback loops.
-- **Decision Shapes:** Supports rectangles `[label]`, rounded boxes `(label)`,
-  and decision diamonds `{choice}`.
-- **Clean Display:** Rendered diagrams display directly without surrounding
-  fences. If a diagram contains parsing errors, it falls back to a clean
-  code block.
-- **Viewport Fitting:** Diagrams wider than your terminal viewport are safely
-  clipped to the right margin to preserve box alignment. Keep horizontal
-  chains concise or use `TD` for vertical stacking.
+- **Flowcharts (`graph TD` / `LR`, `flowchart`):** Rendered with true vertical
+  top-down flow (`TD`/`TB`), horizontal flow (`LR`), subgraphs, decision shapes,
+  and collision-free loop routing for cycles and feedback loops.
+- **Sequence Diagrams (`sequenceDiagram`):** Boxed participants, vertical
+  lifelines, solid message arrows (`->>`), dashed return arrows (`-->>`),
+  and centered message labels.
+- **State & Architecture Diagrams:** Native rendering for state machines
+  (`stateDiagram-v2`), class models (`classDiagram`), entity relationships
+  (`erDiagram`), and charts (`xychart-beta`).
+- **Adaptive Viewport Fitting:** Diagrams automatically adapt layout density
+  to fit your terminal viewport before safely clipping to the right margin,
+  preserving box alignment.
+- **Clean Fallback:** Rendered diagrams display directly without surrounding
+  fences. If a diagram contains syntax errors, it gracefully falls back to a
+  clean code block.

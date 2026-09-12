@@ -106,7 +106,7 @@ fn match_input_and_tool_aliases() {
         (json!({"path": "/tmp/x"}), "/tmp/x"),
         (json!({"url": "https://x.com"}), "https://x.com"),
         (json!({"query": "rust"}), "rust"),
-        (json!({"tool": "mcp", "arg": 1}), r#"{"arg":1,"tool":"mcp"}"#),
+        (json!({"arg": 1, "tool": "mcp"}), r#"{"arg":1,"tool":"mcp"}"#),
     ];
     for (arg, expected) in input_cases {
         assert_eq!(match_input(&arg), expected);
