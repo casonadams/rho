@@ -197,32 +197,26 @@ fn register_node(
 
 fn parse_node_spec(s: &str) -> (String, Option<Vec<String>>, NodeShape) {
     let s = s.trim();
-    if let Some(open) = s.find('{')
-        && let Some(close) = s.rfind('}')
-        && close > open
-    {
-        let id = s[..open].trim().to_string();
-        let lines = clean_label(&s[open + 1..close]);
-        return (id, Some(lines), NodeShape::Diamond);
-    }
 
-    if let Some(open) = s.find('(')
-        && let Some(close) = s.rfind(')')
-        && close > open
+    let candidates = [
+        (s.find('['), ']', NodeShape::Rectangle),
+        (s.find('('), ')', NodeShape::Rounded),
+        (s.find('{'), '}', NodeShape::Diamond),
+    ];
+
+    let earliest = candidates
+        .into_iter()
+        .filter_map(|(idx_opt, close_ch, shape)| idx_opt.map(|idx| (idx, close_ch, shape)))
+        .min_by_key(|&(idx, _, _)| idx);
+
+    if let Some((open_idx, close_ch, shape)) = earliest
+        && let Some(close_idx) = s.rfind(close_ch)
+        && close_idx > open_idx
     {
-        let id = s[..open].trim().to_string();
-        let inner = &s[open + 1..close];
+        let id = s[..open_idx].trim().to_string();
+        let inner = &s[open_idx + 1..close_idx];
         let lines = clean_label(inner.trim_start_matches('[').trim_end_matches(']'));
-        return (id, Some(lines), NodeShape::Rounded);
-    }
-
-    if let Some(open) = s.find('[')
-        && let Some(close) = s.rfind(']')
-        && close > open
-    {
-        let id = s[..open].trim().to_string();
-        let lines = clean_label(&s[open + 1..close]);
-        return (id, Some(lines), NodeShape::Rectangle);
+        return (id, Some(lines), shape);
     }
 
     (s.to_string(), None, NodeShape::Rectangle)
