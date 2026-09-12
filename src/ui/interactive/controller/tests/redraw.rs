@@ -17,7 +17,7 @@ mod resize {
         let operations = operations.borrow();
         let clear_index = operations
             .iter()
-            .position(|operation| operation == &Operation::Clear)
+            .position(|operation| matches!(operation, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
             .unwrap();
         let divider_index = operations
             .iter()
@@ -98,7 +98,11 @@ mod resize {
     }
 
     fn assert_resize_operations(operations: &[Operation]) {
-        assert!(operations.contains(&Operation::Clear));
+        assert!(
+            operations
+                .iter()
+                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+        );
         assert!(operations.ends_with(&[Operation::Write("\x1b[?2026l".into()), Operation::Flush,]));
     }
 
@@ -130,7 +134,10 @@ mod resize {
         assert_eq!(controller.terminal_height(), 15);
 
         let ops = operations.borrow();
-        assert!(ops.contains(&Operation::Clear));
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text == "\x1b[2J\x1b[H\x1b[0m"))
+        );
     }
 }
 

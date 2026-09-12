@@ -14,7 +14,7 @@ use crate::ui::interactive::{
 use crossterm::event::{Event, KeyEvent};
 
 pub(super) enum RawInput {
-    Resize,
+    Resize(u16, u16),
     Paste(String),
     Focus(bool),
     Key(KeyEvent),
@@ -23,7 +23,7 @@ pub(super) enum RawInput {
 
 pub(super) fn classify_event(event: Event) -> RawInput {
     match event {
-        Event::Resize(_, _) => RawInput::Resize,
+        Event::Resize(cols, rows) => RawInput::Resize(cols, rows),
         Event::Paste(text) => RawInput::Paste(text),
         Event::FocusGained => RawInput::Focus(true),
         Event::FocusLost => RawInput::Focus(false),
@@ -244,9 +244,10 @@ pub(super) async fn process_raw_input<B: TerminalBackend>(
     ),
 ) -> Result<IdleInputResult> {
     match classify_event(event) {
-        RawInput::Resize => {
-            controller.refresh_size()?;
+        RawInput::Resize(cols, rows) => {
+            controller.resize_to(usize::from(cols), usize::from(rows))?;
             rest.0.renderer.set_width(controller.width());
+            batch.flush(controller, true)?;
             Ok(IdleInputResult::None)
         }
         RawInput::Paste(text) => {
@@ -272,5 +273,13 @@ mod tests {
     fn test_classify_event_focus_events() {
         assert!(matches!(classify_event(Event::FocusGained), RawInput::Focus(true)));
         assert!(matches!(classify_event(Event::FocusLost), RawInput::Focus(false)));
+    }
+
+    #[test]
+    fn test_classify_event_resize() {
+        assert!(matches!(
+            classify_event(Event::Resize(80, 24)),
+            RawInput::Resize(80, 24)
+        ));
     }
 }

@@ -30,6 +30,16 @@ impl ScreenBackend {
         }
     }
 
+    pub fn resize(&mut self, width: usize, height: usize) {
+        self.width = width;
+        self.height = height;
+        self.grid = vec![vec![' '; width]; height];
+        self.filled = vec![vec![false; width]; height];
+        self.row = 0;
+        self.col = 0;
+        self.pending_wrap = false;
+    }
+
     fn scroll_up(&mut self) {
         self.grid.remove(0);
         self.grid.push(vec![' '; self.width]);
@@ -875,6 +885,37 @@ mod regressions {
             assert!(screen.iter().any(|l| l.contains("Phase 1: checking files")));
             assert!(screen.iter().any(|l| l.contains("Phase 2: analyzing results")));
             assert!(screen.iter().any(|l| l.contains("All tests passed.")));
+        }
+
+        #[test]
+        fn window_resize_reflows_bordered_boxes_and_chrome_cleanly() {
+            let mut controller =
+                TerminalController::new(ScreenBackend::new(80, 24), InteractiveState::default()).unwrap();
+            controller
+                .push_transcript_item(TranscriptItem::UserMessage("review recent changes".into()))
+                .unwrap();
+            controller.state_mut().editor_mut().set_text("test input draft");
+            controller.redraw().unwrap();
+
+            let screen80 = controller.backend.text();
+            let top_border80 = screen80.iter().find(|l| l.contains('╭')).expect("top border 80");
+            assert_eq!(top_border80.chars().count(), 80);
+
+            controller.backend.resize(60, 24);
+            assert!(controller.resize_to(60, 24).unwrap());
+
+            let screen60 = controller.backend.text();
+            for line in &screen60 {
+                assert!(
+                    line.chars().count() <= 60,
+                    "line exceeds 60 columns (len {}): {line:?}",
+                    line.chars().count()
+                );
+            }
+            let top_border60 = screen60.iter().find(|l| l.contains('╭')).expect("top border 60");
+            assert_eq!(top_border60.chars().count(), 60);
+            assert!(screen60.iter().any(|l| l.contains("test input draft")));
+            super::assert_screen_region_aligned(&controller);
         }
     }
 }

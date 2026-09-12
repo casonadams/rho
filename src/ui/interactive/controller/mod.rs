@@ -131,8 +131,16 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.finish_output_write()
     }
 
+    pub fn resize_to(&mut self, width: usize, height: usize) -> io::Result<bool> {
+        self.apply_size(width, height)
+    }
+
     pub fn refresh_size(&mut self) -> io::Result<bool> {
         let (width, height) = self.backend.size().map(|(w, h)| (usize::from(w), usize::from(h)))?;
+        self.apply_size(width, height)
+    }
+
+    fn apply_size(&mut self, width: usize, height: usize) -> io::Result<bool> {
         if width == self.width && height == self.height {
             return Ok(false);
         }
@@ -141,11 +149,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         }
         self.width = width;
         self.height = height;
-        if self.transcript.is_empty() && self.streamed_output.is_empty() {
-            self.redraw()?;
-        } else {
-            self.full_redraw()?;
-        }
+        self.full_redraw()?;
         Ok(true)
     }
 

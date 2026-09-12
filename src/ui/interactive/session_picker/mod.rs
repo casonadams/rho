@@ -104,27 +104,32 @@ fn picker_action(modal: &mut ModalState, key: &KeyEvent) -> PickerAction {
 
 fn key_loop(controller: &mut TerminalController<crate::ui::interactive::CrosstermBackend>) -> Result<Option<String>> {
     loop {
-        let Event::Key(key) = crossterm::event::read()? else {
-            continue;
-        };
-        if key.kind != crossterm::event::KeyEventKind::Press {
-            continue;
-        }
-        let Some(modal) = controller.state_mut().active_modal_mut() else {
-            return Ok(None);
-        };
-        match picker_action(modal, &key) {
-            PickerAction::Repaint => controller.redraw()?,
-            PickerAction::Select(session_id) => {
-                controller.state_mut().pop_modal();
-                controller.redraw()?;
-                return Ok(Some(session_id));
+        match crossterm::event::read()? {
+            Event::Resize(cols, rows) => {
+                controller.resize_to(usize::from(cols), usize::from(rows))?;
             }
-            PickerAction::Cancel => {
-                controller.state_mut().pop_modal();
-                controller.redraw()?;
-                return Ok(None);
+            Event::Key(key) => {
+                if key.kind != crossterm::event::KeyEventKind::Press {
+                    continue;
+                }
+                let Some(modal) = controller.state_mut().active_modal_mut() else {
+                    return Ok(None);
+                };
+                match picker_action(modal, &key) {
+                    PickerAction::Repaint => controller.redraw()?,
+                    PickerAction::Select(session_id) => {
+                        controller.state_mut().pop_modal();
+                        controller.redraw()?;
+                        return Ok(Some(session_id));
+                    }
+                    PickerAction::Cancel => {
+                        controller.state_mut().pop_modal();
+                        controller.redraw()?;
+                        return Ok(None);
+                    }
+                }
             }
+            _ => {}
         }
     }
 }

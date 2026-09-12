@@ -50,7 +50,7 @@ impl TerminalRenderer {
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(item));
         } else {
-            let text = crate::ui::interactive::format_welcome_content(&item, &self.theme);
+            let text = crate::ui::interactive::format_welcome_content(&item, terminal_width(), &self.theme);
             self.write_output(&text);
         }
     }

@@ -184,6 +184,12 @@ impl<B: crate::ui::interactive::TerminalBackend> BashStreamState<'_, '_, B> {
             return Ok(false);
         };
         match event {
+            Event::Resize(cols, rows) => {
+                self.run.controller.resize_to(usize::from(cols), usize::from(rows))?;
+                self.run.renderer.set_width(self.run.controller.width());
+                self.run.drain_and_flush(true)?;
+                Ok(false)
+            }
             Event::FocusGained => {
                 if !self.run.controller.focused() {
                     self.run.controller.set_focused(true);

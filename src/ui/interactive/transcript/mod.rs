@@ -44,7 +44,7 @@ fn render_thinking_text(text: &str, hide_thinking: bool, theme: &crate::ui::them
 pub fn render_transcript_item(mut input: TranscriptRenderInput<'_>) -> String {
     input.width = input.width.max(20);
     match input.item {
-        TranscriptItem::Welcome(welcome) => format_welcome_content(welcome, input.theme),
+        TranscriptItem::Welcome(welcome) => format_welcome_content(welcome, input.width, input.theme),
         TranscriptItem::UserMessage(text) => skill::render_user_message(text, &input),
         TranscriptItem::AssistantText(text) => render_assistant_text(text, input.width, input.theme),
         TranscriptItem::Thinking(text) => render_thinking_text(text, input.hide_thinking, input.theme),
