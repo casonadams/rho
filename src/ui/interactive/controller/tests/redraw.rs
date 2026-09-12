@@ -50,6 +50,26 @@ mod resize {
     }
 
     #[test]
+    fn resize_during_in_flight_stream_preserves_content_and_updates_dimensions() {
+        let (backend, operations, width) = FakeTerminal::new(80);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        controller.write_stream_output("in-flight streaming chunk").unwrap();
+        assert_eq!(controller.width(), 80);
+        operations.borrow_mut().clear();
+
+        width.set(40);
+        assert!(controller.refresh_size().unwrap());
+        assert_eq!(controller.width(), 40);
+
+        let ops = operations.borrow();
+        assert!(
+            ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("in-flight streaming chunk"))),
+            "streamed output must be replayed on resize"
+        );
+    }
+
+    #[test]
     fn tick_redraws_the_live_region() {
         let (backend, operations, _) = FakeTerminal::new(8);
         let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();

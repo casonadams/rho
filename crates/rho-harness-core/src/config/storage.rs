@@ -34,6 +34,45 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_ui_block_style_async(config_dir: &Path, style: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let ui = file_config.ui.get_or_insert_with(Default::default);
+        ui.block_style = Some(style.to_string());
+        write_file_config_async(&path, &file_config).await
+    }
+
+    pub async fn save_ui_agent_box_async(config_dir: &Path, boxed: bool) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let ui = file_config.ui.get_or_insert_with(Default::default);
+        ui.agent_block_output = Some(boxed);
+        write_file_config_async(&path, &file_config).await
+    }
+
+    pub async fn save_ui_hide_thinking_async(config_dir: &Path, hide: bool) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let ui = file_config.ui.get_or_insert_with(Default::default);
+        ui.hide_thinking = Some(hide);
+        write_file_config_async(&path, &file_config).await
+    }
+
+    pub async fn save_ui_tools_expanded_async(config_dir: &Path, expanded: bool) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let ui = file_config.ui.get_or_insert_with(Default::default);
+        ui.tools_expanded = Some(expanded);
+        write_file_config_async(&path, &file_config).await
+    }
+
+    pub async fn save_show_label_async(config_dir: &Path, show: bool) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        file_config.show_label = Some(show);
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub fn add_mcp_server(target: &Path, name: &str, server: McpServerConfig) -> Result<()> {
         let path = if target.is_dir() {
             super::mcp::global_mcp_path(target)
@@ -71,6 +110,21 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::BlockStyle => {
             let ui = file_config.ui.get_or_insert_with(Default::default);
             ui.block_style = Some(value.to_string());
+        }
+        ConfigKey::AgentBlockOutput => {
+            let ui = file_config.ui.get_or_insert_with(Default::default);
+            ui.agent_block_output = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::HideThinking => {
+            let ui = file_config.ui.get_or_insert_with(Default::default);
+            ui.hide_thinking = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::ToolsExpanded => {
+            let ui = file_config.ui.get_or_insert_with(Default::default);
+            ui.tools_expanded = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::ShowLabel => {
+            file_config.show_label = Some(parse_bool(key.as_str(), value)?);
         }
         _ => return Ok(false),
     }

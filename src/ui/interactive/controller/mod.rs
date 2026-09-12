@@ -149,6 +149,14 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(true)
     }
 
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     pub fn rendered(&self) -> Option<&InteractiveLayout> {
         self.rendered.as_ref()
     }

@@ -93,7 +93,7 @@ fn step_thinking_effort<B: TerminalBackend>(controller: &mut TerminalController<
         } else {
             Some(target.to_string())
         },
-        save_as_default: false,
+        save_as_default: true,
     }
 }
 
@@ -123,18 +123,22 @@ fn toggle_selected_setting<B: TerminalBackend>(
         2 => {
             controller.state_mut().pop_modal();
             let _ = controller.redraw();
-            ModalKeyResult::OpenModelSelector
+            ModalKeyResult::OpenModelSelector { save_as_default: true }
         }
         3 => step_thinking_effort(controller, true),
         4 => {
-            let hide = controller.state_mut().toggle_thinking();
+            let hide = controller
+                .toggle_thinking()
+                .unwrap_or_else(|_| controller.state_mut().toggle_thinking());
             update_setting_description(controller, (if hide { "Hidden" } else { "Shown" }, 4));
-            ModalKeyResult::Handled
+            ModalKeyResult::ThinkingOutputToggled { hidden: hide }
         }
         5 => {
-            let expanded = controller.state_mut().toggle_tools_expanded();
+            let expanded = controller
+                .toggle_tools_expanded()
+                .unwrap_or_else(|_| controller.state_mut().toggle_tools_expanded());
             update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 5));
-            ModalKeyResult::Handled
+            ModalKeyResult::ToolOutputToggled { expanded }
         }
         6 => {
             let shown = controller.state_mut().toggle_show_label();

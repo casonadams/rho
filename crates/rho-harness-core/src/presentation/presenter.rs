@@ -20,6 +20,7 @@ pub trait Presenter: Send + Sync {
     fn print_user_block(&self, input: &str);
     fn print_token(&self, token: &str);
     fn print_thinking_token(&self, token: &str);
+    fn finish_thinking(&self, _thinking_text: &str) {}
     fn finish_tool_line(&self, line: ToolLine);
     fn flush(&self);
     fn has_interactive_ui(&self) -> bool;

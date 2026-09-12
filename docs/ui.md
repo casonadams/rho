@@ -138,12 +138,21 @@ interface always matches your terminal emulator, in dark or light mode.
 ### Block Styling & Outline Borders
 
 `rho` defaults to outline borders (`block_style = "border"`). You can switch between
-outline borders and solid background fills in `~/.config/rho/config.toml` (or project `.rho/config.toml`):
+outline borders and solid background fills, configure thinking and tool output defaults, or adjust borders in `~/.config/rho/config.toml` (or interactively via `/settings`, which automatically persists your changes):
 
 ```toml
 [ui]
 # Block framing: "border" (outline, default) or "solid" (fill)
 block_style = "border"
+
+# Box assistant responses in bordered frames (default: false)
+agent_block_output = false
+
+# Hide thinking transcript blocks by default (default: false)
+hide_thinking = false
+
+# Expand tool output cards by default (default: false)
+tools_expanded = false
 
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks

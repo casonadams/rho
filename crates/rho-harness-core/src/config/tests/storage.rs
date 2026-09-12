@@ -217,3 +217,60 @@ fn test_config_file_model_infers_provider_when_unspecified() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn test_save_ui_settings_async_helpers_persist() {
+    let dir = std::env::temp_dir().join(format!("rho_ui_storage_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::save_ui_block_style_async(&dir, "solid").await.unwrap();
+    Config::save_ui_agent_box_async(&dir, true).await.unwrap();
+    Config::save_ui_hide_thinking_async(&dir, true).await.unwrap();
+    Config::save_ui_tools_expanded_async(&dir, true).await.unwrap();
+    Config::save_show_label_async(&dir, true).await.unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.show_label, Some(true));
+    let ui = file.ui.expect("ui section present");
+    assert_eq!(ui.block_style.as_deref(), Some("solid"));
+    assert_eq!(ui.agent_block_output, Some(true));
+    assert_eq!(ui.hide_thinking, Some(true));
+    assert_eq!(ui.tools_expanded, Some(true));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_set_file_value_ui_keys_and_aliases() {
+    let dir = std::env::temp_dir().join(format!("rho_ui_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "ui.block_style", "border").unwrap();
+    Config::set_file_value(&dir, "ui.agent_block_output", "true").unwrap();
+    Config::set_file_value(&dir, "ui.hide_thinking", "true").unwrap();
+    Config::set_file_value(&dir, "ui.tools_expanded", "false").unwrap();
+    Config::set_file_value(&dir, "show_label", "true").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.show_label, Some(true));
+    let ui = file.ui.expect("ui section present");
+    assert_eq!(ui.block_style.as_deref(), Some("border"));
+    assert_eq!(ui.agent_block_output, Some(true));
+    assert_eq!(ui.hide_thinking, Some(true));
+    assert_eq!(ui.tools_expanded, Some(false));
+
+    Config::set_file_value(&dir, "agent_box", "false").unwrap();
+    Config::set_file_value(&dir, "thinking_hidden", "false").unwrap();
+    Config::set_file_value(&dir, "expand_tools", "true").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    let ui = file.ui.expect("ui section present");
+    assert_eq!(ui.agent_block_output, Some(false));
+    assert_eq!(ui.hide_thinking, Some(false));
+    assert_eq!(ui.tools_expanded, Some(true));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

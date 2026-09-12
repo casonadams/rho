@@ -24,6 +24,10 @@ pub(crate) enum ConfigKey {
     ThinkingLevel,
     SessionRetentionDays,
     BlockStyle,
+    AgentBlockOutput,
+    HideThinking,
+    ToolsExpanded,
+    ShowLabel,
 }
 
 impl FromStr for ConfigKey {
@@ -53,6 +57,10 @@ impl FromStr for ConfigKey {
             "keep_recent_tokens" => Ok(Self::KeepRecentTokens),
             "session_retention_days" | "retention_days" => Ok(Self::SessionRetentionDays),
             "block_style" | "ui.block_style" => Ok(Self::BlockStyle),
+            "agent_block_output" | "ui.agent_block_output" | "agent_box" | "ui.agent_box" => Ok(Self::AgentBlockOutput),
+            "hide_thinking" | "ui.hide_thinking" | "thinking_hidden" | "ui.thinking_hidden" => Ok(Self::HideThinking),
+            "tools_expanded" | "ui.tools_expanded" | "expand_tools" | "ui.expand_tools" => Ok(Self::ToolsExpanded),
+            "show_label" => Ok(Self::ShowLabel),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -83,6 +91,10 @@ impl ConfigKey {
             Self::ThinkingLevel => "thinking_level",
             Self::SessionRetentionDays => "session_retention_days",
             Self::BlockStyle => "ui.block_style",
+            Self::AgentBlockOutput => "ui.agent_block_output",
+            Self::HideThinking => "ui.hide_thinking",
+            Self::ToolsExpanded => "ui.tools_expanded",
+            Self::ShowLabel => "show_label",
         }
     }
 }

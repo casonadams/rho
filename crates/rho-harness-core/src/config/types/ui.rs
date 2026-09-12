@@ -33,6 +33,10 @@ pub struct UiConfig {
     pub bash_error_border: Option<String>,
     #[serde(default, alias = "block_agent_output", alias = "agent_box")]
     pub agent_block_output: Option<bool>,
+    #[serde(default, alias = "thinking_hidden", alias = "hide_thinking_output")]
+    pub hide_thinking: Option<bool>,
+    #[serde(default, alias = "expand_tools", alias = "tool_output_expanded")]
+    pub tools_expanded: Option<bool>,
 }
 
 impl UiConfig {
@@ -57,6 +61,12 @@ impl UiConfig {
         }
         if let Some(val) = other.agent_block_output {
             self.agent_block_output = Some(val);
+        }
+        if let Some(val) = other.hide_thinking {
+            self.hide_thinking = Some(val);
+        }
+        if let Some(val) = other.tools_expanded {
+            self.tools_expanded = Some(val);
         }
     }
 }

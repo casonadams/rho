@@ -87,3 +87,27 @@ fn reasoning_flushes_before_tool_classification() {
 
     assert!(sink.state.lock().unwrap().reasoning.is_empty());
 }
+
+#[test]
+fn reasoning_flush_emits_transcript_thinking_item() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let sink = sample_test_sink(&renderer);
+
+    sink.emit_reasoning("analyzing the architecture");
+    sink.emit_text("Here is the answer");
+
+    let items = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|e| match e {
+            UiEvent::Transcript(item) => Some(item),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        items,
+        vec![crate::ui::interactive::TranscriptItem::Thinking(
+            "analyzing the architecture".into()
+        )]
+    );
+}

@@ -569,6 +569,7 @@ mod regressions {
                     renderer.print_thinking_token(token);
                     drive_renderer_to_controller(events, controller);
                 }
+                renderer.finish_thinking(&thinking.concat());
                 renderer.write_output("\n");
                 drive_renderer_to_controller(events, controller);
             }
@@ -744,6 +745,136 @@ mod regressions {
                 screen.iter().any(|l| l.contains("Shift+Enter newline")),
                 "hint must surface the newline key"
             );
+        }
+
+        #[test]
+        fn streamed_thinking_persists_across_terminal_resize_and_toggles_visibility() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
+            controller.state_mut().editor_mut().set_text("");
+
+            // 1. Stream thinking tokens
+            renderer.print_thinking_token("analyzing");
+            renderer.print_thinking_token(" problem depth");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            // Finish thinking phase
+            renderer.finish_thinking("analyzing problem depth");
+            renderer.write_output("\n");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            // 2. Stream assistant text
+            renderer.print_token("Here is the solution.");
+            renderer.flush();
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            // Verify transcript items
+            assert_eq!(controller.transcript().len(), 3);
+            assert_eq!(
+                controller.transcript()[1],
+                TranscriptItem::Thinking("analyzing problem depth".into())
+            );
+            assert_eq!(
+                controller.transcript()[2],
+                TranscriptItem::AssistantText("Here is the solution.".into())
+            );
+
+            // Verify both appear on screen
+            let screen = controller.backend.text();
+            assert!(screen.iter().any(|l| l.contains("analyzing problem depth")));
+            assert!(screen.iter().any(|l| l.contains("Here is the solution.")));
+
+            // 3. Trigger full redraw (resize simulation)
+            controller.full_redraw().unwrap();
+            let screen_after_redraw = controller.backend.text();
+            assert!(
+                screen_after_redraw
+                    .iter()
+                    .any(|l| l.contains("analyzing problem depth")),
+                "thinking must survive full redraw"
+            );
+            assert!(screen_after_redraw.iter().any(|l| l.contains("Here is the solution.")));
+
+            // 4. Toggle hide_thinking to true
+            controller.set_hide_thinking(true).unwrap();
+            let screen_hidden = controller.backend.text();
+            assert!(
+                screen_hidden.iter().any(|l| l.contains("Thinking...")),
+                "collapsed thinking label must appear when hide_thinking is active"
+            );
+            assert!(
+                !screen_hidden.iter().any(|l| l.contains("analyzing problem depth")),
+                "full thinking text must be hidden when hide_thinking is active"
+            );
+
+            // 5. Toggle hide_thinking back to false
+            controller.set_hide_thinking(false).unwrap();
+            let screen_restored = controller.backend.text();
+            assert!(
+                screen_restored.iter().any(|l| l.contains("analyzing problem depth")),
+                "full thinking text must be restored when hide_thinking is disabled"
+            );
+        }
+
+        fn drive_thinking_phase(
+            renderer: &crate::ui::TerminalRenderer,
+            events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+            controller: &mut TerminalController<ScreenBackend>,
+            phase: &str,
+        ) {
+            renderer.print_thinking_token(phase);
+            drive_renderer_to_controller(events, controller);
+            renderer.finish_thinking(phase);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(events, controller);
+        }
+
+        #[test]
+        fn multi_step_turn_records_discrete_thinking_phases_in_transcript() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            controller.set_block_style(crate::ui::theme::BlockStyle::Solid).unwrap();
+            controller.state_mut().editor_mut().set_text("");
+
+            // Phase 1: Thinking before tool
+            drive_thinking_phase(&renderer, &mut events, &mut controller, "Phase 1: checking files");
+
+            // Phase 2: Tool execution
+            commit_bash_after_stream(&mut controller, &mut events, &renderer);
+
+            // Phase 3: Thinking after tool
+            drive_thinking_phase(&renderer, &mut events, &mut controller, "Phase 2: analyzing results");
+
+            // Phase 4: Final response
+            renderer.print_token("All tests passed.");
+            renderer.flush();
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            // Verify transcript items order
+            assert_eq!(controller.transcript().len(), 5);
+            assert_eq!(
+                controller.transcript()[1],
+                TranscriptItem::Thinking("Phase 1: checking files".into())
+            );
+            assert!(matches!(controller.transcript()[2], TranscriptItem::Tool(_)));
+            assert_eq!(
+                controller.transcript()[3],
+                TranscriptItem::Thinking("Phase 2: analyzing results".into())
+            );
+            assert_eq!(
+                controller.transcript()[4],
+                TranscriptItem::AssistantText("All tests passed.".into())
+            );
+
+            // Verify full redraw preserves all 4 items
+            controller.full_redraw().unwrap();
+            let screen = controller.backend.text();
+            assert!(screen.iter().any(|l| l.contains("Phase 1: checking files")));
+            assert!(screen.iter().any(|l| l.contains("Phase 2: analyzing results")));
+            assert!(screen.iter().any(|l| l.contains("All tests passed.")));
         }
     }
 }

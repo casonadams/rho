@@ -134,8 +134,11 @@ impl<B: TerminalBackend> TerminalController<B> {
             &rendered,
         );
         self.transcript.push(item);
-        let is_streamed_assistant = matches!(self.transcript.last(), Some(TranscriptItem::AssistantText(_)));
-        if !rendered.is_empty() && !is_streamed_assistant {
+        let is_streamed_content = matches!(
+            self.transcript.last(),
+            Some(TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_))
+        );
+        if !rendered.is_empty() && !is_streamed_content {
             self.write_output(&rendered)?;
             Ok(true)
         } else {

@@ -359,6 +359,31 @@ async fn test_turn_cancellation_clears_active_tool_and_idle_footer() {
 }
 
 #[tokio::test]
+async fn test_turn_cancellation_during_thinking_preserves_partial_thinking_in_transcript() {
+    let mut h = ActiveTurnHarness::new().await;
+    let cancellation = crate::engine::runner::CancellationSignal::default();
+    let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
+        crate::engine::runner::QueueMode::OneAtATime,
+    ));
+    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
+    let mut loop_ctx =
+        super::runner::TurnLoop::new((&mut h.session, &h.engine), &mut h.controller, (steering, model_switch));
+
+    loop_ctx.session.renderer.finish_thinking("partial ponderings");
+
+    super::cancel::cancel_active_turn(&mut loop_ctx, &mut h.ui_events, &cancellation)
+        .await
+        .unwrap();
+
+    assert!(
+        loop_ctx.controller.transcript().iter().any(
+            |item| matches!(item, crate::ui::interactive::TranscriptItem::Thinking(t) if t == "partial ponderings")
+        ),
+        "partial thinking must be committed to transcript on cancellation"
+    );
+}
+
+#[tokio::test]
 async fn test_turn_with_active_modal_advances_spinner() {
     let mut h = ActiveTurnHarness::new().await;
     h.controller.state_mut().footer_mut().activity = Activity::Working;

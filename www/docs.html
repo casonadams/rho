@@ -230,9 +230,12 @@ compaction_max_bytes = 8192
 base_url = "http://127.0.0.1:8000/v1"
 api_key = "optional"
 
-# UI block framing and border colors (user defaults to "blue", others to "gray")
+# UI block framing, output toggles, and border colors (persisted automatically via /settings)
 [ui]
 block_style = "border"           # "border" (outline, default) or "solid" (fill)
+agent_block_output = false       # Box assistant responses in bordered frames
+hide_thinking = false            # Hide thinking transcript blocks by default
+tools_expanded = false           # Expand tool output cards by default
 user_border = "blue"             # User prompt blocks
 agent_border = "gray"            # Agent / sub-agent blocks
 tool_border = "gray"             # Tool / command cards

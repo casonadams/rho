@@ -24,6 +24,25 @@ mod expansion {
         );
     }
 
+    #[test]
+    fn thinking_transcript_item_is_recorded_without_duplicate_write_output() {
+        let (backend, operations, _) = FakeTerminal::new(60);
+        let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        operations.borrow_mut().clear();
+
+        controller
+            .push_transcript_item(TranscriptItem::Thinking("streamed thinking process".into()))
+            .unwrap();
+
+        assert_eq!(controller.transcript().len(), 1);
+        let ops = operations.borrow();
+        assert!(
+            !ops.iter()
+                .any(|op| matches!(op, Operation::Write(text) if text.contains("streamed thinking process"))),
+            "pushing already-streamed thinking text should not write to output again"
+        );
+    }
+
     fn cache_entry_0(
         controller: &TerminalController<FakeTerminal>,
     ) -> crate::ui::interactive::controller::cache::CachedItemRender {

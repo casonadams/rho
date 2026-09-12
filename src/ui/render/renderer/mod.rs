@@ -70,6 +70,12 @@ impl TerminalRenderer {
         }
     }
 
+    pub fn set_width(&self, width: usize) {
+        if let Ok(mut md) = self.markdown.lock() {
+            md.set_width(width);
+        }
+    }
+
     pub fn stream_output(&self, text: String) {
         if let Some(ui) = &self.ui {
             let _ = ui.output(OutputEvent::StreamText(text));
@@ -115,6 +121,16 @@ impl TerminalRenderer {
             {
                 let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::AssistantText(full_text));
             }
+        }
+    }
+
+    pub fn finish_thinking(&self, thinking_text: &str) {
+        let trimmed = thinking_text.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if let Some(ui) = &self.ui {
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string()));
         }
     }
 

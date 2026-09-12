@@ -90,7 +90,7 @@ fn settings_selector_modal_selects_model_opens_selector() {
     );
     assert_eq!(
         send_modal_key(&mut controller, KeyCode::Enter),
-        super::super::modal::ModalKeyResult::OpenModelSelector
+        super::super::modal::ModalKeyResult::OpenModelSelector { save_as_default: true }
     );
     assert!(controller.state().active_modal().is_none());
 }
@@ -112,7 +112,7 @@ fn settings_selector_modal_cycles_thinking_effort() {
         send_modal_key(&mut controller, KeyCode::Enter),
         super::super::modal::ModalKeyResult::ThinkingLevelSelected {
             level: Some("high".to_string()),
-            save_as_default: false,
+            save_as_default: true,
         }
     );
     assert_eq!(
@@ -133,7 +133,7 @@ fn settings_selector_modal_toggles_thinking_output() {
     assert_eq!(controller.state().active_modal().unwrap().selected, 4);
     assert_eq!(
         send_modal_key(&mut controller, KeyCode::Enter),
-        super::super::modal::ModalKeyResult::Handled
+        super::super::modal::ModalKeyResult::ThinkingOutputToggled { hidden: true }
     );
     assert!(controller.state().hide_thinking());
     assert!(
@@ -155,7 +155,7 @@ fn settings_selector_modal_toggles_tools_expanded() {
     assert_eq!(controller.state().active_modal().unwrap().selected, 5);
     assert_eq!(
         send_modal_key(&mut controller, KeyCode::Enter),
-        super::super::modal::ModalKeyResult::Handled
+        super::super::modal::ModalKeyResult::ToolOutputToggled { expanded: true }
     );
     assert!(controller.state().tools_expanded());
     assert!(
@@ -216,7 +216,7 @@ fn settings_selector_modal_arrows_step_thinking_effort() {
         res,
         super::super::modal::ModalKeyResult::ThinkingLevelSelected {
             level: Some("low".to_string()),
-            save_as_default: false,
+            save_as_default: true,
         }
     );
     assert_eq!(
@@ -237,7 +237,7 @@ fn settings_selector_modal_arrows_step_thinking_effort() {
         res,
         super::super::modal::ModalKeyResult::ThinkingLevelSelected {
             level: Some("medium".to_string()),
-            save_as_default: false,
+            save_as_default: true,
         }
     );
 }
@@ -361,4 +361,95 @@ async fn model_selector_selection_applies_model_switch_without_rebuild() {
             .await
             .unwrap()
     );
+}
+
+#[tokio::test]
+async fn model_selector_modal_with_save_as_default_emits_true_on_enter() {
+    let temp = tempfile::tempdir().unwrap();
+    let (session, _) = setup_model_switch_env(temp.path()).await;
+    let (mut controller, _, _) = modal_test_env(temp.path());
+
+    super::super::modal::open_model_selector_with_default(&session, &mut controller, true);
+    let modal_res = send_modal_key(&mut controller, KeyCode::Enter);
+    match modal_res {
+        super::super::modal::ModalKeyResult::ModelSelected { save_as_default, .. } => assert!(save_as_default),
+        other => panic!("expected ModelSelected, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn settings_modal_actions_persist_to_disk() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
+    let (mut controller, mut history, mut batch) = modal_test_env(temp.path());
+
+    let actions = vec![
+        super::super::modal::ModalKeyResult::BlockStyleToggled {
+            style: "solid".to_string(),
+        },
+        super::super::modal::ModalKeyResult::AgentBoxToggled { boxed: true },
+        super::super::modal::ModalKeyResult::ShowLabelToggled { shown: true },
+        super::super::modal::ModalKeyResult::ThinkingOutputToggled { hidden: true },
+        super::super::modal::ModalKeyResult::ToolOutputToggled { expanded: true },
+        super::super::modal::ModalKeyResult::ThinkingLevelSelected {
+            level: Some("high".to_string()),
+            save_as_default: true,
+        },
+        super::super::modal::ModalKeyResult::ModelSelected {
+            model: "claude-3-5-haiku-20241022".to_string(),
+            provider: "anthropic".to_string(),
+            save_as_default: true,
+        },
+    ];
+
+    for action in actions {
+        let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
+            controller: &mut controller,
+            history: &mut history,
+            session: &mut session,
+            engine: &mut engine,
+        };
+        assert!(
+            crate::repl::live::idle::modal_action::apply_modal_key_result(action, ctx, &mut batch)
+                .await
+                .unwrap()
+        );
+    }
+
+    let config_path = temp.path().join("config.toml");
+    let content = std::fs::read_to_string(&config_path).expect("config.toml written");
+    let toml: toml::Value = toml::from_str(&content).unwrap();
+
+    assert_eq!(
+        toml.get("model").and_then(|v| v.as_str()),
+        Some("claude-3-5-haiku-20241022")
+    );
+    assert_eq!(toml.get("provider").and_then(|v| v.as_str()), Some("anthropic"));
+    assert_eq!(toml.get("thinking_level").and_then(|v| v.as_str()), Some("high"));
+    assert_eq!(toml.get("show_label").and_then(|v| v.as_bool()), Some(true));
+
+    let ui = toml.get("ui").expect("ui section in config");
+    assert_eq!(ui.get("block_style").and_then(|v| v.as_str()), Some("solid"));
+    assert_eq!(ui.get("agent_block_output").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(ui.get("hide_thinking").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(ui.get("tools_expanded").and_then(|v| v.as_bool()), Some(true));
+}
+
+#[tokio::test]
+async fn init_live_state_hydrates_ui_preferences() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, engine) = setup_model_switch_env(temp.path()).await;
+    session.config.ui.hide_thinking = Some(true);
+    session.config.ui.tools_expanded = Some(true);
+    session.config.show_label = true;
+
+    let state = super::super::setup::init_live_state(&session, &engine);
+    assert!(state.hide_thinking());
+    assert!(state.tools_expanded());
+    assert!(state.show_label());
+
+    let controller = TerminalController::new(HistoryTerminal, state).unwrap();
+    assert!(controller.hide_thinking());
+    assert!(controller.tools_expanded());
+    assert!(controller.state().show_label());
 }

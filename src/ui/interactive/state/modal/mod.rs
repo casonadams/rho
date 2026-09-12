@@ -42,6 +42,7 @@ pub struct ModalState {
     pub input_option: Option<usize>,
     pub option_layout: OptionLayout,
     pub body_scroll: usize,
+    pub save_as_default: bool,
 }
 
 impl ModalState {
@@ -61,7 +62,13 @@ impl ModalState {
             input_option: None,
             option_layout: OptionLayout::Vertical,
             body_scroll: 0,
+            save_as_default: false,
         }
+    }
+
+    pub fn with_save_as_default(mut self, save: bool) -> Self {
+        self.save_as_default = save;
+        self
     }
 
     pub fn with_option_layout(mut self, layout: OptionLayout) -> Self {

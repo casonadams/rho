@@ -25,6 +25,7 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
     match event {
         Event::Resize(_, _) => {
             lp.controller.refresh_size()?;
+            lp.session.renderer.set_width(lp.controller.width());
             Ok(false)
         }
         Event::Paste(text) => {

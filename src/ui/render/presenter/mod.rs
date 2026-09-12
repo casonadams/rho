@@ -42,6 +42,10 @@ impl Presenter for TerminalRenderer {
         TerminalRenderer::print_thinking_token(self, token);
     }
 
+    fn finish_thinking(&self, thinking_text: &str) {
+        TerminalRenderer::finish_thinking(self, thinking_text);
+    }
+
     fn finish_tool_line(&self, line: ToolLine) {
         TerminalRenderer::finish_tool_line(self, line);
     }

@@ -33,6 +33,14 @@ fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::Mo
 }
 
 pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller: &mut TerminalController<B>) {
+    open_model_selector_with_default(session, controller, false);
+}
+
+pub fn open_model_selector_with_default<B: TerminalBackend>(
+    session: &ReplSession,
+    controller: &mut TerminalController<B>,
+    save_as_default: bool,
+) {
     let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
     let mut options = Vec::new();
     let mut initial_selection = 0;
@@ -44,7 +52,9 @@ pub fn open_model_selector<B: TerminalBackend>(session: &ReplSession, controller
         options.push(build_model_option(session, item));
     }
 
-    let mut modal = ModalState::new("Select Model", "", options).with_search(true);
+    let mut modal = ModalState::new("Select Model", "", options)
+        .with_search(true)
+        .with_save_as_default(save_as_default);
     modal.selected = initial_selection;
     controller.state_mut().push_modal(modal);
 }
@@ -143,11 +153,12 @@ pub fn handle_model_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
+    let save_as_default = controller.state().active_modal().is_some_and(|m| m.save_as_default);
     if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return pop_and_select(controller, true);
     }
     match key.code {
-        KeyCode::Enter => pop_and_select(controller, false),
+        KeyCode::Enter => pop_and_select(controller, save_as_default),
         KeyCode::Esc => {
             controller.state_mut().pop_modal();
             controller.redraw()?;

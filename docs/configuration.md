@@ -95,12 +95,21 @@ history:
 
 ## UI & Block Framing
 
-Configure block framing styles and border colors in `~/.config/rho/config.toml`:
+Configure block framing styles, visibility options, and border colors in `~/.config/rho/config.toml`:
 
 ```toml
 [ui]
 # Block framing: "border" (outline, default) or "solid" (fill)
 block_style = "border"
+
+# Box assistant responses in bordered frames (default: false)
+agent_block_output = false
+
+# Hide thinking transcript blocks by default (default: false)
+hide_thinking = false
+
+# Expand tool output cards by default (default: false)
+tools_expanded = false
 
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
@@ -109,6 +118,11 @@ tool_border = "gray"           # General command / tool cards
 bash_success_border = "gray"   # Successful bash commands
 bash_error_border = "red"      # Failed bash commands
 ```
+
+Top-level preferences:
+- `show_label = true`: Display the version banner and agent branding in the divider.
+
+All adjustments made in the interactive `/settings` modal (Block Style, Box Responses, Model, Thinking Effort, Thinking Output, Tool Output, and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
 
 Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
 

@@ -17,7 +17,7 @@ pub use help::open_help_selector;
 pub use interaction::{PendingModal, install_interaction};
 pub use login::open_login_selector;
 pub use mcp::open_mcp_selector;
-pub use model::open_model_selector;
+pub use model::{open_model_selector, open_model_selector_with_default};
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -57,7 +57,9 @@ pub enum ModalKeyResult {
     HelpCommandSelected {
         command: String,
     },
-    OpenModelSelector,
+    OpenModelSelector {
+        save_as_default: bool,
+    },
     BlockStyleToggled {
         style: String,
     },
@@ -66,6 +68,12 @@ pub enum ModalKeyResult {
     },
     ShowLabelToggled {
         shown: bool,
+    },
+    ThinkingOutputToggled {
+        hidden: bool,
+    },
+    ToolOutputToggled {
+        expanded: bool,
     },
 }
 

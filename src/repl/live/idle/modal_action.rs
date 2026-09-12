@@ -202,23 +202,45 @@ async fn dispatch_modal_result_rest2(
         }
         ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
         ModalKeyResult::HelpCommandSelected { command } => handle_help_command_selected(ctx, &command).await,
-        ModalKeyResult::OpenModelSelector => {
-            super::super::modal::open_model_selector(ctx.session, ctx.controller);
+        ModalKeyResult::OpenModelSelector { save_as_default } => {
+            super::super::modal::open_model_selector_with_default(ctx.session, ctx.controller, save_as_default);
             ctx.controller.redraw()?;
             Ok(true)
         }
         ModalKeyResult::BlockStyleToggled { style } => {
-            ctx.session.config.ui.block_style = Some(style);
+            ctx.session.config.ui.block_style = Some(style.clone());
+            let _ = rho_harness_core::config::Config::save_ui_block_style_async(&ctx.session.config.config_dir, &style)
+                .await;
             Ok(true)
         }
         ModalKeyResult::AgentBoxToggled { boxed } => {
             ctx.session.config.ui.agent_block_output = Some(boxed);
+            let _ =
+                rho_harness_core::config::Config::save_ui_agent_box_async(&ctx.session.config.config_dir, boxed).await;
             Ok(true)
         }
         ModalKeyResult::ShowLabelToggled { shown } => {
             ctx.session.config.show_label = shown;
+            let _ =
+                rho_harness_core::config::Config::save_show_label_async(&ctx.session.config.config_dir, shown).await;
             update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
             ctx.controller.redraw()?;
+            Ok(true)
+        }
+        ModalKeyResult::ThinkingOutputToggled { hidden } => {
+            ctx.session.config.ui.hide_thinking = Some(hidden);
+            let _ =
+                rho_harness_core::config::Config::save_ui_hide_thinking_async(&ctx.session.config.config_dir, hidden)
+                    .await;
+            Ok(true)
+        }
+        ModalKeyResult::ToolOutputToggled { expanded } => {
+            ctx.session.config.ui.tools_expanded = Some(expanded);
+            let _ = rho_harness_core::config::Config::save_ui_tools_expanded_async(
+                &ctx.session.config.config_dir,
+                expanded,
+            )
+            .await;
             Ok(true)
         }
         ModalKeyResult::McpServerToggled { server } => {

@@ -63,24 +63,77 @@ tool_border = "cyan"
 bash_success_border = "green"
 bash_error_border = "red"
 agent_block_output = true
+hide_thinking = true
+tools_expanded = false
 "#;
     let file: FileConfig = toml::from_str(toml_str).unwrap();
     let ui = file.ui.clone().expect("ui config present");
-    assert_eq!(ui.block_style.as_deref(), Some("border"));
-    assert_eq!(ui.user_border.as_deref(), Some("gray"));
-    assert_eq!(ui.agent_border.as_deref(), Some("blue"));
-    assert_eq!(ui.tool_border.as_deref(), Some("cyan"));
-    assert_eq!(ui.bash_success_border.as_deref(), Some("green"));
-    assert_eq!(ui.bash_error_border.as_deref(), Some("red"));
-    assert_eq!(ui.agent_block_output, Some(true));
+    assert_eq!(
+        (
+            ui.block_style.as_deref(),
+            ui.user_border.as_deref(),
+            ui.agent_border.as_deref(),
+            ui.tool_border.as_deref(),
+            ui.bash_success_border.as_deref(),
+            ui.bash_error_border.as_deref(),
+            ui.agent_block_output,
+            ui.hide_thinking,
+            ui.tools_expanded,
+        ),
+        (
+            Some("border"),
+            Some("gray"),
+            Some("blue"),
+            Some("cyan"),
+            Some("green"),
+            Some("red"),
+            Some(true),
+            Some(true),
+            Some(false),
+        )
+    );
 
     let mut config = Config::default();
     super::super::merge::merge_file(&mut config, file);
-    assert_eq!(config.ui.block_style.as_deref(), Some("border"));
-    assert_eq!(config.ui.user_border.as_deref(), Some("gray"));
-    assert_eq!(config.ui.agent_border.as_deref(), Some("blue"));
-    assert_eq!(config.ui.tool_border.as_deref(), Some("cyan"));
-    assert_eq!(config.ui.bash_success_border.as_deref(), Some("green"));
-    assert_eq!(config.ui.bash_error_border.as_deref(), Some("red"));
-    assert_eq!(config.ui.agent_block_output, Some(true));
+    assert_eq!(
+        (
+            config.ui.block_style.as_deref(),
+            config.ui.user_border.as_deref(),
+            config.ui.agent_border.as_deref(),
+            config.ui.tool_border.as_deref(),
+            config.ui.bash_success_border.as_deref(),
+            config.ui.bash_error_border.as_deref(),
+            config.ui.agent_block_output,
+            config.ui.hide_thinking,
+            config.ui.tools_expanded,
+        ),
+        (
+            Some("border"),
+            Some("gray"),
+            Some("blue"),
+            Some("cyan"),
+            Some("green"),
+            Some("red"),
+            Some(true),
+            Some(true),
+            Some(false),
+        )
+    );
+}
+
+#[test]
+fn test_ui_config_aliases_parse_correctly() {
+    let toml_str = r#"
+[ui]
+thinking_hidden = true
+expand_tools = true
+agent_box = true
+style = "solid"
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let ui = file.ui.expect("ui config present");
+    assert_eq!(ui.hide_thinking, Some(true));
+    assert_eq!(ui.tools_expanded, Some(true));
+    assert_eq!(ui.agent_block_output, Some(true));
+    assert_eq!(ui.block_style.as_deref(), Some("solid"));
 }

@@ -165,6 +165,7 @@ fn apply_ui_config_configures_border_mode_and_colors() {
         bash_success_border: Some("green".into()),
         bash_error_border: Some("red".into()),
         agent_block_output: Some(true),
+        ..Default::default()
     };
     theme.apply_ui_config(&ui);
     assert_eq!(theme.block_style, super::BlockStyle::Border);

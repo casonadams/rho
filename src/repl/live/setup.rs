@@ -24,6 +24,18 @@ pub(super) async fn init_live_engine(session: &mut ReplSession) -> Result<AgentE
     Ok(engine)
 }
 
+pub(super) fn init_live_state(session: &ReplSession, engine: &AgentEngine) -> InteractiveState {
+    let mut state = InteractiveState::default();
+    if let Some(hide) = session.config.ui.hide_thinking {
+        state.set_hide_thinking(hide);
+    }
+    if let Some(expanded) = session.config.ui.tools_expanded {
+        state.set_tools_expanded(expanded);
+    }
+    update_footer(&mut state, session, engine);
+    state
+}
+
 pub(super) fn init_live_ui(
     session: &mut ReplSession,
     engine: &AgentEngine,
@@ -34,10 +46,10 @@ pub(super) fn init_live_ui(
     let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
     session.renderer = TerminalRenderer::with_ui(ui);
     session.renderer.theme = crate::ui::theme::detect_with_config(&session.config.ui);
-    let mut state = InteractiveState::default();
-    update_footer(&mut state, session, engine);
+    let state = init_live_state(session, engine);
     let mut controller = TerminalController::stdout(state)?;
     let _ = controller.set_theme(session.renderer.theme.clone());
+    session.renderer.set_width(controller.width());
     Ok((controller, ui_events))
 }
 

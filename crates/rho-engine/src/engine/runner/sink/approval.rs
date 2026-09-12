@@ -124,23 +124,25 @@ impl TerminalApprovalSink {
     }
 
     pub fn flush_reasoning(&self) {
-        let had_content = self
+        let collected = self
             .state
             .lock()
             .map(|mut state| {
                 if state.reasoning.is_empty() {
-                    return false;
+                    return None;
                 }
+                let text = state.reasoning.join("");
                 state.reasoning.clear();
                 state.pending_reasoning_newlines = 0;
                 let had_content = state.has_reasoning_content;
                 state.has_reasoning_content = false;
                 state.last_display = DisplayKind::Thinking;
-                had_content
+                if had_content { Some(text) } else { None }
             })
-            .unwrap_or(false);
+            .unwrap_or(None);
 
-        if had_content {
+        if let Some(text) = collected {
+            self.presenter.finish_thinking(&text);
             self.presenter.write_output("\n");
         }
     }
@@ -276,5 +278,11 @@ impl TerminalApprovalSink {
 
     pub fn tool_chunk(&self, chunk: &str) {
         self.presenter.stream_port().stream_chunk(chunk);
+    }
+}
+
+impl Drop for TerminalApprovalSink {
+    fn drop(&mut self) {
+        self.flush_reasoning();
     }
 }

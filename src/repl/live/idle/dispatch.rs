@@ -246,6 +246,7 @@ pub(super) async fn process_raw_input<B: TerminalBackend>(
     match classify_event(event) {
         RawInput::Resize => {
             controller.refresh_size()?;
+            rest.0.renderer.set_width(controller.width());
             Ok(IdleInputResult::None)
         }
         RawInput::Paste(text) => {
