@@ -112,3 +112,22 @@ fn border_content_line_resets_attributes_before_trailing_padding() {
     assert_eq!(lines.len(), 3);
     assert!(lines[1].contains("\x1b[27m\x1b[0m"));
 }
+
+#[test]
+fn plain_blocks_wrap_sentences_on_word_boundaries() {
+    let rendered = BlockFormat::new(background(), 16).render_plain("alpha beta gamma delta");
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("alpha beta"));
+    assert!(lines[1].contains("gamma delta"));
+}
+
+#[test]
+fn styled_blocks_wrap_on_word_boundaries_and_preserve_style() {
+    let content = "\x1b[32mfirst second third fourth\x1b[0m";
+    let rendered = BlockFormat::new(background(), 16).render_styled(content);
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("\x1b[32mfirst second"));
+    assert!(lines[1].contains("\x1b[32mthird fourth\x1b[0m"));
+}

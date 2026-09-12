@@ -69,16 +69,89 @@ pub(super) fn constrain_column_widths(widths: &mut [usize], available: usize) {
 }
 
 pub(super) fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
-    let mut lines = vec![String::new()];
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut current = String::new();
     let mut current_width = 0;
-    for character in cell.chars() {
-        let char_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if current_width > 0 && current_width + char_width > width {
-            lines.push(String::new());
-            current_width = 0;
+    let mut pending_spaces = String::new();
+    let mut pending_spaces_width = 0;
+    let mut pending_word = String::new();
+    let mut pending_word_width = 0;
+
+    let commit_word = |current: &mut String,
+                       current_width: &mut usize,
+                       pending_spaces: &mut String,
+                       pending_spaces_width: &mut usize,
+                       pending_word: &mut String,
+                       pending_word_width: &mut usize,
+                       lines: &mut Vec<String>| {
+        if pending_word.is_empty() && *pending_word_width == 0 {
+            return;
         }
-        lines.last_mut().unwrap().push(character);
-        current_width += char_width;
+        let needed = *pending_spaces_width + *pending_word_width;
+        if *current_width > 0 && *current_width + needed > width {
+            lines.push(std::mem::take(current));
+            *current_width = 0;
+            pending_spaces.clear();
+            *pending_spaces_width = 0;
+        }
+        if *current_width > 0 || lines.is_empty() {
+            current.push_str(pending_spaces);
+            *current_width += *pending_spaces_width;
+        }
+        pending_spaces.clear();
+        *pending_spaces_width = 0;
+
+        current.push_str(pending_word);
+        *current_width += *pending_word_width;
+        pending_word.clear();
+        *pending_word_width = 0;
+    };
+
+    for character in cell.chars() {
+        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if character == ' ' || character == '\t' {
+            commit_word(
+                &mut current,
+                &mut current_width,
+                &mut pending_spaces,
+                &mut pending_spaces_width,
+                &mut pending_word,
+                &mut pending_word_width,
+                &mut lines,
+            );
+            pending_spaces.push(character);
+            pending_spaces_width += character_width;
+        } else {
+            if pending_word_width + character_width > width {
+                if current_width > 0 {
+                    lines.push(std::mem::take(&mut current));
+                    current_width = 0;
+                    pending_spaces.clear();
+                    pending_spaces_width = 0;
+                }
+                if pending_word_width + character_width > width && pending_word_width > 0 {
+                    lines.push(std::mem::take(&mut pending_word));
+                    pending_word_width = 0;
+                }
+            }
+            pending_word.push(character);
+            pending_word_width += character_width;
+        }
+    }
+
+    commit_word(
+        &mut current,
+        &mut current_width,
+        &mut pending_spaces,
+        &mut pending_spaces_width,
+        &mut pending_word,
+        &mut pending_word_width,
+        &mut lines,
+    );
+
+    if !current.is_empty() || lines.is_empty() {
+        lines.push(current);
     }
     lines
 }

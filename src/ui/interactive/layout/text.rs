@@ -39,9 +39,13 @@ struct LineWrapper<'a> {
     line: &'a str,
     offset: usize,
     max_width: usize,
-    current: String,
+    current_line: String,
     current_width: usize,
     active_ansi: String,
+    pending_spaces: String,
+    pending_spaces_width: usize,
+    pending_word: String,
+    pending_word_width: usize,
 }
 
 impl<'a> LineWrapper<'a> {
@@ -50,9 +54,13 @@ impl<'a> LineWrapper<'a> {
             line,
             offset: 0,
             max_width,
-            current: String::new(),
+            current_line: String::new(),
             current_width: 0,
             active_ansi: String::new(),
+            pending_spaces: String::new(),
+            pending_spaces_width: 0,
+            pending_word: String::new(),
+            pending_word_width: 0,
         }
     }
 
@@ -61,33 +69,50 @@ impl<'a> LineWrapper<'a> {
             && let Some(end) = self.line[self.offset..].find('m')
         {
             let seq = &self.line[self.offset..=self.offset + end];
-            self.current.push_str(seq);
-            if seq == "\x1b[0m" {
+            if seq == "\x1b[0m" || seq == "\x1b[m" {
                 self.active_ansi.clear();
             } else {
                 self.active_ansi.push_str(seq);
             }
+            self.pending_word.push_str(seq);
             self.offset += end + 1;
             return true;
         }
         false
     }
 
-    fn push_wrapped_char(&mut self, output: &mut Vec<String>, c: char) {
-        let char_w = UnicodeWidthChar::width(c).unwrap_or(0);
-        if self.current_width > 0 && self.current_width + char_w > self.max_width {
-            if !self.active_ansi.is_empty() {
-                self.current.push_str("\x1b[0m");
-            }
-            output.push(std::mem::take(&mut self.current));
-            if !self.active_ansi.is_empty() {
-                self.current.push_str(&self.active_ansi);
-            }
-            self.current_width = 0;
+    fn flush_current_line(&mut self, output: &mut Vec<String>) {
+        if !self.active_ansi.is_empty() {
+            self.current_line.push_str("\x1b[0m");
         }
-        self.current.push(c);
-        self.current_width += char_w;
-        self.offset += c.len_utf8();
+        output.push(std::mem::take(&mut self.current_line));
+        if !self.active_ansi.is_empty() {
+            self.current_line.push_str(&self.active_ansi);
+        }
+        self.current_width = 0;
+    }
+
+    fn commit_pending_word(&mut self, output: &mut Vec<String>) {
+        if self.pending_word.is_empty() && self.pending_word_width == 0 {
+            return;
+        }
+        let needed = self.pending_spaces_width + self.pending_word_width;
+        if self.current_width > 0 && self.current_width + needed > self.max_width {
+            self.flush_current_line(output);
+            self.pending_spaces.clear();
+            self.pending_spaces_width = 0;
+        }
+        if self.current_width > 0 || output.is_empty() {
+            self.current_line.push_str(&self.pending_spaces);
+            self.current_width += self.pending_spaces_width;
+        }
+        self.pending_spaces.clear();
+        self.pending_spaces_width = 0;
+
+        self.current_line.push_str(&self.pending_word);
+        self.current_width += self.pending_word_width;
+        self.pending_word.clear();
+        self.pending_word_width = 0;
     }
 
     fn wrap(mut self, output: &mut Vec<String>) {
@@ -98,9 +123,36 @@ impl<'a> LineWrapper<'a> {
             let Some(c) = self.line[self.offset..].chars().next() else {
                 break;
             };
-            self.push_wrapped_char(output, c);
+            self.offset += c.len_utf8();
+
+            if c == ' ' || c == '\t' {
+                self.commit_pending_word(output);
+                let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+                self.pending_spaces.push(c);
+                self.pending_spaces_width += cw;
+            } else {
+                let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+                if self.pending_word_width + cw > self.max_width {
+                    if self.current_width > 0 {
+                        self.flush_current_line(output);
+                        self.pending_spaces.clear();
+                        self.pending_spaces_width = 0;
+                    }
+                    if self.pending_word_width + cw > self.max_width && self.pending_word_width > 0 {
+                        self.current_line.push_str(&self.pending_word);
+                        self.flush_current_line(output);
+                        self.pending_word.clear();
+                        self.pending_word_width = 0;
+                    }
+                }
+                self.pending_word.push(c);
+                self.pending_word_width += cw;
+            }
         }
-        output.push(self.current);
+        self.commit_pending_word(output);
+        if visible_width(&self.current_line) > 0 || output.is_empty() {
+            output.push(self.current_line);
+        }
     }
 }
 
@@ -108,7 +160,7 @@ pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
     let max_width = max_width.max(1);
     let mut output = Vec::new();
     for line in content.split('\n') {
-        if line.is_empty() {
+        if line.trim().is_empty() {
             output.push(String::new());
             continue;
         }
@@ -121,54 +173,7 @@ pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
 }
 
 pub fn wrap_words_to_width(content: &str, max_width: usize) -> Vec<String> {
-    let max_width = max_width.max(1);
-    let mut output = Vec::new();
-    for line in content.split('\n') {
-        if line.trim().is_empty() {
-            output.push(String::new());
-            continue;
-        }
-        let mut current_line = String::new();
-        let mut current_width = 0;
-        for word in line.split_whitespace() {
-            let word_width = visible_width(word);
-            let space_width = usize::from(current_width > 0);
-            if current_width + space_width + word_width <= max_width {
-                if space_width > 0 {
-                    current_line.push(' ');
-                }
-                current_line.push_str(word);
-                current_width += space_width + word_width;
-            } else {
-                if current_width > 0 {
-                    output.push(current_line);
-                    current_line = String::new();
-                    current_width = 0;
-                }
-                if word_width <= max_width {
-                    current_line.push_str(word);
-                    current_width = word_width;
-                } else {
-                    let chunks = wrap_to_width(word, max_width);
-                    for (i, chunk) in chunks.iter().enumerate() {
-                        if i + 1 < chunks.len() {
-                            output.push(chunk.clone());
-                        } else {
-                            current_line = chunk.clone();
-                            current_width = visible_width(&current_line);
-                        }
-                    }
-                }
-            }
-        }
-        if !current_line.is_empty() {
-            output.push(current_line);
-        }
-    }
-    if output.is_empty() {
-        output.push(String::new());
-    }
-    output
+    wrap_to_width(content, max_width)
 }
 
 pub(crate) fn truncate_to_width(value: &str, width: usize) -> String {

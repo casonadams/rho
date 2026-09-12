@@ -53,17 +53,64 @@ struct WrapState<'a> {
     active_sgr: String,
     current_width: usize,
     offset: usize,
+    pending_spaces: String,
+    pending_spaces_width: usize,
+    pending_word: String,
+    pending_word_width: usize,
 }
 
 impl WrapState<'_> {
-    fn push_char(&mut self, character: char, character_width: usize) {
-        if self.current_width > 0 && self.current_width + character_width > self.width {
-            self.lines.push(std::mem::take(&mut self.current));
-            self.current.push_str(&self.active_sgr);
-            self.current_width = 0;
+    fn flush_line(&mut self) {
+        self.lines.push(std::mem::take(&mut self.current));
+        self.current.push_str(&self.active_sgr);
+        self.current_width = 0;
+    }
+
+    fn commit_pending_word(&mut self) {
+        if self.pending_word.is_empty() && self.pending_word_width == 0 {
+            return;
         }
-        self.current.push(character);
-        self.current_width += character_width;
+        let needed = self.pending_spaces_width + self.pending_word_width;
+        if self.current_width > 0 && self.current_width + needed > self.width {
+            self.flush_line();
+            self.pending_spaces.clear();
+            self.pending_spaces_width = 0;
+        }
+        if self.current_width > 0 || self.lines.is_empty() {
+            self.current.push_str(&self.pending_spaces);
+            self.current_width += self.pending_spaces_width;
+        }
+        self.pending_spaces.clear();
+        self.pending_spaces_width = 0;
+
+        self.current.push_str(&self.pending_word);
+        self.current_width += self.pending_word_width;
+        self.pending_word.clear();
+        self.pending_word_width = 0;
+    }
+
+    fn push_char(&mut self, character: char, character_width: usize) {
+        if character == ' ' || character == '\t' {
+            self.commit_pending_word();
+            self.pending_spaces.push(character);
+            self.pending_spaces_width += character_width;
+        } else {
+            if self.pending_word_width + character_width > self.width {
+                if self.current_width > 0 {
+                    self.flush_line();
+                    self.pending_spaces.clear();
+                    self.pending_spaces_width = 0;
+                }
+                if self.pending_word_width + character_width > self.width && self.pending_word_width > 0 {
+                    self.current.push_str(&self.pending_word);
+                    self.flush_line();
+                    self.pending_word.clear();
+                    self.pending_word_width = 0;
+                }
+            }
+            self.pending_word.push(character);
+            self.pending_word_width += character_width;
+        }
     }
 
     fn consume_sgr(&mut self, content: &str) {
@@ -72,10 +119,10 @@ impl WrapState<'_> {
         };
         let end = self.offset + rel + 1;
         let sequence = &content[self.offset..end];
-        self.current.push_str(sequence);
+        self.pending_word.push_str(sequence);
         if sgr_resets_background(sequence) {
             if !self.bg_code.is_empty() {
-                self.current.push_str(&self.bg_code);
+                self.pending_word.push_str(&self.bg_code);
             }
             self.active_sgr.clear();
         } else {
@@ -86,6 +133,7 @@ impl WrapState<'_> {
 }
 
 pub(crate) fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> Vec<String> {
+    let width = width.max(1);
     let mut lines = Vec::new();
     let mut state = WrapState {
         lines: &mut lines,
@@ -95,6 +143,10 @@ pub(crate) fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> 
         active_sgr: String::new(),
         current_width: 0,
         offset: 0,
+        pending_spaces: String::new(),
+        pending_spaces_width: 0,
+        pending_word: String::new(),
+        pending_word_width: 0,
     };
 
     while state.offset < content.len() {
@@ -110,25 +162,16 @@ pub(crate) fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> 
         state.offset += character.len_utf8();
     }
 
-    state.lines.push(state.current);
+    state.commit_pending_word();
+    if visible_width(&state.current) > 0 || state.lines.is_empty() {
+        state.lines.push(state.current);
+    }
     lines
 }
 
 pub(crate) fn wrap_plain_text(content: &str, width: usize) -> Vec<String> {
-    let mut output = Vec::new();
-    for line in content.split('\n') {
-        let mut current = String::new();
-        let mut current_width = 0;
-        for character in line.chars() {
-            let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-            if current_width > 0 && current_width + character_width > width {
-                output.push(std::mem::take(&mut current));
-                current_width = 0;
-            }
-            current.push(character);
-            current_width += character_width;
-        }
-        output.push(current);
-    }
-    output
+    content
+        .split('\n')
+        .flat_map(|line| wrap_styled_line(line, width, Style::new()))
+        .collect()
 }

@@ -1,4 +1,4 @@
-use crate::ui::interactive::layout::{truncate_to_visual_lines, wrap_words_to_width};
+use crate::ui::interactive::layout::{truncate_to_visual_lines, wrap_to_width, wrap_words_to_width};
 
 #[test]
 fn truncate_to_visual_lines_preserves_short_content() {
@@ -38,4 +38,28 @@ fn wrap_words_to_width_handles_empty_and_whitespace_lines() {
     let text = "first\n\n   \nsecond";
     let wrapped = wrap_words_to_width(text, 20);
     assert_eq!(wrapped, vec!["first", "", "", "second"]);
+}
+
+#[test]
+fn wrap_to_width_preserves_ansi_styling_across_word_boundaries() {
+    let text = "\x1b[32malpha beta gamma delta\x1b[0m";
+    let wrapped = wrap_to_width(text, 12);
+    assert_eq!(
+        wrapped,
+        vec!["\x1b[32malpha beta\x1b[0m", "\x1b[32mgamma delta\x1b[0m",]
+    );
+}
+
+#[test]
+fn wrap_to_width_preserves_leading_indentation_on_first_line() {
+    let text = "  alpha beta gamma";
+    let wrapped = wrap_to_width(text, 10);
+    assert_eq!(wrapped, vec!["  alpha", "beta gamma"]);
+}
+
+#[test]
+fn wrap_to_width_preserves_multiple_spaces_when_fitting() {
+    let text = "alpha   beta";
+    let wrapped = wrap_to_width(text, 20);
+    assert_eq!(wrapped, vec!["alpha   beta"]);
 }

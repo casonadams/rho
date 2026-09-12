@@ -64,3 +64,18 @@ fn test_pipe_text_without_divider_falls_back_to_text() {
     assert!(out.contains("Just a line with pipes"));
     assert!(!out.contains('┌') && !out.contains('╭'));
 }
+
+#[test]
+fn table_cell_wraps_on_word_boundaries() {
+    let theme = Theme::default();
+    let lines = vec![
+        "| Item | Notes |".to_string(),
+        "| --- | --- |".to_string(),
+        "| Rust | fast reliable memory safe |".to_string(),
+    ];
+    let rendered = render_markdown_table_at_width(&lines, &theme, 28);
+    assert!(rendered.contains("reliable"));
+    assert!(rendered.contains("memory"));
+    assert!(rendered.contains("safe"));
+    assert!(!rendered.contains("reli-"));
+}
