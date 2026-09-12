@@ -155,13 +155,16 @@ impl BlockFormat {
             let text = if inner == 0 { "" } else { content };
             let visible = visible_width(text);
             let trailing = inner.saturating_sub(visible);
-            return format!("{style}│{style:#}{text}{}{style}│{style:#}\n", " ".repeat(trailing));
+            return format!(
+                "{style}│{style:#}{text}\x1b[0m{}{style}│{style:#}\n",
+                " ".repeat(trailing)
+            );
         }
         let inner_width = self.width.saturating_sub(4);
         let visible = visible_width(content);
         let trailing = inner_width.saturating_sub(visible);
         format!(
-            "{style}│{style:#} {content}{}{style} │{style:#}\n",
+            "{style}│{style:#} {content}\x1b[0m{}{style} │{style:#}\n",
             " ".repeat(trailing)
         )
     }

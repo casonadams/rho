@@ -103,3 +103,12 @@ fn border_blocks_render_styled_content_and_handle_narrow_widths() {
     assert_eq!(narrow_lines.len(), 3);
     assert!(narrow_lines.iter().all(|line| visible_width(line) == 2));
 }
+
+#[test]
+fn border_content_line_resets_attributes_before_trailing_padding() {
+    let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Blue)));
+    let rendered = BlockFormat::border(border_style, 30).render_styled("word \x1b[7mhighlight\x1b[27m");
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[1].contains("\x1b[27m\x1b[0m"));
+}

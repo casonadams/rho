@@ -189,8 +189,8 @@ pub fn render_single_line_word_diff(old_line: &str, new_line: &str, theme: &Them
     for token in diff {
         append_diff_token(token, &mut removed_buf, &mut added_buf);
     }
-    removed_buf.push_str(&format!("{red:#}\n"));
-    added_buf.push_str(&format!("{green:#}\n"));
+    removed_buf.push_str("\x1b[0m\n");
+    added_buf.push_str("\x1b[0m\n");
     (removed_buf, added_buf)
 }
 
@@ -354,6 +354,23 @@ mod tests {
         assert!(added.contains("Complete"));
         assert!(removed.contains("—"));
         assert!(added.contains("—"));
+    }
+
+    #[test]
+    fn single_line_word_diff_terminates_with_full_sgr_reset() {
+        let theme = Theme::default();
+        let (removed, added) = render_single_line_word_diff("let old = 1;", "let new = 1;", &theme);
+        assert!(removed.ends_with("\x1b[0m\n"));
+        assert!(added.ends_with("\x1b[0m\n"));
+
+        let unstyled_theme = Theme {
+            tool_err: anstyle::Style::new(),
+            tool_ok: anstyle::Style::new(),
+            ..Default::default()
+        };
+        let (removed, added) = render_single_line_word_diff("let val = old", "let val = new", &unstyled_theme);
+        assert!(removed.ends_with("\x1b[0m\n"));
+        assert!(added.ends_with("\x1b[0m\n"));
     }
 
     #[test]
