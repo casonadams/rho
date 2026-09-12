@@ -11,7 +11,7 @@ too_many_lines = "warn"
 cognitive_complexity = "warn"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 authors = ["Cason Adams"]
 description = "Minimal, clean agentic coding CLI harness in Rust"
@@ -31,8 +31,8 @@ tiktoken-rs = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 fuzzy-matcher = "0.3.7"
-rho-harness-core = { version = "0.7.0", path = "crates/rho-harness-core" }
-rho-engine = { version = "0.7.0", path = "crates/rho-engine" }
+rho-harness-core = { version = "0.7.1", path = "crates/rho-harness-core" }
+rho-engine = { version = "0.7.1", path = "crates/rho-engine" }
 rig = { version = "0.42", default-features = false, features = ["agent", "derive", "test-utils"] }
 rig-memory = "0.42"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json", "stream"] }

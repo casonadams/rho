@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.1](https://github.com/casonadams/rho/compare/v0.7.0...v0.7.1) (2026-09-12)
+
+
+### Features
+
+* **ui:** render comprehensive Mermaid diagrams via headless merman ASCII engine ([f71e9f2](https://github.com/casonadams/rho/commit/f71e9f251539d09cf24aed918c126a5d74ef944f))
+* **ui:** wrap live streaming markdown agent output on word boundaries ([ed888c6](https://github.com/casonadams/rho/commit/ed888c6a4a86791e5dc0aa3127a253ec287f130c))
+* **ui:** wrap live streaming thinking output on word boundaries ([6658972](https://github.com/casonadams/rho/commit/6658972008afc85d27b61f5be9deb71ed63ae676))
+* **ui:** wrap live streaming thinking output on word boundaries ([4e59aa6](https://github.com/casonadams/rho/commit/4e59aa6c5ef545c31532a6a77184497b76b1ed26))
+* **ui:** wrap markdown agent output and thinking on word boundaries ([ac31001](https://github.com/casonadams/rho/commit/ac31001e4965f3881596091e1eb9d74eb51f64af))
+
+
+### Bug Fixes
+
+* **ui:** ensure tool cards break to fresh line after streaming thinking ([f4d3348](https://github.com/casonadams/rho/commit/f4d33481c858091ad917369b8da7603b0c4cba56))
+
 ## [0.7.0](https://github.com/casonadams/rho/compare/v0.6.2...v0.7.0) (2026-09-12)
 
 
