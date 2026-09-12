@@ -2467,6 +2467,7 @@ dependencies = [
  "rho-harness-core",
  "rig",
  "rig-memory",
+ "rustls",
  "schemars",
  "serde",
  "serde_json",
@@ -2547,16 +2548,6 @@ dependencies = [
  "toml",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "rho-plugin-sdk"
-version = "0.6.2"
-dependencies = [
- "async-trait",
- "serde",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

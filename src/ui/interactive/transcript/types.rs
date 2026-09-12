@@ -14,7 +14,7 @@ pub struct WelcomeItem {
     pub agents: Vec<String>,
     pub tools: Vec<String>,
     pub skills: Vec<String>,
-    pub plugins: Vec<String>,
+    pub mcp: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

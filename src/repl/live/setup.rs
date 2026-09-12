@@ -51,12 +51,7 @@ pub(super) async fn display_welcome_banner(
             .unwrap_or_default();
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
     let tools = engine.tool_names();
-    let mut plugins = session.config.plugins.keys().cloned().collect::<Vec<_>>();
-    for mcp in session.config.mcp.servers.keys() {
-        if !plugins.contains(mcp) {
-            plugins.push(mcp.clone());
-        }
-    }
+    let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
     let agents = engine.instruction_files().await;
     session.renderer.print_welcome(&WelcomeDisplay {
         model: session.config.model.clone(),
@@ -65,7 +60,7 @@ pub(super) async fn display_welcome_banner(
         agents,
         tools,
         skills: skill_names,
-        plugins,
+        mcp,
     });
     skills
 }

@@ -1,8 +1,8 @@
-use super::types::{McpConfig, McpExposureMode, McpServerConfig, McpTransportKind};
+use super::types::{McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, dirs_fallback};
 use crate::error::{AppError, Result};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn expand_env_vars(s: &str) -> String {
     if let Some(var_name) = s.strip_prefix("env:") {
@@ -142,6 +142,46 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
     Ok(McpConfig { enabled: true, servers })
 }
 
+pub fn global_mcp_path(config_dir: &Path) -> PathBuf {
+    let agents_candidate = dirs_fallback().join(".agents").join("mcp.json");
+    if agents_candidate.is_file() {
+        return agents_candidate;
+    }
+    let config_candidate = config_dir.join("mcp.json");
+    if config_candidate.is_file() {
+        return config_candidate;
+    }
+    agents_candidate
+}
+
+pub fn local_mcp_path(workspace_dir: &Path) -> PathBuf {
+    let candidate = workspace_dir.join(".mcp.json");
+    if candidate.is_file() {
+        return candidate;
+    }
+    let rho_candidate = workspace_dir.join(".rho").join("mcp.json");
+    if rho_candidate.is_file() {
+        return rho_candidate;
+    }
+    candidate
+}
+
+pub fn load_global_mcp_config(config_dir: &Path) -> Result<Option<McpConfig>> {
+    let agents_candidate = dirs_fallback().join(".agents").join("mcp.json");
+    if agents_candidate.is_file() {
+        let content = std::fs::read_to_string(&agents_candidate)
+            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", agents_candidate.display())))?;
+        return parse_mcp_json_str(&content).map(Some);
+    }
+    let config_candidate = config_dir.join("mcp.json");
+    if config_candidate.is_file() {
+        let content = std::fs::read_to_string(&config_candidate)
+            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", config_candidate.display())))?;
+        return parse_mcp_json_str(&content).map(Some);
+    }
+    Ok(None)
+}
+
 pub fn load_project_mcp_config(workspace_dir: &Path) -> Result<Option<McpConfig>> {
     let candidate = workspace_dir.join(".mcp.json");
     if candidate.is_file() {
@@ -158,6 +198,79 @@ pub fn load_project_mcp_config(workspace_dir: &Path) -> Result<Option<McpConfig>
     }
 
     Ok(None)
+}
+
+pub fn write_mcp_server_json(target_path: &Path, name: &str, server: &McpServerConfig) -> Result<()> {
+    let mut servers = if target_path.is_file() {
+        let content = std::fs::read_to_string(target_path)
+            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", target_path.display())))?;
+        let root: Value = serde_json::from_str(&content)
+            .map_err(|e| AppError::Config(format!("Failed to parse {}: {e}", target_path.display())))?;
+        if let Some(mcp_servers) = root.get("mcpServers").and_then(|v| v.as_object()) {
+            mcp_servers.clone()
+        } else if let Some(obj) = root.as_object() {
+            obj.clone()
+        } else {
+            serde_json::Map::new()
+        }
+    } else {
+        serde_json::Map::new()
+    };
+
+    let server_val = serde_json::to_value(server)
+        .map_err(|e| AppError::Config(format!("Failed to serialize MCP server config: {e}")))?;
+    servers.insert(name.to_string(), server_val);
+
+    let mut root = serde_json::Map::new();
+    root.insert("mcpServers".to_string(), Value::Object(servers));
+
+    if let Some(parent) = target_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let pretty = serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| AppError::Config(e.to_string()))?;
+    std::fs::write(target_path, format!("{pretty}\n"))
+        .map_err(|e| AppError::Config(format!("Failed to write {}: {e}", target_path.display())))
+}
+
+pub fn remove_mcp_server_json(target_path: &Path, name: &str) -> Result<McpServerConfig> {
+    if !target_path.is_file() {
+        return Err(AppError::Config(format!(
+            "MCP configuration file {} does not exist",
+            target_path.display()
+        )));
+    }
+    let content = std::fs::read_to_string(target_path)
+        .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", target_path.display())))?;
+    let root: Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Config(format!("Failed to parse {}: {e}", target_path.display())))?;
+
+    let mut servers = if let Some(mcp_servers) = root.get("mcpServers").and_then(|v| v.as_object()) {
+        mcp_servers.clone()
+    } else if let Some(obj) = root.as_object() {
+        obj.clone()
+    } else {
+        return Err(AppError::Config(format!("MCP server '{name}' is not configured")));
+    };
+
+    let removed = servers.remove(name).ok_or_else(|| {
+        AppError::Config(format!(
+            "MCP server '{name}' is not configured in {}",
+            target_path.display()
+        ))
+    })?;
+    let parsed_server = parse_single_server_json(
+        removed
+            .as_object()
+            .ok_or_else(|| AppError::Config(format!("Invalid MCP server entry for '{name}'")))?,
+    );
+
+    let mut new_root = serde_json::Map::new();
+    new_root.insert("mcpServers".to_string(), Value::Object(servers));
+    let pretty = serde_json::to_string_pretty(&Value::Object(new_root)).map_err(|e| AppError::Config(e.to_string()))?;
+    std::fs::write(target_path, format!("{pretty}\n"))
+        .map_err(|e| AppError::Config(format!("Failed to write {}: {e}", target_path.display())))?;
+
+    Ok(parsed_server)
 }
 
 #[cfg(test)]
@@ -233,5 +346,25 @@ mod tests {
         let s = &parsed.servers["test"];
         assert_eq!(s.args[0], "expanded_value");
         assert_eq!(s.headers["X-Val"], "expanded_value");
+    }
+
+    #[test]
+    fn test_write_and_remove_mcp_server_json() {
+        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
+        let mcp_path = temp_dir.join("mcp.json");
+
+        let server = McpServerConfig::stdio("echo", vec!["hello".to_string()]);
+        write_mcp_server_json(&mcp_path, "echo_srv", &server).unwrap();
+
+        let parsed = parse_mcp_json_str(&std::fs::read_to_string(&mcp_path).unwrap()).unwrap();
+        assert!(parsed.servers.contains_key("echo_srv"));
+
+        let removed = remove_mcp_server_json(&mcp_path, "echo_srv").unwrap();
+        assert_eq!(removed.command.as_deref(), Some("echo"));
+
+        let after_removal = parse_mcp_json_str(&std::fs::read_to_string(&mcp_path).unwrap()).unwrap();
+        assert!(!after_removal.servers.contains_key("echo_srv"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

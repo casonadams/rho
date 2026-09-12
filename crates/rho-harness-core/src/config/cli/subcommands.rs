@@ -21,33 +21,8 @@ pub enum Commands {
     },
     /// List live provider models when supported, otherwise curated examples
     Models,
-    /// Install a plugin package
-    Install {
-        /// Plugin specifier (e.g. rho-plugin-foo, foo@1.0.0, org/repo, or git URL)
-        target: String,
-        /// Overwrite existing plugin configuration or binary
-        #[arg(long = "force", visible_alias = "replace", default_value_t = false)]
-        force: bool,
-    },
-    /// Update rho or installed plugins
-    Update {
-        /// Update target: omitted for self-update, 'all' for all plugins, or specific plugin name
-        target: Option<String>,
-    },
-    /// Remove a configured plugin
-    #[command(visible_aliases = ["uninstall", "rm"])]
-    Remove {
-        /// Configured plugin name
-        name: String,
-        /// Keep the downloaded binary in ~/.cargo/bin instead of deleting it
-        #[arg(long = "keep-binary", default_value_t = false)]
-        keep_binary: bool,
-    },
-    /// Manage extensions and plugins
-    Plugin {
-        #[command(subcommand)]
-        action: Option<PluginCommands>,
-    },
+    /// Update rho to the latest release
+    Update,
     /// Manage Model Context Protocol (MCP) servers
     Mcp {
         #[command(subcommand)]
@@ -85,39 +60,5 @@ pub enum McpCommands {
     Remove {
         /// Server name
         name: String,
-    },
-}
-
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
-pub enum PluginCommands {
-    /// List installed and discovered plugins
-    #[command(visible_alias = "ls")]
-    List,
-    /// Install a plugin package
-    Install {
-        /// Plugin specifier (e.g. rho-plugin-foo, foo@1.0.0, org/repo, or git URL)
-        target: String,
-        /// Overwrite existing plugin configuration or binary
-        #[arg(long = "force", visible_alias = "replace", default_value_t = false)]
-        force: bool,
-    },
-    /// Update installed plugins
-    Update {
-        /// Update target: omitted for all, or specific plugin name
-        target: Option<String>,
-    },
-    /// Remove a configured plugin
-    #[command(visible_alias = "rm")]
-    Remove {
-        /// Configured plugin name
-        name: String,
-        /// Keep the downloaded binary in ~/.cargo/bin instead of deleting it
-        #[arg(long = "keep-binary", default_value_t = false)]
-        keep_binary: bool,
-    },
-    /// Inspect active capability implementations and origins
-    Inspect {
-        /// Optional capability identifier, such as tool:bash
-        capability: Option<String>,
     },
 }

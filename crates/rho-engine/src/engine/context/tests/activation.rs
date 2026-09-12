@@ -2,13 +2,13 @@ use super::super::*;
 use std::path::Path;
 
 fn setup_monorepo_dirs(repo_root: &Path) {
-    let plugin_crate = repo_root.join("crates").join("rho-plugin-sdk");
-    let plugin_src = plugin_crate.join("src");
+    let sub_crate = repo_root.join("crates").join("rho-subcrate");
+    let sub_src = sub_crate.join("src");
     std::fs::create_dir_all(repo_root.join(".git")).unwrap();
-    std::fs::create_dir_all(&plugin_src).unwrap();
+    std::fs::create_dir_all(&sub_src).unwrap();
     std::fs::write(repo_root.join("AGENTS.md"), "# Root Instructions\n").unwrap();
-    std::fs::write(plugin_crate.join("AGENTS.md"), "# Plugin SDK Instructions\n").unwrap();
-    std::fs::write(plugin_src.join("lib.rs"), "pub fn run() {}\n").unwrap();
+    std::fs::write(sub_crate.join("AGENTS.md"), "# Subcrate Instructions\n").unwrap();
+    std::fs::write(sub_src.join("lib.rs"), "pub fn run() {}\n").unwrap();
 }
 
 #[tokio::test]
@@ -23,14 +23,14 @@ async fn test_dynamic_path_activation_in_monorepo() {
         (1, "# Root Instructions")
     );
 
-    ctx.activate_path_instructions(Path::new("crates/rho-plugin-sdk/src/lib.rs"));
+    ctx.activate_path_instructions(Path::new("crates/rho-subcrate/src/lib.rs"));
     assert_eq!(ctx.instruction_files.len(), 2);
-    assert_eq!(ctx.instruction_files[1].1, "# Plugin SDK Instructions");
+    assert_eq!(ctx.instruction_files[1].1, "# Subcrate Instructions");
 
     let prompt = ctx.build_system_prompt();
     let root_idx = prompt.find("# Root Instructions").unwrap();
-    let plugin_idx = prompt.find("# Plugin SDK Instructions").unwrap();
-    assert!(root_idx < plugin_idx);
+    let sub_idx = prompt.find("# Subcrate Instructions").unwrap();
+    assert!(root_idx < sub_idx);
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }

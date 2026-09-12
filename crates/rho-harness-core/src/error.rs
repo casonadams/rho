@@ -24,8 +24,10 @@ pub enum AppError {
     ContentFiltered,
     #[error("Operation cancelled: {0}")]
     Cancelled(String),
-    #[error("Plugin error: {0}")]
-    Plugin(String),
+    #[error("MCP error: {0}")]
+    Mcp(String),
+    #[error("Hook error: {0}")]
+    Hook(String),
     #[error("Invalid tool call: {0}")]
     InvalidToolCall(String),
     #[error("Other error: {0}")]

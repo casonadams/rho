@@ -132,12 +132,6 @@ read = ["*.env*", "/etc/*"]
 bash = ["curl *", "docker run *"]
 ```
 
-### External Permission Plugins
-
-If an external permission plugin (such as `rho-plugin-permission`) is installed
-and configured in `config.toml`, `rho`'s built-in permission engine
-automatically delegates policy enforcement to the plugin.
-
 ---
 
 ## Privacy & Zero Telemetry

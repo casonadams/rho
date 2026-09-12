@@ -1,21 +1,5 @@
-// Verified rho extensions, MCP tool servers, example plugins, and SDK packages
-export const CURATED_PLUGINS = [
-  {
-    id: "rho-plugin-sdk",
-    name: "rho-plugin-sdk",
-    type: "sdk",
-    badge: "Official SDK",
-    category: "Rust Crate",
-    description: "Official Rust SDK for developing rho JSON-RPC daemon plugins. Subscribe to tool_call and tool_result, repair invalid tools, and invoke host UI modals.",
-    author: "casonadams",
-    version: "v0.6.0",
-    runtime: "Rust Crate",
-    repoUrl: "https://github.com/casonadams/rho/tree/main/crates/rho-plugin-sdk",
-    cratesUrl: "https://crates.io/crates/rho-plugin-sdk",
-    snippet: "cargo add rho-plugin-sdk",
-    snippetLabel: "cargo add rho-plugin-sdk",
-    isOfficial: true
-  },
+// Verified rho extensions: standard MCP tool servers and lifecycle hook recipes
+export const CURATED_EXTENSIONS = [
   {
     id: "mcp-filesystem",
     name: "Filesystem (MCP)",
@@ -28,11 +12,15 @@ export const CURATED_PLUGINS = [
     runtime: "Node.js (npx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
     cratesUrl: null,
-    snippet: `[mcp.servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
-enabled = true`,
-    snippetLabel: "config.toml snippet",
+    snippet: `{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/dir"]
+    }
+  }
+}`,
+    snippetLabel: ".mcp.json / ~/.agents/mcp.json",
     isOfficial: false
   },
   {
@@ -47,12 +35,16 @@ enabled = true`,
     runtime: "Node.js (npx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
     cratesUrl: null,
-    snippet: `[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
-enabled = true`,
-    snippetLabel: "config.toml snippet",
+    snippet: `{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+    }
+  }
+}`,
+    snippetLabel: ".mcp.json / ~/.agents/mcp.json",
     isOfficial: false
   },
   {
@@ -67,11 +59,15 @@ enabled = true`,
     runtime: "Node.js (npx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/playwright",
     cratesUrl: null,
-    snippet: `[mcp.servers.playwright]
-command = "npx"
-args = ["-y", "@playwright/mcp", "--headless"]
-enabled = true`,
-    snippetLabel: "config.toml snippet",
+    snippet: `{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp", "--headless"]
+    }
+  }
+}`,
+    snippetLabel: ".mcp.json / ~/.agents/mcp.json",
     isOfficial: false
   },
   {
@@ -86,105 +82,60 @@ enabled = true`,
     runtime: "Python (uvx)",
     repoUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
     cratesUrl: null,
-    snippet: `[mcp.servers.sqlite]
-command = "uvx"
-args = ["mcp-server-sqlite", "--db-path", "test.db"]
-enabled = true`,
-    snippetLabel: "config.toml snippet",
+    snippet: `{
+  "mcpServers": {
+    "sqlite": {
+      "command": "uvx",
+      "args": ["mcp-server-sqlite", "--db-path", "test.db"]
+    }
+  }
+}`,
+    snippetLabel: ".mcp.json / ~/.agents/mcp.json",
     isOfficial: false
   },
   {
-    id: "plugin-rust-guard",
-    name: "rust-guard",
-    type: "plugin",
-    badge: "Example Daemon",
-    category: "Security (Rust)",
-    description: "Rust daemon plugin built with rho-plugin-sdk. Intercepts bash commands, triggers interactive Yes/No confirmation modals via Host UI, and logs audit reports.",
+    id: "hook-bash-guard",
+    name: "Bash Command Guard",
+    type: "hook",
+    badge: "Lifecycle Hook",
+    category: "Security (Bash)",
+    description: "One-shot shell hook in .rho/hooks/on_tool_call that blocks destructive bash commands (rm -rf, DROP TABLE, git reset --hard) with zero daemon overhead.",
     author: "casonadams",
-    version: "Example",
-    runtime: "Rust (compiled binary)",
-    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/plugins/rust-guard",
+    version: "Recipe",
+    runtime: "POSIX Shell",
+    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/hooks",
     cratesUrl: null,
-    snippet: `[plugins.rust_guard]
-enabled = true
-command = "rust-guard" # or path = "target/release/rust-guard"`,
-    snippetLabel: "config.toml snippet",
+    snippet: `#!/bin/sh
+# .rho/hooks/on_tool_call
+read -r EVENT
+if echo "$EVENT" | grep -Eq 'rm -rf|git reset --hard'; then
+  echo '{"action":"stop","reason":"destructive command blocked"}'
+fi`,
+    snippetLabel: ".rho/hooks/on_tool_call",
     isOfficial: true
   },
   {
-    id: "plugin-python-guard",
-    name: "python-guard",
-    type: "plugin",
-    badge: "Example Daemon",
-    category: "Security (Python)",
-    description: "Interactive Python guard plugin. Demonstrates how any programming language can intercept tool calls and display approval modals via JSON-RPC 2.0.",
+    id: "hook-python-audit",
+    name: "Python Audit Logger",
+    type: "hook",
+    badge: "Lifecycle Hook",
+    category: "Auditing (Python)",
+    description: "One-shot Python hook in .rho/hooks/on_tool_result that appends structured tool execution logs and timestamps to an audit file.",
     author: "casonadams",
-    version: "Example",
+    version: "Recipe",
     runtime: "Python 3",
-    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/plugins/python-guard",
+    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/hooks",
     cratesUrl: null,
-    snippet: `[plugins.python_guard]
-enabled = true
-command = "python3"
-args = ["examples/plugins/python-guard/guard.py"]`,
-    snippetLabel: "config.toml snippet",
-    isOfficial: true
-  },
-  {
-    id: "plugin-quota-tracker",
-    name: "quota-tracker",
-    type: "plugin",
-    badge: "Example Daemon",
-    category: "Telemetry (Node.js)",
-    description: "Node.js daemon demonstrating how provider plugins surface rolling quota cooldowns (5h and 7d) in rho's interactive footer status line.",
-    author: "casonadams",
-    version: "Example",
-    runtime: "Node.js",
-    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/plugins/quota-tracker",
-    cratesUrl: null,
-    snippet: `[plugins.quota_tracker]
-enabled = true
-command = "node"
-args = ["examples/plugins/quota-tracker/tracker.js"]`,
-    snippetLabel: "config.toml snippet",
-    isOfficial: true
-  },
-  {
-    id: "plugin-rag-injector",
-    name: "rag-injector",
-    type: "plugin",
-    badge: "Example Daemon",
-    category: "Context (Python)",
-    description: "Demonstrates how external plugins can query embeddings/vector databases and dynamically inject extra_context documents into agent completion prompts.",
-    author: "casonadams",
-    version: "Example",
-    runtime: "Python 3",
-    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/plugins/rag-injector",
-    cratesUrl: null,
-    snippet: `[plugins.rag_injector]
-enabled = true
-command = "python3"
-args = ["examples/plugins/rag-injector/rag.py"]`,
-    snippetLabel: "config.toml snippet",
-    isOfficial: true
-  },
-  {
-    id: "plugin-node-notifier",
-    name: "node-notifier",
-    type: "plugin",
-    badge: "Example Daemon",
-    category: "Notifications (Node.js)",
-    description: "Subscribes to tool_call and tool_result lifecycle events, emitting live notification messages into the transcript via host/ui/notify.",
-    author: "casonadams",
-    version: "Example",
-    runtime: "Node.js",
-    repoUrl: "https://github.com/casonadams/rho/tree/main/examples/plugins/node-notifier",
-    cratesUrl: null,
-    snippet: `[plugins.node_notifier]
-enabled = true
-command = "node"
-args = ["examples/plugins/node-notifier/notifier.js"]`,
-    snippetLabel: "config.toml snippet",
+    snippet: `#!/usr/bin/env python3
+# .rho/hooks/on_tool_result
+import sys, json
+data = json.loads(sys.stdin.read() or "{}")
+with open("audit.log", "a") as f:
+    f.write(f"{data.get('tool_name')}: {data.get('is_error')}\\n")
+print('{"action":"continue"}')`,
+    snippetLabel: ".rho/hooks/on_tool_result",
     isOfficial: true
   }
 ];
+
+export const CURATED_PLUGINS = CURATED_EXTENSIONS;

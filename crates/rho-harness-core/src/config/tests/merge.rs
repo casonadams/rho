@@ -18,10 +18,9 @@ fn assert_default_features(cfg: &Config) {
         !cfg.model.is_empty(),
         cfg.allow_private_network,
         cfg.session_retention_days,
-        cfg.plugins.is_empty(),
         cfg.permission.enabled,
     );
-    assert_eq!(actual, (true, false, Some(5), true, true));
+    assert_eq!(actual, (true, false, Some(5), true));
 }
 
 #[test]

@@ -12,7 +12,6 @@ use super::policy::{Policy, load_policy, save_allow_rule, target_config_path};
 use super::prompt::{build_permission_prompt, rewrite_tool_args};
 use super::suggest::{canonical_tool, match_input, suggested_rule};
 use super::types::{Decision, EvalRequest, RuleDraft};
-use crate::plugin::host::HeadlessGuard;
 
 pub struct PermissionHook {
     working_dir: Option<PathBuf>,
@@ -64,7 +63,7 @@ impl PermissionHook {
     }
 
     async fn handle_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> ToolCallAction {
-        if HeadlessGuard::is_headless(self.presenter.as_ref()) {
+        if !self.presenter.has_interactive_ui() {
             return ToolCallAction::skip(format!(
                 "Permission required for tool '{}' but cannot prompt in headless mode",
                 req.tool

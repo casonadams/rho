@@ -62,10 +62,10 @@ async fn write_stdin_line(stdin: &tokio::sync::Mutex<ChildStdin>, json: String) 
     let mut lock = stdin.lock().await;
     lock.write_all(json.as_bytes())
         .await
-        .map_err(|e| AppError::Plugin(format!("Failed to write to MCP stdin: {e}")))?;
+        .map_err(|e| AppError::Mcp(format!("Failed to write to MCP stdin: {e}")))?;
     lock.flush()
         .await
-        .map_err(|e| AppError::Plugin(format!("Failed to flush MCP stdin: {e}")))
+        .map_err(|e| AppError::Mcp(format!("Failed to flush MCP stdin: {e}")))
 }
 
 async fn await_mcp_response(
@@ -76,16 +76,16 @@ async fn await_mcp_response(
 ) -> Result<Value> {
     match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(Ok(val))) => Ok(val),
-        Ok(Ok(Err(e))) => Err(AppError::Plugin(format!(
+        Ok(Ok(Err(e))) => Err(AppError::Mcp(format!(
             "MCP error from {method}: {} (code {})",
             e.message, e.code
         ))),
-        Ok(Err(_)) => Err(AppError::Plugin(format!(
+        Ok(Err(_)) => Err(AppError::Mcp(format!(
             "MCP server closed stream while waiting for {method}"
         ))),
         Err(_) => {
             pending.lock().unwrap().remove(&id);
-            Err(AppError::Plugin(format!("MCP request '{method}' timed out")))
+            Err(AppError::Mcp(format!("MCP request '{method}' timed out")))
         }
     }
 }
@@ -113,7 +113,7 @@ impl StdioTransport {
         let req = JsonRpcRequest::new(id, method, params);
         let json = format!(
             "{}\n",
-            serde_json::to_string(&req).map_err(|e| AppError::Plugin(e.to_string()))?
+            serde_json::to_string(&req).map_err(|e| AppError::Mcp(e.to_string()))?
         );
         write_stdin_line(&self.stdin, json).await?;
         await_mcp_response(rx, (&self.pending, id), method, self.timeout).await
@@ -123,7 +123,7 @@ impl StdioTransport {
         let notif = JsonRpcNotification::new(method, params);
         let json = format!(
             "{}\n",
-            serde_json::to_string(&notif).map_err(|e| AppError::Plugin(e.to_string()))?
+            serde_json::to_string(&notif).map_err(|e| AppError::Mcp(e.to_string()))?
         );
         write_stdin_line(&self.stdin, json).await
     }

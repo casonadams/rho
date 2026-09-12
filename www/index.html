@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>rho · Minimal Agentic Coding CLI &amp; Plugin Ecosystem</title>
-  <meta name="description" content="A fast, clean, minimal coding-agent CLI in Rust. Native speed, zero telemetry, 8 built-in tools, and a modular daemon plugin ecosystem.">
+  <title>rho · Minimal Agentic Coding CLI</title>
+  <meta name="description" content="A fast, clean, minimal coding-agent CLI in Rust. Native speed, zero telemetry, 9 built-in tools, MCP servers, and lightweight lifecycle hooks.">
   
   <meta property="og:title" content="rho · Minimal Coding Agent CLI">
-  <meta property="og:description" content="Fast, clean, minimal coding-agent CLI in Rust with native plugin package management.">
+  <meta property="og:description" content="Fast, clean, minimal coding-agent CLI in Rust with standard MCP integration and lifecycle hooks.">
   <meta property="og:url" content="https://casonadams.github.io/rho/">
   <meta property="og:type" content="website">
 
@@ -60,7 +60,7 @@
   <header class="hero-section">
     <div class="container">
       <div class="hero-pill">
-        <span>rho v0.6.0 · Built in Rust with Native Plugin Management</span>
+        <span>rho v0.6.2 · Built in Rust with Standard MCP &amp; Lifecycle Hooks</span>
       </div>
 
       <h1 class="hero-title">
@@ -69,7 +69,7 @@
       </h1>
 
       <p class="hero-subtitle">
-        Zero telemetry, zero bloated runtimes. 8 native agent tools, interactive session picker, and a modular JSON-RPC plugin architecture with precompiled GitHub release distribution.
+        Zero telemetry, zero bloated runtimes. 9 native agent tools, interactive session picker, standard MCP integration, and one-shot lifecycle hooks.
       </p>
 
       <!-- Multi-tab Install Switcher -->
@@ -173,51 +173,51 @@
     </div>
   </section>
 
-  <!-- Section: The rho Plugin Ecosystem -->
+  <!-- Section: Extensibility -->
   <section class="section">
     <div class="container">
       <div class="section-header">
         <span class="section-badge">Extensibility</span>
-        <h2 class="section-title">A true plugin ecosystem for coding agents</h2>
+        <h2 class="section-title">Standard MCP tools and zero-daemon lifecycle hooks</h2>
         <p class="section-description">
-          rho plugins are long-running JSON-RPC 2.0 daemons operating over stdio. They intercept tool calls, repair invalid requests, audit results, and interact directly with the host terminal UI.
+          Connect external capabilities using open Model Context Protocol servers, and guard execution with deterministic one-shot process hooks in any programming language.
         </p>
       </div>
 
       <div class="grid-3">
         <div class="card">
-          <div class="card-icon icon-purple">⚡</div>
-          <h3 class="card-title">Lifecycle Hooks &amp; Steering</h3>
+          <div class="card-icon icon-purple">🔌</div>
+          <h3 class="card-title">Universal MCP Servers</h3>
           <p class="card-desc">
-            Subscribe to <code>tool_call</code>, <code>tool_result</code>, <code>invalid_tool_call</code>, and <code>completion_call</code>. Return flow actions to continue, skip, rewrite arguments, repair tool names, or terminate turns.
+            Connect any community or custom MCP tool server via standard JSON in <code>~/.agents/mcp.json</code> or workspace <code>.mcp.json</code>. Works across Claude Desktop, Cursor, Zed, and rho.
           </p>
           <div class="card-footer">
-            <span>JSON-RPC 2.0 stdio</span>
-            <span>Flow::repair / Flow::skip</span>
+            <span>Model Context Protocol</span>
+            <span>stdio &amp; streamable-http</span>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-icon icon-green">📦</div>
-          <h3 class="card-title">Precompiled Package Distribution</h3>
+          <div class="card-icon icon-green">⚡</div>
+          <h3 class="card-title">Zero-Daemon Lifecycle Hooks</h3>
           <p class="card-desc">
-            Install community plugins instantly with <code>rho install &lt;target&gt;</code>. rho downloads precompiled release binaries matching your OS/architecture directly from GitHub Releases into <code>~/.cargo/bin</code>.
+            Drop executable scripts into <code>.rho/hooks/</code> (Bash, Python, Node, Rust). Intercept tool calls, rewrite arguments, repair errors, or halt execution without long-lived background daemons.
           </p>
           <div class="card-footer">
-            <span>rho install &lt;name&gt;</span>
-            <span>Zero local toolchain required</span>
+            <span>.rho/hooks/on_tool_call</span>
+            <span>One-shot JSON stdin/stdout</span>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-icon icon-blue">🖥</div>
-          <h3 class="card-title">Bidirectional Host UI API</h3>
+          <div class="card-icon icon-blue">🛡</div>
+          <h3 class="card-title">Fail-Closed Safety</h3>
           <p class="card-desc">
-            Plugins can request host services: trigger Yes/No confirm modals (<code>ctx.confirm</code>), render informational UI blocks (<code>ctx.block</code>), or update the live terminal status bar.
+            Hooks run in isolated process groups with strict timeouts. Unhandled errors or timeouts fail closed. Hooks can also instruct rho to prompt the user via native TUI dialogs.
           </p>
           <div class="card-footer">
-            <span>host/ui/confirm</span>
-            <span>host/ui/set_status</span>
+            <span>{"action": "ask"}</span>
+            <span>Deterministic security</span>
           </div>
         </div>
       </div>
@@ -251,15 +251,15 @@ rho -c</code></pre>
         </div>
 
         <div class="card">
-          <h3 class="card-title">Package &amp; Plugin Management</h3>
+          <h3 class="card-title">MCP Server Management</h3>
           <p class="card-desc">
-            Manage your agent extensions directly through the CLI. Audit active vs missing binaries, check capability origins, and self-update rho and plugins.
+            Manage your external tool servers directly through the CLI. Audit connections, test discovery, and self-update rho.
           </p>
           <div class="code-block-wrapper">
-            <pre><code>rho install permission
-rho plugin ls
-rho plugin inspect tool:bash
-rho update all</code></pre>
+            <pre><code>rho mcp list
+rho mcp test filesystem
+rho mcp add db "https://mcp.example.com"
+rho update</code></pre>
           </div>
         </div>
 
@@ -387,62 +387,55 @@ rho --mode rpc
     </div>
   </section>
 
-  <!-- Section: Featured Plugins -->
+  <!-- Section: Featured MCP & Hooks -->
   <section class="section">
     <div class="container">
       <div class="section-header">
         <span class="section-badge">Ecosystem Catalog</span>
-        <h2 class="section-title">Popular rho plugins</h2>
+        <h2 class="section-title">Popular MCP servers and hook recipes</h2>
         <p class="section-description">
-          Plugins published on GitHub and Crates.io that you can install immediately with <code>rho install</code>.
+          Open standards and verified recipes to extend rho without custom runtimes.
         </p>
       </div>
 
       <div class="grid-3">
         <div class="card">
-          <div class="card-icon icon-green">⚙️</div>
-          <h3 class="card-title">rho-plugin-sdk</h3>
+          <div class="card-icon icon-purple">🔌</div>
+          <h3 class="card-title">GitHub (MCP)</h3>
           <p class="card-desc">
-            Official Rust crate for building stdio JSON-RPC daemon plugins, handling lifecycle events, and invoking host UI modals.
+            Query issues, review pull requests, and inspect commit history via standard Model Context Protocol.
           </p>
-          <div class="plugin-install-bar">
-            <code class="plugin-install-cmd">$ cargo add rho-plugin-sdk</code>
-            <button class="copy-btn" data-copy="cargo add rho-plugin-sdk">Copy</button>
+          <div class="install-bar">
+            <code class="install-cmd">@modelcontextprotocol/server-github</code>
           </div>
         </div>
 
         <div class="card">
-          <div class="card-icon icon-purple">🔌</div>
-          <h3 class="card-title">Model Context Protocol (MCP)</h3>
+          <div class="card-icon icon-green">📁</div>
+          <h3 class="card-title">Filesystem (MCP)</h3>
           <p class="card-desc">
-            Connect any community MCP tool server (Filesystem, GitHub, Playwright, SQLite) via <code>[mcp.servers]</code> in <code>config.toml</code>.
+            Bounded local filesystem access outside the current workspace with standard security policies.
           </p>
-          <div class="plugin-install-bar">
-            <code class="plugin-install-cmd">[mcp.servers.github]</code>
-            <button class="copy-btn" data-copy="[mcp.servers.github]
-command = &quot;npx&quot;
-args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-github&quot;]">Copy</button>
+          <div class="install-bar">
+            <code class="install-cmd">@modelcontextprotocol/server-filesystem</code>
           </div>
         </div>
 
         <div class="card">
           <div class="card-icon icon-blue">🛡</div>
-          <h3 class="card-title">Lifecycle Example Daemons</h3>
+          <h3 class="card-title">Command Guard (Hook)</h3>
           <p class="card-desc">
-            Production-ready example daemons in <code>examples/plugins/</code> for security guardrails (Rust, Python), quota tracking, and notifications.
+            A simple 10-line POSIX shell script in <code>.rho/hooks/on_tool_call</code> that blocks destructive bash commands.
           </p>
-          <div class="plugin-install-bar">
-            <code class="plugin-install-cmd">[plugins.rust_guard]</code>
-            <button class="copy-btn" data-copy="[plugins.rust_guard]
-enabled = true
-command = &quot;rust-guard&quot;">Copy</button>
+          <div class="install-bar">
+            <code class="install-cmd">.rho/hooks/on_tool_call</code>
           </div>
         </div>
       </div>
 
       <div style="text-align: center; margin-top: 2.5rem;">
         <a href="packages.html" class="btn-sm" style="font-size: 0.95rem; padding: 0.6rem 1.4rem; border-color: var(--accent-green);">
-          Browse All Plugins &amp; Packages →
+          Browse All Tools &amp; Recipes →
         </a>
       </div>
     </div>
@@ -469,7 +462,7 @@ command = &quot;rust-guard&quot;">Copy</button>
         <div class="footer-links-group">
           <div class="footer-col">
             <span class="footer-col-title">Project</span>
-            <a href="packages.html">Ecosystem &amp; Plugins</a>
+            <a href="packages.html">Ecosystem</a>
             <a href="docs.html">Documentation</a>
             <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
             <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
@@ -478,7 +471,6 @@ command = &quot;rust-guard&quot;">Copy</button>
           <div class="footer-col">
             <span class="footer-col-title">Resources</span>
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
-            <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener">Plugin SDK</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>

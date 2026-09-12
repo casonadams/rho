@@ -207,9 +207,9 @@ async fn repeated_rebuilds_do_not_leak_mcp_children() {
 }
 
 #[tokio::test]
-async fn builder_attaches_dynamic_plugin_tools() {
+async fn builder_attaches_dynamic_tools() {
     with_dummy_provider_key();
-    let (config, dir) = test_config("plugin_tools");
+    let (config, dir) = test_config("custom_tools");
     let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
     let base_dir = std::env::temp_dir();
 

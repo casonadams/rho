@@ -21,11 +21,6 @@
           "type": "toml",
           "path": "Cargo.toml",
           "jsonpath": "$.workspace.dependencies['rho-engine'].version"
-        },
-        {
-          "type": "toml",
-          "path": "Cargo.toml",
-          "jsonpath": "$.workspace.dependencies['rho-plugin-sdk'].version"
         }
       ]
     }

@@ -27,7 +27,7 @@ fn sample_welcome_item() -> WelcomeItem {
         agents: vec!["AGENTS.md".into()],
         tools: vec!["read".into(), "write".into(), "playwright_click".into()],
         skills: vec!["plan".into(), "spec".into()],
-        plugins: vec!["permission".into()],
+        mcp: Vec::new(),
     }
 }
 
@@ -50,8 +50,6 @@ fn render_transcript_welcome() {
             "read, write",
             "[mcp]",
             "playwright (1 tool)",
-            "[plugins]",
-            "permission",
         ],
     );
 }
@@ -68,7 +66,7 @@ fn render_transcript_welcome_without_agents() {
         agents: Vec::new(),
         tools: vec!["read".into()],
         skills: Vec::new(),
-        plugins: Vec::new(),
+        mcp: Vec::new(),
     });
 
     let rendered = render_transcript_item(TranscriptRenderInput {
@@ -106,7 +104,7 @@ fn render_transcript_welcome_wraps_long_items_on_word_boundaries() {
             "plan".into(),
             "spec".into(),
         ],
-        plugins: vec!["playwright".into()],
+        mcp: vec!["playwright".into()],
     });
 
     let rendered = render_welcome(&item, &theme);

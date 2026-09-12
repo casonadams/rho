@@ -20,7 +20,6 @@ pub struct AgentEngineBuilder {
     base_dir: Option<PathBuf>,
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
     extra_tools: Vec<rig::tool::DynamicTool>,
-    plugins: Vec<Arc<dyn crate::plugin::RhoPlugin>>,
     model: Option<ModelHandle>,
 }
 
@@ -29,7 +28,6 @@ impl AgentEngineBuilder {
         Self {
             rig_tools: None,
             extra_tools: Vec::new(),
-            plugins: Vec::new(),
             config,
             auth_store,
             resume_id: None,
@@ -61,19 +59,6 @@ impl AgentEngineBuilder {
 
     pub fn add_tools(mut self, tools: impl IntoIterator<Item = rig::tool::DynamicTool>) -> Self {
         self.extra_tools.extend(tools);
-        self
-    }
-
-    pub fn plugin(mut self, plugin: Arc<dyn crate::plugin::RhoPlugin>) -> Self {
-        self.extra_tools.extend(plugin.tools());
-        self.plugins.push(plugin);
-        self
-    }
-
-    pub fn plugins(mut self, plugins: impl IntoIterator<Item = Arc<dyn crate::plugin::RhoPlugin>>) -> Self {
-        for p in plugins {
-            self = self.plugin(p);
-        }
         self
     }
 
@@ -197,6 +182,7 @@ impl AgentEngineBuilder {
 
     fn into_engine(
         self,
+        base_dir: PathBuf,
         (session_manager, auth_store): (SessionManager, Arc<tokio::sync::Mutex<AuthStore>>),
         (tools, model, agent): (Vec<DynamicTool>, ModelHandle, rig::agent::Agent),
     ) -> AgentEngine {
@@ -204,10 +190,10 @@ impl AgentEngineBuilder {
         let context_limit = super::model::resolve_context_limit(&self.config);
         AgentEngine {
             config: self.config,
+            base_dir,
             session_manager,
             tools,
             tool_names: Arc::new(std::sync::RwLock::new(tool_names)),
-            plugins: self.plugins,
             agent: Arc::new(tokio::sync::RwLock::new(agent)),
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
@@ -242,7 +228,7 @@ impl AgentEngineBuilder {
             },
         )?;
 
-        Ok(self.into_engine((session_manager, shared_auth), (tools, model, agent)))
+        Ok(self.into_engine(base_dir, (session_manager, shared_auth), (tools, model, agent)))
     }
 }
 

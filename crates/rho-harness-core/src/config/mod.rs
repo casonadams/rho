@@ -1,5 +1,5 @@
 //! Layered configuration: defaults → config file → environment → CLI flags,
-//! with validation and atomic persistence for settings and plugin entries.
+//! with validation and atomic persistence for settings.
 
 pub mod cli;
 pub mod mcp;
@@ -13,7 +13,7 @@ mod tests;
 
 pub use types::{
     Config, DEFAULT_MAX_TURNS, McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig,
-    PluginConfig, ProviderConfig, UiConfig, default_config_dir, dirs_fallback,
+    ProviderConfig, UiConfig, default_config_dir, dirs_fallback,
 };
 
 use crate::error::{AppError, Result};
@@ -31,6 +31,10 @@ impl Config {
             let file_cfg: FileConfig =
                 toml::from_str(&content).map_err(|e| AppError::Config(format!("Failed to parse config file: {e}")))?;
             merge::merge_file(&mut config, file_cfg);
+        }
+
+        if let Ok(Some(global_mcp)) = mcp::load_global_mcp_config(&config.config_dir) {
+            config.mcp.servers.extend(global_mcp.servers);
         }
 
         if let Ok(cwd) = std::env::current_dir()

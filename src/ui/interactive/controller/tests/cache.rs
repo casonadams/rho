@@ -17,7 +17,7 @@ mod classification {
             agents: Vec::new(),
             tools: Vec::new(),
             skills: Vec::new(),
-            plugins: Vec::new(),
+            mcp: Vec::new(),
         })
     }
 

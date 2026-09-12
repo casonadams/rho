@@ -78,6 +78,5 @@ pub fn format_welcome_content(welcome: &WelcomeItem, theme: &Theme) -> String {
 
     let mcp = format_mcp_items(&tools.mcp_groups);
     append_welcome_section(&mut out, "mcp", &mcp, dim);
-    append_welcome_section(&mut out, "plugins", &welcome.plugins, dim);
     out
 }

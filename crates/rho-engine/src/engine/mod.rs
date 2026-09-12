@@ -37,10 +37,10 @@ use tracking::{ContextTracker, QuotaTracker, UsageTracker};
 
 pub struct AgentEngine {
     pub config: Config,
+    pub base_dir: std::path::PathBuf,
     pub session_manager: SessionManager,
     pub(crate) tools: Vec<rig::tool::DynamicTool>,
     pub(crate) tool_names: Arc<std::sync::RwLock<Vec<String>>>,
-    pub(crate) plugins: Vec<Arc<dyn crate::plugin::RhoPlugin>>,
     pub(crate) agent: Arc<tokio::sync::RwLock<Agent>>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,

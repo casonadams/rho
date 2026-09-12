@@ -123,12 +123,7 @@ async fn test_new_and_thinking_commands() {
 fn slash_command_predicate_classification() {
     use crate::repl::commands::is_slash_command;
 
-    for cmd in [
-        "/help",
-        "/model gpt-4o openai",
-        "/skill:create-plugin",
-        "/unknown_command",
-    ] {
+    for cmd in ["/help", "/model gpt-4o openai", "/skill:plan", "/unknown_command"] {
         assert!(is_slash_command(cmd));
     }
     for not_cmd in ["", "/", "// comment", "/Users/alice/photo.png", "/tmp/file.txt"] {

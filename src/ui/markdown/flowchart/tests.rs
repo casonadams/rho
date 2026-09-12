@@ -87,7 +87,7 @@ graph TD
   ModelOutput -->|Assistant Resp| LiveMarkdown[Live Markdown Streaming & UI Render]
   ModelOutput -->|Tool Call| PermCheck{Permission Check}
   LiveMarkdown --> UserInput
-  PermCheck -->|Auto-Approved| ToolRuntime[Tool Runtime\nBuilt-in / MCP / Plugins]
+  PermCheck -->|Auto-Approved| ToolRuntime[Tool Runtime\nBuilt-in / MCP]
   PermCheck -->|Mutating Action| ApprovalModal[Interactive Approval Modal\nAllow / Edit / Always / Deny]
   ApprovalModal -->|Approved| ToolRuntime
   ApprovalModal -->|Denied| DenialReason[Return Denial Reason to Model]
@@ -113,7 +113,7 @@ graph TD
     classDef ext fill:#44337a,stroke:#6b46c1,stroke-width:2px,color:#fff
 
     subgraph BINARY ["rho (CLI / TUI)"]
-        CLI["CLI Subcommands<br/>(run, auth, plugin, rpc)"]
+        CLI["CLI Subcommands<br/>(run, auth, mcp, rpc)"]
         subgraph FRONTENDS ["Frontends / REPL"]
             TUI["Live TUI (Raw-mode & Modals)"]
             LINE["Line Mode (Readline)"]
@@ -142,7 +142,7 @@ graph TD
     subgraph EXTERNAL ["External Collaborators"]
         PROVIDERS["LLM Providers<br/>(Claude, ChatGPT, Gemini, Ollama)"]
         MCP["MCP Servers<br/>(JSON-RPC stdio)"]
-        PLUGINS["rho-plugin-sdk<br/>(Supervised Daemons)"]
+        HOOKS["Lifecycle Hooks<br/>(.rho/hooks)"]
     end
 
     %% Wiring
@@ -159,7 +159,7 @@ graph TD
 
     STREAM --> PROVIDERS
     REGISTRY --> MCP
-    REGISTRY --> PLUGINS
+    AGENT --> HOOKS
 
     AGENT --> SESSION
     AGENT --> CONFIG
@@ -170,7 +170,7 @@ graph TD
     class BINARY,CLI,TUI,LINE,HEADLESS,UI,COORD binary
     class ENGINE,AGENT,STREAM,PERM,REGISTRY,COMPACT engine
     class CORE,SESSION,CONFIG,WORKSPACE,TOKENS,PRESENTER core
-    class EXTERNAL,PROVIDERS,MCP,PLUGINS ext
+    class EXTERNAL,PROVIDERS,MCP,HOOKS ext
 "#;
     let res = render_flowchart(source);
     assert!(res.is_some());
@@ -190,7 +190,7 @@ graph TD
   Stream --> ToolCalls{Tool calls requested?}
   ToolCalls -->|No| DisplayAnswer[Display Final Answer]
   ToolCalls -->|Yes| PermissionGate{Permission Gate}
-  PermissionGate -->|Approved| ExecTool[Execute Tool\nBuiltin, MCP, or Plugin]
+  PermissionGate -->|Approved| ExecTool[Execute Tool\nBuiltin or MCP]
   PermissionGate -->|Denied| InjectReject[Inject Rejection / User Feedback]
   DisplayAnswer --> AppendSession[Append Turn to Session JSONL]
   AppendSession --> AwaitNext[Awaiting Next User Turn]

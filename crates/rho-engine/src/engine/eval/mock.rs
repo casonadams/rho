@@ -48,16 +48,17 @@ fn resolve_mock_session_manager(config: &MockEngineConfig<'_>) -> SessionManager
 
 fn assemble_mock_engine(
     app_config: Config,
+    base_dir: std::path::PathBuf,
     (session_manager, tools): (SessionManager, Vec<DynamicTool>),
     (agent, model_handle): (rig::agent::Agent, ModelHandle),
 ) -> AgentEngine {
     let tool_names = tools.iter().map(|tool| tool.name().to_string()).collect();
     AgentEngine {
         config: app_config,
+        base_dir,
         session_manager,
         tools,
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(tool_names)),
-        plugins: Vec::new(),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
@@ -87,7 +88,12 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
     )
     .unwrap();
     let tools = config.built_in_tools.unwrap_or_default();
-    assemble_mock_engine(app_config, (session_manager, tools), (agent, model_handle))
+    assemble_mock_engine(
+        app_config,
+        config.base_dir.to_path_buf(),
+        (session_manager, tools),
+        (agent, model_handle),
+    )
 }
 
 pub fn final_event(usage: Usage) -> MockStreamEvent {

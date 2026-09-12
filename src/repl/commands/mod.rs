@@ -2,8 +2,8 @@ pub mod args;
 mod custom;
 mod export;
 pub mod help;
+mod mcp;
 mod model;
-mod plugin;
 mod session;
 mod skill;
 mod thinking;
@@ -139,7 +139,6 @@ async fn handle_async_slash_commands(
         "thinking" | "think" => thinking::handle_thinking(ctx, parts),
         "model" => model::handle_model(ctx, parts),
         "skill" | "skills" => skill::handle_skill(ctx, parts).await,
-        "plugin" | "plugins" => Ok(plugin::handle_plugins(ctx)),
         "mcp" => {
             if parts.get(1) == Some(&"login") {
                 let target = parts.get(2).map(|s| format!("mcp:{s}"));
@@ -147,7 +146,7 @@ async fn handle_async_slash_commands(
             } else if ctx.renderer.has_interactive_ui() {
                 Ok(Some(CommandResult::OpenMcpSelector))
             } else {
-                Ok(plugin::handle_plugins(ctx))
+                Ok(mcp::handle_mcp(ctx))
             }
         }
         "login" => Ok(Some(handle_login_cmd(parts))),

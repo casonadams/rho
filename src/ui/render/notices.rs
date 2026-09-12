@@ -45,7 +45,7 @@ impl TerminalRenderer {
             agents,
             tools: display.tools.clone(),
             skills: display.skills.clone(),
-            plugins: display.plugins.clone(),
+            mcp: display.mcp.clone(),
         };
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Welcome(item));

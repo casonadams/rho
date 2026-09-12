@@ -9,7 +9,7 @@ new contributor can orient in minutes.
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ rho (binary + lib)                                               │
-│  ├─ cli/       arg dispatch, auth, plugin mgmt, RPC server       │
+│  ├─ cli/       arg dispatch, auth, update, RPC server            │
 │  ├─ repl/      REPL frontends (live TUI, line mode, headless)    │
 │  ├─ ui/        markdown, transcript, interactive controller      │
 │  └─ platform/  clipboard, terminal suspend                       │
@@ -17,14 +17,10 @@ new contributor can orient in minutes.
 │ rho-engine         turn orchestration, providers, tools, MCP     │
 ├──────────────────────────────────────────────────────────────────┤
 │ rho-harness-core   deterministic host domain (no UI/LLM wiring)  │
-├──────────────────────────────────────────────────────────────────┤
-│ rho-plugin-sdk     out-of-process plugin authoring (stdio JSON)  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Dependency direction is strictly downward: `rho → rho-engine →
-rho-harness-core`. `rho-plugin-sdk` is a leaf used by plugin authors; the
-engine talks to plugins over JSON-RPC, not by linking them.
+Dependency direction is strictly downward: `rho → rho-engine → rho-harness-core`.
 
 ### `rho-harness-core` (host domain)
 
@@ -56,12 +52,11 @@ Everything needed to run model turns and tools:
   client singleton, rate limiting.
 - `permission/` — bash tokenizer, policy evaluation, interactive prompts.
 - `mcp/` — MCP client/process/transport and tool gateway.
-- `plugin/` — plugin daemon supervision (`daemon/`) and in-process host
-  (`host/`) implementing `host/ui/*`, hooks, and tool interception.
+- `hook/` — lightweight one-shot process hooks (`.rho/hooks/`) for turn and tool lifecycle interception.
 
 ### `rho` (CLI shell)
 
-- `cli/` — subcommand routing (`run`, `auth`, `plugin`, `rpc`), process
+- `cli/` — subcommand routing (`run`, `auth`, `mcp`, `update`, `rpc`), process
   cleanup guards, session resume plumbing.
 - `repl/` — two frontends sharing one turn pipeline: `live/` (raw-mode TUI
   with modals, streaming transcript, autocomplete) and `line_mode/`
@@ -125,11 +120,10 @@ tool call ─▶ PermissionHook (engine/permission/)
                 ├─ policy eval (project + global permission.toml)
                 ├─ baseline allowlist (read-only, path checks)
                 ├─ bash analysis (lexer ─▶ paths, redirection, suspicion)
-                ├─ external permission plugin (overrides built-in)
                 └─ interactive prompt (TUI modal / headless fail-closed)
                       │ allow / deny / edit / always-allow
                       ▼
-              ToolRegistry dispatch (builtin, MCP, plugin)
+              ToolRegistry dispatch (builtin, MCP)
                       ▼
               ToolResult (text + images) ─▶ session + UI
 ```
@@ -148,18 +142,17 @@ tool call ─▶ PermissionHook (engine/permission/)
   are provider-specific (`antigravity/quota`, `chatgpt`, `ollama`).
 - MCP servers spawn as child processes with JSON-RPC stdio transport
   (`mcp/process.rs`, `mcp/transport.rs`); tools surface through `McpGateway`
-  and are reaped on engine rebuild.
-- Plugins run as supervised daemons (`plugin/daemon/`) speaking the rho
-  plugin protocol (`plugin/protocol/`): lifecycle events, tool-call
-  interception (repair/skip/rewrite), and host UI calls back into the TUI.
-  The `rho-plugin-sdk` crate mirrors this protocol for out-of-tree authors.
+  and are reaped on engine rebuild. Configured via `~/.agents/mcp.json` or `.mcp.json`.
+- Lifecycle hooks run as one-shot child processes (`hook/`) triggered by
+  executables in `.rho/hooks/` (e.g. `on_tool_call`, `on_tool_result`),
+  communicating via simple JSON on stdin/stdout without daemon overhead.
 
 ## Testing Layout
 
 - Unit tests live in `#[cfg(test)] mod tests` blocks or sibling `tests.rs`
   files next to the code they cover.
 - Integration tests live in the top-level `tests/` directory (headless runs,
-  permission flows, plugin lifecycles, MCP).
+  permission flows, hook execution, MCP).
 - `engine/eval/` provides a deterministic mock harness (`MockCompletionModel`
   + scripted turns) used by both unit and eval tests; live-provider tests are
   opt-in and skipped without credentials.

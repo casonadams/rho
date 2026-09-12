@@ -2,7 +2,7 @@ use crate::error::{AppError, Result};
 use std::path::Path;
 use std::str::FromStr;
 
-use super::types::{ConfigKey, FileConfig, McpServerConfig, PluginConfig};
+use super::types::{ConfigKey, FileConfig, McpServerConfig};
 
 impl super::Config {
     pub fn set_file_value(config_dir: &Path, key: &str, value: &str) -> Result<()> {
@@ -42,76 +42,28 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
-    pub fn add_plugin(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
-        validate_plugin_args(name, &plugin)?;
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config(&path)?;
-        file_config.plugins.insert(name.to_string(), plugin);
-        write_file_config(&path, &file_config)
+    pub fn add_mcp_server(target: &Path, name: &str, server: McpServerConfig) -> Result<()> {
+        let path = if target.is_dir() {
+            super::mcp::global_mcp_path(target)
+        } else {
+            target.to_path_buf()
+        };
+        super::mcp::write_mcp_server_json(&path, name, &server)
     }
 
-    pub async fn add_plugin_async(config_dir: &Path, name: &str, plugin: PluginConfig) -> Result<()> {
-        validate_plugin_args(name, &plugin)?;
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        file_config.plugins.insert(name.to_string(), plugin);
-        write_file_config_async(&path, &file_config).await
+    pub fn remove_mcp_server(target: &Path, name: &str) -> Result<McpServerConfig> {
+        let path = if target.is_dir() {
+            let global = super::mcp::global_mcp_path(target);
+            if global.is_file() {
+                global
+            } else {
+                target.join("mcp.json")
+            }
+        } else {
+            target.to_path_buf()
+        };
+        super::mcp::remove_mcp_server_json(&path, name)
     }
-
-    pub fn remove_plugin(config_dir: &Path, name: &str) -> Result<PluginConfig> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config(&path)?;
-        let plugin = file_config
-            .plugins
-            .remove(name)
-            .ok_or_else(|| AppError::Config(format!("plugin '{name}' is not configured")))?;
-        write_file_config(&path, &file_config)?;
-        Ok(plugin)
-    }
-
-    pub async fn remove_plugin_async(config_dir: &Path, name: &str) -> Result<PluginConfig> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        let plugin = file_config
-            .plugins
-            .remove(name)
-            .ok_or_else(|| AppError::Config(format!("plugin '{name}' is not configured")))?;
-        write_file_config_async(&path, &file_config).await?;
-        Ok(plugin)
-    }
-
-    pub fn add_mcp_server(config_dir: &Path, name: &str, server: McpServerConfig) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config(&path)?;
-        let mcp = file_config.mcp.get_or_insert_with(Default::default);
-        mcp.servers.insert(name.to_string(), server);
-        write_file_config(&path, &file_config)
-    }
-
-    pub fn remove_mcp_server(config_dir: &Path, name: &str) -> Result<McpServerConfig> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config(&path)?;
-        let mcp = file_config
-            .mcp
-            .as_mut()
-            .ok_or_else(|| AppError::Config(format!("MCP server '{name}' is not configured")))?;
-        let server = mcp
-            .servers
-            .remove(name)
-            .ok_or_else(|| AppError::Config(format!("MCP server '{name}' is not configured")))?;
-        write_file_config(&path, &file_config)?;
-        Ok(server)
-    }
-}
-
-fn validate_plugin_args(name: &str, plugin: &PluginConfig) -> Result<()> {
-    if name.trim().is_empty() {
-        return Err(AppError::Config("plugin name must not be empty".to_string()));
-    }
-    if plugin.path.as_os_str().is_empty() && plugin.command.is_none() {
-        return Err(AppError::Config("plugin path or command must not be empty".to_string()));
-    }
-    Ok(())
 }
 
 fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {

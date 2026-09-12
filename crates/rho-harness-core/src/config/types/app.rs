@@ -1,4 +1,4 @@
-use super::integrations::{McpConfig, PermissionConfig, PluginConfig, ProviderConfig};
+use super::integrations::{McpConfig, PermissionConfig, ProviderConfig};
 use super::paths::default_config_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -42,7 +42,6 @@ pub struct Config {
     pub default_provider: Option<String>,
     #[serde(default)]
     pub session_retention_days: Option<u32>,
-    pub plugins: BTreeMap<String, PluginConfig>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
     pub permission: PermissionConfig,
@@ -83,7 +82,6 @@ macro_rules! default_config_literal {
             default_model: None,
             default_provider: None,
             session_retention_days: Some(5),
-            plugins: BTreeMap::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             permission: PermissionConfig::default(),

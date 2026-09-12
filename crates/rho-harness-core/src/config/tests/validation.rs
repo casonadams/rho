@@ -1,26 +1,4 @@
-use super::super::{Config, PluginConfig, ProviderConfig};
-
-#[test]
-fn rejects_invalid_plugin_configuration() {
-    let mut config = Config::default();
-    config.plugins.insert(
-        "Invalid Name".to_string(),
-        PluginConfig {
-            path: "plugin".into(),
-            command: None,
-            args: Vec::new(),
-            package: None,
-            version: None,
-            git: None,
-            branch: None,
-            tag: None,
-            enabled: true,
-            replaces: Default::default(),
-            config: None,
-        },
-    );
-    assert!(config.validate().is_err());
-}
+use super::super::{Config, ProviderConfig};
 
 #[test]
 fn rejects_colliding_or_bad_provider_name() {

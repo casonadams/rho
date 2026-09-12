@@ -72,7 +72,6 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/thinking",
     "/think",
     "/skill",
-    "/plugin",
     "/mcp",
     "/session",
     "/compact",

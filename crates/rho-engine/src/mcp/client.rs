@@ -166,7 +166,7 @@ impl McpClient {
             if let Some(tools_arr) = response.get("tools").and_then(|v| v.as_array()) {
                 for tool_val in tools_arr {
                     let tool_def: McpToolDefinition = serde_json::from_value(tool_val.clone())
-                        .map_err(|e| AppError::Plugin(format!("Failed to parse MCP tool definition: {e}")))?;
+                        .map_err(|e| AppError::Mcp(format!("Failed to parse MCP tool definition: {e}")))?;
                     all_tools.push(tool_def);
                 }
             }
@@ -191,7 +191,7 @@ impl McpClient {
 
         let response = self.transport.request("tools/call", Some(params)).await?;
 
-        serde_json::from_value(response).map_err(|e| AppError::Plugin(format!("Failed to parse MCP tool result: {e}")))
+        serde_json::from_value(response).map_err(|e| AppError::Mcp(format!("Failed to parse MCP tool result: {e}")))
     }
 
     pub async fn list_resources(&self) -> Result<Vec<McpResourceDefinition>> {
@@ -205,7 +205,7 @@ impl McpClient {
             if let Some(arr) = response.get("resources").and_then(|v| v.as_array()) {
                 for item in arr {
                     let def: McpResourceDefinition = serde_json::from_value(item.clone())
-                        .map_err(|e| AppError::Plugin(format!("Failed to parse resource definition: {e}")))?;
+                        .map_err(|e| AppError::Mcp(format!("Failed to parse resource definition: {e}")))?;
                     all_resources.push(def);
                 }
             }
@@ -228,7 +228,7 @@ impl McpClient {
 
         let contents_val = response.get("contents").cloned().unwrap_or(Value::Array(Vec::new()));
         serde_json::from_value(contents_val)
-            .map_err(|e| AppError::Plugin(format!("Failed to parse resource contents: {e}")))
+            .map_err(|e| AppError::Mcp(format!("Failed to parse resource contents: {e}")))
     }
 
     pub async fn list_prompts(&self) -> Result<Vec<McpPromptDefinition>> {
@@ -242,7 +242,7 @@ impl McpClient {
             if let Some(arr) = response.get("prompts").and_then(|v| v.as_array()) {
                 for item in arr {
                     let def: McpPromptDefinition = serde_json::from_value(item.clone())
-                        .map_err(|e| AppError::Plugin(format!("Failed to parse prompt definition: {e}")))?;
+                        .map_err(|e| AppError::Mcp(format!("Failed to parse prompt definition: {e}")))?;
                     all_prompts.push(def);
                 }
             }
@@ -267,8 +267,7 @@ impl McpClient {
         let response = self.transport.request("prompts/get", Some(params)).await?;
 
         let messages_val = response.get("messages").cloned().unwrap_or(Value::Array(Vec::new()));
-        serde_json::from_value(messages_val)
-            .map_err(|e| AppError::Plugin(format!("Failed to parse prompt messages: {e}")))
+        serde_json::from_value(messages_val).map_err(|e| AppError::Mcp(format!("Failed to parse prompt messages: {e}")))
     }
 }
 

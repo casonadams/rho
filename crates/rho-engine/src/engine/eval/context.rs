@@ -65,7 +65,7 @@ fn build_eval_engine(
 ) -> AgentEngine {
     let config = Config {
         max_turns: 2,
-        sessions_dir: sessions,
+        sessions_dir: sessions.clone(),
         ..Config::default()
     };
     let agent = rig::agent::AgentBuilder::from_model_handle(ModelHandle::new(model))
@@ -74,10 +74,10 @@ fn build_eval_engine(
         .build();
     AgentEngine {
         config,
+        base_dir: sessions,
         session_manager: store,
         tools: Vec::new(),
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(Vec::new())),
-        plugins: Vec::new(),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

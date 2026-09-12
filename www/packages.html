@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ecosystem &amp; Extensions · rho</title>
-  <meta name="description" content="Discover verified Model Context Protocol (MCP) servers, example lifecycle plugins, and SDK tooling for the rho coding agent.">
+  <meta name="description" content="Discover verified Model Context Protocol (MCP) servers and lifecycle hook recipes for the rho coding agent.">
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
@@ -58,7 +58,7 @@
         Extensions &amp; Ecosystem
       </h1>
       <p style="color: var(--text-secondary); font-size: 1.05rem; max-width: 760px;">
-        Verified Model Context Protocol (MCP) servers, example daemon plugins, and official developer SDK tooling for the <code>rho</code> coding agent.
+        Verified Model Context Protocol (MCP) servers and lifecycle hook recipes for the <code>rho</code> coding agent.
       </p>
     </div>
 
@@ -66,14 +66,13 @@
     <div class="catalog-toolbar">
       <div class="search-field">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="pluginSearchInput" class="search-input" placeholder="Search extensions by name, runtime, or keyword…" autocomplete="off">
+        <input type="search" id="extensionSearchInput" class="search-input" placeholder="Search extensions by name, runtime, or keyword…" autocomplete="off">
       </div>
 
       <div class="filter-group">
         <button class="filter-btn active" data-type="all">All</button>
         <button class="filter-btn" data-type="mcp">MCP Servers</button>
-        <button class="filter-btn" data-type="plugin">Lifecycle Plugins</button>
-        <button class="filter-btn" data-type="sdk">Rust SDK</button>
+        <button class="filter-btn" data-type="hook">Lifecycle Hooks</button>
       </div>
 
       <div>
@@ -87,7 +86,7 @@
 
     <!-- Status / Count Bar -->
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; font-size: 0.84rem; color: var(--text-muted);">
-      <span id="pluginCount">Loading extensions…</span>
+      <span id="extensionCount">Loading extensions…</span>
       <span id="dataSourceIndicator" style="display: inline-flex; align-items: center; gap: 0.35rem;">
         <span style="width: 6px; height: 6px; border-radius: 50%; background-color: var(--accent-green);"></span>
         Verified Catalog
@@ -95,7 +94,7 @@
     </div>
 
     <!-- Grid -->
-    <div id="pluginsGrid" class="grid-3">
+    <div id="extensionsGrid" class="grid-3">
       <!-- Dynamically filled by plugins.js -->
     </div>
 
@@ -107,7 +106,7 @@
           How Extensions Work in rho
         </h2>
         <p style="color: var(--text-secondary); font-size: 0.95rem;">
-          <code>rho</code> separates tool execution into two decoupled systems: out-of-process MCP tool servers and lifecycle event plugins.
+          <code>rho</code> separates tool execution into two decoupled systems: out-of-process MCP tool servers and lightweight lifecycle hooks.
         </p>
       </div>
 
@@ -115,29 +114,34 @@
         <div class="step-card">
           <div class="step-number">1 · Connect MCP Tool Servers</div>
           <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-            Add standard Model Context Protocol servers under <code>[mcp.servers]</code> in <code>~/.config/rho/config.toml</code>:
+            Add standard Model Context Protocol servers to <code>.mcp.json</code> or <code>~/.agents/mcp.json</code>:
           </p>
-          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]</code></pre>
+          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"]
+    }
+  }
+}</code></pre>
         </div>
 
         <div class="step-card">
-          <div class="step-number">2 · Build Lifecycle Plugins</div>
+          <div class="step-number">2 · Add Lifecycle Hooks</div>
           <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-            Write stdio JSON-RPC daemons in Rust using <code>rho-plugin-sdk</code> or script them in Python/Node:
+            Place simple one-shot scripts in <code>.rho/hooks/</code> (Bash, Python, Node, etc.):
           </p>
-          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>cargo add rho-plugin-sdk
-# Handles tool_call, tool_result, repair, & UI modals</code></pre>
+          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code># .rho/hooks/on_tool_call
+# Intercepts tool calls with zero background daemons</code></pre>
         </div>
 
         <div class="step-card">
-          <div class="step-number">3 · Distribute via GitHub Releases</div>
+          <div class="step-number">3 · Manage via CLI</div>
           <p style="font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
-            Release binaries to GitHub Releases matching OS/arch. Users install directly into <code>~/.cargo/bin</code>:
+            Inspect and configure tools or update the CLI directly:
           </p>
-          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>rho install &lt;owner&gt;/&lt;repo&gt;
-rho update all</code></pre>
+          <pre style="background: var(--bg-surface-raised); padding: 0.5rem 0.6rem; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;"><code>rho mcp list
+rho update</code></pre>
         </div>
       </div>
     </section>
@@ -164,7 +168,7 @@ rho update all</code></pre>
         <div class="footer-links-group">
           <div class="footer-col">
             <span class="footer-col-title">Project</span>
-            <a href="packages.html">Ecosystem &amp; Plugins</a>
+            <a href="packages.html">Ecosystem</a>
             <a href="docs.html">Documentation</a>
             <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
             <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
@@ -173,7 +177,6 @@ rho update all</code></pre>
           <div class="footer-col">
             <span class="footer-col-title">Resources</span>
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
-            <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener">Plugin SDK</a>
             <a href="https://github.com/0xPlaygrounds/rig" target="_blank" rel="noopener">Rig Framework</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
@@ -191,32 +194,32 @@ rho update all</code></pre>
 
   <!-- Live Packages Controller -->
   <script type="module">
-    import { loadAllPlugins, filterPlugins, renderPluginCard } from "./js/plugins.js";
+    import { loadAllExtensions, filterExtensions, renderExtensionCard } from "./js/plugins.js";
 
-    let allPlugins = [];
+    let allExtensions = [];
     let currentType = "all";
     let currentQuery = "";
     let currentSort = "default";
 
-    const gridEl = document.getElementById("pluginsGrid");
-    const countEl = document.getElementById("pluginCount");
-    const searchInput = document.getElementById("pluginSearchInput");
+    const gridEl = document.getElementById("extensionsGrid");
+    const countEl = document.getElementById("extensionCount");
+    const searchInput = document.getElementById("extensionSearchInput");
     const sortSelect = document.getElementById("sortSelect");
     const filterBtns = document.querySelectorAll(".filter-btn");
 
     async function init() {
-      allPlugins = await loadAllPlugins();
+      allExtensions = await loadAllExtensions();
       applyFilters();
     }
 
     function applyFilters() {
-      const filtered = filterPlugins(allPlugins, {
+      const filtered = filterExtensions(allExtensions, {
         query: currentQuery,
         type: currentType,
         sort: currentSort
       });
 
-      countEl.textContent = `Showing ${filtered.length} of ${allPlugins.length} verified extensions`;
+      countEl.textContent = `Showing ${filtered.length} of ${allExtensions.length} verified extensions`;
 
       if (!filtered.length) {
         gridEl.innerHTML = `
@@ -228,7 +231,7 @@ rho update all</code></pre>
         return;
       }
 
-      gridEl.innerHTML = filtered.map(renderPluginCard).join("");
+      gridEl.innerHTML = filtered.map(renderExtensionCard).join("");
     }
 
     if (searchInput) {

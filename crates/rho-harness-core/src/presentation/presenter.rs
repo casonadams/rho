@@ -27,9 +27,8 @@ pub trait Presenter: Send + Sync {
     fn start_tool_spinner(&self, name: &str, arguments: &Value) -> ActivityToken;
     fn start_tool_run(&self, name: &str, arguments: &Value);
     fn stream_port(&self) -> ToolStreamPort;
-    /// Renders a generic modal on behalf of a caller (currently: plugins
-    /// serving `ui/prompt`). `None` means no interactive UI — callers treat
-    /// that as cancellation.
+    /// Renders a generic modal on behalf of a caller (e.g. hook or permission gate).
+    /// `None` means no interactive UI — callers treat that as cancellation.
     async fn request_interaction(&self, _prompt: InteractionPrompt) -> Option<InteractionResponse> {
         None
     }

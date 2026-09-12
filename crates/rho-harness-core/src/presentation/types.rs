@@ -3,8 +3,7 @@ use serde_json::Value;
 
 pub const UI_EVENT_VERSION: u32 = 1;
 
-/// One selectable row in a generic modal rendered on behalf of a caller
-/// (plugin or engine).
+/// One selectable row in a generic modal rendered on behalf of a caller.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InteractionOption {
     pub label: String,
@@ -33,8 +32,7 @@ pub enum OptionLayout {
     Vertical,
 }
 
-/// A generic modal request; deserializable straight from plugin `ui/prompt`
-/// params, so senders only need these fields.
+/// A generic modal request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InteractionPrompt {
     pub title: String,
@@ -52,14 +50,12 @@ pub struct InteractionPrompt {
     pub option_layout: OptionLayout,
 }
 
-/// Serializes as `{"selected":n}` / `{"custom":"..."}` / `"cancelled"` — the
-/// reply contract that plugin `ui/prompt` requests rely on.
+/// Interactive prompt response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InteractionResponse {
     Selected(usize),
-    /// Text submitted through an option's inline input; carries both so the
-    /// plugin knows which action the text belongs to.
+    /// Text submitted through an option's inline input.
     SelectedWithInput {
         index: usize,
         text: String,
@@ -80,7 +76,7 @@ pub struct WelcomeDisplay {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub plugins: Vec<String>,
+    pub mcp: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

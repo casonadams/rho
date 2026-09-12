@@ -1,6 +1,6 @@
 //! rho CLI shell: subcommand dispatch, REPL frontends, and terminal UI.
 //!
-//! - `cli`: subcommand routing (`run`, `auth`, `plugin`, `rpc`), process
+//! - `cli`: subcommand routing (`run`, `auth`, `mcp`, `update`, `rpc`), process
 //!   cleanup guards, and session resume plumbing.
 //! - `repl`: two frontends over one turn pipeline — `live` (raw-mode TUI with
 //!   modals, streaming transcript, autocomplete) and `line_mode` (readline

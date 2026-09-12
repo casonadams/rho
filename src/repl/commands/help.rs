@@ -11,7 +11,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /resume [id]                Resume a prior session\n\
   /thinking [level]           Configure thinking effort (off, minimal, low, medium, high, max)\n\
   /skill [name]               List or inspect skills\n\
-  /plugin                     List configured MCP servers and plugins\n\
+  /mcp                        List configured MCP servers\n\
   /session                    Display token capacity and session diagnostics\n\
   /compact [instructions]     Summarize earlier context to free context space\n\
   /tree                       View conversation turn and branch tree\n\

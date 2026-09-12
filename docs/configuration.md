@@ -73,6 +73,11 @@ lowest):
 4. **Global Configuration** (`~/.config/rho/config.toml`)
 
 ```text
+~/.agents/
+├── AGENTS.md       # Global instructions & engineering defaults
+├── mcp.json        # Global Model Context Protocol tool servers
+└── skills/         # Global skills (~/.agents/skills/<name>/SKILL.md)
+
 ~/.config/rho/
 ├── auth.json       # Persisted credentials and OAuth tokens
 ├── config.toml     # Global application preferences and providers
@@ -148,15 +153,12 @@ Add YAML frontmatter to describe the skill and its arguments:
 
 ```markdown
 ---
-name: create-plugin
-description: Scaffold and package an MCP tool server or rho lifecycle plugin.
-arguments:
-  - name: plugin_name
-    description: Target plugin identifier
-    required: true
+name: plan
+description: Explore the codebase and deliver an implementation plan.
+argument-hint: "<task-description-or-spec>"
 ---
 
-# Instructions for scaffolding plugin...
+# Instructions for planning...
 ```
 
 ### Invoking Skills
@@ -164,7 +166,7 @@ arguments:
 Invoke skills in the interactive REPL:
 
 ```text
-/skill:create-plugin my-plugin
+/skill:plan my-feature
 ```
 
 Auto-completion presents matching skills as soon as you type `/skill `.

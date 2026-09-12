@@ -18,7 +18,7 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("resume", "Resume a previous session (opens session selector)"),
     ("thinking", "Set thinking level <level>"),
     ("skill", "List, inspect, or invoke declarative skills"),
-    ("plugin", "Inspect configured MCP servers and plugins"),
+    ("mcp", "Inspect and manage Model Context Protocol servers"),
     ("session", "Display token capacity and session diagnostics"),
     ("compact", "Manually compact the session context"),
     ("tree", "Navigate session tree (switch branches)"),

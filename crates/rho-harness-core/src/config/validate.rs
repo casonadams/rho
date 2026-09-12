@@ -23,30 +23,8 @@ fn validate_limits(config: &super::Config) -> Result<()> {
     Ok(())
 }
 
-fn validate_single_plugin(name: &str, plugin: &crate::config::types::PluginConfig) -> Result<()> {
-    if !is_valid_plugin_name(name) {
-        return Err(AppError::Config(format!("invalid plugin name '{name}'")));
-    }
-    if plugin.path.as_os_str().is_empty() && plugin.command.is_none() {
-        return Err(AppError::Config(format!(
-            "plugin '{name}' must specify a path or command"
-        )));
-    }
-    if plugin.package.as_ref().is_some_and(|package| package.trim().is_empty()) {
-        return Err(AppError::Config(format!("plugin '{name}' package must not be empty")));
-    }
-    Ok(())
-}
-
-fn validate_plugins(config: &super::Config) -> Result<()> {
-    for (name, plugin) in &config.plugins {
-        validate_single_plugin(name, plugin)?;
-    }
-    Ok(())
-}
-
 fn validate_single_provider(name: &str, provider: &crate::config::types::ProviderConfig) -> Result<()> {
-    if !is_valid_plugin_name(name) {
+    if !is_valid_provider_name(name) {
         return Err(AppError::Config(format!("invalid provider name '{name}'")));
     }
     if crate::provider::ProviderId::from_str(name).is_ok() {
@@ -74,12 +52,11 @@ fn validate_providers(config: &super::Config) -> Result<()> {
 impl super::Config {
     pub(super) fn validate(&self) -> Result<()> {
         validate_limits(self)?;
-        validate_plugins(self)?;
         validate_providers(self)
     }
 }
 
-pub(super) fn is_valid_plugin_name(name: &str) -> bool {
+pub(super) fn is_valid_provider_name(name: &str) -> bool {
     !name.is_empty()
         && name
             .chars()

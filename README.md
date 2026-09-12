@@ -90,16 +90,11 @@ Comprehensive guides are organized in [`docs/`](docs/):
     feedback).
   - Fail-closed execution in headless automation.
 
-- **[MCP Servers & Lifecycle Plugins](docs/plugins.md)**
+- **[MCP Servers & Lifecycle Hooks](docs/mcp-and-hooks.md)**
   - Full Model Context Protocol (MCP) support: `stdio` and `streamable-http` transports with OAuth 2.1 PKCE authorization.
-  - Workspace `.mcp.json` interoperability, MCP resources, prompts, and root boundary negotiation.
+  - Ecosystem interoperability with `~/.agents/mcp.json` and workspace `.mcp.json`.
   - Context budget tool gating (`direct` vs `gateway` vs `auto`), `/mcp` TUI modal, and `rho mcp` management suite.
-  - JSON-RPC stdio daemon plugin architecture for custom lifecycle steering and
-    guardrails.
-  - Native Rust plugin development via
-    [`rho-plugin-sdk`](https://crates.io/crates/rho-plugin-sdk).
-  - Built-in plugin package management (`rho install`, `rho update`,
-    `rho remove`).
+  - One-shot lifecycle hooks in `.rho/hooks/` for deterministic policy enforcement, tool gating, argument rewriting, and turn control without background daemons.
 
 ---
 

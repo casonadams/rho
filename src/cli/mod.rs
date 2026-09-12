@@ -1,12 +1,12 @@
-//! CLI subcommand routing: `run`/`auth`/`plugin`/`rpc` dispatch, credential
-//! flows, plugin install/update/remove lifecycle, and process cleanup guards.
+//! CLI subcommand routing: `run`/`auth`/`mcp`/`update`/`rpc` dispatch, credential
+//! flows, self-update, and process cleanup guards.
 
 pub mod auth;
 mod commands;
 pub mod mcp;
-pub mod plugin;
 pub mod rpc;
 mod runner;
+pub mod self_update;
 mod session;
 
 #[cfg(test)]

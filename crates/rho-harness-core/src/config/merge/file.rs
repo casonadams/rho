@@ -112,15 +112,10 @@ fn merge_retention(config: &mut Config, file: &FileConfig) {
     }
 }
 
-fn merge_plugins_and_extensions(config: &mut Config, file: FileConfig) {
-    if let Some(mcp) = file.mcp {
-        config.mcp.enabled = mcp.enabled;
-        config.mcp.servers.extend(mcp.servers);
-    }
+fn merge_permission_and_providers(config: &mut Config, file: FileConfig) {
     if let Some(permission) = file.permission {
         config.permission = permission;
     }
-    config.plugins = file.plugins;
     config.providers = file.providers;
 }
 
@@ -139,6 +134,6 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_fetch_settings(config, &file);
     merge_modes(config, &file);
     merge_retention(config, &file);
-    merge_plugins_and_extensions(config, file.clone());
+    merge_permission_and_providers(config, file.clone());
     merge_ui_settings(config, &file);
 }

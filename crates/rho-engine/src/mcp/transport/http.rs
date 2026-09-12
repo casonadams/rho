@@ -103,7 +103,7 @@ impl HttpTransport {
         let mut data_lines = Vec::new();
 
         while let Some(chunk_res) = stream.next().await {
-            let chunk = chunk_res.map_err(|e| AppError::Plugin(format!("SSE stream error: {e}")))?;
+            let chunk = chunk_res.map_err(|e| AppError::Mcp(format!("SSE stream error: {e}")))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
             while let Some(pos) = buffer.find('\n') {
@@ -118,10 +118,7 @@ impl HttpTransport {
                             && resp.id.as_i64() == Some(target_id)
                         {
                             if let Some(err) = resp.error {
-                                return Err(AppError::Plugin(format!(
-                                    "MCP error: {} (code {})",
-                                    err.message, err.code
-                                )));
+                                return Err(AppError::Mcp(format!("MCP error: {} (code {})", err.message, err.code)));
                             }
                             return Ok(resp.result.unwrap_or(Value::Null));
                         }
@@ -132,7 +129,7 @@ impl HttpTransport {
             }
         }
 
-        Err(AppError::Plugin(
+        Err(AppError::Mcp(
             "SSE stream closed without returning response".to_string(),
         ))
     }
@@ -150,7 +147,7 @@ impl HttpTransport {
                 .json(&req_payload)
                 .send()
                 .await
-                .map_err(|e| AppError::Plugin(format!("HTTP request to '{}' failed: {e}", self.url)))?;
+                .map_err(|e| AppError::Mcp(format!("HTTP request to '{}' failed: {e}", self.url)))?;
 
             let status = res.status();
             let res_headers = res.headers().clone();
@@ -166,7 +163,7 @@ impl HttpTransport {
 
             if !status.is_success() {
                 let body = res.text().await.unwrap_or_default();
-                return Err(AppError::Plugin(format!(
+                return Err(AppError::Mcp(format!(
                     "HTTP error {status} from '{}': {body}",
                     self.url
                 )));
@@ -183,10 +180,10 @@ impl HttpTransport {
                 let json: JsonRpcResponse = res
                     .json()
                     .await
-                    .map_err(|e| AppError::Plugin(format!("Failed to parse JSON-RPC response: {e}")))?;
+                    .map_err(|e| AppError::Mcp(format!("Failed to parse JSON-RPC response: {e}")))?;
 
                 if let Some(err) = json.error {
-                    return Err(AppError::Plugin(format!(
+                    return Err(AppError::Mcp(format!(
                         "MCP error from {method}: {} (code {})",
                         err.message, err.code
                     )));
@@ -201,7 +198,7 @@ impl HttpTransport {
                 let _ = self
                     .notify("notifications/cancelled", Some(serde_json::json!({ "requestId": id })))
                     .await;
-                Err(AppError::Plugin(format!(
+                Err(AppError::Mcp(format!(
                     "MCP request '{method}' to '{}' timed out",
                     self.url
                 )))

@@ -30,7 +30,7 @@ fn build_mcp_command(config: &McpServerConfig, working_dir: &Path) -> Result<Com
     let command_str = config
         .command
         .as_deref()
-        .ok_or_else(|| AppError::Plugin("No command specified for stdio MCP server".to_string()))?;
+        .ok_or_else(|| AppError::Mcp("No command specified for stdio MCP server".to_string()))?;
     let mut cmd = Command::new(command_str);
     cmd.args(&config.args);
     cmd.current_dir(working_dir);
@@ -65,15 +65,15 @@ fn take_process_stdio(child: &mut tokio::process::Child) -> Result<(ChildStdin, 
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| AppError::Plugin("Failed to open child process stdin".to_string()))?;
+        .ok_or_else(|| AppError::Mcp("Failed to open child process stdin".to_string()))?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| AppError::Plugin("Failed to open child process stdout".to_string()))?;
+        .ok_or_else(|| AppError::Mcp("Failed to open child process stdout".to_string()))?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| AppError::Plugin("Failed to open child process stderr".to_string()))?;
+        .ok_or_else(|| AppError::Mcp("Failed to open child process stderr".to_string()))?;
     Ok((stdin, stdout, stderr))
 }
 
@@ -83,7 +83,7 @@ impl McpProcess {
         let mut cmd = build_mcp_command(config, working_dir)?;
         let mut child = cmd
             .spawn()
-            .map_err(|error| AppError::Plugin(format!("Failed to spawn MCP server '{command_name}': {error}")))?;
+            .map_err(|error| AppError::Mcp(format!("Failed to spawn MCP server '{command_name}': {error}")))?;
 
         let (stdin, stdout, stderr) = take_process_stdio(&mut child)?;
         let stderr_buffer = spawn_stderr_reader(stderr);

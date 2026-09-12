@@ -1,23 +1,13 @@
-//! CLI subcommand execution (config, models, plugins, login, logout).
+//! CLI subcommand execution (config, models, mcp, login, logout).
 
 use crate::auth::AuthStore;
 use crate::config::Config;
-use crate::config::cli::{Commands, PluginCommands};
+use crate::config::cli::Commands;
 use rho_harness_core::provider::ProviderId;
 use std::str::FromStr;
 
-async fn handle_update_command(target: Option<String>, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    match target.as_deref() {
-        None => {
-            super::plugin::self_update::handle_self_update(config).await?;
-        }
-        Some("all") => {
-            super::plugin::update::handle_update_all(config).await?;
-        }
-        Some(plugin) => {
-            super::plugin::update::handle_update_plugin(config, plugin).await?;
-        }
-    }
+async fn handle_update_command(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    super::self_update::handle_self_update(config).await?;
     Ok(())
 }
 
@@ -46,21 +36,6 @@ async fn handle_basic_commands(
     }
 }
 
-async fn handle_plugin_commands(cmd: Commands, config: &Config) -> Result<bool, Box<dyn std::error::Error>> {
-    match cmd {
-        Commands::Install { target, force } => {
-            handle_plugin(Some(PluginCommands::Install { target, force }), config).await?;
-        }
-        Commands::Update { target } => handle_update_command(target, config).await?,
-        Commands::Remove { name, keep_binary } => {
-            handle_plugin(Some(PluginCommands::Remove { name, keep_binary }), config).await?;
-        }
-        Commands::Plugin { action } => handle_plugin(action, config).await?,
-        _ => return Ok(false),
-    }
-    Ok(true)
-}
-
 pub async fn handle_command(
     cmd: Commands,
     config: &Config,
@@ -69,11 +44,11 @@ pub async fn handle_command(
     if handle_basic_commands(&cmd, (config, auth_store)).await? {
         return Ok(());
     }
-    if let Commands::Mcp { action } = cmd {
-        super::mcp::handle_mcp(action, config, auth_store).await?;
-        return Ok(());
+    match cmd {
+        Commands::Mcp { action } => super::mcp::handle_mcp(action, config, auth_store).await?,
+        Commands::Update => handle_update_command(config).await?,
+        _ => {}
     }
-    handle_plugin_commands(cmd, config).await?;
     Ok(())
 }
 
@@ -142,33 +117,4 @@ fn handle_models(config: &Config) {
             println!("Models for {} (custom):\n  - {}", config.provider, config.model);
         }
     }
-}
-
-async fn handle_plugin_update(target: Option<String>, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    match target.as_deref() {
-        None | Some("all") => {
-            super::plugin::update::handle_update_all(config).await?;
-        }
-        Some(plugin) => {
-            super::plugin::update::handle_update_plugin(config, plugin).await?;
-        }
-    }
-    Ok(())
-}
-
-async fn handle_plugin(action: Option<PluginCommands>, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    match action.unwrap_or(PluginCommands::List) {
-        PluginCommands::List => super::plugin::listing::handle_list(config)?,
-        PluginCommands::Remove { name, keep_binary } => {
-            super::plugin::remove::handle_remove(config, &name, keep_binary).await?;
-        }
-        PluginCommands::Inspect { capability } => {
-            super::plugin::listing::handle_inspect(config, capability.as_deref());
-        }
-        PluginCommands::Install { target, force } => {
-            super::plugin::install::handle_install(config, &target, force).await?;
-        }
-        PluginCommands::Update { target } => handle_plugin_update(target, config).await?,
-    }
-    Ok(())
 }

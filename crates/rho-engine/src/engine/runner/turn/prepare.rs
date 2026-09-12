@@ -4,7 +4,6 @@ use crate::engine::AgentEngine;
 use crate::engine::runner::history::continuation_history;
 use crate::engine::runner::sink::{TerminalApprovalSink, TerminalSinkConfig};
 use crate::engine::runtime::build_runner;
-use crate::plugin::daemon::DaemonHook;
 use crate::repeat::RepeatedCallHook;
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::presentation::ToolStreamPort;
@@ -134,17 +133,15 @@ impl AgentEngine {
         (sink, request): (&Arc<TerminalApprovalSink>, &TurnRequest<'_>),
         (presenter, prompt): (&Arc<dyn Presenter>, &str),
     ) -> Result<rig::agent::hook::HookStack> {
-        let cwd = std::env::current_dir()?;
-        let plugin_hook = DaemonHook::new(&self.config.plugins, &cwd, presenter.clone()).await;
-        plugin_hook.notify_turn_start(prompt).await;
+        let cwd = self.base_dir.clone();
+        let lifecycle_hook =
+            crate::hook::LifecycleHook::new(cwd.clone(), self.session_manager.session_id.clone(), presenter.clone());
+        lifecycle_hook.notify_turn_start(prompt).await;
 
         let mut hook_stack = rig::agent::hook::HookStack::new();
         hook_stack.push(RepeatedCallHook::new(cwd.clone()));
-        hook_stack.push(plugin_hook);
-        for p in &self.plugins {
-            p.register_hooks(&mut hook_stack);
-        }
-        if self.config.permission.enabled && !crate::permission::has_external_permission_plugin(&self.config.plugins) {
+        hook_stack.push(lifecycle_hook);
+        if self.config.permission.enabled {
             hook_stack.push(crate::permission::PermissionHook::new(Some(cwd), presenter.clone()));
         }
         hook_stack.push(super::auto_compact::AutoCompactHook::new(

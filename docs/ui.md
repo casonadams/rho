@@ -110,7 +110,6 @@ autocomplete):
 | `/name [name]`              | Assign a human-readable name to the current session.                                                              |
 | `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                                   |
 | `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                                    |
-| `/plugin`                   | List configured MCP tool servers and lifecycle plugins.                                                           |
 | `/mcp`                      | Open the interactive Model Context Protocol modal (toggle servers, inspect status).                               |
 | `/login [provider]`         | Authenticate with an AI provider (OAuth PKCE or API key).                                                         |
 | `/logout [provider]`        | Remove stored credentials for a provider.                                                                         |

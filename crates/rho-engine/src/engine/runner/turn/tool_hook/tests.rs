@@ -44,13 +44,13 @@ mod activation {
     }
 
     fn setup_subtree_repo(repo_root: &std::path::Path) {
-        let plugin_crate = repo_root.join("crates").join("rho-plugin-sdk");
-        let plugin_src = plugin_crate.join("src");
+        let sub_crate = repo_root.join("crates").join("rho-subcrate");
+        let sub_src = sub_crate.join("src");
         std::fs::create_dir_all(repo_root.join(".git")).unwrap();
-        std::fs::create_dir_all(&plugin_src).unwrap();
+        std::fs::create_dir_all(&sub_src).unwrap();
         std::fs::write(repo_root.join("AGENTS.md"), "# Root Workspace Instructions\n").unwrap();
-        std::fs::write(plugin_crate.join("AGENTS.md"), "# Plugin SDK Subtree Instructions\n").unwrap();
-        std::fs::write(plugin_src.join("lib.rs"), "pub fn hello() {}").unwrap();
+        std::fs::write(sub_crate.join("AGENTS.md"), "# Subtree Instructions\n").unwrap();
+        std::fs::write(sub_src.join("lib.rs"), "pub fn hello() {}").unwrap();
     }
 
     #[tokio::test]
@@ -67,7 +67,7 @@ mod activation {
             .with_project_context(shared_ctx.clone());
 
         let model = MockCompletionModel::new([
-            MockTurn::tool_call("1", "read", json!({"path": "crates/rho-plugin-sdk/src/lib.rs"})),
+            MockTurn::tool_call("1", "read", json!({"path": "crates/rho-subcrate/src/lib.rs"})),
             MockTurn::text("file inspected"),
         ]);
 
@@ -76,13 +76,13 @@ mod activation {
             .add_hook(hook)
             .record_content_telemetry(false)
             .build();
-        let response = agent.runner("Inspect plugin sdk").max_turns(3).run().await.unwrap();
+        let response = agent.runner("Inspect subcrate").max_turns(3).run().await.unwrap();
         assert_eq!(response.output, "file inspected");
 
         let guard = shared_ctx.lock().await;
         let (_, updated_ctx) = guard.as_ref().unwrap();
         assert_eq!(updated_ctx.instruction_files.len(), 2);
-        assert_eq!(updated_ctx.instruction_files[1].1, "# Plugin SDK Subtree Instructions");
+        assert_eq!(updated_ctx.instruction_files[1].1, "# Subtree Instructions");
     }
 }
 

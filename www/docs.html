@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Documentation · rho CLI &amp; Plugin Architecture</title>
-  <meta name="description" content="Official documentation for rho: commands, configuration, providers, keyboard shortcuts, MCP servers, and the rho plugin daemon architecture.">
+  <title>Documentation · rho CLI &amp; Architecture</title>
+  <meta name="description" content="Official documentation for rho: commands, configuration, providers, keyboard shortcuts, MCP servers, and lifecycle hooks.">
 
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="css/style.css">
@@ -80,10 +80,8 @@
         <ul class="docs-nav-list">
           <li class="docs-nav-item"><a href="#rpc-mode">Headless &amp; IDE RPC Mode</a></li>
           <li class="docs-nav-item"><a href="#compaction">Context Compaction</a></li>
-          <li class="docs-nav-item"><a href="#plugins">Plugins Subsystem</a></li>
-          <li class="docs-nav-item"><a href="#plugin-mgmt">Package Management</a></li>
-          <li class="docs-nav-item"><a href="#plugin-sdk">Developing in Rust</a></li>
           <li class="docs-nav-item"><a href="#mcp">MCP Configuration</a></li>
+          <li class="docs-nav-item"><a href="#hooks">Lifecycle Hooks</a></li>
         </ul>
       </div>
     </aside>
@@ -92,7 +90,7 @@
     <article class="docs-content">
       <h1 id="quickstart">Getting Started with rho</h1>
       <p>
-        <code>rho</code> is a fast, clean, minimal coding-agent CLI built in Rust. It delivers native performance, strict in-process safety boundaries, session persistence, and an extensible daemon plugin subsystem.
+        <code>rho</code> is a fast, clean, minimal coding-agent CLI built in Rust. It delivers native performance, strict in-process safety boundaries, session persistence, standard MCP tool servers, and lightweight lifecycle hooks.
       </p>
       <img src="assets/welcome.png" alt="rho startup screen with live quota in footer" class="doc-screenshot">
 
@@ -123,7 +121,7 @@
 
       <h2 id="cli-commands">CLI Commands &amp; Options</h2>
       <p>
-        <code>rho</code> provides a focused set of subcommands and flags for agent execution, plugin management, and configuration:
+        <code>rho</code> provides a focused set of subcommands and flags for agent execution, MCP tool management, and configuration:
       </p>
 
       <div class="code-block-wrapper">
@@ -161,12 +159,14 @@ rho models
 rho config
 rho config model.provider anthropic
 
-# Manage plugins
-rho install permission
-rho plugin ls
-rho plugin inspect tool:bash
-rho update all
-rho remove permission</code></pre>
+# Model Context Protocol (MCP)
+rho mcp list
+rho mcp test filesystem
+rho mcp add db "https://mcp.db.example.com/mcp"
+rho mcp remove db
+
+# Self-update to latest release
+rho update</code></pre>
       </div>
 
       <h2 id="built-in-tools">9 Built-in Native Tools</h2>
@@ -357,10 +357,6 @@ bash_error_border = "red"        # Failed bash commands</code></pre>
       <table class="shortcuts-table">
         <tbody>
           <tr>
-            <td><code>/plugin</code></td>
-            <td>List active MCP tool servers, plugins, and registration health</td>
-          </tr>
-          <tr>
             <td><code>/mcp</code></td>
             <td>Open the interactive Model Context Protocol modal and toggle servers</td>
           </tr>
@@ -525,187 +521,76 @@ bash_error_border = "red"        # Failed bash commands</code></pre>
         <li><strong>Bounded Summary Enforcement</strong>: Compaction summaries are strictly clamped to <code>compaction_max_bytes</code> (default 8,192 bytes), preventing runaway summarizer recursion.</li>
       </ul>
 
-      <h2 id="plugins">The rho Plugin Daemon Subsystem</h2>
+      <h2 id="hooks">The rho Lifecycle Hooks Subsystem</h2>
       <p>
-        Plugins in rho are persistent daemon processes communicating via <strong>JSON-RPC 2.0 over standard I/O (stdio)</strong>. They observe agent execution, steer prompts, enforce guardrails, and invoke host UI services.
+        Lifecycle hooks in rho are lightweight, one-shot executable scripts in <strong><code>.rho/hooks/</code></strong>. When events occur, rho pipes event details as single-line JSON to the script's <code>stdin</code> and reads the decision JSON from <code>stdout</code>.
       </p>
 
-      <h3>Event Lifecycle</h3>
+      <h3>Hook Events</h3>
       <table class="shortcuts-table">
         <thead>
           <tr>
-            <th>Event</th>
-            <th>Payload</th>
+            <th>Event File</th>
+            <th>Payload (stdin)</th>
             <th>Description</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td><code>tool_call</code></td>
-            <td><code>{ tool_name, args }</code></td>
-            <td>Intercept tool calls before execution.</td>
+            <td><code>on_tool_call</code></td>
+            <td><code>{ event, tool_name, args, turn, session_id }</code></td>
+            <td>Intercept tool calls before execution. Can allow, stop, skip, rewrite arguments, or prompt the user.</td>
           </tr>
           <tr>
-            <td><code>tool_result</code></td>
-            <td><code>{ tool_name, args, output, is_error }</code></td>
+            <td><code>on_tool_result</code></td>
+            <td><code>{ event, tool_name, args, output, is_error }</code></td>
             <td>Inspect or transform tool output after execution.</td>
           </tr>
           <tr>
-            <td><code>invalid_tool_call</code></td>
-            <td><code>{ tool_name, args, available_tools }</code></td>
-            <td>Intercept hallucinated or misspelled tools to repair dynamically.</td>
+            <td><code>on_invalid_tool_call</code></td>
+            <td><code>{ event, tool_name, args, available_tools }</code></td>
+            <td>Intercept hallucinated or misspelled tools to retry or halt.</td>
           </tr>
           <tr>
-            <td><code>completion_call</code></td>
-            <td><code>{ turn, prompt, history }</code></td>
-            <td>Audit or patch prompt before LLM completion.</td>
+            <td><code>on_completion_call</code></td>
+            <td><code>{ event, turn, prompt }</code></td>
+            <td>Audit prompt before LLM provider completion.</td>
           </tr>
           <tr>
-            <td><code>completion_response</code></td>
-            <td><code>{ prompt, response }</code></td>
-            <td>Inspect raw model tokens and completion response.</td>
+            <td><code>turn_start</code></td>
+            <td><code>{ event, prompt, turn, session_id }</code></td>
+            <td>Notifies turn initiation with initial user prompt.</td>
+          </tr>
+          <tr>
+            <td><code>turn_end</code></td>
+            <td><code>{ event, status, tool_calls_count, turn, session_id }</code></td>
+            <td>Notifies turn completion.</td>
           </tr>
         </tbody>
       </table>
 
-      <h2 id="plugin-mgmt">Plugin Package Management</h2>
-      <p>
-        Install, update, and remove plugins directly through <code>rho</code> without compiling locally. rho fetches precompiled platform binaries from GitHub Releases and registers them in <code>~/.config/rho/config.toml</code>:
-      </p>
-
+      <h3>Example: Blocking Destructive Commands</h3>
       <div class="code-block-wrapper">
         <div class="code-block-header">
-          <span>Plugin Commands</span>
-          <button class="copy-btn" data-copy="rho install permission">Copy</button>
+          <span>.rho/hooks/on_tool_call (chmod +x)</span>
+          <button class="copy-btn" data-copy="#!/bin/sh
+read -r EVENT
+if echo &quot;$EVENT&quot; | grep -Eq 'rm -rf|git reset --hard'; then
+  echo '{&quot;action&quot;:&quot;stop&quot;,&quot;reason&quot;:&quot;Destructive command blocked by hook&quot;}'
+fi">Copy</button>
         </div>
-        <pre><code># Bare name (resolves to casonadams/rho-plugin-&lt;name&gt;)
-rho install permission
+        <pre><code>#!/bin/sh
+read -r EVENT
 
-# Pinned release tag
-rho install permission@v0.3.0
-
-# GitHub repository slug
-rho install owner/repo
-
-# List installed plugins, binary locations, and health
-rho plugin ls
-
-# Inspect active capability origins
-rho plugin inspect tool:bash
-
-# Update rho or installed plugins
-rho update all
-rho update permission
-
-# Safely remove plugin and delete binary from ~/.cargo/bin
-rho remove permission</code></pre>
-      </div>
-
-      <h2 id="plugin-sdk">Developing Plugins with rho-plugin-sdk</h2>
-      <p>
-        Build native plugins in Rust using the official <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener"><code>rho-plugin-sdk</code></a> crate. Plugins can intercept tools, repair invalid calls, and request host UI confirmation:
-      </p>
-
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>src/main.rs</span>
-          <button class="copy-btn" data-copy="use async_trait::async_trait;
-use rho_plugin_sdk::{Flow, HostContext, Plugin, StepEvent, serve};
-
-struct RustGuard;
-
-#[async_trait]
-impl Plugin for RustGuard {
-    fn name(&self) -> &str {
-        &quot;rust-guard&quot;
-    }
-
-    fn subscriptions(&self) -> Vec<String> {
-        vec![&quot;tool_call&quot;.into(), &quot;invalid_tool_call&quot;.into()]
-    }
-
-    async fn on_event(&self, event: StepEvent, ctx: &HostContext) -> Flow {
-        match event {
-            StepEvent::ToolCall { tool_name, args } => {
-                if tool_name == &quot;bash&quot;
-                    &amp;&amp; args.get(&quot;command&quot;).and_then(|v| v.as_str()).unwrap_or(&quot;&quot;).contains(&quot;sudo&quot;)
-                {
-                    let allowed = ctx.confirm(&quot;Security Alert&quot;, &quot;Allow sudo execution?&quot;).await;
-                    if !allowed {
-                        ctx.block(&quot;Security Gate&quot;, &quot;Blocked unapproved sudo command&quot;, &quot;error&quot;).await;
-                        return Flow::skip(&quot;Permission denied by user.&quot;);
-                    }
-                }
-                ctx.set_status(&quot;security&quot;, Some(&quot;🔒 Guard Active&quot;)).await;
-                Flow::cont()
-            }
-            StepEvent::InvalidToolCall { tool_name, .. } => {
-                if tool_name == &quot;sh&quot; || tool_name == &quot;shell&quot; {
-                    return Flow::repair(&quot;bash&quot;);
-                }
-                Flow::cont()
-            }
-            _ => Flow::cont(),
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    serve(RustGuard).await;
-}">Copy</button>
-        </div>
-        <pre><code>use async_trait::async_trait;
-use rho_plugin_sdk::{Flow, HostContext, Plugin, StepEvent, serve};
-
-struct RustGuard;
-
-#[async_trait]
-impl Plugin for RustGuard {
-    fn name(&self) -> &str {
-        "rust-guard"
-    }
-
-    fn subscriptions(&self) -> Vec<String> {
-        vec!["tool_call".into(), "invalid_tool_call".into()]
-    }
-
-    async fn on_event(&self, event: StepEvent, ctx: &HostContext) -> Flow {
-        match event {
-            StepEvent::ToolCall { tool_name, args } => {
-                if tool_name == "bash"
-                    && args.get("command").and_then(|v| v.as_str()).unwrap_or("").contains("sudo")
-                {
-                    let allowed = ctx.confirm("Security Alert", "Allow sudo execution?").await;
-                    if !allowed {
-                        ctx.block("Security Gate", "Blocked unapproved sudo command", "error").await;
-                        return Flow::skip("Permission denied by user.");
-                    }
-                }
-                ctx.set_status("security", Some("🔒 Guard Active")).await;
-                Flow::cont()
-            }
-            StepEvent::InvalidToolCall { tool_name, .. } => {
-                // Self-healing: automatically repair hallucinated tool aliases
-                if tool_name == "sh" || tool_name == "shell" {
-                    return Flow::repair("bash");
-                }
-                Flow::cont()
-            }
-            _ => Flow::cont(),
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    serve(RustGuard).await;
-}</code></pre>
+# Intercept dangerous commands
+if echo "$EVENT" | grep -Eq 'rm -rf|git reset --hard'; then
+  echo '{"action":"stop","reason":"Destructive command blocked by hook"}'
+fi</code></pre>
       </div>
 
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
       <p>
-        MCP servers are tool providers configured in <code>~/.config/rho/config.toml</code>, <code>.rho/config.toml</code>, or standard workspace <code>.mcp.json</code>. <code>rho</code> supports both local <code>stdio</code> child processes and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
+        MCP servers are tool providers configured via standard JSON in <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
       </p>
 
       <div class="code-block-wrapper">
@@ -724,34 +609,34 @@ rho mcp add db "https://mcp.db.example.com/mcp"
 
       <div class="code-block-wrapper">
         <div class="code-block-header">
-          <span>~/.config/rho/config.toml</span>
-          <button class="copy-btn" data-copy="[mcp]
-enabled = true
-
-[mcp.servers.filesystem]
-command = &quot;npx&quot;
-args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;/Users/username/Desktop&quot;]
-enabled = true
-
-[mcp.servers.github]
-command = &quot;npx&quot;
-args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-github&quot;]
-env = { GITHUB_PERSONAL_ACCESS_TOKEN = &quot;ghp_...&quot; }
-enabled = true">Copy</button>
+          <span>~/.agents/mcp.json or .mcp.json</span>
+          <button class="copy-btn" data-copy="{
+  &quot;mcpServers&quot;: {
+    &quot;filesystem&quot;: {
+      &quot;command&quot;: &quot;npx&quot;,
+      &quot;args&quot;: [&quot;-y&quot;, &quot;@modelcontextprotocol/server-filesystem&quot;, &quot;/Users/username/Desktop&quot;]
+    },
+    &quot;github&quot;: {
+      &quot;command&quot;: &quot;npx&quot;,
+      &quot;args&quot;: [&quot;-y&quot;, &quot;@modelcontextprotocol/server-github&quot;],
+      &quot;env&quot;: { &quot;GITHUB_TOKEN&quot;: &quot;${GITHUB_TOKEN}&quot; }
+    }
+  }
+}">Copy</button>
         </div>
-        <pre><code>[mcp]
-enabled = true
-
-[mcp.servers.filesystem]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
-enabled = true
-
-[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-env = { GITHUB_PERSONAL_ACCESS_TOKEN = "ghp_..." }
-enabled = true</code></pre>
+        <pre><code>{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/username/Desktop"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+    }
+  }
+}</code></pre>
       </div>
     </article>
   </main>
@@ -777,7 +662,7 @@ enabled = true</code></pre>
         <div class="footer-links-group">
           <div class="footer-col">
             <span class="footer-col-title">Project</span>
-            <a href="packages.html">Ecosystem &amp; Plugins</a>
+            <a href="packages.html">Ecosystem</a>
             <a href="docs.html">Documentation</a>
             <a href="https://github.com/casonadams/rho/releases" target="_blank" rel="noopener">Releases</a>
             <a href="https://crates.io/crates/rho" target="_blank" rel="noopener">Crates.io</a>
@@ -786,7 +671,6 @@ enabled = true</code></pre>
           <div class="footer-col">
             <span class="footer-col-title">Resources</span>
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
-            <a href="https://crates.io/crates/rho-plugin-sdk" target="_blank" rel="noopener">Plugin SDK</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>

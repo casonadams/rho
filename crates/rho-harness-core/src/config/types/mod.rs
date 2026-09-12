@@ -8,7 +8,7 @@ mod ui;
 pub use app::{Config, DEFAULT_MAX_TURNS};
 pub(crate) use file::FileConfig;
 pub use integrations::{
-    McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig, PluginConfig, ProviderConfig,
+    McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig, ProviderConfig,
 };
 pub(crate) use key::ConfigKey;
 pub use paths::{default_config_dir, dirs_fallback};

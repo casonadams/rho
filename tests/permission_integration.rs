@@ -1,6 +1,6 @@
 #![cfg(unix)]
 
-use rho::config::{Config, PermissionConfig, PluginConfig};
+use rho::config::{Config, PermissionConfig};
 use rho::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
 use rho::engine::runner::TurnRequest;
 use rho::presentation::{RecordingSink, StructuredPresenter, UiEvent};
@@ -94,42 +94,6 @@ async fn test_permission_disabled_allows_execution() {
         .await
         .unwrap();
     assert_eq!(output.final_text, "done creating");
-    assert!(
-        f.recording
-            .events()
-            .iter()
-            .any(|e| matches!(e, UiEvent::ToolStarted { .. }))
-    );
-}
-
-fn plugin_override_config() -> Config {
-    let mut plugins = std::collections::BTreeMap::new();
-    plugins.insert(
-        "permission".into(),
-        PluginConfig {
-            enabled: true,
-            ..Default::default()
-        },
-    );
-    Config {
-        permission: PermissionConfig { enabled: true },
-        plugins,
-        ..Config::default()
-    }
-}
-
-#[tokio::test]
-async fn test_permission_plugin_override_disables_builtin_hook() {
-    let workspace = temp_workspace();
-    let model = make_perm_model("touch plugin_override.txt", "plugin allowed");
-    let f = make_perm_engine(&workspace, model, plugin_override_config());
-
-    let output = f
-        .engine
-        .run_turn(TurnRequest::new("run with plugin override"), f.presenter)
-        .await
-        .unwrap();
-    assert_eq!(output.final_text, "plugin allowed");
     assert!(
         f.recording
             .events()

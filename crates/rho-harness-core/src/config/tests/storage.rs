@@ -1,4 +1,4 @@
-use super::super::{Config, FileConfig, PluginConfig};
+use super::super::{Config, FileConfig};
 
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -116,26 +116,6 @@ fn test_set_file_value_persists_and_validates() {
     assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
     assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
 
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
-#[test]
-fn plugin_entries_round_trip_and_are_removed_atomically() {
-    let dir = std::env::temp_dir().join(format!("rho_plugin_config_{}", uuid::Uuid::new_v4()));
-    let plugin = PluginConfig {
-        path: std::path::PathBuf::from("plugins/fixture"),
-        package: Some("rho-plugin-fixture".to_string()),
-        replaces: ["tool:bash".parse().unwrap()].into_iter().collect(),
-        ..Default::default()
-    };
-    Config::add_plugin(&dir, "fixture", plugin.clone()).unwrap();
-    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    let parsed: FileConfig = toml::from_str(&content).unwrap();
-    assert_eq!(parsed.plugins.get("fixture"), Some(&plugin));
-    assert_eq!(Config::remove_plugin(&dir, "fixture").unwrap(), plugin);
-    let parsed: FileConfig = toml::from_str(&std::fs::read_to_string(dir.join("config.toml")).unwrap()).unwrap();
-    assert!(parsed.plugins.is_empty());
-    assert!(Config::remove_plugin(&dir, "fixture").is_err());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
