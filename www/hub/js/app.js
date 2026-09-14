@@ -149,11 +149,18 @@ async function openWorkspace(node, preferredSessionId = null) {
 
   activeClient.onEvent((ev) => {
     if (ev.type === 'turn_start') {
+      if (ev.prompt) {
+        sessionView.addUserMessage(ev.prompt);
+      }
       sessionView.startAssistantTurn();
     } else if (ev.type === 'text_chunk') {
       sessionView.appendTextChunk(ev.content);
     } else if (ev.type === 'reasoning_chunk') {
       sessionView.appendReasoningChunk(ev.content);
+    } else if (ev.type === 'tool_call_start') {
+      sessionView.appendToolCall(ev.tool, ev.arguments);
+    } else if (ev.type === 'tool_call_result') {
+      sessionView.appendToolResult(ev.tool, ev.output, ev.is_error);
     } else if (ev.type === 'tool_approval_request') {
       sessionView.showApprovalRequest(ev);
     } else if (ev.type === 'status_changed') {
@@ -205,7 +212,7 @@ function renderSessionList(sessions, activeSessionId) {
   for (const s of sessions) {
     const li = document.createElement('li');
     li.className = 'session-item' + (s.session_id === activeSessionId ? ' active' : '');
-    const title = s.name || (s.preview ? (s.preview.length > 30 ? s.preview.slice(0, 30) + '...' : s.preview) : s.session_id);
+    const title = s.name || (s.preview && s.preview !== 'Empty session' ? (s.preview.length > 30 ? s.preview.slice(0, 30) + '...' : s.preview) : s.session_id);
     const timeStr = s.last_modified ? new Date(s.last_modified).toLocaleTimeString() : '';
     li.innerHTML = `
       <div style="font-weight: 600; color: var(--text-primary); word-break: break-word;">${escapeHtml(title)}</div>
