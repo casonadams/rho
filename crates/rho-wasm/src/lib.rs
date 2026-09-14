@@ -13,6 +13,7 @@ pub fn start() {
 pub struct ParsedTicket {
     pub endpoint_id: String,
     pub direct_addresses: Vec<String>,
+    pub ws_port: Option<u16>,
     pub relay_url: Option<String>,
 }
 
@@ -45,10 +46,12 @@ pub fn parse_ticket(ticket_str: &str) -> Result<JsValue, JsValue> {
     }
 
     let relay_url = json.get("relay_url").and_then(|v| v.as_str()).map(ToString::to_string);
+    let ws_port = json.get("ws_port").and_then(|v| v.as_u64()).map(|p| p as u16);
 
     let parsed = ParsedTicket {
         endpoint_id,
         direct_addresses,
+        ws_port,
         relay_url,
     };
 

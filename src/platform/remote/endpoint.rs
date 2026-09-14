@@ -30,12 +30,22 @@ impl RhoEndpoint {
     }
 
     pub fn ticket(&self) -> Result<String> {
+        self.ticket_with_ws(None)
+    }
+
+    pub fn ticket_with_ws(&self, ws_port: Option<u16>) -> Result<String> {
         let mut addr = self.endpoint.addr();
         let port = addr.ip_addrs().next().map(|s| s.port()).unwrap_or(0);
         if port > 0 {
             addr = addr.with_ip_addr(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
         }
-        let json = serde_json::to_vec(&addr).context("failed to serialize endpoint addr")?;
+        let mut val = serde_json::to_value(&addr).context("failed to serialize endpoint addr")?;
+        if let Some(wp) = ws_port
+            && let serde_json::Value::Object(ref mut map) = val
+        {
+            map.insert("ws_port".to_string(), serde_json::json!(wp));
+        }
+        let json = serde_json::to_vec(&val)?;
         let b64 = URL_SAFE_NO_PAD.encode(json);
         Ok(format!("rho_{b64}"))
     }

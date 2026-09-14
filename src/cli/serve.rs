@@ -32,8 +32,9 @@ pub async fn handle_serve(
     let key_path = default_secret_key_path()?;
     let secret = load_or_generate_secret_key(&key_path)?;
 
+    let (ws_listener, ws_port) = crate::platform::remote::server::bind_ws_listener(port).await?;
     let endpoint = RhoEndpoint::bind(secret, port).await?;
-    let ticket = endpoint.ticket()?;
+    let ticket = endpoint.ticket_with_ws(Some(ws_port))?;
     let pairing_url = RhoEndpoint::pairing_url(&ticket);
     let qr = RhoEndpoint::render_qr(&pairing_url)?;
 
@@ -47,6 +48,7 @@ pub async fn handle_serve(
     println!("==================================================");
     println!(" rho remote node: {node_name}");
     println!(" workspace:       {}", base_dir.display());
+    println!(" websocket port:  {ws_port}");
     println!(" endpoint id:     {}", endpoint.id());
     println!("==================================================");
     println!("\nPairing URL:\n{pairing_url}\n");
@@ -55,7 +57,8 @@ pub async fn handle_serve(
     println!("Listening for peer connections... (Press Ctrl+C to exit)");
 
     let engine = agent_engine_in_dir(cfg.clone(), auth_store.clone(), base_dir, None).await?;
-    let server = RemoteServer::new(endpoint.endpoint().clone(), cfg, auth_store.clone(), engine);
+    let server =
+        RemoteServer::new(endpoint.endpoint().clone(), cfg, auth_store.clone(), engine).with_ws_listener(ws_listener);
 
     server.run_accept_loop().await?;
     Ok(())

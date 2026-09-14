@@ -170,7 +170,7 @@ async function handleNewSession() {
   if (!activeClient) return;
   const resp = await activeClient.send('create_session');
   sessionView.clear();
-  if (resp.data) {
+  if (resp && resp.data && resp.data.session_id) {
     sessionView.addUserMessage(`[New Session Created: ${resp.data.session_id}]`);
   }
 }

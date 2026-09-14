@@ -45,6 +45,7 @@ toml_edit = "0.25"
 iroh = "1.2.0"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false }
+tokio-websockets = { version = "0.13", default-features = false, features = ["server"] }
 
 [package]
 name = "rho"
@@ -105,6 +106,8 @@ serde_json.workspace = true
 iroh.workspace = true
 base64.workspace = true
 qrcode.workspace = true
+tokio-websockets = { workspace = true }
+futures-util = "0.3"
 clap = { version = "4.5", features = ["derive", "env"] }
 reedline = { version = "0.51", optional = true }
 inquire = { version = "0.9", optional = true, features = ["fuzzy"] }
@@ -136,6 +139,7 @@ libc = "0.2"
 rig.workspace = true
 reqwest.workspace = true
 tempfile = "3.17"
+http = "1.0"
 
 [profile.dev]
 opt-level = 0
