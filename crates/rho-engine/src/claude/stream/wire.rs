@@ -49,6 +49,12 @@ pub(super) struct MessageStartPayload {
 pub(super) struct MessageStartUsage {
     #[serde(default)]
     pub input_tokens: u64,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens_details: Option<OutputTokensDetails>,
 }
 
 #[derive(Deserialize)]
@@ -91,6 +97,20 @@ pub(super) struct MessageDeltaPayload {
 pub(super) struct MessageDeltaUsage {
     #[serde(default)]
     pub output_tokens: u64,
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u64>,
+    #[serde(default)]
+    pub output_tokens_details: Option<OutputTokensDetails>,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, Default)]
+pub(super) struct OutputTokensDetails {
+    #[serde(default)]
+    pub thinking_tokens: u64,
 }
 
 #[derive(Deserialize)]

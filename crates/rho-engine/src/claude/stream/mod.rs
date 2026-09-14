@@ -19,6 +19,9 @@ pub struct SseParser {
     buffer: Vec<u8>,
     input_tokens: u64,
     output_tokens: u64,
+    cache_creation_input_tokens: u64,
+    cache_read_input_tokens: u64,
+    reasoning_tokens: u64,
     finish_reason: Option<FinishReason>,
     thinking_open: bool,
     thinking_text: String,
@@ -129,7 +132,11 @@ impl SseParser {
         let mut usage = Usage::new();
         usage.input_tokens = self.input_tokens;
         usage.output_tokens = self.output_tokens;
-        usage.total_tokens = self.input_tokens + self.output_tokens;
+        usage.cached_input_tokens = self.cache_read_input_tokens;
+        usage.cache_creation_input_tokens = self.cache_creation_input_tokens;
+        usage.reasoning_tokens = self.reasoning_tokens;
+        usage.total_tokens =
+            self.input_tokens + self.cache_read_input_tokens + self.cache_creation_input_tokens + self.output_tokens;
         let finish = self.finish_reason.take().unwrap_or(FinishReason::Stop);
         let final_resp = StreamFinal::new("claude", usage).with_finish_reason(finish);
         events.push(Ok(RawStreamingChoice::FinalResponse(final_resp)));
@@ -141,6 +148,18 @@ impl SseParser {
         }
         if let Some(usage) = usage {
             self.output_tokens = usage.output_tokens;
+            if let Some(inp) = usage.input_tokens {
+                self.input_tokens = inp;
+            }
+            if let Some(cr) = usage.cache_read_input_tokens {
+                self.cache_read_input_tokens = cr;
+            }
+            if let Some(cw) = usage.cache_creation_input_tokens {
+                self.cache_creation_input_tokens = cw;
+            }
+            if let Some(details) = usage.output_tokens_details {
+                self.reasoning_tokens = details.thinking_tokens;
+            }
         }
     }
 
@@ -149,6 +168,15 @@ impl SseParser {
             SseMessage::MessageStart { message } => {
                 if let Some(usage) = message.usage {
                     self.input_tokens = usage.input_tokens;
+                    if let Some(cr) = usage.cache_read_input_tokens {
+                        self.cache_read_input_tokens = cr;
+                    }
+                    if let Some(cw) = usage.cache_creation_input_tokens {
+                        self.cache_creation_input_tokens = cw;
+                    }
+                    if let Some(details) = usage.output_tokens_details {
+                        self.reasoning_tokens = details.thinking_tokens;
+                    }
                 }
             }
             SseMessage::ContentBlockStart { index, content_block } => {

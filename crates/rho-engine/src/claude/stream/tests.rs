@@ -84,3 +84,21 @@ fn test_stream_error_event() {
         other => panic!("expected ProviderError, got {other:?}"),
     }
 }
+
+#[test]
+fn test_prompt_caching_and_reasoning_usage() {
+    let mut parser = SseParser::new();
+    let payload = "event: message_start\ndata: {\"type\": \"message_start\", \"message\": {\"id\": \"msg_1\", \"usage\": {\"input_tokens\": 15, \"cache_creation_input_tokens\": 200, \"cache_read_input_tokens\": 5000}}}\n\nevent: message_delta\ndata: {\"type\": \"message_delta\", \"delta\": {\"stop_reason\": \"end_turn\"}, \"usage\": {\"output_tokens\": 25, \"output_tokens_details\": {\"thinking_tokens\": 10}}}\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n";
+    let events = parser.feed(payload.as_bytes());
+    assert_eq!(events.len(), 1);
+    if let Ok(RawStreamingChoice::FinalResponse(resp)) = &events[0] {
+        assert_eq!(resp.usage.input_tokens, 15);
+        assert_eq!(resp.usage.cached_input_tokens, 5000);
+        assert_eq!(resp.usage.cache_creation_input_tokens, 200);
+        assert_eq!(resp.usage.output_tokens, 25);
+        assert_eq!(resp.usage.reasoning_tokens, 10);
+        assert_eq!(resp.usage.total_tokens, 15 + 5000 + 200 + 25);
+    } else {
+        panic!("expected FinalResponse, got {:?}", events[0]);
+    }
+}

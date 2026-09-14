@@ -160,15 +160,16 @@ pub fn build_request_body(
     let mut system_blocks = vec![json!({
         "type": "text",
         "text": "You are Claude Code, Anthropic's official CLI for Claude.",
-        "cache_control": { "type": "ephemeral" },
     })];
     if let Some(system) = system_prompt(request) {
         let sanitized = sanitize_system_prompt(&system);
         system_blocks.push(json!({
             "type": "text",
             "text": sanitized,
-            "cache_control": { "type": "ephemeral" },
         }));
+    }
+    if let Some(last_block) = system_blocks.last_mut() {
+        last_block["cache_control"] = json!({ "type": "ephemeral" });
     }
     body["system"] = json!(system_blocks);
     attach_tools_and_choice(&mut body, request);
@@ -176,9 +177,7 @@ pub fn build_request_body(
     Ok(body)
 }
 
-/// Prompt caching: one breakpoint per static prefix block (system prompt,
-/// last tool) plus the conversation tail. The Messages API allows at most
-/// four cache breakpoints per request; three are used here.
+/// Anthropic prompt caching: up to 4 breakpoints across tools, system, and messages tail.
 fn mark_cache_breakpoints(body: &mut Value) {
     if let Some(last_tool) = body
         .get_mut("tools")
@@ -190,18 +189,11 @@ fn mark_cache_breakpoints(body: &mut Value) {
     let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
-    for message in messages.iter_mut().rev() {
-        let Some(parts) = message.get_mut("content").and_then(Value::as_array_mut) else {
-            continue;
-        };
-        if let Some(last_tool_result) = parts
-            .iter_mut()
-            .rev()
-            .find(|part| part.get("type").and_then(Value::as_str) == Some("tool_result"))
-        {
-            last_tool_result["cache_control"] = json!({ "type": "ephemeral" });
-            return;
-        }
+    if let Some(last_message) = messages.last_mut()
+        && let Some(parts) = last_message.get_mut("content").and_then(Value::as_array_mut)
+        && let Some(last_part) = parts.last_mut()
+    {
+        last_part["cache_control"] = json!({ "type": "ephemeral" });
     }
 }
 

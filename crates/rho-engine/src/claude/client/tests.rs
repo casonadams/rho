@@ -73,7 +73,7 @@ fn test_build_request_body_with_thinking_omits_temperature() {
         body["model"].as_str(),
         body["system"][0]["text"].as_str(),
         body["system"][1]["text"].as_str(),
-        body["system"][0]["cache_control"]["type"].as_str(),
+        body["system"][1]["cache_control"]["type"].as_str(),
         body["thinking"]["type"].as_str(),
         body["thinking"]["budget_tokens"].as_u64(),
     );
@@ -88,6 +88,7 @@ fn test_build_request_body_with_thinking_omits_temperature() {
             Some(4096)
         )
     );
+    assert!(body["system"][0].get("cache_control").is_none());
     assert!(body.get("temperature").is_none() && body["max_tokens"].as_u64().unwrap() >= 8192);
 }
 
@@ -167,31 +168,40 @@ fn test_build_request_body_marks_cache_breakpoints() {
     let req = request_with_tool_and_history();
     let body = build_request_body("default", None, &req).unwrap();
 
-    assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
+    assert!(body["system"][0].get("cache_control").is_none());
+    assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
     assert_eq!(body["tools"][0]["cache_control"]["type"], "ephemeral");
     let messages = body["messages"].as_array().unwrap();
-    let tool_result = messages
-        .iter()
-        .rev()
-        .find_map(|m| {
-            m["content"]
-                .as_array()
-                .and_then(|parts| parts.iter().find(|p| p["type"] == "tool_result"))
-        })
-        .unwrap();
-    assert_eq!(tool_result["cache_control"]["type"], "ephemeral");
+    let last_part = messages[2]["content"].as_array().unwrap().last().unwrap();
+    assert_eq!(last_part["type"], "tool_result");
+    assert_eq!(last_part["cache_control"]["type"], "ephemeral");
 }
 
 #[test]
-fn test_build_request_body_leaves_history_uncached_without_tool_results() {
+fn test_build_request_body_marks_conversation_tail_without_tools() {
     let req = sample_request();
     let body = build_request_body("default", None, &req).unwrap();
 
-    for message in body["messages"].as_array().unwrap() {
-        for part in message["content"].as_array().unwrap() {
-            assert!(part.get("cache_control").is_none());
-        }
-    }
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+    let last_part = messages[0]["content"].as_array().unwrap().last().unwrap();
+    assert_eq!(last_part["cache_control"]["type"], "ephemeral");
+}
+
+#[test]
+fn test_build_request_body_marks_only_tail_in_multi_turn() {
+    let mut req = sample_request();
+    req.chat_history = vec![
+        Message::user("first"),
+        Message::assistant("second"),
+        Message::user("third"),
+    ];
+    let body = build_request_body("default", None, &req).unwrap();
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    assert!(messages[0]["content"][0].get("cache_control").is_none());
+    assert!(messages[1]["content"][0].get("cache_control").is_none());
+    assert_eq!(messages[2]["content"][0]["cache_control"]["type"], "ephemeral");
 }
 
 #[test]
