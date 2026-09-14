@@ -18,11 +18,9 @@ use rig::message::Message;
 
 /// Provider-anchored context size: input, output, and cache reads/writes of the
 /// latest model call.
-fn usage_anchor_tokens(usage: &StructuralUsage) -> usize {
-    (usage.input_tokens
-        + usage.output_tokens
-        + usage.cached_input_tokens.unwrap_or(0)
-        + usage.cache_creation_input_tokens.unwrap_or(0)) as usize
+fn usage_anchor_tokens(usage: &StructuralUsage, provider: &str) -> usize {
+    let consumed = crate::engine::display::consumed_context_tokens(usage, provider);
+    consumed.saturating_add(usage.output_tokens) as usize
 }
 
 fn estimated_tokens(messages: &[Message], model: &str) -> usize {
@@ -31,8 +29,8 @@ fn estimated_tokens(messages: &[Message], model: &str) -> usize {
 
 /// Compaction pressure: the more reliable of the provider-reported usage anchor
 /// and a tokenizer estimate over the messages themselves.
-fn trigger_tokens(messages: &[Message], usage: Option<&StructuralUsage>, model: &str) -> usize {
-    estimated_tokens(messages, model).max(usage.map(usage_anchor_tokens).unwrap_or(0))
+fn trigger_tokens(messages: &[Message], usage: Option<&StructuralUsage>, model: &str, provider: &str) -> usize {
+    estimated_tokens(messages, model).max(usage.map(|u| usage_anchor_tokens(u, provider)).unwrap_or(0))
 }
 
 fn context_window(model: &str, provider: &str, context: ContextTracker) -> usize {
@@ -197,7 +195,12 @@ impl AutoCompactHook {
             let mut messages = estimated_tokens(history, self.model_name());
             messages = messages
                 .saturating_add(estimate_message_tokens(prompt, self.model_name()))
-                .max(self.usage.latest().map(|u| usage_anchor_tokens(&u)).unwrap_or(0));
+                .max(
+                    self.usage
+                        .latest()
+                        .map(|u| usage_anchor_tokens(&u, &self.provider))
+                        .unwrap_or(0),
+                );
             if should_compact(messages, window, self.reserve_tokens) {
                 let base_len = self.state.lock().unwrap().base_len.unwrap_or(history.len());
                 let plan = self.compact_and_plan(history, base_len).await;
@@ -252,7 +255,12 @@ impl AgentEngine {
         (history, additional_tokens): (&mut Vec<Message>, usize),
     ) -> Result<Option<crate::engine::CompactionStats>> {
         let window = context_window(&self.config.model, &self.config.provider, self.context);
-        let tokens = trigger_tokens(history, self.usage.latest().as_ref(), &self.config.model);
+        let tokens = trigger_tokens(
+            history,
+            self.usage.latest().as_ref(),
+            &self.config.model,
+            &self.config.provider,
+        );
         if should_compact(
             tokens.saturating_add(additional_tokens),
             window,

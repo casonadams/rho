@@ -39,8 +39,17 @@ pub(super) struct TurnLoopState {
 impl AgentEngine {
     fn start_turn_metrics(&self, additional_tokens: usize, history: &[Message]) {
         self.run_tracker.start();
+        let anchor = if !history.is_empty() {
+            self.usage
+                .latest()
+                .filter(|u| u.has_values())
+                .map(|u| (history.len() - 1, self.consumed_context(&u) as usize))
+                .filter(|&(_, tokens)| tokens > 0)
+        } else {
+            None
+        };
         let hist_tokens =
-            rho_harness_core::tokens::calculate_context_tokens(history, None, &self.config.model).total_tokens;
+            rho_harness_core::tokens::calculate_context_tokens(history, anchor, &self.config.model).total_tokens;
         let est = additional_tokens.saturating_add(hist_tokens) as u64;
         self.usage.start_turn(Some(est));
     }
