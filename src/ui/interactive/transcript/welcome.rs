@@ -40,6 +40,7 @@ fn classify_tools(tools: &[String]) -> ToolCategories {
             "fd" | "read" | "rg" | "write" | "edit" | "bash" => push_unique(&mut builtins, tool),
             "search" | "web_search" => push_unique(&mut builtins, "web_search"),
             "fetch" | "web_fetch" => push_unique(&mut builtins, "web_fetch"),
+            "mcp" | "mcpScript" => {}
             other => {
                 if let Some((server, _)) = other.split_once('_') {
                     *mcp_groups.entry(server.to_string()).or_default() += 1;
@@ -56,11 +57,21 @@ fn classify_tools(tools: &[String]) -> ToolCategories {
     }
 }
 
-fn format_mcp_items(mcp_groups: &BTreeMap<String, usize>) -> Vec<String> {
-    mcp_groups
-        .iter()
-        .map(|(server, count)| format!("{server} ({count} tool{})", if *count == 1 { "" } else { "s" }))
-        .collect()
+fn format_mcp_items(configured: &[String], mcp_groups: &BTreeMap<String, usize>) -> Vec<String> {
+    let mut items = Vec::new();
+    for server in configured {
+        if let Some(count) = mcp_groups.get(server) {
+            items.push(format!("{server} ({count} tool{})", if *count == 1 { "" } else { "s" }));
+        } else {
+            items.push(server.clone());
+        }
+    }
+    for (server, count) in mcp_groups {
+        if !configured.contains(server) {
+            items.push(format!("{server} ({count} tool{})", if *count == 1 { "" } else { "s" }));
+        }
+    }
+    items
 }
 
 pub fn format_welcome_content(welcome: &WelcomeItem, width: usize, theme: &Theme) -> String {
@@ -77,7 +88,7 @@ pub fn format_welcome_content(welcome: &WelcomeItem, width: usize, theme: &Theme
     all_tools.extend(tools.custom);
     append_welcome_section(&mut out, "tools", &all_tools, width, dim);
 
-    let mcp = format_mcp_items(&tools.mcp_groups);
+    let mcp = format_mcp_items(&welcome.mcp, &tools.mcp_groups);
     append_welcome_section(&mut out, "mcp", &mcp, width, dim);
     out
 }

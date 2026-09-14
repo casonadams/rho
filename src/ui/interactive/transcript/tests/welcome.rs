@@ -116,3 +116,23 @@ fn render_transcript_welcome_wraps_long_items_on_word_boundaries() {
     assert!(rendered.contains("google-agents-cli-scaffold"));
     assert!(rendered.contains("google-agents-cli-workflow"));
 }
+
+#[test]
+fn render_transcript_welcome_with_mcp_servers() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Welcome(WelcomeItem {
+        version: "0.7.1".into(),
+        model: "gpt-4".into(),
+        provider: "openai".into(),
+        resumed: false,
+        location: ".".into(),
+        agents: Vec::new(),
+        tools: vec!["read".into(), "write".into(), "mcp".into(), "mcpScript".into()],
+        skills: Vec::new(),
+        mcp: vec!["playwright".into()],
+    });
+
+    let rendered = render_welcome(&item, &theme);
+    assert_welcome_content(&rendered, &["[tools]", "read, write", "[mcp]", "playwright"]);
+    assert!(!rendered.contains("mcpScript"));
+}
