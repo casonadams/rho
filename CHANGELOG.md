@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.4](https://github.com/casonadams/rho/compare/v0.7.3...v0.7.4) (2026-09-14)
+
+
+### Features
+
+* **remote:** enable in-browser iroh p2p relay for web hub ([4756f5b](https://github.com/casonadams/rho/commit/4756f5b1e01a7f6dfe0e03d37fc879416f46f418))
+
+
+### Bug Fixes
+
+* **hub:** bust wasm cache and preserve sessions dir across remote connections ([12aa467](https://github.com/casonadams/rho/commit/12aa467aadc73142de5f44b94ad95378db82c551))
+* **wasm:** retain iroh endpoint in irohpeer and handle client disconnects ([bf8ae2b](https://github.com/casonadams/rho/commit/bf8ae2b0bfb9ab5202dd3a1262d0624b21ba8f5c))
+
 ## [0.7.3](https://github.com/casonadams/rho/compare/v0.7.2...v0.7.3) (2026-09-14)
 
 
