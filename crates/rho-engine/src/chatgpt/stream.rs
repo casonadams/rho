@@ -18,12 +18,19 @@ const REASONING_ID: StreamPartId = StreamPartId::minted(MintKind::Reasoning, 0);
 
 pub type SseEvents = Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SummaryPartCoord {
+    output_index: Option<u64>,
+    summary_index: u64,
+}
+
 #[derive(Default)]
 pub struct SseParser {
     decoder: SseLineDecoder,
     has_reasoning_content: bool,
     reasoning_trailing_newline: bool,
-    last_summary_index: Option<u64>,
+    current_output_index: Option<u64>,
+    active_summary_part: Option<SummaryPartCoord>,
     pending_tool_calls: HashMap<String, PendingToolCall>,
 }
 
@@ -43,13 +50,31 @@ enum ResponsesWireEvent {
     ReasoningSummaryPartAdded {
         #[serde(default)]
         summary_index: u64,
+        #[serde(default)]
+        output_index: Option<u64>,
     },
     #[serde(rename = "response.reasoning_summary_text.delta")]
     ReasoningSummaryTextDelta {
         delta: String,
         #[serde(default)]
         summary_index: u64,
+        #[serde(default)]
+        output_index: Option<u64>,
     },
+    #[serde(rename = "response.reasoning_summary.delta")]
+    ReasoningSummaryDelta {
+        delta: String,
+        #[serde(default)]
+        summary_index: u64,
+        #[serde(default)]
+        output_index: Option<u64>,
+    },
+    #[serde(rename = "response.reasoning_summary_part.done")]
+    ReasoningSummaryPartDone,
+    #[serde(rename = "response.reasoning_summary_text.done")]
+    ReasoningSummaryTextDone,
+    #[serde(rename = "response.reasoning_summary.done")]
+    ReasoningSummaryDone,
     #[serde(rename = "response.reasoning_text.delta")]
     ReasoningTextDelta { delta: String },
     #[serde(rename = "response.output_item.added")]
@@ -155,25 +180,37 @@ impl SseParser {
         SseStreamParser::feed(self, bytes)
     }
 
-    fn handle_reasoning_part_added(&mut self, summary_index: u64, events: &mut SseEvents) {
-        if summary_index > 0
-            && self.has_reasoning_content
-            && !self.reasoning_trailing_newline
-            && self.last_summary_index != Some(summary_index)
-        {
-            events.push(Ok(RawStreamingChoice::ReasoningDelta {
-                id: REASONING_ID,
-                provider_id: None,
-                reasoning: "\n\n".to_string(),
-            }));
-            self.reasoning_trailing_newline = true;
+    fn start_reasoning_part(&mut self, coord: SummaryPartCoord, events: &mut SseEvents) {
+        if self.active_summary_part != Some(coord) {
+            if self.has_reasoning_content && !self.reasoning_trailing_newline {
+                events.push(Ok(RawStreamingChoice::ReasoningDelta {
+                    id: REASONING_ID,
+                    provider_id: None,
+                    reasoning: "\n\n".to_string(),
+                }));
+                self.reasoning_trailing_newline = true;
+            }
+            self.active_summary_part = Some(coord);
         }
-        self.last_summary_index = Some(summary_index);
     }
 
-    fn handle_reasoning_delta(&mut self, delta: String, summary_index: Option<u64>, events: &mut SseEvents) {
-        if let Some(idx) = summary_index {
-            self.handle_reasoning_part_added(idx, events);
+    fn handle_reasoning_part_added(&mut self, output_index: Option<u64>, summary_index: u64, events: &mut SseEvents) {
+        let coord = SummaryPartCoord {
+            output_index: output_index.or(self.current_output_index),
+            summary_index,
+        };
+        self.start_reasoning_part(coord, events);
+    }
+
+    fn handle_reasoning_delta(
+        &mut self,
+        delta: String,
+        output_index: Option<u64>,
+        summary_index: Option<u64>,
+        events: &mut SseEvents,
+    ) {
+        if let Some(s_idx) = summary_index {
+            self.handle_reasoning_part_added(output_index, s_idx, events);
         }
         if delta.is_empty() {
             return;
@@ -281,16 +318,35 @@ impl SseParser {
             ResponsesWireEvent::OutputTextDelta { delta } => {
                 events.push(Ok(RawStreamingChoice::Message(delta)));
             }
-            ResponsesWireEvent::ReasoningSummaryPartAdded { summary_index } => {
-                self.handle_reasoning_part_added(summary_index, events);
+            ResponsesWireEvent::ReasoningSummaryPartAdded {
+                summary_index,
+                output_index,
+            } => {
+                self.handle_reasoning_part_added(output_index, summary_index, events);
             }
-            ResponsesWireEvent::ReasoningSummaryTextDelta { delta, summary_index } => {
-                self.handle_reasoning_delta(delta, Some(summary_index), events);
+            ResponsesWireEvent::ReasoningSummaryTextDelta {
+                delta,
+                summary_index,
+                output_index,
+            }
+            | ResponsesWireEvent::ReasoningSummaryDelta {
+                delta,
+                summary_index,
+                output_index,
+            } => {
+                self.handle_reasoning_delta(delta, output_index, Some(summary_index), events);
+            }
+            ResponsesWireEvent::ReasoningSummaryPartDone
+            | ResponsesWireEvent::ReasoningSummaryTextDone
+            | ResponsesWireEvent::ReasoningSummaryDone => {
+                self.active_summary_part = None;
             }
             ResponsesWireEvent::ReasoningTextDelta { delta } => {
-                self.handle_reasoning_delta(delta, None, events);
+                self.handle_reasoning_delta(delta, None, None, events);
             }
             ResponsesWireEvent::OutputItemAdded { item, output_index } => {
+                self.current_output_index = Some(output_index);
+                self.active_summary_part = None;
                 if let OutputItemPayload::FunctionCall(call) = item {
                     self.handle_function_call_added(call, output_index);
                 }
@@ -305,6 +361,8 @@ impl SseParser {
             ResponsesWireEvent::OutputItemDone { item, output_index } => {
                 if let OutputItemPayload::FunctionCall(call) = item {
                     self.handle_function_call_done(call, output_index, events);
+                } else {
+                    self.active_summary_part = None;
                 }
             }
             ResponsesWireEvent::Completed { response } => {

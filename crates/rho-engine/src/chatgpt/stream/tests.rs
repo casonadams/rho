@@ -95,3 +95,104 @@ fn text_and_tool_calls_stream_and_aggregate() {
         panic!("expected ToolCall");
     }
 }
+
+#[test]
+fn reasoning_summary_across_multiple_output_items_does_not_collide() {
+    let mut parser = SseParser::new();
+
+    let chunks = [
+        "data: {\"type\": \"response.output_item.added\", \"output_index\": 0, \"item\": {\"type\": \"reasoning\", \"id\": \"rs_0\"}}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.added\", \"output_index\": 0, \"summary_index\": 0}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 0, \"summary_index\": 0, \"delta\": \"**Designing durable task reconciliation**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 0, \"summary_index\": 0}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.added\", \"output_index\": 0, \"summary_index\": 1}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 0, \"summary_index\": 1, \"delta\": \"**Planning startup task refresher invocation**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 0, \"summary_index\": 1}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.added\", \"output_index\": 0, \"summary_index\": 2}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 0, \"summary_index\": 2, \"delta\": \"**Evaluating job schedule frequency trade-offs**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 0, \"summary_index\": 2}\n\n",
+        "data: {\"type\": \"response.output_item.done\", \"output_index\": 0, \"item\": {\"type\": \"reasoning\", \"id\": \"rs_0\"}}\n\n",
+        "data: {\"type\": \"response.output_item.added\", \"output_index\": 1, \"item\": {\"type\": \"reasoning\", \"id\": \"rs_1\"}}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.added\", \"output_index\": 1, \"summary_index\": 0}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 1, \"summary_index\": 0, \"delta\": \"**Implementing task reconciliation at startup**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 1, \"summary_index\": 0}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.added\", \"output_index\": 1, \"summary_index\": 1}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"output_index\": 1, \"summary_index\": 1, \"delta\": \"**Designing workflow reconciliation for stale tasks**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_part.done\", \"output_index\": 1, \"summary_index\": 1}\n\n",
+        "data: {\"type\": \"response.output_item.done\", \"output_index\": 1, \"item\": {\"type\": \"reasoning\", \"id\": \"rs_1\"}}\n\n",
+        "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 10, \"output_tokens\": 20, \"total_tokens\": 30}}}\n\n",
+    ];
+
+    let mut events = Vec::new();
+    for chunk in chunks {
+        events.extend(parser.feed(chunk.as_bytes()));
+    }
+
+    let mut reasoning_pieces = Vec::new();
+    for event in &events {
+        if let Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) = event {
+            reasoning_pieces.push(reasoning.as_str());
+        }
+    }
+
+    let full_reasoning = reasoning_pieces.concat();
+    assert!(!full_reasoning.contains("****"));
+    assert_eq!(
+        full_reasoning,
+        "**Designing durable task reconciliation**\n\n\
+         **Planning startup task refresher invocation**\n\n\
+         **Evaluating job schedule frequency trade-offs**\n\n\
+         **Implementing task reconciliation at startup**\n\n\
+         **Designing workflow reconciliation for stale tasks**"
+    );
+}
+
+#[test]
+fn reasoning_summary_without_output_index_splits_resetting_indices() {
+    let mut parser = SseParser::new();
+
+    let chunks = [
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"summary_index\": 2, \"delta\": \"**Part A**\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary_text.delta\", \"summary_index\": 0, \"delta\": \"**Part B**\"}\n\n",
+    ];
+
+    let mut events = Vec::new();
+    for chunk in chunks {
+        events.extend(parser.feed(chunk.as_bytes()));
+    }
+
+    let pieces: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) => Some(reasoning.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(pieces, vec!["**Part A**", "\n\n", "**Part B**"]);
+}
+
+#[test]
+fn reasoning_summary_delta_synonym_events_split_parts() {
+    let mut parser = SseParser::new();
+
+    let chunks = [
+        "data: {\"type\": \"response.reasoning_summary.delta\", \"output_index\": 0, \"summary_index\": 0, \"delta\": \"First phase\"}\n\n",
+        "data: {\"type\": \"response.reasoning_summary.delta\", \"output_index\": 0, \"summary_index\": 1, \"delta\": \"Second phase\"}\n\n",
+    ];
+
+    let mut events = Vec::new();
+    for chunk in chunks {
+        events.extend(parser.feed(chunk.as_bytes()));
+    }
+
+    let pieces: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            Ok(RawStreamingChoice::ReasoningDelta { reasoning, .. }) => Some(reasoning.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(pieces, vec!["First phase", "\n\n", "Second phase"]);
+}
