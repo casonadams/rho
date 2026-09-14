@@ -114,6 +114,26 @@ fn thinking_config_tracks_gemini() {
         body_pro["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"],
         10001
     );
+
+    let body_lite = build_request_body(
+        RequestTarget {
+            project: "p",
+            runtime_model: "gemini-3.5-flash-lite",
+            effort: Effort::Medium,
+        },
+        &request,
+        &envelope(),
+    )
+    .unwrap();
+    let lite_cfg = &body_lite["request"]["generationConfig"]["thinkingConfig"];
+    assert_eq!(
+        (
+            lite_cfg["thinkingLevel"].as_str(),
+            lite_cfg["includeThoughts"].as_bool()
+        ),
+        (Some("MEDIUM"), Some(true))
+    );
+    assert!(lite_cfg.get("thinkingBudget").is_none());
 }
 
 #[test]

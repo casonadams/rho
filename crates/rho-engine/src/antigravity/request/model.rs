@@ -185,7 +185,8 @@ fn pro_thinking_config(effort: Effort) -> Value {
 fn default_gemini_thinking_config(effort: Effort) -> Value {
     match effort {
         Effort::Off => json!({ "includeThoughts": false }),
-        Effort::Minimal | Effort::Low => json!({ "includeThoughts": true, "thinkingLevel": "LOW" }),
+        Effort::Minimal => json!({ "includeThoughts": true, "thinkingLevel": "MINIMAL" }),
+        Effort::Low => json!({ "includeThoughts": true, "thinkingLevel": "LOW" }),
         Effort::Medium => json!({ "includeThoughts": true, "thinkingLevel": "MEDIUM" }),
         Effort::High => json!({ "includeThoughts": true, "thinkingLevel": "HIGH" }),
     }
@@ -195,7 +196,7 @@ pub fn thinking_config(runtime_model: &str, effort: Effort) -> Value {
     if !runtime_model.starts_with("gemini-") {
         return Value::Null;
     }
-    if runtime_model.starts_with("gemini-3.5-flash") {
+    if runtime_model.starts_with("gemini-3.5-flash") && !runtime_model.contains("flash-lite") {
         flash_thinking_config(effort)
     } else if runtime_model.starts_with("gemini-3.1-pro") || runtime_model == "gemini-pro-agent" {
         pro_thinking_config(effort)
