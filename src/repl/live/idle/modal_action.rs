@@ -243,6 +243,12 @@ async fn dispatch_modal_result_rest2(
             .await;
             Ok(true)
         }
+        ModalKeyResult::CursorToggled { cursor } => {
+            ctx.session.config.ui.cursor = Some(cursor.clone());
+            let _ =
+                rho_harness_core::config::Config::save_ui_cursor_async(&ctx.session.config.config_dir, &cursor).await;
+            Ok(true)
+        }
         ModalKeyResult::McpServerToggled { server } => {
             if let Some(cfg) = ctx.session.config.mcp.servers.get_mut(&server) {
                 cfg.enabled = !cfg.enabled;

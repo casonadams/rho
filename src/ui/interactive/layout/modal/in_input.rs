@@ -97,13 +97,18 @@ pub(crate) fn calculate_content_space(modal: &ModalState, space_for_content: usi
     }
 }
 
-fn push_search_row(modal: &ModalState, width: usize, focused: bool, lines: &mut Vec<String>) -> (CursorPosition, bool) {
+fn push_search_row(
+    modal: &ModalState,
+    width: usize,
+    (focused, cursor_mode): (bool, crate::ui::theme::CursorMode),
+    lines: &mut Vec<String>,
+) -> (CursorPosition, bool) {
     let query = truncate_to_width(&modal.filter_query, width.saturating_sub(6));
     let cursor = CursorPosition {
         row: lines.len(),
         column: (visible_width("  > ") + visible_width(&query)).min(width),
     };
-    if focused {
+    if focused && cursor_mode == crate::ui::theme::CursorMode::Software {
         lines.push(format!("  \x1b[1m>\x1b[0m {query}\x1b[7m \x1b[27m"));
     } else {
         lines.push(format!("  \x1b[1m>\x1b[0m {query}"));
@@ -134,7 +139,7 @@ fn push_modal_input_prompt(
 
     let (wrapped, cursor_pos) = wrap_editor(&modal.input, edit_width);
     let (windowed, cur) = window_editor(wrapped, cursor_pos, max_input_lines.max(1));
-    let windowed = if focused {
+    let windowed = if focused && theme.cursor_mode == crate::ui::theme::CursorMode::Software {
         render_editor_lines(windowed, cur)
     } else {
         windowed
@@ -222,7 +227,7 @@ pub fn render_in_input_modal(input: InInputModalInput<'_>) -> (Vec<String>, Curs
     let mut lines = Vec::new();
     let mut cursor = (CursorPosition { row: 0, column: 0 }, false);
     if input.modal.is_searchable && !matches!(input.modal.mode, ModalMode::Input { .. }) {
-        cursor = push_search_row(input.modal, width, input.focused, &mut lines);
+        cursor = push_search_row(input.modal, width, (input.focused, input.theme.cursor_mode), &mut lines);
     }
     lines.extend(collect_modal_content(
         &input,

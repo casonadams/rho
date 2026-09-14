@@ -69,7 +69,7 @@ fn render_editor_area(
     let unused_ac = ac_budget.saturating_sub(ac_lines.len());
     let ed_max = ed_budget + unused_ac.min(all_ed_lines.len().saturating_sub(ed_budget));
     let (ed_lines, ed_cursor) = window_editor(all_ed_lines, full_cursor, ed_max);
-    let mut ed_lines = if input.focused {
+    let mut ed_lines = if input.focused && theme.cursor_mode == crate::ui::theme::CursorMode::Software {
         render_editor_lines(ed_lines, ed_cursor)
     } else {
         ed_lines
@@ -216,6 +216,7 @@ type AssembleMeta = (
 
 fn assemble_layout(
     lines: Vec<String>,
+    cursor_mode: crate::ui::theme::CursorMode,
     (cursor, cursor_visible, start_row): (CursorPosition, bool, usize),
     (queued_lines, widget_lines, working_line, top_divider, editor_lines, bottom_divider, footer_lines): AssembleMeta,
 ) -> InteractiveLayout {
@@ -225,6 +226,7 @@ fn assemble_layout(
         cursor,
         cursor_visible,
         cursor_row: start_row + cursor.row,
+        cursor_mode,
         queued_lines,
         widget_lines,
         working_line,
@@ -296,6 +298,7 @@ pub(crate) fn render_normal_layout(input: LayoutInput<'_>) -> InteractiveLayout 
 
     assemble_layout(
         lines,
+        theme.cursor_mode,
         cursor_info,
         (vis_q, vis_w, pieces.working, top_div, ed_lines, bot_div, vis_ft),
     )

@@ -374,3 +374,51 @@ fn unfocused_editor_suppresses_software_cursor() {
     assert!(!unfocused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
     assert_eq!(unfocused.editor_lines, ["hello"]);
 }
+
+#[test]
+fn hardware_cursor_mode_suppresses_software_cursor_and_preserves_hardware_visibility() {
+    let mut editor = EditorState::default();
+    editor.set_text("hello");
+
+    let theme = crate::ui::theme::Theme {
+        cursor_mode: crate::ui::theme::CursorMode::Hardware,
+        ..Default::default()
+    };
+
+    let focused = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: Some(&theme),
+        focused: true,
+    });
+    assert!(focused.cursor_visible);
+    assert_eq!(focused.cursor_mode, crate::ui::theme::CursorMode::Hardware);
+    assert!(!focused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
+    assert_eq!(focused.editor_lines, ["hello"]);
+
+    let unfocused = layout(LayoutInput {
+        editor: &editor,
+        modal: None,
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: Some(&theme),
+        focused: false,
+    });
+    assert!(!unfocused.cursor_visible);
+    assert_eq!(unfocused.cursor_mode, crate::ui::theme::CursorMode::Hardware);
+    assert!(!unfocused.editor_lines.iter().any(|l| l.contains("\x1b[7m")));
+}

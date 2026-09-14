@@ -37,6 +37,10 @@ pub fn open_settings_selector<B: TerminalBackend>(
         crate::ui::theme::BlockStyle::Border => "Border",
         crate::ui::theme::BlockStyle::Solid => "Solid",
     };
+    let cursor_mode = match controller.cursor_mode() {
+        crate::ui::theme::CursorMode::Software => "Software",
+        crate::ui::theme::CursorMode::Hardware => "Hardware",
+    };
 
     let model_name = model.unwrap_or("default");
     let thinking_effort = thinking_level.unwrap_or("off");
@@ -53,6 +57,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
         ModalOption::new("Thinking Output   ", Some(thinking_status.to_string())),
         ModalOption::new("Tool Output       ", Some(tools_status.to_string())),
         ModalOption::new("Version Banner    ", Some(label_status.to_string())),
+        ModalOption::new("Cursor Style      ", Some(cursor_mode.to_string())),
     ];
 
     let modal = ModalState::new("Settings", "", options);
@@ -144,6 +149,19 @@ fn toggle_selected_setting<B: TerminalBackend>(
             let shown = controller.state_mut().toggle_show_label();
             update_setting_description(controller, (if shown { "Shown" } else { "Hidden" }, 6));
             ModalKeyResult::ShowLabelToggled { shown }
+        }
+        7 => {
+            let next = controller
+                .toggle_cursor_mode()
+                .unwrap_or(crate::ui::theme::CursorMode::Software);
+            let label = match next {
+                crate::ui::theme::CursorMode::Software => "Software",
+                crate::ui::theme::CursorMode::Hardware => "Hardware",
+            };
+            update_setting_description(controller, (label, 7));
+            ModalKeyResult::CursorToggled {
+                cursor: label.to_lowercase(),
+            }
         }
         _ => ModalKeyResult::Handled,
     }

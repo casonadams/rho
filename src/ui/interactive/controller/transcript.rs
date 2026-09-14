@@ -88,6 +88,28 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.set_block_style(next)
     }
 
+    pub fn cursor_mode(&self) -> crate::ui::theme::CursorMode {
+        self.theme.cursor_mode
+    }
+
+    pub fn set_cursor_mode(&mut self, mode: crate::ui::theme::CursorMode) -> io::Result<crate::ui::theme::CursorMode> {
+        if self.theme.cursor_mode == mode {
+            return Ok(mode);
+        }
+        self.theme.cursor_mode = mode;
+        self.cache.clear();
+        self.redraw_transcript_or_live()?;
+        Ok(mode)
+    }
+
+    pub fn toggle_cursor_mode(&mut self) -> io::Result<crate::ui::theme::CursorMode> {
+        let next = match self.theme.cursor_mode {
+            crate::ui::theme::CursorMode::Software => crate::ui::theme::CursorMode::Hardware,
+            crate::ui::theme::CursorMode::Hardware => crate::ui::theme::CursorMode::Software,
+        };
+        self.set_cursor_mode(next)
+    }
+
     pub fn block_agent_output(&self) -> bool {
         self.theme.block_agent_output
     }
@@ -233,7 +255,7 @@ impl<B: TerminalBackend> TerminalController<B> {
 
         let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
-        self.backend.hide_cursor()?;
+        paint::apply_cursor_visibility(&mut self.backend, &rendered)?;
         self.rendered = Some(rendered);
         Ok(())
     }

@@ -77,6 +77,9 @@ pub enum ModalKeyResult {
     ToolOutputToggled {
         expanded: bool,
     },
+    CursorToggled {
+        cursor: String,
+    },
 }
 
 pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {

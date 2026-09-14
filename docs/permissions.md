@@ -145,9 +145,10 @@ bash = ["curl *", "docker run *"]
   provider (Anthropic, OpenAI, Gemini, local Ollama, or custom endpoint). No
   traffic is ever routed through rho servers, proxies, or cloud relays.
 - **Local-First Storage**: All authentication tokens (`auth.json`), user
-  preferences (`config.toml`), permission rules (`permission.toml`), and
-  session transcripts remain strictly on your local filesystem (`~/.config/rho`,
+  preferences (`config.toml`), permission rules (`permission.toml`), and session
+  transcripts remain strictly on your local filesystem (`~/.config/rho`,
   `~/.local/share/rho`, and project `.rho/`).
 - **Auditable Dependencies**: The repository contains zero analytics, tracking,
   or telemetry crates. Every outbound network call is initiated strictly by your
-  configured providers or explicit tool invocations (e.g. `web_search` or `web_fetch`).
+  configured providers or explicit tool invocations (e.g. `web_search` or
+  `web_fetch`).

@@ -56,7 +56,8 @@ Or switch in the REPL with `/model custom_endpoint:my-model-id`.
 
 > **Security Note**: `base_url` requires `http` or `https`. Requests to private
 > or loopback IP ranges are rejected unless explicitly allowed with
-> `allow_private_network = true` in `config.toml` (or `WEB_ALLOW_PRIVATE_NETWORK=true`).
+> `allow_private_network = true` in `config.toml` (or
+> `WEB_ALLOW_PRIVATE_NETWORK=true`).
 
 ---
 
@@ -96,7 +97,8 @@ history:
 
 ## UI & Block Framing
 
-Configure block framing styles, visibility options, and border colors in `~/.config/rho/config.toml`:
+Configure block framing styles, visibility options, and border colors in
+`~/.config/rho/config.toml`:
 
 ```toml
 [ui]
@@ -112,6 +114,9 @@ hide_thinking = false
 # Expand tool output cards by default (default: false)
 tools_expanded = false
 
+# Cursor rendering: "software" (default, reverse-video block) or "hardware" (native terminal cursor)
+cursor = "software"
+
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent blocks
@@ -121,10 +126,14 @@ bash_error_border = "red"      # Failed bash commands
 ```
 
 Top-level preferences:
-- `allow_private_network = true`: Permit connections to loopback and private network addresses.
+
+- `allow_private_network = true`: Permit connections to loopback and private
+  network addresses.
 - `show_label = true`: Display the agent branding banner in the divider.
 
-All adjustments made in the interactive `/settings` modal (Block Style, Box Responses, Model, Thinking Effort, Thinking Output, Tool Output, and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
+All adjustments made in the interactive `/settings` modal (Block Style, Box
+Responses, Cursor Style, Model, Thinking Effort, Thinking Output, Tool Output,
+and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
 
 Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
 
@@ -191,7 +200,8 @@ Auto-completion presents matching skills as soon as you type `/skill `.
 
 ## Remote Daemon & P2P Access (`rho serve` and `/remote`)
 
-`rho` can run headless as a persistent background daemon (e.g. via `systemd` or `launchd`) using [Iroh](https://iroh.computer) peer-to-peer transport:
+`rho` can run headless as a persistent background daemon (e.g. via `systemd` or
+`launchd`) using [Iroh](https://iroh.computer) peer-to-peer transport:
 
 ```bash
 # Start background node for a repository
@@ -201,4 +211,8 @@ rho serve --workspace ~/src/backend-api
 rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"
 ```
 
-The node outputs a pairing URL and QR code. Open the URL in any browser to access the **Fleet Hub** (`www/hub/`), or type `/remote` inside an active terminal REPL session to pair on-demand. The Fleet Hub provides full parity with the terminal interface, streaming thinking and tool executions, interactive approvals, real-time token tracking, and live provider rate limit/quota status.
+The node outputs a pairing URL and QR code. Open the URL in any browser to
+access the **Fleet Hub** (`www/hub/`), or type `/remote` inside an active
+terminal REPL session to pair on-demand. The Fleet Hub provides full parity with
+the terminal interface, streaming thinking and tool executions, interactive
+approvals, real-time token tracking, and live provider rate limit/quota status.

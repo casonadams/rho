@@ -108,6 +108,14 @@ fn render_initial_layout<B: TerminalBackend>(backend: &mut B, next: &Interactive
     move_cursor_to_target(backend, next.lines.len(), next)
 }
 
+pub fn apply_cursor_visibility<B: TerminalBackend>(backend: &mut B, layout: &InteractiveLayout) -> io::Result<()> {
+    if layout.cursor_mode == crate::ui::theme::CursorMode::Hardware && layout.cursor_visible {
+        backend.show_cursor()
+    } else {
+        Ok(())
+    }
+}
+
 pub fn render_live_diff<B: TerminalBackend>(
     backend: &mut B,
     prev: Option<&InteractiveLayout>,
@@ -120,6 +128,7 @@ pub fn render_live_diff<B: TerminalBackend>(
     } else {
         render_initial_layout(backend, next)?;
     }
+    apply_cursor_visibility(backend, next)?;
     backend.write_text(CSI_END_SYNC_UPDATE)?;
     backend.flush()
 }

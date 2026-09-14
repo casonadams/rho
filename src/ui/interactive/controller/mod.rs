@@ -100,7 +100,7 @@ impl<B: TerminalBackend> TerminalController<B> {
     fn finish_output_write(&mut self) -> io::Result<()> {
         let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
-        self.backend.hide_cursor()?;
+        paint::apply_cursor_visibility(&mut self.backend, &rendered)?;
         self.rendered = Some(rendered);
         self.backend.write_text(ansi::CSI_END_SYNC_UPDATE)?;
         self.backend.flush()

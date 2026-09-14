@@ -65,6 +65,7 @@ bash_error_border = "red"
 agent_block_output = true
 hide_thinking = true
 tools_expanded = false
+cursor = "hardware"
 "#;
     let file: FileConfig = toml::from_str(toml_str).unwrap();
     let ui = file.ui.clone().expect("ui config present");
@@ -79,6 +80,7 @@ tools_expanded = false
             ui.agent_block_output,
             ui.hide_thinking,
             ui.tools_expanded,
+            ui.cursor.as_deref(),
         ),
         (
             Some("border"),
@@ -90,6 +92,7 @@ tools_expanded = false
             Some(true),
             Some(true),
             Some(false),
+            Some("hardware"),
         )
     );
 
@@ -106,6 +109,7 @@ tools_expanded = false
             config.ui.agent_block_output,
             config.ui.hide_thinking,
             config.ui.tools_expanded,
+            config.ui.cursor.as_deref(),
         ),
         (
             Some("border"),
@@ -117,6 +121,7 @@ tools_expanded = false
             Some(true),
             Some(true),
             Some(false),
+            Some("hardware"),
         )
     );
 }

@@ -98,6 +98,9 @@ fn apply_ui_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, ge
     if let Some(val) = get("RHO_BLOCK_STYLE").or_else(|| get("RHO_UI_BLOCK_STYLE")) {
         config.ui.block_style = Some(val);
     }
+    if let Some(val) = get("RHO_CURSOR").or_else(|| get("RHO_UI_CURSOR")) {
+        config.ui.cursor = Some(val);
+    }
 }
 
 fn parse_bool(name: &str, value: &str) -> Result<bool> {

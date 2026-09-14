@@ -31,8 +31,9 @@ newlines grow the editor upward.
   - `%/window`: Context window utilization percentage and capacity.
   - `@t/s`: Token generation velocity.
   - Model and thinking level aligned to the right.
-- **Activity Spinner**: Animates in-place on the top divider of the input frame during inference or
-  tool execution without causing scroll jitter or changing layout height.
+- **Activity Spinner**: Animates in-place on the top divider of the input frame
+  during inference or tool execution without causing scroll jitter or changing
+  layout height.
 
 > **Local-Only Metrics**: All status footer counters (tokens, speeds, context
 > window usage, costs) are computed strictly in-memory on your local machine.
@@ -94,52 +95,54 @@ without losing context.
 Type `/` in the editor to access built-in commands (press `Tab` to
 autocomplete):
 
-| Command                     | Description                                                                                                       |
-| :-------------------------- | :---------------------------------------------------------------------------------------------------------------- |
-| `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                            |
-| `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                         |
-| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).                    |
-| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles).         |
-| `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                         |
-| `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).                     |
-| `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                        |
-| `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                                    |
-| `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                                     |
-| `/fork [turn\|id]`          | Fork session from a turn or node into a new session branch.                                                       |
-| `/clone`                    | Duplicate active branch into a new session.                                                                       |
-| `/name [name]`              | Assign a human-readable name to the current session.                                                              |
-| `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                                   |
-| `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                                    |
-| `/mcp`                      | Open the interactive Model Context Protocol modal (toggle servers, inspect status).                               |
-| `/login [provider]`         | Authenticate with an AI provider (OAuth PKCE or API key).                                                         |
-| `/logout [provider]`        | Remove stored credentials for a provider.                                                                         |
-| `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                                  |
-| `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.                                            |
-| `/exit`                     | Exit rho (alias: `/quit`).                                                                                        |
+| Command                     | Description                                                                                               |
+| :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
+| `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                    |
+| `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                 |
+| `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
+| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles). |
+| `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                 |
+| `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
+| `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |
+| `/tree`                     | Open interactive conversation turn and branch DAG tree viewer.                                            |
+| `/rewind <turn>`            | Rewind context to a specific prior turn in the active branch.                                             |
+| `/fork [turn\|id]`          | Fork session from a turn or node into a new session branch.                                               |
+| `/clone`                    | Duplicate active branch into a new session.                                                               |
+| `/name [name]`              | Assign a human-readable name to the current session.                                                      |
+| `/clear`                    | Start a fresh session while preserving session history on disk (alias: `/new`).                           |
+| `/skill [name]`             | List configured skills, or invoke a declarative workflow (e.g. `/skill:plan`).                            |
+| `/mcp`                      | Open the interactive Model Context Protocol modal (toggle servers, inspect status).                       |
+| `/login [provider]`         | Authenticate with an AI provider (OAuth PKCE or API key).                                                 |
+| `/logout [provider]`        | Remove stored credentials for a provider.                                                                 |
+| `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                          |
+| `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.                                    |
+| `/exit`                     | Exit rho (alias: `/quit`).                                                                                |
 
 ---
 
 ## Theming & Terminal Styling
 
 `rho` ships a single universal theme built from your terminal's own 16-color
-ANSI palette: cyan accents, blue tool headers, green success, red errors,
-yellow warnings, and magenta skill tags. There is no theme configuration; the
-interface always matches your terminal emulator, in dark or light mode.
+ANSI palette: cyan accents, blue tool headers, green success, red errors, yellow
+warnings, and magenta skill tags. There is no theme configuration; the interface
+always matches your terminal emulator, in dark or light mode.
 
 - Secondary text (thinking blocks, footer telemetry, hints, diff context, and
   table borders) uses the terminal's native dim (SGR 2) effect instead of a
   fixed palette color, so it stays readable on any palette.
-- Tool cards, user messages, and notices keep their container block framing.
-  By default, `rho` uses a subtle solid container fill derived from your terminal palette.
-  You can replace the solid background with an outline/border and customize border colors
-  via the `[ui]` section in `~/.config/rho/config.toml`.
+- Tool cards, user messages, and notices keep their container block framing. By
+  default, `rho` uses a subtle solid container fill derived from your terminal
+  palette. You can replace the solid background with an outline/border and
+  customize border colors via the `[ui]` section in `~/.config/rho/config.toml`.
 - Code blocks are syntax highlighted and reduced to native ANSI-16 colors.
 - Diagrams use your terminal's ANSI foreground.
 
 ### Block Styling & Outline Borders
 
-`rho` defaults to outline borders (`block_style = "border"`). You can switch between
-outline borders and solid background fills, configure thinking and tool output defaults, or adjust borders in `~/.config/rho/config.toml` (or interactively via `/settings`, which automatically persists your changes):
+`rho` defaults to outline borders (`block_style = "border"`). You can switch
+between outline borders and solid background fills, configure thinking and tool
+output defaults, or adjust borders in `~/.config/rho/config.toml` (or
+interactively via `/settings`, which automatically persists your changes):
 
 ```toml
 [ui]
@@ -155,6 +158,9 @@ hide_thinking = false
 # Expand tool output cards by default (default: false)
 tools_expanded = false
 
+# Cursor rendering: "software" (default, reverse-video block) or "hardware" (native terminal cursor)
+cursor = "software"
+
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
 agent_border = "gray"          # Agent / sub-agent skill blocks
@@ -163,9 +169,10 @@ bash_success_border = "gray"   # Successful bash commands
 bash_error_border = "red"      # Failed bash commands
 ```
 
-Border mode renders clean rounded box-drawing characters (`╭`, `─`, `╮`, `│`, `╯`, `╰`)
-in the chosen colors, eliminating solid background rectangles while maintaining visual
-distinction between user inputs, commands, and success/fail statuses.
+Border mode renders clean rounded box-drawing characters (`╭`, `─`, `╮`, `│`,
+`╯`, `╰`) in the chosen colors, eliminating solid background rectangles while
+maintaining visual distinction between user inputs, commands, and success/fail
+statuses.
 
 ### Pairing with `walh-shell`
 
@@ -175,21 +182,64 @@ active wallpaper palette and surfaces without any configuration.
 
 ### Mermaid Diagram Rendering
 
-Fenced Mermaid diagram blocks (` ```mermaid `) render in the terminal as
-clean, compact Unicode box-drawing diagrams.
+Fenced Mermaid diagram blocks (` ```mermaid `) render in the terminal as clean,
+compact Unicode box-drawing diagrams.
 
 - **Flowcharts (`graph TD` / `LR`, `flowchart`):** Rendered with true vertical
   top-down flow (`TD`/`TB`), horizontal flow (`LR`), subgraphs, decision shapes,
   and collision-free loop routing for cycles and feedback loops.
 - **Sequence Diagrams (`sequenceDiagram`):** Boxed participants, vertical
-  lifelines, solid message arrows (`->>`), dashed return arrows (`-->>`),
-  and centered message labels.
+  lifelines, solid message arrows (`->>`), dashed return arrows (`-->>`), and
+  centered message labels.
 - **State & Architecture Diagrams:** Native rendering for state machines
   (`stateDiagram-v2`), class models (`classDiagram`), entity relationships
   (`erDiagram`), and charts (`xychart-beta`).
-- **Adaptive Viewport Fitting:** Diagrams automatically adapt layout density
-  to fit your terminal viewport before safely clipping to the right margin,
+- **Adaptive Viewport Fitting:** Diagrams automatically adapt layout density to
+  fit your terminal viewport before safely clipping to the right margin,
   preserving box alignment.
 - **Clean Fallback:** Rendered diagrams display directly without surrounding
   fences. If a diagram contains syntax errors, it gracefully falls back to a
   clean code block.
+
+---
+
+## Terminal Multiplexers (tmux, zellij)
+
+When running `rho` in a multi-pane terminal multiplexer (such as `tmux`)
+alongside another active pane, background activity (e.g., live-streaming tokens
+or the turn spinner) can cause the hardware cursor in the active pane to flicker
+if the multiplexer does not forward synchronized rendering to the outer terminal
+emulator.
+
+`rho` wraps live diffs in Mode 2026 synchronized update escape sequences
+(`\x1b[?2026h` / `\x1b[?2026l`). To ensure `tmux` buffers pane repaints and
+keeps the hardware cursor anchored in the active pane, enable `sync` and focus
+reporting in `~/.tmux.conf`:
+
+```tmux
+# Pass synchronized output to outer terminals supporting Mode 2026 (Alacritty, Kitty, iTerm2, Ghostty)
+set -as terminal-features ',*:sync'
+
+# Forward focus events so background panes can suppress inactive cursor states
+set -g focus-events on
+```
+
+### Native Hardware Cursor vs. Software Cursor
+
+`rho` defaults to a software reverse-video block cursor (`cursor = "software"`),
+which remains 100% flicker-free even on terminals that do not support Mode 2026
+or in multiplexers without synchronized rendering.
+
+If your terminal emulator and `tmux` have `sync` enabled (or you run directly in
+modern terminals like Alacritty, Kitty, Ghostty, or iTerm2), you can switch to
+the native hardware cursor:
+
+```toml
+[ui]
+cursor = "hardware"
+```
+
+(or toggle it interactively in `/settings` under **Cursor Style**). Hardware
+cursor mode preserves your terminal emulator's native cursor shape (beam `|`,
+underline `_`, or block `█`), custom blink settings, and IME candidate popup
+positioning.

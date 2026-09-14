@@ -12,6 +12,7 @@ pub struct InteractiveLayout {
     pub cursor: CursorPosition,
     pub cursor_visible: bool,
     pub cursor_row: usize,
+    pub cursor_mode: crate::ui::theme::CursorMode,
     pub queued_lines: Vec<String>,
     pub widget_lines: Vec<String>,
     pub working_line: String,

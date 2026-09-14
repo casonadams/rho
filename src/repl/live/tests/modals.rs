@@ -76,6 +76,24 @@ fn settings_selector_modal_toggles_block_style() {
 }
 
 #[test]
+fn settings_selector_modal_toggles_cursor_mode() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::super::modal::open_settings_selector(None, None, &mut controller);
+    let key8 = KeyEvent::new(KeyCode::Char('8'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key8, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 7);
+
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    assert_eq!(
+        res,
+        super::super::modal::ModalKeyResult::CursorToggled {
+            cursor: "hardware".to_string()
+        }
+    );
+    assert_eq!(controller.cursor_mode(), crate::ui::theme::CursorMode::Hardware);
+}
+
+#[test]
 fn settings_selector_modal_selects_model_opens_selector() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), Some("medium"), &mut controller);
@@ -392,6 +410,9 @@ async fn settings_modal_actions_persist_to_disk() {
         super::super::modal::ModalKeyResult::ShowLabelToggled { shown: true },
         super::super::modal::ModalKeyResult::ThinkingOutputToggled { hidden: true },
         super::super::modal::ModalKeyResult::ToolOutputToggled { expanded: true },
+        super::super::modal::ModalKeyResult::CursorToggled {
+            cursor: "hardware".to_string(),
+        },
         super::super::modal::ModalKeyResult::ThinkingLevelSelected {
             level: Some("high".to_string()),
             save_as_default: true,
@@ -434,6 +455,7 @@ async fn settings_modal_actions_persist_to_disk() {
     assert_eq!(ui.get("agent_block_output").and_then(|v| v.as_bool()), Some(true));
     assert_eq!(ui.get("hide_thinking").and_then(|v| v.as_bool()), Some(true));
     assert_eq!(ui.get("tools_expanded").and_then(|v| v.as_bool()), Some(true));
+    assert_eq!(ui.get("cursor").and_then(|v| v.as_str()), Some("hardware"));
 }
 
 #[tokio::test]

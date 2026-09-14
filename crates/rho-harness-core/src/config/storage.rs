@@ -66,6 +66,14 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_ui_cursor_async(config_dir: &Path, cursor: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let ui = file_config.ui.get_or_insert_with(Default::default);
+        ui.cursor = Some(cursor.to_string());
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub async fn save_show_label_async(config_dir: &Path, show: bool) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
@@ -122,6 +130,10 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::ToolsExpanded => {
             let ui = file_config.ui.get_or_insert_with(Default::default);
             ui.tools_expanded = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::Cursor => {
+            let ui = file_config.ui.get_or_insert_with(Default::default);
+            ui.cursor = Some(value.to_string());
         }
         ConfigKey::ShowLabel => {
             file_config.show_label = Some(parse_bool(key.as_str(), value)?);

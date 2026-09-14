@@ -37,6 +37,8 @@ pub struct UiConfig {
     pub hide_thinking: Option<bool>,
     #[serde(default, alias = "expand_tools", alias = "tool_output_expanded")]
     pub tools_expanded: Option<bool>,
+    #[serde(default, alias = "cursor_style", alias = "cursor_mode")]
+    pub cursor: Option<String>,
 }
 
 impl UiConfig {
@@ -67,6 +69,9 @@ impl UiConfig {
         }
         if let Some(val) = other.tools_expanded {
             self.tools_expanded = Some(val);
+        }
+        if let Some(ref val) = other.cursor {
+            self.cursor = Some(val.clone());
         }
     }
 }

@@ -21,6 +21,13 @@ pub enum BlockStyle {
     Border,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorMode {
+    #[default]
+    Software,
+    Hardware,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     /// Detected terminal light/dark mode; selects syntect syntax colors.
@@ -47,6 +54,7 @@ pub struct Theme {
     pub bash_success_border: Style,
     pub bash_error_border: Style,
     pub block_agent_output: bool,
+    pub cursor_mode: CursorMode,
 }
 
 impl Theme {
@@ -93,6 +101,13 @@ impl Theme {
             match style.trim().to_lowercase().as_str() {
                 "border" | "outline" => self.block_style = BlockStyle::Border,
                 "solid" | "fill" => self.block_style = BlockStyle::Solid,
+                _ => {}
+            }
+        }
+        if let Some(ref cursor) = ui.cursor {
+            match cursor.trim().to_lowercase().as_str() {
+                "hardware" | "hw" | "native" | "terminal" => self.cursor_mode = CursorMode::Hardware,
+                "software" | "sw" | "block" => self.cursor_mode = CursorMode::Software,
                 _ => {}
             }
         }
@@ -199,6 +214,7 @@ impl Default for Theme {
             bash_success_border: grey,
             bash_error_border: foreground(AnsiColor::Red),
             block_agent_output: false,
+            cursor_mode: CursorMode::Software,
         }
     }
 }

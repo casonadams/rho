@@ -27,6 +27,7 @@ pub(crate) enum ConfigKey {
     AgentBlockOutput,
     HideThinking,
     ToolsExpanded,
+    Cursor,
     ShowLabel,
 }
 
@@ -60,6 +61,9 @@ impl FromStr for ConfigKey {
             "agent_block_output" | "ui.agent_block_output" | "agent_box" | "ui.agent_box" => Ok(Self::AgentBlockOutput),
             "hide_thinking" | "ui.hide_thinking" | "thinking_hidden" | "ui.thinking_hidden" => Ok(Self::HideThinking),
             "tools_expanded" | "ui.tools_expanded" | "expand_tools" | "ui.expand_tools" => Ok(Self::ToolsExpanded),
+            "cursor" | "ui.cursor" | "cursor_style" | "ui.cursor_style" | "cursor_mode" | "ui.cursor_mode" => {
+                Ok(Self::Cursor)
+            }
             "show_label" => Ok(Self::ShowLabel),
             _ => Err(format!("unknown configuration key: {value}")),
         }
@@ -94,6 +98,7 @@ impl ConfigKey {
             Self::AgentBlockOutput => "ui.agent_block_output",
             Self::HideThinking => "ui.hide_thinking",
             Self::ToolsExpanded => "ui.tools_expanded",
+            Self::Cursor => "ui.cursor",
             Self::ShowLabel => "show_label",
         }
     }

@@ -18,6 +18,22 @@ fn construction_positions_and_hides_the_hardware_cursor() {
 }
 
 #[test]
+fn hardware_cursor_mode_shows_cursor_on_redraw() {
+    let (backend, operations, _) = FakeTerminal::new(10);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+    operations.borrow_mut().clear();
+
+    controller
+        .set_cursor_mode(crate::ui::theme::CursorMode::Hardware)
+        .unwrap();
+
+    let ops = operations.borrow();
+    let show_index = ops.iter().rposition(|op| op == &Operation::Show).unwrap();
+    let flush_index = ops.iter().rposition(|op| op == &Operation::Flush).unwrap();
+    assert!(show_index < flush_index);
+}
+
+#[test]
 fn construction_error_restores_cursor_and_raw_mode() {
     let (mut backend, operations, _) = FakeTerminal::new(8);
     backend.fail_write = true;

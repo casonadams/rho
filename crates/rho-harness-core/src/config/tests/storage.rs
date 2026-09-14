@@ -227,6 +227,7 @@ async fn test_save_ui_settings_async_helpers_persist() {
     Config::save_ui_agent_box_async(&dir, true).await.unwrap();
     Config::save_ui_hide_thinking_async(&dir, true).await.unwrap();
     Config::save_ui_tools_expanded_async(&dir, true).await.unwrap();
+    Config::save_ui_cursor_async(&dir, "hardware").await.unwrap();
     Config::save_show_label_async(&dir, true).await.unwrap();
 
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
@@ -237,6 +238,7 @@ async fn test_save_ui_settings_async_helpers_persist() {
     assert_eq!(ui.agent_block_output, Some(true));
     assert_eq!(ui.hide_thinking, Some(true));
     assert_eq!(ui.tools_expanded, Some(true));
+    assert_eq!(ui.cursor.as_deref(), Some("hardware"));
 
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -250,6 +252,7 @@ fn test_set_file_value_ui_keys_and_aliases() {
     Config::set_file_value(&dir, "ui.agent_block_output", "true").unwrap();
     Config::set_file_value(&dir, "ui.hide_thinking", "true").unwrap();
     Config::set_file_value(&dir, "ui.tools_expanded", "false").unwrap();
+    Config::set_file_value(&dir, "ui.cursor", "hardware").unwrap();
     Config::set_file_value(&dir, "show_label", "true").unwrap();
 
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
@@ -260,6 +263,7 @@ fn test_set_file_value_ui_keys_and_aliases() {
     assert_eq!(ui.agent_block_output, Some(true));
     assert_eq!(ui.hide_thinking, Some(true));
     assert_eq!(ui.tools_expanded, Some(false));
+    assert_eq!(ui.cursor.as_deref(), Some("hardware"));
 
     Config::set_file_value(&dir, "agent_box", "false").unwrap();
     Config::set_file_value(&dir, "thinking_hidden", "false").unwrap();
