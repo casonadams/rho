@@ -131,3 +131,17 @@ fn styled_blocks_wrap_on_word_boundaries_and_preserve_style() {
     assert!(lines[0].contains("\x1b[32mfirst second"));
     assert!(lines[1].contains("\x1b[32mthird fourth\x1b[0m"));
 }
+
+#[test]
+fn border_blocks_strip_carriage_returns_to_protect_borders() {
+    let border_style = Style::new().fg_color(Some(Color::Ansi(AnsiColor::Green)));
+    let rendered = BlockFormat::border(border_style, 30).render_styled("\r00:01 +0: loading\r\n\r00:02 +1: passed");
+    let lines: Vec<&str> = rendered.lines().collect();
+    assert!(lines.len() >= 4);
+    for line in &lines {
+        assert!(!line.contains('\r'), "rendered box must not contain carriage return");
+        assert_eq!(visible_width(line), 30);
+    }
+    assert!(lines[1].starts_with("\x1b[32m│\x1b[0m 00:01 +0: loading"));
+    assert!(lines[1].ends_with("\x1b[32m │\x1b[0m"));
+}

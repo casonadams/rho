@@ -16,7 +16,7 @@ pub fn strip_ansi(text: &str) -> Cow<'_, str> {
 #[inline]
 fn is_filtered_char(c: char) -> bool {
     let u = c as u32;
-    if u == 0x09 || u == 0x0A || u == 0x0D {
+    if u == 0x09 || u == 0x0A {
         return false;
     }
     if u <= 0x1F {
@@ -25,28 +25,60 @@ fn is_filtered_char(c: char) -> bool {
     (0xFFF9..=0xFFFB).contains(&u)
 }
 
+fn sanitize_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut at_line_start = true;
+
+    while let Some(c) = chars.next() {
+        if c == '\r' {
+            if chars.peek() == Some(&'\n') {
+                continue;
+            }
+            if !at_line_start {
+                out.push('\n');
+                at_line_start = true;
+            }
+        } else if c == '\n' {
+            out.push('\n');
+            at_line_start = true;
+            while chars.peek() == Some(&'\r') {
+                chars.next();
+                if chars.peek() == Some(&'\n') {
+                    break;
+                }
+            }
+        } else if !is_filtered_char(c) {
+            out.push(c);
+            at_line_start = false;
+        }
+    }
+
+    out
+}
+
 /// Sanitizes binary output to remove ANSI color escapes, control characters,
 /// and Unicode format characters that corrupt model context and terminal rendering.
 pub fn sanitize_binary_output(text: &str) -> Cow<'_, str> {
     let stripped = strip_ansi(text);
-    if !stripped.chars().any(is_filtered_char) {
+    if !stripped.contains('\r') && !stripped.chars().any(is_filtered_char) {
         return stripped;
     }
-    let mut out = String::with_capacity(stripped.len());
-    for c in stripped.chars() {
-        if !is_filtered_char(c) {
-            out.push(c);
-        }
-    }
-    Cow::Owned(out)
+    Cow::Owned(sanitize_text(&stripped))
 }
 
 pub fn split_at_incomplete_ansi(text: &str) -> (&str, &str) {
     let Some(esc_idx) = text.rfind('\x1b') else {
+        if let Some(prefix) = text.strip_suffix('\r') {
+            return (prefix, "\r");
+        }
         return (text, "");
     };
     let tail = &text[esc_idx..];
     if tail.len() > 64 || is_complete_escape_tail(tail) {
+        if let Some(prefix) = text.strip_suffix('\r') {
+            return (prefix, "\r");
+        }
         (text, "")
     } else {
         (&text[..esc_idx], tail)
@@ -73,7 +105,16 @@ mod tests {
     #[test]
     fn test_sanitize_preserves_clean_text_and_standard_whitespace() {
         let input = "hello\tworld\r\nthis is clean!";
-        assert_eq!(sanitize_binary_output(input), input);
+        assert_eq!(sanitize_binary_output(input), "hello\tworld\nthis is clean!");
+    }
+
+    #[test]
+    fn test_sanitize_normalizes_carriage_returns_to_newlines() {
+        let input = "\r00:01 +0: loading\r00:02 +0: loading\r00:02 +1: All tests passed!\n";
+        assert_eq!(
+            sanitize_binary_output(input),
+            "00:01 +0: loading\n00:02 +0: loading\n00:02 +1: All tests passed!\n"
+        );
     }
 
     #[test]

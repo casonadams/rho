@@ -63,3 +63,13 @@ fn wrap_to_width_preserves_multiple_spaces_when_fitting() {
     let wrapped = wrap_to_width(text, 20);
     assert_eq!(wrapped, vec!["alpha   beta"]);
 }
+
+#[test]
+fn wrap_to_width_strips_carriage_returns() {
+    let text = "\r00:01 +0: loading\r\n\r00:02 +1: passed\r\n";
+    let wrapped = wrap_to_width(text, 40);
+    assert_eq!(wrapped, vec!["00:01 +0: loading", "00:02 +1: passed", ""]);
+    for line in &wrapped {
+        assert!(!line.contains('\r'));
+    }
+}

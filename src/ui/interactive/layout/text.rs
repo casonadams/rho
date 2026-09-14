@@ -32,7 +32,7 @@ pub fn truncate_to_visual_lines(text: &str, max_visual_lines: usize, width: usiz
 
 pub fn visible_width(content: &str) -> usize {
     let clean = crate::ui::block::ANSI_PATTERN.replace_all(content, "");
-    UnicodeWidthStr::width(clean.as_ref())
+    UnicodeWidthStr::width(clean.replace('\r', "").as_str())
 }
 
 struct LineWrapper<'a> {
@@ -144,6 +144,9 @@ impl<'a> LineWrapper<'a> {
                 break;
             };
             self.offset += c.len_utf8();
+            if c == '\r' {
+                continue;
+            }
 
             if c == ' ' || c == '\t' {
                 self.commit_pending_word(output);
@@ -181,6 +184,7 @@ pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
     let max_width = max_width.max(1);
     let mut output = Vec::new();
     for line in content.split('\n') {
+        let line = line.trim_end_matches('\r');
         if line.trim().is_empty() {
             output.push(String::new());
             continue;

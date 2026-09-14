@@ -7,7 +7,8 @@ pub(crate) static ANSI_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("valid ANSI escape pattern"));
 
 pub(crate) fn visible_width(content: &str) -> usize {
-    UnicodeWidthStr::width(ANSI_PATTERN.replace_all(content, "").as_ref())
+    let clean = ANSI_PATTERN.replace_all(content, "");
+    UnicodeWidthStr::width(clean.replace('\r', "").as_str())
 }
 
 fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>) {
@@ -157,6 +158,10 @@ pub(crate) fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> 
         let Some(character) = content[state.offset..].chars().next() else {
             break;
         };
+        if character == '\r' {
+            state.offset += 1;
+            continue;
+        }
         let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
         state.push_char(character, character_width);
         state.offset += character.len_utf8();
@@ -171,7 +176,7 @@ pub(crate) fn wrap_styled_line(content: &str, width: usize, bg_style: Style) -> 
 
 pub(crate) fn wrap_plain_text(content: &str, width: usize) -> Vec<String> {
     content
-        .split('\n')
+        .lines()
         .flat_map(|line| wrap_styled_line(line, width, Style::new()))
         .collect()
 }

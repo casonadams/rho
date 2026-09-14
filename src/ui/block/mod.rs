@@ -146,6 +146,7 @@ impl BlockFormat {
     }
 
     fn border_content_line(&self, content: &str) -> String {
+        let content = content.trim_matches('\r');
         let style = self.border_style;
         if self.width < 2 {
             return format!("{style}│{style:#}\n");
@@ -170,6 +171,7 @@ impl BlockFormat {
     }
 
     fn padded_line(&self, content: &str) -> String {
+        let content = content.trim_matches('\r');
         let pad = if self.width >= HORIZONTAL_PADDING * 2 {
             HORIZONTAL_PADDING
         } else {
