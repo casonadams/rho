@@ -64,8 +64,9 @@ export class RhoPeerClient {
           this.status = 'online';
           resolve();
         };
-        this.socket.onmessage = (msg) => {
-          this.handleRawMessage(msg.data);
+        this.socket.onmessage = async (msg) => {
+          const raw = msg.data instanceof Blob ? await msg.data.text() : msg.data;
+          this.handleRawMessage(raw);
         };
         this.socket.onerror = (err) => {
           console.warn('WebSocket connection failed to', targetUrl, err);
@@ -84,7 +85,7 @@ export class RhoPeerClient {
 
   handleRawMessage(data) {
     try {
-      const frame = parse_rpc_frame(data);
+      const frame = typeof data === 'string' ? parse_rpc_frame(data) : data;
       if (frame.type === 'response') {
         if (frame.id && this.responseHandlers.has(frame.id)) {
           const handler = this.responseHandlers.get(frame.id);

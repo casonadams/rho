@@ -345,6 +345,22 @@ main.hub-main {
   color: var(--text-secondary);
 }
 
+.prose-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.thinking-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
 .thinking-header {
   display: flex;
   align-items: center;

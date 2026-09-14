@@ -187,6 +187,7 @@ async function handleSendPrompt() {
 
   chatPrompt.value = '';
   sessionView.addUserMessage(text);
+  sessionView.startAssistantTurn();
   await activeClient.send('prompt', { message: text });
 }
 

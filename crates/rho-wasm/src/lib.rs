@@ -88,9 +88,7 @@ pub fn encode_rpc_request(
 
 #[wasm_bindgen]
 pub fn parse_rpc_frame(line: &str) -> Result<JsValue, JsValue> {
-    let val: Value =
-        serde_json::from_str(line.trim()).map_err(|e| JsValue::from_str(&format!("failed to parse RPC frame: {e}")))?;
-    serde_wasm_bindgen::to_value(&val).map_err(|e| JsValue::from_str(&e.to_string()))
+    js_sys::JSON::parse(line.trim())
 }
 
 #[derive(Serialize, Deserialize)]
