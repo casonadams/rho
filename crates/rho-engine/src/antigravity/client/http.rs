@@ -53,15 +53,32 @@ pub fn antigravity_headers(token: &str) -> HeaderMap {
 }
 
 fn parse_error_message(body: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| {
-            v.get("error")
-                .and_then(|e| e.get("message"))
-                .and_then(|m| m.as_str())
-                .map(String::from)
-        })
-        .unwrap_or_else(|| body.chars().take(300).collect())
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
+        return body.chars().take(300).collect();
+    };
+    let Some(err) = v.get("error") else {
+        return body.chars().take(300).collect();
+    };
+    let message = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+    if let Some(details) = err.get("details").and_then(|d| d.as_array()) {
+        let mut violations = Vec::new();
+        for item in details {
+            if let Some(fvs) = item.get("fieldViolations").and_then(|f| f.as_array()) {
+                for fv in fvs {
+                    let field = fv.get("field").and_then(|f| f.as_str()).unwrap_or("");
+                    let desc = fv.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                    if !field.is_empty() || !desc.is_empty() {
+                        violations.push(format!("{field}: {desc}"));
+                    }
+                }
+            }
+        }
+        if !violations.is_empty() {
+            return format!("{message} (details: {})", violations.join("; "));
+        }
+        return format!("{message} (raw details: {details:?})");
+    }
+    format!("{message} (body: {v})")
 }
 
 fn format_status_error(status: u16, message: &str) -> String {

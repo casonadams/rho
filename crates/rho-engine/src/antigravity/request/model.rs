@@ -102,10 +102,8 @@ pub fn max_output_tokens_cap(runtime: &str) -> u64 {
         64000
     } else if runtime.starts_with("gpt-oss-") {
         32768
-    } else if runtime.starts_with("gemini-3.1-pro") {
-        65535
     } else if runtime.starts_with("gemini-") {
-        65536
+        65535
     } else {
         8192
     }
