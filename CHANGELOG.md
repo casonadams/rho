@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.7.3](https://github.com/casonadams/rho/compare/v0.7.2...v0.7.3) (2026-09-14)
+
+
+### Features
+
+* **config:** enable mcp by default and merge server configuration ([7cf66f7](https://github.com/casonadams/rho/commit/7cf66f7328e9680554ddfa682f64206001a9ac45))
+* **hub:** add static pwa fleet dashboard and website docs integration ([1e9f5b4](https://github.com/casonadams/rho/commit/1e9f5b47572c86dc6cf47b562bcf5b93d8a1ac0b))
+* **hub:** broadcast turn start events and display tool activity in session view ([98b4dd4](https://github.com/casonadams/rho/commit/98b4dd4b9438e814bfa1af47f070e2c08f17cf85))
+* **hub:** enhance steering responsiveness, input morphing, and live turn reflection ([2df3036](https://github.com/casonadams/rho/commit/2df3036a986430081be8be8dab540f8f834f58d1))
+* **hub:** link active session in /remote pairing url and auto-hydrate on connect ([a2d6655](https://github.com/casonadams/rho/commit/a2d665517009e855cffaa499b63fe0a6326d00ef))
+* **hub:** move working indicator to input divider and align tool calls with TUI ([7eff79d](https://github.com/casonadams/rho/commit/7eff79d52363902484e634502561d3d0dd2b6c73))
+* **hub:** populate conversation history on session switch and initial load ([fc1895b](https://github.com/casonadams/rho/commit/fc1895b79569e2e9390aab4e23e6215d97bc4960))
+* **hub:** single-line prompt input by default with auto-growing multiline support ([981920d](https://github.com/casonadams/rho/commit/981920d96732da8591b41948b2ad1f1004c0a753))
+* **hub:** style tool cards and handle tool event streaming in session view ([97e9f27](https://github.com/casonadams/rho/commit/97e9f27814994f3647e23dfbbf5cf2b1cc737ddc))
+* **hub:** sync live footer usage per step and bidirectional approval dismissal ([45976a7](https://github.com/casonadams/rho/commit/45976a7ead0d23065713ead2e40395fb09087408))
+* **remote:** broadcast TurnEnd and StatusChanged events on turn completion and cancellation ([6774dc0](https://github.com/casonadams/rho/commit/6774dc02ea7ac3dfbc9373eef9805a76bc3ca7e4))
+* **remote:** support bidirectional prompt injection, first-wins tool approvals, and styled permission cards ([7234ca8](https://github.com/casonadams/rho/commit/7234ca894056ff590741d53cbefe47bf17bd6644))
+* **remote:** track remote active state and peer counts in footer state ([a626e22](https://github.com/casonadams/rho/commit/a626e221b8ad46b90dae4c7413b83069386dae77))
+* **render:** add BroadcastPresenter to mirror turn streaming to remote peers ([b2384aa](https://github.com/casonadams/rho/commit/b2384aacac5d1f158e75111538da0fda1528d829))
+* **repl:** add /remote command and interactive pairing modal ([856351e](https://github.com/casonadams/rho/commit/856351e90188c383d59dc9e110ad6eb73d89929e))
+* **rpc:** add node info, create session, and remote auth bridge commands ([2e43cc7](https://github.com/casonadams/rho/commit/2e43cc78ee6136f50f38a597ff79839f04e5b49b))
+* **serve:** add native iroh endpoint daemon and serve subcommand ([bc0937d](https://github.com/casonadams/rho/commit/bc0937ddebe9c0b055e5f9a364e5c7ae72662020))
+* **serve:** add websocket bridge to remote server for direct browser pairing ([33a5fd6](https://github.com/casonadams/rho/commit/33a5fd6b31ab7f6a4a8c6adba26c84daddfc2d02))
+* **tui:** render clean remote state and peer count indicator on top divider ([27cbe7e](https://github.com/casonadams/rho/commit/27cbe7e9e409182ac624ef5499893d9326d17c06))
+* **ui:** display configured mcp servers in welcome banner ([c1ce031](https://github.com/casonadams/rho/commit/c1ce0313fea62140b700375202b2067e95b212af))
+* **ui:** format mcp server and tool call in execution summaries ([dd4a5a5](https://github.com/casonadams/rho/commit/dd4a5a5ebb6c571444c3c3c770c25ff747c39dda))
+* **wasm:** add rho-wasm webassembly client package and build target ([42cd29b](https://github.com/casonadams/rho/commit/42cd29bfb0cda9169eebd6a29d6b0b33f4b42ef4))
+
+
+### Bug Fixes
+
+* **hub:** add auto-scroll during streaming, format markdown, and fix session labels ([db66fa2](https://github.com/casonadams/rho/commit/db66fa2e536c56efd2d3c8dc88d118446f2c62d4))
+* **hub:** fix independent chat scrolling, pin input bar, add working indicators, and make sidebar collapsible ([9f33f38](https://github.com/casonadams/rho/commit/9f33f38cddd05182cc66bc21a25f80e9c7f63d99))
+* **hub:** hide session UI components in workspace view ([75d6c01](https://github.com/casonadams/rho/commit/75d6c010b469a5a292df5fd1eda5fcd175dee6f0))
+* **hub:** parse tickets cleanly from pairing URLs with query parameters ([a38ea6c](https://github.com/casonadams/rho/commit/a38ea6c5c0ecc178415f0bba9ccf39f020c47e0b))
+* **hub:** prevent tool cards and chat bubbles from collapsing via flex-shrink ([556a9f8](https://github.com/casonadams/rho/commit/556a9f8cd32f2fed061e1dbe8b5a27ecf92053e1))
+* **hub:** use native JSON parsing for RPC frames and handle blob stream messages ([f3f8737](https://github.com/casonadams/rho/commit/f3f8737cb3fa112de5779d1c1e25dd8b46228bb7))
+
 ## [0.7.2](https://github.com/casonadams/rho/compare/v0.7.1...v0.7.2) (2026-09-12)
 
 
