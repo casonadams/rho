@@ -3,6 +3,7 @@ pub mod interaction;
 pub mod login;
 pub mod mcp;
 pub mod model;
+pub mod remote;
 pub mod session;
 pub mod settings;
 #[cfg(test)]
@@ -18,6 +19,7 @@ pub use interaction::{PendingModal, install_interaction};
 pub use login::open_login_selector;
 pub use mcp::open_mcp_selector;
 pub use model::{open_model_selector, open_model_selector_with_default};
+pub use remote::open_remote_modal;
 pub use session::open_session_selector;
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -163,6 +165,7 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Select Model" => model::handle_model_key(controller, key),
         "Model Context Protocol" => mcp::handle_mcp_key(controller, key),
         "Login Provider" => login::handle_login_key(controller, key),
+        "Remote Access" => remote::handle_remote_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

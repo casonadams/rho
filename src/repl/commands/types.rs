@@ -35,6 +35,7 @@ pub enum CommandResult {
     OpenHelpSelector,
     OpenLoginSelector,
     OpenMcpSelector,
+    OpenRemoteModal,
     ThinkingChanged {
         level: Option<String>,
     },
@@ -85,6 +86,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/logout",
     "/reload",
     "/export",
+    "/remote",
     "/exit",
     "/quit",
 ];

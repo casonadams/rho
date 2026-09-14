@@ -23,6 +23,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /logout [provider]          Remove stored provider auth\n\
   /reload                     Re-read config, skills, and MCP tools; keep history\n\
   /export [html|md] [path]    Export the active branch as a readable artifact\n\
+  /remote                     Pair session with web dashboard via Iroh P2P\n\
   /exit                       Exit rho (alias: /quit)\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\

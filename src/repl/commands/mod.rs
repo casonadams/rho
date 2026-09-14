@@ -116,6 +116,7 @@ fn handle_simple_slash_commands(name: &str, ctx: &mut SlashCommandContext<'_>) -
             Some(CommandResult::Continue)
         }
         "settings" => Some(handle_settings_command(ctx.renderer.has_interactive_ui(), ctx.renderer)),
+        "remote" => Some(CommandResult::OpenRemoteModal),
         "reload" => Some(CommandResult::Reload),
         "exit" | "quit" => {
             ctx.renderer.print_notice("  Bye!\n");

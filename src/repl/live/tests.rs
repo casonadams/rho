@@ -14,6 +14,7 @@ mod mcp_modal;
 mod modal_navigation;
 mod modals;
 mod permission_flow;
+mod remote_modal;
 mod selection_lifecycle;
 mod session_modal;
 mod suspend;

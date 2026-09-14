@@ -103,6 +103,9 @@ async fn test_new_and_thinking_commands() {
     let new_res = SlashCommandHandler::handle("/new", &mut context).await.unwrap();
     assert_eq!(new_res, Some(CommandResult::ClearContext));
 
+    let remote_res = SlashCommandHandler::handle("/remote", &mut context).await.unwrap();
+    assert_eq!(remote_res, Some(CommandResult::OpenRemoteModal));
+
     let think_res = SlashCommandHandler::handle("/thinking high", &mut context)
         .await
         .unwrap();

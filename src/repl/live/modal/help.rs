@@ -56,6 +56,10 @@ fn build_help_options() -> Vec<ModalOption> {
             format!("{:<15}", "/export"),
             Some("Export active branch as HTML or Markdown"),
         ),
+        ModalOption::new(
+            format!("{:<15}", "/remote"),
+            Some("Pair session with web dashboard via Iroh P2P"),
+        ),
         ModalOption::new(format!("{:<15}", "/exit"), Some("Exit rho (alias: /quit)")),
         ModalOption::new(format!("{:<15}", "Tab"), Some("Complete slash commands & skill names")),
         ModalOption::new(format!("{:<15}", "Shift+Tab"), Some("Cycle thinking level")),
