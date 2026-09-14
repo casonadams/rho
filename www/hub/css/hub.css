@@ -463,28 +463,97 @@ main.hub-main {
 }
 
 .approval-card {
-  background: var(--bg-surface-raised);
+  background: var(--bg-surface);
   border: 1px solid var(--accent-amber);
-  border-radius: var(--radius-md);
-  padding: 1rem 1.25rem;
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
   margin: 1rem auto;
   max-width: 850px;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);
 }
 
 .approval-header {
   color: var(--accent-amber);
   font-weight: 700;
+  font-size: 1rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
 }
 
-.approval-actions {
+.approval-command-box {
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1rem;
+}
+
+.approval-command-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.approval-command {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.approval-options-list {
   display: flex;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.approval-opt-btn {
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  transition: all 0.15s ease;
+  font-family: var(--font-mono);
+  text-align: left;
+  width: 100%;
+}
+
+.approval-opt-btn:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-focus);
+}
+
+.approval-opt-btn.btn-allow:hover {
+  border-color: var(--accent-green);
+  background: var(--accent-green-dim);
+}
+
+.approval-opt-btn.btn-deny:hover {
+  border-color: var(--accent-red);
+  background: var(--accent-red-dim);
+}
+
+.opt-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.opt-desc {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
 .chat-input-bar {

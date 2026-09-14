@@ -123,7 +123,15 @@ async fn drive_idle_loop<B: TerminalBackend>(
     let mut ui = IdleUi::new();
     loop {
         match next_idle_step(&mut ui.frame, input, ui_events).await {
-            IdleSource::Tick(tick) => handle_tick(controller, (&mut ui.batch, tick, &mut *rest)).await?,
+            IdleSource::Tick(tick) => {
+                handle_tick(controller, (&mut ui.batch, tick, &mut *rest)).await?;
+                if let Some(prompt) = crate::platform::remote::REMOTE_PROMPT_QUEUE.pop() {
+                    return Ok(Some(QueuedMessage {
+                        text: prompt,
+                        kind: crate::ui::interactive::QueueKind::FollowUp,
+                    }));
+                }
+            }
             IdleSource::Input(event) => {
                 let args = (event, &mut ui.batch, &mut *resources, &mut *input, &mut *rest);
                 match handle_input_source(controller, args).await? {

@@ -98,9 +98,16 @@ async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (approval_id, decision, req_id): (String, String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
+    let resp = parse_tool_decision(&decision);
+    if let Some(sender) = crate::platform::remote::ACTIVE_APPROVALS
+        .lock()
+        .unwrap()
+        .remove(&approval_id)
+    {
+        let _ = sender.send(resp.clone());
+    }
     let mut approvals = ctx.pending_approvals.lock().await;
     if let Some(sender) = approvals.remove(&approval_id) {
-        let resp = parse_tool_decision(&decision);
         let _ = sender.send(resp);
     }
     ctx.writer
@@ -112,6 +119,18 @@ async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (message, req_id): (String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
+    if crate::platform::remote::is_repl_active() {
+        if ctx.active_turn.is_some() {
+            ctx.steering.enqueue(message);
+        } else {
+            crate::platform::remote::REMOTE_PROMPT_QUEUE.push(message);
+        }
+        ctx.writer
+            .write_message(&RpcResponse::success(req_id, "prompt", None))
+            .await?;
+        return Ok(());
+    }
+
     if ctx.active_turn.is_some() {
         ctx.writer
             .write_message(&RpcResponse::failure(

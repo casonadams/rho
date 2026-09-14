@@ -24,6 +24,7 @@ async fn setup_budget_exhausted_checkpoint() -> (String, PathBuf) {
         budget_exhausted_model(),
         Config {
             max_turns: 2,
+            permission: crate::config::PermissionConfig { enabled: false },
             ..Config::default()
         },
     );
@@ -75,6 +76,7 @@ async fn budget_exhausted_checkpoint_survives_process_resume_and_promotes_once()
         resumed_model.clone(),
         Config {
             max_turns: 2,
+            permission: crate::config::PermissionConfig { enabled: false },
             ..Config::default()
         },
         Some(resumed_store),
@@ -97,6 +99,7 @@ async fn setup_single_turn_checkpoint(probe: &str) -> (Vec<rig::message::Message
         model,
         Config {
             max_turns: 1,
+            permission: crate::config::PermissionConfig { enabled: false },
             ..Config::default()
         },
     );
@@ -138,7 +141,14 @@ async fn failed_checkpoint_continuation_remains_available_until_success() {
         vec![MockStreamEvent::error("offline provider failure")],
         vec![MockStreamEvent::text("done"), final_event(Usage::new())],
     ]);
-    let resumed = test_engine_with_session(resumed_model.clone(), Config::default(), Some(resumed_store));
+    let resumed = test_engine_with_session(
+        resumed_model.clone(),
+        Config {
+            permission: crate::config::PermissionConfig { enabled: false },
+            ..Config::default()
+        },
+        Some(resumed_store),
+    );
     resumed
         .run_turn(request("continue"), presenter(&TerminalRenderer::default()))
         .await

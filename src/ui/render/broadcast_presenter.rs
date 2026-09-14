@@ -115,7 +115,51 @@ impl Presenter for BroadcastPresenter {
     }
 
     async fn request_interaction(&self, prompt: InteractionPrompt) -> Option<InteractionResponse> {
-        self.local.request_interaction(prompt).await
+        let approval_id = format!("appr-{}", uuid::Uuid::new_v4());
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        crate::platform::remote::ACTIVE_APPROVALS
+            .lock()
+            .unwrap()
+            .insert(approval_id.clone(), tx);
+
+        let arguments = serde_json::json!({
+            "body": prompt.body,
+            "options": prompt.options,
+            "initial_selection": prompt.initial_selection,
+            "initial_text": prompt.initial_text,
+        });
+
+        self.peers.broadcast(&RpcEvent::ToolApprovalRequest {
+            approval_id: approval_id.clone(),
+            tool: "Permission Required".to_string(),
+            arguments,
+            description: None,
+        });
+        self.peers.broadcast(&RpcEvent::StatusChanged {
+            status: "waiting_approval".to_string(),
+        });
+
+        let local_fut = self.local.request_interaction(prompt);
+        let remote_fut = rx;
+
+        tokio::pin!(local_fut);
+        tokio::pin!(remote_fut);
+
+        let result = tokio::select! {
+            local_res = &mut local_fut => {
+                crate::platform::remote::ACTIVE_APPROVALS.lock().unwrap().remove(&approval_id);
+                local_res
+            }
+            remote_res = &mut remote_fut => {
+                crate::platform::remote::ACTIVE_APPROVALS.lock().unwrap().remove(&approval_id);
+                remote_res.ok()
+            }
+        };
+
+        self.peers.broadcast(&RpcEvent::StatusChanged {
+            status: "busy".to_string(),
+        });
+        result
     }
 
     async fn prompt_continue_budget(&self, max_turns: usize) -> bool {

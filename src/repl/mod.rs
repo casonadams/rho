@@ -90,12 +90,15 @@ impl ReplSession {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        crate::platform::remote::set_repl_active(true);
         let stdin_is_tty = std::io::stdin().is_tty();
         let stdout_is_tty = std::io::stdout().is_tty();
-        if live::live_ui_supported(stdin_is_tty, stdout_is_tty) {
-            return self.run_live().await;
-        }
-
-        line_mode::run_line_mode(self, stdin_is_tty).await
+        let res = if live::live_ui_supported(stdin_is_tty, stdout_is_tty) {
+            self.run_live().await
+        } else {
+            line_mode::run_line_mode(self, stdin_is_tty).await
+        };
+        crate::platform::remote::set_repl_active(false);
+        res
     }
 }

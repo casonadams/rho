@@ -1,13 +1,49 @@
 use anyhow::Result;
 use rho_engine::auth::AuthStore;
 use rho_harness_core::config::Config;
+use rho_harness_core::presentation::InteractionResponse;
 use rho_harness_core::rpc::protocol::RpcEvent;
+use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::sync::{OnceCell, mpsc};
+use tokio::sync::{OnceCell, mpsc, oneshot};
 
 pub mod endpoint;
 pub mod identity;
 pub mod server;
+
+static REPL_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_repl_active(active: bool) {
+    REPL_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+pub fn is_repl_active() -> bool {
+    REPL_ACTIVE.load(Ordering::Relaxed)
+}
+
+pub type ActiveApprovalsMap = Arc<Mutex<HashMap<String, oneshot::Sender<InteractionResponse>>>>;
+
+pub static ACTIVE_APPROVALS: std::sync::LazyLock<ActiveApprovalsMap> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+#[derive(Clone, Default)]
+pub struct RemotePromptQueue {
+    queue: Arc<Mutex<VecDeque<String>>>,
+}
+
+impl RemotePromptQueue {
+    pub fn push(&self, prompt: String) {
+        self.queue.lock().unwrap().push_back(prompt);
+    }
+
+    pub fn pop(&self) -> Option<String> {
+        self.queue.lock().unwrap().pop_front()
+    }
+}
+
+pub static REMOTE_PROMPT_QUEUE: std::sync::LazyLock<RemotePromptQueue> =
+    std::sync::LazyLock::new(RemotePromptQueue::default);
 
 #[derive(Clone, Default)]
 pub struct PeerRegistry {

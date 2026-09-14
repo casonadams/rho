@@ -29,6 +29,12 @@ async fn next_live_message<B: TerminalBackend>(
     editor: EditorResources<'_>,
     (session, engine): (&mut ReplSession, &mut AgentEngine),
 ) -> Result<Option<QueuedMessage>> {
+    if let Some(prompt) = crate::platform::remote::REMOTE_PROMPT_QUEUE.pop() {
+        return Ok(Some(QueuedMessage {
+            text: prompt,
+            kind: crate::ui::interactive::QueueKind::FollowUp,
+        }));
+    }
     if let Some(msg) = io.controller.state_mut().pop_queued() {
         return Ok(Some(msg));
     }

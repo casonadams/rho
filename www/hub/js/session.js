@@ -1,3 +1,10 @@
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function renderMarkdown(text) {
   if (!text) return '';
   let html = text
@@ -162,29 +169,66 @@ export class SessionView {
   showApprovalRequest(approval) {
     const card = document.createElement('div');
     card.className = 'approval-card';
-    card.innerHTML = `
-      <div class="approval-header">⚠️ Tool Approval Required: <code>${approval.tool}</code></div>
-      <div class="approval-body">
-        <pre><code>${JSON.stringify(approval.arguments, null, 2)}</code></pre>
-      </div>
-      <div class="approval-actions">
-        <button class="btn-primary btn-approve">Approve</button>
-        <button class="btn-secondary btn-deny">Deny</button>
-      </div>
-    `;
 
-    const approveBtn = card.querySelector('.btn-approve');
-    const denyBtn = card.querySelector('.btn-deny');
+    const args = approval.arguments || {};
+    const bodyText = args.body || '';
 
-    approveBtn.onclick = () => {
-      this.client.send('tool_response', { approval_id: approval.approval_id, decision: 'allow' });
-      card.remove();
-    };
+    let toolName = approval.tool || 'Tool';
+    let commandText = '';
 
-    denyBtn.onclick = () => {
-      this.client.send('tool_response', { approval_id: approval.approval_id, decision: 'deny' });
-      card.remove();
-    };
+    if (typeof bodyText === 'string') {
+      const match = bodyText.match(/Tool:\s*([^\n]+)(?:\nInput:\s*([\s\S]+))?/);
+      if (match) {
+        toolName = match[1].trim();
+        commandText = (match[2] || '').trim();
+      } else {
+        commandText = bodyText;
+      }
+    }
+
+    const headerHtml = `<div class="approval-header">⚠️ Permission Required: <code>${escapeHtml(toolName)}</code></div>`;
+    let commandHtml = '';
+    if (commandText) {
+      commandHtml = `
+        <div class="approval-command-box">
+          <div class="approval-command-label">Command / Input:</div>
+          <pre class="approval-command"><code>${escapeHtml(commandText)}</code></pre>
+        </div>
+      `;
+    }
+
+    const options = Array.isArray(args.options) ? args.options : [
+      { label: 'Allow', description: 'Run this tool call once' },
+      { label: 'Deny', description: 'Deny tool execution' }
+    ];
+
+    let optionsHtml = '<div class="approval-options-list">';
+    options.forEach((opt, idx) => {
+      const isDeny = opt.label.toLowerCase().includes('deny');
+      const isAllow = opt.label.toLowerCase().includes('allow');
+      const btnClass = isDeny ? 'btn-deny' : (isAllow ? 'btn-allow' : '');
+      optionsHtml += `
+        <button class="approval-opt-btn ${btnClass}" data-index="${idx}" data-label="${escapeHtml(opt.label.toLowerCase())}">
+          <div class="opt-label">${escapeHtml(opt.label)}</div>
+          ${opt.description ? `<div class="opt-desc">${escapeHtml(opt.description)}</div>` : ''}
+        </button>
+      `;
+    });
+    optionsHtml += '</div>';
+
+    card.innerHTML = headerHtml + commandHtml + optionsHtml;
+
+    card.querySelectorAll('.approval-opt-btn').forEach((btn) => {
+      btn.onclick = () => {
+        const decision = btn.dataset.label || btn.dataset.index;
+        this.client.send('tool_response', {
+          approval_id: approval.approval_id,
+          decision: decision
+        });
+        card.remove();
+        this.setWorking(true);
+      };
+    });
 
     this.container.appendChild(card);
     this.scrollToBottom();
