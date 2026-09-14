@@ -47,6 +47,9 @@ pub async fn handle_command(
     match cmd {
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config, auth_store).await?,
         Commands::Update => handle_update_command(config).await?,
+        Commands::Serve { workspace, port, name } => {
+            super::serve::handle_serve(workspace, port, name, config, auth_store).await?
+        }
         _ => {}
     }
     Ok(())

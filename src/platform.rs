@@ -1,6 +1,7 @@
 //! Host platform assembly: loads built-in tools and configured MCP servers.
 
 pub mod clipboard;
+pub mod remote;
 pub mod suspend;
 
 use rho_engine::auth::AuthStore;

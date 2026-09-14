@@ -730,28 +730,43 @@ where
     Ok(())
 }
 
-pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()> {
-    let mut reader = JsonLinesReader::new(BufReader::new(tokio::io::stdin()));
-    let mut writer = JsonLinesWriter::new(tokio::io::stdout());
+pub async fn run_rpc_session_over_stream<R, W>(
+    reader_stream: R,
+    writer_stream: W,
+    engine_lock: Arc<RwLock<rho_engine::engine::AgentEngine>>,
+    config_lock: Arc<RwLock<Config>>,
+    auth_store_lock: Arc<RwLock<AuthStore>>,
+) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut reader = JsonLinesReader::new(BufReader::new(reader_stream));
+    let mut writer = JsonLinesWriter::new(writer_stream);
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
     let rpc_presenter = RpcPresenter::new(event_tx.clone());
     let pending_approvals = rpc_presenter.pending_approvals();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(rpc_presenter);
-    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None).await?;
-    let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
+
+    let (session_id, steering_mode) = {
+        let eng = engine_lock.read().await;
+        (eng.session_manager.session_id.clone(), eng.config.steering_mode)
+    };
+    let (model, provider) = {
+        let cfg = config_lock.read().await;
+        (cfg.model.clone(), cfg.provider.clone())
+    };
+
+    let steering = Arc::new(SharedSteeringQueue::new(steering_mode));
 
     let init = RpcEvent::SessionStart {
-        session_id: engine.session_manager.session_id.clone(),
-        model: config.model.clone(),
-        provider: config.provider.clone(),
+        session_id,
+        model,
+        provider,
     };
     writer.write_message(&init).await?;
 
-    let engine_lock = Arc::new(RwLock::new(engine));
-    let config_lock = Arc::new(RwLock::new(config));
-    let auth_store_lock = Arc::new(RwLock::new(auth_store));
     let mut active_turn = None;
-
     let mut ctx = RpcDaemonContext {
         writer: &mut writer,
         engine: engine_lock,
@@ -765,6 +780,21 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
     };
     run_rpc_loop(&mut reader, &mut event_rx, &mut ctx).await
+}
+
+pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()> {
+    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None).await?;
+    let engine_lock = Arc::new(RwLock::new(engine));
+    let config_lock = Arc::new(RwLock::new(config));
+    let auth_store_lock = Arc::new(RwLock::new(auth_store));
+    run_rpc_session_over_stream(
+        tokio::io::stdin(),
+        tokio::io::stdout(),
+        engine_lock,
+        config_lock,
+        auth_store_lock,
+    )
+    .await
 }
 
 #[cfg(test)]
