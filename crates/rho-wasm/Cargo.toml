@@ -1,8 +1,11 @@
 [package]
 name = "rho-wasm"
-version = "0.7.1"
-edition = "2024"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "rho WebAssembly bindings for the Web Hub"
+license.workspace = true
+repository.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
