@@ -17,9 +17,22 @@ pub struct ParsedTicket {
     pub relay_url: Option<String>,
 }
 
+pub fn extract_ticket_b64(input: &str) -> &str {
+    let mut raw = input.trim();
+    raw = raw.trim_matches(|c| c == '"' || c == '\'' || c == '<' || c == '>');
+    if let Some(pos) = raw.find("ticket=") {
+        let after = &raw[pos + "ticket=".len()..];
+        let end = after.find(['&', '#', ' ', '\'', '"', '>']).unwrap_or(after.len());
+        raw = &after[..end];
+    } else if let Some(end) = raw.find('&') {
+        raw = &raw[..end];
+    }
+    raw.strip_prefix("rho_").unwrap_or(raw)
+}
+
 #[wasm_bindgen]
 pub fn parse_ticket(ticket_str: &str) -> Result<JsValue, JsValue> {
-    let raw = ticket_str.trim().strip_prefix("rho_").unwrap_or(ticket_str);
+    let raw = extract_ticket_b64(ticket_str);
     let bytes = URL_SAFE_NO_PAD
         .decode(raw)
         .map_err(|e| JsValue::from_str(&format!("invalid base64 ticket: {e}")))?;
@@ -129,6 +142,29 @@ pub fn process_stream_content(full_buffer: &str) -> Result<JsValue, JsValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_extract_ticket_b64() {
+        assert_eq!(extract_ticket_b64("rho_abc123"), "abc123");
+        assert_eq!(extract_ticket_b64("abc123"), "abc123");
+        assert_eq!(
+            extract_ticket_b64("https://casonadams.github.io/rho/hub/#ticket=rho_abc123&session=sess-1"),
+            "abc123"
+        );
+        assert_eq!(
+            extract_ticket_b64("https://casonadams.github.io/rho/hub/#ticket=rho_abc123"),
+            "abc123"
+        );
+        assert_eq!(
+            extract_ticket_b64("https://casonadams.github.io/rho/hub/?ticket=rho_abc123&session=sess-1"),
+            "abc123"
+        );
+        assert_eq!(extract_ticket_b64("rho_abc123&session=sess-1"), "abc123");
+        assert_eq!(
+            extract_ticket_b64("<https://casonadams.github.io/rho/hub/#ticket=rho_abc123&session=sess-1>"),
+            "abc123"
+        );
+    }
 
     #[test]
     fn test_encode_and_parse_rpc() {

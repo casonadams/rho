@@ -50,8 +50,21 @@ impl RhoEndpoint {
         Ok(format!("rho_{b64}"))
     }
 
+    pub fn extract_ticket_b64(ticket_str: &str) -> &str {
+        let mut raw = ticket_str.trim();
+        raw = raw.trim_matches(|c| c == '"' || c == '\'' || c == '<' || c == '>');
+        if let Some(pos) = raw.find("ticket=") {
+            let after = &raw[pos + "ticket=".len()..];
+            let end = after.find(['&', '#', ' ', '\'', '"', '>']).unwrap_or(after.len());
+            raw = &after[..end];
+        } else if let Some(end) = raw.find('&') {
+            raw = &raw[..end];
+        }
+        raw.strip_prefix("rho_").unwrap_or(raw)
+    }
+
     pub fn parse_ticket(ticket_str: &str) -> Result<iroh::EndpointAddr> {
-        let raw = ticket_str.strip_prefix("rho_").unwrap_or(ticket_str);
+        let raw = Self::extract_ticket_b64(ticket_str);
         let bytes = URL_SAFE_NO_PAD.decode(raw).context("invalid base64 ticket")?;
         let addr = serde_json::from_slice(&bytes).context("invalid endpoint addr json")?;
         Ok(addr)
@@ -105,5 +118,11 @@ mod tests {
 
         let url_sess = RhoEndpoint::pairing_url_with_session(&ticket, Some("sess-123"));
         assert!(url_sess.contains("&session=sess-123"));
+
+        let parsed_from_url = RhoEndpoint::parse_ticket(&url_sess).unwrap();
+        assert_eq!(parsed_from_url.id, endpoint.endpoint().id());
+
+        let parsed_from_url_no_sess = RhoEndpoint::parse_ticket(&url_no_sess).unwrap();
+        assert_eq!(parsed_from_url_no_sess.id, endpoint.endpoint().id());
     }
 }

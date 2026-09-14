@@ -18,32 +18,63 @@ const chatTranscript = document.getElementById('chat-transcript');
 const chatPrompt = document.getElementById('chat-prompt');
 const sendPromptBtn = document.getElementById('send-prompt-btn');
 
+export function parseTicketInput(input) {
+  let str = (input || '').trim().replace(/^["'<]|["'>]$/g, '');
+  if (!str) return { ticket: '', sessionId: null };
+
+  let sessionId = null;
+
+  const sessionMatch = str.match(/[#?&]session=([^&]+)/);
+  if (sessionMatch) {
+    sessionId = decodeURIComponent(sessionMatch[1]);
+  }
+
+  const ticketMatch = str.match(/(?:^|[#?&])ticket=([^&]+)/);
+  if (ticketMatch) {
+    str = decodeURIComponent(ticketMatch[1]);
+  } else if (str.startsWith('http://') || str.startsWith('https://')) {
+    return { ticket: '', sessionId };
+  }
+
+  if (str.includes('&')) {
+    const parts = str.split('&');
+    str = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      if (parts[i].startsWith('session=') && !sessionId) {
+        sessionId = decodeURIComponent(parts[i].slice('session='.length));
+      }
+    }
+  }
+
+  str = str.replace(/[#/?]+$/, '').trim();
+  return { ticket: str, sessionId };
+}
+
 export async function initApp() {
   await ensureWasm();
 
-  // Check URL hash for ticket pairing: #ticket=rho_...&session=...
-  const hash = window.location.hash;
+  // Check URL query or hash for ticket pairing: #ticket=rho_...&session=... or ?ticket=rho_...
   let targetNodeToOpen = null;
   let targetSessionId = null;
 
-  if (hash.includes('ticket=')) {
-    const params = new URLSearchParams(hash.replace(/^#/, ''));
-    const ticket = params.get('ticket');
-    targetSessionId = params.get('session');
-
-    if (ticket) {
-      const client = new RhoPeerClient(ticket);
+  const urlPairing = parseTicketInput(window.location.href);
+  if (urlPairing.ticket) {
+    targetSessionId = urlPairing.sessionId;
+    try {
+      const client = new RhoPeerClient(urlPairing.ticket);
       await client.init();
       const nodeRecord = {
         id: client.endpointId,
         label: `Node ${client.endpointId.slice(0, 8)}`,
-        ticket
+        ticket: urlPairing.ticket
       };
       NodeRegistry.saveNode(nodeRecord);
       targetNodeToOpen = nodeRecord;
 
       // Security: Strip ticket from URL
       window.history.replaceState(null, '', window.location.pathname);
+    } catch (e) {
+      console.error('Failed to initialize node from URL ticket:', e);
     }
   }
 
@@ -314,24 +345,31 @@ function showAddNodeModal() {
 
   overlay.querySelector('#modal-cancel-btn').onclick = () => overlay.remove();
   overlay.querySelector('#modal-pair-btn').onclick = async () => {
-    let raw = overlay.querySelector('#node-ticket-input').value.trim();
+    const rawInput = overlay.querySelector('#node-ticket-input').value.trim();
     const label = overlay.querySelector('#node-label-input').value.trim();
-    if (!raw) return;
+    if (!rawInput) return;
 
-    if (raw.includes('#ticket=')) {
-      raw = raw.split('#ticket=')[1];
+    const { ticket, sessionId } = parseTicketInput(rawInput);
+    if (!ticket) {
+      alert('Please enter a valid node ticket or pairing URL.');
+      return;
     }
 
     try {
-      const client = new RhoPeerClient(raw);
+      const client = new RhoPeerClient(ticket);
       await client.init();
-      NodeRegistry.saveNode({
+      const nodeRecord = {
         id: client.endpointId,
         label: label || `Node ${client.endpointId.slice(0, 8)}`,
-        ticket: raw
-      });
+        ticket
+      };
+      NodeRegistry.saveNode(nodeRecord);
       overlay.remove();
-      renderFleet();
+      if (sessionId) {
+        openWorkspace(nodeRecord, sessionId);
+      } else {
+        renderFleet();
+      }
     } catch (e) {
       alert(`Invalid node ticket: ${e}`);
     }
