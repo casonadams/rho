@@ -8,6 +8,7 @@
 //! presentation module and are re-exported here so external callers continue
 //! to use `crate::ui::render::{TerminalRenderer, ToolLine}` etc.
 
+pub mod broadcast_presenter;
 pub(crate) mod card;
 pub(crate) mod diff;
 pub(crate) mod formatters;
@@ -20,6 +21,7 @@ pub mod rpc_presenter;
 #[cfg(test)]
 mod tests;
 
+pub use broadcast_presenter::BroadcastPresenter;
 pub(crate) use formatters::{format_edit_diff, format_read_expanded, format_thinking_block, format_write_preview};
 pub(crate) use preview::{fetch_content_kind, format_bash_args_header, tool_title_style};
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};

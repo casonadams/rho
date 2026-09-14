@@ -154,7 +154,10 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     let cancellation = Arc::new(CancellationSignal::default());
     let (mut ctx, request) = build_turn_context((session, engine), &mut turn, &cancellation);
     ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
-    let mut run = Box::pin(engine.run_turn(request, renderer));
+    let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(
+        crate::ui::render::BroadcastPresenter::new(renderer, crate::platform::remote::PEER_REGISTRY.clone()),
+    );
+    let mut run = Box::pin(engine.run_turn(request, broadcast));
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     while !step_turn_select(&mut ctx, &mut run, &mut frame).await? {}

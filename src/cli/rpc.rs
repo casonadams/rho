@@ -813,6 +813,7 @@ where
     let mut reader = JsonLinesReader::new(BufReader::new(reader_stream));
     let mut writer = JsonLinesWriter::new(writer_stream);
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
+    crate::platform::remote::PEER_REGISTRY.register(event_tx.clone());
     let rpc_presenter = RpcPresenter::new(event_tx.clone());
     let pending_approvals = rpc_presenter.pending_approvals();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(rpc_presenter);

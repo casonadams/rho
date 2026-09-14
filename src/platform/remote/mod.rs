@@ -1,12 +1,44 @@
 use anyhow::Result;
 use rho_engine::auth::AuthStore;
 use rho_harness_core::config::Config;
-use std::sync::Arc;
-use tokio::sync::OnceCell;
+use rho_harness_core::rpc::protocol::RpcEvent;
+use std::sync::{Arc, Mutex};
+use tokio::sync::{OnceCell, mpsc};
 
 pub mod endpoint;
 pub mod identity;
 pub mod server;
+
+#[derive(Clone, Default)]
+pub struct PeerRegistry {
+    peers: Arc<Mutex<Vec<mpsc::UnboundedSender<RpcEvent>>>>,
+}
+
+impl PeerRegistry {
+    pub fn new() -> Self {
+        Self {
+            peers: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub fn register(&self, tx: mpsc::UnboundedSender<RpcEvent>) {
+        let mut list = self.peers.lock().unwrap();
+        list.push(tx);
+    }
+
+    pub fn broadcast(&self, event: &RpcEvent) {
+        let mut list = self.peers.lock().unwrap();
+        list.retain(|tx| tx.send(event.clone()).is_ok());
+    }
+
+    pub fn peer_count(&self) -> usize {
+        let mut list = self.peers.lock().unwrap();
+        list.retain(|tx| !tx.is_closed());
+        list.len()
+    }
+}
+
+pub static PEER_REGISTRY: std::sync::LazyLock<PeerRegistry> = std::sync::LazyLock::new(PeerRegistry::new);
 
 struct ActiveRemoteHandle {
     ticket: String,
