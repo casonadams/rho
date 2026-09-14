@@ -393,11 +393,16 @@ main.hub-main {
   scroll-behavior: smooth;
 }
 
+.chat-transcript > * {
+  flex-shrink: 0;
+}
+
 .chat-bubble {
   max-width: 850px;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .chat-bubble.user {
@@ -527,6 +532,7 @@ main.hub-main {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   box-sizing: border-box;
   transition: border-color 0.15s ease;
 }
@@ -547,6 +553,7 @@ main.hub-main {
   background: var(--bg-surface);
   font-family: var(--font-mono);
   font-size: 0.82rem;
+  flex-shrink: 0;
   box-sizing: border-box;
 }
 
@@ -637,6 +644,7 @@ main.hub-main {
   flex-direction: column;
   gap: 0.85rem;
   box-shadow: 0 4px 20px rgba(245, 158, 11, 0.08);
+  flex-shrink: 0;
 }
 
 .approval-header {
