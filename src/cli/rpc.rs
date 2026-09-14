@@ -227,6 +227,103 @@ async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
+fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for msg in messages {
+        match msg {
+            rig::message::Message::User { content } => {
+                let mut text = String::new();
+                for part in content {
+                    if let rig::message::UserContent::Text(t) = part {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(&t.text);
+                    }
+                }
+                if !text.is_empty() {
+                    out.push(serde_json::json!({
+                        "role": "user",
+                        "content": text,
+                    }));
+                }
+            }
+            rig::message::Message::Assistant { content, .. } => {
+                let mut text = String::new();
+                for part in content {
+                    if let rig::message::AssistantContent::Text(t) = part {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(&t.text);
+                    }
+                }
+                if !text.is_empty() {
+                    out.push(serde_json::json!({
+                        "role": "assistant",
+                        "content": text,
+                    }));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    session_id: &str,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let cfg = ctx.config.read().await.clone();
+    let auth = ctx.auth_store.read().await.clone();
+    match crate::platform::agent_engine(cfg, auth, Some(session_id)).await {
+        Ok(new_eng) => {
+            let sid = new_eng.session_manager.session_id.clone();
+            let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
+            let messages = extract_chat_messages(&raw_msgs);
+            *ctx.engine.write().await = new_eng;
+            let payload = serde_json::json!({
+                "session_id": sid,
+                "messages": messages,
+            });
+            ctx.writer
+                .write_message(&RpcResponse::success(req_id, "resume_session", Some(payload)))
+                .await?;
+        }
+        Err(e) => {
+            ctx.writer
+                .write_message(&RpcResponse::failure(req_id, "resume_session", &e.to_string()))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_fork_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    node_id: Option<&str>,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let cfg = ctx.config.read().await;
+    let eng = ctx.engine.read().await;
+    match eng.session_manager.fork_session(&cfg.sessions_dir, node_id).await {
+        Ok(forked) => {
+            let data = serde_json::json!({ "session_id": forked.session_id });
+            ctx.writer
+                .write_message(&RpcResponse::success(req_id, "fork_session", Some(data)))
+                .await?;
+        }
+        Err(e) => {
+            ctx.writer
+                .write_message(&RpcResponse::failure(req_id, "fork_session", &e.to_string()))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 async fn handle_resume_or_fork_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: &RpcCommand,
     req_id: Option<String>,
@@ -234,43 +331,11 @@ async fn handle_resume_or_fork_cmd<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<bool> {
     match cmd {
         RpcCommand::ResumeSession { session_id } => {
-            let cfg = ctx.config.read().await.clone();
-            let auth = ctx.auth_store.read().await.clone();
-            match crate::platform::agent_engine(cfg, auth, Some(session_id)).await {
-                Ok(new_eng) => {
-                    *ctx.engine.write().await = new_eng;
-                    ctx.writer
-                        .write_message(&RpcResponse::success(req_id, "resume_session", None))
-                        .await?;
-                }
-                Err(e) => {
-                    ctx.writer
-                        .write_message(&RpcResponse::failure(req_id, "resume_session", &e.to_string()))
-                        .await?;
-                }
-            }
+            handle_resume_session_cmd(session_id, req_id, ctx).await?;
             Ok(true)
         }
         RpcCommand::ForkSession { node_id } => {
-            let cfg = ctx.config.read().await;
-            let eng = ctx.engine.read().await;
-            match eng
-                .session_manager
-                .fork_session(&cfg.sessions_dir, node_id.as_deref())
-                .await
-            {
-                Ok(forked) => {
-                    let data = serde_json::json!({ "session_id": forked.session_id });
-                    ctx.writer
-                        .write_message(&RpcResponse::success(req_id, "fork_session", Some(data)))
-                        .await?;
-                }
-                Err(e) => {
-                    ctx.writer
-                        .write_message(&RpcResponse::failure(req_id, "fork_session", &e.to_string()))
-                        .await?;
-                }
-            }
+            handle_fork_session_cmd(node_id.as_deref(), req_id, ctx).await?;
             Ok(true)
         }
         _ => Ok(false),
@@ -292,12 +357,16 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
         "idle"
     };
 
+    let raw_msgs = eng.session_manager.load_messages().await.unwrap_or_default();
+    let messages = extract_chat_messages(&raw_msgs);
+
     let data = serde_json::json!({
         "session_id": eng.session_manager.session_id,
         "model": cfg.model,
         "provider": cfg.provider,
         "thinking_level": cfg.thinking_level,
         "status": status,
+        "messages": messages,
     });
     ctx.writer
         .write_message(&RpcResponse::success(req_id, "get_state", Some(data)))

@@ -81,6 +81,17 @@ export class SessionView {
     this.scrollToBottom();
   }
 
+  addAssistantMessage(text) {
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble assistant';
+    const proseSpan = document.createElement('div');
+    proseSpan.className = 'prose-content';
+    proseSpan.innerHTML = renderMarkdown(text);
+    bubble.appendChild(proseSpan);
+    this.container.appendChild(bubble);
+    this.scrollToBottom();
+  }
+
   startAssistantTurn() {
     this.currentText = '';
     this.currentThinking = '';

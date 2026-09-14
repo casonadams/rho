@@ -157,28 +157,46 @@ async function openWorkspace(node) {
     document.getElementById('active-node-workspace').textContent = infoResp.data.active_workspace || '~/workspace';
   }
 
+  // Load current session state and messages
+  const stateResp = await activeClient.send('get_state');
+  if (stateResp.data && stateResp.data.messages) {
+    sessionView.clear();
+    for (const m of stateResp.data.messages) {
+      if (m.role === 'user') sessionView.addUserMessage(m.content);
+      else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
+    }
+    sessionView.scrollToBottom();
+  }
+
   // Load session list
   const sessionsResp = await activeClient.send('list_sessions');
-  renderSessionList(sessionsResp.data || []);
+  renderSessionList(sessionsResp.data || [], stateResp.data?.session_id);
 }
 
-function renderSessionList(sessions) {
+function renderSessionList(sessions, activeSessionId) {
   const listEl = document.getElementById('session-history-list');
   listEl.innerHTML = '';
   for (const s of sessions) {
     const li = document.createElement('li');
-    li.className = 'session-item';
+    li.className = 'session-item' + (s.session_id === activeSessionId ? ' active' : '');
     const title = s.name || (s.preview ? (s.preview.length > 30 ? s.preview.slice(0, 30) + '...' : s.preview) : s.session_id);
     const timeStr = s.last_modified ? new Date(s.last_modified).toLocaleTimeString() : '';
     li.innerHTML = `
       <div style="font-weight: 600; color: var(--text-primary); word-break: break-word;">${escapeHtml(title)}</div>
       <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(timeStr)}</div>
     `;
-    li.onclick = () => {
+    li.onclick = async () => {
       document.querySelectorAll('.session-item').forEach((el) => el.classList.remove('active'));
       li.classList.add('active');
-      activeClient.send('resume_session', { session_id: s.session_id });
       sessionView.clear();
+      const resp = await activeClient.send('resume_session', { session_id: s.session_id });
+      if (resp && resp.data && resp.data.messages) {
+        for (const m of resp.data.messages) {
+          if (m.role === 'user') sessionView.addUserMessage(m.content);
+          else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
+        }
+      }
+      sessionView.scrollToBottom();
     };
     listEl.appendChild(li);
   }
@@ -191,6 +209,8 @@ async function handleNewSession() {
   if (resp && resp.data && resp.data.session_id) {
     sessionView.addUserMessage(`[New Session Created: ${resp.data.session_id}]`);
   }
+  const sessionsResp = await activeClient.send('list_sessions');
+  renderSessionList(sessionsResp.data || [], resp.data?.session_id);
 }
 
 function handleAuthClick() {
