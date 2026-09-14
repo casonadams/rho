@@ -924,6 +924,92 @@ mod regressions {
             }
         }
 
+        #[test]
+        fn streamed_thinking_preserves_natural_line_breaks_on_screen() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            renderer.set_width(80);
+            controller.state_mut().editor_mut().set_text("");
+
+            let text = "Step 1: check files\nStep 2: compile\nStep 3: test";
+            for token in ["Step 1: check files\n", "Step 2: compile\n", "Step 3: test"] {
+                renderer.print_thinking_token(token);
+                drive_renderer_to_controller(&mut events, &mut controller);
+            }
+            renderer.finish_thinking(text);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            assert!(screen.iter().any(|l| l.contains("Step 1: check files")));
+            assert!(screen.iter().any(|l| l.contains("Step 2: compile")));
+            assert!(screen.iter().any(|l| l.contains("Step 3: test")));
+        }
+
+        #[test]
+        fn streamed_thinking_preserves_blank_line_paragraphs_on_screen() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((80, 24));
+            renderer.set_width(80);
+            controller.state_mut().editor_mut().set_text("");
+
+            let text = "Paragraph 1.\n\nParagraph 2.";
+            for token in ["Paragraph 1.\n", "\n", "Paragraph 2."] {
+                renderer.print_thinking_token(token);
+                drive_renderer_to_controller(&mut events, &mut controller);
+            }
+            renderer.finish_thinking(text);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            let p1_idx = screen
+                .iter()
+                .position(|l| l.contains("Paragraph 1."))
+                .expect("p1 exists");
+            let p2_idx = screen
+                .iter()
+                .position(|l| l.contains("Paragraph 2."))
+                .expect("p2 exists");
+            assert_eq!(p2_idx, p1_idx + 2, "must be separated by a blank line");
+            assert!(screen[p1_idx + 1].trim().is_empty(), "intermediate row must be blank");
+        }
+
+        #[test]
+        fn streamed_thinking_wraps_and_preserves_natural_line_breaks() {
+            let (ui, mut events) = crate::ui::interactive::InteractiveUi::channel();
+            let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+            let mut controller = controller_with_transcript((30, 24));
+            renderer.set_width(30);
+            controller.state_mut().editor_mut().set_text("");
+
+            let text = "This is a long line that definitely wraps across boundaries.\nShort line.\nAnother line.";
+            for token in [
+                "This is a long line that definitely wraps across boundaries.\n",
+                "Short line.\n",
+                "Another line.",
+            ] {
+                renderer.print_thinking_token(token);
+                drive_renderer_to_controller(&mut events, &mut controller);
+            }
+            renderer.finish_thinking(text);
+            renderer.write_output("\n");
+            drive_renderer_to_controller(&mut events, &mut controller);
+
+            let screen = controller.backend.text();
+            assert!(screen.iter().any(|l| l.contains("This is a long line")));
+            assert!(screen.iter().any(|l| l.contains("Short line.")));
+            assert!(screen.iter().any(|l| l.contains("Another line.")));
+            // Ensure "Short line." starts on its own line after the wrapped lines
+            let short_line = screen
+                .iter()
+                .find(|l| l.contains("Short line."))
+                .expect("short line exists");
+            assert!(short_line.trim_start().starts_with("Short line."));
+        }
+
         fn drive_thinking_phase(
             renderer: &crate::ui::TerminalRenderer,
             events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,

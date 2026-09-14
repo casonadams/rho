@@ -36,6 +36,8 @@ impl ThinkingStreamTracker {
                 self.at_line_start = true;
                 self.pending_spaces.clear();
                 self.pending_spaces_width = 0;
+            } else if c == '\r' {
+                continue;
             } else if c == ' ' || c == '\t' {
                 if !self.pending_word.is_empty() {
                     self.commit_pending_word(&mut out, max_width, d);
@@ -154,5 +156,73 @@ mod tests {
                 "each line must be indented with space: {line:?}"
             );
         }
+    }
+
+    #[test]
+    fn stream_thinking_preserves_natural_line_breaks() {
+        let theme = Theme::default();
+        let mut tracker = ThinkingStreamTracker::new();
+
+        let mut output = String::new();
+        output.push_str(&tracker.process_token("Step 1: analyze\nStep 2: implement\n", 80, &theme));
+        output.push_str(&tracker.flush(&theme));
+
+        let clean = crate::ui::block::ANSI_PATTERN.replace_all(&output, "");
+        let lines: Vec<&str> = clean.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], " Step 1: analyze");
+        assert_eq!(lines[1], " Step 2: implement");
+    }
+
+    #[test]
+    fn stream_thinking_preserves_natural_paragraph_breaks() {
+        let theme = Theme::default();
+        let mut tracker = ThinkingStreamTracker::new();
+
+        let mut output = String::new();
+        output.push_str(&tracker.process_token("Paragraph 1.\n\nParagraph 2.\n", 80, &theme));
+        output.push_str(&tracker.flush(&theme));
+
+        let clean = crate::ui::block::ANSI_PATTERN.replace_all(&output, "");
+        let lines: Vec<&str> = clean.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], " Paragraph 1.");
+        assert_eq!(lines[1], "");
+        assert_eq!(lines[2], " Paragraph 2.");
+    }
+
+    #[test]
+    fn stream_thinking_preserves_token_split_natural_line_breaks() {
+        let theme = Theme::default();
+        let mut tracker = ThinkingStreamTracker::new();
+
+        let mut output = String::new();
+        output.push_str(&tracker.process_token("Step 1: analyze", 80, &theme));
+        output.push_str(&tracker.process_token("\n", 80, &theme));
+        output.push_str(&tracker.process_token("Step 2: implement", 80, &theme));
+        output.push_str(&tracker.flush(&theme));
+
+        let clean = crate::ui::block::ANSI_PATTERN.replace_all(&output, "");
+        let lines: Vec<&str> = clean.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], " Step 1: analyze");
+        assert_eq!(lines[1], " Step 2: implement");
+    }
+
+    #[test]
+    fn stream_thinking_handles_crlf_line_breaks() {
+        let theme = Theme::default();
+        let mut tracker = ThinkingStreamTracker::new();
+
+        let mut output = String::new();
+        output.push_str(&tracker.process_token("Line 1\r\nLine 2\r\n", 80, &theme));
+        output.push_str(&tracker.flush(&theme));
+
+        let clean = crate::ui::block::ANSI_PATTERN.replace_all(&output, "");
+        assert!(!clean.contains('\r'), "carriage return should be stripped");
+        let lines: Vec<&str> = clean.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], " Line 1");
+        assert_eq!(lines[1], " Line 2");
     }
 }
