@@ -56,13 +56,21 @@ export class RhoPeerClient {
 
     if (typeof IrohPeer !== 'undefined' && this.ticket) {
       try {
-        this.irohPeer = await IrohPeer.connect(
+        const connectPromise = IrohPeer.connect(
           this.ticket,
           (line) => this.handleRawMessage(line),
           () => {
             this.status = 'disconnected';
+            for (const [, resolve] of this.responseHandlers) {
+              resolve({ type: 'response', success: false, error: 'Connection closed' });
+            }
+            this.responseHandlers.clear();
           }
         );
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Iroh connection timed out')), 12000)
+        );
+        this.irohPeer = await Promise.race([connectPromise, timeoutPromise]);
         this.transport = 'iroh';
         this.status = 'online';
         return;
@@ -105,6 +113,10 @@ export class RhoPeerClient {
         };
         this.socket.onclose = () => {
           this.status = 'disconnected';
+          for (const [, resolve] of this.responseHandlers) {
+            resolve({ type: 'response', success: false, error: 'Connection closed' });
+          }
+          this.responseHandlers.clear();
         };
       } catch (e) {
         this.status = 'offline';
@@ -166,6 +178,10 @@ export class RhoPeerClient {
       } catch (_) {}
       this.socket = null;
     }
+    for (const [, resolve] of this.responseHandlers) {
+      resolve({ type: 'response', success: false, error: 'Client disconnected' });
+    }
+    this.responseHandlers.clear();
     this.status = 'disconnected';
   }
 }

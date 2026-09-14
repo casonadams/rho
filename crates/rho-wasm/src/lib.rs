@@ -146,6 +146,7 @@ pub const RHO_ALPN: &[u8] = b"/rho/rpc/v1";
 pub struct IrohPeer {
     tx: futures::channel::mpsc::UnboundedSender<String>,
     conn: iroh::endpoint::Connection,
+    endpoint: iroh::Endpoint,
 }
 
 #[wasm_bindgen]
@@ -223,7 +224,7 @@ impl IrohPeer {
                 }
             });
 
-            Ok(JsValue::from(IrohPeer { tx, conn }))
+            Ok(JsValue::from(IrohPeer { tx, conn, endpoint }))
         })
     }
 
@@ -238,6 +239,10 @@ impl IrohPeer {
     pub fn close(&self) {
         self.tx.close_channel();
         self.conn.close(0u32.into(), b"client closed");
+        let ep = self.endpoint.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            ep.close().await;
+        });
     }
 }
 
