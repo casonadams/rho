@@ -65,6 +65,15 @@ export async function initApp() {
     }
   }
 
+  const autoResizeInput = () => {
+    chatPrompt.style.height = 'auto';
+    const newHeight = Math.min(Math.max(chatPrompt.scrollHeight, 38), 180);
+    chatPrompt.style.height = `${newHeight}px`;
+    chatPrompt.style.overflowY = chatPrompt.scrollHeight > 180 ? 'auto' : 'hidden';
+  };
+
+  chatPrompt.addEventListener('input', autoResizeInput);
+
   chatPrompt.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -266,6 +275,8 @@ async function handleSendPrompt() {
   if (!text || !activeClient) return;
 
   chatPrompt.value = '';
+  chatPrompt.style.height = '38px';
+  chatPrompt.style.overflowY = 'hidden';
   if (sessionView && sessionView.isWorking) {
     sessionView.addSteeringMessage(text);
     await activeClient.send('steer', { message: text });
