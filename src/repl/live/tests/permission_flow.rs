@@ -338,3 +338,19 @@ fn test_permission_prompt_large_paste_expanded_on_submit() {
         other => panic!("expected SelectedWithInput, got {other:?}"),
     }
 }
+
+#[test]
+fn test_permission_prompt_dismissed_externally() {
+    let mut driver = PermDriver::new(sample_multiline_prompt());
+    assert!(driver.controller.state().active_modal().is_some());
+    assert!(driver.pending.is_some());
+
+    let mut batch = crate::repl::live::batch::LiveBatch::new();
+    batch.modal = driver.pending.take();
+    let flushed = batch
+        .push_event(&mut driver.controller, UiEvent::DismissInteraction)
+        .unwrap();
+    assert!(flushed);
+    assert!(driver.controller.state().active_modal().is_none());
+    assert!(batch.modal.is_none());
+}

@@ -145,16 +145,24 @@ impl Presenter for BroadcastPresenter {
         tokio::pin!(local_fut);
         tokio::pin!(remote_fut);
 
-        let result = tokio::select! {
+        let (result, winner) = tokio::select! {
             local_res = &mut local_fut => {
                 crate::platform::remote::ACTIVE_APPROVALS.lock().unwrap().remove(&approval_id);
-                local_res
+                (local_res, "local")
             }
             remote_res = &mut remote_fut => {
                 crate::platform::remote::ACTIVE_APPROVALS.lock().unwrap().remove(&approval_id);
-                remote_res.ok()
+                (remote_res.ok(), "remote")
             }
         };
+
+        if winner == "remote" {
+            self.local.dismiss_interaction();
+        }
+        self.peers.broadcast(&RpcEvent::ToolApprovalResolved {
+            approval_id: approval_id.clone(),
+            decision: None,
+        });
 
         self.peers.broadcast(&RpcEvent::StatusChanged {
             status: "busy".to_string(),

@@ -33,6 +33,7 @@ pub trait Presenter: Send + Sync {
     async fn request_interaction(&self, _prompt: InteractionPrompt) -> Option<InteractionResponse> {
         None
     }
+    fn dismiss_interaction(&self) {}
     async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
         false
     }

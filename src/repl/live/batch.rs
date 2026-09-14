@@ -36,6 +36,13 @@ impl LiveBatch {
         controller: &mut TerminalController<B>,
         event: UiEvent,
     ) -> Result<bool> {
+        if matches!(event, UiEvent::DismissInteraction) {
+            self.modal = None;
+            if controller.state().active_modal().is_some() {
+                controller.state_mut().pop_modal();
+            }
+            return Ok(true);
+        }
         match self.ui.push(event) {
             BatchDecision::Pending => Ok(false),
             BatchDecision::Flush(_) => Ok(true),

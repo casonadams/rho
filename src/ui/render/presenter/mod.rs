@@ -84,6 +84,12 @@ impl Presenter for TerminalRenderer {
         self.ui.as_ref()?.request(prompt).await.ok()
     }
 
+    fn dismiss_interaction(&self) {
+        if let Some(ui) = &self.ui {
+            let _ = ui.dismiss_interaction();
+        }
+    }
+
     fn print_block(&self, display: &rho_harness_core::presentation::BlockDisplay) {
         TerminalRenderer::print_block(self, display);
     }

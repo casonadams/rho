@@ -160,6 +160,7 @@ impl PendingUiBatch {
                 BatchDecision::Pending
             }
             event @ UiEvent::Interaction { .. } => BatchDecision::Barrier(FlushBarrier::Interaction, event),
+            UiEvent::DismissInteraction => Self::flushes(),
             other => self.push_flushing(other),
         }
     }

@@ -104,6 +104,7 @@ export class SessionView {
     this.currentText = '';
     this.currentThinking = '';
     this.lastUserPrompt = null;
+    this.dismissApprovalRequest();
     this.setWorking(false);
   }
 
@@ -212,6 +213,7 @@ export class SessionView {
     this.currentText = '';
     this.currentThinking = '';
     this.lastUserPrompt = null;
+    this.dismissApprovalRequest();
   }
 
   appendToolCall(tool, args, callId) {
@@ -366,6 +368,7 @@ export class SessionView {
   showApprovalRequest(approval) {
     const card = document.createElement('div');
     card.className = 'approval-card';
+    card.dataset.approvalId = approval.approval_id;
 
     const args = approval.arguments || {};
     const bodyText = args.body || '';
@@ -429,6 +432,18 @@ export class SessionView {
 
     this.container.appendChild(card);
     this.scrollToBottom();
+  }
+
+  dismissApprovalRequest(approvalId) {
+    if (approvalId) {
+      const card = this.container.querySelector(`.approval-card[data-approval-id="${approvalId}"]`);
+      if (card) {
+        card.remove();
+      }
+    } else {
+      const cards = this.container.querySelectorAll('.approval-card');
+      cards.forEach((c) => c.remove());
+    }
   }
 
   scrollToBottom() {

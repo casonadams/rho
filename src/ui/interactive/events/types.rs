@@ -55,4 +55,5 @@ pub enum UiEvent {
         prompt: InteractionPrompt,
         responder: InteractionResponder,
     },
+    DismissInteraction,
 }

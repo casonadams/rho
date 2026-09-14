@@ -147,4 +147,13 @@ impl InteractiveUi {
     pub async fn interact(&self, prompt: InteractionPrompt) -> Result<InteractionResponse, UiPortError> {
         self.request(prompt).await
     }
+
+    pub fn dismiss_interaction(&self) -> Result<(), UiPortError> {
+        match self.transport.as_ref() {
+            Transport::Channel(sender) => sender
+                .send(UiEvent::DismissInteraction)
+                .map_err(|_| UiPortError::Closed),
+            Transport::Writer(_) => Ok(()),
+        }
+    }
 }

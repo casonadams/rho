@@ -172,6 +172,8 @@ async function openWorkspace(node, preferredSessionId = null) {
       sessionView.appendToolResult(ev.tool, ev.output, ev.is_error, ev.duration_ms, ev.call_id);
     } else if (ev.type === 'tool_approval_request') {
       sessionView.showApprovalRequest(ev);
+    } else if (ev.type === 'tool_approval_resolved') {
+      sessionView.dismissApprovalRequest(ev.approval_id);
     } else if (ev.type === 'status_changed') {
       sessionView.setWorking(ev.status === 'busy' || ev.status === 'waiting_approval');
     } else if (ev.type === 'turn_end') {
