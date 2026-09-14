@@ -56,7 +56,13 @@ run: ## Run the rho CLI
 
 .PHONY: wasm
 wasm: ## Build rho-wasm and generate JS bindings into www/hub/wasm
-	$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release
+	@if [ -d "/opt/homebrew/opt/llvm/bin" ]; then \
+		CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang \
+		AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar \
+		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
+	else \
+		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
+	fi
 	wasm-bindgen target/wasm32-unknown-unknown/release/rho_wasm.wasm --out-dir www/hub/wasm --target web
 
 .PHONY: clean

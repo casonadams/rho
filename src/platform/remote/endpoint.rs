@@ -21,6 +21,10 @@ impl RhoEndpoint {
         Ok(Self { endpoint })
     }
 
+    pub async fn wait_online(&self, timeout: std::time::Duration) -> bool {
+        tokio::time::timeout(timeout, self.endpoint.online()).await.is_ok()
+    }
+
     pub fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }
@@ -101,6 +105,15 @@ mod tests {
         let qr = RhoEndpoint::render_qr("https://example.com").unwrap();
         assert!(!qr.is_empty());
         assert!(qr.contains('█') || qr.contains('▀') || qr.contains('▄'));
+    }
+
+    #[tokio::test]
+    async fn test_endpoint_online_has_relay() {
+        let secret = SecretKey::generate();
+        let ep = RhoEndpoint::bind(secret, None).await.unwrap();
+        let _ = ep.wait_online(std::time::Duration::from_secs(5)).await;
+        let addr = ep.endpoint().addr();
+        assert!(!addr.ip_addrs().collect::<Vec<_>>().is_empty() || addr.relay_urls().next().is_some());
     }
 
     #[tokio::test]

@@ -110,6 +110,7 @@ pub async fn ensure_remote_server(config: Config, auth_store: AuthStore, session
             let secret = identity::load_or_generate_secret_key(&key_path)?;
             let (ws_listener, ws_port) = server::bind_ws_listener(None).await?;
             let endpoint = endpoint::RhoEndpoint::bind(secret, None).await?;
+            let _ = endpoint.wait_online(std::time::Duration::from_secs(5)).await;
             let ticket = endpoint.ticket_with_ws(Some(ws_port))?;
 
             let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));

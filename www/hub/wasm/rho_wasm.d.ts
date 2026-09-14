@@ -1,5 +1,49 @@
 /* tslint:disable */
 /* eslint-disable */
+/**
+ * The `ReadableStreamType` enum.
+ *
+ * *This API requires the following crate features to be activated: `ReadableStreamType`*
+ */
+
+type ReadableStreamType = "bytes";
+
+export class IntoUnderlyingByteSource {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  pull(controller: ReadableByteStreamController): Promise<any>;
+  start(controller: ReadableByteStreamController): void;
+  cancel(): void;
+  readonly autoAllocateChunkSize: number;
+  readonly type: ReadableStreamType;
+}
+
+export class IntoUnderlyingSink {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  abort(reason: any): Promise<any>;
+  close(): Promise<any>;
+  write(chunk: any): Promise<any>;
+}
+
+export class IntoUnderlyingSource {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  pull(controller: ReadableStreamDefaultController): Promise<any>;
+  cancel(): void;
+}
+
+export class IrohPeer {
+  private constructor();
+  free(): void;
+  [Symbol.dispose](): void;
+  send(msg: string): void;
+  close(): void;
+  static connect(ticket_str: string, on_message: Function, on_close: Function): Promise<any>;
+}
 
 export function encode_rpc_request(id: string | null | undefined, command_type: string, payload_json?: string | null): string;
 
@@ -15,15 +59,48 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
+  readonly __wbg_irohpeer_free: (a: number, b: number) => void;
   readonly encode_rpc_request: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+  readonly irohpeer_close: (a: number) => void;
+  readonly irohpeer_connect: (a: number, b: number, c: number, d: number) => number;
+  readonly irohpeer_send: (a: number, b: number, c: number, d: number) => void;
   readonly parse_rpc_frame: (a: number, b: number, c: number) => void;
   readonly parse_ticket: (a: number, b: number, c: number) => void;
   readonly process_stream_content: (a: number, b: number, c: number) => void;
   readonly start: () => void;
+  readonly __wbg_intounderlyingbytesource_free: (a: number, b: number) => void;
+  readonly __wbg_intounderlyingsource_free: (a: number, b: number) => void;
+  readonly intounderlyingbytesource_autoAllocateChunkSize: (a: number) => number;
+  readonly intounderlyingbytesource_cancel: (a: number) => void;
+  readonly intounderlyingbytesource_pull: (a: number, b: number) => number;
+  readonly intounderlyingbytesource_start: (a: number, b: number) => void;
+  readonly intounderlyingbytesource_type: (a: number) => number;
+  readonly intounderlyingsource_cancel: (a: number) => void;
+  readonly intounderlyingsource_pull: (a: number, b: number) => number;
+  readonly __wbg_intounderlyingsink_free: (a: number, b: number) => void;
+  readonly intounderlyingsink_abort: (a: number, b: number) => number;
+  readonly intounderlyingsink_close: (a: number) => number;
+  readonly intounderlyingsink_write: (a: number, b: number) => number;
+  readonly ring_core_0_17_14__bn_mul_mont: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+  readonly __wasm_bindgen_func_elem_3641: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_3640: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_4228: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_4227: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_3631: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_3629: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_7689: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_7687: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_3118: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_3090: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_7719: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_7717: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_2114: (a: number, b: number, c: number) => void;
+  readonly __wasm_bindgen_func_elem_1852: (a: number, b: number) => void;
+  readonly __wasm_bindgen_func_elem_8819: (a: number, b: number, c: number, d: number) => void;
   readonly __wbindgen_export: (a: number, b: number) => number;
   readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
-  readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
-  readonly __wbindgen_export4: (a: number) => void;
+  readonly __wbindgen_export3: (a: number) => void;
+  readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
   readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
   readonly __wbindgen_start: () => void;
 }

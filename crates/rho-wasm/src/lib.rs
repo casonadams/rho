@@ -48,17 +48,18 @@ pub fn parse_ticket(ticket_str: &str) -> Result<JsValue, JsValue> {
         .to_string();
 
     let mut direct_addresses = Vec::new();
+    let mut relay_url = json.get("relay_url").and_then(|v| v.as_str()).map(ToString::to_string);
     if let Some(addrs) = json.get("addrs").and_then(|v| v.as_array()) {
         for a in addrs {
             if let Some(s) = a.as_str() {
                 direct_addresses.push(s.to_string());
             } else if let Some(ip) = a.get("Ip").and_then(|v| v.as_str()) {
                 direct_addresses.push(ip.to_string());
+            } else if let Some(relay) = a.get("Relay").and_then(|v| v.as_str()) {
+                relay_url = Some(relay.to_string());
             }
         }
     }
-
-    let relay_url = json.get("relay_url").and_then(|v| v.as_str()).map(ToString::to_string);
     let ws_port = json.get("ws_port").and_then(|v| v.as_u64()).map(|p| p as u16);
 
     let parsed = ParsedTicket {
@@ -137,6 +138,107 @@ pub fn process_stream_content(full_buffer: &str) -> Result<JsValue, JsValue> {
         is_thinking_active,
     };
     serde_wasm_bindgen::to_value(&result).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+pub const RHO_ALPN: &[u8] = b"/rho/rpc/v1";
+
+#[wasm_bindgen]
+pub struct IrohPeer {
+    tx: futures::channel::mpsc::UnboundedSender<String>,
+    conn: iroh::endpoint::Connection,
+}
+
+#[wasm_bindgen]
+impl IrohPeer {
+    #[wasm_bindgen]
+    pub fn connect(ticket_str: String, on_message: js_sys::Function, on_close: js_sys::Function) -> js_sys::Promise {
+        wasm_bindgen_futures::future_to_promise(async move {
+            let raw = extract_ticket_b64(&ticket_str);
+            let bytes = URL_SAFE_NO_PAD
+                .decode(raw)
+                .map_err(|e| JsValue::from_str(&format!("invalid base64 ticket: {e}")))?;
+            let addr: iroh::EndpointAddr = serde_json::from_slice(&bytes)
+                .map_err(|e| JsValue::from_str(&format!("invalid endpoint addr json: {e}")))?;
+
+            let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::N0)
+                .alpns(vec![RHO_ALPN.to_vec()])
+                .bind()
+                .await
+                .map_err(|e| JsValue::from_str(&format!("failed to bind iroh browser endpoint: {e}")))?;
+
+            let conn = endpoint
+                .connect(addr, RHO_ALPN)
+                .await
+                .map_err(|e| JsValue::from_str(&format!("failed to connect to peer over iroh: {e}")))?;
+
+            let (mut send, mut recv) = conn
+                .open_bi()
+                .await
+                .map_err(|e| JsValue::from_str(&format!("failed to open bi stream over iroh: {e}")))?;
+
+            let _ = send.write_all(b"\n").await;
+
+            let (tx, mut rx) = futures::channel::mpsc::unbounded::<String>();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                use futures::StreamExt;
+                while let Some(msg) = rx.next().await {
+                    let mut data = msg.into_bytes();
+                    if !data.ends_with(b"\n") {
+                        data.push(b'\n');
+                    }
+                    if send.write_all(&data).await.is_err() {
+                        break;
+                    }
+                }
+                let _ = send.finish();
+            });
+
+            let on_close_clone = on_close.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                loop {
+                    match recv.read(&mut chunk).await {
+                        Ok(Some(n)) if n > 0 => {
+                            buf.extend_from_slice(&chunk[..n]);
+                            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                                let line: Vec<u8> = buf.drain(..=pos).collect();
+                                if let Ok(s) = String::from_utf8(line) {
+                                    let trimmed = s.trim();
+                                    if !trimmed.is_empty() {
+                                        let this = JsValue::NULL;
+                                        let arg = JsValue::from_str(trimmed);
+                                        let _ = on_message.call1(&this, &arg);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            let this = JsValue::NULL;
+                            let _ = on_close_clone.call0(&this);
+                            break;
+                        }
+                    }
+                }
+            });
+
+            Ok(JsValue::from(IrohPeer { tx, conn }))
+        })
+    }
+
+    #[wasm_bindgen]
+    pub fn send(&self, msg: &str) -> Result<(), JsValue> {
+        self.tx
+            .unbounded_send(msg.to_string())
+            .map_err(|e| JsValue::from_str(&format!("failed to send message: {e}")))
+    }
+
+    #[wasm_bindgen]
+    pub fn close(&self) {
+        self.tx.close_channel();
+        self.conn.close(0u32.into(), b"client closed");
+    }
 }
 
 #[cfg(test)]

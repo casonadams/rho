@@ -1,4 +1,10 @@
-import initWasm, { parse_ticket, encode_rpc_request, parse_rpc_frame, process_stream_content } from '../wasm/rho_wasm.js';
+import initWasm, {
+  parse_ticket,
+  encode_rpc_request,
+  parse_rpc_frame,
+  process_stream_content,
+  IrohPeer,
+} from '../wasm/rho_wasm.js';
 
 let wasmReady = false;
 
@@ -13,7 +19,9 @@ export class RhoPeerClient {
   constructor(ticket) {
     this.ticket = ticket;
     this.parsedTicket = null;
+    this.irohPeer = null;
     this.socket = null;
+    this.transport = null;
     this.eventListeners = [];
     this.responseHandlers = new Map();
     this.reqSeq = 0;
@@ -43,10 +51,31 @@ export class RhoPeerClient {
     }
   }
 
-  connect() {
-    return new Promise((resolve, reject) => {
-      this.status = 'connecting';
+  async connect() {
+    this.status = 'connecting';
 
+    if (typeof IrohPeer !== 'undefined' && this.ticket) {
+      try {
+        this.irohPeer = await IrohPeer.connect(
+          this.ticket,
+          (line) => this.handleRawMessage(line),
+          () => {
+            this.status = 'disconnected';
+          }
+        );
+        this.transport = 'iroh';
+        this.status = 'online';
+        return;
+      } catch (err) {
+        console.warn('Iroh P2P connection failed, attempting WebSocket fallback:', err);
+      }
+    }
+
+    return this.connectWebSocket();
+  }
+
+  connectWebSocket() {
+    return new Promise((resolve, reject) => {
       const wsPort = this.parsedTicket?.ws_port || 50051;
       let host = '127.0.0.1';
       if (this.parsedTicket?.direct_addresses?.length) {
@@ -61,6 +90,7 @@ export class RhoPeerClient {
       try {
         this.socket = new WebSocket(targetUrl);
         this.socket.onopen = () => {
+          this.transport = 'ws';
           this.status = 'online';
           resolve();
         };
@@ -107,11 +137,35 @@ export class RhoPeerClient {
 
     return new Promise((resolve, reject) => {
       this.responseHandlers.set(id, resolve);
-      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      if (this.irohPeer) {
+        try {
+          this.irohPeer.send(json + '\n');
+        } catch (e) {
+          this.responseHandlers.delete(id);
+          reject(e);
+        }
+      } else if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(json + '\n');
       } else {
-        reject(new Error(`WebSocket is not connected (state: ${this.socket?.readyState})`));
+        this.responseHandlers.delete(id);
+        reject(new Error('Transport is not connected'));
       }
     });
+  }
+
+  disconnect() {
+    if (this.irohPeer) {
+      try {
+        this.irohPeer.close();
+      } catch (_) {}
+      this.irohPeer = null;
+    }
+    if (this.socket) {
+      try {
+        this.socket.close();
+      } catch (_) {}
+      this.socket = null;
+    }
+    this.status = 'disconnected';
   }
 }

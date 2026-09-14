@@ -34,6 +34,7 @@ pub async fn handle_serve(
 
     let (ws_listener, ws_port) = crate::platform::remote::server::bind_ws_listener(port).await?;
     let endpoint = RhoEndpoint::bind(secret, port).await?;
+    let _ = endpoint.wait_online(std::time::Duration::from_secs(5)).await;
     let ticket = endpoint.ticket_with_ws(Some(ws_port))?;
     let pairing_url = RhoEndpoint::pairing_url(&ticket);
     let qr = RhoEndpoint::render_qr(&pairing_url)?;
