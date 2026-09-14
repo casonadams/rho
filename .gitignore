@@ -3,3 +3,5 @@
 .env
 .specs
 improvements.md
+.rho/sessions/
+.playwright-mcp/

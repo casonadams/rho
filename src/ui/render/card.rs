@@ -52,12 +52,16 @@ fn format_card_header(line: &ToolLine, theme: &Theme) -> String {
         return format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
     }
     let summary = format_tool_args_summary(&line.name, &line.arguments);
-    let header_args = if line.name == "bash" {
-        format_bash_args_header(&summary, accent, theme.dimmed)
+    if summary.is_empty() {
+        format!("{title}{display_name}{title:#}")
     } else {
-        format!("{accent}{summary}{accent:#}")
-    };
-    format!("{title}{display_name}{title:#} {header_args}")
+        let header_args = if line.name == "bash" {
+            format_bash_args_header(&summary, accent, theme.dimmed)
+        } else {
+            format!("{accent}{summary}{accent:#}")
+        };
+        format!("{title}{display_name}{title:#} {header_args}")
+    }
 }
 
 fn append_edit_write(content: &mut String, line: &ToolLine, theme: &Theme) -> bool {

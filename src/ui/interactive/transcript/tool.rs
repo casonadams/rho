@@ -50,12 +50,16 @@ fn format_tool_header(tool: &ToolItem, theme: &crate::ui::theme::Theme) -> Strin
         return format!("{title}web_fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
     }
     let summary = format_tool_args_summary(&tool.name, &tool.arguments);
-    let header_args = if tool.name == "bash" {
-        format_bash_args_header(&summary, accent, theme.dimmed)
+    if summary.is_empty() {
+        format!("{title}{display_name}{title:#}")
     } else {
-        format!("{accent}{summary}{accent:#}")
-    };
-    format!("{title}{display_name}{title:#} {header_args}")
+        let header_args = if tool.name == "bash" {
+            format_bash_args_header(&summary, accent, theme.dimmed)
+        } else {
+            format!("{accent}{summary}{accent:#}")
+        };
+        format!("{title}{display_name}{title:#} {header_args}")
+    }
 }
 
 fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui::theme::Theme) {

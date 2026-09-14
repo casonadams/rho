@@ -186,3 +186,35 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         "bordered tools should transition directly from bottom to top border"
     );
 }
+
+#[test]
+fn render_transcript_mcp_tool_shows_server_and_call() {
+    let theme = Theme::default();
+    let item = TranscriptItem::Tool(ToolItem {
+        name: "mcp".into(),
+        arguments: serde_json::json!({
+            "action": "call",
+            "server": "playwright",
+            "tool": "browser_navigate",
+            "args": {
+                "url": "http://localhost:3000/hub/"
+            }
+        }),
+        is_error: false,
+        output: "Navigated to http://localhost:3000/hub/".into(),
+        output_summary: "Navigated".into(),
+        duration_ms: Some(250),
+    });
+
+    let rendered = render_transcript_item(TranscriptRenderInput {
+        item: &item,
+        theme: &theme,
+        width: 80,
+        tools_expanded: false,
+        hide_thinking: false,
+    });
+
+    assert!(rendered.contains("mcp"));
+    assert!(rendered.contains("playwright:browser_navigate"));
+    assert!(rendered.contains("url=\"http://localhost:3000/hub/\""));
+}

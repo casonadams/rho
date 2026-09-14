@@ -88,3 +88,139 @@ fn test_quote_cli_arg() {
         assert_eq!(quote_cli_arg(input), expected);
     }
 }
+
+#[test]
+fn format_tool_args_summary_mcp_call() {
+    let call = serde_json::json!({
+        "action": "call",
+        "server": "playwright",
+        "tool": "browser_navigate",
+        "args": {
+            "url": "http://localhost:3000/hub/"
+        }
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &call),
+        "playwright:browser_navigate url=\"http://localhost:3000/hub/\""
+    );
+
+    let no_args = serde_json::json!({
+        "server": "playwright",
+        "tool": "browser_snapshot"
+    });
+    assert_eq!(format_tool_args_summary("mcp", &no_args), "playwright:browser_snapshot");
+
+    let no_server = serde_json::json!({
+        "tool": "browser_navigate",
+        "args": {
+            "url": "http://localhost:3000/hub/"
+        }
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &no_server),
+        "browser_navigate url=\"http://localhost:3000/hub/\""
+    );
+
+    let multiple_args = serde_json::json!({
+        "action": "call",
+        "server": "playwright",
+        "tool": "browser_click",
+        "args": {
+            "element": "Add Node button",
+            "target": "f1e7"
+        }
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &multiple_args),
+        "playwright:browser_click element=\"Add Node button\" target=\"f1e7\""
+    );
+
+    let top_level_args = serde_json::json!({
+        "server": "playwright",
+        "tool": "browser_navigate",
+        "url": "http://localhost:3000/hub/"
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &top_level_args),
+        "playwright:browser_navigate url=\"http://localhost:3000/hub/\""
+    );
+}
+
+#[test]
+fn format_tool_args_summary_mcp_actions() {
+    let status_with_server = serde_json::json!({
+        "action": "status",
+        "server": "playwright"
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &status_with_server),
+        "status playwright"
+    );
+
+    let status_all = serde_json::json!({
+        "action": "status"
+    });
+    assert_eq!(format_tool_args_summary("mcp", &status_all), "status");
+
+    let search = serde_json::json!({
+        "action": "search",
+        "server": "playwright",
+        "search": "navigate"
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &search),
+        "playwright:search \"navigate\""
+    );
+
+    let describe = serde_json::json!({
+        "action": "describe",
+        "server": "playwright",
+        "describe": "browser_navigate"
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &describe),
+        "playwright:describe browser_navigate"
+    );
+}
+
+#[test]
+fn format_tool_args_summary_mcp_script() {
+    let single = serde_json::json!({
+        "calls": [
+            {
+                "server": "playwright",
+                "tool": "browser_navigate",
+                "args": { "url": "http://localhost:3000/hub/" }
+            }
+        ]
+    });
+    assert_eq!(
+        format_tool_args_summary("mcpScript", &single),
+        "playwright:browser_navigate url=\"http://localhost:3000/hub/\""
+    );
+
+    let multiple = serde_json::json!({
+        "calls": [
+            { "server": "playwright", "tool": "browser_navigate" },
+            { "server": "playwright", "tool": "browser_snapshot" }
+        ]
+    });
+    assert_eq!(
+        format_tool_args_summary("mcpScript", &multiple),
+        "[2 calls] playwright:browser_navigate, playwright:browser_snapshot"
+    );
+}
+
+#[test]
+fn format_tool_args_summary_direct_mcp_or_generic() {
+    let direct = serde_json::json!({
+        "url": "http://localhost:3000/hub/"
+    });
+    assert_eq!(
+        format_tool_args_summary("playwright_browser_navigate", &direct),
+        "url=\"http://localhost:3000/hub/\""
+    );
+
+    let empty = serde_json::json!({});
+    assert_eq!(format_tool_args_summary("custom_tool", &empty), "");
+}

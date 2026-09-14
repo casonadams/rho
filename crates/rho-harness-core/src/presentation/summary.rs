@@ -176,6 +176,167 @@ fn format_fd_summary(args: &serde_json::Value) -> String {
     }
 }
 
+fn format_kv_val(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => {
+            let single_line = s.replace('\r', "").replace('\n', " ");
+            let (preview, truncated) = truncate_preview(&single_line, 40);
+            let clean = preview.replace('"', "\\\"");
+            if truncated {
+                format!("\"{clean}...\"")
+            } else {
+                format!("\"{clean}\"")
+            }
+        }
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
+            let s = serde_json::to_string(v).unwrap_or_default();
+            let (preview, truncated) = truncate_preview(&s, 30);
+            if truncated { format!("{preview}...") } else { s }
+        }
+    }
+}
+
+fn format_object_args(obj: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut parts = Vec::new();
+    for (k, v) in obj {
+        parts.push(format!("{k}={}", format_kv_val(v)));
+    }
+    let joined = parts.join(" ");
+    let (preview, truncated) = truncate_preview(&joined, 60);
+    if truncated { format!("{preview}...") } else { joined }
+}
+
+fn format_single_mcp_call(server: Option<&str>, tool: &str, inner_args: Option<&serde_json::Value>) -> String {
+    let target = match server {
+        Some(s) if !s.is_empty() => format!("{s}:{tool}"),
+        _ => tool.to_string(),
+    };
+    let args_str = match inner_args {
+        Some(serde_json::Value::Object(map)) if !map.is_empty() => format_object_args(map),
+        Some(serde_json::Value::String(s)) if !s.is_empty() => format_kv_val(&serde_json::Value::String(s.clone())),
+        _ => String::new(),
+    };
+    if args_str.is_empty() {
+        target
+    } else {
+        format!("{target} {args_str}")
+    }
+}
+
+fn extract_mcp_call_args(args: &serde_json::Value) -> Option<serde_json::Value> {
+    if let Some(inner) = args.get("args") {
+        return Some(inner.clone());
+    }
+    if let serde_json::Value::Object(map) = args {
+        let non_meta: serde_json::Map<String, serde_json::Value> = map
+            .iter()
+            .filter(|(k, _)| !matches!(k.as_str(), "action" | "server" | "tool" | "search" | "describe"))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !non_meta.is_empty() {
+            return Some(serde_json::Value::Object(non_meta));
+        }
+    }
+    None
+}
+
+fn format_mcp_summary(args: &serde_json::Value) -> String {
+    let action = args.get("action").and_then(|a| a.as_str());
+    let server = args.get("server").and_then(|s| s.as_str());
+
+    if action == Some("call") || args.get("tool").is_some() {
+        let tool = args.get("tool").and_then(|t| t.as_str()).unwrap_or("");
+        if !tool.is_empty() {
+            let inner_args = extract_mcp_call_args(args);
+            return format_single_mcp_call(server, tool, inner_args.as_ref());
+        }
+    }
+
+    if action == Some("search") || args.get("search").is_some() {
+        let query = args.get("search").and_then(|q| q.as_str()).unwrap_or("");
+        let query_str = format_kv_val(&serde_json::Value::String(query.to_string()));
+        return match server {
+            Some(s) if !s.is_empty() => format!("{s}:search {query_str}"),
+            _ => format!("search {query_str}"),
+        };
+    }
+
+    if action == Some("describe") || args.get("describe").is_some() {
+        let target = args.get("describe").and_then(|d| d.as_str()).unwrap_or("");
+        return match server {
+            Some(s) if !s.is_empty() => format!("{s}:describe {target}"),
+            _ => format!("describe {target}"),
+        };
+    }
+
+    if action == Some("status") {
+        return match server {
+            Some(s) if !s.is_empty() => format!("status {s}"),
+            _ => "status".to_string(),
+        };
+    }
+
+    if let Some(act) = action {
+        return match server {
+            Some(s) if !s.is_empty() => format!("{s}:{act}"),
+            _ => act.to_string(),
+        };
+    }
+
+    if let Some(s) = server {
+        return s.to_string();
+    }
+
+    String::new()
+}
+
+fn format_mcp_script_summary(args: &serde_json::Value) -> String {
+    let calls = args.get("calls").and_then(|c| c.as_array());
+    match calls {
+        Some(list) if list.len() == 1 => {
+            let item = &list[0];
+            let server = item.get("server").and_then(|s| s.as_str());
+            let tool = item.get("tool").and_then(|t| t.as_str()).unwrap_or("");
+            let inner_args = item.get("args");
+            format_single_mcp_call(server, tool, inner_args)
+        }
+        Some(list) if !list.is_empty() => {
+            let targets: Vec<String> = list
+                .iter()
+                .map(|item| {
+                    let server = item.get("server").and_then(|s| s.as_str());
+                    let tool = item.get("tool").and_then(|t| t.as_str()).unwrap_or("tool");
+                    match server {
+                        Some(s) if !s.is_empty() => format!("{s}:{tool}"),
+                        _ => tool.to_string(),
+                    }
+                })
+                .collect();
+            let joined = targets.join(", ");
+            let (preview, truncated) = truncate_preview(&joined, 65);
+            if truncated {
+                format!("[{} calls] {preview}...", list.len())
+            } else {
+                format!("[{} calls] {joined}", list.len())
+            }
+        }
+        _ => "batch".to_string(),
+    }
+}
+
+fn format_generic_args_summary(args: &serde_json::Value) -> String {
+    if let serde_json::Value::Object(map) = args
+        && !map.is_empty()
+    {
+        format_object_args(map)
+    } else {
+        String::new()
+    }
+}
+
 pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String {
     match name {
         "read" => format_read_summary(args),
@@ -185,7 +346,9 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
         "grep" | "rg" | "fd" => format_search_summary(name, args),
         "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
-        _ => "".to_string(),
+        "mcp" => format_mcp_summary(args),
+        "mcpScript" => format_mcp_script_summary(args),
+        _ => format_generic_args_summary(args),
     }
 }
 
