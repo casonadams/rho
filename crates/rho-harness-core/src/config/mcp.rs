@@ -367,4 +367,10 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
+
+    #[test]
+    fn test_mcp_config_default_is_enabled() {
+        let config = McpConfig::default();
+        assert!(config.enabled);
+    }
 }

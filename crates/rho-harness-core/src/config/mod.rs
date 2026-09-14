@@ -34,6 +34,7 @@ impl Config {
         }
 
         if let Ok(Some(global_mcp)) = mcp::load_global_mcp_config(&config.config_dir) {
+            config.mcp.enabled = config.mcp.enabled && global_mcp.enabled;
             config.mcp.servers.extend(global_mcp.servers);
         }
 
@@ -49,6 +50,7 @@ impl Config {
             }
 
             if let Ok(Some(project_mcp)) = mcp::load_project_mcp_config(&cwd) {
+                config.mcp.enabled = config.mcp.enabled && project_mcp.enabled;
                 config.mcp.servers.extend(project_mcp.servers);
             }
         }
