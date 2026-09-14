@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.6](https://github.com/casonadams/rho/compare/v0.7.5...v0.7.6) (2026-09-14)
+
+
+### Bug Fixes
+
+* **chatgpt:** track reasoning part coordinates across output items in sse parser ([3d2477f](https://github.com/casonadams/rho/commit/3d2477fbbf8967fc002af43f095faeb77ff46dd7))
+
 ## [0.7.5](https://github.com/casonadams/rho/compare/v0.7.4...v0.7.5) (2026-09-14)
 
 
