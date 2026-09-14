@@ -273,43 +273,106 @@ async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
-fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::Value> {
-    let mut out = Vec::new();
-    for msg in messages {
-        match msg {
-            rig::message::Message::User { content } => {
-                let mut text = String::new();
-                for part in content {
-                    if let rig::message::UserContent::Text(t) = part {
-                        if !text.is_empty() {
-                            text.push('\n');
-                        }
-                        text.push_str(&t.text);
-                    }
-                }
+fn extract_user_chat_messages(
+    content: &[rig::message::UserContent],
+    pending_tools: &mut std::collections::HashMap<String, serde_json::Value>,
+    out: &mut Vec<serde_json::Value>,
+) {
+    let mut text = String::new();
+    for part in content {
+        match part {
+            rig::message::UserContent::Text(t) => {
                 if !text.is_empty() {
-                    out.push(serde_json::json!({
-                        "role": "user",
-                        "content": text,
-                    }));
+                    text.push('\n');
                 }
+                text.push_str(&t.text);
             }
-            rig::message::Message::Assistant { content, .. } => {
-                let mut text = String::new();
-                for part in content {
-                    if let rig::message::AssistantContent::Text(t) = part {
-                        if !text.is_empty() {
-                            text.push('\n');
-                        }
-                        text.push_str(&t.text);
-                    }
+            rig::message::UserContent::ToolResult(res) => {
+                let res_text = res
+                    .content
+                    .iter()
+                    .filter_map(|p| p.as_text())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let tool_info = pending_tools.remove(res.call.as_str());
+                let (name, args) = if let Some(ref ti) = tool_info {
+                    (
+                        ti.get("tool").and_then(|v| v.as_str()).unwrap_or("tool").to_string(),
+                        ti.get("arguments").cloned().unwrap_or(serde_json::Value::Null),
+                    )
+                } else {
+                    ("tool".to_string(), serde_json::Value::Null)
+                };
+                out.push(serde_json::json!({
+                    "role": "tool",
+                    "tool": name,
+                    "arguments": args,
+                    "output": res_text,
+                    "is_error": false,
+                }));
+            }
+            _ => {}
+        }
+    }
+    if !text.is_empty() {
+        out.push(serde_json::json!({
+            "role": "user",
+            "content": text,
+        }));
+    }
+}
+
+fn extract_assistant_chat_messages(
+    content: &[rig::message::AssistantContent],
+    pending_tools: &mut std::collections::HashMap<String, serde_json::Value>,
+    out: &mut Vec<serde_json::Value>,
+) {
+    let mut text = String::new();
+    for part in content {
+        match part {
+            rig::message::AssistantContent::Text(t) => {
+                if !text.is_empty() {
+                    text.push('\n');
                 }
+                text.push_str(&t.text);
+            }
+            rig::message::AssistantContent::ToolCall(call) => {
                 if !text.is_empty() {
                     out.push(serde_json::json!({
                         "role": "assistant",
-                        "content": text,
+                        "content": std::mem::take(&mut text),
                     }));
                 }
+                pending_tools.insert(
+                    call.id.to_string(),
+                    serde_json::json!({
+                        "tool": call.function.name,
+                        "arguments": call.function.arguments,
+                    }),
+                );
+            }
+            _ => {}
+        }
+    }
+    if !text.is_empty() {
+        out.push(serde_json::json!({
+            "role": "assistant",
+            "content": text,
+        }));
+    }
+}
+
+fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut pending_tools = std::collections::HashMap::new();
+
+    for msg in messages {
+        match msg {
+            rig::message::Message::User { content } => {
+                extract_user_chat_messages(content, &mut pending_tools, &mut out);
+            }
+            rig::message::Message::Assistant { content, .. } => {
+                extract_assistant_chat_messages(content, &mut pending_tools, &mut out);
             }
             _ => {}
         }
@@ -1160,5 +1223,49 @@ mod tests {
         assert!(create_data.get("total_input_tokens").is_some());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_extract_chat_messages_preserves_tools() {
+        use rig::message::{
+            AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
+        };
+        let msgs = vec![
+            Message::user("run check"),
+            Message::Assistant {
+                id: None,
+                content: vec![
+                    AssistantContent::text("I will run the command."),
+                    AssistantContent::ToolCall(ToolCall::new(
+                        ToolCallId::new_or_mint("call_1"),
+                        ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo check" })),
+                    )),
+                ],
+            },
+            Message::User {
+                content: vec![UserContent::ToolResult(ToolResult {
+                    call: ToolCallId::new_or_mint("call_1"),
+                    provider: None,
+                    name: "bash".to_string(),
+                    content: vec![ToolResultContent::Text(rig::message::Text::new(
+                        "Finished dev [unoptimized + debuginfo]",
+                    ))],
+                })],
+            },
+            Message::assistant("Check passed cleanly."),
+        ];
+
+        let extracted = extract_chat_messages(&msgs);
+        assert_eq!(extracted.len(), 4);
+        assert_eq!(extracted[0]["role"], "user");
+        assert_eq!(extracted[0]["content"], "run check");
+        assert_eq!(extracted[1]["role"], "assistant");
+        assert_eq!(extracted[1]["content"], "I will run the command.");
+        assert_eq!(extracted[2]["role"], "tool");
+        assert_eq!(extracted[2]["tool"], "bash");
+        assert_eq!(extracted[2]["arguments"]["command"], "cargo check");
+        assert_eq!(extracted[2]["output"], "Finished dev [unoptimized + debuginfo]");
+        assert_eq!(extracted[3]["role"], "assistant");
+        assert_eq!(extracted[3]["content"], "Check passed cleanly.");
     }
 }

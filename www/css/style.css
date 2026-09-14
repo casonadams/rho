@@ -487,6 +487,12 @@ code, pre {
   gap: 1.25rem;
 }
 
+.grid-3 > *,
+.grid-2 > *,
+.grid-4 > * {
+  min-width: 0;
+}
+
 /* Cards */
 .card {
   background-color: var(--bg-surface);
@@ -497,6 +503,7 @@ code, pre {
   flex-direction: column;
   transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   position: relative;
+  min-width: 0;
 }
 
 .card:hover {
@@ -1094,6 +1101,8 @@ code, pre {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .code-block-header {

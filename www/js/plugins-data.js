@@ -40,7 +40,7 @@ export const CURATED_EXTENSIONS = [
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+      "env": { "GITHUB_TOKEN": "\${GITHUB_TOKEN}" }
     }
   }
 }`,

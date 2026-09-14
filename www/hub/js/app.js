@@ -167,9 +167,9 @@ async function openWorkspace(node, preferredSessionId = null) {
     } else if (ev.type === 'reasoning_chunk') {
       sessionView.appendReasoningChunk(ev.content);
     } else if (ev.type === 'tool_call_start') {
-      sessionView.appendToolCall(ev.tool, ev.arguments);
+      sessionView.appendToolCall(ev.tool, ev.arguments, ev.call_id);
     } else if (ev.type === 'tool_call_result') {
-      sessionView.appendToolResult(ev.tool, ev.output, ev.is_error);
+      sessionView.appendToolResult(ev.tool, ev.output, ev.is_error, ev.duration_ms, ev.call_id);
     } else if (ev.type === 'tool_approval_request') {
       sessionView.showApprovalRequest(ev);
     } else if (ev.type === 'status_changed') {
@@ -199,20 +199,14 @@ async function openWorkspace(node, preferredSessionId = null) {
     const resumeResp = await activeClient.send('resume_session', { session_id: preferredSessionId });
     if (resumeResp.data && resumeResp.data.messages) {
       sessionView.clear();
-      for (const m of resumeResp.data.messages) {
-        if (m.role === 'user') sessionView.addUserMessage(m.content);
-        else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
-      }
+      renderMessages(resumeResp.data.messages);
       activeSid = resumeResp.data.session_id;
       sessionView.scrollToBottom();
       updateFooterState(resumeResp.data);
     }
   } else if (stateResp.data && stateResp.data.messages) {
     sessionView.clear();
-    for (const m of stateResp.data.messages) {
-      if (m.role === 'user') sessionView.addUserMessage(m.content);
-      else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
-    }
+    renderMessages(stateResp.data.messages);
     sessionView.scrollToBottom();
   }
 
@@ -241,15 +235,26 @@ function renderSessionList(sessions, activeSessionId) {
       if (resp && resp.data) {
         updateFooterState(resp.data);
         if (resp.data.messages) {
-          for (const m of resp.data.messages) {
-            if (m.role === 'user') sessionView.addUserMessage(m.content);
-            else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
-          }
+          renderMessages(resp.data.messages);
         }
       }
       sessionView.scrollToBottom();
     };
     listEl.appendChild(li);
+  }
+}
+
+function renderMessages(messages) {
+  if (!messages) return;
+  for (const m of messages) {
+    if (m.role === 'user') {
+      sessionView.addUserMessage(m.content);
+    } else if (m.role === 'assistant') {
+      sessionView.addAssistantMessage(m.content);
+    } else if (m.role === 'tool') {
+      sessionView.appendToolCall(m.tool, m.arguments);
+      sessionView.appendToolResult(m.tool, m.output, m.is_error, m.duration_ms);
+    }
   }
 }
 

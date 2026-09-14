@@ -39,6 +39,53 @@ function renderMarkdown(text) {
   return `<p>${html}</p>`;
 }
 
+function formatToolSummary(tool, args) {
+  if (!args) return '';
+  if (typeof args === 'string') return args;
+  switch (tool) {
+    case 'read': {
+      const path = args.path || '';
+      if (args.offset !== undefined && args.limit !== undefined) {
+        return `${path}:${args.offset}-${args.offset + args.limit}`;
+      }
+      return path;
+    }
+    case 'write':
+    case 'edit':
+      return args.path || '';
+    case 'bash':
+      return args.command || '';
+    case 'web_search':
+      return args.query ? `"${args.query}"` : '';
+    case 'web_fetch':
+      return args.url || '';
+    case 'grep':
+    case 'rg':
+    case 'fd':
+      return args.pattern ? (args.path ? `${args.pattern} in ${args.path}` : args.pattern) : (args.path || '');
+    case 'mcp':
+      return args.tool ? `${args.server || ''}/${args.tool}` : (args.action || '');
+    default: {
+      if (args.command) return args.command;
+      if (args.path) return args.path;
+      if (args.query) return `"${args.query}"`;
+      if (args.url) return args.url;
+      try {
+        const str = JSON.stringify(args);
+        return str.length > 80 ? str.slice(0, 77) + '...' : str;
+      } catch (_) {
+        return '';
+      }
+    }
+  }
+}
+
+function formatDuration(ms) {
+  if (!ms || ms <= 0) return '';
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 export class SessionView {
   constructor(container, client) {
     this.container = container;
@@ -52,13 +99,6 @@ export class SessionView {
 
   clear() {
     this.container.innerHTML = '';
-    const working = document.createElement('div');
-    working.className = 'working-indicator-card';
-    working.id = 'transcript-working';
-    working.style.display = 'none';
-    working.innerHTML = '<span class="spinner-ring"></span> rho is working...';
-    this.container.appendChild(working);
-
     this.activeAssistantBubble = null;
     this.activeThinkingBlock = null;
     this.currentText = '';
@@ -67,18 +107,19 @@ export class SessionView {
     this.setWorking(false);
   }
 
-  setWorking(isWorking) {
+  setWorking(isWorking, label) {
     this.isWorking = isWorking;
     const pill = document.getElementById('working-pill');
     if (pill) {
       pill.style.display = isWorking ? 'inline-flex' : 'none';
     }
-    const indicator = document.getElementById('transcript-working');
-    if (indicator) {
-      indicator.style.display = isWorking ? 'inline-flex' : 'none';
-      if (isWorking) {
-        this.container.appendChild(indicator);
-      }
+    const actDivider = document.getElementById('chat-divider-act');
+    const actLabel = document.getElementById('chat-divider-label');
+    if (actDivider) {
+      actDivider.style.display = isWorking ? 'inline-flex' : 'none';
+    }
+    if (actLabel && label) {
+      actLabel.textContent = label;
     }
 
     const sendBtn = document.getElementById('send-prompt-btn');
@@ -168,28 +209,108 @@ export class SessionView {
   finishTurn() {
     this.setWorking(false);
     this.activeAssistantBubble = null;
+    this.currentText = '';
+    this.currentThinking = '';
     this.lastUserPrompt = null;
   }
 
-  appendToolCall(tool, args) {
-    const card = document.createElement('div');
-    card.className = 'tool-activity-card';
-    let argsStr = '';
-    if (typeof args === 'string') {
-      argsStr = args;
-    } else if (args && args.command) {
-      argsStr = args.command;
-    } else if (args && args.path) {
-      argsStr = args.path;
-    } else if (args) {
-      argsStr = JSON.stringify(args);
+  appendToolCall(tool, args, callId) {
+    if (this.activeAssistantBubble) {
+      if (!this.currentText && !this.currentThinking) {
+        this.activeAssistantBubble.remove();
+      }
+      this.activeAssistantBubble = null;
+      this.currentText = '';
+      this.currentThinking = '';
     }
-    card.innerHTML = `<span class="tool-tag">🛠️ ${escapeHtml(tool)}</span> <code>${escapeHtml(argsStr)}</code>`;
+
+    const card = document.createElement('div');
+    card.className = 'tool-activity-card running';
+    const cid = callId || `tool-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    card.dataset.callId = cid;
+    card.dataset.toolName = tool;
+
+    const summary = formatToolSummary(tool, args);
+
+    card.innerHTML = `
+      <div class="tool-activity-header">
+        <div class="tool-header-left">
+          <span class="tool-header-name">${escapeHtml(tool)}</span>
+          <span class="tool-header-args">${escapeHtml(summary)}</span>
+        </div>
+        <div class="tool-header-right">
+          <span class="tool-status-spinner spinner-ring"></span>
+          <span class="tool-status-label"></span>
+        </div>
+      </div>
+      <div class="tool-activity-body" style="display: none;"></div>
+    `;
+
+    const header = card.querySelector('.tool-activity-header');
+    const body = card.querySelector('.tool-activity-body');
+    header.onclick = () => {
+      if (body.textContent.trim()) {
+        body.style.display = body.style.display === 'none' ? 'block' : 'none';
+      }
+    };
+
     this.container.appendChild(card);
     this.scrollToBottom();
+    return card;
   }
 
-  appendToolResult(tool, output, isError) {
+  appendToolResult(tool, output, isError, durationMs, callId) {
+    let card = null;
+    if (callId) {
+      card = this.container.querySelector(`.tool-activity-card[data-call-id="${callId}"]`);
+    }
+    if (!card) {
+      const runningCards = this.container.querySelectorAll('.tool-activity-card.running');
+      if (runningCards.length > 0) {
+        card = runningCards[runningCards.length - 1];
+      } else {
+        const cards = this.container.querySelectorAll('.tool-activity-card');
+        if (cards.length > 0) {
+          card = cards[cards.length - 1];
+        }
+      }
+    }
+
+    if (!card) {
+      card = this.appendToolCall(tool, null, callId);
+    }
+
+    card.classList.remove('running');
+    if (isError) {
+      card.classList.add('is-error');
+    }
+
+    const spinner = card.querySelector('.tool-status-spinner');
+    if (spinner) spinner.style.display = 'none';
+
+    const statusLabel = card.querySelector('.tool-status-label');
+    if (statusLabel) {
+      const parts = [];
+      if (durationMs) {
+        parts.push(`Took ${formatDuration(durationMs)}`);
+      }
+      if (isError) {
+        parts.push('failed');
+      }
+      statusLabel.textContent = parts.join(' • ');
+    }
+
+    if (output && output.trim()) {
+      const body = card.querySelector('.tool-activity-body');
+      if (body) {
+        body.textContent = output.trim();
+        const toolName = card.dataset.toolName;
+        if (isError || toolName === 'bash') {
+          body.style.display = 'block';
+        }
+      }
+    }
+
     this.scrollToBottom();
   }
 
