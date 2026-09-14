@@ -54,11 +54,12 @@
   - `Ctrl+C`: Clear the current input draft or filter query (never interrupts running turns or kills the process).
   - `Ctrl+D`: Exit when the prompt is empty.
 
-## Documentation and website synchronization
+## Documentation, website, and WASM synchronization
 
 - When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
+- When modifying RPC protocols, event schemas, remote server capabilities, or Web UI features, rebuild the WebAssembly artifacts with `make wasm` to ensure `crates/rho-wasm` and `www/hub/wasm/` remain in lockstep with the native engine and TUI.
+- Maintain bidirectional UI parity: features, prompts, tool outputs, and interactive approvals visible in the raw-mode TUI must also stream, render, and resolve cleanly in the Web Hub dashboard.
 
 ## Completion
 
-- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), and
-  `cargo test --workspace` before finishing.
+- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), `make wasm`, and `cargo test --workspace` before finishing.
