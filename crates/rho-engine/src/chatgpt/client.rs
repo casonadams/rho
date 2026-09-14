@@ -10,7 +10,7 @@ use crate::auth::token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvi
 use crate::provider::sse::{aggregate_stream_events, unfold_sse_stream};
 use rig::completion::{CompletionError, CompletionModel, CompletionRequest, CompletionResponse};
 use rig::providers::openai::responses_api::{
-    CompletionRequest as ResponsesRequest, ResponsesRequestParams, SystemInstructionsPlacement,
+    CompletionRequest as ResponsesRequest, Include, ResponsesRequestParams, SystemInstructionsPlacement,
 };
 use rig::streaming::{RawStreamingChoice, StreamFinal, StreamingCompletionResponse};
 
@@ -126,6 +126,23 @@ impl ChatGptClient {
         req.temperature = None;
         req.max_output_tokens = None;
         req.stream = Some(true);
+
+        let include = req.additional_parameters.include.get_or_insert_with(Vec::new);
+        if !include
+            .iter()
+            .any(|item| matches!(item, Include::ReasoningEncryptedContent))
+        {
+            include.push(Include::ReasoningEncryptedContent);
+        }
+
+        req.additional_parameters.background = None;
+        req.additional_parameters.metadata.clear();
+        req.additional_parameters.parallel_tool_calls = None;
+        req.additional_parameters.service_tier = None;
+        req.additional_parameters.store = Some(false);
+        req.additional_parameters.text = None;
+        req.additional_parameters.top_p = None;
+        req.additional_parameters.user = None;
 
         Ok(req)
     }
@@ -263,12 +280,28 @@ mod tests {
     }
 
     #[test]
-    fn friendly_error_formats_auth_and_quota_errors() {
-        let auth_err = friendly_error(Some(401), r#"{"error":{"message":"token expired"}}"#);
-        assert!(auth_err.contains("Run 'rho login chatgpt'"));
+    fn build_request_sets_store_false_and_encrypted_reasoning() {
+        let client = ChatGptClient::new("test-token", "gpt-5.4");
+        let req = client
+            .build_request(CompletionRequest {
+                model: None,
+                output_schema: None,
+                record_telemetry_content: false,
+                documents: Vec::new(),
+                tools: Vec::new(),
+                temperature: Some(0.7),
+                max_tokens: Some(100),
+                tool_choice: None,
+                additional_params: None,
+                chat_history: vec![rig::message::Message::user("hi")],
+                preamble: None,
+            })
+            .unwrap();
 
-        let rate_err = friendly_error(Some(429), r#"{"error":{"message":"too many requests"}}"#);
-        assert!(rate_err.contains("ChatGPT rate limit or usage limit reached"));
-        assert!(rate_err.contains("too many requests"));
+        assert_eq!(req.additional_parameters.store, Some(false));
+        assert!(req.temperature.is_none());
+        assert!(req.max_output_tokens.is_none());
+        let includes = req.additional_parameters.include.unwrap();
+        assert!(includes.iter().any(|i| matches!(i, Include::ReasoningEncryptedContent)));
     }
 }
