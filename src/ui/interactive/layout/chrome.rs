@@ -14,21 +14,52 @@ pub fn thinking_divider_style(thinking_level: Option<&str>) -> (&'static str, &'
     }
 }
 
-fn busy_top_divider(width: usize, label: &str, (act_label, spinner): (&str, char), style: &str, reset: &str) -> String {
-    let act_tag = format!("── {spinner} {act_label} ");
-    let act_len = act_tag.chars().count();
+fn format_act_tag(act: Option<(&str, char)>, remote: Option<usize>) -> Option<String> {
+    match (act, remote) {
+        (Some((act_label, spinner)), Some(peers)) => {
+            if peers == 0 {
+                Some(format!("── {spinner} {act_label} • remote "))
+            } else {
+                Some(format!("── {spinner} {act_label} • remote ({peers}) "))
+            }
+        }
+        (Some((act_label, spinner)), None) => Some(format!("── {spinner} {act_label} ")),
+        (None, Some(peers)) => {
+            if peers == 0 {
+                Some("── remote ".to_string())
+            } else {
+                Some(format!("── remote ({peers}) "))
+            }
+        }
+        (None, None) => None,
+    }
+}
+
+fn tagged_top_divider(width: usize, label: &str, tag: &str, spinner: Option<char>, style: &str, reset: &str) -> String {
+    let tag_len = tag.chars().count();
     let has_version = !label.is_empty();
     let ver_len = if has_version { label.chars().count() + 5 } else { 0 };
 
-    if has_version && width > act_len + ver_len {
-        let middle = width - act_len - ver_len;
-        format!("{style}{act_tag}{} {label} ───{reset}", "─".repeat(middle))
-    } else if width >= act_len + 3 {
-        let trail = width - act_len;
-        format!("{style}{act_tag}{}{reset}", "─".repeat(trail))
-    } else if width >= 7 {
+    if has_version && width > tag_len + ver_len {
+        let middle = width - tag_len - ver_len;
+        format!("{style}{tag}{} {label} ───{reset}", "─".repeat(middle))
+    } else if width >= tag_len + 3 {
+        let trail = width - tag_len;
+        format!("{style}{tag}{}{reset}", "─".repeat(trail))
+    } else if let Some(sp) = spinner
+        && width >= 7
+    {
         let trail = width - 5;
-        format!("{style}── {spinner} {}{reset}", "─".repeat(trail))
+        format!("{style}── {sp} {}{reset}", "─".repeat(trail))
+    } else {
+        format!("{style}{}{reset}", "─".repeat(width))
+    }
+}
+
+fn idle_top_divider(width: usize, label: &str, style: &str, reset: &str) -> String {
+    if !label.is_empty() && width >= label.len() + 6 {
+        let lead = width - label.len() - 5;
+        format!("{style}{} {label} ───{reset}", "─".repeat(lead))
     } else {
         format!("{style}{}{reset}", "─".repeat(width))
     }
@@ -47,14 +78,19 @@ pub fn active_activity_status(footer: &FooterState, spinner_frame: usize) -> Opt
     }
 }
 
-pub fn top_divider(width: usize, label: &str, activity: Option<(&str, char)>, style: &str, reset: &str) -> String {
-    if let Some(act) = activity {
-        busy_top_divider(width, label, act, style, reset)
-    } else if !label.is_empty() && width >= label.len() + 6 {
-        let lead = width - label.len() - 5;
-        format!("{style}{} {label} ───{reset}", "─".repeat(lead))
+pub fn top_divider(
+    width: usize,
+    label: &str,
+    activity: Option<(&str, char)>,
+    remote: Option<usize>,
+    style: &str,
+    reset: &str,
+) -> String {
+    let spinner = activity.map(|(_, sp)| sp);
+    if let Some(tag) = format_act_tag(activity, remote) {
+        tagged_top_divider(width, label, &tag, spinner, style, reset)
     } else {
-        format!("{style}{}{reset}", "─".repeat(width))
+        idle_top_divider(width, label, style, reset)
     }
 }
 

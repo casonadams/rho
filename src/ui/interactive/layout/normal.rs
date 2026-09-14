@@ -39,7 +39,12 @@ fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset
                 ""
             };
             let activity = super::chrome::active_activity_status(input.footer, input.spinner_frame);
-            top_divider(width, label, activity, style, reset)
+            let remote = if input.footer.remote_active {
+                Some(input.footer.remote_peers)
+            } else {
+                None
+            };
+            top_divider(width, label, activity, remote, style, reset)
         }
     }
 }

@@ -289,10 +289,9 @@ mod tests {
         let mut got_node_info = false;
         while let Some(Ok(msg)) = client_ws.next().await {
             if let Some(text) = msg.as_text() {
-                if text.contains("session_start") {
+                let Ok(resp) = serde_json::from_str::<RpcResponse>(text) else {
                     continue;
-                }
-                let resp: RpcResponse = serde_json::from_str(text).unwrap();
+                };
                 if resp.command == "get_node_info" {
                     assert!(resp.success);
                     got_node_info = true;

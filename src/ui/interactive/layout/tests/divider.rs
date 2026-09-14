@@ -1,5 +1,5 @@
 use crate::ui::interactive::layout::{LayoutInput, layout};
-use crate::ui::interactive::{EditorState, FooterState};
+use crate::ui::interactive::{Activity, EditorState, FooterState};
 
 fn layout_for_thinking(level: Option<&str>) -> crate::ui::interactive::layout::InteractiveLayout {
     let footer = FooterState {
@@ -318,4 +318,83 @@ fn top_divider_busy_on_tight_terminal_shows_spinner_only() {
     assert!(layout.top_divider.contains("── \u{280b} ──"));
     assert!(!layout.top_divider.contains("working"));
     assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 7);
+}
+
+#[test]
+fn top_divider_shows_remote_idle_with_zero_peers() {
+    let footer = FooterState {
+        remote_active: true,
+        remote_peers: 0,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 30,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(layout.top_divider.contains("── remote "));
+    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 30);
+}
+
+#[test]
+fn top_divider_shows_remote_idle_with_peers() {
+    let footer = FooterState {
+        remote_active: true,
+        remote_peers: 2,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 35,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(layout.top_divider.contains("── remote (2) "));
+    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 35);
+}
+
+#[test]
+fn top_divider_shows_remote_when_busy() {
+    let footer = FooterState {
+        activity: Activity::Working,
+        remote_active: true,
+        remote_peers: 1,
+        ..FooterState::default()
+    };
+    let layout = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: None,
+        autocomplete: None,
+        footer: &footer,
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 40,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+
+    assert!(layout.top_divider.contains("working • remote (1)"));
+    assert_eq!(crate::ui::interactive::footer::visible_width(&layout.top_divider), 40);
 }
