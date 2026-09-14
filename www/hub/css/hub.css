@@ -82,6 +82,35 @@ header.hub-header {
   gap: 0.75rem;
 }
 
+.powered-by-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-raised);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.powered-by-badge:hover {
+  border-color: var(--accent-purple);
+  color: var(--text-primary);
+}
+
+.powered-by-badge .iroh-text {
+  font-weight: 700;
+  color: var(--accent-purple);
+}
+
+.iroh-link {
+  color: var(--accent-blue);
+  text-decoration: underline;
+}
+
 button.btn-primary {
   background: var(--accent-green);
   color: #05140b;
@@ -507,7 +536,8 @@ main.hub-main {
 }
 
 .tool-activity-header {
-  padding: 0.5rem 0.85rem;
+  min-height: 38px;
+  padding: 0.55rem 0.95rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -517,6 +547,7 @@ main.hub-main {
   background: var(--bg-surface);
   font-family: var(--font-mono);
   font-size: 0.82rem;
+  box-sizing: border-box;
 }
 
 .tool-activity-header:hover {
@@ -558,6 +589,12 @@ main.hub-main {
   color: var(--text-muted);
 }
 
+.tool-chevron {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  user-select: none;
+}
+
 .tool-activity-card.is-error .tool-header-right {
   color: var(--accent-red);
 }
@@ -571,9 +608,11 @@ main.hub-main {
   line-height: 1.45;
   color: var(--text-secondary);
   overflow-x: auto;
-  max-height: 320px;
+  overflow-y: auto;
+  max-height: 300px;
   white-space: pre-wrap;
   word-break: break-all;
+  box-sizing: border-box;
 }
 
 .thinking-header {

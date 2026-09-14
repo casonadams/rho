@@ -241,6 +241,7 @@ export class SessionView {
         <div class="tool-header-right">
           <span class="tool-status-spinner spinner-ring"></span>
           <span class="tool-status-label"></span>
+          <span class="tool-chevron" style="display: none;">▾</span>
         </div>
       </div>
       <div class="tool-activity-body" style="display: none;"></div>
@@ -248,9 +249,15 @@ export class SessionView {
 
     const header = card.querySelector('.tool-activity-header');
     const body = card.querySelector('.tool-activity-body');
+    const chevron = card.querySelector('.tool-chevron');
     header.onclick = () => {
       if (body.textContent.trim()) {
-        body.style.display = body.style.display === 'none' ? 'block' : 'none';
+        const isCollapsed = body.style.display === 'none';
+        body.style.display = isCollapsed ? 'block' : 'none';
+        card.classList.toggle('expanded', isCollapsed);
+        if (chevron) {
+          chevron.textContent = isCollapsed ? '▾' : '▸';
+        }
       }
     };
 
@@ -262,7 +269,13 @@ export class SessionView {
   appendToolResult(tool, output, isError, durationMs, callId) {
     let card = null;
     if (callId) {
-      card = this.container.querySelector(`.tool-activity-card[data-call-id="${callId}"]`);
+      card = this.container.querySelector(`.tool-activity-card.running[data-call-id="${callId}"]`);
+    }
+    if (!card) {
+      const runningWithName = this.container.querySelectorAll(`.tool-activity-card.running[data-tool-name="${tool}"]`);
+      if (runningWithName.length > 0) {
+        card = runningWithName[runningWithName.length - 1];
+      }
     }
     if (!card) {
       const runningCards = this.container.querySelectorAll('.tool-activity-card.running');
@@ -302,11 +315,20 @@ export class SessionView {
 
     if (output && output.trim()) {
       const body = card.querySelector('.tool-activity-body');
+      const chevron = card.querySelector('.tool-chevron');
       if (body) {
         body.textContent = output.trim();
-        const toolName = card.dataset.toolName;
-        if (isError || toolName === 'bash') {
+        const toolName = card.dataset.toolName || tool;
+        if (isError || toolName === 'bash' || toolName === 'edit' || toolName === 'write') {
           body.style.display = 'block';
+          card.classList.add('expanded');
+          if (chevron) {
+            chevron.style.display = 'inline';
+            chevron.textContent = '▾';
+          }
+        } else if (chevron) {
+          chevron.style.display = 'inline';
+          chevron.textContent = '▸';
         }
       }
     }
