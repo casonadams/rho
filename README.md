@@ -44,7 +44,7 @@ rho serve --workspace ~/src/my-project
 `rho` includes zero-cloud peer-to-peer remote access powered by [Iroh](https://iroh.computer).
 - **`rho serve`**: Run an autonomous agent node on any server or devbox. Outputs an encrypted node ticket and terminal QR code.
 - **`/remote`**: In an active terminal session, opens an in-TUI pairing modal to monitor and steer from a mobile or web browser.
-- **Web Hub**: Statically hosted at `https://casonadams.github.io/rho/hub/` (zero hosted backend servers, 100% client-side WebAssembly). Direct end-to-end encrypted control across all your machines.
+- **Web Hub**: Statically hosted at `https://casonadams.github.io/rho/hub/` (zero hosted backend servers, 100% client-side WebAssembly). Direct end-to-end encrypted control across all your machines with live tool streaming, interactive approvals, real-time token tracking, and provider quota status.
 
 ---
 

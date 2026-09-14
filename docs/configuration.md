@@ -201,4 +201,4 @@ rho serve --workspace ~/src/backend-api
 rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"
 ```
 
-The node outputs a pairing URL and QR code. Open the URL in any browser to access the **Fleet Hub** (`www/hub/`), or type `/remote` inside an active terminal REPL session to pair on-demand.
+The node outputs a pairing URL and QR code. Open the URL in any browser to access the **Fleet Hub** (`www/hub/`), or type `/remote` inside an active terminal REPL session to pair on-demand. The Fleet Hub provides full parity with the terminal interface, streaming thinking and tool executions, interactive approvals, real-time token tracking, and live provider rate limit/quota status.

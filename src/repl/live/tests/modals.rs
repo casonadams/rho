@@ -311,7 +311,8 @@ async fn setup_model_switch_env(temp: &std::path::Path) -> (crate::repl::ReplSes
         config_dir: temp.to_path_buf(),
         ..Default::default()
     };
-    let auth_store = crate::auth::AuthStore::default();
+    let mut auth_store = crate::auth::AuthStore::default();
+    let _ = auth_store.set_api_key("anthropic", "test-anthropic-key");
     let session = crate::repl::ReplSession::new(config.clone(), auth_store.clone(), None);
     let engine = rho_engine::engine::AgentEngineBuilder::new(config, auth_store)
         .build()
