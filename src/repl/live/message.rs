@@ -172,6 +172,7 @@ async fn handle_selector_command(
             match crate::platform::remote::ensure_remote_server(
                 ctx.session.config.clone(),
                 ctx.session.auth_store.clone(),
+                Some(&ctx.engine.session_manager.session_id),
             )
             .await
             {

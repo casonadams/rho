@@ -21,18 +21,27 @@ const sendPromptBtn = document.getElementById('send-prompt-btn');
 export async function initApp() {
   await ensureWasm();
 
-  // Check URL hash for ticket pairing: #ticket=rho_...
+  // Check URL hash for ticket pairing: #ticket=rho_...&session=...
   const hash = window.location.hash;
-  if (hash.startsWith('#ticket=')) {
-    const ticket = hash.replace('#ticket=', '').trim();
+  let targetNodeToOpen = null;
+  let targetSessionId = null;
+
+  if (hash.includes('ticket=')) {
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const ticket = params.get('ticket');
+    targetSessionId = params.get('session');
+
     if (ticket) {
       const client = new RhoPeerClient(ticket);
       await client.init();
-      NodeRegistry.saveNode({
+      const nodeRecord = {
         id: client.endpointId,
         label: `Node ${client.endpointId.slice(0, 8)}`,
         ticket
-      });
+      };
+      NodeRegistry.saveNode(nodeRecord);
+      targetNodeToOpen = nodeRecord;
+
       // Security: Strip ticket from URL
       window.history.replaceState(null, '', window.location.pathname);
     }
@@ -63,7 +72,11 @@ export async function initApp() {
     }
   });
 
-  renderFleet();
+  if (targetNodeToOpen) {
+    openWorkspace(targetNodeToOpen, targetSessionId);
+  } else {
+    renderFleet();
+  }
 }
 
 function showFleetView() {
@@ -120,7 +133,7 @@ async function renderFleet() {
   }
 }
 
-async function openWorkspace(node) {
+async function openWorkspace(node, preferredSessionId = null) {
   fleetView.style.display = 'none';
   workspaceView.style.display = 'flex';
 
@@ -159,7 +172,20 @@ async function openWorkspace(node) {
 
   // Load current session state and messages
   const stateResp = await activeClient.send('get_state');
-  if (stateResp.data && stateResp.data.messages) {
+  let activeSid = stateResp.data?.session_id;
+
+  if (preferredSessionId && preferredSessionId !== activeSid) {
+    const resumeResp = await activeClient.send('resume_session', { session_id: preferredSessionId });
+    if (resumeResp.data && resumeResp.data.messages) {
+      sessionView.clear();
+      for (const m of resumeResp.data.messages) {
+        if (m.role === 'user') sessionView.addUserMessage(m.content);
+        else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
+      }
+      activeSid = resumeResp.data.session_id;
+      sessionView.scrollToBottom();
+    }
+  } else if (stateResp.data && stateResp.data.messages) {
     sessionView.clear();
     for (const m of stateResp.data.messages) {
       if (m.role === 'user') sessionView.addUserMessage(m.content);
@@ -170,7 +196,7 @@ async function openWorkspace(node) {
 
   // Load session list
   const sessionsResp = await activeClient.send('list_sessions');
-  renderSessionList(sessionsResp.data || [], stateResp.data?.session_id);
+  renderSessionList(sessionsResp.data || [], activeSid);
 }
 
 function renderSessionList(sessions, activeSessionId) {

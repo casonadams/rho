@@ -58,7 +58,15 @@ impl RhoEndpoint {
     }
 
     pub fn pairing_url(ticket: &str) -> String {
-        format!("https://casonadams.github.io/rho/hub/#ticket={ticket}")
+        Self::pairing_url_with_session(ticket, None)
+    }
+
+    pub fn pairing_url_with_session(ticket: &str, session_id: Option<&str>) -> String {
+        if let Some(sid) = session_id {
+            format!("https://casonadams.github.io/rho/hub/#ticket={ticket}&session={sid}")
+        } else {
+            format!("https://casonadams.github.io/rho/hub/#ticket={ticket}")
+        }
     }
 
     pub fn render_qr(text: &str) -> Result<String> {
@@ -91,5 +99,11 @@ mod tests {
 
         let parsed = RhoEndpoint::parse_ticket(&ticket).unwrap();
         assert_eq!(parsed.id, endpoint.endpoint().id());
+
+        let url_no_sess = RhoEndpoint::pairing_url(&ticket);
+        assert!(!url_no_sess.contains("&session="));
+
+        let url_sess = RhoEndpoint::pairing_url_with_session(&ticket, Some("sess-123"));
+        assert!(url_sess.contains("&session=sess-123"));
     }
 }

@@ -8,17 +8,20 @@ pub mod endpoint;
 pub mod identity;
 pub mod server;
 
-static ACTIVE_REMOTE_URL: OnceCell<String> = OnceCell::const_new();
+struct ActiveRemoteHandle {
+    ticket: String,
+}
 
-pub async fn ensure_remote_server(config: Config, auth_store: AuthStore) -> Result<String> {
-    let url = ACTIVE_REMOTE_URL
+static ACTIVE_REMOTE: OnceCell<ActiveRemoteHandle> = OnceCell::const_new();
+
+pub async fn ensure_remote_server(config: Config, auth_store: AuthStore, session_id: Option<&str>) -> Result<String> {
+    let handle = ACTIVE_REMOTE
         .get_or_try_init(|| async {
             let key_path = identity::default_secret_key_path()?;
             let secret = identity::load_or_generate_secret_key(&key_path)?;
             let (ws_listener, ws_port) = server::bind_ws_listener(None).await?;
             let endpoint = endpoint::RhoEndpoint::bind(secret, None).await?;
             let ticket = endpoint.ticket_with_ws(Some(ws_port))?;
-            let pairing_url = endpoint::RhoEndpoint::pairing_url(&ticket);
 
             let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let base_dir = base_dir.canonicalize().unwrap_or(base_dir);
@@ -34,8 +37,12 @@ pub async fn ensure_remote_server(config: Config, auth_store: AuthStore) -> Resu
                 let _ = server.run_accept_loop().await;
             });
 
-            Ok::<String, anyhow::Error>(pairing_url)
+            Ok::<ActiveRemoteHandle, anyhow::Error>(ActiveRemoteHandle { ticket })
         })
         .await?;
-    Ok(url.clone())
+
+    Ok(endpoint::RhoEndpoint::pairing_url_with_session(
+        &handle.ticket,
+        session_id,
+    ))
 }
