@@ -49,6 +49,25 @@ pub enum RpcCommand {
         node_id: Option<String>,
     },
     GetState,
+    GetNodeInfo,
+    CreateSession {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        workspace: Option<String>,
+    },
+    AuthLogin {
+        provider: String,
+    },
+    AuthInput {
+        interaction_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        secret_value: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selected_option: Option<String>,
+    },
+    SetApiKey {
+        provider: String,
+        api_key: String,
+    },
     Exit,
 }
 
@@ -148,6 +167,39 @@ pub enum RpcEvent {
     StatusChanged {
         status: String,
     },
+    NodeInfo {
+        hostname: String,
+        os: String,
+        arch: String,
+        version: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_workspace: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_branch: Option<String>,
+        status: String,
+    },
+    AuthRequest {
+        interaction_id: String,
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth_url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instructions: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_code: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        is_secret: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<Vec<crate::auth::SelectOption>>,
+    },
+    AuthComplete {
+        provider: String,
+        success: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     Error {
         code: String,
         message: String,
@@ -228,6 +280,88 @@ mod tests {
 
         let fork: RpcRequest = serde_json::from_str(r#"{"type":"fork_session"}"#).unwrap();
         assert_eq!(fork.command, RpcCommand::ForkSession { node_id: None });
+
+        let get_info: RpcRequest = serde_json::from_str(r#"{"type":"get_node_info"}"#).unwrap();
+        assert_eq!(get_info.command, RpcCommand::GetNodeInfo);
+
+        let create_session: RpcRequest =
+            serde_json::from_str(r#"{"type":"create_session","workspace":"/tmp/repo"}"#).unwrap();
+        assert_eq!(
+            create_session.command,
+            RpcCommand::CreateSession {
+                workspace: Some("/tmp/repo".to_string())
+            }
+        );
+
+        let auth_login: RpcRequest = serde_json::from_str(r#"{"type":"auth_login","provider":"antigravity"}"#).unwrap();
+        assert_eq!(
+            auth_login.command,
+            RpcCommand::AuthLogin {
+                provider: "antigravity".to_string()
+            }
+        );
+
+        let auth_input: RpcRequest =
+            serde_json::from_str(r#"{"type":"auth_input","interaction_id":"int-1","secret_value":"tok-123"}"#).unwrap();
+        assert_eq!(
+            auth_input.command,
+            RpcCommand::AuthInput {
+                interaction_id: "int-1".to_string(),
+                secret_value: Some("tok-123".to_string()),
+                selected_option: None,
+            }
+        );
+
+        let set_key: RpcRequest =
+            serde_json::from_str(r#"{"type":"set_api_key","provider":"anthropic","api_key":"sk-ant-test"}"#).unwrap();
+        assert_eq!(
+            set_key.command,
+            RpcCommand::SetApiKey {
+                provider: "anthropic".to_string(),
+                api_key: "sk-ant-test".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn test_rpc_node_info_and_auth_events() {
+        let node_info = RpcEvent::NodeInfo {
+            hostname: "mbp".to_string(),
+            os: "macos".to_string(),
+            arch: "aarch64".to_string(),
+            version: "0.7.1".to_string(),
+            active_workspace: Some("/Users/test/repo".to_string()),
+            active_branch: Some("main".to_string()),
+            status: "idle".to_string(),
+        };
+        let node_json = serde_json::to_string(&node_info).unwrap();
+        assert!(node_json.contains("\"type\":\"node_info\""));
+        assert!(node_json.contains("\"hostname\":\"mbp\""));
+
+        let auth_req = RpcEvent::AuthRequest {
+            interaction_id: "req-1".to_string(),
+            provider: "claude".to_string(),
+            auth_url: Some("https://claude.ai/oauth".to_string()),
+            instructions: None,
+            user_code: None,
+            prompt: None,
+            is_secret: None,
+            options: None,
+        };
+        let auth_json = serde_json::to_string(&auth_req).unwrap();
+        assert!(auth_json.contains("\"type\":\"auth_request\""));
+        assert!(auth_json.contains("\"provider\":\"claude\""));
+
+        let auth_comp = RpcEvent::AuthComplete {
+            provider: "claude".to_string(),
+            success: true,
+            error: None,
+        };
+        let comp_json = serde_json::to_string(&auth_comp).unwrap();
+        assert_eq!(
+            comp_json,
+            r#"{"type":"auth_complete","provider":"claude","success":true}"#
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ use rho_engine::mcp::load_mcp_tools;
 use rho_engine::tools::build_builtin_tools;
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub struct ToolAssembly {
     pub rig_tools: Vec<rig::tool::DynamicTool>,
@@ -26,11 +26,20 @@ pub async fn active_tools_with_auth(config: &Config, base_dir: &Path, _auth_stor
     active_tools(config, base_dir).await
 }
 
-pub async fn agent_engine(config: Config, auth_store: AuthStore, resume: Option<&str>) -> Result<AgentEngine> {
-    let base_dir = std::env::current_dir()?;
+pub async fn agent_engine_in_dir(
+    config: Config,
+    auth_store: AuthStore,
+    base_dir: PathBuf,
+    resume: Option<&str>,
+) -> Result<AgentEngine> {
     AgentEngineBuilder::new(config, auth_store)
         .resume(resume)
         .base_dir(base_dir)
         .build()
         .await
+}
+
+pub async fn agent_engine(config: Config, auth_store: AuthStore, resume: Option<&str>) -> Result<AgentEngine> {
+    let base_dir = std::env::current_dir()?;
+    agent_engine_in_dir(config, auth_store, base_dir, resume).await
 }

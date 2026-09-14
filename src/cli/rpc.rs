@@ -33,6 +33,8 @@ struct RpcDaemonContext<'a, W> {
     pending_approvals: PendingApprovals,
     steering: Arc<SharedSteeringQueue>,
     active_turn: &'a mut Option<tokio::task::JoinHandle<Result<TurnOutput>>>,
+    event_tx: mpsc::UnboundedSender<RpcEvent>,
+    auth_bridge: rho_harness_core::rpc::RpcAuthBridge,
 }
 
 async fn handle_compact_cmd(
@@ -302,6 +304,224 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
+fn get_host_name() -> String {
+    if let Ok(name) = std::env::var("HOSTNAME") {
+        let trimmed = name.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|name| name.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "localhost".to_string())
+}
+
+async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let hostname = get_host_name();
+    let (active_workspace, active_branch) = {
+        let eng = ctx.engine.read().await;
+        let ws = eng.base_dir.display().to_string();
+        let branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
+        (Some(ws), branch)
+    };
+    let status = if ctx.active_turn.is_some() { "busy" } else { "idle" };
+    let payload = serde_json::json!({
+        "hostname": hostname,
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "version": env!("CARGO_PKG_VERSION"),
+        "active_workspace": active_workspace,
+        "active_branch": active_branch,
+        "status": status,
+    });
+    ctx.writer
+        .write_message(&RpcResponse::success(req_id, "get_node_info", Some(payload)))
+        .await?;
+    Ok(())
+}
+
+async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    workspace: Option<String>,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let mut cfg = ctx.config.read().await.clone();
+    let current_base = ctx.engine.read().await.base_dir.clone();
+    let target_dir = if let Some(ws) = workspace {
+        let path = std::path::PathBuf::from(ws);
+        if path.is_absolute() && path.exists() {
+            path
+        } else {
+            let resolved = current_base.join(path);
+            if resolved.exists() { resolved } else { current_base }
+        }
+    } else {
+        current_base
+    };
+    cfg.sessions_dir = target_dir.join(".rho/sessions");
+
+    let auth = ctx.auth_store.read().await.clone();
+    match crate::platform::agent_engine_in_dir(cfg.clone(), auth, target_dir, None).await {
+        Ok(new_eng) => {
+            let session_id = new_eng.session_manager.session_id.clone();
+            let base_dir = new_eng.base_dir.display().to_string();
+            *ctx.engine.write().await = new_eng;
+            *ctx.config.write().await = cfg;
+            let payload = serde_json::json!({
+                "session_id": session_id,
+                "workspace": base_dir,
+            });
+            ctx.writer
+                .write_message(&RpcResponse::success(req_id, "create_session", Some(payload)))
+                .await?;
+        }
+        Err(e) => {
+            ctx.writer
+                .write_message(&RpcResponse::failure(req_id, "create_session", &e.to_string()))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    provider_str: String,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let provider_id = match provider_str.parse::<rho_harness_core::provider::ProviderId>() {
+        Ok(p) => p,
+        Err(_) => {
+            ctx.writer
+                .write_message(&RpcResponse::failure(
+                    req_id,
+                    "auth_login",
+                    &format!("Unknown provider '{provider_str}'"),
+                ))
+                .await?;
+            return Ok(());
+        }
+    };
+    let callbacks = ctx.auth_bridge.callbacks(&provider_str, ctx.event_tx.clone());
+    let auth_store = Arc::clone(&ctx.auth_store);
+    let event_tx = ctx.event_tx.clone();
+    let prov = provider_str.clone();
+
+    tokio::spawn(async move {
+        match rho_engine::auth::perform_oauth_login(provider_id, &callbacks).await {
+            Ok(cred) => {
+                let mut store = auth_store.write().await;
+                let _ = store.set_credential_async(&prov, cred).await;
+                let _ = store.save_async().await;
+                let _ = event_tx.send(RpcEvent::AuthComplete {
+                    provider: prov,
+                    success: true,
+                    error: None,
+                });
+            }
+            Err(e) => {
+                let _ = event_tx.send(RpcEvent::AuthComplete {
+                    provider: prov,
+                    success: false,
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+    });
+
+    ctx.writer
+        .write_message(&RpcResponse::success(req_id, "auth_login", None))
+        .await?;
+    Ok(())
+}
+
+async fn handle_auth_input_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    (interaction_id, secret_value, selected_option): (String, Option<String>, Option<String>),
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let resolved = ctx.auth_bridge.resolve_input(
+        &interaction_id,
+        rho_harness_core::rpc::AuthInputResponse {
+            secret_value,
+            selected_option,
+        },
+    );
+    let payload = serde_json::json!({ "resolved": resolved });
+    ctx.writer
+        .write_message(&RpcResponse::success(req_id, "auth_input", Some(payload)))
+        .await?;
+    Ok(())
+}
+
+async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    (provider, api_key): (String, String),
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let mut store = ctx.auth_store.write().await;
+    match store.set_api_key_async(&provider, api_key).await {
+        Ok(_) => {
+            let _ = store.save_async().await;
+            ctx.writer
+                .write_message(&RpcResponse::success(req_id, "set_api_key", None))
+                .await?;
+        }
+        Err(e) => {
+            ctx.writer
+                .write_message(&RpcResponse::failure(req_id, "set_api_key", &e.to_string()))
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_remote_auth_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    cmd: &RpcCommand,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<bool> {
+    match cmd {
+        RpcCommand::GetNodeInfo => {
+            handle_node_info_cmd(req_id, ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::CreateSession { workspace } => {
+            handle_create_session_cmd(workspace.clone(), req_id, ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::AuthLogin { provider } => {
+            handle_auth_login_cmd(provider.clone(), req_id, ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::AuthInput {
+            interaction_id,
+            secret_value,
+            selected_option,
+        } => {
+            handle_auth_input_cmd(
+                (interaction_id.clone(), secret_value.clone(), selected_option.clone()),
+                req_id,
+                ctx,
+            )
+            .await?;
+            Ok(true)
+        }
+        RpcCommand::SetApiKey { provider, api_key } => {
+            handle_set_api_key_cmd((provider.clone(), api_key.clone()), req_id, ctx).await?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (model, provider): (String, Option<String>),
     req_id: Option<String>,
@@ -390,6 +610,7 @@ async fn dispatch_rpc<W: tokio::io::AsyncWrite + Unpin>(
         RpcCommand::GetState => {
             handle_state_command(req_id, ctx).await?;
         }
+        ref other if handle_remote_auth_cmd(other, req_id.clone(), ctx).await? => {}
         RpcCommand::Exit => {
             if let Some(handle) = ctx.active_turn.take() {
                 handle.abort();
@@ -513,7 +734,7 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
     let mut reader = JsonLinesReader::new(BufReader::new(tokio::io::stdin()));
     let mut writer = JsonLinesWriter::new(tokio::io::stdout());
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
-    let rpc_presenter = RpcPresenter::new(event_tx);
+    let rpc_presenter = RpcPresenter::new(event_tx.clone());
     let pending_approvals = rpc_presenter.pending_approvals();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(rpc_presenter);
     let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None).await?;
@@ -540,6 +761,8 @@ pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()>
         pending_approvals,
         steering,
         active_turn: &mut active_turn,
+        event_tx,
+        auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
     };
     run_rpc_loop(&mut reader, &mut event_rx, &mut ctx).await
 }
@@ -636,6 +859,7 @@ mod tests {
         let steering = Arc::new(SharedSteeringQueue::new(rho_engine::engine::runner::QueueMode::All));
         let mut active_turn = None;
 
+        let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
         let pres_arc: Arc<dyn Presenter> = Arc::new(presenter);
         let mut ctx = RpcDaemonContext {
             writer: &mut writer,
@@ -646,6 +870,8 @@ mod tests {
             pending_approvals: pending,
             steering,
             active_turn: &mut active_turn,
+            event_tx: test_event_tx,
+            auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
         };
 
         handle_tool_response_cmd((approval_id, "allow".to_string(), None), &mut ctx)
@@ -684,6 +910,7 @@ mod tests {
         let steering = Arc::new(SharedSteeringQueue::new(rho_engine::engine::runner::QueueMode::All));
         let mut active_turn = None;
 
+        let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
         let pres_arc: Arc<dyn Presenter> = Arc::new(presenter);
         let mut ctx = RpcDaemonContext {
             writer: &mut writer,
@@ -694,6 +921,8 @@ mod tests {
             pending_approvals: pending,
             steering,
             active_turn: &mut active_turn,
+            event_tx: test_event_tx,
+            auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
         };
 
         handle_state_command(Some("req-state".to_string()), &mut ctx)
@@ -702,6 +931,16 @@ mod tests {
         handle_get_tree_cmd(Some("req-tree".to_string()), &mut ctx)
             .await
             .unwrap();
+        handle_node_info_cmd(Some("req-info".to_string()), &mut ctx)
+            .await
+            .unwrap();
+        handle_create_session_cmd(
+            Some(temp_dir.display().to_string()),
+            Some("req-create".to_string()),
+            &mut ctx,
+        )
+        .await
+        .unwrap();
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
