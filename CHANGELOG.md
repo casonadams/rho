@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.5](https://github.com/casonadams/rho/compare/v0.7.4...v0.7.5) (2026-09-14)
+
+
+### Features
+
+* **ui:** support configurable hardware and software cursor modes ([c4a4fd5](https://github.com/casonadams/rho/commit/c4a4fd593f71180d3ce190176398a50b96976720))
+
+
+### Bug Fixes
+
+* **antigravity:** cap gemini max output tokens at 65535 and extract field violations ([eb72e59](https://github.com/casonadams/rho/commit/eb72e59214d03cbed610ee7b1166513a9a210389))
+* **antigravity:** use thinkingLevel instead of thinkingBudget for gemini-3.5-flash-lite ([3a3c7ab](https://github.com/casonadams/rho/commit/3a3c7abf0ea2c032573b20d7fbcdc1eaacb1cdcd))
+* **chatgpt:** inject paragraph breaks between reasoning summary parts and unify sse streaming ([a971518](https://github.com/casonadams/rho/commit/a971518cb4432ba0e5841eb9ed7e04226a9c4d27))
+* **chatgpt:** set store to false and request encrypted reasoning in codex requests ([9f5247f](https://github.com/casonadams/rho/commit/9f5247f3ad5746563630e4c248328b8b4e7d0fdc))
+* **claude:** track prompt cache tokens and fix request cache breakpoints ([96a6d34](https://github.com/casonadams/rho/commit/96a6d34942909b1be88353b2d1ba8b8711a73cc7))
+* **engine:** normalize cached prompt tokens and anchor in-flight context estimation ([328311a](https://github.com/casonadams/rho/commit/328311af360da522c63ca5aa137727fbc769fa50))
+* **release:** align rho-wasm workspace version ([5206eb8](https://github.com/casonadams/rho/commit/5206eb8e86763c2a9207f6246d2db389b15eabed))
+* **ui:** sanitize carriage returns in tool output and block rendering ([43f8d18](https://github.com/casonadams/rho/commit/43f8d1805360065a557b7d15422edf440662db49))
+* **ui:** strip carriage returns in streaming thinking and verify natural line breaks ([232396a](https://github.com/casonadams/rho/commit/232396a70f722f52278f9cbd0589a23862ef431f))
+
+
+### Performance Improvements
+
+* **build:** enable fat lto and single codegen unit for release profile ([f6b50cc](https://github.com/casonadams/rho/commit/f6b50ccec3b752fe59fe569fa09b67c311d90479))
+
 ## [0.7.4](https://github.com/casonadams/rho/compare/v0.7.3...v0.7.4) (2026-09-14)
 
 
