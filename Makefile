@@ -54,6 +54,11 @@ test-all: ## Run all tests including unit, integration, and doc tests
 run: ## Run the rho CLI
 	$(CARGO) run --
 
+.PHONY: wasm
+wasm: ## Build rho-wasm and generate JS bindings into www/hub/wasm
+	$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release
+	wasm-bindgen target/wasm32-unknown-unknown/release/rho_wasm.wasm --out-dir www/hub/wasm --target web
+
 .PHONY: clean
 clean: ## Clean cargo build artifacts
 	$(CARGO) clean

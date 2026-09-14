@@ -1,0 +1,19 @@
+[package]
+name = "rho-wasm"
+version = "0.7.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.106"
+js-sys = "=0.3.83"
+web-sys = { version = "=0.3.83", features = ["console"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+base64 = { workspace = true }
+console_error_panic_hook = "0.1"
+futures = { workspace = true }

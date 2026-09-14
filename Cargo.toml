@@ -4,6 +4,7 @@ members = [
     ".",
     "crates/rho-harness-core",
     "crates/rho-engine",
+    "crates/rho-wasm",
 ]
 
 [workspace.lints.clippy]
