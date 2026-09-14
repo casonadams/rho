@@ -27,6 +27,12 @@ pub(super) async fn cancel_active_turn<B: TerminalBackend>(
     lp.session.renderer.print_notice("\nCanceled.\n");
     lp.batch.drain_events(lp.controller, ui_events)?;
     reset_controller_idle(lp.controller);
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TurnEnd {
+        stop_reason: "interrupted".to_string(),
+    });
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::StatusChanged {
+        status: "idle".to_string(),
+    });
     lp.batch.flush(lp.controller, false)
 }
 
@@ -57,6 +63,12 @@ pub(super) fn finish_active_turn<B: TerminalBackend>(
     sync_turn_footer(lp.controller, lp.engine);
     lp.batch.drain_events(lp.controller, ui_events)?;
     reset_controller_idle(lp.controller);
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TurnEnd {
+        stop_reason: "end_turn".to_string(),
+    });
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::StatusChanged {
+        status: "idle".to_string(),
+    });
     lp.batch.flush(lp.controller, true)?;
     match result {
         Ok(out) if out.status == crate::engine::runner::RunStatus::Compacted => {
