@@ -39,7 +39,7 @@
       <div class="workspace-topbar">
         <div class="workspace-meta">
           <button class="btn-secondary" id="back-to-fleet-btn">← Fleet</button>
-          <button class="btn-secondary" id="toggle-sidebar-btn" title="Toggle Sessions Sidebar">≡</button>
+          <button class="btn-secondary" id="toggle-sidebar-btn" title="Toggle Sessions Sidebar" style="display: none;">≡</button>
           <strong id="active-node-title">Node</strong>
           <span style="color: var(--text-muted);">|</span>
           <span id="active-node-workspace" style="color: var(--text-secondary); font-size: 0.8rem;">~/workspace</span>
@@ -47,12 +47,12 @@
         </div>
         <div class="header-actions">
           <button class="btn-secondary" id="auth-btn">Auth / Providers</button>
-          <button class="btn-primary" id="new-session-btn">+ New Session</button>
+          <button class="btn-primary" id="new-session-btn" style="display: none;">+ New Session</button>
         </div>
       </div>
 
       <div class="workspace-layout">
-        <aside class="session-sidebar" id="session-sidebar">
+        <aside class="session-sidebar" id="session-sidebar" style="display: none;">
           <div class="sidebar-header">Sessions</div>
           <ul class="session-list" id="session-history-list"></ul>
         </aside>

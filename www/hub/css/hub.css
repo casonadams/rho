@@ -327,6 +327,7 @@ main.hub-main {
 }
 
 .session-sidebar {
+  display: none !important;
   width: 260px;
   background: var(--bg-surface);
   border-right: 1px solid var(--border-subtle);
@@ -343,6 +344,11 @@ main.hub-main {
   border-right: none;
   opacity: 0;
   pointer-events: none;
+}
+
+#toggle-sidebar-btn,
+#new-session-btn {
+  display: none !important;
 }
 
 .sidebar-header {

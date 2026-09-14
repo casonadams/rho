@@ -442,14 +442,10 @@ function renderFooter() {
   const modelEl = document.getElementById('footer-model-info');
   if (!cwdEl || !quotaEl || !statsEl || !modelEl) return;
 
-  // Top line: left = cwd (branch) • session
+  // Top line: left = cwd (branch)
   let topText = currentFooterState.active_workspace || '~/workspace';
   if (currentFooterState.active_branch) {
     topText += ` (${currentFooterState.active_branch})`;
-  }
-  const sid = currentFooterState.session_name || (currentFooterState.session_id ? currentFooterState.session_id.slice(0, 8) : '');
-  if (sid) {
-    topText += ` • ${sid}`;
   }
   cwdEl.textContent = topText;
 
