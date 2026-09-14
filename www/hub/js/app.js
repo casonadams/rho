@@ -1,7 +1,7 @@
-import { NodeRegistry } from './registry.js';
-import { RhoPeerClient, ensureWasm } from './client.js';
-import { SessionView } from './session.js';
-import { AuthModal } from './auth.js';
+import { NodeRegistry } from './registry.js?v=4';
+import { RhoPeerClient, ensureWasm } from './client.js?v=4';
+import { SessionView } from './session.js?v=4';
+import { AuthModal } from './auth.js?v=4';
 
 let activeClient = null;
 let sessionView = null;
@@ -236,6 +236,10 @@ async function openWorkspace(node, preferredSessionId = null) {
       activeSid = resumeResp.data.session_id;
       sessionView.scrollToBottom();
       updateFooterState(resumeResp.data);
+    } else if (stateResp.data && stateResp.data.messages) {
+      sessionView.clear();
+      renderMessages(stateResp.data.messages);
+      sessionView.scrollToBottom();
     }
   } else if (stateResp.data && stateResp.data.messages) {
     sessionView.clear();

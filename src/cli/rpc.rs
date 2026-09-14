@@ -387,7 +387,8 @@ async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<()> {
     let cfg = ctx.config.read().await.clone();
     let auth = ctx.auth_store.read().await.clone();
-    match crate::platform::agent_engine(cfg, auth, Some(session_id)).await {
+    let base_dir = ctx.engine.read().await.base_dir.clone();
+    match crate::platform::agent_engine_in_dir(cfg, auth, base_dir, Some(session_id)).await {
         Ok(new_eng) => {
             let sid = new_eng.session_manager.session_id.clone();
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();

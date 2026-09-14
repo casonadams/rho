@@ -4,13 +4,13 @@ import initWasm, {
   parse_rpc_frame,
   process_stream_content,
   IrohPeer,
-} from '../wasm/rho_wasm.js';
+} from '../wasm/rho_wasm.js?v=4';
 
 let wasmReady = false;
 
 export async function ensureWasm() {
   if (!wasmReady) {
-    await initWasm();
+    await initWasm(new URL('../wasm/rho_wasm_bg.wasm?v=4', import.meta.url));
     wasmReady = true;
   }
 }

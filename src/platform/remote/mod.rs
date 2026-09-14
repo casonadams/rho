@@ -116,7 +116,9 @@ pub async fn ensure_remote_server(config: Config, auth_store: AuthStore, session
             let base_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let base_dir = base_dir.canonicalize().unwrap_or(base_dir);
             let mut cfg = config.clone();
-            cfg.sessions_dir = base_dir.join(".rho/sessions");
+            if !cfg.sessions_dir.exists() && base_dir.join(".rho/sessions").exists() {
+                cfg.sessions_dir = base_dir.join(".rho/sessions");
+            }
 
             let engine = crate::platform::agent_engine_in_dir(cfg.clone(), auth_store.clone(), base_dir, None).await?;
             let server = Arc::new(
