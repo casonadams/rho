@@ -186,3 +186,19 @@ Invoke skills in the interactive REPL:
 ```
 
 Auto-completion presents matching skills as soon as you type `/skill `.
+
+---
+
+## Remote Daemon & P2P Access (`rho serve` and `/remote`)
+
+`rho` can run headless as a persistent background daemon (e.g. via `systemd` or `launchd`) using [Iroh](https://iroh.computer) peer-to-peer transport:
+
+```bash
+# Start background node for a repository
+rho serve --workspace ~/src/backend-api
+
+# Optional: specify custom port and friendly node name
+rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"
+```
+
+The node outputs a pairing URL and QR code. Open the URL in any browser to access the **Fleet Hub** (`www/hub/`), or type `/remote` inside an active terminal REPL session to pair on-demand.

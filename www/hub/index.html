@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>rho fleet hub</title>
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
+  <link rel="stylesheet" href="css/hub.css">
+</head>
+<body>
+  <header class="hub-header">
+    <a href="../" class="brand">
+      <span>ρ rho</span>
+      <span class="brand-badge">fleet hub</span>
+    </a>
+    <div class="header-actions">
+      <button class="btn-primary" id="add-node-btn">+ Add Node</button>
+    </div>
+  </header>
+
+  <main class="hub-main">
+    <!-- Fleet Overview View -->
+    <section id="fleet-view">
+      <div class="fleet-title-row">
+        <div>
+          <h1>Active Fleet</h1>
+          <p class="fleet-subtitle">Zero-cloud peer-to-peer control of your rho nodes</p>
+        </div>
+      </div>
+      <div class="node-grid" id="node-grid"></div>
+    </section>
+
+    <!-- Node Workspace View (Chat & Sessions) -->
+    <section id="workspace-view" style="display: none;">
+      <div class="workspace-topbar">
+        <div class="workspace-meta">
+          <button class="btn-secondary" id="back-to-fleet-btn">← Fleet</button>
+          <strong id="active-node-title">Node</strong>
+          <span style="color: var(--text-muted);">|</span>
+          <span id="active-node-workspace" style="color: var(--text-secondary); font-size: 0.8rem;">~/workspace</span>
+        </div>
+        <div class="header-actions">
+          <button class="btn-secondary" id="auth-btn">Auth / Providers</button>
+          <button class="btn-primary" id="new-session-btn">+ New Session</button>
+        </div>
+      </div>
+
+      <div class="workspace-layout">
+        <aside class="session-sidebar">
+          <div class="sidebar-header">Sessions</div>
+          <ul class="session-list" id="session-history-list"></ul>
+        </aside>
+
+        <section class="session-chat">
+          <div class="chat-transcript" id="chat-transcript"></div>
+
+          <div class="chat-input-bar">
+            <textarea id="chat-prompt" placeholder="Send prompt to remote node... (Enter to send, Shift+Enter for newline)"></textarea>
+            <button class="btn-primary" id="send-prompt-btn">Send</button>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

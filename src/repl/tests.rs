@@ -6,7 +6,7 @@ use reedline::Completer;
 fn slash_commands_complete_from_a_prefix() {
     let sources = crate::repl::interactive::CompletionSources::new().with_templates(vec!["review".to_string()]);
     let mut completer = RhoCompleter::new(sources);
-    let suggestions = completer.complete("/mo", 3);
+    let suggestions = completer.complete("/mod", 4);
     assert_eq!(suggestions.suggestions().len(), 1);
     assert_eq!(suggestions.suggestions()[0].value, "/model");
 

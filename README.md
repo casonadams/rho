@@ -29,7 +29,22 @@ rho --provider anthropic --model claude-3-7-sonnet-latest
 rho --resume <SESSION_ID>
 # Or browse recent sessions interactively
 rho --resume-picker
+
+# Run headless daemon over Iroh P2P
+rho serve --workspace ~/src/my-project
+
+# Share active terminal session to web dashboard
+/remote
 ```
+
+---
+
+## Fleet Hub & Remote Access
+
+`rho` includes zero-cloud peer-to-peer remote access powered by [Iroh](https://iroh.computer).
+- **`rho serve`**: Run an autonomous agent node on any server or devbox. Outputs an encrypted node ticket and terminal QR code.
+- **`/remote`**: In an active terminal session, opens an in-TUI pairing modal to monitor and steer from a mobile or web browser.
+- **Web Hub**: Statically hosted at `https://casonadams.github.io/rho/hub/` (zero hosted backend servers, 100% client-side WebAssembly). Direct end-to-end encrypted control across all your machines.
 
 ---
 
