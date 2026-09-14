@@ -112,6 +112,13 @@ async fn run_prompt_turn<B: TerminalBackend>(
 ) -> Result<bool> {
     live.io.controller.state_mut().footer_mut().activity = Activity::Working;
     session.renderer.print_user_block(&effective);
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TurnStart {
+        turn_number: 1,
+        prompt: effective.clone(),
+    });
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::StatusChanged {
+        status: "busy".to_string(),
+    });
     run_active_turn(
         session,
         engine,

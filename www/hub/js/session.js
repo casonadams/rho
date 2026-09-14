@@ -47,6 +47,7 @@ export class SessionView {
     this.activeThinkingBlock = null;
     this.currentText = '';
     this.currentThinking = '';
+    this.lastUserPrompt = null;
   }
 
   clear() {
@@ -62,6 +63,7 @@ export class SessionView {
     this.activeThinkingBlock = null;
     this.currentText = '';
     this.currentThinking = '';
+    this.lastUserPrompt = null;
     this.setWorking(false);
   }
 
@@ -81,6 +83,8 @@ export class SessionView {
   }
 
   addUserMessage(text) {
+    if (this.lastUserPrompt === text) return;
+    this.lastUserPrompt = text;
     const bubble = document.createElement('div');
     bubble.className = 'chat-bubble user';
     bubble.textContent = text;
@@ -137,6 +141,29 @@ export class SessionView {
   finishTurn() {
     this.setWorking(false);
     this.activeAssistantBubble = null;
+    this.lastUserPrompt = null;
+  }
+
+  appendToolCall(tool, args) {
+    const card = document.createElement('div');
+    card.className = 'tool-activity-card';
+    let argsStr = '';
+    if (typeof args === 'string') {
+      argsStr = args;
+    } else if (args && args.command) {
+      argsStr = args.command;
+    } else if (args && args.path) {
+      argsStr = args.path;
+    } else if (args) {
+      argsStr = JSON.stringify(args);
+    }
+    card.innerHTML = `<span class="tool-tag">🛠️ ${escapeHtml(tool)}</span> <code>${escapeHtml(argsStr)}</code>`;
+    this.container.appendChild(card);
+    this.scrollToBottom();
+  }
+
+  appendToolResult(tool, output, isError) {
+    this.scrollToBottom();
   }
 
   appendReasoningChunk(chunk) {
