@@ -2,6 +2,7 @@ mod builders;
 pub mod capabilities;
 pub mod discovery;
 mod extras;
+pub mod sse;
 pub mod store;
 
 pub use capabilities::supports_tool_result_images;
@@ -111,7 +112,7 @@ impl ProviderFactory {
         }
         let key = resolve_provider_key(provider, auth_store)?;
         if provider == ProviderId::ChatGpt {
-            return build_chatgpt_model(model, key, auth_store);
+            return Ok(build_chatgpt_model(&request, auth_store));
         }
         if provider == ProviderId::Gemini {
             return build_gemini_model(model, key);

@@ -8,6 +8,7 @@ mod tests;
 pub use wire::map_finish_reason;
 use wire::{ContentBlockStartPayload, ContentDeltaPayload, SseMessage};
 
+use crate::provider::sse::{SseLineDecoder, SseStreamParser};
 use rig::completion::{CompletionError, FinishReason, Usage};
 use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
 use std::collections::HashMap;
@@ -16,7 +17,7 @@ pub type SseEvents = Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError
 
 #[derive(Default)]
 pub struct SseParser {
-    buffer: Vec<u8>,
+    decoder: SseLineDecoder,
     input_tokens: u64,
     output_tokens: u64,
     cache_creation_input_tokens: u64,
@@ -41,30 +42,10 @@ impl SseParser {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        self.buffer.extend_from_slice(bytes);
-        let mut events = Vec::new();
-        let mut cursor = 0;
-        while let Some(rel) = memchr::memchr(b'\n', &self.buffer[cursor..]) {
-            let line_end = cursor + rel;
-            let line_bytes = &self.buffer[cursor..line_end];
-            cursor = line_end + 1;
-            let line = String::from_utf8_lossy(line_bytes).into_owned();
-            self.interpret_line(line.trim_end_matches('\r'), &mut events);
-        }
-        if cursor > 0 {
-            self.buffer.drain(..cursor);
-        }
-        events
+        SseStreamParser::feed(self, bytes)
     }
 
-    fn interpret_line(&mut self, line: &str, events: &mut SseEvents) {
-        let Some(data) = line.strip_prefix("data:") else {
-            return;
-        };
-        let data = data.trim();
-        if data.is_empty() || data == "[DONE]" {
-            return;
-        }
+    fn interpret_line(&mut self, data: &str, events: &mut SseEvents) {
         let Ok(msg) = serde_json::from_str::<SseMessage>(data) else {
             return;
         };
@@ -238,5 +219,15 @@ impl SseParser {
         } else {
             self.close_tool_use_block(index, events);
         }
+    }
+}
+
+impl SseStreamParser for SseParser {
+    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+        let mut events = Vec::new();
+        for line in self.decoder.decode_lines(bytes) {
+            self.interpret_line(&line, &mut events);
+        }
+        events
     }
 }

@@ -3,6 +3,11 @@
 #[cfg(test)]
 mod tests;
 
+pub mod client;
+pub mod stream;
+
+pub use client::{ChatGptClient, into_handle};
+
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::sync::LazyLock;

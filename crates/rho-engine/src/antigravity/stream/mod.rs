@@ -9,6 +9,7 @@ mod tests;
 pub use wire::map_finish_reason;
 use wire::{StreamCandidate, StreamChunk, StreamFunctionCall, StreamPart, usage_from_metadata};
 
+use crate::provider::sse::{SseLineDecoder, SseStreamParser};
 use rig::completion::{CompletionError, Usage};
 use rig::streaming::{MintKind, RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamPartId};
 use serde_json::Value;
@@ -20,7 +21,7 @@ use super::request::sanitize_tool_call_id;
 /// Feed transport bytes; collect canonical rig events. Reasoning uses the
 /// constant minted identity gemini thought parts share (no wire id).
 pub struct SseParser {
-    buffer: Vec<u8>,
+    decoder: SseLineDecoder,
     reasoning_open: bool,
     reasoning_text: String,
     reasoning_signature: Option<String>,
@@ -48,7 +49,7 @@ fn format_chunk_error(error: &wire::StreamError) -> String {
 impl SseParser {
     pub fn new() -> Self {
         Self {
-            buffer: Vec::new(),
+            decoder: SseLineDecoder::new(),
             reasoning_open: false,
             reasoning_text: String::new(),
             reasoning_signature: None,
@@ -58,20 +59,7 @@ impl SseParser {
 
     /// Consume one transport chunk into stream events.
     pub fn feed(&mut self, bytes: &[u8]) -> SseEvents {
-        self.buffer.extend_from_slice(bytes);
-        let mut events: SseEvents = Vec::new();
-        let mut cursor = 0;
-        while let Some(rel) = memchr::memchr(b'\n', &self.buffer[cursor..]) {
-            let line_end = cursor + rel;
-            let line_bytes = &self.buffer[cursor..line_end];
-            cursor = line_end + 1;
-            let line = String::from_utf8_lossy(line_bytes).into_owned();
-            self.interpret_line(line.trim_end_matches('\r'), &mut events);
-        }
-        if cursor > 0 {
-            self.buffer.drain(..cursor);
-        }
-        events
+        SseStreamParser::feed(self, bytes)
     }
 
     fn handle_candidate(
@@ -93,14 +81,7 @@ impl SseParser {
         }
     }
 
-    fn interpret_line(&mut self, line: &str, events: &mut SseEvents) {
-        let Some(json_line) = line.strip_prefix("data:") else {
-            return;
-        };
-        let json_line = json_line.trim();
-        if json_line.is_empty() || json_line == "[DONE]" {
-            return;
-        }
+    fn interpret_line(&mut self, json_line: &str, events: &mut SseEvents) {
         let Ok(chunk) = serde_json::from_str::<StreamChunk>(json_line) else {
             return;
         };
@@ -201,5 +182,15 @@ impl SseParser {
             signature,
             wire_sent: false,
         }));
+    }
+}
+
+impl SseStreamParser for SseParser {
+    fn feed(&mut self, bytes: &[u8]) -> SseEvents {
+        let mut events = Vec::new();
+        for line in self.decoder.decode_lines(bytes) {
+            self.interpret_line(&line, &mut events);
+        }
+        events
     }
 }

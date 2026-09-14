@@ -47,50 +47,23 @@ pub(super) fn resolve_provider_key(provider: ProviderId, auth_store: &AuthStore)
     })
 }
 
-fn chatgpt_client_headers(account_id: Option<&str>) -> reqwest::header::HeaderMap {
-    let mut default_headers = reqwest::header::HeaderMap::new();
-    default_headers.insert(
-        "OpenAI-Beta",
-        reqwest::header::HeaderValue::from_static("responses=experimental"),
-    );
-    default_headers.insert("originator", reqwest::header::HeaderValue::from_static("codex"));
-    default_headers.insert("User-Agent", reqwest::header::HeaderValue::from_static("Codex/0.22.4"));
-    if let Some(acc_id) = account_id
-        && let Ok(val) = reqwest::header::HeaderValue::from_str(acc_id)
-    {
-        default_headers.insert("chatgpt-account-id", val.clone());
-        default_headers.insert("ChatGPT-Account-Id", val);
-    }
-    default_headers
-}
-
-pub(super) fn build_chatgpt_model(model: &str, key: String, auth_store: &AuthStore) -> Result<ModelHandle> {
+pub(super) fn build_chatgpt_model(request: &ModelRequest<'_>, auth_store: &AuthStore) -> ModelHandle {
     let account_id = match auth_store.get_credential("chatgpt") {
         Some(rho_harness_core::auth::StoredCredential::OAuth {
             account_id: Some(id), ..
         }) => Some(id.clone()),
-        _ => crate::auth::oauth::extract_chatgpt_account_id(&key),
+        _ => auth_store
+            .get_key_sync("chatgpt")
+            .ok()
+            .flatten()
+            .and_then(|k| crate::auth::oauth::extract_chatgpt_account_id(&k)),
     };
-
-    let http_client = reqwest::Client::builder()
-        .no_proxy()
-        .default_headers(chatgpt_client_headers(account_id.as_deref()))
-        .build()
-        .map_err(|e| AppError::Other(e.into()))?;
-
-    let client = rig::providers::chatgpt::Client::builder()
-        .http_client(http_client)
-        .api_key(rig::providers::chatgpt::ChatGPTAuth::AccessToken {
-            access_token: key,
-            account_id,
-        })
-        .originator("codex")
-        .build()
-        .map_err(|e| AppError::Provider(format!("Failed to initialize ChatGPT Codex client: {e}")))?;
-    Ok(ModelHandle::named(
-        ProviderId::ChatGpt.as_str(),
-        client.completion_model(model),
-    ))
+    let store = request
+        .shared_auth
+        .clone()
+        .unwrap_or_else(|| std::sync::Arc::new(tokio::sync::Mutex::new(auth_store.clone())));
+    let client = crate::chatgpt::ChatGptClient::with_auth_store(store, request.model).with_account_id(account_id);
+    crate::chatgpt::into_handle(client)
 }
 
 pub(super) fn build_gemini_model(model: &str, key: String) -> Result<ModelHandle> {
