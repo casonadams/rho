@@ -167,6 +167,8 @@ async function openWorkspace(node, preferredSessionId = null) {
       sessionView.setWorking(ev.status === 'busy' || ev.status === 'waiting_approval');
     } else if (ev.type === 'turn_end') {
       sessionView.finishTurn();
+    } else if (ev.type === 'usage_update') {
+      updateFooterState(ev);
     }
   });
 
@@ -180,6 +182,9 @@ async function openWorkspace(node, preferredSessionId = null) {
   // Load current session state and messages
   const stateResp = await activeClient.send('get_state');
   let activeSid = stateResp.data?.session_id;
+  if (stateResp.data) {
+    updateFooterState(stateResp.data);
+  }
 
   if (preferredSessionId && preferredSessionId !== activeSid) {
     const resumeResp = await activeClient.send('resume_session', { session_id: preferredSessionId });
@@ -191,6 +196,7 @@ async function openWorkspace(node, preferredSessionId = null) {
       }
       activeSid = resumeResp.data.session_id;
       sessionView.scrollToBottom();
+      updateFooterState(resumeResp.data);
     }
   } else if (stateResp.data && stateResp.data.messages) {
     sessionView.clear();
@@ -223,10 +229,13 @@ function renderSessionList(sessions, activeSessionId) {
       li.classList.add('active');
       sessionView.clear();
       const resp = await activeClient.send('resume_session', { session_id: s.session_id });
-      if (resp && resp.data && resp.data.messages) {
-        for (const m of resp.data.messages) {
-          if (m.role === 'user') sessionView.addUserMessage(m.content);
-          else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
+      if (resp && resp.data) {
+        updateFooterState(resp.data);
+        if (resp.data.messages) {
+          for (const m of resp.data.messages) {
+            if (m.role === 'user') sessionView.addUserMessage(m.content);
+            else if (m.role === 'assistant') sessionView.addAssistantMessage(m.content);
+          }
         }
       }
       sessionView.scrollToBottom();
@@ -239,8 +248,8 @@ async function handleNewSession() {
   if (!activeClient) return;
   const resp = await activeClient.send('create_session');
   sessionView.clear();
-  if (resp && resp.data && resp.data.session_id) {
-    sessionView.addUserMessage(`[New Session Created: ${resp.data.session_id}]`);
+  if (resp && resp.data) {
+    updateFooterState(resp.data);
   }
   const sessionsResp = await activeClient.send('list_sessions');
   renderSessionList(sessionsResp.data || [], resp.data?.session_id);
@@ -257,9 +266,14 @@ async function handleSendPrompt() {
   if (!text || !activeClient) return;
 
   chatPrompt.value = '';
-  sessionView.addUserMessage(text);
-  sessionView.startAssistantTurn();
-  await activeClient.send('prompt', { message: text });
+  if (sessionView && sessionView.isWorking) {
+    sessionView.addSteeringMessage(text);
+    await activeClient.send('steer', { message: text });
+  } else {
+    sessionView.addUserMessage(text);
+    sessionView.startAssistantTurn();
+    await activeClient.send('prompt', { message: text });
+  }
 }
 
 function showAddNodeModal() {
@@ -304,6 +318,131 @@ function showAddNodeModal() {
       alert(`Invalid node ticket: ${e}`);
     }
   };
+}
+
+const currentFooterState = {
+  active_workspace: '~/workspace',
+  active_branch: null,
+  session_id: null,
+  session_name: null,
+  quota: null,
+  model: null,
+  thinking_level: null,
+  total_input_tokens: 0,
+  total_output_tokens: 0,
+  total_cache_read_tokens: 0,
+  total_cache_write_tokens: 0,
+  total_cost: null,
+  context_percent: null,
+  context_window: 0,
+  tokens_per_second: null,
+};
+
+function formatTokens(count) {
+  if (!count) return '0';
+  if (count >= 1000000) {
+    return (count / 1000000).toFixed(1) + 'M';
+  } else if (count >= 1000) {
+    return (count / 1000).toFixed(1) + 'k';
+  }
+  return String(count);
+}
+
+function updateFooterState(data) {
+  if (!data) return;
+  if (data.active_workspace !== undefined && data.active_workspace !== null) currentFooterState.active_workspace = data.active_workspace;
+  if (data.workspace !== undefined && data.workspace !== null) currentFooterState.active_workspace = data.workspace;
+  if (data.active_branch !== undefined) currentFooterState.active_branch = data.active_branch;
+  if (data.session_id !== undefined) currentFooterState.session_id = data.session_id;
+  if (data.session_name !== undefined) currentFooterState.session_name = data.session_name;
+  if (data.model !== undefined && data.model !== null) currentFooterState.model = data.model;
+  if (data.thinking_level !== undefined && data.thinking_level !== null) currentFooterState.thinking_level = data.thinking_level;
+  if (data.quota !== undefined) currentFooterState.quota = data.quota;
+
+  if (data.total_input_tokens !== undefined && data.total_input_tokens !== null) currentFooterState.total_input_tokens = data.total_input_tokens;
+  else if (data.input_tokens !== undefined && data.input_tokens !== null) currentFooterState.total_input_tokens = data.input_tokens;
+
+  if (data.total_output_tokens !== undefined && data.total_output_tokens !== null) currentFooterState.total_output_tokens = data.total_output_tokens;
+  else if (data.output_tokens !== undefined && data.output_tokens !== null) currentFooterState.total_output_tokens = data.output_tokens;
+
+  if (data.total_cache_read_tokens !== undefined && data.total_cache_read_tokens !== null) currentFooterState.total_cache_read_tokens = data.total_cache_read_tokens;
+  else if (data.cache_read_tokens !== undefined && data.cache_read_tokens !== null) currentFooterState.total_cache_read_tokens = data.cache_read_tokens;
+
+  if (data.total_cache_write_tokens !== undefined && data.total_cache_write_tokens !== null) currentFooterState.total_cache_write_tokens = data.total_cache_write_tokens;
+  else if (data.cache_write_tokens !== undefined && data.cache_write_tokens !== null) currentFooterState.total_cache_write_tokens = data.cache_write_tokens;
+
+  if (data.total_cost !== undefined) currentFooterState.total_cost = data.total_cost;
+  if (data.context_percent !== undefined) currentFooterState.context_percent = data.context_percent;
+  if (data.context_window !== undefined && data.context_window !== null) currentFooterState.context_window = data.context_window;
+  if (data.tokens_per_second !== undefined) currentFooterState.tokens_per_second = data.tokens_per_second;
+
+  renderFooter();
+}
+
+function renderFooter() {
+  const cwdEl = document.getElementById('footer-cwd-info');
+  const quotaEl = document.getElementById('footer-quota-info');
+  const statsEl = document.getElementById('footer-stats-info');
+  const modelEl = document.getElementById('footer-model-info');
+  if (!cwdEl || !quotaEl || !statsEl || !modelEl) return;
+
+  // Top line: left = cwd (branch) • session
+  let topText = currentFooterState.active_workspace || '~/workspace';
+  if (currentFooterState.active_branch) {
+    topText += ` (${currentFooterState.active_branch})`;
+  }
+  const sid = currentFooterState.session_name || (currentFooterState.session_id ? currentFooterState.session_id.slice(0, 8) : '');
+  if (sid) {
+    topText += ` • ${sid}`;
+  }
+  cwdEl.textContent = topText;
+
+  // Top line: right = quota
+  if (currentFooterState.quota) {
+    quotaEl.innerHTML = `<span class="footer-quota-badge">${escapeHtml(currentFooterState.quota)}</span>`;
+  } else {
+    quotaEl.innerHTML = '';
+  }
+
+  // Stats line: left = tokens, context, speed
+  const parts = [];
+  const inTokens = currentFooterState.total_input_tokens || 0;
+  const outTokens = currentFooterState.total_output_tokens || 0;
+  parts.push(`↑${formatTokens(inTokens)}`);
+  parts.push(`↓${formatTokens(outTokens)}`);
+
+  if (currentFooterState.total_cache_read_tokens > 0) {
+    parts.push(`R${formatTokens(currentFooterState.total_cache_read_tokens)}`);
+  }
+  if (currentFooterState.total_cache_write_tokens > 0) {
+    parts.push(`W${formatTokens(currentFooterState.total_cache_write_tokens)}`);
+  }
+  if (currentFooterState.total_cost && currentFooterState.total_cost > 0) {
+    parts.push(`$${Number(currentFooterState.total_cost).toFixed(3)}`);
+  }
+
+  if (currentFooterState.context_percent != null) {
+    const pct = Number(currentFooterState.context_percent).toFixed(1);
+    if (currentFooterState.context_window > 0) {
+      parts.push(`${pct}%/${formatTokens(currentFooterState.context_window)}`);
+    } else {
+      parts.push(`${pct}%`);
+    }
+  } else if (currentFooterState.context_window > 0) {
+    parts.push(`0%/${formatTokens(currentFooterState.context_window)}`);
+  }
+
+  if (currentFooterState.tokens_per_second && currentFooterState.tokens_per_second > 0) {
+    parts.push(`@${Math.round(currentFooterState.tokens_per_second)}t/s`);
+  }
+  statsEl.textContent = parts.join(' ');
+
+  // Stats line: right = model • thinking
+  let modelStr = currentFooterState.model || '';
+  if (currentFooterState.thinking_level && currentFooterState.thinking_level !== 'off') {
+    modelStr = modelStr ? `${modelStr} • ${currentFooterState.thinking_level}` : currentFooterState.thinking_level;
+  }
+  modelEl.textContent = modelStr;
 }
 
 function escapeHtml(str) {

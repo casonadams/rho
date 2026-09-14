@@ -46,6 +46,7 @@ fn build_turn_context<'a, B: TerminalBackend>(
     cancellation: &'a Arc<CancellationSignal>,
 ) -> (TurnContext<'a, B>, TurnRequest<'a>) {
     let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
+    crate::platform::remote::set_active_steering(Some(steering.clone()));
     let model_switch = Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
     let prompt = std::mem::take(&mut turn.prompt);
     let request = TurnRequest::new(prompt)

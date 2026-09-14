@@ -159,7 +159,19 @@ pub enum RpcEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         output_tokens: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_read_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_write_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total_cost: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         context_percent: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_window: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tokens_per_second: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quota: Option<String>,
     },
     TurnEnd {
         stop_reason: String,
@@ -371,5 +383,28 @@ mod tests {
         };
         let json = serde_json::to_string(&event).unwrap();
         assert_eq!(json, r#"{"type":"status_changed","status":"waiting_approval"}"#);
+    }
+
+    #[test]
+    fn test_rpc_usage_update_event() {
+        let event = RpcEvent::UsageUpdate {
+            input_tokens: Some(1200),
+            output_tokens: Some(300),
+            cache_read_tokens: Some(500),
+            cache_write_tokens: None,
+            total_cost: Some(0.015),
+            context_percent: Some(6.0),
+            context_window: Some(200_000),
+            tokens_per_second: Some(42.5),
+            quota: Some("85% (3h20m)".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"usage_update\""));
+        assert!(json.contains("\"input_tokens\":1200"));
+        assert!(json.contains("\"tokens_per_second\":42.5"));
+        assert!(json.contains("\"quota\":\"85% (3h20m)\""));
+
+        let deserialized: RpcEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, event);
     }
 }

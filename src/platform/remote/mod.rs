@@ -35,6 +35,19 @@ pub type ActiveApprovalsMap = Arc<Mutex<HashMap<String, oneshot::Sender<Interact
 pub static ACTIVE_APPROVALS: std::sync::LazyLock<ActiveApprovalsMap> =
     std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+pub type ActiveSteeringMap = Arc<Mutex<Option<Arc<crate::repl::coordinator::SharedSteeringQueue>>>>;
+
+pub static ACTIVE_STEERING: std::sync::LazyLock<ActiveSteeringMap> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(None)));
+
+pub fn set_active_steering(queue: Option<Arc<crate::repl::coordinator::SharedSteeringQueue>>) {
+    *ACTIVE_STEERING.lock().unwrap() = queue;
+}
+
+pub fn get_active_steering() -> Option<Arc<crate::repl::coordinator::SharedSteeringQueue>> {
+    ACTIVE_STEERING.lock().unwrap().clone()
+}
+
 #[derive(Clone, Default)]
 pub struct RemotePromptQueue {
     queue: Arc<Mutex<VecDeque<String>>>,

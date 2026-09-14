@@ -102,6 +102,26 @@ button.btn-primary:hover {
   opacity: 0.9;
 }
 
+button.btn-steer {
+  background: var(--accent-amber);
+  color: #1a0f00;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  transition: opacity 0.15s ease;
+}
+
+button.btn-steer:hover {
+  opacity: 0.9;
+}
+
 button.btn-secondary {
   background: var(--bg-surface-raised);
   color: var(--text-primary);
@@ -358,6 +378,22 @@ main.hub-main {
   align-self: flex-end;
 }
 
+.chat-bubble.user.steering {
+  border-color: var(--accent-amber);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.steering-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: var(--accent-amber);
+  color: #1a0f00;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  margin-right: 0.4rem;
+  text-transform: uppercase;
+}
+
 .chat-bubble.assistant {
   line-height: 1.6;
 }
@@ -605,6 +641,60 @@ main.hub-main {
 
 .chat-input-bar textarea:focus {
   border-color: var(--border-focus);
+}
+
+.session-footer {
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  padding: 0.35rem 1.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  user-select: none;
+}
+
+.footer-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  overflow: hidden;
+}
+
+.footer-left {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.footer-right {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.footer-line.stats-line {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.footer-line.stats-line .footer-left {
+  color: var(--text-secondary);
+}
+
+.footer-quota-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-blue-dim);
+  color: var(--accent-blue);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+  font-size: 0.72rem;
+  font-weight: 500;
 }
 
 /* Modal dialogs */

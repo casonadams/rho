@@ -68,6 +68,7 @@ export class SessionView {
   }
 
   setWorking(isWorking) {
+    this.isWorking = isWorking;
     const pill = document.getElementById('working-pill');
     if (pill) {
       pill.style.display = isWorking ? 'inline-flex' : 'none';
@@ -79,6 +80,32 @@ export class SessionView {
         this.container.appendChild(indicator);
       }
     }
+
+    const sendBtn = document.getElementById('send-prompt-btn');
+    const promptInput = document.getElementById('chat-prompt');
+    if (sendBtn) {
+      if (isWorking) {
+        sendBtn.textContent = 'Steer ↗';
+        sendBtn.className = 'btn-steer';
+      } else {
+        sendBtn.textContent = 'Send';
+        sendBtn.className = 'btn-primary';
+      }
+    }
+    if (promptInput) {
+      promptInput.placeholder = isWorking
+        ? 'Send steering instruction to redirect agent... (Enter to steer)'
+        : 'Send prompt to remote node... (Enter to send, Shift+Enter for newline)';
+    }
+
+    this.scrollToBottom();
+  }
+
+  addSteeringMessage(text) {
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble user steering';
+    bubble.innerHTML = `<span class="steering-badge">Steer ↗</span> ${escapeHtml(text)}`;
+    this.container.appendChild(bubble);
     this.scrollToBottom();
   }
 

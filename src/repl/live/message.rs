@@ -131,6 +131,18 @@ async fn run_prompt_turn<B: TerminalBackend>(
     .await?;
     session.sync_engine_model(engine).await;
     engine.refresh_quota().await;
+    let totals = engine.session_usage_totals();
+    crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::UsageUpdate {
+        input_tokens: Some(totals.total_input),
+        output_tokens: Some(totals.total_output),
+        cache_read_tokens: Some(totals.total_cache_read),
+        cache_write_tokens: Some(totals.total_cache_write),
+        total_cost: None,
+        context_percent: engine.context_percent_f64(),
+        context_window: engine.context_limit(),
+        tokens_per_second: engine.tokens_per_second(),
+        quota: engine.quota_display(),
+    });
     Ok(false)
 }
 

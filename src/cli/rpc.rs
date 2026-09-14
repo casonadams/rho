@@ -56,6 +56,22 @@ async fn handle_compact_cmd(
     }
 }
 
+async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
+    (message, req_id): (String, Option<String>),
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    if let Some(steering) = crate::platform::remote::get_active_steering() {
+        steering.enqueue(message.clone());
+        crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TextChunk {
+            content: format!("\n[Steering from remote]: {message}\n"),
+        });
+    }
+    ctx.steering.enqueue(message);
+    ctx.writer
+        .write_message(&RpcResponse::success(req_id, "steer", None))
+        .await
+}
+
 async fn handle_abort_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -120,11 +136,22 @@ async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     if crate::platform::remote::is_repl_active() {
-        if ctx.active_turn.is_some() {
-            ctx.steering.enqueue(message);
-        } else {
-            crate::platform::remote::REMOTE_PROMPT_QUEUE.push(message);
+        if let Some(steering) = crate::platform::remote::get_active_steering() {
+            steering.enqueue(message.clone());
+            crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TextChunk {
+                content: format!("\n[Steering from remote]: {message}\n"),
+            });
+            ctx.writer
+                .write_message(&RpcResponse::success(
+                    req_id,
+                    "prompt",
+                    Some(serde_json::json!({ "steered": true })),
+                ))
+                .await?;
+            return Ok(());
         }
+
+        crate::platform::remote::REMOTE_PROMPT_QUEUE.push(message);
         ctx.writer
             .write_message(&RpcResponse::success(req_id, "prompt", None))
             .await?;
@@ -302,11 +329,25 @@ async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let sid = new_eng.session_manager.session_id.clone();
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
             let messages = extract_chat_messages(&raw_msgs);
-            *ctx.engine.write().await = new_eng;
+            new_eng.refresh_quota().await;
+            let totals = new_eng.session_usage_totals();
+            let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
             let payload = serde_json::json!({
                 "session_id": sid,
                 "messages": messages,
+                "active_workspace": new_eng.base_dir.display().to_string(),
+                "active_branch": active_branch,
+                "quota": new_eng.quota_display(),
+                "total_input_tokens": totals.total_input,
+                "total_output_tokens": totals.total_output,
+                "total_cache_read_tokens": totals.total_cache_read,
+                "total_cache_write_tokens": totals.total_cache_write,
+                "total_cost": serde_json::Value::Null,
+                "context_percent": new_eng.context_percent_f64(),
+                "context_window": new_eng.context_limit().unwrap_or(0),
+                "tokens_per_second": new_eng.tokens_per_second(),
             });
+            *ctx.engine.write().await = new_eng;
             ctx.writer
                 .write_message(&RpcResponse::success(req_id, "resume_session", Some(payload)))
                 .await?;
@@ -367,6 +408,8 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<()> {
     let eng = ctx.engine.read().await;
     let cfg = ctx.config.read().await;
+    eng.refresh_quota().await;
+    let totals = eng.session_usage_totals();
     let approvals = ctx.pending_approvals.lock().await;
     let status = if !approvals.is_empty() {
         "waiting_approval"
@@ -378,6 +421,7 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
 
     let raw_msgs = eng.session_manager.load_messages().await.unwrap_or_default();
     let messages = extract_chat_messages(&raw_msgs);
+    let active_branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
 
     let data = serde_json::json!({
         "session_id": eng.session_manager.session_id,
@@ -386,6 +430,17 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
         "thinking_level": cfg.thinking_level,
         "status": status,
         "messages": messages,
+        "active_workspace": eng.base_dir.display().to_string(),
+        "active_branch": active_branch,
+        "quota": eng.quota_display(),
+        "total_input_tokens": totals.total_input,
+        "total_output_tokens": totals.total_output,
+        "total_cache_read_tokens": totals.total_cache_read,
+        "total_cache_write_tokens": totals.total_cache_write,
+        "total_cost": serde_json::Value::Null,
+        "context_percent": eng.context_percent_f64(),
+        "context_window": eng.context_limit().unwrap_or(0),
+        "tokens_per_second": eng.tokens_per_second(),
     });
     ctx.writer
         .write_message(&RpcResponse::success(req_id, "get_state", Some(data)))
@@ -460,12 +515,26 @@ async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
         Ok(new_eng) => {
             let session_id = new_eng.session_manager.session_id.clone();
             let base_dir = new_eng.base_dir.display().to_string();
-            *ctx.engine.write().await = new_eng;
-            *ctx.config.write().await = cfg;
+            let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
+            new_eng.refresh_quota().await;
+            let totals = new_eng.session_usage_totals();
             let payload = serde_json::json!({
                 "session_id": session_id,
                 "workspace": base_dir,
+                "active_workspace": base_dir,
+                "active_branch": active_branch,
+                "quota": new_eng.quota_display(),
+                "total_input_tokens": totals.total_input,
+                "total_output_tokens": totals.total_output,
+                "total_cache_read_tokens": totals.total_cache_read,
+                "total_cache_write_tokens": totals.total_cache_write,
+                "total_cost": serde_json::Value::Null,
+                "context_percent": new_eng.context_percent_f64(),
+                "context_window": new_eng.context_limit().unwrap_or(0),
+                "tokens_per_second": new_eng.tokens_per_second(),
             });
+            *ctx.engine.write().await = new_eng;
+            *ctx.config.write().await = cfg;
             ctx.writer
                 .write_message(&RpcResponse::success(req_id, "create_session", Some(payload)))
                 .await?;
@@ -684,10 +753,7 @@ async fn dispatch_rpc<W: tokio::io::AsyncWrite + Unpin>(
             handle_prompt_cmd((message, req_id), ctx).await?;
         }
         RpcCommand::Steer { message } => {
-            ctx.steering.enqueue(message);
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "steer", None))
-                .await?;
+            handle_steer_command((message, req_id), ctx).await?;
         }
         RpcCommand::Abort => {
             handle_abort_cmd(req_id, ctx).await?;
@@ -769,6 +835,21 @@ async fn handle_turn_done<W: tokio::io::AsyncWrite + Unpin>(
             })
             .await?;
     }
+    let eng = ctx.engine.read().await;
+    eng.refresh_quota().await;
+    let totals = eng.session_usage_totals();
+    let usage_ev = RpcEvent::UsageUpdate {
+        input_tokens: Some(totals.total_input),
+        output_tokens: Some(totals.total_output),
+        cache_read_tokens: Some(totals.total_cache_read),
+        cache_write_tokens: Some(totals.total_cache_write),
+        total_cost: None,
+        context_percent: eng.context_percent_f64(),
+        context_window: eng.context_limit(),
+        tokens_per_second: eng.tokens_per_second(),
+        quota: eng.quota_display(),
+    };
+    ctx.writer.write_message(&usage_ev).await?;
     Ok(())
 }
 
@@ -1009,7 +1090,8 @@ mod tests {
         let presenter = RpcPresenter::new(event_tx);
         let pending = presenter.pending_approvals();
 
-        let (_client_io, server_io) = duplex(4096);
+        let (client_io, server_io) = duplex(4096);
+        let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
         let mut writer = JsonLinesWriter::new(server_io);
         let temp_dir = std::env::temp_dir().join(format!("rpc_tree_test_{}", uuid::Uuid::new_v4()));
         let config = Config {
@@ -1060,6 +1142,22 @@ mod tests {
         )
         .await
         .unwrap();
+
+        let resp1: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+        assert_eq!(resp1.id, Some("req-state".to_string()));
+        let state_data = resp1.data.unwrap();
+        assert!(state_data.get("active_workspace").is_some());
+        assert!(state_data.get("total_input_tokens").is_some());
+        assert!(state_data.get("context_window").is_some());
+
+        let _resp2: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+        let _resp3: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+
+        let resp4: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
+        assert_eq!(resp4.id, Some("req-create".to_string()));
+        let create_data = resp4.data.unwrap();
+        assert!(create_data.get("active_workspace").is_some());
+        assert!(create_data.get("total_input_tokens").is_some());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
