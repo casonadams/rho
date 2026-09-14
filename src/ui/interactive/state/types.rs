@@ -55,6 +55,8 @@ pub struct FooterState {
     pub hidden_status_count: usize,
     pub context: Option<String>,
     pub show_label: bool,
+    pub remote_active: bool,
+    pub remote_peers: usize,
 }
 
 impl PartialEq for FooterState {
@@ -79,6 +81,8 @@ impl PartialEq for FooterState {
             && self.hidden_status_count == other.hidden_status_count
             && self.context == other.context
             && self.show_label == other.show_label
+            && self.remote_active == other.remote_active
+            && self.remote_peers == other.remote_peers
     }
 }
 

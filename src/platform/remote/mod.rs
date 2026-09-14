@@ -22,6 +22,14 @@ pub fn is_repl_active() -> bool {
     REPL_ACTIVE.load(Ordering::Relaxed)
 }
 
+pub fn is_remote_active() -> bool {
+    ACTIVE_REMOTE.get().is_some()
+}
+
+pub fn remote_peer_count() -> usize {
+    PEER_REGISTRY.peer_count()
+}
+
 pub type ActiveApprovalsMap = Arc<Mutex<HashMap<String, oneshot::Sender<InteractionResponse>>>>;
 
 pub static ACTIVE_APPROVALS: std::sync::LazyLock<ActiveApprovalsMap> =

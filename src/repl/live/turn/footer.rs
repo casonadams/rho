@@ -70,5 +70,12 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
     };
     let mut changed = token_changes_differ(footer, &totals);
     changed |= metric_changes_differ(footer, &metrics);
+    let remote_active = crate::platform::remote::is_remote_active();
+    let remote_peers = crate::platform::remote::remote_peer_count();
+    if footer.remote_active != remote_active || footer.remote_peers != remote_peers {
+        footer.remote_active = remote_active;
+        footer.remote_peers = remote_peers;
+        changed = true;
+    }
     changed
 }
