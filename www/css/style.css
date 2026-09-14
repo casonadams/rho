@@ -155,8 +155,9 @@ code, pre {
 .nav-links {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.25rem;
   list-style: none;
+  white-space: nowrap;
 }
 
 .nav-link {
@@ -165,6 +166,7 @@ code, pre {
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);
   transition: color 0.15s ease;
+  white-space: nowrap;
 }
 
 .nav-link:hover, .nav-link.active {

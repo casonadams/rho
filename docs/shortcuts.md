@@ -101,6 +101,29 @@ permission approvals):
 
 ---
 
+## Interactive Slash Commands
+
+Type `/` in the prompt editor to trigger auto-complete across all built-in commands:
+
+| Command | Action | Details |
+| :--- | :--- | :--- |
+| `/remote` | **Remote Hub &amp; P2P Sharing** | Opens pairing modal with QR code and link for mobile/web dashboard mirroring. |
+| `/settings` | **Runtime Settings** | Configure model, thinking levels, tool card expansion, and border styles. |
+| `/model` | **Model Switcher** | Interactive fuzzy model selector across all configured providers. |
+| `/resume` | **Resume Session** | Interactive session selector to resume historical conversations. |
+| `/compact` | **Manual Compaction** | Summarizes earlier turns to reclaim context window capacity. |
+| `/tree` | **Conversation Tree** | Visualize turn DAG, switch branches, and label checkpoints. |
+| `/fork` | **Fork Session** | Forks session from a specific turn into an isolated conversation. |
+| `/clone` | **Clone Session** | Duplicates active branch into a new session file. |
+| `/name` | **Name Session** | Assigns a human-readable display name to the session. |
+| `/clear` | **New Session** | Starts a fresh session while preserving past transcripts. |
+| `/login` | **Provider Auth** | Configure OAuth or verify API keys for 14+ providers. |
+| `/mcp` | **MCP Servers** | Inspect configured MCP servers and capabilities. |
+| `/export` | **Export Transcript** | Generates an HTML or Markdown transcript file. |
+| `/exit` | **Exit rho** | Shuts down the interactive REPL. |
+
+---
+
 ## Custom Keybindings
 
 You can remap default shortcuts or define custom combinations by creating

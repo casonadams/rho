@@ -38,7 +38,7 @@
       <ul class="nav-links">
         <li><a href="./" class="nav-link active">Home</a></li>
         <li><a href="packages.html" class="nav-link">Ecosystem</a></li>
-        <li><a href="hub/" class="nav-link">Fleet Hub</a></li>
+        <li><a href="hub/" class="nav-link">Hub</a></li>
         <li><a href="docs.html" class="nav-link">Documentation</a></li>
         <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
       </ul>
@@ -285,6 +285,20 @@ rho -p "audit dependencies"</code></pre>
 rho --mode rpc
 
 # Non-blocking concurrent turns</code></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="card-title">P2P Remote &amp; Fleet Hub</h3>
+          <p class="card-desc">
+            Share sessions over Iroh peer-to-peer transport with <code>/remote</code>, or run a headless background daemon with <code>rho serve</code>. Steer and monitor live from any mobile or desktop browser.
+          </p>
+          <div class="code-block-wrapper">
+            <pre><code># Serve node over P2P & WS
+rho serve --workspace ~/repo
+
+# In TUI: share to web hub
+/remote</code></pre>
           </div>
         </div>
 
