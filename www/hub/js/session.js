@@ -44,10 +44,33 @@ export class SessionView {
 
   clear() {
     this.container.innerHTML = '';
+    const working = document.createElement('div');
+    working.className = 'working-indicator-card';
+    working.id = 'transcript-working';
+    working.style.display = 'none';
+    working.innerHTML = '<span class="spinner-ring"></span> rho is working...';
+    this.container.appendChild(working);
+
     this.activeAssistantBubble = null;
     this.activeThinkingBlock = null;
     this.currentText = '';
     this.currentThinking = '';
+    this.setWorking(false);
+  }
+
+  setWorking(isWorking) {
+    const pill = document.getElementById('working-pill');
+    if (pill) {
+      pill.style.display = isWorking ? 'inline-flex' : 'none';
+    }
+    const indicator = document.getElementById('transcript-working');
+    if (indicator) {
+      indicator.style.display = isWorking ? 'inline-flex' : 'none';
+      if (isWorking) {
+        this.container.appendChild(indicator);
+      }
+    }
+    this.scrollToBottom();
   }
 
   addUserMessage(text) {
@@ -89,7 +112,13 @@ export class SessionView {
 
     this.activeAssistantBubble = bubble;
     this.container.appendChild(bubble);
+    this.setWorking(true);
     this.scrollToBottom();
+  }
+
+  finishTurn() {
+    this.setWorking(false);
+    this.activeAssistantBubble = null;
   }
 
   appendReasoningChunk(chunk) {

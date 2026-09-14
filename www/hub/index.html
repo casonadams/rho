@@ -35,9 +35,11 @@
       <div class="workspace-topbar">
         <div class="workspace-meta">
           <button class="btn-secondary" id="back-to-fleet-btn">← Fleet</button>
+          <button class="btn-secondary" id="toggle-sidebar-btn" title="Toggle Sessions Sidebar">≡</button>
           <strong id="active-node-title">Node</strong>
           <span style="color: var(--text-muted);">|</span>
           <span id="active-node-workspace" style="color: var(--text-secondary); font-size: 0.8rem;">~/workspace</span>
+          <span class="working-pill" id="working-pill" style="display: none;"><span class="spinner-ring"></span> working...</span>
         </div>
         <div class="header-actions">
           <button class="btn-secondary" id="auth-btn">Auth / Providers</button>
@@ -46,13 +48,15 @@
       </div>
 
       <div class="workspace-layout">
-        <aside class="session-sidebar">
+        <aside class="session-sidebar" id="session-sidebar">
           <div class="sidebar-header">Sessions</div>
           <ul class="session-list" id="session-history-list"></ul>
         </aside>
 
         <section class="session-chat">
-          <div class="chat-transcript" id="chat-transcript"></div>
+          <div class="chat-transcript" id="chat-transcript">
+            <div class="working-indicator-card" id="transcript-working" style="display: none;"><span class="spinner-ring"></span> rho is working...</div>
+          </div>
 
           <div class="chat-input-bar">
             <textarea id="chat-prompt" placeholder="Send prompt to remote node... (Enter to send, Shift+Enter for newline)"></textarea>

@@ -44,6 +44,18 @@ export async function initApp() {
   authBtn.onclick = () => handleAuthClick();
   sendPromptBtn.onclick = () => handleSendPrompt();
 
+  const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+  const sidebar = document.getElementById('session-sidebar');
+  if (toggleSidebarBtn && sidebar) {
+    toggleSidebarBtn.onclick = () => {
+      sidebar.classList.toggle('collapsed');
+      localStorage.setItem('rho_sidebar_collapsed', sidebar.classList.contains('collapsed'));
+    };
+    if (localStorage.getItem('rho_sidebar_collapsed') === 'true') {
+      sidebar.classList.add('collapsed');
+    }
+  }
+
   chatPrompt.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -131,6 +143,10 @@ async function openWorkspace(node) {
       sessionView.appendReasoningChunk(ev.content);
     } else if (ev.type === 'tool_approval_request') {
       sessionView.showApprovalRequest(ev);
+    } else if (ev.type === 'status_changed') {
+      sessionView.setWorking(ev.status === 'busy' || ev.status === 'waiting_approval');
+    } else if (ev.type === 'turn_end') {
+      sessionView.finishTurn();
     }
   });
 
