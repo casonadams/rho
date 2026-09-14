@@ -1,3 +1,37 @@
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Code blocks: ```lang ... ```
+  html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<div class="code-block"><div class="code-lang">${lang || 'code'}</div><pre><code>${code.trim()}</code></pre></div>`;
+  });
+
+  // Inline code: `code`
+  html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+
+  // Headers
+  html = html.replace(/^### (.*$)/gim, '<h3 class="md-h3">$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2 class="md-h2">$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1 class="md-h1">$1</h1>');
+
+  // Bold & italic
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+  // Links: [text](url)
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // Paragraph breaks
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = html.replace(/\n/g, '<br/>');
+
+  return `<p>${html}</p>`;
+}
+
 export class SessionView {
   constructor(container, client) {
     this.container = container;
@@ -47,11 +81,11 @@ export class SessionView {
       body.style.display = body.style.display === 'none' ? 'block' : 'none';
     };
 
-    const textSpan = document.createElement('div');
-    textSpan.className = 'prose-content';
+    const proseSpan = document.createElement('div');
+    proseSpan.className = 'prose-content';
 
     bubble.appendChild(this.activeThinkingBlock);
-    bubble.appendChild(textSpan);
+    bubble.appendChild(proseSpan);
 
     this.activeAssistantBubble = bubble;
     this.container.appendChild(bubble);
@@ -80,7 +114,7 @@ export class SessionView {
     this.currentText += chunk;
     const prose = this.activeAssistantBubble.querySelector('.prose-content');
     if (prose) {
-      prose.textContent = this.currentText;
+      prose.innerHTML = renderMarkdown(this.currentText);
     }
     this.scrollToBottom();
   }
@@ -117,6 +151,12 @@ export class SessionView {
   }
 
   scrollToBottom() {
-    this.container.scrollTop = this.container.scrollHeight;
+    requestAnimationFrame(() => {
+      this.container.scrollTop = this.container.scrollHeight;
+      const last = this.container.lastElementChild;
+      if (last) {
+        last.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      }
+    });
   }
 }
