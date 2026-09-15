@@ -28,7 +28,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   7. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
   8. (Effort: 2) Implement `SlashCommandDef` registry with `SlashArgumentType` and declarative `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
   9. (Effort: 2) Implement `PromptHistory` state tracking (`previous`, `next`, draft preservation) shared between TUI and Web Hub.
-  10. (Effort: 2) Implement `FooterMetrics` (token counts, context %, cost, tokens/sec), `format_tokens` and `format_size` utilities, `detect_supported_image_mime` sniffing, `RhoTicket` (standard ticket parsing and extraction), `SessionTreeState`, and `WelcomeDisplay` in `rho-ui-core`.
+  10. (Effort: 2) Implement `FooterMetrics` (token counts, context %, cost, tokens/sec), `format_tokens` and `format_size` utilities, `detect_supported_image_mime` sniffing with `fit_dimensions` downsampling, `RhoTicket` (standard ticket parsing and extraction), `SessionTreeState`, and `WelcomeDisplay` in `rho-ui-core`.
   11. (Effort: 2) Implement `PROVIDER_DEFS` authentication metadata, `RpcAuthBridge` callback integration, `ModelRegistry` capability descriptors, `McpModalState`, `SkillModalState`, `SettingsState`, `use_toast`, `SecretGuard` redaction, `WindowFocus` tracking, `PromptQueueCoordinator`, `SessionCommandExecutor`, and `use_session` lifecycle reducer (`Prompt`, `Steer`, `Abort`, `hydrate_messages`).
   12. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
@@ -114,7 +114,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement direct in-WASM Iroh client peer hook in Rust bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed canonical events without `JsValue` crossing or JS callbacks.
   3. (Effort: 3) Build Fleet Overview view (`use_fleet()` typed node store, node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, clickable search result hyperlinks, tool execution cards, thinking accordion).
-  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, accessible auth modal with focus trapping, MCP server manager, skill explorer, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components, deprecating bespoke CSS in `www/hub/css/hub.css`.
+  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, session deletion/pruning, conversation branch tree, accessible auth modal with focus trapping, MCP server manager, skill explorer, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components, deprecating bespoke CSS in `www/hub/css/hub.css`.
   6. (Effort: 2) Connect web storage persistence (saved nodes, tickets, active session ID) via browser `web-sys` hooks.
   7. (Effort: 2) Remove `www/hub/js/*.js` and update `Makefile` target `make wasm` with `wasm-opt` size optimization.
 - **Verification**:
