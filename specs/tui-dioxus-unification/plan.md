@@ -26,7 +26,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   5. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
   6. (Effort: 3) Implement `use_modal` state machine handling selection index, `fuzzy-matcher` scoring, active indicators, and pagination.
   7. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
-  8. (Effort: 2) Implement `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
+  8. (Effort: 2) Implement `SlashCommandDef` registry and `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
   9. (Effort: 2) Implement `PromptHistory` state tracking (`previous`, `next`, draft preservation) shared between TUI and Web Hub.
   10. (Effort: 2) Implement `FooterMetrics` (token counts, context %, cost, tokens/sec), `SessionTreeState`, and `WelcomeDisplay` in `rho-ui-core`.
   11. (Effort: 2) Implement `PROVIDER_DEFS` authentication metadata, `SettingsState`, and `use_session` lifecycle reducer (`Prompt`, `Steer`, `Abort`, `hydrate_messages`).
@@ -52,7 +52,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into a single event stream feeding `rho-ui-core`.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  7. (Effort: 2) Delete obsolete ANSI diffing and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), and `screen_sim.rs`.
+  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/markdown/table/`, `src/ui/render/card.rs`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), and `screen_sim.rs`.
 - **Verification**:
   - `cargo test -p rho --lib ui::interactive`
 
