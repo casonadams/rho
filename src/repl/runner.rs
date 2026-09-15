@@ -3,7 +3,7 @@ use futures::StreamExt;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use rho_harness_core::session::list_session_summaries_async;
 use rho_ui_core::autocomplete::CompletionEngine;
 use rho_ui_core::modal::{McpModalState, ModelRegistry, SettingsState, SkillModalState};
 use rho_ui_core::session::PROVIDER_DEFS;
-use rho_ui_core::state::RhoTicket;
+use rho_ui_core::state::{FooterMetrics, RhoTicket};
 
 use crate::engine::AgentEngine;
 use crate::engine::runner::{CancellationSignal, TurnRequest};
@@ -166,25 +166,73 @@ async fn load_history(session: &ReplSession) -> InteractiveHistory {
         })
 }
 
-fn render_footer(f: &mut Frame, area: Rect, engine: &AgentEngine) {
-    let model_name = &engine.config.model;
-    let thinking = engine.config.thinking_level.as_deref().unwrap_or("default");
-    let usage = engine.session_usage_totals();
-    let tokens_fmt = rho_harness_core::tokens::format_tokens(usage.total_input + usage.total_output);
+fn render_footer_path(f: &mut Frame, area: Rect) {
     let current_dir = std::env::current_dir().unwrap_or_default();
-    let cwd = rho_ui_core::footer::abbreviate_home(&current_dir, None);
-    let branch = rho_ui_core::footer::get_git_branch(&current_dir);
-    let branch_str = branch.as_deref().unwrap_or("");
-    let left = format!(" {model_name} · {thinking} · {tokens_fmt}");
-    let right = if branch_str.is_empty() {
-        format!("{cwd} ")
-    } else {
-        format!("{cwd} ({branch_str}) ")
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+    let mut path = rho_ui_core::footer::abbreviate_home(&current_dir, home.as_deref());
+    if let Some(branch) = rho_ui_core::footer::get_git_branch(&current_dir)
+        && !branch.is_empty()
+    {
+        path.push_str(&format!(" ({branch})"));
+    }
+    let para = Paragraph::new(path).style(Style::default().fg(Color::DarkGray));
+    f.render_widget(para, area);
+}
+
+fn render_footer_stats(f: &mut Frame, area: Rect, engine: &AgentEngine) {
+    let model = &engine.config.model;
+    let window = ModelRegistry::default().context_window_for(model, Some(&engine.config.provider));
+    let usage = engine.session_usage_totals();
+    let metrics = FooterMetrics {
+        input_tokens: usage.total_input,
+        output_tokens: usage.total_output,
+        cache_read_tokens: usage.total_cache_read,
+        cache_write_tokens: usage.total_cache_write,
+        context_tokens: usage.total_input as usize,
+        context_window: window,
+        total_cost: None,
+        tokens_per_second: None,
+        quota_summary: None,
     };
+
+    let thinking = engine.config.thinking_level.as_deref().unwrap_or("default");
+    let right = if thinking == "off" || thinking.is_empty() {
+        model.to_string()
+    } else {
+        format!("{model} · {thinking}")
+    };
+
+    let mut parts = Vec::new();
+    if metrics.input_tokens > 0 {
+        parts.push(format!(
+            "↑{}",
+            rho_harness_core::tokens::format_tokens(metrics.input_tokens)
+        ));
+    }
+    if metrics.output_tokens > 0 {
+        parts.push(format!(
+            "↓{}",
+            rho_harness_core::tokens::format_tokens(metrics.output_tokens)
+        ));
+    }
+    if metrics.context_window > 0 {
+        parts.push(format!(
+            "{:.1}%/{}",
+            metrics.context_percent(),
+            rho_harness_core::tokens::format_tokens(metrics.context_window as u64)
+        ));
+    }
+    if let Some(tps) = metrics.tokens_per_second {
+        parts.push(format!("@{tps:.0}t/s"));
+    }
+    let left = parts.join(" ");
+
     let pad = (area.width as usize).saturating_sub(left.len() + right.len());
-    let footer_text = format!("{left}{}{right}", " ".repeat(pad));
-    let footer_para = Paragraph::new(footer_text).style(Style::default().fg(Color::DarkGray));
-    f.render_widget(footer_para, area);
+    let full = format!("{left}{}{right}", " ".repeat(pad));
+    let para = Paragraph::new(full).style(Style::default().fg(Color::DarkGray));
+    f.render_widget(para, area);
 }
 
 fn render_viewport(state: &mut RunnerState<'_>) -> Result<()> {
@@ -195,30 +243,28 @@ fn render_viewport(state: &mut RunnerState<'_>) -> Result<()> {
             return;
         }
 
+        let divider = "─".repeat(area.width as usize);
+        let divider_style = Style::default().fg(Color::Rgb(60, 60, 60));
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Min(3), Constraint::Length(1)])
+            .constraints([
+                Constraint::Length(1), // Top divider ───
+                Constraint::Min(1),    // Editor text lines
+                Constraint::Length(1), // Bottom divider ───
+                Constraint::Length(1), // Footer path/branch
+                Constraint::Length(1), // Footer stats/model
+            ])
             .split(area);
 
-        let mode_badge = state.editor.mode_label();
-        let top_title = if mode_badge.is_empty() {
-            format!(" rho v{} ", env!("CARGO_PKG_VERSION"))
-        } else {
-            format!(" [{mode_badge}] rho v{} ", env!("CARGO_PKG_VERSION"))
-        };
-        let box_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray))
-            .title(top_title);
-        let inner = box_block.inner(chunks[0]);
-        f.render_widget(box_block, chunks[0]);
-        state.editor.render(f, inner);
-
-        render_footer(f, chunks[1], state.engine);
+        f.render_widget(Paragraph::new(divider.clone()).style(divider_style), chunks[0]);
+        state.editor.render(f, chunks[1]);
+        f.render_widget(Paragraph::new(divider).style(divider_style), chunks[2]);
+        render_footer_path(f, chunks[3]);
+        render_footer_stats(f, chunks[4], state.engine);
 
         if let Some(popup) = state.autocomplete_popup.as_ref() {
-            popup.render_anchored(f, chunks[0], area);
+            popup.render_anchored(f, chunks[1], area);
         }
     })?;
     Ok(())
@@ -327,14 +373,14 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
     let mut engine = init_live_engine(session).await?;
     print_startup_banner(session, &engine).await;
 
-    let mut runner = TerminalRunner::from_stdout(7)?;
+    let mut runner = TerminalRunner::from_stdout(5)?;
 
     let mode = if session.config.editor.is_vim() {
         EditorMode::Vim
     } else {
         EditorMode::Default
     };
-    let mut editor = TextAreaEditor::new(mode).with_placeholder("Type a message, / for commands, @ for files...");
+    let mut editor = TextAreaEditor::new(mode);
     let mut history = load_history(session).await;
     let completions = build_completions();
 
@@ -465,13 +511,19 @@ async fn handle_slash_command(state: &mut RunnerState<'_>, cmd: &str, rest: &str
     if cmd == "/model" && !rest.is_empty() {
         state.session.config.model = rest.to_string();
         state.session.sync_engine_model(state.engine).await;
-        let _ = state.runner.commit_turn("", &format!("Switched model to {rest}\n"));
+        state
+            .session
+            .renderer
+            .print_notice(&format!("Switched model to {rest}\n"));
         return Ok(false);
     }
     if cmd == "/thinking" && !rest.is_empty() {
         state.session.config.thinking_level = Some(rest.to_string());
         state.session.sync_engine_model(state.engine).await;
-        let _ = state.runner.commit_turn("", &format!("Set thinking level to {rest}\n"));
+        state
+            .session
+            .renderer
+            .print_notice(&format!("Set thinking level to {rest}\n"));
         return Ok(false);
     }
 
@@ -497,6 +549,14 @@ async fn handle_slash_command(state: &mut RunnerState<'_>, cmd: &str, rest: &str
 }
 
 async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result<()> {
+    // 1. Clear inline viewport and suspend raw mode so streaming writes directly to scrollback
+    let _ = state.runner.clear();
+    let _ = state.runner.suspend();
+
+    // 2. Print user message into scrollback
+    state.session.renderer.print_user_block(prompt);
+
+    // 3. Set up turn execution and broadcast channels
     let cancellation = Arc::new(CancellationSignal::default());
     let request = TurnRequest::new(prompt).with_cancellation(&cancellation);
     let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> =
@@ -504,8 +564,6 @@ async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result
             Arc::new(state.session.renderer.clone()),
             crate::platform::remote::PEER_REGISTRY.clone(),
         ));
-
-    let _ = state.runner.commit_turn(&format!("> {prompt}"), "");
 
     crate::platform::remote::PEER_REGISTRY.broadcast(&RpcEvent::TurnStart {
         turn_number: 1,
@@ -515,7 +573,10 @@ async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result
         status: "busy".to_string(),
     });
 
+    // 4. Run turn - output streams live to stdout scrollback above!
     let turn_res = state.engine.run_turn(request, broadcast).await;
+    state.session.renderer.flush();
+
     state.session.sync_engine_model(state.engine).await;
     state.engine.refresh_quota().await;
 
@@ -535,15 +596,12 @@ async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result
         status: "idle".to_string(),
     });
 
-    match turn_res {
-        Ok(out) => {
-            let _ = state.runner.commit_turn("", &out.final_text);
-        }
-        Err(err) => {
-            let _ = state.runner.commit_turn("", &format!("\nError: {err}\n"));
-        }
+    if let Err(err) = turn_res {
+        state.session.renderer.write_output(&format!("\nError: {err}\n"));
     }
 
+    // 5. Re-enter raw mode and attach the inline viewport below the streamed response
+    let _ = state.runner.resume();
     Ok(())
 }
 
