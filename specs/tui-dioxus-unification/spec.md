@@ -70,6 +70,9 @@ This separation causes significant friction:
 - Unify interactive tool execution and bash streaming directly through reactive tool state signals in `rho-ui-core`, eliminating custom channel polling loops in `src/repl/live/bash_runner/`.
 - Provide browser-native session exporting (Markdown/HTML download) in the Web Hub by reusing `rho_harness_core::session::export` in WASM.
 - Eliminate hardcoded string prefix checking for command arguments in `src/repl/interactive/completion/args.rs`, driving argument completions declaratively from `SlashCommandDef` argument types (`SlashArgumentType`) in `rho-ui-core`.
+- Centralize ephemeral system feedback and transient toasts (`use_toast`) in `rho-ui-core`, eliminating custom 3-second expiration math in `src/ui/interactive/controller/system_message.rs` and enabling animated toast components in the Web Hub.
+- Replace hardcoded provider model lists in `rho models` (`src/cli/commands.rs`) with dynamic model discovery from `ModelRegistry`.
+- Standardize block notices and warning banners on `ContentBlock::Notice`, eliminating manual ASCII border padding and background formatting in `src/ui/render/notices.rs`.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -209,60 +212,61 @@ crates/rho-wasm/
 - **REQ-016**: Session message hydration and execution lifecycle transitions (`Prompt` when idle, `Steer` when running, `Abort` on cancel) must be managed exclusively by `use_session` in `rho-ui-core`.
 - **REQ-017**: Iroh pairing ticket extraction and decoding must be standardized in `rho_harness_core::rpc::ticket`, eliminating duplicate copy-pasted extraction logic across `src/platform/remote/endpoint.rs`, `crates/rho-wasm/src/lib.rs`, and `www/hub/js/app.js`.
 - **REQ-018**: Active approvals, steering queues, and prompt channels must be encapsulated directly within `use_session` in `rho-ui-core`, eliminating unsafe global static singletons (`ACTIVE_APPROVALS`, `ACTIVE_STEERING`, `REMOTE_PROMPT_QUEUE` in `src/platform/remote/mod.rs`).
-- **REQ-019**: Dynamic model discovery and capability descriptors (`ModelRegistry`: context limits, reasoning effort, local model detection) must be centralized in `rho-ui-core`, sharing metadata across autocomplete, the CLI `/model` modal, and the Web Hub model selector.
-- **REQ-020**: Prompt queuing, follow-up messages, and steering transitions must be managed by `PromptQueueCoordinator` in `rho-ui-core`, enabling the Web Hub to queue prompts while turns are executing.
-- **REQ-021**: The slash command registry (`SlashCommandDef`) must be declared once in `rho-ui-core` with typed argument definitions (`SlashArgumentType`), automatically generating command lists, argument autocomplete candidates, `/help` reference strings, and Web Hub command palettes without hardcoded string prefix matching.
-- **REQ-022**: MCP server configuration and toggle states must be managed by `McpModalState` in `rho-ui-core`, enabling the Web Hub to inspect and toggle MCP servers.
-- **REQ-023**: Installed skills and prompt templates must be inspectable and expandable via `SkillModalState` in `rho-ui-core`, replacing `inquire` in `src/repl/commands/skill.rs` and providing the Web Hub with interactive skill browsing.
-- **REQ-024**: User settings configuration (`SettingsState`: thinking output toggle, tool expansion toggle, vim mode, version banner) must live in `rho-ui-core`, rendering in both the TUI `/settings` modal and a Dioxus Web Hub Settings dialog.
-- **REQ-025**: Global shortcuts (double-escape tree navigation, `Alt+T` thinking cycling, `Alt+P`/`Alt+N` model cycling) must be handled by shared action reducers in `rho-ui-core`.
-- **REQ-026**: External dependencies (`inquire`, `indicatif`, `reedline`, `anstyle`) and custom event batch queues (`PendingUiBatch` / `LiveBatch` - 617 lines) must be completely removed, relying on Ratatui's native offscreen double-buffering.
-- **REQ-027**: Session command execution (`SessionCommandExecutor`: fork, clone, resume, compact, model/thinking switches) must be implemented once in `rho-ui-core`, unifying execution paths across TUI modals, line-mode prompts, remote RPC commands, and the `rho rpc` daemon.
-- **REQ-028**: A single canonical event schema (merging `UiEvent` and `RpcEvent`) must be used universally across the execution engine, headless JSON streaming, test sinks, and network transports, eliminating parallel event enum hierarchies.
-- **REQ-029**: Terminal user input must be read directly via `crossterm::event::EventStream` within the async runloop, completely deleting the threaded reader and pause/drain mechanisms in `src/repl/input_reader/`.
-- **REQ-030**: Bash escape prefixes (`!cmd` and `!!cmd`) must be resolved by `use_session` in `rho-ui-core`, ensuring consistent shell execution and context injection across TUI and Web Hub.
-- **REQ-031**: Direct canonical event broadcast channels must replace the multi-tiered presenter abstraction (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`), feeding typed events directly to `rho-ui-core` state reducers without intermediate wrappers.
-- **REQ-032**: The startup session picker (`rho --resume`) must reuse the shared Ratatui modal renderer, completely deleting the standalone terminal session picker engine in `src/ui/interactive/session_picker/`.
-- **REQ-033**: The modal and user selection state machine in `rho-ui-core` must support unified navigation semantics (up/down, horizontal navigation, enter to select, escape to dismiss, search filtering, digit jump keys, and input mode transitions) shared across TUI and Web.
-- **REQ-034**: State mutations and streaming events must update signals directly, ensuring both TUI and Web run the identical state transition logic without translation layers.
+- **REQ-020**: Model discovery and capability descriptors (`ModelRegistry`: context limits, reasoning effort, local model detection) must be centralized in `rho-ui-core`, replacing hardcoded model strings in `rho models` (`src/cli/commands.rs`) and sharing metadata across autocomplete, the CLI `/model` modal, and the Web Hub model selector.
+- **REQ-021**: Ephemeral feedback and system notices must be managed by `use_toast` in `rho-ui-core` with automatic expiration, rendering as divider status text in the TUI and animated toast components in the Web Hub (`src/ui/interactive/controller/system_message.rs` deleted).
+- **REQ-022**: Prompt queuing, follow-up messages, and steering transitions must be managed by `PromptQueueCoordinator` in `rho-ui-core`, enabling the Web Hub to queue prompts while turns are executing.
+- **REQ-023**: The slash command registry (`SlashCommandDef`) must be declared once in `rho-ui-core` with typed argument definitions (`SlashArgumentType`), automatically generating command lists, argument autocomplete candidates, `/help` reference strings, and Web Hub command palettes without hardcoded string prefix matching.
+- **REQ-024**: MCP server configuration and toggle states must be managed by `McpModalState` in `rho-ui-core`, enabling the Web Hub to inspect and toggle MCP servers.
+- **REQ-025**: Installed skills and prompt templates must be inspectable and expandable via `SkillModalState` in `rho-ui-core`, replacing `inquire` in `src/repl/commands/skill.rs` and providing the Web Hub with interactive skill browsing.
+- **REQ-026**: User settings configuration (`SettingsState`: thinking output toggle, tool expansion toggle, vim mode, version banner) must live in `rho-ui-core`, rendering in both the TUI `/settings` modal and a Dioxus Web Hub Settings dialog.
+- **REQ-027**: Global shortcuts (double-escape tree navigation, `Alt+T` thinking cycling, `Alt+P`/`Alt+N` model cycling) must be handled by shared action reducers in `rho-ui-core`.
+- **REQ-028**: External dependencies (`inquire`, `indicatif`, `reedline`, `anstyle`) and custom event batch queues (`PendingUiBatch` / `LiveBatch` - 617 lines) must be completely removed, relying on Ratatui's native offscreen double-buffering.
+- **REQ-029**: Session command execution (`SessionCommandExecutor`: fork, clone, resume, compact, model/thinking switches) must be implemented once in `rho-ui-core`, unifying execution paths across TUI modals, line-mode prompts, remote RPC commands, and the `rho rpc` daemon.
+- **REQ-030**: A single canonical event schema (merging `UiEvent` and `RpcEvent`) must be used universally across the execution engine, headless JSON streaming, test sinks, and network transports, eliminating parallel event enum hierarchies.
+- **REQ-031**: Terminal user input must be read directly via `crossterm::event::EventStream` within the async runloop, completely deleting the threaded reader and pause/drain mechanisms in `src/repl/input_reader/`.
+- **REQ-032**: Bash escape prefixes (`!cmd` and `!!cmd`) must be resolved by `use_session` in `rho-ui-core`, ensuring consistent shell execution and context injection across TUI and Web Hub.
+- **REQ-033**: Direct canonical event broadcast channels must replace the multi-tiered presenter abstraction (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`), feeding typed events directly to `rho-ui-core` state reducers without intermediate wrappers.
+- **REQ-034**: The startup session picker (`rho --resume`) must reuse the shared Ratatui modal renderer, completely deleting the standalone terminal session picker engine in `src/ui/interactive/session_picker/`.
+- **REQ-035**: The modal and user selection state machine in `rho-ui-core` must support unified navigation semantics (up/down, horizontal navigation, enter to select, escape to dismiss, search filtering, digit jump keys, and input mode transitions) shared across TUI and Web.
+- **REQ-036**: State mutations and streaming events must update signals directly, ensuring both TUI and Web run the identical state transition logic without translation layers.
 
 ### Ratatui Terminal Interface
-- **REQ-035**: The terminal interactive runner must use Ratatui with `Viewport::Inline` to render the bottom interactive area (prompt editor, autocomplete menu, active tool progress, and modals).
-- **REQ-036**: The terminal interactive runner must use a single unified reactive runloop, collapsing the legacy separate `idle_loop` and `turn_loop` (~2,500 lines across `src/repl/live/idle/` and `turn/`) into a unified event-driven cycle that handles input, steering, and redraws consistently.
-- **REQ-037**: The prompt input buffer must be managed by `ratatui-textarea`, deprecating bespoke cursor, geometry, and kill-ring logic in `src/ui/interactive/state/editor/`, and delegating all standard Emacs/Readline keys natively.
-- **REQ-038**: The prompt editor must support a configurable Vim mode (Normal, Insert, Visual, Replace, motions `h`/`j`/`k`/`l`/`w`/`b`/`$`/`^`, operators `d`/`y`/`c`, undo/redo) following the `ratatui-textarea` transition state machine.
-- **REQ-039**: Box borders, containers, and cards in the TUI must standardize on Ratatui's native `Block` and `Borders`, deleting `src/ui/block/`.
-- **REQ-040**: Text word-wrapping and visual line calculations in the TUI must be handled natively by Ratatui (`Paragraph::wrap`), deleting bespoke wrapping arithmetic in `src/ui/interactive/layout/text.rs`.
-- **REQ-041**: Tables in the terminal must be rendered using Ratatui's native `Table` widget, deleting manual ASCII border formatting in `src/ui/markdown/table/`.
-- **REQ-042**: Markdown parsing must standardize on `pulldown-cmark` in `rho-ui-core`, deleting regex line scanning and blank spacing tracking in `src/ui/markdown/line.rs` and `spacing.rs`.
-- **REQ-043**: Interactive bash and tool execution streaming must flow into `Signal<ActiveToolState>` in `rho-ui-core`, eliminating custom channel draining loops and timer tickers in `src/repl/live/bash_runner/`.
-- **REQ-044**: The inline viewport height and modal overlays must dynamically clamp to available rows without overflowing terminal boundaries, delegating bounds calculations to Ratatui layout constraints and eliminating `src/ui/interactive/layout/budget.rs`.
-- **REQ-045**: When an execution turn finishes, the completed turn content must be written directly to terminal scrollback wrapped in OSC 133 semantic prompt marks (`OSC133_ZONE_START` / `OSC133_ZONE_END`) to maintain jump-to-previous-turn terminal navigation in modern terminals (Ghostty, iTerm2, WezTerm).
-- **REQ-046**: The terminal interactive runner must support mouse interaction (clicking modal rows, accordion toggles, and approval buttons) via crossterm mouse capture.
-- **REQ-047**: Terminal keybinding semantics must remain identical: `Escape` cancels/dismisses, `Ctrl+C` clears input drafts, `Ctrl+D` exits when prompt is empty, and standard arrow/vi keys navigate modals.
-- **REQ-048**: Custom ANSI painting and cursor diffing logic in `src/ui/interactive/controller/paint.rs` and `ansi.rs` must be completely removed.
+- **REQ-037**: The terminal interactive runner must use Ratatui with `Viewport::Inline` to render the bottom interactive area (prompt editor, autocomplete menu, active tool progress, and modals).
+- **REQ-038**: The terminal interactive runner must use a single unified reactive runloop, collapsing the legacy separate `idle_loop` and `turn_loop` (~2,500 lines across `src/repl/live/idle/` and `turn/`) into a unified event-driven cycle that handles input, steering, and redraws consistently.
+- **REQ-039**: The prompt input buffer must be managed by `ratatui-textarea`, deprecating bespoke cursor, geometry, and kill-ring logic in `src/ui/interactive/state/editor/`, and delegating all standard Emacs/Readline keys natively.
+- **REQ-040**: The prompt editor must support a configurable Vim mode (Normal, Insert, Visual, Replace, motions `h`/`j`/`k`/`l`/`w`/`b`/`$`/`^`, operators `d`/`y`/`c`, undo/redo) following the `ratatui-textarea` transition state machine.
+- **REQ-041**: Box borders, containers, and cards in the TUI must standardize on Ratatui's native `Block` and `Borders`, deleting `src/ui/block/`.
+- **REQ-042**: Text word-wrapping and visual line calculations in the TUI must be handled natively by Ratatui (`Paragraph::wrap`), deleting bespoke wrapping arithmetic in `src/ui/interactive/layout/text.rs`.
+- **REQ-043**: Tables in the terminal must be rendered using Ratatui's native `Table` widget, deleting manual ASCII border formatting in `src/ui/markdown/table/`.
+- **REQ-044**: Markdown parsing must standardize on `pulldown-cmark` in `rho-ui-core`, deleting regex line scanning and blank spacing tracking in `src/ui/markdown/line.rs` and `spacing.rs`.
+- **REQ-045**: Interactive bash and tool execution streaming must flow into `Signal<ActiveToolState>` in `rho-ui-core`, eliminating custom channel draining loops and timer tickers in `src/repl/live/bash_runner/`.
+- **REQ-046**: The inline viewport height and modal overlays must dynamically clamp to available rows without overflowing terminal boundaries, delegating bounds calculations to Ratatui layout constraints and eliminating `src/ui/interactive/layout/budget.rs`.
+- **REQ-047**: When an execution turn finishes, the completed turn content must be written directly to terminal scrollback wrapped in OSC 133 semantic prompt marks (`OSC133_ZONE_START` / `OSC133_ZONE_END`) to maintain jump-to-previous-turn terminal navigation in modern terminals (Ghostty, iTerm2, WezTerm).
+- **REQ-048**: The terminal interactive runner must support mouse interaction (clicking modal rows, accordion toggles, and approval buttons) via crossterm mouse capture.
+- **REQ-049**: Terminal keybinding semantics must remain identical: `Escape` cancels/dismisses, `Ctrl+C` clears input drafts, `Ctrl+D` exits when prompt is empty, and standard arrow/vi keys navigate modals.
+- **REQ-050**: Custom ANSI painting and cursor diffing logic in `src/ui/interactive/controller/paint.rs` and `ansi.rs` must be completely removed.
 
 ### Dioxus Web Hub Interface
-- **REQ-049**: All JavaScript application logic in `www/hub/js/` (`client.js`, `app.js`, `session.js`, `auth.js`, `registry.js`) must be replaced by a Dioxus application compiled to WebAssembly.
-- **REQ-050**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components, deprecating manual custom CSS in `www/hub/css/hub.css`.
-- **REQ-051**: OAuth and credential input callbacks must standardize on `RpcAuthBridge` in `rho_harness_core`, eliminating blocking `inquire` input tasks in `src/cli/auth/callbacks.rs`.
-- **REQ-052**: The Web Hub must render inline image previews with modal zoom and support 1-click in-browser session exporting (Markdown and HTML file download) reusing `rho_harness_core::session::export`.
-- **REQ-053**: Peer-to-peer connectivity via Iroh must operate directly within Rust WebAssembly in `crates/rho-wasm`, deserializing canonical events directly without crossing `JsValue` boundaries or delegating to JavaScript callbacks.
-- **REQ-054**: Local storage persistence (node tickets, saved sessions, sidebar toggle states) must be managed via web-sys wrappers within the Dioxus application.
-- **REQ-055**: The Web Hub build pipeline must integrate into `make wasm`, producing a production-ready WASM bundle and asset structure.
+- **REQ-051**: All JavaScript application logic in `www/hub/js/` (`client.js`, `app.js`, `session.js`, `auth.js`, `registry.js`) must be replaced by a Dioxus application compiled to WebAssembly.
+- **REQ-052**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components, deprecating manual custom CSS in `www/hub/css/hub.css`.
+- **REQ-053**: OAuth and credential input callbacks must standardize on `RpcAuthBridge` in `rho_harness_core`, eliminating blocking `inquire` input tasks in `src/cli/auth/callbacks.rs`.
+- **REQ-054**: The Web Hub must render inline image previews with modal zoom and support 1-click in-browser session exporting (Markdown and HTML file download) reusing `rho_harness_core::session::export`.
+- **REQ-055**: Peer-to-peer connectivity via Iroh must operate directly within Rust WebAssembly in `crates/rho-wasm`, deserializing canonical events directly without crossing `JsValue` boundaries or delegating to JavaScript callbacks.
+- **REQ-056**: Local storage persistence (node tickets, saved sessions, sidebar toggle states) must be managed via web-sys wrappers within the Dioxus application.
+- **REQ-057**: The Web Hub build pipeline must integrate into `make wasm`, producing a production-ready WASM bundle and asset structure.
 
 ### UI Parity and Interaction
-- **REQ-056**: All interactive modals (thinking selector, model picker, login provider, MCP servers, session list) and user selection screens must present the same options, indicators (active checkmarks), and search filtering in both interfaces.
-- **REQ-057**: Tool permission and approval prompts (`Allow once`, `Allow always`, `Deny with reason`, `Edit command`) must be driven by `use_permission_prompt`, supporting inline parameter editing via `ratatui-textarea` in the TUI and Dioxus form components in the Web Hub.
-- **REQ-058**: Thinking blocks must stream in real time with duration counters and support expandable/collapsible accordion display on both platforms.
-- **REQ-059**: Tool execution cards must visually represent status states (running, success, error) and structured output (including syntax-highlighted diffs) consistently across both TUI and Web Hub.
-- **REQ-060**: Markdown rendering must preserve high-fidelity presentation: code block syntax highlighting, table borders, and Mermaid diagram rendering (ASCII diagram rendering via `merman` in TUI, interactive SVG in Web Hub).
-- **REQ-061**: Streaming token chunks must be parsed by a unified `StreamChunkParser` in `rho-ui-core`, emitting typed `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
-- **REQ-062**: Bracketed paste handling must preserve collapsed paste markers (`[paste #1 +50 lines]`) when pasting large multiline blocks into `ratatui-textarea` and web input, expanding automatically upon turn submission.
-- **REQ-063**: Clipboard image pasting (via `arboard` in TUI and Web Clipboard API in Web Hub) must store image assets and insert reference tokens (`[image /tmp/...]`) seamlessly.
-- **REQ-064**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
-- **REQ-065**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
-- **REQ-066**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
+- **REQ-058**: All interactive modals (thinking selector, model picker, login provider, MCP servers, session list) and user selection screens must present the same options, indicators (active checkmarks), and search filtering in both interfaces.
+- **REQ-059**: Tool permission and approval prompts (`Allow once`, `Allow always`, `Deny with reason`, `Edit command`) must be driven by `use_permission_prompt`, supporting inline parameter editing via `ratatui-textarea` in the TUI and Dioxus form components in the Web Hub.
+- **REQ-060**: Thinking blocks must stream in real time with duration counters and support expandable/collapsible accordion display on both platforms.
+- **REQ-061**: Tool execution cards must visually represent status states (running, success, error) and structured output (including syntax-highlighted diffs) consistently across both TUI and Web Hub.
+- **REQ-062**: Markdown rendering must preserve high-fidelity presentation: code block syntax highlighting, table borders, and Mermaid diagram rendering (ASCII diagram rendering via `merman` in TUI, interactive SVG in Web Hub).
+- **REQ-063**: Streaming token chunks must be parsed by a unified `StreamChunkParser` in `rho-ui-core`, emitting typed `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
+- **REQ-064**: Bracketed paste handling must preserve collapsed paste markers (`[paste #1 +50 lines]`) when pasting large multiline blocks into `ratatui-textarea` and web input, expanding automatically upon turn submission.
+- **REQ-065**: Clipboard image pasting (via `arboard` in TUI and Web Clipboard API in Web Hub) must store image assets and insert reference tokens (`[image /tmp/...]`) seamlessly.
+- **REQ-066**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
+- **REQ-067**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
+- **REQ-068**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
 
 ## Invariants and security boundaries
 
