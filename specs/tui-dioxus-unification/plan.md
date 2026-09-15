@@ -1,0 +1,126 @@
+# Implementation Plan: Ratatui TUI and Dioxus Web UI Unification
+
+## Overview
+
+This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI terminal diffing engine and vanilla JavaScript Web Hub with:
+1. **`crates/rho-ui-core`**: A shared reactive state core powered by Dioxus signals and custom hooks.
+2. **Native TUI**: Ratatui with `Viewport::Inline` and `ratatui-textarea` (featuring optional Vim mode).
+3. **Web Hub**: A Dioxus 0.6+ WebAssembly application built with Dioxus Components over Iroh P2P.
+
+---
+
+## Slice 1: Reactive Core (`crates/rho-ui-core`)
+
+- **Goal**: Create a platform-agnostic Rust crate containing unified UI view models, Dioxus reactive signals, and state hooks that compile on native and `wasm32-unknown-unknown`.
+- **Acceptance Criteria**:
+  - `crates/rho-ui-core` compiles cleanly on `cargo check --target wasm32-unknown-unknown` and native.
+  - View models exist for `TranscriptItem`, `ThinkingBlock`, `ToolCard`, `ModalState`, and `AutocompleteCandidate`.
+  - Reusable hooks (`use_session`, `use_modal`, `use_autocomplete`, `use_stream_parser`) pass in-memory headless unit tests.
+- **Tasks**:
+  1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `serde`, and `fuzzy-matcher`.
+  2. (Effort: 3) Implement reactive state structures and signals for chat transcript, active tool progress, and token streaming.
+  3. (Effort: 2) Implement `<thinking>` tag extraction and collapsible state hook in `use_stream_parser`.
+  4. (Effort: 3) Implement `use_modal` state machine handling selection index, fuzzy search filtering, active indicators, and pagination.
+  5. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
+  6. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
+- **Verification**:
+  - `cargo test -p rho-ui-core`
+  - `cargo check -p rho-ui-core --target wasm32-unknown-unknown`
+
+---
+
+## Slice 2: Ratatui Terminal Engine & Inline Viewport
+
+- **Goal**: Replace hand-rolled ANSI line diffing and cursor tracking in the terminal with Ratatui's native `Viewport::Inline`.
+- **Acceptance Criteria**:
+  - Inline terminal interaction retains full scrollback history; completed turns are committed to terminal stdout without viewport overlap.
+  - Hand-rolled cursor bookkeeping (`OutputTracker`, `src/ui/interactive/controller/paint.rs`, `screen_sim.rs`) is deprecated and removed.
+  - Headless test backend (`ratatui::backend::TestBackend`) verifies rendering deterministically without custom terminal emulation.
+- **Tasks**:
+  1. (Effort: 2) Add `ratatui` (with `crossterm` feature) to workspace dependencies.
+  2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content.
+  3. (Effort: 3) Connect Dioxus headless reactive runtime to Ratatui draw loop, triggering frame renders upon signal mutations or terminal resize events.
+  4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
+  5. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
+  6. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, and `screen_sim.rs`.
+- **Verification**:
+  - `cargo test -p rho --lib ui::interactive`
+
+---
+
+## Slice 3: Prompt Editor & Vim Mode (`ratatui-textarea`)
+
+- **Goal**: Replace ~620 lines of hand-crafted editor logic with `ratatui-textarea`, providing robust multi-line editing, undo/redo, and configurable Vim mode.
+- **Acceptance Criteria**:
+  - Text input supports multi-line navigation, word skipping, undo/redo, and paste without custom cursor math.
+  - Configurable Vim mode (`Normal`, `Insert`, `Visual`, `Replace`) supports standard motions (`h`/`j`/`k`/`l`/`w`/`b`/`$` etc.) and operators (`d`/`y`/`c`).
+  - Active editor mode (e.g. `[NORMAL]`, `[INSERT]`) renders cleanly on the input divider.
+- **Tasks**:
+  1. (Effort: 1) Add `ratatui-textarea` to workspace dependencies.
+  2. (Effort: 3) Implement `Vim` state transition machine and key dispatcher in the interactive editor following `ratatui-textarea/examples/vim.rs`.
+  3. (Effort: 2) Integrate `TextArea` widget into the Ratatui inline viewport layout with theme styling and placeholder support.
+  4. (Effort: 2) Add configuration option in `config.toml` (`[editor] mode = "vim" | "default"`).
+  5. (Effort: 2) Write unit tests for Vim mode transitions, motions, text deletion, and undo/redo stacks.
+  6. (Effort: 2) Delete `src/ui/interactive/state/editor/` (`geometry.rs`, `history.rs`, `mutate.rs`, `navigation.rs`).
+- **Verification**:
+  - `cargo test -p rho --test editor`
+
+---
+
+## Slice 4: Ratatui Modals, Autocomplete & Widgets
+
+- **Goal**: Implement standard Ratatui stateful widgets for floating modals, autocomplete dropdowns, and streaming tool cards driven by `rho-ui-core` signals.
+- **Acceptance Criteria**:
+  - All interactive selectors (`/thinking`, `/model`, `/login`, `/mcp`, `/session`) render centered over the inline viewport using Ratatui `Clear`, `Block`, and `List`.
+  - Slash command and file autocomplete popup renders anchored above or inside the input area with fuzzy highlight matching.
+  - Active tool running states and thinking status accordions render cleanly in the inline view.
+- **Tasks**:
+  1. (Effort: 2) Build reusable `render_modal` helper using Ratatui `Clear`, `Block`, borders, and `ListState`.
+  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, and session history.
+  3. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
+  4. (Effort: 2) Build active tool card and streaming spinner widget.
+  5. (Effort: 2) Unit test modal widget rendering across terminal dimensions using `TestBackend`.
+- **Verification**:
+  - `cargo test -p rho --lib repl::live`
+
+---
+
+## Slice 5: Dioxus Web Hub Application
+
+- **Goal**: Rebuild `www/hub/` as a single-page WebAssembly application in Rust using Dioxus and Dioxus Components, completely eliminating vanilla JavaScript.
+- **Acceptance Criteria**:
+  - All JavaScript files in `www/hub/js/` are removed; `www/hub/index.html` loads the compiled Dioxus WASM binary.
+  - Fleet node grid, session sidebar, chat transcript, thinking accordions, and modals render using Dioxus Components (`dioxuslabs.com/components`).
+  - Direct in-browser Iroh P2P connection operates reactively via Dioxus coroutines and `rho-ui-core` signals.
+  - `make wasm` produces an optimized release WASM bundle.
+- **Tasks**:
+  1. (Effort: 2) Expand `crates/rho-wasm` to a Dioxus web target (`dioxus`, `dioxus-web`, and `dioxus-components`).
+  2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals.
+  3. (Effort: 3) Build Fleet Overview view (node grid, node cards, connection status pills, ticket pairing modal).
+  4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
+  5. (Effort: 3) Build Modals and Session Sidebar (session history, auth modal, provider credentials) using Dioxus Components.
+  6. (Effort: 2) Connect web storage persistence (saved nodes, tickets, active session ID) via browser `web-sys` hooks.
+  7. (Effort: 2) Remove `www/hub/js/*.js` and update `Makefile` target `make wasm` with `wasm-opt` size optimization.
+- **Verification**:
+  - `make wasm`
+  - Browser verification of node pairing, chat streaming, and modal workflows.
+
+---
+
+## Slice 6: Parity Audit, Cleanup & Final Polish
+
+- **Goal**: Verify complete bidirectional feature parity between native terminal and Web Hub, verify zero lint regressions, and update documentation.
+- **Acceptance Criteria**:
+  - All modals, commands, and tool displays look and behave identically in TUI and Web Hub.
+  - All workspace crates pass strict Clippy with zero warnings (`-D warnings`).
+  - Documentation in `docs/` and `README.md` accurately describes the new architecture and Vim mode option.
+- **Tasks**:
+  1. (Effort: 2) Audit keyboard navigation and visual parity between TUI and Web Hub across all modals.
+  2. (Effort: 2) Delete leftover deprecated structs, unused imports, and unneeded dependencies in `Cargo.toml`.
+  3. (Effort: 2) Update documentation: document Vim mode keybindings and Web Hub architecture.
+  4. (Effort: 2) Run full workspace format check, clippy, and test suite.
+- **Verification**:
+  - `cargo fmt --all -- --check`
+  - `make clippy`
+  - `make wasm`
+  - `cargo test --workspace`
