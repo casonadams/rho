@@ -217,15 +217,77 @@ pub enum RpcEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    Notice {
+        message: String,
+    },
     Error {
         code: String,
         message: String,
     },
 }
 
+impl From<crate::presentation::types::UiEvent> for RpcEvent {
+    fn from(event: crate::presentation::types::UiEvent) -> Self {
+        match event {
+            crate::presentation::types::UiEvent::Token { token } => RpcEvent::TextChunk { content: token },
+            crate::presentation::types::UiEvent::ThinkingToken { token } => RpcEvent::ReasoningChunk { content: token },
+            crate::presentation::types::UiEvent::ToolStarted { name, arguments } => RpcEvent::ToolCallStart {
+                call_id: String::new(),
+                tool: name,
+                arguments,
+            },
+            crate::presentation::types::UiEvent::ToolFinished { line } => RpcEvent::ToolCallResult {
+                call_id: String::new(),
+                tool: line.name,
+                output: line.output,
+                is_error: line.is_error,
+                duration_ms: line.duration_ms.unwrap_or(0),
+            },
+            crate::presentation::types::UiEvent::Notice { text } => RpcEvent::Notice { message: text },
+            crate::presentation::types::UiEvent::TurnStarted { prompt } => {
+                RpcEvent::TurnStart { turn_number: 0, prompt }
+            }
+            crate::presentation::types::UiEvent::TurnCompleted { status } => RpcEvent::TurnEnd { stop_reason: status },
+            crate::presentation::types::UiEvent::Error { message } => RpcEvent::Error {
+                code: "runtime_error".to_string(),
+                message,
+            },
+            crate::presentation::types::UiEvent::ActivityStarted { message } => {
+                RpcEvent::StatusChanged { status: message }
+            }
+            crate::presentation::types::UiEvent::ActivityFinished => RpcEvent::StatusChanged {
+                status: "idle".to_string(),
+            },
+            crate::presentation::types::UiEvent::SessionStatus { display } => RpcEvent::StatusChanged {
+                status: format!("{} ({})", display.model, display.context),
+            },
+            crate::presentation::types::UiEvent::Welcome { .. }
+            | crate::presentation::types::UiEvent::UserBlock { .. }
+            | crate::presentation::types::UiEvent::ToolChunk { .. } => {
+                RpcEvent::StatusChanged { status: String::new() }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_from_ui_event_to_rpc_event() {
+        let ui_tok = crate::presentation::types::UiEvent::Token {
+            token: "hello".to_string(),
+        };
+        let rpc_tok: RpcEvent = ui_tok.into();
+        assert!(matches!(rpc_tok, RpcEvent::TextChunk { content } if content == "hello"));
+
+        let ui_notice = crate::presentation::types::UiEvent::Notice {
+            text: "warning".to_string(),
+        };
+        let rpc_notice: RpcEvent = ui_notice.into();
+        assert!(matches!(rpc_notice, RpcEvent::Notice { message } if message == "warning"));
+    }
 
     #[test]
     fn test_rpc_request_parsing() {

@@ -4,6 +4,7 @@ members = [
     ".",
     "crates/rho-harness-core",
     "crates/rho-engine",
+    "crates/rho-ui-core",
     "crates/rho-wasm",
 ]
 
@@ -32,7 +33,13 @@ tiktoken-rs = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 fuzzy-matcher = "0.3.7"
+similar = { version = "3.2", features = ["inline"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+ratatui = { version = "0.30", default-features = false }
+dioxus-core = "0.6"
+dioxus-signals = "0.6"
 rho-harness-core = { version = "0.7.5", path = "crates/rho-harness-core" }
+rho-ui-core = { version = "0.7.5", path = "crates/rho-ui-core" }
 rho-engine = { version = "0.7.5", path = "crates/rho-engine" }
 rig = { version = "0.42", default-features = false, features = ["agent", "derive", "test-utils"] }
 rig-memory = "0.42"
