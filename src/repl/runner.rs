@@ -551,6 +551,17 @@ fn drain_ui_event(
         UiEvent::Output(OutputEvent::Text(t) | OutputEvent::StreamText(t)) => {
             output.push_str(&t);
         }
+        UiEvent::ToolStart(req) => {
+            let theme = &session.renderer.theme;
+            let header = crate::ui::render::format_bash_args_header(&req.args_summary, theme.prompt, theme.dimmed);
+            output.push_str(&format!("\n{header}\n"));
+        }
+        UiEvent::ToolChunk { chunk } => {
+            output.push_str(&chunk);
+        }
+        UiEvent::ToolEnd => {
+            output.push('\n');
+        }
         UiEvent::Transcript(item) => {
             if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
                 return;
@@ -1176,25 +1187,19 @@ fn handle_turn_key_input(
     }
 }
 
-fn setup_turn_execution<'a>(
-    engine: &'a AgentEngine,
+fn init_turn_channels(
+    engine: &AgentEngine,
     renderer: crate::ui::TerminalRenderer,
-    prompt: &'a str,
-    cancellation: &'a Arc<CancellationSignal>,
 ) -> (
     Arc<SharedSteeringQueue>,
-    TurnRequest<'a>,
     Arc<dyn rho_harness_core::presentation::Presenter>,
 ) {
     let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
     crate::platform::remote::set_active_steering(Some(steering.clone()));
-    let request = TurnRequest::new(prompt)
-        .with_cancellation(cancellation)
-        .with_steering(steering.clone());
     let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(
         crate::ui::render::BroadcastPresenter::new(Arc::new(renderer), crate::platform::remote::PEER_REGISTRY.clone()),
     );
-    (steering, request, broadcast)
+    (steering, broadcast)
 }
 
 fn flush_or_refresh_turn_tick(
@@ -1213,14 +1218,17 @@ fn flush_or_refresh_turn_tick(
     Ok(())
 }
 
-fn handle_turn_event(
-    ui_ev: UiEvent,
-    state: &mut RunnerState<'_>,
-    active_responder: &mut Option<InteractionResponder>,
-    pending_scrollback: &mut String,
-    current_activity: &mut Activity,
-    current_tool: &mut Option<String>,
-) {
+#[derive(Default)]
+struct TurnStreamState {
+    pub activity: Activity,
+    pub tool: Option<String>,
+    pub scrollback: String,
+    pub responder: Option<InteractionResponder>,
+    pub tick_counter: usize,
+    pub spinner_frame: usize,
+}
+
+fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut TurnStreamState) {
     match ui_ev {
         UiEvent::Interaction { prompt: p, responder } => {
             let perm_state = PermissionPromptState {
@@ -1235,10 +1243,16 @@ fn handle_turn_event(
             };
             let view = PermissionPromptView::new(perm_state);
             *state.active_modal = Some(ActiveModal::Permission(Box::new(view)));
-            *active_responder = Some(responder);
+            stream.responder = Some(responder);
         }
         other => {
-            drain_ui_event(other, pending_scrollback, current_activity, current_tool, state.session);
+            drain_ui_event(
+                other,
+                &mut stream.scrollback,
+                &mut stream.activity,
+                &mut stream.tool,
+                state.session,
+            );
         }
     }
 }
@@ -1259,47 +1273,41 @@ async fn execute_agent_turn(
     );
     print_initial_prompt(state, prompt, &footer, &mut tracker)?;
 
-    let renderer = state.session.renderer.clone();
     let cancellation = Arc::new(CancellationSignal::default());
-    let (steering, request, broadcast) = setup_turn_execution(engine, renderer, prompt, &cancellation);
+    let (steering, broadcast) = init_turn_channels(engine, state.session.renderer.clone());
+    let request = TurnRequest::new(prompt)
+        .with_cancellation(&cancellation)
+        .with_steering(steering.clone());
     broadcast_turn_start(prompt);
 
     let mut turn_future = Box::pin(engine.run_turn(request, broadcast));
     let mut ticker = tokio::time::interval(Duration::from_millis(16));
-    let mut spinner_frame = 0;
-    let mut current_activity = Activity::Working;
-    let mut current_tool: Option<String> = None;
-    let mut pending_scrollback = String::new();
-    let mut active_responder: Option<InteractionResponder> = None;
+    let mut stream = TurnStreamState::default();
 
     loop {
         tokio::select! {
             res = &mut turn_future => {
                 while let Ok(ui_ev) = ui_events.try_recv() {
-                    drain_ui_event(ui_ev, &mut pending_scrollback, &mut current_activity, &mut current_tool, state.session);
+                    drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.tool, state.session);
                 }
                 if let Err(ref err) = res {
-                    pending_scrollback.push_str(&format!("\nError: {err}\n"));
+                    stream.scrollback.push_str(&format!("\nError: {err}\n"));
                 }
-                pending_scrollback.push('\n');
-                refresh_display(state, &footer, None, Some(&pending_scrollback), &mut tracker)?;
-                pending_scrollback.clear();
+                stream.scrollback.push('\n');
+                refresh_display(state, &footer, None, Some(&stream.scrollback), &mut tracker)?;
+                stream.scrollback.clear();
                 break;
             }
             Some(ui_ev) = ui_events.recv() => {
-                handle_turn_event(
-                    ui_ev,
-                    state,
-                    &mut active_responder,
-                    &mut pending_scrollback,
-                    &mut current_activity,
-                    &mut current_tool,
-                );
+                handle_turn_event(ui_ev, state, &mut stream);
             }
             _ = ticker.tick() => {
-                spinner_frame = (spinner_frame + 1) % 10;
-                let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
-                flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut pending_scrollback, &mut tracker)?;
+                stream.tick_counter += 1;
+                if stream.tick_counter.is_multiple_of(5) {
+                    stream.spinner_frame = (stream.spinner_frame + 1) % 10;
+                }
+                let activity_meta = (&stream.activity, stream.tool.as_deref(), stream.spinner_frame);
+                flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut stream.scrollback, &mut tracker)?;
             }
             maybe_key = events.next() => {
                 if let Some(Ok(Event::Key(key))) = maybe_key {
@@ -1308,16 +1316,16 @@ async fn execute_agent_turn(
                         state,
                         &steering,
                         &cancellation,
-                        &mut active_responder,
-                        &mut pending_scrollback,
+                        &mut stream.responder,
+                        &mut stream.scrollback,
                     );
                     if cancelled {
                         let _ = engine.record_cancellation("operator interrupt").await;
-                        refresh_display(state, &footer, None, Some(&pending_scrollback), &mut tracker)?;
-                        pending_scrollback.clear();
+                        refresh_display(state, &footer, None, Some(&stream.scrollback), &mut tracker)?;
+                        stream.scrollback.clear();
                         break;
                     }
-                    let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
+                    let activity_meta = (&stream.activity, stream.tool.as_deref(), stream.spinner_frame);
                     refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
                 }
             }
