@@ -102,6 +102,8 @@ This separation causes significant friction:
 - Automatically enforce repository modal standards (Title Case, fixed-width columns, active checkmarks `"  ✓"`, `Up`/`Down`/`k`/`j`/`Tab`/`Shift+Tab`, digit jump keys `1..=9`, search filtering) across all interactive selectors via `use_modal()` in `rho-ui-core`.
 - Deduplicate YAML frontmatter parsing across skills and prompt templates in `rho_harness_core`.
 - Standardize theme structures on `ratatui::style::Style` and `Color::Rgb` natively in `rho-ui-core`, eliminating `anstyle` completely from workspace dependencies and feature configurations.
+- Support interactive node pairing (`/pair`) with visual QR codes rendered via Ratatui Unicode blocks in the TUI and SVG components in the Web Hub.
+- Render URLs and web search citations as clickable OSC 8 hyperlinks in Ratatui Spans, providing parity with browser `<a>` anchors.
 - Unify MCP server test diagnostics into structured `McpTestReport` in `rho_engine::mcp`, reused identically across CLI `rho mcp test`, the TUI `/mcp` modal, and the Web Hub MCP manager dashboard.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
@@ -325,6 +327,8 @@ crates/rho-wasm/
 - **REQ-093**: Mouse wheel scrolling across modals, diff views, and transcript history must apply standardized velocity scaling (3 lines per notch) in both TUI and Web Hub.
 - **REQ-094**: MCP server connectivity testing must yield a structured `McpTestReport` from `rho_engine::mcp`, displaying initialization duration, server capabilities, and discovered tool counts identically in CLI `rho mcp test`, TUI `/mcp` modal, and Web Hub.
 - **REQ-095**: Theme definition and color palette detection must operate natively via `ratatui::style::Style` and `ratatui::style::Color`, eliminating all usage of `anstyle` and removing `anstyle` feature dependencies from `terminal-colorsaurus`.
+- **REQ-096**: Interactive remote pairing (`/pair`) must display the endpoint ticket and visual QR code using Ratatui Unicode block elements in the TUI and SVG components in the Web Hub.
+- **REQ-097**: URLs in markdown text, search results, and fetched pages must render as OSC 8 hyperlinks in Ratatui terminal spans where supported, matching clickable web hyperlinks.
 
 ## Invariants and security boundaries
 

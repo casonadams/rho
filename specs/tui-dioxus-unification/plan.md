@@ -21,7 +21,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Tasks**:
   1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `pulldown-cmark`, `similar`, `fuzzy-matcher`, and `serde`.
   2. (Effort: 3) Implement Semantic UI Block IR (`ContentBlock`, `InlineSpan`, `HighlightedLine`, `DiffHunk`, `StyleToken`, `ThemeTokens`, `ImageAttachment`, `ToolInvocation`) and theme structures using `ratatui::style::Style` and `Color::Rgb` natively, eliminating `anstyle` from workspace dependencies.
-  3. (Effort: 3) Implement unified markdown, table, and stream tokenizer converting streams into typed `ContentBlock` items.
+  3. (Effort: 3) Implement unified markdown, table, and stream tokenizer converting streams into typed `ContentBlock` items, embedding OSC 8 hyperlinks for URLs and search results.
   4. (Effort: 2) Implement unified diff tokenizer via `similar` crate in `rho-ui-core`, producing `DiffHunk` structures and deprecating custom LCS logic.
   5. (Effort: 3) Unify `UiEvent` and `RpcEvent` into a single canonical event schema in `rho_harness_core` and implement `StreamChunkParser` emitting canonical events.
   6. (Effort: 3) Implement `use_modal` state machine handling selection index, `fuzzy-matcher` scoring, active indicators, and pagination.
@@ -89,7 +89,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Active tool running states and thinking status accordions render cleanly in the inline view.
 - **Tasks**:
   1. (Effort: 2) Build reusable `render_modal` helper using Ratatui `Clear`, `Block`, borders, and `ListState`.
-  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management (displaying `McpTestReport` diagnostics), skill explorer (`/skill`), and session history, enforcing repository `AGENTS.md` modal UX guidelines (Title Case, fixed-width formatting, active indicators, digit jump keys `1..=9`).
+  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management (displaying `McpTestReport` diagnostics), skill explorer (`/skill`), remote pairing (`/pair` with QR code), and session history, enforcing repository `AGENTS.md` modal UX guidelines (Title Case, fixed-width formatting, active indicators, digit jump keys `1..=9`).
   3. (Effort: 3) Implement tool permission approval screen with scrollable diff/command preview and embedded `ratatui-textarea` for command modification.
   4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
   5. (Effort: 2) Build active tool card, visual compaction milestone badges, and streaming spinner widget driven directly by `Signal<ActiveToolState>`, deleting bespoke channel polling in `src/repl/live/bash_runner/progress.rs`.
