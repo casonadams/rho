@@ -68,7 +68,8 @@ This separation causes significant friction:
 - Standardize markdown parsing on `pulldown-cmark`, deleting ~276 lines of manual regex line scanning and blank-line spacing state machines in `src/ui/markdown/line.rs` and `spacing.rs`.
 - Prune 20+ redundant low-level text editor keybinding definitions from `src/ui/interactive/keybinding_loader/`, delegating standard Emacs/Readline editing actions directly to `ratatui-textarea`.
 - Unify interactive tool execution and bash streaming directly through reactive tool state signals in `rho-ui-core`, eliminating custom channel polling loops in `src/repl/live/bash_runner/`.
-- Provide browser-native session exporting (Markdown/HTML download) in the Web Hub by reusing `rho_harness_core::session::export` in WASM.
+- Provide browser-native session exporting (Markdown/HTML download) in the Web Hub by reusing `rho_harness_core::session::export` in WASM, and standardize artifact export rendering directly on `ContentBlock` to eliminate duplicate message loop iterators.
+- Centralize `SessionSummary` display title and relative timestamp formatting in `rho-ui-core`, eliminating client-side string truncation fallbacks in JavaScript.
 - Eliminate hardcoded string prefix checking for command arguments in `src/repl/interactive/completion/args.rs`, driving argument completions declaratively from `SlashCommandDef` argument types (`SlashArgumentType`) in `rho-ui-core`.
 - Centralize ephemeral system feedback and transient toasts (`use_toast`) in `rho-ui-core`, eliminating custom 3-second expiration math in `src/ui/interactive/controller/system_message.rs` and enabling animated toast components in the Web Hub.
 - Replace hardcoded provider model lists in `rho models` (`src/cli/commands.rs`) with dynamic model discovery from `ModelRegistry`.
@@ -208,11 +209,12 @@ crates/rho-wasm/
 - **REQ-012**: Startup welcome cards, tool categorization (built-in, MCP, custom), and session notice formatting must be generated exclusively by `rho-ui-core`.
 - **REQ-013**: Provider authentication definitions (`PROVIDER_DEFS`) must be centralized in `rho-ui-core`, serving as the single source of truth across CLI commands (`rho auth login`), the REPL `/login` modal, and the Web Hub auth dialog.
 - **REQ-014**: Code block presentation in `ContentBlock::CodeBlock` must natively support line numbering and gutter width offsets, eliminating manual tabbed line parsing (`parse_read_line`) in renderers.
-- **REQ-015**: Session relative timestamps and status formatting must be implemented in `rho-ui-core`, ensuring consistent time representations across TUI and Web Hub session lists.
-- **REQ-016**: Session message hydration and execution lifecycle transitions (`Prompt` when idle, `Steer` when running, `Abort` on cancel) must be managed exclusively by `use_session` in `rho-ui-core`.
-- **REQ-017**: Iroh pairing ticket extraction and decoding must be standardized in `rho_harness_core::rpc::ticket`, eliminating duplicate copy-pasted extraction logic across `src/platform/remote/endpoint.rs`, `crates/rho-wasm/src/lib.rs`, and `www/hub/js/app.js`.
-- **REQ-018**: Active approvals, steering queues, and prompt channels must be encapsulated directly within `use_session` in `rho-ui-core`, eliminating unsafe global static singletons (`ACTIVE_APPROVALS`, `ACTIVE_STEERING`, `REMOTE_PROMPT_QUEUE` in `src/platform/remote/mod.rs`).
-- **REQ-020**: Model discovery and capability descriptors (`ModelRegistry`: context limits, reasoning effort, local model detection) must be centralized in `rho-ui-core`, replacing hardcoded model strings in `rho models` (`src/cli/commands.rs`) and sharing metadata across autocomplete, the CLI `/model` modal, and the Web Hub model selector.
+- **REQ-015**: Session relative timestamps, display title formatting, and summary diagnostics must be implemented in `rho-ui-core`, ensuring consistent time representations across TUI and Web Hub session lists without client-side fallback hacks.
+- **REQ-016**: Session message hydration and artifact exporting (`export.rs`) must standardize on `ContentBlock` in `rho-ui-core`, eliminating duplicate private block enums and redundant message iteration loops.
+- **REQ-017**: Session turn execution lifecycle transitions (`Prompt` when idle, `Steer` when running, `Abort` on cancel) must be managed exclusively by `use_session` in `rho-ui-core`.
+- **REQ-018**: Iroh pairing ticket extraction and decoding must be standardized in `rho_harness_core::rpc::ticket`, eliminating duplicate copy-pasted extraction logic across `src/platform/remote/endpoint.rs`, `crates/rho-wasm/src/lib.rs`, and `www/hub/js/app.js`.
+- **REQ-019**: Active approvals, steering queues, and prompt channels must be encapsulated directly within `use_session` in `rho-ui-core`, eliminating unsafe global static singletons (`ACTIVE_APPROVALS`, `ACTIVE_STEERING`, `REMOTE_PROMPT_QUEUE` in `src/platform/remote/mod.rs`).
+- **REQ-020**: Dynamic model discovery and capability descriptors (`ModelRegistry`: context limits, reasoning effort, local model detection) must be centralized in `rho-ui-core`, replacing hardcoded model strings in `rho models` (`src/cli/commands.rs`) and sharing metadata across autocomplete, the CLI `/model` modal, and the Web Hub model selector.
 - **REQ-021**: Ephemeral feedback and system notices must be managed by `use_toast` in `rho-ui-core` with automatic expiration, rendering as divider status text in the TUI and animated toast components in the Web Hub (`src/ui/interactive/controller/system_message.rs` deleted).
 - **REQ-022**: Prompt queuing, follow-up messages, and steering transitions must be managed by `PromptQueueCoordinator` in `rho-ui-core`, enabling the Web Hub to queue prompts while turns are executing.
 - **REQ-023**: The slash command registry (`SlashCommandDef`) must be declared once in `rho-ui-core` with typed argument definitions (`SlashArgumentType`), automatically generating command lists, argument autocomplete candidates, `/help` reference strings, and Web Hub command palettes without hardcoded string prefix matching.
@@ -267,6 +269,7 @@ crates/rho-wasm/
 - **REQ-066**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
 - **REQ-067**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
 - **REQ-068**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
+- **REQ-069**: Session conversation exporting (`export.rs`) must project `ContentBlock` directly to Markdown and HTML, eliminating private block enums and duplicate message iteration loops.
 
 ## Invariants and security boundaries
 
