@@ -14,17 +14,19 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Goal**: Create a platform-agnostic Rust crate containing unified UI view models, Dioxus reactive signals, and state hooks that compile on native and `wasm32-unknown-unknown`.
 - **Acceptance Criteria**:
   - `crates/rho-ui-core` compiles cleanly on `cargo check --target wasm32-unknown-unknown` and native.
-  - View models exist for `TranscriptItem`, `ThinkingBlock`, `ToolCard`, `ModalState`, and `AutocompleteCandidate`.
+  - View models and Semantic UI Block IR exist (`ContentBlock`, `InlineSpan`, `DiffHunk`, `StyleToken`, `ModalState`, `AutocompleteCandidate`).
+  - Markdown, code fences, diffs, tables, diagrams, and thinking blocks are parsed once into `ContentBlock` structures.
   - `StreamChunkParser` extracts streaming tokens, `<thinking>` tags, duration timestamps, and tool parameters into strongly-typed `StreamEvent`s.
   - Reusable hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`, `use_stream_parser`) pass in-memory headless unit tests.
 - **Tasks**:
-  1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `serde`, and `fuzzy-matcher`.
-  2. (Effort: 3) Implement reactive state structures and signals for chat transcript, active tool progress, and token streaming.
-  3. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
-  4. (Effort: 3) Implement `use_modal` state machine handling selection index, fuzzy search filtering, active indicators, and pagination.
-  5. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
-  6. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
-  7. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
+  1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `pulldown-cmark`, `serde`, and `fuzzy-matcher`.
+  2. (Effort: 3) Implement Semantic UI Block IR (`ContentBlock`, `InlineSpan`, `DiffHunk`, `StyleToken`) representing formatted text, code fences, diffs, tables, and diagrams.
+  3. (Effort: 3) Implement unified markdown and stream tokenizer in `rho-ui-core` converting markdown streams into typed `ContentBlock` items.
+  4. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
+  5. (Effort: 3) Implement `use_modal` state machine handling selection index, fuzzy search filtering, active indicators, and pagination.
+  6. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
+  7. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
+  8. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
   - `cargo check -p rho-ui-core --target wasm32-unknown-unknown`
