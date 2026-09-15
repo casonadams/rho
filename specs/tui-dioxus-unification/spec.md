@@ -246,7 +246,7 @@ crates/rho-wasm/
 - **REQ-049**: All JavaScript application logic in `www/hub/js/` must be replaced by a Dioxus application compiled to WebAssembly.
 - **REQ-050**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components, deprecating manual custom CSS in `www/hub/css/hub.css`.
 - **REQ-051**: The Web Hub must render inline image previews with modal zoom and support 1-click in-browser session exporting (Markdown and HTML file download) reusing `rho_harness_core::session::export`.
-- **REQ-052**: Peer-to-peer connectivity via Iroh must remain direct in-browser, integrated into the Dioxus component lifecycle via asynchronous hooks/signals.
+- **REQ-052**: Peer-to-peer connectivity via Iroh must operate directly within Rust WebAssembly in `crates/rho-wasm`, deserializing canonical events directly without crossing `JsValue` boundaries or delegating to JavaScript callbacks.
 - **REQ-053**: Local storage persistence (node tickets, saved sessions, sidebar toggle states) must be managed via web-sys wrappers within the Dioxus application.
 - **REQ-054**: The Web Hub build pipeline must integrate into `make wasm`, producing a production-ready WASM bundle and asset structure.
 
@@ -261,6 +261,7 @@ crates/rho-wasm/
 - **REQ-062**: Clipboard image pasting (via `arboard` in TUI and Web Clipboard API in Web Hub) must store image assets and insert reference tokens (`[image /tmp/...]`) seamlessly.
 - **REQ-063**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
 - **REQ-064**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
+- **REQ-065**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
 
 ## Invariants and security boundaries
 

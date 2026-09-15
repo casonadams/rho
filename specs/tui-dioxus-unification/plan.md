@@ -111,7 +111,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - `make wasm` produces an optimized release WASM bundle.
 - **Tasks**:
   1. (Effort: 2) Expand `crates/rho-wasm` to a Dioxus web target (`dioxus`, `dioxus-web`, and `dioxus-components`).
-  2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed `RpcCommand` and `RpcEvent`.
+  2. (Effort: 3) Implement direct in-WASM Iroh client peer hook in Rust bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed canonical events without `JsValue` crossing or JS callbacks.
   3. (Effort: 3) Build Fleet Overview view (`use_fleet()` typed node store, node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
   5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, auth modal, MCP server manager, skill explorer, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components, deprecating bespoke CSS in `www/hub/css/hub.css`.
@@ -131,7 +131,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - All workspace crates pass strict Clippy with zero warnings (`-D warnings`).
   - Documentation in `docs/` and `README.md` accurately describes the new architecture and Vim mode option.
 - **Tasks**:
-  1. (Effort: 2) Audit keyboard navigation and visual parity between TUI and Web Hub across all modals.
+  1. (Effort: 2) Audit keyboard navigation and visual parity between TUI and Web Hub across all modals, and standardize interactive test fixtures on Ratatui's `TestBackend`.
   2. (Effort: 2) Remove obsolete dependencies (`inquire`, `indicatif`, `reedline`, `anstyle`) from root `Cargo.toml`, and remove leftover deprecated structs and files.
   3. (Effort: 2) Update documentation: document Vim mode keybindings and Web Hub architecture.
   4. (Effort: 2) Run full workspace format check, clippy, and test suite.
