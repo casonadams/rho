@@ -74,6 +74,8 @@ This separation causes significant friction:
 - Centralize ephemeral system feedback and transient toasts (`use_toast`) in `rho-ui-core`, eliminating custom 3-second expiration math in `src/ui/interactive/controller/system_message.rs` and enabling animated toast components in the Web Hub.
 - Replace hardcoded provider model lists in `rho models` (`src/cli/commands.rs`) with dynamic model discovery from `ModelRegistry`.
 - Standardize block notices and warning banners on `ContentBlock::Notice`, eliminating manual ASCII border padding and background formatting in `src/ui/render/notices.rs`.
+- Unify multimodal image attachment handling (`ImageAttachment`) in `rho-ui-core`, standardizing terminal clipboard screenshot pasting (`arboard` / `[image ...]`) and Web Hub drag-and-drop image uploads into structured `RpcCommand::Prompt` payloads.
+- Index both prompt templates (`.rho/prompts/*.md`) and skills (`.agents/skills/*/SKILL.md`) in `CompletionEngine`, expanding templates declaratively upon turn submission.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -265,11 +267,13 @@ crates/rho-wasm/
 - **REQ-062**: Markdown rendering must preserve high-fidelity presentation: code block syntax highlighting, table borders, and Mermaid diagram rendering (ASCII diagram rendering via `merman` in TUI, interactive SVG in Web Hub).
 - **REQ-063**: Streaming token chunks must be parsed by a unified `StreamChunkParser` in `rho-ui-core`, emitting typed `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
 - **REQ-064**: Bracketed paste handling must preserve collapsed paste markers (`[paste #1 +50 lines]`) when pasting large multiline blocks into `ratatui-textarea` and web input, expanding automatically upon turn submission.
-- **REQ-065**: Clipboard image pasting (via `arboard` in TUI and Web Clipboard API in Web Hub) must store image assets and insert reference tokens (`[image /tmp/...]`) seamlessly.
-- **REQ-066**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
-- **REQ-067**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
-- **REQ-068**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
-- **REQ-069**: Session conversation exporting (`export.rs`) must project `ContentBlock` directly to Markdown and HTML, eliminating private block enums and duplicate message iteration loops.
+- **REQ-065**: Multimodal image attachments must be represented as `ImageAttachment` in `rho-ui-core`, standardizing terminal clipboard pasting (`arboard`) and browser drag-and-drop uploads into structured `RpcCommand::Prompt` payloads.
+- **REQ-066**: Clipboard image pasting (via `arboard` in TUI and Web Clipboard API in Web Hub) must store image assets and insert reference tokens (`[image /tmp/...]`) seamlessly.
+- **REQ-067**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
+- **REQ-068**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
+- **REQ-069**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
+- **REQ-070**: Session conversation exporting (`export.rs`) must project `ContentBlock` directly to Markdown and HTML, eliminating private block enums and duplicate message iteration loops.
+- **REQ-071**: Custom prompt templates and installed skills must be indexed by `CompletionEngine` in `rho-ui-core` and expanded via `PromptTemplate::expand` prior to turn execution.
 
 ## Invariants and security boundaries
 
