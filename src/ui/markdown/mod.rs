@@ -20,7 +20,7 @@ mod line;
 mod mermaid;
 mod renderer;
 mod spacing;
-mod stream;
+pub(crate) mod stream;
 mod table;
 
 #[cfg(test)]
@@ -29,4 +29,5 @@ mod tests;
 pub use elements::{render_inline_elements, render_mermaid_block};
 pub use highlight::{CodeHighlighter, highlight_code_line};
 pub use renderer::MarkdownRenderer;
+pub use stream::{ChunkWordWrapper, StreamWordWrapper};
 pub use table::{is_table_divider, is_table_line, render_markdown_table, strip_markdown_decorations};

@@ -1,39 +1,68 @@
 use crate::ui::theme::Theme;
 use unicode_width::UnicodeWidthChar;
 
-pub struct StreamWordWrapper {
+pub struct ChunkWordWrapper {
     max_width: usize,
     col: usize,
-    active_ansi: String,
-    pending_ansi: String,
     pending_spaces: String,
     pending_spaces_width: usize,
     pending_word: String,
     pending_word_width: usize,
+    track_ansi: bool,
+    active_ansi: String,
+    pending_ansi: String,
+    indent_lines: bool,
+    at_line_start: bool,
+    style: Option<anstyle::Style>,
 }
 
-impl Default for StreamWordWrapper {
+impl Default for ChunkWordWrapper {
     fn default() -> Self {
         Self::new(0)
     }
 }
 
-impl StreamWordWrapper {
+impl ChunkWordWrapper {
     pub fn new(max_width: usize) -> Self {
         Self {
             max_width,
             col: 0,
-            active_ansi: String::new(),
-            pending_ansi: String::new(),
             pending_spaces: String::new(),
             pending_spaces_width: 0,
             pending_word: String::new(),
             pending_word_width: 0,
+            track_ansi: true,
+            active_ansi: String::new(),
+            pending_ansi: String::new(),
+            indent_lines: false,
+            at_line_start: false,
+            style: None,
+        }
+    }
+
+    pub fn new_thinking() -> Self {
+        Self {
+            max_width: 79,
+            col: 0,
+            pending_spaces: String::new(),
+            pending_spaces_width: 0,
+            pending_word: String::new(),
+            pending_word_width: 0,
+            track_ansi: false,
+            active_ansi: String::new(),
+            pending_ansi: String::new(),
+            indent_lines: true,
+            at_line_start: true,
+            style: None,
         }
     }
 
     pub fn set_width(&mut self, width: usize) {
         self.max_width = width;
+    }
+
+    pub fn set_style(&mut self, style: Option<anstyle::Style>) {
+        self.style = style;
     }
 
     pub fn process_chunk(&mut self, chunk: &str) -> String {
@@ -45,7 +74,8 @@ impl StreamWordWrapper {
         let len = chunk.len();
 
         while offset < len {
-            if chunk[offset..].starts_with('\x1b')
+            if self.track_ansi
+                && chunk[offset..].starts_with('\x1b')
                 && let Some(end) = chunk[offset..].find('m')
             {
                 let seq = &chunk[offset..=offset + end];
@@ -64,6 +94,7 @@ impl StreamWordWrapper {
                 self.commit_pending_word(&mut out);
                 out.push('\n');
                 self.col = 0;
+                self.at_line_start = true;
                 self.pending_spaces.clear();
                 self.pending_spaces_width = 0;
             } else if c == '\r' {
@@ -78,13 +109,18 @@ impl StreamWordWrapper {
             } else {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(1);
                 if self.pending_word_width + cw > self.max_width {
-                    if self.col > 0 {
+                    let prefix_width = if self.indent_lines { 1 } else { 0 };
+                    if (!self.at_line_start || !self.indent_lines) && self.col > prefix_width {
                         self.flush_line(&mut out);
                         self.pending_spaces.clear();
                         self.pending_spaces_width = 0;
+                    } else if self.indent_lines && self.at_line_start && self.col == 0 {
+                        out.push(' ');
+                        self.col = 1;
+                        self.at_line_start = false;
                     }
                     if self.pending_word_width > 0 && self.pending_word_width + cw > self.max_width {
-                        out.push_str(&self.pending_word);
+                        self.write_styled_word(&mut out, &self.pending_word);
                         self.apply_pending_ansi();
                         self.flush_line(&mut out);
                         self.pending_word.clear();
@@ -99,14 +135,27 @@ impl StreamWordWrapper {
     }
 
     fn flush_line(&mut self, out: &mut String) {
-        if !self.active_ansi.is_empty() {
+        if self.track_ansi && !self.active_ansi.is_empty() {
             out.push_str("\x1b[0m");
         }
         out.push('\n');
-        if !self.active_ansi.is_empty() {
+        if self.indent_lines {
+            out.push(' ');
+            self.col = 1;
+        } else {
+            self.col = 0;
+        }
+        if self.track_ansi && !self.active_ansi.is_empty() {
             out.push_str(&self.active_ansi);
         }
-        self.col = 0;
+    }
+
+    fn write_styled_word(&self, out: &mut String, word: &str) {
+        if let Some(style) = self.style {
+            out.push_str(&format!("{style}{word}{style:#}"));
+        } else {
+            out.push_str(word);
+        }
     }
 
     fn commit_pending_word(&mut self, out: &mut String) {
@@ -114,27 +163,40 @@ impl StreamWordWrapper {
             return;
         }
         let needed = self.pending_spaces_width + self.pending_word_width;
-        if self.col > 0 && self.col + needed > self.max_width {
+        let should_wrap = if self.indent_lines {
+            !self.at_line_start && self.col + needed > self.max_width
+        } else {
+            self.col > 0 && self.col + needed > self.max_width
+        };
+
+        if should_wrap {
             self.flush_line(out);
             self.pending_spaces.clear();
             self.pending_spaces_width = 0;
+        } else if self.indent_lines && self.at_line_start && self.col == 0 {
+            out.push(' ');
+            self.col = 1;
+            self.at_line_start = false;
         }
-        if self.col > 0 || !self.pending_spaces.is_empty() {
-            out.push_str(&self.pending_spaces);
-            self.col += self.pending_spaces_width;
+
+        if let Some(style) = self.style {
+            out.push_str(&format!("{style}{}{}{style:#}", self.pending_spaces, self.pending_word));
+        } else {
+            if self.col > 0 || !self.pending_spaces.is_empty() {
+                out.push_str(&self.pending_spaces);
+            }
+            out.push_str(&self.pending_word);
         }
+        self.col += self.pending_spaces_width + self.pending_word_width;
         self.pending_spaces.clear();
         self.pending_spaces_width = 0;
-
-        out.push_str(&self.pending_word);
-        self.col += self.pending_word_width;
         self.pending_word.clear();
         self.pending_word_width = 0;
         self.apply_pending_ansi();
     }
 
     fn apply_pending_ansi(&mut self) {
-        if self.pending_ansi.is_empty() {
+        if !self.track_ansi || self.pending_ansi.is_empty() {
             return;
         }
         let mut rem = self.pending_ansi.as_str();
@@ -164,7 +226,38 @@ impl StreamWordWrapper {
         self.pending_word_width = 0;
         self.pending_ansi.clear();
         self.active_ansi.clear();
+        self.at_line_start = true;
         out
+    }
+}
+
+pub struct StreamWordWrapper {
+    wrapper: ChunkWordWrapper,
+}
+
+impl Default for StreamWordWrapper {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+impl StreamWordWrapper {
+    pub fn new(max_width: usize) -> Self {
+        Self {
+            wrapper: ChunkWordWrapper::new(max_width),
+        }
+    }
+
+    pub fn set_width(&mut self, width: usize) {
+        self.wrapper.set_width(width);
+    }
+
+    pub fn process_chunk(&mut self, chunk: &str) -> String {
+        self.wrapper.process_chunk(chunk)
+    }
+
+    pub fn flush(&mut self) -> String {
+        self.wrapper.flush()
     }
 }
 

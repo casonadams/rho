@@ -1,5 +1,4 @@
 pub mod completion;
-pub mod fuzzy;
 pub mod history;
 pub mod models;
 pub mod sources;

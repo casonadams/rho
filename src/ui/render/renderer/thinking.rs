@@ -1,119 +1,33 @@
+use crate::ui::markdown::stream::ChunkWordWrapper;
 use crate::ui::theme::Theme;
-use unicode_width::UnicodeWidthChar;
 
-#[derive(Default)]
 pub struct ThinkingStreamTracker {
-    col: usize,
-    pending_spaces: String,
-    pending_spaces_width: usize,
-    pending_word: String,
-    pending_word_width: usize,
-    at_line_start: bool,
+    wrapper: ChunkWordWrapper,
+}
+
+impl Default for ThinkingStreamTracker {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ThinkingStreamTracker {
     pub fn new() -> Self {
         Self {
-            col: 0,
-            pending_spaces: String::new(),
-            pending_spaces_width: 0,
-            pending_word: String::new(),
-            pending_word_width: 0,
-            at_line_start: true,
+            wrapper: ChunkWordWrapper::new_thinking(),
         }
     }
 
     pub fn process_token(&mut self, token: &str, width: usize, theme: &Theme) -> String {
         let max_width = if width > 0 { width.saturating_sub(1).max(10) } else { 79 };
-        let d = theme.dimmed;
-        let mut out = String::new();
-
-        for c in token.chars() {
-            if c == '\n' {
-                self.commit_pending_word(&mut out, max_width, d);
-                out.push('\n');
-                self.col = 0;
-                self.at_line_start = true;
-                self.pending_spaces.clear();
-                self.pending_spaces_width = 0;
-            } else if c == '\r' {
-                continue;
-            } else if c == ' ' || c == '\t' {
-                if !self.pending_word.is_empty() {
-                    self.commit_pending_word(&mut out, max_width, d);
-                }
-                let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                self.pending_spaces.push(c);
-                self.pending_spaces_width += cw;
-            } else {
-                let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                if self.pending_word_width + cw > max_width {
-                    if !self.at_line_start && self.col > 1 {
-                        out.push('\n');
-                        out.push(' ');
-                        self.col = 1;
-                        self.pending_spaces.clear();
-                        self.pending_spaces_width = 0;
-                    } else if self.at_line_start && self.col == 0 {
-                        out.push(' ');
-                        self.col = 1;
-                        self.at_line_start = false;
-                    }
-                    out.push_str(&format!("{d}{}{d:#}", self.pending_word));
-                    out.push('\n');
-                    out.push(' ');
-                    self.col = 1;
-                    self.pending_word.clear();
-                    self.pending_word_width = 0;
-                }
-                self.pending_word.push(c);
-                self.pending_word_width += cw;
-            }
-        }
-
-        out
-    }
-
-    fn commit_pending_word(&mut self, out: &mut String, max_width: usize, d: anstyle::Style) {
-        if self.pending_word.is_empty() && self.pending_word_width == 0 {
-            return;
-        }
-        let needed = self.pending_spaces_width + self.pending_word_width;
-        if !self.at_line_start && self.col + needed > max_width {
-            out.push('\n');
-            out.push(' ');
-            self.col = 1;
-            self.pending_spaces.clear();
-            self.pending_spaces_width = 0;
-        } else if self.at_line_start && self.col == 0 {
-            out.push(' ');
-            self.col = 1;
-            self.at_line_start = false;
-        }
-        out.push_str(&format!("{d}{}{}{d:#}", self.pending_spaces, self.pending_word));
-        self.col += self.pending_spaces_width + self.pending_word_width;
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
-        self.pending_word.clear();
-        self.pending_word_width = 0;
+        self.wrapper.set_width(max_width);
+        self.wrapper.set_style(Some(theme.dimmed));
+        self.wrapper.process_chunk(token)
     }
 
     pub fn flush(&mut self, theme: &Theme) -> String {
-        let mut out = String::new();
-        let d = theme.dimmed;
-        if !self.pending_word.is_empty() {
-            if self.at_line_start && self.col == 0 {
-                out.push(' ');
-            }
-            out.push_str(&format!("{d}{}{}{d:#}", self.pending_spaces, self.pending_word));
-        }
-        self.col = 0;
-        self.pending_spaces.clear();
-        self.pending_spaces_width = 0;
-        self.pending_word.clear();
-        self.pending_word_width = 0;
-        self.at_line_start = true;
-        out
+        self.wrapper.set_style(Some(theme.dimmed));
+        self.wrapper.flush()
     }
 }
 

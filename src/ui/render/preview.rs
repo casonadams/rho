@@ -1,13 +1,3 @@
-pub fn tool_title_style(is_error: bool) -> anstyle::Style {
-    if is_error {
-        anstyle::Style::new()
-            .bold()
-            .fg_color(Some(anstyle::AnsiColor::Red.into()))
-    } else {
-        anstyle::Style::new().bold()
-    }
-}
-
 fn kind_from_format(format: &str) -> &'static str {
     match format.to_ascii_lowercase().as_str() {
         "pdf" => "pdf",

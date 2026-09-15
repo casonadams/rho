@@ -1,5 +1,5 @@
-use super::editor::open_external_editor;
 use super::modal_action::{ModalActionContext, apply_modal_key_result};
+use super::open_external_editor;
 use super::shortcut::{IdleShortcutContext, handle_shortcut_action};
 use super::{EditorResources, KeyRest};
 use crate::error::Result;

@@ -1,16 +1,4 @@
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
-
-pub fn format_tokens(count: u64) -> String {
-    if count < 1_000 {
-        count.to_string()
-    } else if count < 10_000 {
-        format!("{:.1}k", count as f64 / 1_000.0)
-    } else if count < 1_000_000 {
-        format!("{}k", (count as f64 / 1_000.0).round() as u64)
-    } else {
-        format!("{}M", (count as f64 / 1_000_000.0).round() as u64)
-    }
-}
+use crate::ui::block::{truncate_to_width, visible_width};
 
 pub fn sanitize_status_text(text: &str) -> String {
     let single_line = text
@@ -25,29 +13,6 @@ pub fn sanitize_status_text(text: &str) -> String {
             result.push(' ');
             result.push_str(word);
         }
-    }
-    result
-}
-
-pub fn visible_width(content: &str) -> usize {
-    let clean = crate::ui::block::ANSI_PATTERN.replace_all(content, "");
-    UnicodeWidthStr::width(clean.as_ref())
-}
-
-pub fn truncate_to_width(value: &str, width: usize) -> String {
-    if visible_width(value) <= width {
-        return value.to_string();
-    }
-
-    let mut result = String::new();
-    let mut used = 0;
-    for character in value.chars() {
-        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if used + character_width > width {
-            break;
-        }
-        result.push(character);
-        used += character_width;
     }
     result
 }

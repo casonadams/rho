@@ -13,3 +13,7 @@ pub use markdown::MarkdownRenderer;
 pub use render::TerminalRenderer;
 pub use stream::ToolStreamPort;
 pub use theme::Theme;
+
+pub fn terminal_width() -> u16 {
+    crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80)
+}

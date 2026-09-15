@@ -21,9 +21,7 @@ pub fn is_table_divider(line: &str) -> bool {
 }
 
 pub fn render_markdown_table(lines: &[String], theme: &Theme) -> String {
-    let width = crossterm::terminal::size()
-        .map(|(cols, _)| usize::from(cols.saturating_sub(2)).max(40))
-        .unwrap_or(78);
+    let width = usize::from(crate::ui::terminal_width().saturating_sub(2)).max(40);
     render_markdown_table_at_width(lines, theme, width)
 }
 

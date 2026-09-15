@@ -4,9 +4,9 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
+use super::Control;
 use super::InputEvent;
 use super::ReadNext;
-use super::paused::Control;
 
 const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(20);
 

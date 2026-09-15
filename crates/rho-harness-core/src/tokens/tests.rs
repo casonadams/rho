@@ -116,3 +116,24 @@ fn context_window_size_is_provider_aware_for_gpt_6_astra() {
     assert_eq!(context_window_size_for_provider("gpt-6-astra", "openai"), 1_050_000);
     assert_eq!(context_window_size_for_provider("gpt-6-astra", "chatgpt"), 372_000);
 }
+
+#[test]
+fn format_tokens_matches_breakpoints() {
+    let cases = [
+        (0, "0"),
+        (999, "999"),
+        (1_000, "1.0k"),
+        (1_234, "1.2k"),
+        (9_999, "10.0k"),
+        (10_000, "10.0k"),
+        (99_999, "100.0k"),
+        (100_000, "100k"),
+        (128_000, "128k"),
+        (200_000, "200k"),
+        (1_000_000, "1M"),
+        (2_500_000, "2.5M"),
+    ];
+    for (tokens, expected) in cases {
+        assert_eq!(format_tokens(tokens), expected);
+    }
+}

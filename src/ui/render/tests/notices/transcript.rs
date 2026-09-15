@@ -2,7 +2,8 @@ use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, UiEvent};
 use crate::ui::render::CacheMissNotice;
 use crate::ui::render::formatters::format_session_status;
-use crate::ui::render::preview::{fetch_content_kind, tool_title_style};
+use crate::ui::render::preview::fetch_content_kind;
+use crate::ui::theme::Theme;
 use rho_harness_core::presentation::SessionStatus;
 
 #[test]
@@ -52,13 +53,14 @@ fn print_compaction_and_cache_miss_notices() {
 
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("Compaction: 154k tokens billed (~$0.46)"));
-    assert!(items[1].contains("Cache miss after 5m idle: 45k tokens re-billed (~$0.14)"));
+    assert!(items[1].contains("Cache miss after 5m idle: 45.0k tokens re-billed (~$0.14)"));
 }
 
 #[test]
 fn error_tool_titles_use_terminal_red_without_dimming() {
-    assert_eq!(tool_title_style(false).render().to_string(), "\x1b[1m");
-    assert_eq!(tool_title_style(true).render().to_string(), "\x1b[1m\x1b[31m");
+    let theme = Theme::default();
+    assert_eq!(theme.tool_title_style(false).render().to_string(), "\x1b[1m");
+    assert_eq!(theme.tool_title_style(true).render().to_string(), "\x1b[1m\x1b[31m");
 }
 
 #[test]

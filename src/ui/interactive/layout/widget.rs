@@ -1,6 +1,6 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::interactive::state::RunningTool;
-use crate::ui::render::{format_bash_args_header, tool_title_style};
+use crate::ui::render::format_bash_args_header;
 use crate::ui::theme::Theme;
 
 #[derive(Debug, Clone, Copy)]
@@ -64,7 +64,7 @@ fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, wi
 }
 
 fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> String {
-    let title = tool_title_style(false);
+    let title = input.theme.tool_title_style(false);
     let (accent, dim) = (input.theme.highlight, input.theme.dimmed);
     let display_name = normalize_tool_name(&input.tool.name);
 

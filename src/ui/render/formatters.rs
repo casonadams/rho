@@ -158,9 +158,7 @@ pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: u
     let wrap_width = if width > 0 {
         width.saturating_sub(1).max(10)
     } else {
-        crossterm::terminal::size()
-            .map(|(w, _)| (w as usize).saturating_sub(1).max(10))
-            .unwrap_or(79)
+        usize::from(crate::ui::terminal_width().saturating_sub(1).max(10))
     };
     for line in thinking_text.trim().lines() {
         if line.trim().is_empty() {

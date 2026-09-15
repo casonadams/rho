@@ -1,4 +1,6 @@
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
+
+pub use crate::ui::block::{truncate_to_width, visible_width};
 
 pub const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -28,11 +30,6 @@ pub fn truncate_to_visual_lines(text: &str, max_visual_lines: usize, width: usiz
         visual_lines,
         skipped_count,
     }
-}
-
-pub fn visible_width(content: &str) -> usize {
-    let clean = crate::ui::block::ANSI_PATTERN.replace_all(content, "");
-    UnicodeWidthStr::width(clean.replace('\r', "").as_str())
 }
 
 struct LineWrapper<'a> {
@@ -199,18 +196,4 @@ pub fn wrap_to_width(content: &str, max_width: usize) -> Vec<String> {
 
 pub fn wrap_words_to_width(content: &str, max_width: usize) -> Vec<String> {
     wrap_to_width(content, max_width)
-}
-
-pub(crate) fn truncate_to_width(value: &str, width: usize) -> String {
-    let mut current_width = 0;
-    let mut truncated = String::new();
-    for character in value.chars() {
-        let character_width = character.width().unwrap_or(0);
-        if current_width + character_width > width {
-            break;
-        }
-        truncated.push(character);
-        current_width += character_width;
-    }
-    truncated
 }

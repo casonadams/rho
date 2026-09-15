@@ -156,3 +156,17 @@ pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
 pub fn estimate_messages_tokens(messages: &[Message], model: &str) -> usize {
     messages.iter().map(|msg| estimate_message_tokens(msg, model)).sum()
 }
+
+pub fn format_tokens(count: u64) -> String {
+    if count < 1_000 {
+        count.to_string()
+    } else if count < 100_000 {
+        format!("{:.1}k", count as f64 / 1_000.0)
+    } else if count < 1_000_000 {
+        format!("{}k", (count as f64 / 1_000.0).round() as u64)
+    } else if count.is_multiple_of(1_000_000) {
+        format!("{}M", count / 1_000_000)
+    } else {
+        format!("{:.1}M", count as f64 / 1_000_000.0)
+    }
+}

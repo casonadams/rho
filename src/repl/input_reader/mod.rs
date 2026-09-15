@@ -8,15 +8,42 @@ use std::{
 use crossterm::event::{self, Event};
 use tokio::sync::mpsc;
 
-mod paused;
 mod worker;
 
 #[cfg(test)]
 mod tests;
 
-use paused::Control;
-pub(crate) use paused::PausedInput;
 use worker::{read_loop, reader_stopped};
+
+pub(super) enum Control {
+    Pause(std_mpsc::SyncSender<()>),
+    Resume,
+    Stop,
+}
+
+pub(crate) struct PausedInput<'a> {
+    reader: &'a mut TerminalInputReader,
+    resumed: bool,
+}
+
+impl PausedInput<'_> {
+    pub(crate) fn drain(&mut self) {
+        self.reader.drain();
+    }
+
+    pub(crate) fn resume(mut self) -> io::Result<()> {
+        self.resumed = true;
+        self.reader.control.send(Control::Resume).map_err(|_| reader_stopped())
+    }
+}
+
+impl Drop for PausedInput<'_> {
+    fn drop(&mut self) {
+        if !self.resumed {
+            let _ = self.reader.control.send(Control::Resume);
+        }
+    }
+}
 
 const CONTROL_ACK_TIMEOUT: Duration = Duration::from_secs(1);
 
