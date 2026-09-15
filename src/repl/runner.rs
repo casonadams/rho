@@ -12,6 +12,7 @@ use rho_ui_core::keymap::{InputAction, map_key};
 use rho_ui_core::modal::{
     McpModalState, McpServerInfo, ModelCapability, ModelRegistry, SettingsState, SkillInfo, SkillModalState,
 };
+use rho_ui_core::permission::{PERMISSION_ACTIONS, PermissionAction, PermissionPromptState};
 use rho_ui_core::session::PROVIDER_DEFS;
 use rho_ui_core::state::{FooterMetrics, RhoTicket};
 
@@ -20,10 +21,14 @@ use crate::engine::runner::{CancellationSignal, TurnRequest};
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::{CommandResult, SlashCommandContext, SlashCommandHandler};
+use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::editor::{EditorMode, TextAreaEditor};
-use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, TranscriptItem, TranscriptRenderInput, UiEvent};
-use crate::ui::modal::{AutocompletePopupView, RemotePairModalView, StandardModalView};
+use crate::ui::interactive::{
+    Activity, InteractionResponder, InteractionResponse, InteractiveUi, OutputEvent, TranscriptItem,
+    TranscriptRenderInput, UiEvent,
+};
+use crate::ui::modal::{AutocompletePopupView, PermissionPromptView, RemotePairModalView, StandardModalView};
 use crate::ui::terminal::TerminalGuard;
 use crate::ui::widgets::StreamingSpinner;
 use crate::ui::{ModalView, PromptEditor};
@@ -39,6 +44,7 @@ pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
 enum ActiveModal {
     Standard(StandardModalView),
     RemotePair(RemotePairModalView),
+    Permission(Box<PermissionPromptView>),
 }
 
 impl ActiveModal {
@@ -46,6 +52,7 @@ impl ActiveModal {
         match self {
             Self::Standard(m) => m.state.is_open,
             Self::RemotePair(m) => m.is_open,
+            Self::Permission(p) => p.resolved_action.is_none(),
         }
     }
 
@@ -53,6 +60,7 @@ impl ActiveModal {
         match self {
             Self::Standard(m) => m.handle_key(key),
             Self::RemotePair(m) => m.handle_key(key),
+            Self::Permission(p) => p.handle_key(key),
         }
     }
 
@@ -95,6 +103,30 @@ impl ActiveModal {
                 ));
                 lines.push(format!("  Ticket: {}", m.ticket.node_id));
                 lines.push("  Press Esc to dismiss".to_string());
+                lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+                lines
+            }
+            Self::Permission(p) => {
+                let mut lines = Vec::new();
+                let sep = "─".repeat(width.saturating_sub(26));
+                lines.push(format!("\x1b[33m── Permission Required {sep}\x1b[0m"));
+                for line in p.prompt.command_display.lines().take(4) {
+                    lines.push(format!("  {line}"));
+                }
+                if p.prompt.is_editing {
+                    lines.push(format!(" \x1b[1;33m[EDITING]\x1b[0m {}", p.editor.text()));
+                } else {
+                    let mut actions = Vec::new();
+                    for (i, (lbl, _)) in PERMISSION_ACTIONS.iter().enumerate() {
+                        let num = i + 1;
+                        if i == p.prompt.selected_index {
+                            actions.push(format!("\x1b[1;33m[{num}. {lbl}]\x1b[0m"));
+                        } else {
+                            actions.push(format!("\x1b[90m{num}. {lbl}\x1b[0m"));
+                        }
+                    }
+                    lines.push(format!(" {}", actions.join("  ")));
+                }
                 lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
                 lines
             }
@@ -456,7 +488,7 @@ fn erase_live_region(stdout: &mut std::io::Stdout, total_lines: usize, cursor_ro
         }
     }
     stdout.write_all(b"\r")?;
-    stdout.flush()
+    Ok(())
 }
 
 fn refresh_display(
@@ -1068,6 +1100,141 @@ async fn finish_turn_execution(
     Ok(())
 }
 
+fn handle_permission_key(
+    mut p: PermissionPromptView,
+    key: KeyEvent,
+    active_responder: &mut Option<InteractionResponder>,
+) -> Option<ActiveModal> {
+    if key.code == KeyCode::Esc {
+        if let Some(resp) = active_responder.take() {
+            let _ = resp.respond(InteractionResponse::Cancelled);
+        }
+        return None;
+    }
+    p.handle_key(key);
+    if let Some(action) = p.resolved_action.take() {
+        let response = match action {
+            PermissionAction::AllowOnce => InteractionResponse::Selected(0),
+            PermissionAction::AllowAlways => InteractionResponse::Selected(1),
+            PermissionAction::Deny { reason } => match reason {
+                Some(r) => InteractionResponse::SelectedWithInput { index: 2, text: r },
+                None => InteractionResponse::Selected(2),
+            },
+            PermissionAction::Edit { mutated_command } => InteractionResponse::SelectedWithInput {
+                index: 3,
+                text: mutated_command,
+            },
+        };
+        if let Some(resp) = active_responder.take() {
+            let _ = resp.respond(response);
+        }
+        None
+    } else {
+        Some(ActiveModal::Permission(Box::new(p)))
+    }
+}
+
+fn handle_turn_key_input(
+    key: KeyEvent,
+    state: &mut RunnerState<'_>,
+    steering: &SharedSteeringQueue,
+    cancellation: &CancellationSignal,
+    active_responder: &mut Option<InteractionResponder>,
+    pending_scrollback: &mut String,
+) {
+    if let Some(ActiveModal::Permission(p)) = state.active_modal.take() {
+        *state.active_modal = handle_permission_key(*p, key, active_responder);
+        return;
+    }
+    let action = map_key(key);
+    match action {
+        InputAction::Cancel => {
+            cancellation.cancel();
+            pending_scrollback.push_str("\nCanceled.\n");
+        }
+        InputAction::Clear => {
+            state.editor.clear();
+        }
+        _ => {
+            if !state.editor.handle_key(key) {
+                let steering_text = state.editor.text().to_string();
+                if !steering_text.trim().is_empty() {
+                    steering.enqueue(steering_text.clone());
+                    state.editor.clear();
+                    pending_scrollback.push_str(&format!("\x1b[36m[Steering queued: {steering_text}]\x1b[0m\n"));
+                }
+            }
+        }
+    }
+}
+
+fn setup_turn_execution<'a>(
+    engine: &'a AgentEngine,
+    renderer: crate::ui::TerminalRenderer,
+    prompt: &'a str,
+    cancellation: &'a Arc<CancellationSignal>,
+) -> (
+    Arc<SharedSteeringQueue>,
+    TurnRequest<'a>,
+    Arc<dyn rho_harness_core::presentation::Presenter>,
+) {
+    let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
+    crate::platform::remote::set_active_steering(Some(steering.clone()));
+    let request = TurnRequest::new(prompt)
+        .with_cancellation(cancellation)
+        .with_steering(steering.clone());
+    let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(
+        crate::ui::render::BroadcastPresenter::new(Arc::new(renderer), crate::platform::remote::PEER_REGISTRY.clone()),
+    );
+    (steering, request, broadcast)
+}
+
+fn flush_or_refresh_turn_tick(
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    activity_meta: (&Activity, Option<&str>, usize),
+    pending_scrollback: &mut String,
+    tracker: &mut OutputTracker,
+) -> Result<()> {
+    if !pending_scrollback.is_empty() {
+        let out = std::mem::take(pending_scrollback);
+        refresh_display(state, footer, Some(activity_meta), Some(&out), tracker)?;
+    } else {
+        refresh_display(state, footer, Some(activity_meta), None, tracker)?;
+    }
+    Ok(())
+}
+
+fn handle_turn_event(
+    ui_ev: UiEvent,
+    state: &mut RunnerState<'_>,
+    active_responder: &mut Option<InteractionResponder>,
+    pending_scrollback: &mut String,
+    current_activity: &mut Activity,
+    current_tool: &mut Option<String>,
+) {
+    match ui_ev {
+        UiEvent::Interaction { prompt: p, responder } => {
+            let perm_state = PermissionPromptState {
+                is_active: true,
+                tool_name: "tool".to_string(),
+                command_display: p.body.clone(),
+                arguments: serde_json::Value::Null,
+                selected_index: p.initial_selection,
+                custom_deny_reason: String::new(),
+                edited_command: p.body.clone(),
+                is_editing: false,
+            };
+            let view = PermissionPromptView::new(perm_state);
+            *state.active_modal = Some(ActiveModal::Permission(Box::new(view)));
+            *active_responder = Some(responder);
+        }
+        other => {
+            drain_ui_event(other, pending_scrollback, current_activity, current_tool, state.session);
+        }
+    }
+}
+
 async fn execute_agent_turn(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
@@ -1084,14 +1251,9 @@ async fn execute_agent_turn(
     );
     print_initial_prompt(state, prompt, &footer, &mut tracker)?;
 
+    let renderer = state.session.renderer.clone();
     let cancellation = Arc::new(CancellationSignal::default());
-    let request = TurnRequest::new(prompt).with_cancellation(&cancellation);
-    let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> =
-        Arc::new(crate::ui::render::BroadcastPresenter::new(
-            Arc::new(state.session.renderer.clone()),
-            crate::platform::remote::PEER_REGISTRY.clone(),
-        ));
-
+    let (steering, request, broadcast) = setup_turn_execution(engine, renderer, prompt, &cancellation);
     broadcast_turn_start(prompt);
 
     let mut turn_future = Box::pin(engine.run_turn(request, broadcast));
@@ -1100,6 +1262,7 @@ async fn execute_agent_turn(
     let mut current_activity = Activity::Working;
     let mut current_tool: Option<String> = None;
     let mut pending_scrollback = String::new();
+    let mut active_responder: Option<InteractionResponder> = None;
 
     let turn_res = loop {
         tokio::select! {
@@ -1116,33 +1279,30 @@ async fn execute_agent_turn(
                 break res;
             }
             Some(ui_ev) = ui_events.recv() => {
-                drain_ui_event(ui_ev, &mut pending_scrollback, &mut current_activity, &mut current_tool, state.session);
+                handle_turn_event(
+                    ui_ev,
+                    state,
+                    &mut active_responder,
+                    &mut pending_scrollback,
+                    &mut current_activity,
+                    &mut current_tool,
+                );
             }
             _ = ticker.tick() => {
                 spinner_frame = (spinner_frame + 1) % 10;
                 let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
-                if !pending_scrollback.is_empty() {
-                    let out = std::mem::take(&mut pending_scrollback);
-                    refresh_display(state, &footer, Some(activity_meta), Some(&out), &mut tracker)?;
-                } else {
-                    refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
-                }
+                flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut pending_scrollback, &mut tracker)?;
             }
             maybe_key = events.next() => {
                 if let Some(Ok(Event::Key(key))) = maybe_key {
-                    let action = map_key(key);
-                    match action {
-                        InputAction::Cancel => {
-                            cancellation.cancel();
-                            pending_scrollback.push_str("\nCanceled.\n");
-                        }
-                        InputAction::Clear => {
-                            state.editor.clear();
-                        }
-                        _ => {
-                            state.editor.handle_key(key);
-                        }
-                    }
+                    handle_turn_key_input(
+                        key,
+                        state,
+                        &steering,
+                        &cancellation,
+                        &mut active_responder,
+                        &mut pending_scrollback,
+                    );
                     let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
                     refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
                 }
@@ -1150,6 +1310,8 @@ async fn execute_agent_turn(
         }
     };
     drop(turn_future);
+    crate::platform::remote::set_active_steering(None);
+    *state.active_modal = None;
 
     finish_turn_execution(state, engine, &mut tracker).await?;
     let _ = turn_res;
