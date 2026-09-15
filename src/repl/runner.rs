@@ -166,20 +166,6 @@ async fn load_history(session: &ReplSession) -> InteractiveHistory {
         })
 }
 
-fn render_top_bar(f: &mut Frame, area: Rect, editor: &TextAreaEditor) {
-    let mode_badge = editor.mode_label();
-    let top_title = if mode_badge.is_empty() {
-        format!(" rho v{} ", env!("CARGO_PKG_VERSION"))
-    } else {
-        format!(" [{mode_badge}] rho v{} ", env!("CARGO_PKG_VERSION"))
-    };
-    let top_block = Block::default()
-        .borders(Borders::TOP)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(top_title);
-    f.render_widget(top_block, area);
-}
-
 fn render_footer(f: &mut Frame, area: Rect, engine: &AgentEngine) {
     let model_name = &engine.config.model;
     let thinking = engine.config.thinking_level.as_deref().unwrap_or("default");
@@ -211,15 +197,28 @@ fn render_viewport(state: &mut RunnerState<'_>) -> Result<()> {
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)])
+            .constraints([Constraint::Min(3), Constraint::Length(1)])
             .split(area);
 
-        render_top_bar(f, chunks[0], state.editor);
-        state.editor.render(f, chunks[1]);
-        render_footer(f, chunks[2], state.engine);
+        let mode_badge = state.editor.mode_label();
+        let top_title = if mode_badge.is_empty() {
+            format!(" rho v{} ", env!("CARGO_PKG_VERSION"))
+        } else {
+            format!(" [{mode_badge}] rho v{} ", env!("CARGO_PKG_VERSION"))
+        };
+        let box_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(top_title);
+        let inner = box_block.inner(chunks[0]);
+        f.render_widget(box_block, chunks[0]);
+        state.editor.render(f, inner);
+
+        render_footer(f, chunks[1], state.engine);
 
         if let Some(popup) = state.autocomplete_popup.as_ref() {
-            popup.render_anchored(f, chunks[1], area);
+            popup.render_anchored(f, chunks[0], area);
         }
     })?;
     Ok(())
@@ -326,15 +325,16 @@ async fn handle_key_cycle(state: &mut RunnerState<'_>, key: KeyEvent, completion
 
 pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
     let mut engine = init_live_engine(session).await?;
-    let mut runner = TerminalRunner::from_stdout(10)?;
     print_startup_banner(session, &engine).await;
+
+    let mut runner = TerminalRunner::from_stdout(7)?;
 
     let mode = if session.config.editor.is_vim() {
         EditorMode::Vim
     } else {
         EditorMode::Default
     };
-    let mut editor = TextAreaEditor::new(mode);
+    let mut editor = TextAreaEditor::new(mode).with_placeholder("Type a message, / for commands, @ for files...");
     let mut history = load_history(session).await;
     let completions = build_completions();
 
