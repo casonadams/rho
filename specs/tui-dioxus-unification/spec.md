@@ -65,6 +65,8 @@ This separation causes significant friction:
 - Centralize settings configuration (`SettingsState`) in `rho-ui-core`, providing the Web Hub with an interactive Settings dialog and synchronizing preferences (thinking visibility, tool expansion, Vim mode).
 - Unify global keyboard shortcuts (double-escape tree navigation, `Alt+T` to cycle thinking, `Alt+P`/`Alt+N` to cycle models) into `rho-ui-core` action reducers.
 - Prune intermediate styling crate `anstyle` in favor of Ratatui's native `Style` and `Color` definitions.
+- Support native 24-bit TrueColor RGB in syntax highlighting via Ratatui `Color::Rgb(r, g, b)`, deleting ~60 lines of custom color downsampling and grayscale quantization math in `src/ui/markdown/highlight.rs`.
+- Eliminate redundant `crossterm::terminal::size()` ioctl syscalls across 7 different modules, relying on Ratatui's cached `frame.area()` updated on `Event::Resize`.
 - Eliminate manual character-by-character word wrapping math (`src/ui/interactive/layout/text.rs` - 216 lines), delegating terminal text wrapping to Ratatui's native `Paragraph::wrap(Wrap { trim: true })` and web wrapping to native CSS.
 - Eliminate custom ANSI markdown streaming compilers (`src/ui/markdown/renderer.rs` - 357 lines, `src/ui/markdown/stream.rs` - 366 lines, and `src/ui/markdown/elements.rs` - 101 lines), delegating markdown parsing directly to `pulldown-cmark` events constructing `ContentBlock` and `InlineSpan` without manual escape sequence tracking or word boundary regexes.
 - Standardize markdown parsing on `pulldown-cmark`, deleting ~276 lines of manual regex line scanning and blank-line spacing state machines in `src/ui/markdown/line.rs` and `spacing.rs`.
@@ -278,6 +280,8 @@ crates/rho-wasm/
 - **REQ-071**: Custom prompt templates and installed skills must be indexed by `CompletionEngine` in `rho-ui-core` and expanded via `PromptTemplate::expand` prior to turn execution.
 - **REQ-072**: Custom transcript render caches (`CachedItemRender`, `TranscriptRenderCache`) must be completely deleted, rendering frames in-memory without string caching.
 - **REQ-073**: Tool card transcript formatting must be consolidated into `ContentBlock::ToolCall`, deleting duplicated formatting logic across `src/ui/interactive/transcript/tool.rs` and `src/ui/render/card.rs`.
+- **REQ-074**: Code syntax highlighting must leverage native 24-bit TrueColor `Color::Rgb` in Ratatui, completely deleting custom RGB-to-ANSI16 color quantization logic in `src/ui/markdown/highlight.rs`.
+- **REQ-075**: Terminal dimensions must be read exclusively from Ratatui's cached `frame.area()`, eliminating ad-hoc `crossterm::terminal::size()` ioctl syscalls on render hot paths.
 
 ## Invariants and security boundaries
 
