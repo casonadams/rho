@@ -337,6 +337,8 @@ crates/rho-wasm/
 - **REQ-100**: The terminal presentation layer must wrap Ratatui behind clean traits (`TerminalSurface`, `TerminalComponent`, `PromptEditor`, `ModalView`), isolating application logic from raw Ratatui/textarea struct layouts and enabling seamless headless unit testing.
 - **REQ-101**: Resuming from process suspension (`SIGTSTP`) must trigger `terminal.clear()` and immediately redraw the active inline viewport, preventing shell prompt artifacts from persisting in the viewport area.
 - **REQ-102**: Rapid terminal window resize bursts must debounce in the event loop, collapsing duplicate resize events to render a single flicker-free frame once geometry stabilizes.
+- **REQ-103**: When user scrollback is offset upwards during active streaming, automatic scroll-to-bottom must pause (engaging an auto-scroll lock with a visual down-indicator) until manually scrolled back to the bottom or dismissed with `G`/`End`.
+- **REQ-104**: In-browser Iroh P2P networking in `crates/rho-wasm` must feed incoming byte frames directly into canonical `RpcEvent` signal channels in Rust WebAssembly without traversing `JsValue` or `serde_wasm_bindgen` boundaries.
 
 ## Invariants and security boundaries
 
