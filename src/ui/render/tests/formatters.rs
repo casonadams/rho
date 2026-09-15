@@ -1,7 +1,6 @@
-use super::super::diff::format_gutter_prefix;
 use super::super::formatters::{
-    format_edit_diff, format_read_expanded, format_relative_time, format_session_status, format_thinking_block,
-    format_write_preview,
+    format_edit_diff, format_gutter_prefix, format_read_expanded, format_relative_time, format_session_status,
+    format_thinking_block, format_write_preview,
 };
 use crate::ui::theme::Theme;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};

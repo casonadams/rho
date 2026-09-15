@@ -10,11 +10,9 @@
 
 pub mod broadcast_presenter;
 pub(crate) mod card;
-pub(crate) mod diff;
 pub(crate) mod formatters;
 pub(crate) mod notices;
 pub(crate) mod presenter;
-pub(crate) mod preview;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
 
@@ -22,8 +20,8 @@ pub mod rpc_presenter;
 mod tests;
 
 pub use broadcast_presenter::BroadcastPresenter;
+pub(crate) use card::{fetch_content_kind, format_bash_args_header};
 pub(crate) use formatters::{format_edit_diff, format_read_expanded, format_thinking_block, format_write_preview};
-pub(crate) use preview::{fetch_content_kind, format_bash_args_header};
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};

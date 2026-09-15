@@ -23,6 +23,17 @@ impl JsonRpcRequest {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct McpTestReport {
+    pub server_name: String,
+    pub status: String,
+    pub init_duration_ms: u64,
+    pub capabilities: Vec<String>,
+    pub tool_count: usize,
+    pub tools: Vec<String>,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JsonRpcNotification {
     pub jsonrpc: String,

@@ -1,8 +1,8 @@
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{InteractiveUi, UiEvent};
 use crate::ui::render::CacheMissNotice;
+use crate::ui::render::fetch_content_kind;
 use crate::ui::render::formatters::format_session_status;
-use crate::ui::render::preview::fetch_content_kind;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::SessionStatus;
 

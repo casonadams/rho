@@ -1,31 +1,77 @@
 mod command;
 mod format;
-mod progress;
 
 pub use format::UserBashResult;
 
 use crossterm::event::Event;
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use command::RunningCommand;
 use format::{BashOutcome, finalize_run, finish_bash_result};
-use progress::StreamProgress;
 
 use super::LiveIo;
-use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{InputAction, map_key};
+use crate::ui::interactive::{Activity, InputAction, map_key};
 
 type UiEvents = tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>;
 type ChunkRx = tokio::sync::mpsc::UnboundedReceiver<String>;
 
+const STREAM_REDRAW_INTERVAL: Duration = Duration::from_millis(50);
+
 struct StreamBuffers {
     chunk_rx: ChunkRx,
     accumulator: OutputAccumulator,
-    progress: StreamProgress,
+    spinner_tick: usize,
+    last_redraw: Instant,
+    needs_redraw: bool,
+}
+
+impl StreamBuffers {
+    fn new(chunk_rx: ChunkRx) -> Self {
+        Self {
+            chunk_rx,
+            accumulator: OutputAccumulator::new(),
+            spinner_tick: 0,
+            last_redraw: Instant::now(),
+            needs_redraw: false,
+        }
+    }
+
+    fn on_chunk(&mut self) -> bool {
+        self.needs_redraw = true;
+        if self.last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
+            self.last_redraw = Instant::now();
+            self.needs_redraw = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn on_tick<B: crate::ui::interactive::TerminalBackend>(
+        &mut self,
+        controller: &mut crate::ui::interactive::TerminalController<B>,
+    ) -> bool {
+        self.spinner_tick += 1;
+        let spinner_advanced = if self.spinner_tick >= SPINNER_FRAME_INTERVALS {
+            self.spinner_tick = 0;
+            controller.advance_spinner();
+            !matches!(controller.state().footer().activity, Activity::Idle)
+        } else {
+            false
+        };
+        if self.needs_redraw && self.last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
+            self.needs_redraw = false;
+            self.last_redraw = Instant::now();
+            true
+        } else {
+            spinner_advanced
+        }
+    }
 }
 
 struct SpawnOutcome {
@@ -82,7 +128,7 @@ impl<B: crate::ui::interactive::TerminalBackend> BashRun<'_, B> {
             stream.accumulator.append(more.as_bytes());
             self.renderer.tool_chunk(&more);
         }
-        if stream.progress.on_chunk() {
+        if stream.on_chunk() {
             self.drain_and_flush(true)?;
         }
         Ok(())
@@ -94,7 +140,7 @@ impl<B: crate::ui::interactive::TerminalBackend> BashRun<'_, B> {
         if resized {
             self.renderer.set_width(self.controller.width());
         }
-        if stream.progress.on_tick(self.controller) || expired || resized {
+        if stream.on_tick(self.controller) || expired || resized {
             self.drain_and_flush(true)?;
         }
         Ok(())
@@ -275,11 +321,7 @@ fn build_stream_state<'a, 'b, B: crate::ui::interactive::TerminalBackend>(
     BashStreamState {
         run,
         running,
-        stream: StreamBuffers {
-            chunk_rx,
-            accumulator: OutputAccumulator::new(),
-            progress: StreamProgress::new(),
-        },
+        stream: StreamBuffers::new(chunk_rx),
         input,
         frame,
         started,

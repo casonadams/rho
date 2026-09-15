@@ -137,6 +137,7 @@ anyhow.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 fuzzy-matcher.workspace = true
+similar.workspace = true
 regex = "1.11"
 unicode-width = "0.2"
 arboard = "3.4"

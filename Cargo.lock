@@ -4619,6 +4619,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "similar",
  "syntect",
  "tar",
  "tempfile",

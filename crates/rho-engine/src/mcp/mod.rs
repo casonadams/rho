@@ -21,4 +21,4 @@ pub use manager::load_mcp_tools;
 pub use process::{McpChildHandle, McpProcess};
 pub use transport::McpTransport;
 pub use trust::{is_workspace_trusted, trust_workspace, untrust_workspace};
-pub use types::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};
+pub use types::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse, McpTestReport};

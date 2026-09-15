@@ -327,3 +327,85 @@ impl PromptQueueCoordinator {
         self.queue.is_empty()
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ActiveToolState {
+    pub name: String,
+    pub call_id: String,
+    pub arguments_summary: String,
+    pub elapsed_ms: u64,
+    pub is_running: bool,
+    pub is_denied: bool,
+    pub error: Option<String>,
+}
+
+impl ActiveToolState {
+    pub fn running(name: impl Into<String>, call_id: impl Into<String>, args: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            call_id: call_id.into(),
+            arguments_summary: args.into(),
+            elapsed_ms: 0,
+            is_running: true,
+            is_denied: false,
+            error: None,
+        }
+    }
+
+    pub fn completed(&mut self, elapsed_ms: u64) {
+        self.is_running = false;
+        self.elapsed_ms = elapsed_ms;
+    }
+
+    pub fn denied(&mut self, reason: Option<String>) {
+        self.is_running = false;
+        self.is_denied = true;
+        self.error = reason;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CompactionMilestone {
+    pub previous_tokens: u64,
+    pub compacted_tokens: u64,
+    pub duration_ms: u64,
+}
+
+impl CompactionMilestone {
+    pub fn new(previous: u64, compacted: u64, duration_ms: u64) -> Self {
+        Self {
+            previous_tokens: previous,
+            compacted_tokens: compacted,
+            duration_ms,
+        }
+    }
+
+    pub fn reduction_percent(&self) -> f64 {
+        if self.previous_tokens == 0 {
+            0.0
+        } else {
+            let diff = self.previous_tokens.saturating_sub(self.compacted_tokens);
+            (diff as f64 / self.previous_tokens as f64) * 100.0
+        }
+    }
+
+    pub fn format_badge(&self) -> String {
+        let pct = self.reduction_percent();
+        let dur = self.duration_ms as f64 / 1000.0;
+        format!(
+            "compacted: {} → {} (-{:.0}%) in {:.1}s",
+            format_tokens(self.previous_tokens),
+            format_tokens(self.compacted_tokens),
+            pct,
+            dur
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct UpdateProgress {
+    pub percent: f64,
+    pub downloaded_bytes: u64,
+    pub total_bytes: Option<u64>,
+    pub status: String,
+}

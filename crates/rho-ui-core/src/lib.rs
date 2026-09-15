@@ -30,7 +30,7 @@ pub use parser::{StreamChunkParser, StreamEvent, generate_diff, generate_word_di
 pub use permission::{PERMISSION_ACTIONS, PermissionAction, PermissionPromptState};
 pub use session::{AuthMode, PROVIDER_DEFS, ProviderDef, SessionCommand, SessionState, SessionTurnState};
 pub use state::{
-    FooterMetrics, PromptQueueCoordinator, QueuedPrompt, QueuedPromptKind, RhoTicket, SecretGuard, SessionTreeState,
-    ToastLevel, ToastManager, ToastMessage, TreeNode, WelcomeDisplay, WindowFocus, detect_supported_image_mime,
-    fit_dimensions, format_size, format_tokens,
+    ActiveToolState, CompactionMilestone, FooterMetrics, PromptQueueCoordinator, QueuedPrompt, QueuedPromptKind,
+    RhoTicket, SecretGuard, SessionTreeState, ToastLevel, ToastManager, ToastMessage, TreeNode, UpdateProgress,
+    WelcomeDisplay, WindowFocus, detect_supported_image_mime, fit_dimensions, format_size, format_tokens,
 };

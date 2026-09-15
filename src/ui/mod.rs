@@ -5,14 +5,20 @@ pub mod block;
 pub mod editor;
 pub mod interactive;
 pub mod markdown;
+pub mod modal;
 pub mod render;
 pub mod stream;
 pub mod terminal;
 pub mod theme;
+pub mod widgets;
 
 pub use editor::{EditorMode, TextAreaEditor, Vim, VimMode};
 pub use interactive::cache;
 pub use markdown::MarkdownRenderer;
+pub use modal::{
+    AutocompletePopupView, PermissionPromptView, RemotePairModalView, StandardModalView, centered_modal_area,
+    render_modal,
+};
 pub use render::TerminalRenderer;
 pub use stream::ToolStreamPort;
 pub use terminal::{
@@ -20,6 +26,7 @@ pub use terminal::{
     TERMINAL_BELL, TerminalGuard, TerminalRunner, install_terminal_panic_hook, write_turn_completion,
 };
 pub use theme::Theme;
+pub use widgets::{ActiveToolCard, CompactionBadge, StreamingSpinner, ThinkingAccordion, UpdateGauge};
 
 pub trait TerminalSurface {
     fn size(&self) -> std::io::Result<ratatui::layout::Rect>;
