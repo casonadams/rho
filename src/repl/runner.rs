@@ -484,6 +484,9 @@ async fn print_startup_banner_direct(session: &ReplSession, engine: &AgentEngine
         ..Default::default()
     };
     renderer.print_welcome(&display);
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(b"\n");
+    let _ = stdout.flush();
 }
 
 fn build_completions() -> CompletionEngine {
@@ -624,8 +627,6 @@ fn build_live_lines(
         let tool_lines = render_running_tool_widget(widget_input);
         lines.extend(tool_lines);
     }
-
-    lines.push(String::new());
 
     let ed_lines = state.editor.lines();
     let (c_row, c_col) = state.editor.cursor();
@@ -1456,6 +1457,25 @@ fn handle_turn_resize(
     Ok(())
 }
 
+fn finalize_turn_result<T>(
+    res: Result<T>,
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    stream: &mut TurnStreamState,
+    tracker: &mut OutputTracker,
+) -> Result<()> {
+    if let Err(ref err) = res {
+        stream.scrollback.push_str(&format!("\nError: {err}\n"));
+    }
+    if !stream.scrollback.ends_with('\n') {
+        stream.scrollback.push('\n');
+    }
+    stream.scrollback.push('\n');
+    refresh_display(state, footer, None, Some(&stream.scrollback), tracker)?;
+    stream.scrollback.clear();
+    Ok(())
+}
+
 async fn execute_agent_turn(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
@@ -1491,12 +1511,7 @@ async fn execute_agent_turn(
                 while let Ok(ui_ev) = ui_events.try_recv() {
                     drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.session);
                 }
-                if let Err(ref err) = res {
-                    stream.scrollback.push_str(&format!("\nError: {err}\n"));
-                }
-                stream.scrollback.push('\n');
-                refresh_display(state, &footer, None, Some(&stream.scrollback), &mut tracker)?;
-                stream.scrollback.clear();
+                finalize_turn_result(res, state, &footer, &mut stream, &mut tracker)?;
                 break;
             }
             Some(ui_ev) = ui_events.recv() => {
