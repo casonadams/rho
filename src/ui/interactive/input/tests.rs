@@ -91,6 +91,14 @@ fn editor_navigation_and_control_keys_are_mapped() {
             key(KeyCode::Char('-'), KeyModifiers::CONTROL),
             InputAction::Edit(UiAction::Undo),
         ),
+        (
+            key(KeyCode::Backspace, KeyModifiers::NONE),
+            InputAction::Edit(UiAction::Backspace),
+        ),
+        (
+            key(KeyCode::Delete, KeyModifiers::NONE),
+            InputAction::Edit(UiAction::Delete),
+        ),
     ];
 
     for (event, expected) in cases {

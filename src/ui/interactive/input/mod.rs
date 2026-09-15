@@ -3,6 +3,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use super::keymap::{KeyAction, KeybindingMap};
 use super::{QueueKind, UiAction};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputAction {
     Cancel,
@@ -112,6 +115,12 @@ pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> Input
     match (event.code, event.modifiers) {
         (KeyCode::Char(c), mods) if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
             InputAction::Edit(UiAction::Insert(c))
+        }
+        (KeyCode::Backspace, mods) if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            InputAction::Edit(UiAction::Backspace)
+        }
+        (KeyCode::Delete, mods) if !mods.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            InputAction::Edit(UiAction::Delete)
         }
         _ => InputAction::Ignore,
     }
