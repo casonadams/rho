@@ -125,6 +125,10 @@ This separation causes significant friction:
 - **REQ-018**: Tool permission and approval prompts (`Allow once`, `Allow always`, `Deny with reason`, `Edit command`) must be driven by `use_permission_prompt`, supporting inline parameter editing via `ratatui-textarea` in the TUI and Dioxus form components in the Web Hub.
 - **REQ-019**: Thinking blocks must stream in real time and support expandable/collapsible accordion display on both platforms.
 - **REQ-020**: Tool execution cards must visually represent status states (running, success, error) consistently across both TUI and Web Hub.
+- **REQ-021**: Bracketed paste handling must preserve collapsed paste markers (`[paste #1 +50 lines]`) when pasting large multiline blocks into `ratatui-textarea` and web input, expanding automatically upon turn submission.
+- **REQ-022**: Clipboard image pasting (via `arboard` in TUI and Web Clipboard API in Web Hub) must store image assets and insert reference tokens (`[image /tmp/...]`) seamlessly.
+- **REQ-023**: Terminal job suspension (`Ctrl+Z` / `SIGTSTP`) and external subshell execution must cleanly suspend Ratatui raw mode, show the cursor, and restore the inline viewport upon resumption.
+- **REQ-024**: Non-TTY and piped execution environments (`!is_terminal()`) must bypass Ratatui entirely, preserving line-mode and batch CLI behavior.
 
 ## Invariants and security boundaries
 
