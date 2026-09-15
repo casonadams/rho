@@ -4,7 +4,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rho_harness_core::presentation::WelcomeDisplay;
+use rho_harness_core::presentation::{InteractionPrompt, WelcomeDisplay};
 use rho_harness_core::rpc::protocol::RpcEvent;
 use rho_harness_core::session::list_session_summaries_async;
 use rho_ui_core::autocomplete::CompletionEngine;
@@ -12,7 +12,6 @@ use rho_ui_core::keymap::{InputAction, map_key};
 use rho_ui_core::modal::{
     McpModalState, McpServerInfo, ModelCapability, ModelRegistry, SettingsState, SkillInfo, SkillModalState,
 };
-use rho_ui_core::permission::{PERMISSION_ACTIONS, PermissionAction, PermissionPromptState};
 use rho_ui_core::session::PROVIDER_DEFS;
 use rho_ui_core::state::{FooterMetrics, RhoTicket};
 
@@ -28,8 +27,9 @@ use crate::ui::interactive::{
     Activity, InteractionResponder, InteractionResponse, InteractiveUi, OutputEvent, RunningTool,
     RunningToolWidgetInput, TranscriptItem, TranscriptRenderInput, UiEvent, render_running_tool_widget,
 };
-use crate::ui::modal::{AutocompletePopupView, PermissionPromptView, RemotePairModalView, StandardModalView};
+use crate::ui::modal::{AutocompletePopupView, RemotePairModalView, StandardModalView};
 use crate::ui::terminal::TerminalGuard;
+use crate::ui::theme::CursorMode;
 use crate::ui::widgets::StreamingSpinner;
 use crate::ui::{ModalView, PromptEditor};
 
@@ -41,10 +41,197 @@ pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
     stdin_is_tty && stdout_is_tty
 }
 
+struct PermissionModal {
+    pub prompt: InteractionPrompt,
+    pub selected_index: usize,
+    pub body_scroll: usize,
+    pub is_editing: bool,
+    pub editor: TextAreaEditor,
+    pub custom_deny_reason: String,
+    pub resolved: Option<InteractionResponse>,
+}
+
+impl PermissionModal {
+    fn new(prompt: InteractionPrompt) -> Self {
+        let default_cmd = prompt
+            .options
+            .get(1)
+            .and_then(|o| o.input.as_ref())
+            .and_then(|i| i.value.clone())
+            .unwrap_or_else(|| {
+                if let Some(line) = prompt.body.lines().find(|l| l.starts_with("Input: ")) {
+                    line.trim_start_matches("Input: ").to_string()
+                } else {
+                    prompt.body.clone()
+                }
+            });
+        let mut editor = TextAreaEditor::new(EditorMode::Default);
+        editor.set_text(&default_cmd);
+        let selected_index = prompt.initial_selection.min(prompt.options.len().saturating_sub(1));
+        Self {
+            prompt,
+            selected_index,
+            body_scroll: 0,
+            is_editing: false,
+            editor,
+            custom_deny_reason: String::new(),
+            resolved: None,
+        }
+    }
+
+    fn handle_editing_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Enter => {
+                self.is_editing = false;
+                self.resolved = Some(InteractionResponse::SelectedWithInput {
+                    index: 1,
+                    text: self.editor.text().to_string(),
+                });
+                true
+            }
+            KeyCode::Esc => {
+                self.is_editing = false;
+                true
+            }
+            _ => self.editor.handle_key(key),
+        }
+    }
+
+    fn handle_selection_key(&mut self, key: KeyEvent) -> bool {
+        let n_opts = self.prompt.options.len().max(1);
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
+                self.resolved = Some(InteractionResponse::Cancelled);
+                true
+            }
+            (KeyCode::Left, _) | (KeyCode::Char('h'), KeyModifiers::NONE) | (KeyCode::BackTab, _) => {
+                if self.selected_index == 0 {
+                    self.selected_index = n_opts - 1;
+                } else {
+                    self.selected_index -= 1;
+                }
+                true
+            }
+            (KeyCode::Right, _) | (KeyCode::Char('l'), KeyModifiers::NONE) | (KeyCode::Tab, KeyModifiers::NONE) => {
+                self.selected_index = (self.selected_index + 1) % n_opts;
+                true
+            }
+            (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::NONE) => {
+                self.body_scroll = self.body_scroll.saturating_sub(1);
+                true
+            }
+            (KeyCode::Down, _) | (KeyCode::Char('j'), KeyModifiers::NONE) => {
+                self.body_scroll += 1;
+                true
+            }
+            (KeyCode::Char(c), KeyModifiers::NONE) if c >= '1' && (c as usize - '1' as usize) < n_opts => {
+                self.selected_index = c as usize - '1' as usize;
+                if self.selected_index == 1 {
+                    self.is_editing = true;
+                }
+                true
+            }
+            (KeyCode::Enter, _) => {
+                match self.selected_index {
+                    0 => self.resolved = Some(InteractionResponse::Selected(0)),
+                    1 => self.is_editing = true,
+                    2 => self.resolved = Some(InteractionResponse::Selected(2)),
+                    3 => {
+                        let text = self.custom_deny_reason.trim().to_string();
+                        self.resolved = if text.is_empty() {
+                            Some(InteractionResponse::Cancelled)
+                        } else {
+                            Some(InteractionResponse::SelectedWithInput { index: 3, text })
+                        };
+                    }
+                    other => self.resolved = Some(InteractionResponse::Selected(other)),
+                }
+                true
+            }
+            (KeyCode::Backspace, _) if self.selected_index == 3 => {
+                self.custom_deny_reason.pop();
+                true
+            }
+            (KeyCode::Char(c), KeyModifiers::NONE) if self.selected_index == 3 => {
+                self.custom_deny_reason.push(c);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> bool {
+        if self.is_editing {
+            self.handle_editing_key(key)
+        } else {
+            self.handle_selection_key(key)
+        }
+    }
+
+    fn render_lines(&self, width: usize, cursor_mode: CursorMode) -> (Vec<String>, usize, usize) {
+        let mut lines = Vec::new();
+        if self.is_editing {
+            let sep = "─".repeat(width.saturating_sub(38));
+            lines.push(format!("\x1b[33m── Permission Required · Edit Command {sep}\x1b[0m"));
+            lines.push("\x1b[90mModify tool arguments before running:\x1b[0m".to_string());
+            lines.push(String::new());
+            let mut ed_line = format!("  {}", self.editor.text());
+            let (_, c_col) = self.editor.cursor();
+            let cursor_col = c_col + 2;
+            if cursor_mode == CursorMode::Software {
+                crate::ui::interactive::apply_software_cursor(&mut ed_line, cursor_col);
+            }
+            lines.push(ed_line);
+            let c_row = lines.len() - 1;
+            lines.push(String::new());
+            lines.push("\x1b[90m[Enter] Confirm Edit  ·  [Esc] Cancel\x1b[0m".to_string());
+            lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+            (lines, c_row, cursor_col)
+        } else {
+            let sep = "─".repeat(width.saturating_sub(26));
+            lines.push(format!("\x1b[33m── Permission Required {sep}\x1b[0m"));
+            let body_lines: Vec<&str> = self.prompt.body.lines().collect();
+            let max_body_lines = 6;
+            let start = self.body_scroll.min(body_lines.len().saturating_sub(1));
+            for line in body_lines.iter().skip(start).take(max_body_lines) {
+                lines.push(format!("  {line}"));
+            }
+            if body_lines.len() > max_body_lines {
+                let current = start + 1;
+                let total = body_lines.len();
+                lines.push(format!("\x1b[90m  ↑/↓ scroll body (line {current}/{total})\x1b[0m"));
+            }
+
+            lines.push(String::new());
+            let mut action_spans = Vec::new();
+            for (i, opt) in self.prompt.options.iter().enumerate() {
+                let digit = i + 1;
+                let is_sel = i == self.selected_index;
+                if is_sel {
+                    action_spans.push(format!("\x1b[1;33m[{digit}. {}]\x1b[0m", opt.label));
+                } else {
+                    action_spans.push(format!("\x1b[90m{digit}. {}\x1b[0m", opt.label));
+                }
+            }
+            lines.push(format!("  {}", action_spans.join("   ")));
+
+            if self.selected_index == 3 {
+                let reason = &self.custom_deny_reason;
+                lines.push(format!("  \x1b[31mDenial reason: {reason}█\x1b[0m"));
+            } else {
+                lines.push("\x1b[90m  ←/→ select · 1-4 jump · Enter confirm · Esc deny\x1b[0m".to_string());
+            }
+            lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+            let c_row = lines.len() - 1;
+            (lines, c_row, 0)
+        }
+    }
+}
+
 enum ActiveModal {
     Standard(StandardModalView),
     RemotePair(RemotePairModalView),
-    Permission(Box<PermissionPromptView>),
+    Permission(Box<PermissionModal>),
 }
 
 impl ActiveModal {
@@ -52,7 +239,7 @@ impl ActiveModal {
         match self {
             Self::Standard(m) => m.state.is_open,
             Self::RemotePair(m) => m.is_open,
-            Self::Permission(p) => p.resolved_action.is_none(),
+            Self::Permission(p) => p.resolved.is_none(),
         }
     }
 
@@ -64,7 +251,7 @@ impl ActiveModal {
         }
     }
 
-    fn render_lines(&self, width: usize) -> Vec<String> {
+    fn render_lines(&self, width: usize, cursor_mode: CursorMode) -> (Vec<String>, usize, usize) {
         match self {
             Self::Standard(m) => {
                 let mut lines = Vec::new();
@@ -93,7 +280,8 @@ impl ActiveModal {
                     }
                 }
                 lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
-                lines
+                let len = lines.len();
+                (lines, len.saturating_sub(1), 0)
             }
             Self::RemotePair(m) => {
                 let mut lines = Vec::new();
@@ -104,32 +292,10 @@ impl ActiveModal {
                 lines.push(format!("  Ticket: {}", m.ticket.node_id));
                 lines.push("  Press Esc to dismiss".to_string());
                 lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
-                lines
+                let len = lines.len();
+                (lines, len.saturating_sub(1), 0)
             }
-            Self::Permission(p) => {
-                let mut lines = Vec::new();
-                let sep = "─".repeat(width.saturating_sub(26));
-                lines.push(format!("\x1b[33m── Permission Required {sep}\x1b[0m"));
-                for line in p.prompt.command_display.lines().take(4) {
-                    lines.push(format!("  {line}"));
-                }
-                if p.prompt.is_editing {
-                    lines.push(format!(" \x1b[1;33m[EDITING]\x1b[0m {}", p.editor.text()));
-                } else {
-                    let mut actions = Vec::new();
-                    for (i, (lbl, _)) in PERMISSION_ACTIONS.iter().enumerate() {
-                        let num = i + 1;
-                        if i == p.prompt.selected_index {
-                            actions.push(format!("\x1b[1;33m[{num}. {lbl}]\x1b[0m"));
-                        } else {
-                            actions.push(format!("\x1b[90m{num}. {lbl}\x1b[0m"));
-                        }
-                    }
-                    lines.push(format!(" {}", actions.join("  ")));
-                }
-                lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
-                lines
-            }
+            Self::Permission(p) => p.render_lines(width, cursor_mode),
         }
     }
 }
@@ -387,8 +553,12 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
-fn render_editor_row(text: &str, _cursor_col: usize) -> String {
-    text.to_string()
+fn render_editor_row(text: &str, cursor_col: usize, cursor_mode: CursorMode) -> String {
+    let mut row = text.to_string();
+    if cursor_mode == CursorMode::Software {
+        crate::ui::interactive::apply_software_cursor(&mut row, cursor_col);
+    }
+    row
 }
 
 fn thinking_divider_style(thinking: Option<&str>) -> (&'static str, &'static str) {
@@ -409,11 +579,10 @@ fn build_live_lines(
     footer: &FooterInfo,
     activity: Option<(&Activity, Option<&RunningTool>, usize)>,
     width: usize,
+    cursor_mode: CursorMode,
 ) -> (Vec<String>, usize, usize) {
     if let Some(modal) = state.active_modal.as_ref() {
-        let lines = modal.render_lines(width);
-        let len = lines.len();
-        return (lines, len.saturating_sub(1), 0);
+        return modal.render_lines(width, cursor_mode);
     }
 
     let mut lines = Vec::new();
@@ -445,9 +614,11 @@ fn build_live_lines(
         lines.extend(tool_lines);
     }
 
+    lines.push(String::new());
+
     let text = state.editor.text();
     let (_c_row, c_col) = state.editor.cursor();
-    lines.push(render_editor_row(&text, c_col));
+    lines.push(render_editor_row(&text, c_col, cursor_mode));
     let cursor_row = lines.len() - 1;
 
     if let Some(popup) = state.autocomplete_popup.as_ref() {
@@ -470,7 +641,8 @@ fn paint_live_region(
     lines: &[String],
     cursor_row: usize,
     cursor_col: usize,
-    show_cursor: bool,
+    cursor_mode: CursorMode,
+    active_editor: bool,
 ) -> std::io::Result<()> {
     for (i, line) in lines.iter().enumerate() {
         stdout.write_all(line.as_bytes())?;
@@ -478,16 +650,16 @@ fn paint_live_region(
             stdout.write_all(b"\r\n")?;
         }
     }
-    let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor_row);
-    if rows_up > 0 {
-        write!(stdout, "\x1b[{rows_up}A")?;
-    }
-    if cursor_col > 0 {
-        write!(stdout, "\r\x1b[{cursor_col}C")?;
-    } else {
-        stdout.write_all(b"\r")?;
-    }
-    if show_cursor {
+    if cursor_mode == CursorMode::Hardware && active_editor {
+        let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor_row);
+        if rows_up > 0 {
+            write!(stdout, "\x1b[{rows_up}A")?;
+        }
+        if cursor_col > 0 {
+            write!(stdout, "\r\x1b[{cursor_col}C")?;
+        } else {
+            stdout.write_all(b"\r")?;
+        }
         stdout.write_all(b"\x1b[?25h")?;
     } else {
         stdout.write_all(b"\x1b[?25l")?;
@@ -522,12 +694,11 @@ fn refresh_display(
     tracker: &mut OutputTracker,
 ) -> std::io::Result<()> {
     let width = crate::ui::terminal_width() as usize;
-    let (lines, c_row, c_col) = build_live_lines(state, footer, activity, width);
+    let cursor_mode = state.session.renderer.theme.cursor_mode;
+    let (lines, c_row, c_col) = build_live_lines(state, footer, activity, width, cursor_mode);
 
-    let show_cursor = state.active_modal.is_none();
     let mut stdout = std::io::stdout();
     stdout.write_all(CSI_SYNC_BEGIN)?;
-    stdout.write_all(b"\x1b[?25l")?;
     erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row)?;
 
     if let Some(out) = extra_output
@@ -542,7 +713,8 @@ fn refresh_display(
         }
     }
 
-    paint_live_region(&mut stdout, &lines, c_row, c_col, show_cursor)?;
+    let active_editor = state.active_modal.is_none();
+    paint_live_region(&mut stdout, &lines, c_row, c_col, cursor_mode, active_editor)?;
     stdout.write_all(CSI_SYNC_END)?;
     stdout.flush()?;
 
@@ -1135,40 +1307,6 @@ async fn finish_turn_execution(
     Ok(())
 }
 
-fn handle_permission_key(
-    mut p: PermissionPromptView,
-    key: KeyEvent,
-    active_responder: &mut Option<InteractionResponder>,
-) -> Option<ActiveModal> {
-    if key.code == KeyCode::Esc {
-        if let Some(resp) = active_responder.take() {
-            let _ = resp.respond(InteractionResponse::Cancelled);
-        }
-        return None;
-    }
-    p.handle_key(key);
-    if let Some(action) = p.resolved_action.take() {
-        let response = match action {
-            PermissionAction::AllowOnce => InteractionResponse::Selected(0),
-            PermissionAction::AllowAlways => InteractionResponse::Selected(1),
-            PermissionAction::Deny { reason } => match reason {
-                Some(r) => InteractionResponse::SelectedWithInput { index: 2, text: r },
-                None => InteractionResponse::Selected(2),
-            },
-            PermissionAction::Edit { mutated_command } => InteractionResponse::SelectedWithInput {
-                index: 3,
-                text: mutated_command,
-            },
-        };
-        if let Some(resp) = active_responder.take() {
-            let _ = resp.respond(response);
-        }
-        None
-    } else {
-        Some(ActiveModal::Permission(Box::new(p)))
-    }
-}
-
 fn handle_turn_key_input(
     key: KeyEvent,
     state: &mut RunnerState<'_>,
@@ -1177,8 +1315,15 @@ fn handle_turn_key_input(
     active_responder: &mut Option<InteractionResponder>,
     pending_scrollback: &mut String,
 ) -> bool {
-    if let Some(ActiveModal::Permission(p)) = state.active_modal.take() {
-        *state.active_modal = handle_permission_key(*p, key, active_responder);
+    if let Some(ActiveModal::Permission(mut p)) = state.active_modal.take() {
+        p.handle_key(key);
+        if let Some(resp) = p.resolved.take() {
+            if let Some(responder) = active_responder.take() {
+                let _ = responder.respond(resp);
+            }
+        } else {
+            *state.active_modal = Some(ActiveModal::Permission(p));
+        }
         return false;
     }
     let action = map_key(key);
@@ -1251,18 +1396,8 @@ struct TurnStreamState {
 fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut TurnStreamState) {
     match ui_ev {
         UiEvent::Interaction { prompt: p, responder } => {
-            let perm_state = PermissionPromptState {
-                is_active: true,
-                tool_name: "tool".to_string(),
-                command_display: p.body.clone(),
-                arguments: serde_json::Value::Null,
-                selected_index: p.initial_selection,
-                custom_deny_reason: String::new(),
-                edited_command: p.body.clone(),
-                is_editing: false,
-            };
-            let view = PermissionPromptView::new(perm_state);
-            *state.active_modal = Some(ActiveModal::Permission(Box::new(view)));
+            let modal = PermissionModal::new(p);
+            *state.active_modal = Some(ActiveModal::Permission(Box::new(modal)));
             stream.responder = Some(responder);
         }
         other => {

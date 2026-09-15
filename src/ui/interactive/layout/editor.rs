@@ -104,7 +104,7 @@ pub(crate) fn window_editor(
     (windowed, new_cursor)
 }
 
-pub(crate) fn apply_software_cursor(line: &mut String, target_column: usize) {
+pub fn apply_software_cursor(line: &mut String, target_column: usize) {
     let mut current_col = 0;
     let mut byte_offset = None;
     let mut char_len = 0;

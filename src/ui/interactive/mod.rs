@@ -31,8 +31,8 @@ pub use keybinding_loader::{default_keybindings, load_keybindings};
 pub use keymap::{KeyAction, KeyChord, KeybindingMap};
 pub use layout::{
     CursorPosition, InteractiveLayout, LayoutInput, RunningToolWidgetInput, SPINNER_FRAMES, VisualTruncateResult,
-    layout, modal_body_max_scroll, render_running_tool_widget, truncate_to_visual_lines, wrap_to_width,
-    wrap_words_to_width,
+    apply_software_cursor, layout, modal_body_max_scroll, render_running_tool_widget, truncate_to_visual_lines,
+    wrap_to_width, wrap_words_to_width,
 };
 pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,
