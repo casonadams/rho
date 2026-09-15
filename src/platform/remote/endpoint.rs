@@ -55,16 +55,7 @@ impl RhoEndpoint {
     }
 
     pub fn extract_ticket_b64(ticket_str: &str) -> &str {
-        let mut raw = ticket_str.trim();
-        raw = raw.trim_matches(|c| c == '"' || c == '\'' || c == '<' || c == '>');
-        if let Some(pos) = raw.find("ticket=") {
-            let after = &raw[pos + "ticket=".len()..];
-            let end = after.find(['&', '#', ' ', '\'', '"', '>']).unwrap_or(after.len());
-            raw = &after[..end];
-        } else if let Some(end) = raw.find('&') {
-            raw = &raw[..end];
-        }
-        raw.strip_prefix("rho_").unwrap_or(raw)
+        rho_harness_core::rpc::ticket::extract_ticket_b64(ticket_str)
     }
 
     pub fn parse_ticket(ticket_str: &str) -> Result<iroh::EndpointAddr> {

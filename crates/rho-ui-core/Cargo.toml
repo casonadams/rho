@@ -26,5 +26,5 @@ humantime.workspace = true
 
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-crossterm = { workspace = true }
+crossterm = { workspace = true, features = ["events"] }
 

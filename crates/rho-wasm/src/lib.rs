@@ -4,9 +4,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::*;
 
+pub mod app;
+pub mod fleet;
+pub mod modal;
+pub mod transport;
+pub mod workspace;
+
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
+    dioxus::launch(app::App);
 }
 
 #[derive(Serialize, Deserialize)]
@@ -293,5 +300,46 @@ mod tests {
         let thinking_end = full.find("</thinking>");
         assert!(thinking_start.is_some());
         assert!(thinking_end.is_some());
+    }
+
+    #[test]
+    fn test_node_record_serde() {
+        let record = fleet::NodeRecord {
+            id: "node-12345678".to_string(),
+            label: "Test Node".to_string(),
+            ticket: "rho_abc123".to_string(),
+            workspace: Some("~/workspace".to_string()),
+            branch: Some("main".to_string()),
+            status: "online".to_string(),
+            last_seen: 1700000000,
+        };
+        let json = serde_json::to_string(&record).unwrap();
+        let decoded: fleet::NodeRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(record, decoded);
+    }
+
+    #[test]
+    fn test_session_summary_serde() {
+        let summary = workspace::SessionSummary {
+            session_id: "sess-abc".to_string(),
+            name: Some("Fix bug".to_string()),
+            preview: Some("Fixing the issue...".to_string()),
+            last_modified: Some(1700000000),
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        let decoded: workspace::SessionSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(summary, decoded);
+    }
+
+    #[test]
+    fn test_qr_svg_generation() {
+        let ticket = "rho_test_ticket_12345";
+        let code = qrcode::QrCode::new(ticket.as_bytes()).unwrap();
+        let svg = code
+            .render::<qrcode::render::svg::Color>()
+            .min_dimensions(100, 100)
+            .build();
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("</svg>"));
     }
 }

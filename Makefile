@@ -64,6 +64,9 @@ wasm: ## Build rho-wasm and generate JS bindings into www/hub/wasm
 		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
 	fi
 	wasm-bindgen target/wasm32-unknown-unknown/release/rho_wasm.wasm --out-dir www/hub/wasm --target web
+	@if command -v wasm-opt >/dev/null 2>&1; then \
+		wasm-opt -Oz -o www/hub/wasm/rho_wasm_bg.wasm www/hub/wasm/rho_wasm_bg.wasm; \
+	fi
 
 .PHONY: clean
 clean: ## Clean cargo build artifacts

@@ -13,7 +13,24 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 wasm-bindgen = "=0.2.106"
 js-sys = "=0.3.83"
-web-sys = { version = "=0.3.83", features = ["console"] }
+web-sys = { version = "=0.3.83", features = [
+    "console",
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlInputElement",
+    "HtmlTextAreaElement",
+    "Storage",
+    "Blob",
+    "BlobPropertyBag",
+    "Url",
+    "HtmlAnchorElement",
+    "KeyboardEvent",
+    "MouseEvent",
+    "Navigator",
+    "Clipboard",
+] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde-wasm-bindgen = "0.6"
@@ -23,3 +40,8 @@ futures = { workspace = true }
 getrandom = { version = "0.2", features = ["js"] }
 iroh = { version = "1.2.0", default-features = false, features = ["tls-ring"] }
 wasm-bindgen-futures = "0.4"
+chrono = { workspace = true }
+rho-ui-core = { workspace = true }
+rho-harness-core = { workspace = true }
+qrcode = { workspace = true, features = ["svg"] }
+dioxus = { version = "0.6", features = ["web"] }
