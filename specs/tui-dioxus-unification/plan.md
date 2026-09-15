@@ -19,14 +19,15 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - `StreamChunkParser` extracts streaming tokens, `<thinking>` tags, duration timestamps, and tool parameters into strongly-typed `StreamEvent`s.
   - Reusable hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`, `use_stream_parser`) pass in-memory headless unit tests.
 - **Tasks**:
-  1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `pulldown-cmark`, `serde`, and `fuzzy-matcher`.
-  2. (Effort: 3) Implement Semantic UI Block IR (`ContentBlock`, `InlineSpan`, `DiffHunk`, `StyleToken`) representing formatted text, code fences, diffs, tables, and diagrams.
-  3. (Effort: 3) Implement unified markdown and stream tokenizer in `rho-ui-core` converting markdown streams into typed `ContentBlock` items.
-  4. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
-  5. (Effort: 3) Implement `use_modal` state machine handling selection index, fuzzy search filtering, active indicators, and pagination.
-  6. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
-  7. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
-  8. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
+  1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `pulldown-cmark`, `similar`, `fuzzy-matcher`, and `serde`.
+  2. (Effort: 3) Implement Semantic UI Block IR (`ContentBlock`, `InlineSpan`, `DiffHunk`, `StyleToken`, `ThemeTokens`) representing formatted text, code fences, diffs, tables, and diagrams.
+  3. (Effort: 3) Implement unified markdown, table, and stream tokenizer converting streams into typed `ContentBlock` items.
+  4. (Effort: 2) Implement unified diff tokenizer via `similar` crate in `rho-ui-core`, producing `DiffHunk` structures and deprecating custom LCS logic.
+  5. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
+  6. (Effort: 3) Implement `use_modal` state machine handling selection index, `fuzzy-matcher` scoring, active indicators, and pagination.
+  7. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
+  8. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths using `fuzzy-matcher`.
+  9. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
   - `cargo check -p rho-ui-core --target wasm32-unknown-unknown`
@@ -47,7 +48,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   3. (Effort: 3) Connect Dioxus headless reactive runtime to Ratatui draw loop, triggering frame renders upon signal mutations or terminal resize events.
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
   5. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  6. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, and `screen_sim.rs`.
+  6. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, and `screen_sim.rs`.
 - **Verification**:
   - `cargo test -p rho --lib ui::interactive`
 
@@ -89,6 +90,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
   5. (Effort: 2) Build active tool card and streaming spinner widget.
   6. (Effort: 2) Unit test modal and permission widget rendering across terminal dimensions using `TestBackend`.
+  7. (Effort: 2) Delete legacy `src/ui/render/diff.rs` and `src/repl/interactive/fuzzy.rs`.
 - **Verification**:
   - `cargo test -p rho --lib repl::live`
 
