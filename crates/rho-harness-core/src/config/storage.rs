@@ -74,6 +74,14 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_editor_mode_async(config_dir: &Path, mode: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let editor = file_config.editor.get_or_insert_with(Default::default);
+        editor.mode = Some(mode.to_string());
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub async fn save_show_label_async(config_dir: &Path, show: bool) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
@@ -137,6 +145,10 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         }
         ConfigKey::ShowLabel => {
             file_config.show_label = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::EditorMode => {
+            let editor = file_config.editor.get_or_insert_with(Default::default);
+            editor.mode = Some(value.to_string());
         }
         _ => return Ok(false),
     }

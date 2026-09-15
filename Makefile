@@ -39,7 +39,7 @@ clippy-fix: ## Automatically fix Clippy suggestions where possible
 
 .PHONY: test
 test: ## Run tests across the workspace
-	$(CARGO) test --workspace --all-targets --quiet
+	$(CARGO) test --workspace --all-targets
 
 .PHONY: test-cargo
 test-cargo: ## Run standard cargo tests across all targets

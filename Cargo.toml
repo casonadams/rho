@@ -36,6 +36,7 @@ fuzzy-matcher = "0.3.7"
 similar = { version = "3.2", features = ["inline"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 ratatui = { version = "0.30", default-features = false }
+ratatui-textarea = { version = "0.9", default-features = false, features = ["crossterm", "search"] }
 dioxus-core = "0.6"
 dioxus-signals = "0.6"
 rho-harness-core = { version = "0.7.5", path = "crates/rho-harness-core" }
@@ -94,6 +95,7 @@ rho-harness-core.workspace = true
 rho-engine.workspace = true
 rho-ui-core.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
+ratatui-textarea.workspace = true
 
 # Async Runtime & Core
 tokio = { workspace = true, features = ["full"] }

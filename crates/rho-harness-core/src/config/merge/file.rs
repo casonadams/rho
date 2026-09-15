@@ -125,6 +125,12 @@ fn merge_ui_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_editor_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(ref editor) = file.editor {
+        config.editor.merge(editor);
+    }
+}
+
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_model_and_provider(config, &file);
     merge_token_limits(config, &file);
@@ -136,4 +142,5 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_retention(config, &file);
     merge_permission_and_providers(config, file.clone());
     merge_ui_settings(config, &file);
+    merge_editor_settings(config, &file);
 }

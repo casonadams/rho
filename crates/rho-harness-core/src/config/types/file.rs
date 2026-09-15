@@ -42,4 +42,6 @@ pub(crate) struct FileConfig {
     pub permission: Option<PermissionConfig>,
     #[serde(default)]
     pub ui: Option<super::UiConfig>,
+    #[serde(default)]
+    pub editor: Option<super::EditorConfig>,
 }

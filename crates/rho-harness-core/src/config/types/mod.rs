@@ -1,4 +1,5 @@
 mod app;
+mod editor;
 mod file;
 mod integrations;
 mod key;
@@ -6,6 +7,7 @@ mod paths;
 mod ui;
 
 pub use app::{Config, DEFAULT_MAX_TURNS};
+pub use editor::EditorConfig;
 pub(crate) use file::FileConfig;
 pub use integrations::{
     McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig, ProviderConfig,

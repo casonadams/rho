@@ -33,10 +33,17 @@ fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset
     match input.modal {
         Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
         None => {
-            let label = if input.footer.show_label {
-                concat!("rho ", env!("CARGO_PKG_VERSION"))
+            let vim_label = input.editor.inner().mode_label();
+            let label = if !vim_label.is_empty() {
+                if input.footer.show_label {
+                    format!("[{vim_label}] rho {}", env!("CARGO_PKG_VERSION"))
+                } else {
+                    format!("[{vim_label}]")
+                }
+            } else if input.footer.show_label {
+                concat!("rho ", env!("CARGO_PKG_VERSION")).to_string()
             } else {
-                ""
+                String::new()
             };
             let activity = super::chrome::active_activity_status(input.footer, input.spinner_frame);
             let remote = if input.footer.remote_active {
@@ -44,7 +51,7 @@ fn resolve_top_divider(input: &LayoutInput<'_>, width: usize, style: &str, reset
             } else {
                 None
             };
-            top_divider(width, label, activity, remote, style, reset)
+            top_divider(width, &label, activity, remote, style, reset)
         }
     }
 }

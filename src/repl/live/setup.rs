@@ -32,6 +32,9 @@ pub(super) fn init_live_state(session: &ReplSession, engine: &AgentEngine) -> In
     if let Some(expanded) = session.config.ui.tools_expanded {
         state.set_tools_expanded(expanded);
     }
+    if session.config.editor.is_vim() {
+        state.editor_mut().inner_mut().set_mode(crate::ui::EditorMode::Vim);
+    }
     update_footer(&mut state, session, engine);
     state
 }

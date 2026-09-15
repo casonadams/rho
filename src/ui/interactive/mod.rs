@@ -33,8 +33,8 @@ pub use layout::{
 };
 pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,
-    MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalMode, ModalOption, ModalState, QueueKind, QueuedMessage,
-    RunningTool, UiAction, UiEffect,
+    MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalMode, ModalOption, ModalState, PasteStore, QueueKind,
+    QueuedMessage, RunningTool, UiAction, UiEffect, check_paste_threshold, sanitize_paste,
 };
 pub use transcript::{
     ToolItem, TranscriptItem, TranscriptRenderInput, WelcomeItem, format_welcome_content, render_tool_block,

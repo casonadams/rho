@@ -11,6 +11,7 @@ pub mod types;
 pub use autocomplete::{AutocompleteItem, AutocompleteState};
 pub use editor::EditorState;
 pub use modal::{ModalMode, ModalOption, ModalState};
+pub use paste::{PasteStore, check_paste_threshold, sanitize_paste};
 pub use running_tool::{MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, RunningTool};
 pub use types::{Activity, FooterState, QueueKind, QueuedMessage, UiAction, UiEffect};
 

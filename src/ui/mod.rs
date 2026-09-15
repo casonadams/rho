@@ -2,6 +2,7 @@
 //! (transcript caching, redraw batching, keymaps), block painting, and themes.
 
 pub mod block;
+pub mod editor;
 pub mod interactive;
 pub mod markdown;
 pub mod render;
@@ -9,6 +10,7 @@ pub mod stream;
 pub mod terminal;
 pub mod theme;
 
+pub use editor::{EditorMode, TextAreaEditor, Vim, VimMode};
 pub use interactive::cache;
 pub use markdown::MarkdownRenderer;
 pub use render::TerminalRenderer;

@@ -142,3 +142,20 @@ style = "solid"
     assert_eq!(ui.agent_block_output, Some(true));
     assert_eq!(ui.block_style.as_deref(), Some("solid"));
 }
+
+#[test]
+fn test_editor_config_parses_correctly() {
+    let toml_str = r#"
+[editor]
+mode = "vim"
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let editor = file.editor.as_ref().expect("editor config present");
+    assert_eq!(editor.mode.as_deref(), Some("vim"));
+    assert!(editor.is_vim());
+
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert_eq!(config.editor.mode.as_deref(), Some("vim"));
+    assert!(config.editor.is_vim());
+}

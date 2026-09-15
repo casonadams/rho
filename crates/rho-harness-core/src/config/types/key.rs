@@ -29,6 +29,7 @@ pub(crate) enum ConfigKey {
     ToolsExpanded,
     Cursor,
     ShowLabel,
+    EditorMode,
 }
 
 impl FromStr for ConfigKey {
@@ -65,6 +66,7 @@ impl FromStr for ConfigKey {
                 Ok(Self::Cursor)
             }
             "show_label" => Ok(Self::ShowLabel),
+            "editor.mode" | "editor_mode" | "editor" => Ok(Self::EditorMode),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -100,6 +102,7 @@ impl ConfigKey {
             Self::ToolsExpanded => "ui.tools_expanded",
             Self::Cursor => "ui.cursor",
             Self::ShowLabel => "show_label",
+            Self::EditorMode => "editor.mode",
         }
     }
 }
