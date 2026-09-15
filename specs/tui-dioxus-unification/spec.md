@@ -172,7 +172,7 @@ src/ui/
 ├── editor.rs               # ratatui-textarea + Vim transition state machine
 └── modal.rs                # Centered dialogs, permission prompt, autocomplete
 ```
-*Deletions*: Deletes `src/ui/interactive/layout/` (13 files), `src/ui/interactive/state/editor/` (6 files), `src/ui/interactive/controller/paint.rs`, `screen_sim.rs`, and custom ANSI diffing.
+*Deletions*: Deletes `src/ui/interactive/layout/` (13 files), `src/ui/interactive/state/editor/` (6 files), `src/ui/interactive/session_picker/` (2 files), `src/ui/interactive/controller/paint.rs`, `screen_sim.rs`, `src/repl/live/` (21 files), `src/repl/line_mode/` (7 files), `src/repl/input_reader/` (4 files), `src/repl/coordinator/` (4 files), `src/ui/stream.rs`, `src/repl/completer.rs`, and `src/repl/prompt.rs`.
 
 ### 3. Web Hub in `crates/rho-wasm` / `www/hub/` (<= 3 levels deep)
 Replaces all 5 imperative JS files with cohesive Dioxus components:
