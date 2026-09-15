@@ -52,7 +52,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into a single event stream feeding `rho-ui-core`.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/markdown/table/`, `src/ui/render/card.rs`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), and `screen_sim.rs`.
+  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, markdown line regexes, and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/markdown/table/`, `src/ui/markdown/line.rs`, `src/ui/markdown/spacing.rs`, `src/ui/render/card.rs`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), and `screen_sim.rs`.
 - **Verification**:
   - `cargo test -p rho --lib ui::interactive`
 
@@ -73,7 +73,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   4. (Effort: 2) Integrate bracketed paste interception for collapsed paste markers (`PasteStore`) and clipboard image insertion into `ratatui-textarea`.
   5. (Effort: 2) Add configuration option in `config.toml` (`[editor] mode = "vim" | "default"`).
   6. (Effort: 2) Write unit tests for Vim mode transitions, motions, text deletion, collapsed paste markers, and undo/redo stacks.
-  7. (Effort: 2) Delete `src/ui/interactive/state/editor/` (`geometry.rs`, `history.rs`, `mutate.rs`, `navigation.rs`).
+  7. (Effort: 2) Delete `src/ui/interactive/state/editor/` (`geometry.rs`, `history.rs`, `mutate.rs`, `navigation.rs`) and prune redundant low-level editor bindings in `src/ui/interactive/keybinding_loader/`.
 - **Verification**:
   - `cargo test -p rho --test editor`
 
