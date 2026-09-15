@@ -97,6 +97,8 @@ This separation causes significant friction:
 - Map container and card border preferences (`UiConfig::block_style`) directly to native Ratatui `BorderType` (Rounded, Plain, Double).
 - Route background engine and compaction warnings through canonical `RpcEvent::Notice` channels rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
 - Consolidate atomic file writes across binary self-update (`write_binary_atomically`) and tool modifications (`atomic_write`) in `rho_harness_core::fs`.
+- Coalesce high-speed key-repeat movement events in the terminal event loop, mutating the in-memory editor buffer immediately and rendering at synchronized frame intervals to guarantee stutter-free cursor navigation.
+- Standardize mouse wheel scroll velocity (3 lines per scroll notch) across modals, code previews, and transcript history in both interfaces.
 - Automatically enforce repository modal standards (Title Case, fixed-width columns, active checkmarks `"  ✓"`, `Up`/`Down`/`k`/`j`/`Tab`/`Shift+Tab`, digit jump keys `1..=9`, search filtering) across all interactive selectors via `use_modal()` in `rho-ui-core`.
 - Deduplicate YAML frontmatter parsing across skills and prompt templates in `rho_harness_core`.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
@@ -317,6 +319,8 @@ crates/rho-wasm/
 - **REQ-089**: The terminal interactive runner must support an optional terminal bell (`\x07`) notification on turn completion when the terminal window is unfocused (`Signal<WindowFocus>` is false).
 - **REQ-090**: Background engine and compaction warnings must be routed through canonical `RpcEvent::Notice` events rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
 - **REQ-091**: All interactive selectors in both TUI and Web Hub must strictly enforce the repository `/thinking` modal standards (Title Case headers, empty subtitles, fixed-width option columns, active indicators `"  ✓"`, digit jump keys `1..=9`, and fuzzy filtering) via `use_modal` in `rho-ui-core`.
+- **REQ-092**: Terminal key-repeat movement events must coalesce in the input channel, updating editor memory coordinates immediately and synchronizing frame redraws to eliminate cursor stutter at high repeat rates.
+- **REQ-093**: Mouse wheel scrolling across modals, diff views, and transcript history must apply standardized velocity scaling (3 lines per notch) in both TUI and Web Hub.
 
 ## Invariants and security boundaries
 

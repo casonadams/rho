@@ -48,7 +48,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Tasks**:
   1. (Effort: 2) Add `ratatui` (with `crossterm` feature) to workspace dependencies.
   2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content.
-  3. (Effort: 3) Implement single unified async event loop in `src/ui/terminal.rs`, replacing the fragmented dual `idle_loop` and `turn_loop` machinery (~2,500 lines across `src/repl/live/idle/` and `turn/`).
+  3. (Effort: 3) Implement single unified async event loop in `src/ui/terminal.rs` with key-repeat event coalescing and standardized mouse wheel scrolling velocity, replacing the fragmented dual `idle_loop` and `turn_loop` machinery (~2,500 lines across `src/repl/live/idle/` and `turn/`).
   4. (Effort: 2) Implement scrollback turn completion writer with OSC 133 semantic prompt marks (`OSC133_ZONE_START` / `OSC133_ZONE_END`) and terminal bell (`\x07`) notification on unfocused window, printing finalized user prompt and assistant output into stdout history and clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into direct canonical event broadcast channel feeding `rho-ui-core`, routing all background engine warnings through `RpcEvent::Notice` to protect inline viewport rows from uncoordinated `eprintln!` writes.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
