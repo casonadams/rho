@@ -82,6 +82,8 @@ This separation causes significant friction:
 - Index both prompt templates (`.rho/prompts/*.md`) and skills (`.agents/skills/*/SKILL.md`) in `CompletionEngine`, expanding templates declaratively upon turn submission.
 - Eliminate manual divider character concatenation and string repetition (`src/ui/interactive/layout/chrome.rs` - 159 lines), delegating top divider banners and thinking border colors to Ratatui's native `Block::borders(Borders::TOP)`.
 - Strongly type tool argument presentation via `ToolInvocation` in `rho-ui-core`, eliminating fragile string indexing (`args.get("path")`, `args.get("format")`) across tool inspectors.
+- Automatic credential and sensitive secret redaction via `SecretGuard` in `rho-ui-core` before text is projected to terminal cells or Web Hub components.
+- Centralize window focus state tracking (`FocusGained` / `FocusLost` in TUI and browser window focus in Web Hub), dimming or brightening active chrome accents reactively.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -286,6 +288,8 @@ crates/rho-wasm/
 - **REQ-075**: Terminal dimensions must be read exclusively from Ratatui's cached `frame.area()`, eliminating ad-hoc `crossterm::terminal::size()` ioctl syscalls on render hot paths.
 - **REQ-076**: Top dividers, version banners, and activity indicators in the TUI must be rendered using Ratatui's native `Block::borders(Borders::TOP)` with title alignment, completely deleting manual `"─".repeat(...)` string formatting in `src/ui/interactive/layout/chrome.rs`.
 - **REQ-077**: Tool argument inspection and file previews must deserialize into typed `ToolInvocation` variants (`ReadArgs`, `EditArgs`, `WriteArgs`, `WebFetchArgs`, `BashArgs`), eliminating untyped `serde_json::Value` string indexing in presentation layers.
+- **REQ-078**: Transcript presentation in both TUI and Web Hub must run through `SecretGuard::redact` in `rho-ui-core` before rendering, ensuring zero accidental leakage of auth keys or session secrets.
+- **REQ-079**: Terminal and browser focus state changes (`FocusGained` / `FocusLost`) must update a shared `Signal<WindowFocus>` in `rho-ui-core` to reactively dim or highlight active input chrome.
 
 ## Invariants and security boundaries
 

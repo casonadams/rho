@@ -29,7 +29,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   8. (Effort: 2) Implement `SlashCommandDef` registry with `SlashArgumentType` and declarative `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
   9. (Effort: 2) Implement `PromptHistory` state tracking (`previous`, `next`, draft preservation) shared between TUI and Web Hub.
   10. (Effort: 2) Implement `FooterMetrics` (token counts, context %, cost, tokens/sec), `RhoTicket` (standard ticket parsing and extraction), `SessionTreeState`, and `WelcomeDisplay` in `rho-ui-core`.
-  11. (Effort: 2) Implement `PROVIDER_DEFS` authentication metadata, `RpcAuthBridge` callback integration, `ModelRegistry` capability descriptors, `McpModalState`, `SkillModalState`, `SettingsState`, `use_toast`, `PromptQueueCoordinator`, `SessionCommandExecutor`, and `use_session` lifecycle reducer (`Prompt`, `Steer`, `Abort`, `hydrate_messages`).
+  11. (Effort: 2) Implement `PROVIDER_DEFS` authentication metadata, `RpcAuthBridge` callback integration, `ModelRegistry` capability descriptors, `McpModalState`, `SkillModalState`, `SettingsState`, `use_toast`, `SecretGuard` redaction, `WindowFocus` tracking, `PromptQueueCoordinator`, `SessionCommandExecutor`, and `use_session` lifecycle reducer (`Prompt`, `Steer`, `Abort`, `hydrate_messages`).
   12. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
