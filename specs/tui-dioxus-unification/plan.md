@@ -246,3 +246,4 @@ Quick wins that reduce surface area before the Ratatui/Dioxus migration begins. 
   - `make clippy`
   - `make wasm`
   - `cargo test --workspace`
+  - `tokei -e target`
