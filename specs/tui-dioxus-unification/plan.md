@@ -29,7 +29,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   8. (Effort: 2) Implement `SlashCommandDef` registry and `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
   9. (Effort: 2) Implement `PromptHistory` state tracking (`previous`, `next`, draft preservation) shared between TUI and Web Hub.
   10. (Effort: 2) Implement `FooterMetrics` (token counts, context %, cost, tokens/sec), `SessionTreeState`, and `WelcomeDisplay` in `rho-ui-core`.
-  11. (Effort: 2) Implement `PROVIDER_DEFS` authentication metadata, `ModelItem` domain struct, `McpModalState`, `SettingsState`, and `use_session` lifecycle reducer (`Prompt`, `Steer`, `Abort`, `hydrate_messages`).
+  11. (Effort: 2) Implement `PROVIDER_DEFS` authentication metadata, `ModelItem` domain struct, `McpModalState`, `SkillModalState`, `SettingsState`, and `use_session` lifecycle reducer (`Prompt`, `Steer`, `Abort`, `hydrate_messages`).
   12. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
@@ -89,7 +89,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Active tool running states and thinking status accordions render cleanly in the inline view.
 - **Tasks**:
   1. (Effort: 2) Build reusable `render_modal` helper using Ratatui `Clear`, `Block`, borders, and `ListState`.
-  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, and session history.
+  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, skill explorer (`/skill`), and session history.
   3. (Effort: 3) Implement tool permission approval screen with scrollable diff/command preview and embedded `ratatui-textarea` for command modification.
   4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
   5. (Effort: 2) Build active tool card and streaming spinner widget driven directly by `Signal<ActiveToolState>`, deleting bespoke channel polling in `src/repl/live/bash_runner/progress.rs`.
@@ -114,7 +114,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed `RpcCommand` and `RpcEvent`.
   3. (Effort: 3) Build Fleet Overview view (node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
-  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, auth modal, MCP server manager, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components.
+  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, auth modal, MCP server manager, skill explorer, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components.
   6. (Effort: 2) Connect web storage persistence (saved nodes, tickets, active session ID) via browser `web-sys` hooks.
   7. (Effort: 2) Remove `www/hub/js/*.js` and update `Makefile` target `make wasm` with `wasm-opt` size optimization.
 - **Verification**:
