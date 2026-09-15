@@ -102,6 +102,8 @@ This separation causes significant friction:
 - Automatically enforce repository modal standards (Title Case, fixed-width columns, active checkmarks `"  ✓"`, `Up`/`Down`/`k`/`j`/`Tab`/`Shift+Tab`, digit jump keys `1..=9`, search filtering) across all interactive selectors via `use_modal()` in `rho-ui-core`.
 - Deduplicate YAML frontmatter parsing across skills and prompt templates in `rho_harness_core`.
 - Standardize theme structures on `ratatui::style::Style` and `Color::Rgb` natively in `rho-ui-core`, eliminating `anstyle` completely from workspace dependencies and feature configurations.
+- Stream binary downloads during self-update (`download_asset`) to drive a visual Ratatui `Gauge` progress bar in the TUI and a progress bar component in the Web Hub.
+- Enforce terminal restoration guards handling `SIGTERM`, `SIGHUP`, and panics to guarantee raw mode is always exited and cursor visibility restored.
 - Support interactive node pairing (`/pair`) with visual QR codes rendered via Ratatui Unicode blocks in the TUI and SVG components in the Web Hub.
 - Render URLs and web search citations as clickable OSC 8 hyperlinks in Ratatui Spans, providing parity with browser `<a>` anchors.
 - Unify MCP server test diagnostics into structured `McpTestReport` in `rho_engine::mcp`, reused identically across CLI `rho mcp test`, the TUI `/mcp` modal, and the Web Hub MCP manager dashboard.
@@ -329,6 +331,8 @@ crates/rho-wasm/
 - **REQ-095**: Theme definition and color palette detection must operate natively via `ratatui::style::Style` and `ratatui::style::Color`, eliminating all usage of `anstyle` and removing `anstyle` feature dependencies from `terminal-colorsaurus`.
 - **REQ-096**: Interactive remote pairing (`/pair`) must display the endpoint ticket and visual QR code using Ratatui Unicode block elements in the TUI and SVG components in the Web Hub.
 - **REQ-097**: URLs in markdown text, search results, and fetched pages must render as OSC 8 hyperlinks in Ratatui terminal spans where supported, matching clickable web hyperlinks.
+- **REQ-098**: Self-update binary downloads must stream byte progress chunks, driving a Ratatui `Gauge` progress widget in the TUI and a progress bar component in the Web Hub.
+- **REQ-099**: The terminal execution runner must register panic hooks and signal handlers (`SIGTERM`, `SIGHUP`) to guarantee terminal raw mode cleanup and cursor restoration on unexpected process termination.
 
 ## Invariants and security boundaries
 

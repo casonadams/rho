@@ -47,7 +47,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Process suspension (`Ctrl+Z` / `SIGTSTP`) and non-TTY piped mode cleanly bypass or resume Ratatui viewport without terminal state corruption.
 - **Tasks**:
   1. (Effort: 2) Add `ratatui` (with `crossterm` feature) to workspace dependencies.
-  2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content.
+  2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content, backed by a panic hook and `SIGTERM`/`SIGHUP` signal listener ensuring clean terminal restoration.
   3. (Effort: 3) Implement single unified async event loop in `src/ui/terminal.rs` with key-repeat event coalescing and standardized mouse wheel scrolling velocity, replacing the fragmented dual `idle_loop` and `turn_loop` machinery (~2,500 lines across `src/repl/live/idle/` and `turn/`).
   4. (Effort: 2) Implement scrollback turn completion writer with OSC 133 semantic prompt marks (`OSC133_ZONE_START` / `OSC133_ZONE_END`) and terminal bell (`\x07`) notification on unfocused window, printing finalized user prompt and assistant output into stdout history and clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into direct canonical event broadcast channel feeding `rho-ui-core`, routing all background engine warnings through `RpcEvent::Notice` to protect inline viewport rows from uncoordinated `eprintln!` writes.
@@ -92,7 +92,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management (displaying `McpTestReport` diagnostics), skill explorer (`/skill`), remote pairing (`/pair` with QR code), and session history, enforcing repository `AGENTS.md` modal UX guidelines (Title Case, fixed-width formatting, active indicators, digit jump keys `1..=9`).
   3. (Effort: 3) Implement tool permission approval screen with scrollable diff/command preview and embedded `ratatui-textarea` for command modification.
   4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
-  5. (Effort: 2) Build active tool card, visual compaction milestone badges, and streaming spinner widget driven directly by `Signal<ActiveToolState>`, deleting bespoke channel polling in `src/repl/live/bash_runner/progress.rs`.
+  5. (Effort: 2) Build active tool card, visual compaction milestone badges, streaming spinner widget, and self-update `Gauge` download progress bar driven directly by `Signal<ActiveToolState>`, deleting bespoke channel polling in `src/repl/live/bash_runner/progress.rs`.
   6. (Effort: 2) Unit test modal and permission widget rendering across terminal dimensions using `TestBackend`.
   7. (Effort: 2) Delete legacy `src/ui/render/diff.rs`, `src/ui/render/preview.rs` (redundant detectors), and `src/repl/interactive/fuzzy.rs`.
 - **Verification**:
