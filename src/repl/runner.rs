@@ -25,8 +25,8 @@ use crate::repl::coordinator::SharedSteeringQueue;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::editor::{EditorMode, TextAreaEditor};
 use crate::ui::interactive::{
-    Activity, InteractionResponder, InteractionResponse, InteractiveUi, OutputEvent, TranscriptItem,
-    TranscriptRenderInput, UiEvent,
+    Activity, InteractionResponder, InteractionResponse, InteractiveUi, OutputEvent, RunningTool,
+    RunningToolWidgetInput, TranscriptItem, TranscriptRenderInput, UiEvent, render_running_tool_widget,
 };
 use crate::ui::modal::{AutocompletePopupView, PermissionPromptView, RemotePairModalView, StandardModalView};
 use crate::ui::terminal::TerminalGuard;
@@ -407,7 +407,7 @@ fn thinking_divider_style(thinking: Option<&str>) -> (&'static str, &'static str
 fn build_live_lines(
     state: &RunnerState<'_>,
     footer: &FooterInfo,
-    activity: Option<(&Activity, Option<&str>, usize)>,
+    activity: Option<(&Activity, Option<&RunningTool>, usize)>,
     width: usize,
 ) -> (Vec<String>, usize, usize) {
     if let Some(modal) = state.active_modal.as_ref() {
@@ -434,9 +434,21 @@ fn build_live_lines(
     };
     lines.push(top_divider);
 
+    if let Some((_, Some(tool), _)) = activity {
+        let widget_input = RunningToolWidgetInput {
+            tool,
+            theme: &state.session.renderer.theme,
+            width,
+            tools_expanded: state.session.config.ui.tools_expanded.unwrap_or(false),
+        };
+        let tool_lines = render_running_tool_widget(widget_input);
+        lines.extend(tool_lines);
+    }
+
     let text = state.editor.text();
     let (_c_row, c_col) = state.editor.cursor();
     lines.push(render_editor_row(&text, c_col));
+    let cursor_row = lines.len() - 1;
 
     if let Some(popup) = state.autocomplete_popup.as_ref() {
         for (idx, cand) in popup.candidates.iter().take(5).enumerate() {
@@ -450,7 +462,6 @@ fn build_live_lines(
     lines.push(format_footer_path());
     lines.push(format_footer_stats(footer, width));
 
-    let cursor_row = 1;
     (lines, cursor_row, c_col)
 }
 
@@ -500,13 +511,13 @@ fn erase_live_region(stdout: &mut std::io::Stdout, total_lines: usize, cursor_ro
         }
     }
     stdout.write_all(b"\r")?;
-    Ok(())
+    stdout.flush()
 }
 
 fn refresh_display(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
-    activity: Option<(&Activity, Option<&str>, usize)>,
+    activity: Option<(&Activity, Option<&RunningTool>, usize)>,
     extra_output: Option<&str>,
     tracker: &mut OutputTracker,
 ) -> std::io::Result<()> {
@@ -544,7 +555,7 @@ fn drain_ui_event(
     ev: UiEvent,
     output: &mut String,
     activity: &mut Activity,
-    tool: &mut Option<String>,
+    running_tool: &mut Option<RunningTool>,
     session: &ReplSession,
 ) {
     match ev {
@@ -552,19 +563,22 @@ fn drain_ui_event(
             output.push_str(&t);
         }
         UiEvent::ToolStart(req) => {
-            let theme = &session.renderer.theme;
-            let header = crate::ui::render::format_bash_args_header(&req.args_summary, theme.prompt, theme.dimmed);
-            output.push_str(&format!("\n{header}\n"));
+            *running_tool = Some(RunningTool::new(req.name, req.args_summary, req.preview));
         }
         UiEvent::ToolChunk { chunk } => {
-            output.push_str(&chunk);
+            if let Some(tool) = running_tool.as_mut() {
+                tool.append_chunk(&chunk);
+            }
         }
         UiEvent::ToolEnd => {
-            output.push('\n');
+            *running_tool = None;
         }
         UiEvent::Transcript(item) => {
             if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
                 return;
+            }
+            if matches!(item, TranscriptItem::Tool(_)) {
+                *running_tool = None;
             }
             let width = crate::ui::terminal_width() as usize;
             let input = TranscriptRenderInput {
@@ -575,12 +589,10 @@ fn drain_ui_event(
                 hide_thinking: session.config.ui.hide_thinking.unwrap_or(false),
             };
             output.push_str(&crate::ui::interactive::render_transcript_item(input));
+            output.push('\n');
         }
         UiEvent::Activity(act) => {
             *activity = act;
-        }
-        UiEvent::RunningTool(t) => {
-            *tool = t;
         }
         _ => {}
     }
@@ -704,19 +716,11 @@ async fn handle_input_action(
         InputAction::ThinkingToggle => {
             let hide = !state.session.config.ui.hide_thinking.unwrap_or(false);
             state.session.config.ui.hide_thinking = Some(hide);
-            state
-                .session
-                .renderer
-                .print_notice(&format!("Thinking: {}\n", if hide { "hidden" } else { "visible" }));
             Some(false)
         }
         InputAction::ToggleExpandTools => {
             let exp = !state.session.config.ui.tools_expanded.unwrap_or(false);
             state.session.config.ui.tools_expanded = Some(exp);
-            state
-                .session
-                .renderer
-                .print_notice(&format!("Tools: {}\n", if exp { "expanded" } else { "collapsed" }));
             Some(false)
         }
         #[cfg(unix)]
@@ -794,25 +798,44 @@ async fn handle_key_cycle(
     Ok(false)
 }
 
-pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
-    let mut engine = init_live_engine(session).await?;
+struct LiveContext {
+    pub engine: AgentEngine,
+    pub ui_events: tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    pub editor: TextAreaEditor,
+    pub history: InteractiveHistory,
+    pub completions: CompletionEngine,
+}
+
+async fn init_live_context(session: &mut ReplSession) -> Result<LiveContext> {
+    let engine = init_live_engine(session).await?;
     print_startup_banner_direct(session, &engine).await;
 
-    let (ui, mut ui_events) = InteractiveUi::channel();
+    let (ui, ui_events) = InteractiveUi::channel();
     session.renderer = crate::ui::TerminalRenderer::with_ui(ui);
     session.renderer.theme = crate::ui::theme::detect_with_config(&session.config.ui);
     session.renderer.set_width(crate::ui::terminal_width() as usize);
-
-    let _guard = TerminalGuard::enter()?;
 
     let mode = if session.config.editor.is_vim() {
         EditorMode::Vim
     } else {
         EditorMode::Default
     };
-    let mut editor = TextAreaEditor::new(mode);
-    let mut history = load_history(session).await;
+    let editor = TextAreaEditor::new(mode);
+    let history = load_history(session).await;
     let completions = build_completions();
+
+    Ok(LiveContext {
+        engine,
+        ui_events,
+        editor,
+        history,
+        completions,
+    })
+}
+
+pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
+    let mut ctx = init_live_context(session).await?;
+    let _guard = TerminalGuard::enter()?;
 
     let mut active_modal: Option<ActiveModal> = None;
     let mut autocomplete_popup: Option<AutocompletePopupView> = None;
@@ -822,8 +845,8 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
 
     let mut state = RunnerState {
         session,
-        editor: &mut editor,
-        history: &mut history,
+        editor: &mut ctx.editor,
+        history: &mut ctx.history,
         active_modal: &mut active_modal,
         autocomplete_popup: &mut autocomplete_popup,
         prev_lines_count: 0,
@@ -834,18 +857,11 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         &state.session.config.model,
         &state.session.config.provider,
         state.session.config.thinking_level.as_deref(),
-        &engine,
+        &ctx.engine,
     );
     refresh_display(&mut state, &footer, None, None, &mut tracker)?;
 
     loop {
-        let footer = make_footer_info(
-            &state.session.config.model,
-            &state.session.config.provider,
-            state.session.config.thinking_level.as_deref(),
-            &engine,
-        );
-
         tokio::select! {
             _ = ticker.tick() => {}
             maybe_event = events.next() => {
@@ -857,20 +873,32 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
                     Event::Resize(_, _) => {
                         let width = crate::ui::terminal_width() as usize;
                         state.session.renderer.set_width(width);
+                        let footer = make_footer_info(
+                            &state.session.config.model,
+                            &state.session.config.provider,
+                            state.session.config.thinking_level.as_deref(),
+                            &ctx.engine,
+                        );
                         refresh_display(&mut state, &footer, None, None, &mut tracker)?;
                     }
                     Event::Key(key) => {
                         let should_exit = handle_key_cycle(
                             &mut state,
-                            &mut engine,
+                            &mut ctx.engine,
                             key,
-                            &completions,
-                            &mut ui_events,
+                            &ctx.completions,
+                            &mut ctx.ui_events,
                             &mut events,
                         ).await?;
                         if should_exit {
                             break;
                         }
+                        let footer = make_footer_info(
+                            &state.session.config.model,
+                            &state.session.config.provider,
+                            state.session.config.thinking_level.as_deref(),
+                            &ctx.engine,
+                        );
                         refresh_display(&mut state, &footer, None, None, &mut tracker)?;
                     }
                     _ => {}
@@ -1017,19 +1045,11 @@ async fn handle_slash_command(
             state.session.config.model = rest.to_string();
         }
         state.session.sync_engine_model(engine).await;
-        state
-            .session
-            .renderer
-            .print_notice(&format!("Switched model to {rest}\n"));
         return Ok(false);
     }
     if cmd == "/thinking" && !rest.is_empty() {
         state.session.config.thinking_level = Some(rest.to_string());
         state.session.sync_engine_model(engine).await;
-        state
-            .session
-            .renderer
-            .print_notice(&format!("Set thinking level to {rest}\n"));
         return Ok(false);
     }
 
@@ -1205,7 +1225,7 @@ fn init_turn_channels(
 fn flush_or_refresh_turn_tick(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
-    activity_meta: (&Activity, Option<&str>, usize),
+    activity_meta: (&Activity, Option<&RunningTool>, usize),
     pending_scrollback: &mut String,
     tracker: &mut OutputTracker,
 ) -> Result<()> {
@@ -1221,7 +1241,7 @@ fn flush_or_refresh_turn_tick(
 #[derive(Default)]
 struct TurnStreamState {
     pub activity: Activity,
-    pub tool: Option<String>,
+    pub running_tool: Option<RunningTool>,
     pub scrollback: String,
     pub responder: Option<InteractionResponder>,
     pub tick_counter: usize,
@@ -1250,7 +1270,7 @@ fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut T
                 other,
                 &mut stream.scrollback,
                 &mut stream.activity,
-                &mut stream.tool,
+                &mut stream.running_tool,
                 state.session,
             );
         }
@@ -1264,6 +1284,8 @@ async fn execute_agent_turn(
     ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
     events: &mut EventStream,
 ) -> Result<()> {
+    while ui_events.try_recv().is_ok() {}
+
     let mut tracker = OutputTracker::default();
     let footer = make_footer_info(
         &state.session.config.model,
@@ -1288,7 +1310,7 @@ async fn execute_agent_turn(
         tokio::select! {
             res = &mut turn_future => {
                 while let Ok(ui_ev) = ui_events.try_recv() {
-                    drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.tool, state.session);
+                    drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.session);
                 }
                 if let Err(ref err) = res {
                     stream.scrollback.push_str(&format!("\nError: {err}\n"));
@@ -1306,7 +1328,7 @@ async fn execute_agent_turn(
                 if stream.tick_counter.is_multiple_of(5) {
                     stream.spinner_frame = (stream.spinner_frame + 1) % 10;
                 }
-                let activity_meta = (&stream.activity, stream.tool.as_deref(), stream.spinner_frame);
+                let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
                 flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut stream.scrollback, &mut tracker)?;
             }
             maybe_key = events.next() => {
@@ -1325,7 +1347,7 @@ async fn execute_agent_turn(
                         stream.scrollback.clear();
                         break;
                     }
-                    let activity_meta = (&stream.activity, stream.tool.as_deref(), stream.spinner_frame);
+                    let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
                     refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
                 }
             }
