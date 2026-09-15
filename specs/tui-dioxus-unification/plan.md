@@ -23,7 +23,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement Semantic UI Block IR (`ContentBlock`, `InlineSpan`, `DiffHunk`, `StyleToken`, `ThemeTokens`) representing formatted text, code fences, diffs, tables, and diagrams.
   3. (Effort: 3) Implement unified markdown, table, and stream tokenizer converting streams into typed `ContentBlock` items.
   4. (Effort: 2) Implement unified diff tokenizer via `similar` crate in `rho-ui-core`, producing `DiffHunk` structures and deprecating custom LCS logic.
-  5. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
+  5. (Effort: 3) Unify `UiEvent` and `RpcEvent` into a single canonical event schema in `rho_harness_core` and implement `StreamChunkParser` emitting canonical events.
   6. (Effort: 3) Implement `use_modal` state machine handling selection index, `fuzzy-matcher` scoring, active indicators, and pagination.
   7. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
   8. (Effort: 2) Implement `SlashCommandDef` registry and `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
@@ -50,7 +50,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content.
   3. (Effort: 3) Implement single unified async event loop in `src/ui/terminal.rs`, replacing the fragmented dual `idle_loop` and `turn_loop` machinery (~2,500 lines across `src/repl/live/idle/` and `turn/`).
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
-  5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into a single event stream feeding `rho-ui-core`.
+  5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into direct canonical event broadcast channel feeding `rho-ui-core`.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
   7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, markdown line regexes, session picker engine, fragmented idle/turn loops, thinking stream trackers, and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/markdown/table/`, `src/ui/markdown/line.rs`, `src/ui/markdown/spacing.rs`, `src/ui/render/card.rs`, `src/ui/render/renderer/thinking.rs`, `src/ui/render/renderer/activity.rs`, `src/ui/interactive/session_picker/`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), `src/repl/completer.rs`, `src/repl/prompt.rs`, and `screen_sim.rs`.
 - **Verification**:
