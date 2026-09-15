@@ -125,6 +125,51 @@ commands:
 
 ---
 
+## Vim Mode Editing
+
+`rho` includes built-in Vim modal editing powered by `ratatui-textarea`. When enabled, the input frame divider displays the active mode (`[NORMAL]`, `[INSERT]`, `[VISUAL]`, `[REPLACE]`).
+
+Enable Vim mode in `~/.config/rho/config.toml`:
+
+```toml
+[editor]
+mode = "vim" # or "default"
+```
+
+Or set the environment variable `RHO_EDITOR_MODE=vim`.
+
+### Normal Mode Navigation & Editing
+
+In Normal mode (`Escape` from Insert mode):
+
+| Key | Action | Details |
+| :--- | :--- | :--- |
+| `h` / `j` / `k` / `l` | **Cursor Movement** | Move left, down, up, right. |
+| `w` / `b` / `e` | **Word Motions** | Next word start, previous word start, next word end. |
+| `0` / `^` / `$` | **Line Bounds** | Start of line, first non-whitespace character, end of line. |
+| `g` `g` / `G` | **Buffer Bounds** | Top of buffer, bottom of buffer. |
+| `i` / `I` | **Insert Mode** | Insert before cursor / insert at line start. |
+| `a` / `A` | **Append Mode** | Insert after cursor / append at line end. |
+| `o` / `O` | **Open Line** | Open new line below / open new line above. |
+| `x` | **Delete Character** | Deletes character under cursor. |
+| `d` `d` / `d` `w` / `D` | **Delete Operators** | Delete current line / delete word / delete to end of line. |
+| `c` `c` / `c` `w` / `C` | **Change Operators** | Change current line / change word / change to end of line. |
+| `y` `y` / `y` `w` / `Y` | **Yank (Copy)** | Yank current line / yank word / yank to end of line into clipboard. |
+| `p` / `P` | **Paste (Put)** | Paste after cursor / paste before cursor from clipboard. |
+| `u` / `Ctrl+R` | **Undo / Redo** | Undo last change / redo last undone change. |
+| `v` / `V` | **Visual Mode** | Enter character-wise / line-wise Visual selection mode. |
+| `R` | **Replace Mode** | Enter overwrite Replace mode. |
+| `Escape` | **Return to Normal** | Switch back to Normal mode. |
+
+### Visual Mode (Character & Line)
+
+In Visual mode, navigate with motions (`h`/`j`/`k`/`l`/`w`/`b`/`$`):
+- `y`: Yank selection to clipboard and return to Normal mode.
+- `d` / `x`: Cut selection to clipboard and return to Normal mode.
+- `Escape`: Cancel selection and return to Normal mode.
+
+---
+
 ## Custom Keybindings
 
 You can remap default shortcuts or define custom combinations by creating

@@ -20,15 +20,22 @@ fn print_available_skills(renderer: &crate::ui::TerminalRenderer, skills: &[Reso
 }
 
 async fn prompt_skill_selection(skills: &[ResolvedSkill]) -> Option<String> {
-    let choices: Vec<String> = skills
-        .iter()
-        .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
-        .collect();
+    if skills.is_empty() {
+        return None;
+    }
+    let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
     tokio::task::spawn_blocking(move || {
-        inquire::Select::new("Select a skill to inspect:", choices)
-            .prompt()
-            .ok()
-            .and_then(|choice| choice.split_whitespace().next().map(str::to_string))
+        println!("Select a skill to inspect:");
+        for (idx, name) in skill_names.iter().enumerate() {
+            println!("  {}. {name}", idx + 1);
+        }
+        use std::io::Write;
+        print!("Enter choice (1-{}): ", skill_names.len());
+        let _ = std::io::stdout().flush();
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).ok()?;
+        let idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
+        skill_names.get(idx).cloned()
     })
     .await
     .unwrap_or(None)

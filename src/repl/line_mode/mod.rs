@@ -14,11 +14,9 @@ use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::repl::commands::{SlashCommandContext, SlashCommandHandler};
-use crate::repl::prompt::SimplePrompt;
 use crate::ui::render::SessionStatus;
 use dispatch::{DispatchOutcome, handle_command_result};
-use editor::{build_line_editor, print_line_mode_welcome};
-use reedline::Signal;
+use editor::print_line_mode_welcome;
 use shell::{ShellAction, handle_shell_command};
 use turn::run_agent_turn;
 
@@ -42,13 +40,20 @@ async fn init_line_mode(session: &mut ReplSession) -> Result<AgentEngine> {
     Ok(engine)
 }
 
-async fn read_next_line(mut editor: reedline::Reedline) -> Result<(reedline::Reedline, std::io::Result<Signal>)> {
-    tokio::task::spawn_blocking(move || {
-        let sig = editor.read_line(&SimplePrompt);
-        (editor, sig)
+async fn read_next_line() -> Result<Option<String>> {
+    tokio::task::spawn_blocking(|| {
+        use std::io::Write;
+        print!("> ");
+        let _ = std::io::stdout().flush();
+        let mut line = String::new();
+        match std::io::stdin().read_line(&mut line) {
+            Ok(0) => Ok(None),
+            Ok(_) => Ok(Some(line)),
+            Err(e) => Err(crate::error::AppError::Other(anyhow::anyhow!(e))),
+        }
     })
     .await
-    .map_err(|e| anyhow::anyhow!("Line editor task failed: {e}").into())
+    .map_err(|e| crate::error::AppError::Other(anyhow::anyhow!("Line reader task failed: {e}")))?
 }
 
 async fn handle_line_slash_command(
@@ -126,29 +131,6 @@ async fn process_line_input(
     Ok(true)
 }
 
-async fn handle_line_signal(
-    sig: std::io::Result<Signal>,
-    (session, engine): (&mut ReplSession, &mut AgentEngine),
-    stdin_is_tty: bool,
-) -> Result<bool> {
-    match sig {
-        Ok(Signal::Success(buffer)) => process_line_input(&buffer, session, engine, stdin_is_tty).await,
-        Ok(Signal::CtrlC) => {
-            session.renderer.write_output("\nCanceled input.\n");
-            Ok(true)
-        }
-        Ok(Signal::CtrlD) => {
-            session.renderer.write_output("\nBye.\n");
-            Ok(false)
-        }
-        Ok(_) => Ok(true),
-        Err(err) => {
-            session.renderer.write_output(&format!("Input error: {err}\n"));
-            Ok(false)
-        }
-    }
-}
-
 fn render_line_mode_prompt(session: &ReplSession, engine: &AgentEngine) {
     let quota = engine.quota_display();
     session.renderer.print_session_status(&SessionStatus {
@@ -159,12 +141,7 @@ fn render_line_mode_prompt(session: &ReplSession, engine: &AgentEngine) {
     });
 }
 
-async fn run_line_mode_loop(
-    (session, engine): (&mut ReplSession, &mut AgentEngine),
-    line_editor: reedline::Reedline,
-    stdin_is_tty: bool,
-) -> Result<()> {
-    let mut line_editor = line_editor;
+async fn run_line_mode_loop((session, engine): (&mut ReplSession, &mut AgentEngine), stdin_is_tty: bool) -> Result<()> {
     let mut is_first_prompt = true;
     loop {
         if is_first_prompt {
@@ -174,9 +151,12 @@ async fn run_line_mode_loop(
         }
         render_line_mode_prompt(session, engine);
 
-        let (next_editor, sig) = read_next_line(line_editor).await?;
-        line_editor = next_editor;
-        if !handle_line_signal(sig, (session, engine), stdin_is_tty).await? {
+        let Some(line) = read_next_line().await? else {
+            session.renderer.write_output("\nBye.\n");
+            break;
+        };
+
+        if !process_line_input(&line, session, engine, stdin_is_tty).await? {
             break;
         }
     }
@@ -185,6 +165,5 @@ async fn run_line_mode_loop(
 
 pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
     let mut engine = init_line_mode(session).await?;
-    let line_editor = build_line_editor(&session.config, &session.auth_store)?;
-    run_line_mode_loop((session, &mut engine), line_editor, stdin_is_tty).await
+    run_line_mode_loop((session, &mut engine), stdin_is_tty).await
 }

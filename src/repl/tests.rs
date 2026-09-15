@@ -1,18 +1,16 @@
-use super::completer::RhoCompleter;
 use super::submitted_input_rows;
-use reedline::Completer;
 
 #[test]
 fn slash_commands_complete_from_a_prefix() {
     let sources = crate::repl::interactive::CompletionSources::new().with_templates(vec!["review".to_string()]);
-    let mut completer = RhoCompleter::new(sources);
-    let suggestions = completer.complete("/mod", 4);
-    assert_eq!(suggestions.suggestions().len(), 1);
-    assert_eq!(suggestions.suggestions()[0].value, "/model");
+    let completions = crate::repl::interactive::CompletionSet::from_sources(sources);
+    let suggestions = completions.complete("/mod", 4);
+    assert_eq!(suggestions.len(), 1);
+    assert_eq!(suggestions[0].value, "/model");
 
-    let tmpl_suggestions = completer.complete("/rev", 4);
-    assert_eq!(tmpl_suggestions.suggestions().len(), 1);
-    assert_eq!(tmpl_suggestions.suggestions()[0].value, "/review");
+    let tmpl_suggestions = completions.complete("/rev", 4);
+    assert_eq!(tmpl_suggestions.len(), 1);
+    assert_eq!(tmpl_suggestions[0].value, "/review");
 }
 
 #[test]
@@ -27,9 +25,9 @@ fn skill_names_complete_from_prefix() {
         origin: rho_harness_core::skills::SkillOrigin::User,
     };
     let sources = crate::repl::interactive::CompletionSources::new().with_skills(vec![skill]);
-    let mut completer = RhoCompleter::new(sources);
-    let suggestions = completer.complete("/skill pl", 9);
-    assert!(suggestions.suggestions().iter().any(|s| s.value == "/skill plan"));
+    let completions = crate::repl::interactive::CompletionSet::from_sources(sources);
+    let suggestions = completions.complete("/skill pl", 9);
+    assert!(suggestions.iter().any(|s| s.value == "/skill plan"));
 }
 
 #[test]

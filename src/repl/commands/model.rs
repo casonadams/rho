@@ -14,20 +14,27 @@ fn resolve_model_spec(parts: &[&str], current_provider: &str) -> (String, String
 
 fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) -> Option<CommandResult> {
     let discovered = crate::repl::interactive::discover_models(ctx.config, ctx.auth_store);
-    let models: Vec<String> = discovered
-        .iter()
-        .map(|m| format!("{} ({}) - {}", m.id, m.provider, m.description))
-        .collect();
-    let choice = inquire::Select::new("Select a model:", models).prompt().ok()?;
-    let model_str = choice.split_whitespace().next().unwrap_or("");
-    let provider_str = choice.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or("");
-    ctx.config.model = model_str.to_string();
-    ctx.config.provider = provider_str.to_string();
+    if discovered.is_empty() {
+        return None;
+    }
+    println!("Select a model:");
+    for (idx, m) in discovered.iter().enumerate() {
+        println!("  {}. {} ({}) - {}", idx + 1, m.id, m.provider, m.description);
+    }
+    use std::io::Write;
+    print!("Enter choice (1-{}): ", discovered.len());
+    let _ = std::io::stdout().flush();
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).ok()?;
+    let idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
+    let m = discovered.get(idx)?;
+    ctx.config.model = m.id.clone();
+    ctx.config.provider = m.provider.clone();
     ctx.renderer
         .print_status(&format!("Model: {} ({})", ctx.config.model, ctx.config.provider));
     Some(CommandResult::ModelChanged {
-        new_model: model_str.to_string(),
-        new_provider: Some(provider_str.to_string()),
+        new_model: m.id.clone(),
+        new_provider: Some(m.provider.clone()),
     })
 }
 

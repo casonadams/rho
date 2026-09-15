@@ -33,8 +33,16 @@ pub fn detect() -> Theme {
         return Theme::default();
     };
     let is_light = palette.theme_mode() == terminal_colorsaurus::ThemeMode::Light;
-    let fg = anstyle::RgbColor::from(palette.foreground);
-    let bg = anstyle::RgbColor::from(palette.background);
+    let fg = anstyle::RgbColor(
+        (palette.foreground.r >> 8) as u8,
+        (palette.foreground.g >> 8) as u8,
+        (palette.foreground.b >> 8) as u8,
+    );
+    let bg = anstyle::RgbColor(
+        (palette.background.r >> 8) as u8,
+        (palette.background.g >> 8) as u8,
+        (palette.background.b >> 8) as u8,
+    );
     let dim = dimmed_foreground(fg, bg, is_light);
     Theme {
         is_light,

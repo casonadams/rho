@@ -95,6 +95,19 @@ history:
 
 ---
 
+## Editor & Vim Mode
+
+Configure prompt editor behavior in `~/.config/rho/config.toml`:
+
+```toml
+[editor]
+mode = "vim" # "vim" for modal Vim editing, or "default" (standard Emacs/Readline bindings)
+```
+
+You can also set the `RHO_EDITOR_MODE=vim` or `EDITOR_MODE=vim` environment variable.
+
+---
+
 ## UI & Block Framing
 
 Configure block framing styles, visibility options, and border colors in

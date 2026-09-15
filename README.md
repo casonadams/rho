@@ -81,18 +81,17 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Declarative parameter-guided skills (`SKILL.md`).
 
 - **[Interactive UI & Terminal Styling](docs/ui.md)**
-  - Dynamic upward-expanding multiline editor with stable screen scrollback.
-  - Live two-line footer metrics: token count, context percentage, speed,
-    cost, and active model.
-  - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background
-    turns.
+  - Native double-buffered TUI engine powered by Ratatui (`Viewport::Inline`) and `ratatui-textarea`.
+  - Dynamic upward-expanding multiline editor with optional Vim mode (`[editor] mode = "vim"`).
+  - Live two-line footer metrics: token count, context percentage, speed, cost, and active model.
+  - In-memory FIFO message queueing (`Alt+Enter`) and non-blocking background turns.
   - Universal native theme that adopts your terminal's 16-color palette, with
     SGR-dim secondary text, terminal-detected card fills, or configurable outline borders.
   - Fenced Mermaid diagram rendering (Flowcharts with subgraphs, Sequence, State, Class, ER).
 
 - **[Keyboard Shortcuts & Controls](docs/shortcuts.md)**
   - Comprehensive keybinding reference organized by session flow, queueing,
-    model controls, and editor navigation.
+    model controls, Vim mode motions/operators, and editor navigation.
   - Custom keybinding configuration (`~/.config/rho/keybindings.toml`).
 
 - **[Permissions, Privacy & Safety](docs/permissions.md)**

@@ -3,20 +3,16 @@
 //! completion, and coordination plumbing used by both.
 
 pub mod commands;
-pub mod completer;
 pub mod coordinator;
 mod input_reader;
 pub mod interactive;
 mod line_mode;
 mod live;
-mod prompt;
 #[cfg(test)]
 mod tests;
 
-pub use completer::RhoCompleter;
 #[cfg(test)]
 pub(crate) use line_mode::submitted_input_rows;
-pub use prompt::SimplePrompt;
 
 use crate::auth::AuthStore;
 use crate::config::Config;
