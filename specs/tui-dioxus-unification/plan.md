@@ -46,7 +46,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Headless test backend (`ratatui::backend::TestBackend`) verifies rendering deterministically without custom terminal emulation.
   - Process suspension (`Ctrl+Z` / `SIGTSTP`) and non-TTY piped mode cleanly bypass or resume Ratatui viewport without terminal state corruption.
 - **Tasks**:
-  1. (Effort: 2) Add `ratatui` (with `crossterm` feature) to workspace dependencies.
+  1. (Effort: 2) Add `ratatui` (with `crossterm` feature) to workspace dependencies and define trait abstraction layer (`TerminalSurface`, `TerminalComponent`, `ModalView`) in `src/ui/mod.rs`.
   2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content, backed by a panic hook and `SIGTERM`/`SIGHUP` signal listener ensuring clean terminal restoration.
   3. (Effort: 3) Implement single unified async event loop in `src/ui/terminal.rs` with key-repeat event coalescing and standardized mouse wheel scrolling velocity, replacing the fragmented dual `idle_loop` and `turn_loop` machinery (~2,500 lines across `src/repl/live/idle/` and `turn/`).
   4. (Effort: 2) Implement scrollback turn completion writer with OSC 133 semantic prompt marks (`OSC133_ZONE_START` / `OSC133_ZONE_END`) and terminal bell (`\x07`) notification on unfocused window, printing finalized user prompt and assistant output into stdout history and clearing the active inline viewport.
@@ -68,7 +68,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Active editor mode (e.g. `[NORMAL]`, `[INSERT]`) renders cleanly on the input divider.
 - **Tasks**:
   1. (Effort: 1) Add `ratatui-textarea` to workspace dependencies.
-  2. (Effort: 3) Implement `Vim` state transition machine and key dispatcher in the interactive editor (Normal, Insert, Visual character/line selection, Replace, clipboard yanking/pasting via `arboard` with OSC 52 fallback) following `ratatui-textarea/examples/vim.rs`.
+  2. (Effort: 3) Implement `PromptEditor` trait wrapping `ratatui-textarea` with `Vim` state transition machine and key dispatcher (Normal, Insert, Visual character/line selection, Replace, clipboard yanking/pasting via `arboard` with OSC 52 fallback) following `ratatui-textarea/examples/vim.rs`.
   3. (Effort: 2) Integrate `TextArea` widget into the Ratatui inline viewport layout with theme styling and placeholder support.
   4. (Effort: 2) Integrate bracketed paste interception for collapsed paste markers (`PasteStore`) and clipboard image insertion into `ratatui-textarea`.
   5. (Effort: 2) Add configuration option in `config.toml` (`[editor] mode = "vim" | "default"`).

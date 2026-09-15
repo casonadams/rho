@@ -102,6 +102,7 @@ This separation causes significant friction:
 - Automatically enforce repository modal standards (Title Case, fixed-width columns, active checkmarks `"  ✓"`, `Up`/`Down`/`k`/`j`/`Tab`/`Shift+Tab`, digit jump keys `1..=9`, search filtering) across all interactive selectors via `use_modal()` in `rho-ui-core`.
 - Deduplicate YAML frontmatter parsing across skills and prompt templates in `rho_harness_core`.
 - Standardize theme structures on `ratatui::style::Style` and `Color::Rgb` natively in `rho-ui-core`, eliminating `anstyle` completely from workspace dependencies and feature configurations.
+- Encapsulate Ratatui behind clean trait abstractions (`TerminalSurface`, `TerminalComponent`, `PromptEditor`, `ModalView`), isolating application logic from raw Ratatui/textarea struct layouts and facilitating headless testability.
 - Stream binary downloads during self-update (`download_asset`) to drive a visual Ratatui `Gauge` progress bar in the TUI and a progress bar component in the Web Hub.
 - Enforce terminal restoration guards handling `SIGTERM`, `SIGHUP`, and panics to guarantee raw mode is always exited and cursor visibility restored.
 - Support interactive node pairing (`/pair`) with visual QR codes rendered via Ratatui Unicode blocks in the TUI and SVG components in the Web Hub.
@@ -203,11 +204,11 @@ crates/rho-ui-core/
 Consolidates ~40 fragmented layout and state files into 4 cohesive modules:
 ```
 src/ui/
-├── mod.rs                  # TUI interface entry
-├── terminal.rs             # Ratatui runner with Viewport::Inline & resize
-├── view.rs                 # Pure projection: ContentBlock -> Ratatui widgets
-├── editor.rs               # ratatui-textarea + Vim transition state machine
-└── modal.rs                # Centered dialogs, permission prompt, autocomplete
+├── mod.rs                  # TUI interface entry & traits (TerminalSurface, TerminalComponent, PromptEditor, ModalView)
+├── terminal.rs             # Ratatui runner with Viewport::Inline, resize, signals & panic guards
+├── view.rs                 # Pure projection: ContentBlock -> Ratatui widgets via TerminalComponent
+├── editor.rs               # TextAreaEditor implementing PromptEditor + Vim transition state machine
+└── modal.rs                # Centered dialogs, permission prompt & autocomplete implementing ModalView
 ```
 *Deletions*: Deletes `src/ui/interactive/layout/` (13 files), `src/ui/interactive/state/editor/` (6 files), `src/ui/interactive/session_picker/` (2 files), `src/ui/interactive/controller/paint.rs`, `screen_sim.rs`, `src/repl/live/` (21 files), `src/repl/line_mode/` (7 files), `src/repl/input_reader/` (4 files), `src/repl/coordinator/` (4 files), `src/ui/stream.rs`, `src/repl/completer.rs`, and `src/repl/prompt.rs`.
 
@@ -333,6 +334,7 @@ crates/rho-wasm/
 - **REQ-097**: URLs in markdown text, search results, and fetched pages must render as OSC 8 hyperlinks in Ratatui terminal spans where supported, matching clickable web hyperlinks.
 - **REQ-098**: Self-update binary downloads must stream byte progress chunks, driving a Ratatui `Gauge` progress widget in the TUI and a progress bar component in the Web Hub.
 - **REQ-099**: The terminal execution runner must register panic hooks and signal handlers (`SIGTERM`, `SIGHUP`) to guarantee terminal raw mode cleanup and cursor restoration on unexpected process termination.
+- **REQ-100**: The terminal presentation layer must wrap Ratatui behind clean traits (`TerminalSurface`, `TerminalComponent`, `PromptEditor`, `ModalView`), isolating application logic from raw Ratatui/textarea struct layouts and enabling seamless headless unit testing.
 
 ## Invariants and security boundaries
 
