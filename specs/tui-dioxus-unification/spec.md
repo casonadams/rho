@@ -29,7 +29,7 @@ This separation causes significant friction:
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
   - Reactive signals (`Signal<T>`) for transcripts, prompt editor, modal stack, and active tool states.
-  - Reusable custom hooks (`use_session`, `use_modal`, `use_autocomplete`, `use_streaming_transcript`).
+  - Reusable custom hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`, `use_streaming_transcript`).
   - Shared RPC and event dispatching logic.
 - Achieve strict bidirectional feature parity between native terminal and Web Hub interfaces with zero duplicated domain presentation code.
 
@@ -78,7 +78,7 @@ This separation causes significant friction:
 |           [Dioxus Reactive Core: Signals & Hooks]           |
 |                                                             |
 |  - Reactive Signals: Transcript, Modals, Input, ActiveTool  |
-|  - Hooks: use_session(), use_modal(), use_autocomplete()    |
+|  - Hooks: use_session(), use_modal(), use_permission_prompt()|
 |  - Shared Event Actions, Token Streaming & Parsers          |
 +------------------------------+------------------------------+
                                |
@@ -100,8 +100,8 @@ This separation causes significant friction:
 
 ### Architecture and Reactive Core
 - **REQ-001**: A new workspace crate `crates/rho-ui-core` must be established, compiling cleanly on both native targets and `wasm32-unknown-unknown`.
-- **REQ-002**: `rho-ui-core` must implement UI state management using Dioxus reactive signals (`Signal<T>`), memos, and custom hooks (`use_session`, `use_modal`, `use_autocomplete`).
-- **REQ-003**: The modal state machine in `rho-ui-core` must support unified navigation semantics (up/down, enter to select, escape to dismiss, search filtering, digit jump keys) shared across TUI and Web.
+- **REQ-002**: `rho-ui-core` must implement UI state management using Dioxus reactive signals (`Signal<T>`), memos, and custom hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`).
+- **REQ-003**: The modal and user selection state machine in `rho-ui-core` must support unified navigation semantics (up/down, horizontal navigation, enter to select, escape to dismiss, search filtering, digit jump keys, and input mode transitions) shared across TUI and Web.
 - **REQ-004**: State mutations and streaming events must update signals directly, ensuring both TUI and Web run the identical state transition logic without translation layers.
 
 ### Ratatui Terminal Interface
@@ -121,9 +121,10 @@ This separation causes significant friction:
 - **REQ-016**: The Web Hub build pipeline must integrate into `make wasm`, producing a production-ready WASM bundle and asset structure.
 
 ### UI Parity and Interaction
-- **REQ-017**: All modals (thinking selector, model picker, login provider, MCP servers, session list) must present the same options, indicators (active checkmarks), and search filtering in both interfaces.
-- **REQ-018**: Thinking blocks must stream in real time and support expandable/collapsible accordion display on both platforms.
-- **REQ-019**: Tool execution cards must visually represent status states (running, success, error) consistently across both TUI and Web Hub.
+- **REQ-017**: All interactive modals (thinking selector, model picker, login provider, MCP servers, session list) and user selection screens must present the same options, indicators (active checkmarks), and search filtering in both interfaces.
+- **REQ-018**: Tool permission and approval prompts (`Allow once`, `Allow always`, `Deny with reason`, `Edit command`) must be driven by `use_permission_prompt`, supporting inline parameter editing via `ratatui-textarea` in the TUI and Dioxus form components in the Web Hub.
+- **REQ-019**: Thinking blocks must stream in real time and support expandable/collapsible accordion display on both platforms.
+- **REQ-020**: Tool execution cards must visually represent status states (running, success, error) consistently across both TUI and Web Hub.
 
 ## Invariants and security boundaries
 

@@ -15,14 +15,15 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Acceptance Criteria**:
   - `crates/rho-ui-core` compiles cleanly on `cargo check --target wasm32-unknown-unknown` and native.
   - View models exist for `TranscriptItem`, `ThinkingBlock`, `ToolCard`, `ModalState`, and `AutocompleteCandidate`.
-  - Reusable hooks (`use_session`, `use_modal`, `use_autocomplete`, `use_stream_parser`) pass in-memory headless unit tests.
+  - Reusable hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`, `use_stream_parser`) pass in-memory headless unit tests.
 - **Tasks**:
   1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `serde`, and `fuzzy-matcher`.
   2. (Effort: 3) Implement reactive state structures and signals for chat transcript, active tool progress, and token streaming.
   3. (Effort: 2) Implement `<thinking>` tag extraction and collapsible state hook in `use_stream_parser`.
   4. (Effort: 3) Implement `use_modal` state machine handling selection index, fuzzy search filtering, active indicators, and pagination.
-  5. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
-  6. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
+  5. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
+  6. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
+  7. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
   - `cargo check -p rho-ui-core --target wasm32-unknown-unknown`
@@ -67,19 +68,21 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 
 ---
 
-## Slice 4: Ratatui Modals, Autocomplete & Widgets
+## Slice 4: Ratatui Modals, Permission Screens & Widgets
 
-- **Goal**: Implement standard Ratatui stateful widgets for floating modals, autocomplete dropdowns, and streaming tool cards driven by `rho-ui-core` signals.
+- **Goal**: Implement standard Ratatui stateful widgets for user selection screens, permission approval dialogs, autocomplete dropdowns, and streaming tool cards driven by `rho-ui-core` signals.
 - **Acceptance Criteria**:
   - All interactive selectors (`/thinking`, `/model`, `/login`, `/mcp`, `/session`) render centered over the inline viewport using Ratatui `Clear`, `Block`, and `List`.
+  - Tool permission approval screens (`Allow once`, `Allow always`, `Deny with reason`, `Edit command`) render with scrollable command previews and seamless transition to embedded `ratatui-textarea` editing.
   - Slash command and file autocomplete popup renders anchored above or inside the input area with fuzzy highlight matching.
   - Active tool running states and thinking status accordions render cleanly in the inline view.
 - **Tasks**:
   1. (Effort: 2) Build reusable `render_modal` helper using Ratatui `Clear`, `Block`, borders, and `ListState`.
   2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, and session history.
-  3. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
-  4. (Effort: 2) Build active tool card and streaming spinner widget.
-  5. (Effort: 2) Unit test modal widget rendering across terminal dimensions using `TestBackend`.
+  3. (Effort: 3) Implement tool permission approval screen with scrollable diff/command preview and embedded `ratatui-textarea` for command modification.
+  4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
+  5. (Effort: 2) Build active tool card and streaming spinner widget.
+  6. (Effort: 2) Unit test modal and permission widget rendering across terminal dimensions using `TestBackend`.
 - **Verification**:
   - `cargo test -p rho --lib repl::live`
 
@@ -90,7 +93,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Goal**: Rebuild `www/hub/` as a single-page WebAssembly application in Rust using Dioxus and Dioxus Components, completely eliminating vanilla JavaScript.
 - **Acceptance Criteria**:
   - All JavaScript files in `www/hub/js/` are removed; `www/hub/index.html` loads the compiled Dioxus WASM binary.
-  - Fleet node grid, session sidebar, chat transcript, thinking accordions, and modals render using Dioxus Components (`dioxuslabs.com/components`).
+  - Fleet node grid, session sidebar, chat transcript, thinking accordions, permission approval cards, and modals render using Dioxus Components (`dioxuslabs.com/components`).
   - Direct in-browser Iroh P2P connection operates reactively via Dioxus coroutines and `rho-ui-core` signals.
   - `make wasm` produces an optimized release WASM bundle.
 - **Tasks**:
