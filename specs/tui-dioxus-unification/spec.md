@@ -98,6 +98,51 @@ This separation causes significant friction:
 +-----------------------+             +-----------------------+
 ```
 
+## Code Layout and De-fragmentation
+
+The current UI layer suffers from deep nesting (up to 6–7 directory levels, e.g. `src/ui/interactive/layout/modal/horizontal.rs`) and micro-fragmentation across dozens of tiny 20–50 line files. This reorganization collapses the UI footprint into shallow, cohesive packages targeting <= 3–4 levels:
+
+### 1. `crates/rho-ui-core` (Shared Presentation Layer, <= 2 levels deep)
+```
+crates/rho-ui-core/
+├── Cargo.toml
+└── src/
+    ├── lib.rs              # Crate root, re-exports
+    ├── ir.rs               # ContentBlock, InlineSpan, DiffHunk, StyleToken
+    ├── parser.rs           # Tokenizer for markdown, tables, diffs, <thinking>
+    ├── state.rs            # Dioxus reactive signals & root state
+    ├── session.rs          # use_session hook: turn lifecycle & streaming
+    ├── modal.rs            # use_modal hook: selection, search, pagination
+    ├── permission.rs       # use_permission_prompt: tool gates & prefill
+    └── autocomplete.rs     # use_autocomplete hook: slash commands & paths
+```
+
+### 2. Native TUI in `src/ui/` (<= 3 levels deep)
+Consolidates ~40 fragmented layout and state files into 4 cohesive modules:
+```
+src/ui/
+├── mod.rs                  # TUI interface entry
+├── terminal.rs             # Ratatui runner with Viewport::Inline & resize
+├── view.rs                 # Pure projection: ContentBlock -> Ratatui widgets
+├── editor.rs               # ratatui-textarea + Vim transition state machine
+└── modal.rs                # Centered dialogs, permission prompt, autocomplete
+```
+*Deletions*: Deletes `src/ui/interactive/layout/` (13 files), `src/ui/interactive/state/editor/` (6 files), `src/ui/interactive/controller/paint.rs`, `screen_sim.rs`, and custom ANSI diffing.
+
+### 3. Web Hub in `crates/rho-wasm` / `www/hub/` (<= 3 levels deep)
+Replaces all 5 imperative JS files with cohesive Dioxus components:
+```
+crates/rho-wasm/
+├── Cargo.toml
+└── src/
+    ├── lib.rs              # WASM entry & Iroh peer transport hook
+    ├── app.rs              # Root Dioxus component (Fleet vs Workspace view)
+    ├── fleet.rs            # Fleet node grid & pairing modal
+    ├── workspace.rs        # Chat transcript: ContentBlock -> Dioxus Components
+    └── modal.rs            # Auth, settings, and permission approval dialogs
+```
+*Deletions*: Deletes `www/hub/js/app.js`, `auth.js`, `client.js`, `registry.js`, and `session.js`.
+
 ## Requirements
 
 ### Architecture and Reactive Core
