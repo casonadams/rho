@@ -8,6 +8,7 @@ use rho_harness_core::presentation::WelcomeDisplay;
 use rho_harness_core::rpc::protocol::RpcEvent;
 use rho_harness_core::session::list_session_summaries_async;
 use rho_ui_core::autocomplete::CompletionEngine;
+use rho_ui_core::keymap::{InputAction, map_key};
 use rho_ui_core::modal::{
     McpModalState, McpServerInfo, ModelCapability, ModelRegistry, SettingsState, SkillInfo, SkillModalState,
 };
@@ -29,6 +30,7 @@ use crate::ui::{ModalView, PromptEditor};
 
 const CSI_SYNC_BEGIN: &[u8] = b"\x1b[?2026h";
 const CSI_SYNC_END: &[u8] = b"\x1b[?2026l";
+const THINKING_LEVELS: &[&str] = &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
     stdin_is_tty && stdout_is_tty
@@ -59,10 +61,16 @@ impl ActiveModal {
             Self::Standard(m) => {
                 let mut lines = Vec::new();
                 let title = &m.state.title;
-                let sep = "─".repeat(width.saturating_sub(title.len() + 6));
-                lines.push(format!("\x1b[36m── {title} {sep}\x1b[0m"));
+                let query = &m.state.filter_query;
+                let header = if query.is_empty() {
+                    format!("── {title} ")
+                } else {
+                    format!("── {title} (filter: {query}) ")
+                };
+                let sep = "─".repeat(width.saturating_sub(header.chars().count()));
+                lines.push(format!("\x1b[36m{header}{sep}\x1b[0m"));
                 if m.state.filtered_options.is_empty() {
-                    lines.push("\x1b[90m  No options available\x1b[0m".to_string());
+                    lines.push("\x1b[90m  No matching options\x1b[0m".to_string());
                 } else {
                     for (idx, opt) in m.state.filtered_options.iter().take(8).enumerate() {
                         let marker = if idx == m.state.selected_index { ">" } else { " " };
@@ -581,6 +589,100 @@ fn handle_popup_input(
     }
 }
 
+async fn cycle_model(state: &mut RunnerState<'_>, engine: &mut AgentEngine, direction: i32) {
+    let discovered = crate::repl::interactive::discover_models(&state.session.config, &state.session.auth_store);
+    if discovered.is_empty() {
+        return;
+    }
+    let current = &state.session.config.model;
+    let current_idx = discovered.iter().position(|m| m.id == *current).unwrap_or(0);
+    let len = discovered.len() as i32;
+    let next_idx = ((current_idx as i32 + direction).rem_euclid(len)) as usize;
+    let next = &discovered[next_idx];
+    state.session.config.model = next.id.clone();
+    state.session.config.provider = next.provider.clone();
+    state.session.sync_engine_model(engine).await;
+    state
+        .session
+        .renderer
+        .print_notice(&format!("Switched model to {} ({})\n", next.id, next.provider));
+}
+
+async fn cycle_thinking_level(state: &mut RunnerState<'_>, engine: &mut AgentEngine) {
+    let current = state.session.config.thinking_level.as_deref().unwrap_or("off");
+    let current_idx = THINKING_LEVELS.iter().position(|&l| l == current).unwrap_or(0);
+    let next_idx = (current_idx + 1) % THINKING_LEVELS.len();
+    let next = THINKING_LEVELS[next_idx];
+    state.session.config.thinking_level = Some(next.to_string());
+    state.session.sync_engine_model(engine).await;
+    state
+        .session
+        .renderer
+        .print_notice(&format!("Set thinking level to {next}\n"));
+}
+
+async fn handle_input_action(
+    action: InputAction,
+    state: &mut RunnerState<'_>,
+    engine: &mut AgentEngine,
+) -> Option<bool> {
+    match action {
+        InputAction::Clear => {
+            state.editor.clear();
+            Some(false)
+        }
+        InputAction::Cancel => {
+            if !state.editor.is_empty() {
+                state.editor.clear();
+            }
+            Some(false)
+        }
+        InputAction::EndOfInput => Some(state.editor.is_empty()),
+        InputAction::ModelSelect => {
+            *state.active_modal = Some(build_model_modal(state.session));
+            Some(false)
+        }
+        InputAction::ModelCycleForward => {
+            cycle_model(state, engine, 1).await;
+            Some(false)
+        }
+        InputAction::ModelCycleBackward => {
+            cycle_model(state, engine, -1).await;
+            Some(false)
+        }
+        InputAction::ThinkingCycle => {
+            cycle_thinking_level(state, engine).await;
+            Some(false)
+        }
+        InputAction::ThinkingToggle => {
+            let hide = !state.session.config.ui.hide_thinking.unwrap_or(false);
+            state.session.config.ui.hide_thinking = Some(hide);
+            state
+                .session
+                .renderer
+                .print_notice(&format!("Thinking: {}\n", if hide { "hidden" } else { "visible" }));
+            Some(false)
+        }
+        InputAction::ToggleExpandTools => {
+            let exp = !state.session.config.ui.tools_expanded.unwrap_or(false);
+            state.session.config.ui.tools_expanded = Some(exp);
+            state
+                .session
+                .renderer
+                .print_notice(&format!("Tools: {}\n", if exp { "expanded" } else { "collapsed" }));
+            Some(false)
+        }
+        #[cfg(unix)]
+        InputAction::Suspend => {
+            unsafe {
+                libc::raise(libc::SIGTSTP);
+            }
+            Some(false)
+        }
+        _ => None,
+    }
+}
+
 async fn handle_key_cycle(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
@@ -590,6 +692,12 @@ async fn handle_key_cycle(
     events: &mut EventStream,
 ) -> Result<bool> {
     if let Some(modal) = state.active_modal.take() {
+        if key.code == KeyCode::Esc {
+            return Ok(false);
+        }
+        if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
+            return Ok(false);
+        }
         *state.active_modal = handle_modal_input(modal, key, state.session);
         state.session.sync_engine_model(engine).await;
         return Ok(false);
@@ -603,15 +711,9 @@ async fn handle_key_cycle(
         }
     }
 
-    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
-        if !state.editor.is_empty() {
-            state.editor.clear();
-        }
-        return Ok(false);
-    }
-
-    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('d') {
-        return Ok(state.editor.is_empty());
+    let action = map_key(key);
+    if let Some(should_exit) = handle_input_action(action, state, engine).await {
+        return Ok(should_exit);
     }
 
     if key.code == KeyCode::Up && state.editor.cursor().0 == 0 {
@@ -1028,14 +1130,21 @@ async fn execute_agent_turn(
             }
             maybe_key = events.next() => {
                 if let Some(Ok(Event::Key(key))) = maybe_key {
-                    if key.code == KeyCode::Esc {
-                        cancellation.cancel();
-                        pending_scrollback.push_str("\nCanceled.\n");
-                    } else {
-                        state.editor.handle_key(key);
-                        let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
-                        refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
+                    let action = map_key(key);
+                    match action {
+                        InputAction::Cancel => {
+                            cancellation.cancel();
+                            pending_scrollback.push_str("\nCanceled.\n");
+                        }
+                        InputAction::Clear => {
+                            state.editor.clear();
+                        }
+                        _ => {
+                            state.editor.handle_key(key);
+                        }
                     }
+                    let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
+                    refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
                 }
             }
         }
