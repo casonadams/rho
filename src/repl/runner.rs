@@ -347,21 +347,8 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
-fn render_editor_row(text: &str, cursor_col: usize) -> String {
-    let char_count = text.chars().count();
-    if cursor_col >= char_count {
-        format!("{text}\x1b[7m \x1b[0m")
-    } else {
-        let mut out = String::new();
-        for (i, c) in text.chars().enumerate() {
-            if i == cursor_col {
-                out.push_str(&format!("\x1b[7m{c}\x1b[0m"));
-            } else {
-                out.push(c);
-            }
-        }
-        out
-    }
+fn render_editor_row(text: &str, _cursor_col: usize) -> String {
+    text.to_string()
 }
 
 fn build_live_lines(
@@ -420,6 +407,7 @@ fn paint_live_region(
     lines: &[String],
     cursor_row: usize,
     cursor_col: usize,
+    show_cursor: bool,
 ) -> std::io::Result<()> {
     for (i, line) in lines.iter().enumerate() {
         stdout.write_all(line.as_bytes())?;
@@ -431,8 +419,17 @@ fn paint_live_region(
     if rows_up > 0 {
         write!(stdout, "\x1b[{rows_up}A")?;
     }
-    write!(stdout, "\r\x1b[{cursor_col}C")?;
-    stdout.flush()
+    if cursor_col > 0 {
+        write!(stdout, "\r\x1b[{cursor_col}C")?;
+    } else {
+        stdout.write_all(b"\r")?;
+    }
+    if show_cursor {
+        stdout.write_all(b"\x1b[?25h")?;
+    } else {
+        stdout.write_all(b"\x1b[?25l")?;
+    }
+    Ok(())
 }
 
 fn erase_live_region(stdout: &mut std::io::Stdout, total_lines: usize, cursor_row: usize) -> std::io::Result<()> {
@@ -464,8 +461,10 @@ fn refresh_display(
     let width = crate::ui::terminal_width() as usize;
     let (lines, c_row, c_col) = build_live_lines(state, footer, activity, width);
 
+    let show_cursor = state.active_modal.is_none();
     let mut stdout = std::io::stdout();
     stdout.write_all(CSI_SYNC_BEGIN)?;
+    stdout.write_all(b"\x1b[?25l")?;
     erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row)?;
 
     if let Some(out) = extra_output
@@ -480,7 +479,7 @@ fn refresh_display(
         }
     }
 
-    paint_live_region(&mut stdout, &lines, c_row, c_col)?;
+    paint_live_region(&mut stdout, &lines, c_row, c_col, show_cursor)?;
     stdout.write_all(CSI_SYNC_END)?;
     stdout.flush()?;
 
