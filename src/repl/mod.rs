@@ -4,10 +4,9 @@
 
 pub mod commands;
 pub mod coordinator;
-mod input_reader;
 pub mod interactive;
 mod line_mode;
-mod live;
+pub mod runner;
 #[cfg(test)]
 mod tests;
 
@@ -85,11 +84,15 @@ impl ReplSession {
         }
     }
 
+    pub async fn run_live(&mut self) -> Result<()> {
+        runner::run_unified_live(self).await
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         crate::platform::remote::set_repl_active(true);
         let stdin_is_tty = std::io::stdin().is_tty();
         let stdout_is_tty = std::io::stdout().is_tty();
-        let res = if live::live_ui_supported(stdin_is_tty, stdout_is_tty) {
+        let res = if runner::live_ui_supported(stdin_is_tty, stdout_is_tty) {
             self.run_live().await
         } else {
             line_mode::run_line_mode(self, stdin_is_tty).await
