@@ -28,7 +28,8 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   7. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
   8. (Effort: 2) Implement `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
   9. (Effort: 2) Implement `PromptHistory` state tracking (`previous`, `next`, draft preservation) shared between TUI and Web Hub.
-  10. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
+  10. (Effort: 2) Implement `FooterMetrics` (token counts, context %, cost, tokens/sec), `SessionTreeState`, and `WelcomeDisplay` in `rho-ui-core`.
+  11. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
   - `cargo check -p rho-ui-core --target wasm32-unknown-unknown`
@@ -48,8 +49,9 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content.
   3. (Effort: 3) Connect Dioxus headless reactive runtime to Ratatui draw loop, triggering frame renders upon signal mutations or terminal resize events.
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
-  5. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  6. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, and `screen_sim.rs`.
+  5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into a single event stream feeding `rho-ui-core`.
+  6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
+  7. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, and `screen_sim.rs`.
 - **Verification**:
   - `cargo test -p rho --lib ui::interactive`
 
@@ -111,7 +113,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed `RpcCommand` and `RpcEvent`.
   3. (Effort: 3) Build Fleet Overview view (node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
-  5. (Effort: 3) Build Modals and Session Sidebar (session history, auth modal, provider credentials) using Dioxus Components.
+  5. (Effort: 3) Build Modals, Session Sidebar, and Status Bar (session history, conversation branch tree, auth modal, provider credentials, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components.
   6. (Effort: 2) Connect web storage persistence (saved nodes, tickets, active session ID) via browser `web-sys` hooks.
   7. (Effort: 2) Remove `www/hub/js/*.js` and update `Makefile` target `make wasm` with `wasm-opt` size optimization.
 - **Verification**:
