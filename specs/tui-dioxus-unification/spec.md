@@ -80,6 +80,8 @@ This separation causes significant friction:
 - Standardize block notices and warning banners on `ContentBlock::Notice`, eliminating manual ASCII border padding and background formatting in `src/ui/render/notices.rs`.
 - Unify multimodal image attachment handling (`ImageAttachment`) in `rho-ui-core`, standardizing terminal clipboard screenshot pasting (`arboard` / `[image ...]`) and Web Hub drag-and-drop image uploads into structured `RpcCommand::Prompt` payloads.
 - Index both prompt templates (`.rho/prompts/*.md`) and skills (`.agents/skills/*/SKILL.md`) in `CompletionEngine`, expanding templates declaratively upon turn submission.
+- Eliminate manual divider character concatenation and string repetition (`src/ui/interactive/layout/chrome.rs` - 159 lines), delegating top divider banners and thinking border colors to Ratatui's native `Block::borders(Borders::TOP)`.
+- Strongly type tool argument presentation via `ToolInvocation` in `rho-ui-core`, eliminating fragile string indexing (`args.get("path")`, `args.get("format")`) across tool inspectors.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -282,6 +284,8 @@ crates/rho-wasm/
 - **REQ-073**: Tool card transcript formatting must be consolidated into `ContentBlock::ToolCall`, deleting duplicated formatting logic across `src/ui/interactive/transcript/tool.rs` and `src/ui/render/card.rs`.
 - **REQ-074**: Code syntax highlighting must leverage native 24-bit TrueColor `Color::Rgb` in Ratatui, completely deleting custom RGB-to-ANSI16 color quantization logic in `src/ui/markdown/highlight.rs`.
 - **REQ-075**: Terminal dimensions must be read exclusively from Ratatui's cached `frame.area()`, eliminating ad-hoc `crossterm::terminal::size()` ioctl syscalls on render hot paths.
+- **REQ-076**: Top dividers, version banners, and activity indicators in the TUI must be rendered using Ratatui's native `Block::borders(Borders::TOP)` with title alignment, completely deleting manual `"─".repeat(...)` string formatting in `src/ui/interactive/layout/chrome.rs`.
+- **REQ-077**: Tool argument inspection and file previews must deserialize into typed `ToolInvocation` variants (`ReadArgs`, `EditArgs`, `WriteArgs`, `WebFetchArgs`, `BashArgs`), eliminating untyped `serde_json::Value` string indexing in presentation layers.
 
 ## Invariants and security boundaries
 
