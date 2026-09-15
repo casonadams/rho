@@ -1,33 +1,12 @@
 use anstyle::Style;
 use regex::Regex;
 use std::sync::LazyLock;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
+
+pub use rho_ui_core::text::{truncate_to_width, visible_width};
 
 pub static ANSI_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("valid ANSI escape pattern"));
-
-pub fn visible_width(content: &str) -> usize {
-    let clean = ANSI_PATTERN.replace_all(content, "");
-    UnicodeWidthStr::width(clean.replace('\r', "").as_str())
-}
-
-pub fn truncate_to_width(value: &str, width: usize) -> String {
-    if visible_width(value) <= width {
-        return value.to_string();
-    }
-
-    let mut result = String::new();
-    let mut used = 0;
-    for character in value.chars() {
-        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
-        if used + character_width > width {
-            break;
-        }
-        result.push(character);
-        used += character_width;
-    }
-    result
-}
 
 fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>) {
     match params.peek().copied() {

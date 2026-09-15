@@ -84,7 +84,7 @@ async fn test_server(name: &str, config: &Config) -> Result<(), Box<dyn std::err
     let client = Arc::new(McpClient::new(name, transport));
     let init_res = client.initialize().await?;
     let elapsed = start.elapsed();
-    println!("  ✓ Initialized in {}ms", elapsed.as_millis());
+    println!("  ✓ Initialized in {}", rho_ui_core::format_duration(elapsed));
     if let Some(server_info) = init_res.get("serverInfo") {
         println!("    Server info: {server_info}");
     }

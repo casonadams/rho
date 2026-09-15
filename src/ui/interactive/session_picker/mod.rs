@@ -2,11 +2,11 @@
 mod tests;
 
 use crate::ui::interactive::{ModalOption, ModalState, TerminalController};
-use crate::ui::render::formatters::format_relative_time;
 use crate::ui::theme::Theme;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use rho_harness_core::error::Result;
 use rho_harness_core::session::{SessionManager, SessionSummary};
+pub use rho_ui_core::format_relative_time;
 use std::path::Path;
 
 pub fn prompt_session_picker(sessions_dir: &Path, theme: &Theme) -> Result<Option<String>> {

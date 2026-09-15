@@ -1,7 +1,1 @@
-pub mod action;
-pub mod chord;
-pub mod map;
-
-pub use action::KeyAction;
-pub use chord::KeyChord;
-pub use map::KeybindingMap;
+pub use rho_ui_core::keymap::{KeyAction, KeyChord, KeybindingMap};

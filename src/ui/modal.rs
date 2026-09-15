@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListSt
 
 use rho_harness_core::session::SessionSummary;
 use rho_ui_core::autocomplete::{AutocompleteCandidate, THINKING_LEVEL_OPTIONS};
+pub use rho_ui_core::format_relative_time;
 use rho_ui_core::modal::{McpModalState, ModalOption, ModalState, ModelRegistry, SettingsState, SkillModalState};
 use rho_ui_core::permission::{PERMISSION_ACTIONS, PermissionAction, PermissionPromptState};
 use rho_ui_core::session::ProviderDef;
@@ -201,7 +202,7 @@ impl StandardModalView {
                 let is_active = active_id.is_some_and(|aid| aid == s.session_id);
                 let active_badge = if is_active { "  ✓" } else { "" };
                 let display_title = s.name.as_deref().unwrap_or(&s.session_id);
-                let rel_time = crate::ui::render::formatters::format_relative_time(s.last_modified);
+                let rel_time = format_relative_time(s.last_modified);
                 ModalOption {
                     label: format!("{:<18}", display_title),
                     description: Some(format!("{} turns · {}{}", s.turn_count, rel_time, active_badge)),

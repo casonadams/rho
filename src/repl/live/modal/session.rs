@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use crate::ui::render::formatters::format_relative_time;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+pub use rho_ui_core::format_relative_time;
 use std::path::Path;
 
 use super::ModalKeyResult;

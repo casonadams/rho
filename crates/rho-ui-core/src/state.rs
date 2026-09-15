@@ -2,35 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-pub fn format_tokens(count: u64) -> String {
-    if count < 1_000 {
-        count.to_string()
-    } else if count < 100_000 {
-        format!("{:.1}k", count as f64 / 1_000.0)
-    } else if count < 1_000_000 {
-        format!("{}k", (count as f64 / 1_000.0).round() as u64)
-    } else if count.is_multiple_of(1_000_000) {
-        format!("{}M", count / 1_000_000)
-    } else {
-        format!("{:.1}M", count as f64 / 1_000_000.0)
-    }
-}
-
-pub fn format_size(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = 1024 * KB;
-    const GB: u64 = 1024 * MB;
-
-    if bytes < KB {
-        format!("{bytes} B")
-    } else if bytes < MB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else if bytes < GB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    }
-}
+pub use crate::text::{format_duration, format_duration_ms, format_relative_time, format_size, format_tokens};
 
 pub fn detect_supported_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {

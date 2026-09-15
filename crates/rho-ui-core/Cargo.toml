@@ -22,3 +22,9 @@ ratatui = { workspace = true, features = ["serde"] }
 unicode-width = "0.2"
 chrono.workspace = true
 uuid.workspace = true
+humantime.workspace = true
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crossterm = { workspace = true }
+

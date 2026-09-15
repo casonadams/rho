@@ -54,6 +54,9 @@ iroh = "1.2.0"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false }
 tokio-websockets = { version = "0.13", default-features = false, features = ["server"] }
+humantime = "2.1"
+crossterm = { version = "0.29", default-features = false }
+
 
 [package]
 name = "rho"
@@ -123,7 +126,7 @@ clap = { version = "4.5", features = ["derive", "env"] }
 reedline = { version = "0.51", optional = true }
 inquire = { version = "0.9", optional = true, features = ["fuzzy"] }
 indicatif = { version = "0.18", optional = true }
-crossterm = { version = "0.29", optional = true, features = ["event-stream"] }
+crossterm = { workspace = true, optional = true, features = ["event-stream"] }
 anstyle = { version = "1.0", optional = true }
 pulldown-cmark = { version = "0.13", optional = true }
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"], optional = true }

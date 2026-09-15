@@ -178,7 +178,35 @@ Quick wins that reduce surface area before the Ratatui/Dioxus migration begins. 
 
 ---
 
-## Slice 5: Dioxus Web Hub Application
+## Slice 5: Cross-cutting consolidation & crate adoption (Slice 0–3 leftovers)
+
+- **Goal**: Finish the cross-cutting consolidation left by Slices 0–3 by moving the remaining hand-rolled formatters, provider metadata, tree rendering, frontmatter parsing, and the keymap reducer into `rho-ui-core`/`rho-harness-core` and adopting solid crates, so the Web Hub (Slice 6) and the parity pass (Slice 7) reuse shared implementations instead of re-rolling them.
+- **Acceptance Criteria**:
+   - `rho-ui-core` exposes single definitions for `format_duration`/`format_duration_ms`, `format_relative_time`, `abbreviate_home`/`get_git_branch`, the session-tree renderer, and the truncation/right-align helpers; all `src/` callers re-export through them.
+   - `MODEL_CONTEXT_WINDOWS` and the `gpt-6-astra` per-provider special-case in `crates/rho-harness-core/src/tokens/mod.rs` are deleted; context windows resolve through `ModelRegistry` (completes REQ-020 / REQ-110).
+   - `format_tokens`/`format_size` have a single canonical body in `rho-harness-core::tokens`; `rho-ui-core::state` and `rho-engine::tools::truncate` re-export it (duplicate bodies deleted).
+   - Frontmatter parsing is one function in `rho-harness-core`; `prompts/template.rs` and `skills/parser.rs` call it.
+   - The keymap reducer (`map_key`, `parse_key_chord`) lives in `rho-ui-core`; `SINGLE_CHAR_KEYS` is deleted and crossterm key parsing is used.
+   - `humantime` powers relative-time buckets; no duplicate numeric/duration/relative-time formatters remain in `src/`.
+   - `cargo test --workspace` and `make clippy` are clean.
+- **Tasks**:
+   1. (Effort: 1) Consolidate duration formatting into one `format_duration`/`format_duration_ms` in `rho-ui-core`; delete `layout/widget.rs` `format_elapsed` and the inline `elapsed.as_millis()` in `cli/mcp.rs`.
+   2. (Effort: 1) Move `format_relative_time` to `rho-ui-core` and drive its sec/min/hour/day buckets with `humantime` (add to workspace deps); update `render/formatters.rs`, `ui/modal.rs`, `interactive/session_picker/mod.rs`, and `repl/live/modal/session.rs` to re-export.
+   3. (Effort: 1) Move `abbreviate_home` + `get_git_branch` into the `rho-ui-core` footer module (keep the `git` subprocess fallback); re-export through `footer/mod.rs` and update the five `cli/rpc.rs` callers.
+   4. (Effort: 2) Move `build_tree_display`/`render_tree_ascii` into `rho-ui-core` as a shared tree renderer (Web Hub reuses the projection; optional `tree-iterator` for the walk); delete `src/ui/interactive/tree_view/`.
+   5. (Effort: 1) Consolidate truncation: move `truncate_with_ellipsis`, `fit_right_aligned`, and `sanitize_status_text` from `footer/text.rs` into the same text module as `truncate_to_width`/`visible_width` (`rho-ui-core`).
+   6. (Effort: 1) Collapse `format_tokens`/`format_size` to a single body in `rho-harness-core::tokens`; re-export from `rho-ui-core::state` and `rho-engine::tools::truncate` (delete the duplicate bodies).
+   7. (Effort: 2) Complete REQ-020: fold `MODEL_CONTEXT_WINDOWS` and the `gpt-6-astra` provider special-case from `crates/rho-harness-core/src/tokens/mod.rs` into the existing `ModelRegistry`; delete the table.
+   8. (Effort: 1) Dedup frontmatter parsing into one function in `rho-harness-core` (adopt `serde_yaml` or a single hand-rolled parser); call it from `prompts/template.rs` and `skills/parser.rs`.
+   9. (Effort: 2) Move the keymap reducer (`input/mod.rs` `map_key` + `key_parser.rs` `parse_key_chord`) into `rho-ui-core`; delete `SINGLE_CHAR_KEYS` and use crossterm key parsing; update `keybinding_loader`.
+- **Dependency note**: Land this slice **before** Slice 6 so the Dioxus Web Hub consumes `rho-ui-core`'s `format_relative_time`, footer path/branch, tree renderer, and duration helpers rather than re-implementing them; Slice 7 then audits parity against these shared versions. `rho-ui-core` currently has no dependency on `rho-harness-core`, so shared numeric/tree helpers need a canonical home and a one-directional re-export (see spec Open questions).
+- **Verification**:
+   - `cargo test --workspace`
+   - `make clippy`
+
+---
+
+## Slice 6: Dioxus Web Hub Application
 
 - **Goal**: Rebuild `www/hub/` as a single-page WebAssembly application in Rust using Dioxus and Dioxus Components, completely eliminating vanilla JavaScript.
 - **Acceptance Criteria**:
@@ -201,7 +229,7 @@ Quick wins that reduce surface area before the Ratatui/Dioxus migration begins. 
 
 ---
 
-## Slice 6: Parity Audit, Cleanup & Final Polish
+## Slice 7: Parity Audit, Cleanup & Final Polish
 
 - **Goal**: Verify complete bidirectional feature parity between native terminal and Web Hub, verify zero lint regressions, and update documentation.
 - **Acceptance Criteria**:

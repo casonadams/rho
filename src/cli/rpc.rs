@@ -395,7 +395,7 @@ async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let messages = extract_chat_messages(&raw_msgs);
             new_eng.refresh_quota().await;
             let totals = new_eng.session_usage_totals();
-            let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
+            let active_branch = rho_ui_core::footer::get_git_branch(&new_eng.base_dir);
             let payload = serde_json::json!({
                 "session_id": sid,
                 "messages": messages,
@@ -485,7 +485,7 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
 
     let raw_msgs = eng.session_manager.load_messages().await.unwrap_or_default();
     let messages = extract_chat_messages(&raw_msgs);
-    let active_branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
+    let active_branch = rho_ui_core::footer::get_git_branch(&eng.base_dir);
 
     let data = serde_json::json!({
         "session_id": eng.session_manager.session_id,
@@ -535,7 +535,7 @@ async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let (active_workspace, active_branch) = {
         let eng = ctx.engine.read().await;
         let ws = eng.base_dir.display().to_string();
-        let branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
+        let branch = rho_ui_core::footer::get_git_branch(&eng.base_dir);
         (Some(ws), branch)
     };
     let status = if ctx.active_turn.is_some() { "busy" } else { "idle" };
@@ -579,7 +579,7 @@ async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
         Ok(new_eng) => {
             let session_id = new_eng.session_manager.session_id.clone();
             let base_dir = new_eng.base_dir.display().to_string();
-            let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
+            let active_branch = rho_ui_core::footer::get_git_branch(&new_eng.base_dir);
             new_eng.refresh_quota().await;
             let totals = new_eng.session_usage_totals();
             let payload = serde_json::json!({

@@ -11,7 +11,9 @@ pub mod session_picker;
 mod shift_tab_tests;
 mod state;
 mod transcript;
-pub mod tree_view;
+pub mod tree_view {
+    pub use rho_harness_core::session::tree::{TreeEntryDisplay, build_tree_display, render_tree_ascii};
+}
 
 pub use controller::cache;
 pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};

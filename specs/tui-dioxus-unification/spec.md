@@ -321,7 +321,7 @@ crates/rho-wasm/
 - **REQ-084**: Completed context compaction events (`CompactionComplete`) must render as visual compaction milestones in both TUI scrollback and the Web Hub transcript.
 - **REQ-085**: Image attachments in the Web Hub must be validated via client-side magic-byte sniffing (`detect_supported_image_mime`) and downsampled in Rust WebAssembly (`fit_dimensions`) before transmission to optimize P2P network bandwidth.
 - **REQ-086**: Session deletion and pruning must be supported in `SessionStore`, allowing users to delete inactive sessions from both the TUI session modal and the Web Hub sidebar.
-- **REQ-087**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must be centralized in `rho-ui-core`, eliminating duplicate JavaScript formatters. **Audit note**: `format_tokens()` currently has two divergent Rust implementations — `src/ui/interactive/footer/text.rs` (switches at 10k) and `crates/rho-engine/src/engine/metrics/types.rs` (switches at 100k) — producing different output for the same input in the 10k-100k range.
+- **REQ-087**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must have a single canonical definition. **Audit note (2026-09-15, updated)**: the original 10k-vs-100k divergence between `src/ui/interactive/footer/text.rs` and `crates/rho-engine/src/engine/metrics/types.rs` is already resolved — both `footer/mod.rs` and `engine/metrics/types.rs` re-export `rho_harness_core::tokens::format_tokens`. The remaining duplication is `format_tokens`/`format_size` each defined in two places (`rho-harness-core::tokens` and `rho-ui-core::state`; `format_size` also in `rho-engine::tools::truncate`). Consolidate to one body and re-export (see REQ-105 / Slice 5).
 - **REQ-088**: Code syntax highlighting must be pre-tokenized on the host into `HighlightedLine` spans inside `ContentBlock::CodeBlock`, keeping the Web Hub WASM bundle ultra-lean (<1.5MB gzipped) without compiling syntect language tables into browser WebAssembly.
 - **REQ-089**: The terminal interactive runner must support an optional terminal bell (`\x07`) notification on turn completion when the terminal window is unfocused (`Signal<WindowFocus>` is false).
 - **REQ-090**: Background engine and compaction warnings must be routed through canonical `RpcEvent::Notice` events rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
@@ -339,6 +339,17 @@ crates/rho-wasm/
 - **REQ-102**: Rapid terminal window resize bursts must debounce in the event loop, collapsing duplicate resize events to render a single flicker-free frame once geometry stabilizes.
 - **REQ-103**: When user scrollback is offset upwards during active streaming, automatic scroll-to-bottom must pause (engaging an auto-scroll lock with a visual down-indicator) until manually scrolled back to the bottom or dismissed with `G`/`End`.
 - **REQ-104**: In-browser Iroh P2P networking in `crates/rho-wasm` must feed incoming byte frames directly into canonical `RpcEvent` signal channels in Rust WebAssembly without traversing `JsValue` or `serde_wasm_bindgen` boundaries.
+
+## Cross-cutting consolidation (Slice 0–3 leftovers → Slice 5)
+
+- **REQ-105**: Relative-time formatting (`format_relative_time`) must live in `rho-ui-core` and derive its second/minute/hour/day buckets from a duration-humanizing crate (`humantime`/`timeago`) instead of the hand-rolled ladder in `src/ui/render/formatters.rs`; the TUI session modal, session picker, and Web Hub session sidebar consume the same function.
+- **REQ-106**: Footer path display (`abbreviate_home` → `~` prefix) and git-branch detection (`get_git_branch`) must live in the `rho-ui-core` footer module, retaining the `git` subprocess fallback; `footer/mod.rs` and the `cli/rpc.rs` callers re-export through it.
+- **REQ-107**: Session-tree rendering (`build_tree_display` + `render_tree_ascii`) must live in `rho-ui-core` as a shared tree renderer so the TUI ASCII projection and the Web Hub projection consume one model; `src/ui/interactive/tree_view/` is deleted.
+- **REQ-108**: Tool/runtime duration formatting must be a single `format_duration`/`format_duration_ms` in `rho-ui-core`; `format_elapsed` (`src/ui/interactive/layout/widget.rs`) and the inline `elapsed.as_millis()` in `src/cli/mcp.rs` are removed.
+- **REQ-109**: Truncation and right-alignment helpers (`truncate_with_ellipsis`, `fit_right_aligned`, `sanitize_status_text`) must be consolidated into the same `rho-ui-core` text module as `truncate_to_width`/`visible_width`, eliminating the `src/ui/interactive/footer/text.rs` copies.
+- **REQ-110**: `ModelRegistry` must be the single provider-metadata source of truth: the hardcoded `MODEL_CONTEXT_WINDOWS` table and the `gpt-6-astra` per-provider special-case in `crates/rho-harness-core/src/tokens/mod.rs` are deleted and folded into `ModelRegistry` (completes REQ-020).
+- **REQ-111**: YAML frontmatter parsing for skills and prompt templates must be a single function in `rho-harness-core` (adopt `serde_yaml` or one hand-rolled parser), consumed by both `crates/rho-harness-core/src/prompts/template.rs` and `crates/rho-harness-core/src/skills/parser.rs`.
+- **REQ-112**: The keymap reducer (`map_key`, `map_app_action`, `parse_key_chord`) must live in `rho-ui-core`, relying on crossterm's own key parsing and deleting the hand-rolled `SINGLE_CHAR_KEYS` table in `src/ui/interactive/key_parser.rs`.
 
 ## Invariants and security boundaries
 
@@ -364,6 +375,10 @@ crates/rho-wasm/
   - **Mitigation**: Enable `lto = "fat"`, `codegen-units = 1`, `opt-level = "z"` / `"s"`, and run `wasm-opt` during `make wasm`.
 - **Risk**: Incompatibilities between desktop Ratatui layout abstractions and web flexbox/grid layout models.
   - **Mitigation**: Keep layout calculations isolated to their respective rendering layers; `rho-ui-core` provides structured data models and action reducers, not pixel/character layouts.
+
+## Open questions
+
+- **Shared-helper home / dependency direction**: `rho-ui-core` currently has no dependency on `rho-harness-core`, yet REQ-087/105/106/107/108/109/110 need numeric, relative-time, footer, and tree helpers shared with `rho-harness-core` and `rho-engine`. Decide whether `rho-ui-core` gains a `rho-harness-core` dependency (allowed by the decoupling invariant, which forbids only transport/renderer deps) and re-exports, or the helpers move to a lower crate. Owner: implementer of Slice 5; matters because it dictates re-export direction and prevents re-duplication.
 
 ## Codebase audit (2026-09-15)
 
@@ -474,14 +489,9 @@ Files too small to justify their own module:
 
 Ratatui's `Paragraph::wrap` and styled `Span` rendering eliminate both entirely.
 
-### NEW: Triple-defined `visible_width()` and duplicate `truncate_to_width()`
+### NEW: Footer text helpers (`truncate_to_width` / `visible_width` already consolidated)
 
-| Function | Location A | Location B | Location C |
-|----------|-----------|-----------|------------|
-| `visible_width()` | `src/ui/block/wrap.rs` | `src/ui/interactive/footer/text.rs` | `src/ui/interactive/layout/text.rs` |
-| `truncate_to_width()` | `src/ui/interactive/footer/text.rs` | `src/ui/interactive/layout/text.rs` | — |
-
-All implementations strip ANSI escapes via `ANSI_PATTERN` regex then measure `UnicodeWidthStr::width`. Three copies of the same logic. Ratatui handles ANSI-aware width internally.
+`visible_width()` and `truncate_to_width()` are now single definitions in `src/ui/block/wrap.rs` (Slice 0 done). The remaining fragmentation is footer-specific text math in `src/ui/interactive/footer/text.rs`: `truncate_with_ellipsis`, `fit_right_aligned`, and `sanitize_status_text`, each re-implementing width measurement on top of `visible_width`/`truncate_to_width`. These join the shared `rho-ui-core` text module (REQ-109).
 
 ### NEW: `ANSI_PATTERN` regex shared across 12+ call sites
 

@@ -329,6 +329,46 @@ impl ModelRegistry {
         Self { models, active_model }
     }
 
+    pub fn context_window_for(&self, model: &str, provider: Option<&str>) -> usize {
+        if let Some(m) = self.models.iter().find(|m| m.id.eq_ignore_ascii_case(model)) {
+            return m.context_tokens;
+        }
+        Self::resolve_context_window(model, provider)
+    }
+
+    pub fn resolve_context_window(model: &str, provider: Option<&str>) -> usize {
+        let lower = model.to_ascii_lowercase();
+        if lower.contains("gpt-6-astra") {
+            if let Some(p) = provider {
+                if p.eq_ignore_ascii_case("openai") {
+                    return 1_050_000;
+                } else if p.eq_ignore_ascii_case("chatgpt") {
+                    return 372_000;
+                } else {
+                    return 128_000;
+                }
+            }
+            return 1_050_000;
+        }
+
+        const PATTERNS: &[(&[&str], usize)] = &[
+            (&["gemini-1.5-pro", "gemini-2.5-pro"], 2_000_000),
+            (&["gemini"], 1_000_000),
+            (&["gpt-6-astra"], 1_050_000),
+            (&["sonnet", "opus", "fable"], 1_000_000),
+            (&["gpt-5.6", "luna", "terra", "sol"], 372_000),
+            (&["gpt-5.4", "gpt-5.5"], 272_000),
+            (&["claude", "o1", "o3"], 200_000),
+        ];
+
+        for &(patterns, window) in PATTERNS {
+            if patterns.iter().any(|&pat| lower.contains(pat)) {
+                return window;
+            }
+        }
+        128_000
+    }
+
     pub fn to_modal_state(&self) -> ModalState {
         let options = self
             .models

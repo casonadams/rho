@@ -19,14 +19,6 @@ fn normalize_tool_name(name: &str) -> &str {
     }
 }
 
-fn format_elapsed(duration: std::time::Duration) -> String {
-    if duration.as_secs() > 0 {
-        format!("{:.1}s", duration.as_secs_f64())
-    } else {
-        format!("{}ms", duration.as_millis())
-    }
-}
-
 fn slice_tail_lines(raw: &str, limit: usize) -> (&str, usize) {
     let total = raw.bytes().filter(|&b| b == b'\n').count() + 1;
     if total > limit
@@ -83,7 +75,7 @@ fn format_widget_content(input: RunningToolWidgetInput<'_>, width: usize) -> Str
     append_tool_output(&mut content, &raw_output, input.tools_expanded, width, dim);
     content.push_str(&format!(
         "\n\n{dim}Elapsed {}{dim:#}",
-        format_elapsed(input.tool.elapsed())
+        rho_ui_core::format_duration(input.tool.elapsed())
     ));
     content
 }

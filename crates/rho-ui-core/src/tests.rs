@@ -265,3 +265,50 @@ fn test_session_state_lifecycle_and_streaming() {
     assert_eq!(session.turn_state, SessionTurnState::Idle);
     assert_eq!(session.blocks.len(), 2);
 }
+
+#[test]
+fn test_tree_display_projection_and_ascii() {
+    let items = vec![
+        TreeItemInput {
+            id: "root-1".to_string(),
+            parent_id: None,
+            label: Some("init".to_string()),
+            kind: "UserTurn".to_string(),
+            preview: "User: \"hello\"".to_string(),
+            is_active: false,
+        },
+        TreeItemInput {
+            id: "child-1".to_string(),
+            parent_id: Some("root-1".to_string()),
+            label: None,
+            kind: "AssistantTurn".to_string(),
+            preview: "Assistant: \"hi there\"".to_string(),
+            is_active: true,
+        },
+    ];
+    let entries = build_tree_display(&items);
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].depth, 0);
+    assert!(entries[0].is_last_child);
+    assert_eq!(entries[1].depth, 1);
+    assert!(entries[1].is_last_child);
+    assert!(entries[1].is_active);
+
+    let ascii = render_tree_ascii(&entries);
+    assert!(ascii.contains("User: \"hello\""));
+    assert!(ascii.contains("Assistant: \"hi there\""));
+    assert!(ascii.contains("[ACTIVE]"));
+}
+
+#[test]
+fn test_text_helpers_and_formatting() {
+    assert_eq!(format_tokens(500), "500");
+    assert_eq!(format_tokens(1_500), "1.5k");
+    assert_eq!(format_size(1024), "1.0KB");
+    assert_eq!(format_duration(std::time::Duration::from_millis(500)), "500ms");
+    assert_eq!(format_duration(std::time::Duration::from_secs(45)), "45s");
+    assert_eq!(format_duration(std::time::Duration::from_secs(125)), "2m 5s");
+    assert_eq!(visible_width("hello \x1b[31mworld\x1b[0m"), 11);
+    assert_eq!(truncate_with_ellipsis("very long text string here", 10), "very lo...");
+    assert_eq!(sanitize_status_text("hello\n\tworld   foo"), "hello world foo");
+}

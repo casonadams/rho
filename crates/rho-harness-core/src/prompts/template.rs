@@ -110,44 +110,19 @@ fn expand_braced_pattern(pattern: &str, args: &[&str], full_args: &str) -> Strin
     }
 }
 
-fn parse_frontmatter_lines(frontmatter_str: &str) -> (Option<String>, Option<String>) {
-    let mut description = None;
-    let mut argument_hint = None;
-    for line in frontmatter_str.lines() {
-        let line = line.trim();
-        if let Some(val) = line.strip_prefix("description:") {
-            description = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
-        } else if let Some(val) = line
-            .strip_prefix("argument-hint:")
-            .or_else(|| line.strip_prefix("argument_hint:"))
-        {
-            argument_hint = Some(val.trim().trim_matches('"').trim_matches('\'').to_string());
-        }
-    }
-    (description, argument_hint)
-}
-
-fn extract_frontmatter(content: &str) -> Option<(&str, String)> {
-    let rest = content.trim_start().strip_prefix("---")?;
-    let end_idx = rest.find("\n---")?;
-    let frontmatter_str = &rest[..end_idx];
-    let body = rest[end_idx + 4..]
-        .trim_start_matches('\n')
-        .trim_start_matches('\r')
-        .to_string();
-    Some((frontmatter_str, body))
-}
-
 fn parse_frontmatter(name: &str, content: &str) -> (PromptTemplateMetadata, String) {
-    if let Some((fm, body)) = extract_frontmatter(content) {
-        let (description, argument_hint) = parse_frontmatter_lines(fm);
+    if let Some(fm) = crate::frontmatter::parse_frontmatter(content) {
+        let description = fm.get("description").map(str::to_string);
+        let argument_hint = fm
+            .get_with_aliases(&["argument-hint", "argument_hint"])
+            .map(str::to_string);
         return (
             PromptTemplateMetadata {
                 name: name.to_string(),
                 description,
                 argument_hint,
             },
-            body,
+            fm.body,
         );
     }
     let first_line = content

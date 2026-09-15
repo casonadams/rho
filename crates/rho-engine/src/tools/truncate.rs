@@ -38,13 +38,7 @@ pub struct Truncation {
 
 /// Format bytes as human-readable size (pi's `formatSize`).
 pub fn format_size(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{bytes}B")
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1}KB", bytes as f64 / 1024.0)
-    } else {
-        format!("{:.1}MB", bytes as f64 / (1024.0 * 1024.0))
-    }
+    rho_harness_core::tokens::format_size(bytes as u64)
 }
 
 /// A single line passed through [`truncate_line`].
