@@ -264,19 +264,38 @@ impl ActiveModal {
                 };
                 let sep = "─".repeat(width.saturating_sub(header.chars().count()));
                 lines.push(format!("\x1b[36m{header}{sep}\x1b[0m"));
-                if m.state.filtered_options.is_empty() {
+                let total = m.state.filtered_options.len();
+                if total == 0 {
                     lines.push("\x1b[90m  No matching options\x1b[0m".to_string());
                 } else {
-                    for (idx, opt) in m.state.filtered_options.iter().take(8).enumerate() {
-                        let marker = if idx == m.state.selected_index { ">" } else { " " };
+                    let max_visible = 8;
+                    let window_start = if m.state.selected_index < max_visible {
+                        0
+                    } else {
+                        m.state.selected_index.saturating_sub(max_visible - 1)
+                    };
+                    for (window_idx, opt) in m
+                        .state
+                        .filtered_options
+                        .iter()
+                        .skip(window_start)
+                        .take(max_visible)
+                        .enumerate()
+                    {
+                        let actual_idx = window_start + window_idx;
+                        let marker = if actual_idx == m.state.selected_index { ">" } else { " " };
                         let active = if opt.is_active { " ✓" } else { "" };
                         let desc = opt.description.as_deref().unwrap_or("");
                         let line = format!(" {marker} {:<18} {desc}{active}", opt.label);
-                        if idx == m.state.selected_index {
+                        if actual_idx == m.state.selected_index {
                             lines.push(format!("\x1b[1;36m{line}\x1b[0m"));
                         } else {
                             lines.push(format!("\x1b[90m{line}\x1b[0m"));
                         }
+                    }
+                    if total > max_visible {
+                        let cur = m.state.selected_index + 1;
+                        lines.push(format!("\x1b[90m  ↑/↓ scroll ({cur}/{total})\x1b[0m"));
                     }
                 }
                 lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
@@ -553,14 +572,6 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
-fn render_editor_row(text: &str, cursor_col: usize, cursor_mode: CursorMode) -> String {
-    let mut row = text.to_string();
-    if cursor_mode == CursorMode::Software {
-        crate::ui::interactive::apply_software_cursor(&mut row, cursor_col);
-    }
-    row
-}
-
 fn thinking_divider_style(thinking: Option<&str>) -> (&'static str, &'static str) {
     match thinking.unwrap_or("off") {
         "off" => ("\x1b[38;2;60;60;60m", "\x1b[0m"),
@@ -616,10 +627,17 @@ fn build_live_lines(
 
     lines.push(String::new());
 
-    let text = state.editor.text();
-    let (_c_row, c_col) = state.editor.cursor();
-    lines.push(render_editor_row(&text, c_col, cursor_mode));
-    let cursor_row = lines.len() - 1;
+    let ed_lines = state.editor.lines();
+    let (c_row, c_col) = state.editor.cursor();
+    let ed_start = lines.len();
+    for (r, ed_line) in ed_lines.iter().enumerate() {
+        let mut row = ed_line.clone();
+        if r == c_row && cursor_mode == CursorMode::Software {
+            crate::ui::interactive::apply_software_cursor(&mut row, c_col);
+        }
+        lines.push(row);
+    }
+    let cursor_row = ed_start + c_row.min(ed_lines.len().saturating_sub(1));
 
     if let Some(popup) = state.autocomplete_popup.as_ref() {
         for (idx, cand) in popup.candidates.iter().take(5).enumerate() {
@@ -650,16 +668,16 @@ fn paint_live_region(
             stdout.write_all(b"\r\n")?;
         }
     }
+    let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor_row);
+    if rows_up > 0 {
+        write!(stdout, "\x1b[{rows_up}A")?;
+    }
+    if cursor_col > 0 {
+        write!(stdout, "\r\x1b[{cursor_col}C")?;
+    } else {
+        stdout.write_all(b"\r")?;
+    }
     if cursor_mode == CursorMode::Hardware && active_editor {
-        let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor_row);
-        if rows_up > 0 {
-            write!(stdout, "\x1b[{rows_up}A")?;
-        }
-        if cursor_col > 0 {
-            write!(stdout, "\r\x1b[{cursor_col}C")?;
-        } else {
-            stdout.write_all(b"\r")?;
-        }
         stdout.write_all(b"\x1b[?25h")?;
     } else {
         stdout.write_all(b"\x1b[?25l")?;
@@ -955,6 +973,9 @@ async fn handle_key_cycle(
 
     if !state.editor.handle_key(key) {
         let prompt = state.editor.text().to_string();
+        if prompt.trim().is_empty() {
+            return Ok(false);
+        }
         state.editor.clear();
         return handle_submission(state, engine, prompt, ui_events, events).await;
     }
@@ -1042,9 +1063,14 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
                 };
 
                 match event {
-                    Event::Resize(_, _) => {
-                        let width = crate::ui::terminal_width() as usize;
+                    Event::Resize(w, _) => {
+                        let width = (w as usize).max(1);
                         state.session.renderer.set_width(width);
+                        let mut stdout = std::io::stdout();
+                        let _ = stdout.write_all(b"\r\x1b[J");
+                        let _ = stdout.flush();
+                        state.prev_lines_count = 0;
+                        state.prev_cursor_row = 0;
                         let footer = make_footer_info(
                             &state.session.config.model,
                             &state.session.config.provider,
@@ -1412,6 +1438,24 @@ fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut T
     }
 }
 
+fn handle_turn_resize(
+    width: usize,
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    stream: &TurnStreamState,
+    tracker: &mut OutputTracker,
+) -> Result<()> {
+    state.session.renderer.set_width(width);
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(b"\r\x1b[J");
+    let _ = stdout.flush();
+    state.prev_lines_count = 0;
+    state.prev_cursor_row = 0;
+    let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+    refresh_display(state, footer, Some(activity_meta), None, tracker)?;
+    Ok(())
+}
+
 async fn execute_agent_turn(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
@@ -1467,23 +1511,29 @@ async fn execute_agent_turn(
                 flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut stream.scrollback, &mut tracker)?;
             }
             maybe_key = events.next() => {
-                if let Some(Ok(Event::Key(key))) = maybe_key {
-                    let cancelled = handle_turn_key_input(
-                        key,
-                        state,
-                        &steering,
-                        &cancellation,
-                        &mut stream.responder,
-                        &mut stream.scrollback,
-                    );
-                    if cancelled {
-                        let _ = engine.record_cancellation("operator interrupt").await;
-                        refresh_display(state, &footer, None, Some(&stream.scrollback), &mut tracker)?;
-                        stream.scrollback.clear();
-                        break;
+                match maybe_key {
+                    Some(Ok(Event::Resize(w, _))) => {
+                        handle_turn_resize((w as usize).max(1), state, &footer, &stream, &mut tracker)?;
                     }
-                    let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                    refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
+                    Some(Ok(Event::Key(key))) => {
+                        let cancelled = handle_turn_key_input(
+                            key,
+                            state,
+                            &steering,
+                            &cancellation,
+                            &mut stream.responder,
+                            &mut stream.scrollback,
+                        );
+                        if cancelled {
+                            let _ = engine.record_cancellation("operator interrupt").await;
+                            refresh_display(state, &footer, None, Some(&stream.scrollback), &mut tracker)?;
+                            stream.scrollback.clear();
+                            break;
+                        }
+                        let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+                        refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
+                    }
+                    _ => {}
                 }
             }
         }
