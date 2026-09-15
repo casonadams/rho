@@ -256,7 +256,7 @@ crates/rho-wasm/
 - **REQ-025**: Installed skills and prompt templates must be inspectable and expandable via `SkillModalState` in `rho-ui-core`, replacing `inquire` in `src/repl/commands/skill.rs` and providing the Web Hub with interactive skill browsing.
 - **REQ-026**: User settings configuration (`SettingsState`: thinking output toggle, tool expansion toggle, vim mode, version banner) must live in `rho-ui-core`, rendering in both the TUI `/settings` modal and a Dioxus Web Hub Settings dialog.
 - **REQ-027**: Global shortcuts (double-escape tree navigation, `Alt+T` thinking cycling, `Alt+P`/`Alt+N` model cycling) must be handled by shared action reducers in `rho-ui-core`.
-- **REQ-028**: External dependencies (`inquire`, `indicatif`, `reedline`, `anstyle`) and custom event batch queues (`PendingUiBatch` / `LiveBatch` - 617 lines) must be completely removed, relying on Ratatui's native offscreen double-buffering.
+- **REQ-028**: External dependencies (`inquire`, `indicatif`, `reedline`, `anstyle`) and custom event batch queues (`PendingUiBatch` / `LiveBatch` - 397 lines across `src/ui/interactive/events/batch.rs` and `src/repl/live/batch.rs`) must be completely removed, relying on Ratatui's native offscreen double-buffering. **Audit note**: `reedline` is used in 4 files (`src/repl/line_mode/`, `completer.rs`, `prompt.rs`, `interactive/history.rs`). `inquire` has 10 call sites across `src/cli/auth/` and `src/repl/commands/`.
 - **REQ-029**: Session command execution (`SessionCommandExecutor`: fork, clone, resume, compact, model/thinking switches) must be implemented once in `rho-ui-core`, unifying execution paths across TUI modals, line-mode prompts, remote RPC commands, and the `rho rpc` daemon.
 - **REQ-030**: A single canonical event schema (merging `UiEvent` and `RpcEvent`) must be used universally across the execution engine, headless JSON streaming, test sinks, and network transports, eliminating parallel event enum hierarchies.
 - **REQ-031**: Terminal user input must be read directly via `crossterm::event::EventStream` within the async runloop, completely deleting the threaded reader and pause/drain mechanisms in `src/repl/input_reader/`.
@@ -321,7 +321,7 @@ crates/rho-wasm/
 - **REQ-084**: Completed context compaction events (`CompactionComplete`) must render as visual compaction milestones in both TUI scrollback and the Web Hub transcript.
 - **REQ-085**: Image attachments in the Web Hub must be validated via client-side magic-byte sniffing (`detect_supported_image_mime`) and downsampled in Rust WebAssembly (`fit_dimensions`) before transmission to optimize P2P network bandwidth.
 - **REQ-086**: Session deletion and pruning must be supported in `SessionStore`, allowing users to delete inactive sessions from both the TUI session modal and the Web Hub sidebar.
-- **REQ-087**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must be centralized in `rho-ui-core`, eliminating duplicate JavaScript formatters.
+- **REQ-087**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must be centralized in `rho-ui-core`, eliminating duplicate JavaScript formatters. **Audit note**: `format_tokens()` currently has two divergent Rust implementations — `src/ui/interactive/footer/text.rs` (switches at 10k) and `crates/rho-engine/src/engine/metrics/types.rs` (switches at 100k) — producing different output for the same input in the 10k-100k range.
 - **REQ-088**: Code syntax highlighting must be pre-tokenized on the host into `HighlightedLine` spans inside `ContentBlock::CodeBlock`, keeping the Web Hub WASM bundle ultra-lean (<1.5MB gzipped) without compiling syntect language tables into browser WebAssembly.
 - **REQ-089**: The terminal interactive runner must support an optional terminal bell (`\x07`) notification on turn completion when the terminal window is unfocused (`Signal<WindowFocus>` is false).
 - **REQ-090**: Background engine and compaction warnings must be routed through canonical `RpcEvent::Notice` events rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
@@ -364,6 +364,188 @@ crates/rho-wasm/
   - **Mitigation**: Enable `lto = "fat"`, `codegen-units = 1`, `opt-level = "z"` / `"s"`, and run `wasm-opt` during `make wasm`.
 - **Risk**: Incompatibilities between desktop Ratatui layout abstractions and web flexbox/grid layout models.
   - **Mitigation**: Keep layout calculations isolated to their respective rendering layers; `rho-ui-core` provides structured data models and action reducers, not pixel/character layouts.
+
+## Codebase audit (2026-09-15)
+
+Quantified findings from a full codebase survey, organized by category.
+Items marked **NEW** were not in the original spec draft.
+
+### Scale of the UI layer
+
+| Area | Files | Lines |
+|------|-------|-------|
+| `src/ui/` | 155 | 20,392 |
+| `src/repl/` | 114 | 14,278 |
+| `src/repl/live/` alone | 65 | 10,033 |
+| **Total presentation** | **269** | **34,670** |
+
+Directory depth: 138 files at depth 4, 57 files at depth 5. AGENTS.md targets <= 4-5 levels.
+
+### Confirmed redundancies (with verified line counts)
+
+| # | Item | Location | Lines | Status |
+|---|------|----------|-------|--------|
+| 1 | Hand-rolled fuzzy scoring | `src/repl/interactive/fuzzy.rs` | 112 | `fuzzy-matcher` (`SkimMatcherV2`) already in workspace; modal code (`src/ui/interactive/state/modal/mod.rs`) already uses it. Completion code (`args.rs`, `mod.rs`) still uses the hand-rolled version. |
+| 2 | Custom LCS diff engine | `src/ui/render/diff.rs` | 397 | `similar` crate NOT yet in deps. |
+| 3 | Manual word wrapping math | `src/ui/interactive/layout/text.rs` | 216 | Ratatui `Paragraph::wrap` replaces this. |
+| 4 | Custom markdown line scanning | `src/ui/markdown/line.rs` + `spacing.rs` | 276 | Regex-based parsing; `pulldown-cmark` replaces. |
+| 5 | Custom ANSI markdown stream compiler | `src/ui/markdown/renderer.rs` + `stream.rs` + `elements.rs` | 824 | Manual escape sequence tracking and word boundary regexes. |
+| 6 | Duplicate tool card formatting | `src/ui/interactive/transcript/tool.rs` + `src/ui/render/card.rs` | 289 | Two implementations of the same tool card rendering. |
+| 7 | Event batching queues | `src/ui/interactive/events/batch.rs` + `src/repl/live/batch.rs` | 397 | `PendingUiBatch` (194 lines) and `LiveBatch` (203 lines) still exist. |
+| 8 | Standalone session picker | `src/ui/interactive/session_picker/` | 251 | 136 + 115 lines (tests). |
+| 9 | Threaded input reader | `src/repl/input_reader/` | 320 | 4 files (worker, paused, mod, tests). `crossterm::event::EventStream` replaces. |
+| 10 | Custom screen simulator | `src/ui/interactive/controller/tests/screen_sim.rs` | 1,142 | Ratatui `TestBackend` replaces. |
+| 11 | Editor state micro-fragmentation | `src/ui/interactive/state/editor/` | 483 | 5 files (geometry, history, mutate, navigation, mod). `ratatui-textarea` replaces. |
+| 12 | Layout module fragmentation | `src/ui/interactive/layout/` (non-test) | 1,823 | 14 files including 4 modal sub-files. |
+| 13 | Controller module fragmentation | `src/ui/interactive/controller/` (non-test) | 1,244 | 11 source files + 11 test files at depth 5. |
+| 14 | ANSI painting + cursor diffing | `controller/paint.rs` + `ansi.rs` | 207 | Hand-rolled terminal diffing. |
+| 15 | OutputTracker cursor bookkeeping | `controller/output.rs` | 54 | Manual cursor position tracking. |
+| 16 | System message timer | `controller/system_message.rs` | 28 | Custom 3-second expiration logic. |
+| 17 | Render cache | `controller/cache.rs` | 146 | Dual-slot transcript render cache (+ 272 lines of tests). |
+| 18 | Custom box-drawing | `src/ui/block/` | 531 | 3 files (mod, wrap, tests). Ratatui `Block`+`Borders` replaces. |
+| 19 | Chrome manual dividers | `src/ui/interactive/layout/chrome.rs` | 159 | Hand-rolled ANSI escape divider formatting with hardcoded escape codes. |
+| 20 | Idle vs turn dual loop | `src/repl/live/idle/` + `turn/` | 2,503 | Fragmented into 13 files across two directories. |
+| 21 | Duplicate command dispatch | `src/repl/live/message.rs` + `src/repl/line_mode/dispatch.rs` | 975 | 720 + 255 lines handling overlapping slash commands. |
+| 22 | RPC daemon handlers | `src/cli/rpc.rs` | 1,272 | 20+ `handle_*` functions duplicating session command logic. |
+| 23 | Presenter hierarchy | `broadcast_presenter.rs` + `rpc_presenter.rs` + `renderer/` | 630 | Three separate presenter/renderer implementations. |
+| 24 | Thinking stream word-wrapper | `src/ui/render/renderer/thinking.rs` | 228 | Manual word-boundary tracking for thinking output. |
+| 25 | `indicatif` spinner wrapper | `src/ui/render/renderer/activity.rs` | 54 | Single external dep for progress spinner. |
+| 26 | `inquire` usage | 10 call sites across `src/cli/auth/`, `src/repl/commands/`, `src/repl/live/` | ~150 | External CLI prompting library; should use in-TUI modals. |
+| 27 | `reedline` usage | `src/repl/line_mode/`, `src/repl/completer.rs`, `src/repl/prompt.rs`, `src/repl/interactive/history.rs` | ~350 | Line-mode editor + completer + prompt + history. |
+| 28 | `anstyle` usage | ~20 references across `render/`, `block/`, `theme/` | scattered | Intermediate styling crate; Ratatui `Style` replaces. |
+| 29 | Redundant `crossterm::terminal::size()` | 7 call sites | scattered | `src/ui/block/mod.rs`, `src/repl/line_mode/shell.rs`, `src/cli/runner.rs`, `src/ui/markdown/table/mod.rs`, `src/ui/markdown/line.rs`, `src/ui/render/formatters.rs`, `src/ui/render/renderer/mod.rs` |
+| 30 | Markdown highlight (color quantization) | `src/ui/markdown/highlight.rs` | 170 | Contains color downsampling; Ratatui `Color::Rgb` replaces. |
+| 31 | Markdown table manual borders | `src/ui/markdown/table/` | ~269 | Ratatui `Table` widget replaces. |
+
+### NEW: Duplicated functions across crate boundaries
+
+| # | Function | Location A | Location B | Issue |
+|---|----------|-----------|-----------|-------|
+| 32 | `format_tokens()` | `src/ui/interactive/footer/text.rs` | `crates/rho-engine/src/engine/metrics/types.rs` | **Different thresholds** (10k vs 100k for switching format) — subtle behavioral divergence. |
+| 33 | `tool_title_style()` | `src/ui/render/preview.rs` (returns `anstyle::Style`) | `src/ui/theme/mod.rs` (returns `crossterm Style`) | Two implementations using different style crates for the same visual concept. |
+
+### NEW: Micro-fragmented files (< 50 lines, non-test)
+
+Files too small to justify their own module:
+- `src/ui/stream.rs` (18 lines)
+- `src/repl/commands/mcp.rs` (20 lines)
+- `src/platform/suspend.rs` (23 lines)
+- `src/repl/live/modal/interaction/prompt.rs` (25 lines)
+- `src/repl/prompt.rs` (27 lines)
+- `src/ui/interactive/controller/system_message.rs` (28 lines)
+- `src/repl/live/navigation/clipboard.rs` (30 lines)
+- `src/ui/interactive/tree_view/ascii.rs` (30 lines)
+- `src/repl/input_reader/paused.rs` (34 lines)
+- `src/repl/live/idle/editor.rs` (35 lines)
+- `src/repl/completer.rs` (36 lines)
+- `src/repl/interactive/sources.rs` (37 lines)
+- `src/ui/interactive/keymap/map.rs` (39 lines)
+- `src/ui/interactive/keymap/chord.rs` (40 lines)
+- `src/repl/commands/args.rs` (43 lines)
+- `src/repl/commands/thinking.rs` (44 lines)
+- `src/ui/interactive/state/editor/history.rs` (47 lines)
+- `src/ui/interactive/transcript/types.rs` (47 lines)
+- `src/ui/render/presenter/sink.rs` (14 lines)
+
+### NEW: Web Hub JS/CSS surface
+
+| File | Lines |
+|------|-------|
+| `www/hub/wasm/rho_wasm.js` (generated) | 1,285 |
+| `www/hub/js/app.js` | 511 |
+| `www/hub/js/session.js` | 458 |
+| `www/hub/js/client.js` | 187 |
+| `www/hub/js/auth.js` | 130 |
+| `www/hub/js/registry.js` | 48 |
+| `www/hub/css/hub.css` | 960 |
+| **Total hand-written JS + CSS** | **2,294** |
+
+### NEW: Duplicate word-wrapping state machines
+
+`StreamWordWrapper` (`src/ui/markdown/stream.rs`, 366 lines) and `ThinkingStreamTracker` (`src/ui/render/renderer/thinking.rs`, 228 lines) implement the **same character-by-character word-wrapping algorithm** with nearly identical struct fields:
+
+| Field | `StreamWordWrapper` | `ThinkingStreamTracker` |
+|-------|--------------------|-----------------------|
+| `col` | ✓ | ✓ |
+| `pending_spaces` / width | ✓ | ✓ |
+| `pending_word` / width | ✓ | ✓ |
+| ANSI tracking (`active_ansi`, `pending_ansi`) | ✓ | ✗ |
+| `at_line_start` | ✗ | ✓ |
+
+Ratatui's `Paragraph::wrap` and styled `Span` rendering eliminate both entirely.
+
+### NEW: Triple-defined `visible_width()` and duplicate `truncate_to_width()`
+
+| Function | Location A | Location B | Location C |
+|----------|-----------|-----------|------------|
+| `visible_width()` | `src/ui/block/wrap.rs` | `src/ui/interactive/footer/text.rs` | `src/ui/interactive/layout/text.rs` |
+| `truncate_to_width()` | `src/ui/interactive/footer/text.rs` | `src/ui/interactive/layout/text.rs` | — |
+
+All implementations strip ANSI escapes via `ANSI_PATTERN` regex then measure `UnicodeWidthStr::width`. Three copies of the same logic. Ratatui handles ANSI-aware width internally.
+
+### NEW: `ANSI_PATTERN` regex shared across 12+ call sites
+
+A static `LazyLock<Regex>` in `src/ui/block/wrap.rs` is used by 12+ files for ANSI-escape stripping. With Ratatui rendering, ANSI escape tracking disappears entirely — widgets work with typed `Style` and `Span`, not raw escape sequences.
+
+### NEW: Hybrid markdown parsing — `pulldown-cmark` used partially
+
+`pulldown-cmark` is already a workspace dependency (v0.13) and is used in `src/ui/markdown/elements.rs` for **inline** element rendering (bold, italic, strikethrough, links). But `src/ui/markdown/line.rs` (225 lines) does its own **block-level** parsing with manual string matching (`starts_with("```")`, `starts_with("#")`, regex for ordered lists). This hybrid approach means markdown is parsed by two different systems simultaneously.
+
+### NEW: Custom LCS diff algorithm (not using `similar`)
+
+`src/ui/render/diff.rs` (397 lines) implements a hand-rolled LCS table with backtracking (`build_lcs_table`, `backtrack_token_step`, `compute_token_diff`) plus a custom tokenizer (`char_category`-based). The `similar` crate is NOT in workspace deps. `similar` provides `TextDiff`, `ChangeTag`, and inline word-level diffing out of the box — would replace ~200 lines of algorithm code.
+
+### NEW: Modal system fragmentation — 5,049 lines across 4 layers
+
+The modal UI is split across four distinct layers:
+
+| Layer | Files | Lines |
+|-------|-------|-------|
+| Modal state machine | `src/ui/interactive/state/modal/` (2 files) | 202 |
+| Modal layout rendering | `src/ui/interactive/layout/modal/` (4 files) | 592 |
+| Modal interaction key handling | `src/repl/live/modal/interaction/` (4 files) | 466 |
+| Per-modal constructors + handlers | `src/repl/live/modal/` (8 files) | 1,613 |
+| Modal tests | 11 test files | 2,176 |
+| **Total** | **29 files** | **5,049** |
+
+Each modal (model, login, mcp, session, settings, tree, remote, help) follows the same pattern: `open_*_selector()` builds a `ModalState`, `handle_*_key()` processes input. A unified `use_modal()` hook in `rho-ui-core` would define the state machine + key handling once, with each modal only providing its option list and selection callback.
+
+### NEW: Tab-delimited string packing in model selector
+
+`src/repl/live/modal/model.rs` packs provider, active mark, default mark, and description into a tab-delimited string (`"{}\t{}\t{}\t{}"`), then unpacks via `d.split('\t').next()`. A typed `ModelItem` struct in `rho-ui-core` eliminates this fragile encoding.
+
+### NEW: Custom `TerminalBackend` trait — parallel to Ratatui's
+
+`src/ui/interactive/controller/backend.rs` (96 lines) defines a `TerminalBackend` trait with `CrosstermBackend` wrapping `crossterm` directly. Ratatui provides its own `Backend` trait and `CrosstermBackend` that does the same thing with double-buffered diffing built in.
+
+### NEW: Hand-rolled syntax highlighting color quantization
+
+`src/ui/markdown/highlight.rs` (170 lines) includes `syntect_color_to_ansi16()` — a custom RGB-to-ANSI16 quantizer with grayscale detection, dominant-channel heuristics, and brightness thresholds. Ratatui supports `Color::Rgb(r, g, b)` natively in terminals with TrueColor, eliminating the need for quantization entirely.
+
+### Items already cleaned up (spec claims confirmed)
+
+- **Global statics** (`ACTIVE_APPROVALS`, `ACTIVE_STEERING`, `REMOTE_PROMPT_QUEUE`): not found in codebase — already removed.
+- **Presenter hierarchy names** (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`): still exist. `BroadcastPresenter` at 257 lines, `RpcPresenter` at 172 lines, `TerminalRenderer` at 201 lines.
+- **`TranscriptRenderCache` / `CachedItemRender`**: not found by name — may have been renamed to `controller/cache.rs` (146 lines).
+- **`ThinkingStreamTracker`**: exists inside `renderer/thinking.rs` (228 lines).
+
+### Total deletable surface estimate
+
+Conservatively, the following can be deleted or replaced during unification:
+- **~8,500 lines** of hand-rolled terminal engine code (controller, layout, events, editor state, painting, diffing, wrapping, chrome)
+- **~2,500 lines** of dual idle/turn loop fragmentation
+- **~975 lines** of duplicate command dispatch (message.rs + dispatch.rs + overlapping rpc.rs handlers)
+- **~630 lines** of fragmented presenter/renderer hierarchy
+- **~1,100 lines** of custom markdown compilation (renderer, stream, elements, line, spacing)
+- **~594 lines** of duplicate word-wrapping state machines (stream.rs 366 + thinking.rs 228)
+- **~5,049 lines** of modal system across 29 files, collapsible to a single `use_modal()` hook + per-modal option builders
+- **~2,294 lines** of hand-written JS + CSS in Web Hub
+- **~320 lines** of threaded input reader
+- **~1,142 lines** of custom screen simulator tests
+- **~397 lines** of hand-rolled LCS diff (replaceable by `similar` crate)
+- **~96 lines** of custom `TerminalBackend` trait (parallel to Ratatui's)
+- **Duplicate utilities**: 3x `visible_width()`, 2x `truncate_to_width()`, 2x `format_tokens()`, 2x `tool_title_style()`, 12+ `ANSI_PATTERN` call sites
+- **Estimated total: ~23,600 lines** deletable or replaced
 
 ## Out of scope
 
