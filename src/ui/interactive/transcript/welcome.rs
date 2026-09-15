@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use super::types::WelcomeItem;
 
-fn append_welcome_section(out: &mut String, title: &str, items: &[String], width: usize, dim: anstyle::Style) {
+fn append_welcome_section(out: &mut String, title: &str, items: &[String], width: usize, dim: crate::ui::theme::Style) {
     if items.is_empty() {
         return;
     }

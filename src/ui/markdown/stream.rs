@@ -13,7 +13,7 @@ pub struct ChunkWordWrapper {
     pending_ansi: String,
     indent_lines: bool,
     at_line_start: bool,
-    style: Option<anstyle::Style>,
+    style: Option<crate::ui::theme::Style>,
 }
 
 impl Default for ChunkWordWrapper {
@@ -61,7 +61,7 @@ impl ChunkWordWrapper {
         self.max_width = width;
     }
 
-    pub fn set_style(&mut self, style: Option<anstyle::Style>) {
+    pub fn set_style(&mut self, style: Option<crate::ui::theme::Style>) {
         self.style = style;
     }
 
@@ -278,22 +278,22 @@ impl InlineStreamTracker {
             self.pending_star = false;
         }
         if self.in_bold {
-            out.push_str(&anstyle::Style::new().bold().render_reset().to_string());
+            out.push_str(&crate::ui::theme::Style::new().bold().render_reset().to_string());
             self.in_bold = false;
         }
         if self.in_italic {
-            out.push_str(&anstyle::Style::new().italic().render_reset().to_string());
+            out.push_str(&crate::ui::theme::Style::new().italic().render_reset().to_string());
             self.in_italic = false;
         }
         if self.in_code {
-            out.push_str(&anstyle::Style::new().render_reset().to_string());
+            out.push_str(&crate::ui::theme::Style::new().render_reset().to_string());
             self.in_code = false;
         }
         out
     }
 
     fn toggle_bold(&mut self, out: &mut String) {
-        let bold_style = anstyle::Style::new().bold();
+        let bold_style = crate::ui::theme::Style::new().bold();
         if self.in_bold {
             out.push_str(&bold_style.render_reset().to_string());
             self.in_bold = false;
@@ -304,7 +304,7 @@ impl InlineStreamTracker {
     }
 
     fn toggle_italic(&mut self, out: &mut String) {
-        let italic_style = anstyle::Style::new().italic();
+        let italic_style = crate::ui::theme::Style::new().italic();
         if self.in_italic {
             out.push_str(&italic_style.render_reset().to_string());
             self.in_italic = false;

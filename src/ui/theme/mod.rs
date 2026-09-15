@@ -5,14 +5,14 @@
 //! startup only) queries the terminal's foreground/background via OSC 10/11
 //! and computes a block fill blended from those reported colors.
 
+pub mod style;
 pub mod terminal;
 
 #[cfg(test)]
 mod tests;
 
+pub use style::{AnsiColor, AnsiDisplay, AnsiReset, Color, RgbColor, Style};
 pub use terminal::{detect, detect_with_config};
-
-use anstyle::{AnsiColor, Color, RgbColor, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BlockStyle {

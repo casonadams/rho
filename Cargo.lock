@@ -5057,7 +5057,6 @@ dependencies = [
 name = "rho"
 version = "0.7.5"
 dependencies = [
- "anstyle",
  "anyhow",
  "arboard",
  "async-trait",

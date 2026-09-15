@@ -32,7 +32,7 @@ fn locate_match_line(content: &str, target: &str) -> Option<usize> {
     None
 }
 
-pub fn format_gutter_prefix(line_num: usize, gutter_width: usize, dim: anstyle::Style) -> String {
+pub fn format_gutter_prefix(line_num: usize, gutter_width: usize, dim: crate::ui::theme::Style) -> String {
     format!("{dim}{line_num:>gutter_width$} │ {dim:#}")
 }
 
@@ -95,7 +95,7 @@ pub struct EntryDiffInput<'a> {
     pub start_line: Option<usize>,
 }
 
-fn push_edit_header(out: &mut String, idx: usize, start_line: Option<usize>, dim: anstyle::Style) {
+fn push_edit_header(out: &mut String, idx: usize, start_line: Option<usize>, dim: crate::ui::theme::Style) {
     if idx == 0 {
         return;
     }

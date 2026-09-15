@@ -42,7 +42,7 @@ pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
     kind_from_url(&url)
 }
 
-pub fn format_bash_args_header(summary: &str, accent: anstyle::Style, dim: anstyle::Style) -> String {
+pub fn format_bash_args_header(summary: &str, accent: crate::ui::theme::Style, dim: crate::ui::theme::Style) -> String {
     if let Some(idx) = summary.rfind(" (timeout ")
         && summary.ends_with(')')
     {

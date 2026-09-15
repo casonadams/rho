@@ -4,7 +4,7 @@ pub(crate) mod wrap;
 
 pub use wrap::{ANSI_PATTERN, truncate_to_width, visible_width};
 
-use anstyle::Style;
+use crate::ui::theme::Style;
 use wrap::{wrap_plain_text, wrap_styled_line};
 
 const HORIZONTAL_PADDING: usize = 1;

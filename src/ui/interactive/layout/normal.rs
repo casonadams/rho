@@ -201,7 +201,7 @@ fn push_pre_editor_lines(
 fn push_footer_lines(
     lines: &mut Vec<String>,
     (ft_lines, budget_count): (&[String], usize),
-    (style, width): (anstyle::Style, usize),
+    (style, width): (crate::ui::theme::Style, usize),
 ) -> Vec<String> {
     let visible = ft_lines[..ft_lines.len().min(budget_count)].to_vec();
     for fl in &visible {

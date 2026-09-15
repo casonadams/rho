@@ -30,7 +30,7 @@ fn slice_tail_lines(raw: &str, limit: usize) -> (&str, usize) {
     }
 }
 
-fn format_collapsed_output(raw_output: &str, width: usize, dim: anstyle::Style) -> String {
+fn format_collapsed_output(raw_output: &str, width: usize, dim: crate::ui::theme::Style) -> String {
     const PRE_SLICE_LINE_LIMIT: usize = 50;
     let (tail_text, earlier_skipped) = slice_tail_lines(raw_output, PRE_SLICE_LINE_LIMIT);
     let truncated = truncate_to_visual_lines(tail_text, 5, width.saturating_sub(4).max(1));
@@ -43,7 +43,13 @@ fn format_collapsed_output(raw_output: &str, width: usize, dim: anstyle::Style) 
     out
 }
 
-fn append_tool_output(content: &mut String, raw_output: &str, expanded: bool, width: usize, dim: anstyle::Style) {
+fn append_tool_output(
+    content: &mut String,
+    raw_output: &str,
+    expanded: bool,
+    width: usize,
+    dim: crate::ui::theme::Style,
+) {
     if raw_output.is_empty() {
         return;
     }

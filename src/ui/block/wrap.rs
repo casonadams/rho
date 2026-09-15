@@ -1,4 +1,4 @@
-use anstyle::Style;
+use crate::ui::theme::Style;
 use regex::Regex;
 use std::sync::LazyLock;
 use unicode_width::UnicodeWidthChar;

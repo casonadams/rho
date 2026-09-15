@@ -153,7 +153,7 @@ fn test_format_edit_diff_locates_line_from_file_on_disk() {
 
 #[test]
 fn test_format_gutter_prefix_formats_aligned_and_dimmed() {
-    let dim = anstyle::Style::new().dimmed();
+    let dim = crate::ui::theme::Style::new().dimmed();
     let prefix = format_gutter_prefix(1, 3, dim);
     assert_eq!(prefix, format!("{dim}  1 │ {dim:#}"));
 

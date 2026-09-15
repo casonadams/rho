@@ -363,7 +363,9 @@ mod redraw {
             .unwrap();
 
         let custom = crate::ui::theme::Theme {
-            tool_ok: anstyle::Style::new().fg_color(Some(anstyle::Color::Rgb(anstyle::RgbColor(0x88, 0xc0, 0xd0)))),
+            tool_ok: crate::ui::theme::Style::new().fg_color(Some(crate::ui::theme::Color::Rgb(
+                crate::ui::theme::RgbColor(0x88, 0xc0, 0xd0),
+            ))),
             ..crate::ui::theme::Theme::default()
         };
 

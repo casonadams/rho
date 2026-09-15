@@ -7,8 +7,7 @@
 //! Falls back to the default theme's ANSI black fill and SGR 2 dim when the
 //! terminal is not a TTY or does not answer.
 
-use super::Theme;
-use anstyle::Style;
+use super::{AnsiColor, Color, RgbColor, Style, Theme};
 use std::io::IsTerminal;
 use terminal_colorsaurus::{QueryOptions, color_palette};
 
@@ -33,12 +32,12 @@ pub fn detect() -> Theme {
         return Theme::default();
     };
     let is_light = palette.theme_mode() == terminal_colorsaurus::ThemeMode::Light;
-    let fg = anstyle::RgbColor(
+    let fg = RgbColor(
         (palette.foreground.r >> 8) as u8,
         (palette.foreground.g >> 8) as u8,
         (palette.foreground.b >> 8) as u8,
     );
-    let bg = anstyle::RgbColor(
+    let bg = RgbColor(
         (palette.background.r >> 8) as u8,
         (palette.background.g >> 8) as u8,
         (palette.background.b >> 8) as u8,
@@ -70,13 +69,13 @@ pub fn detect_with_config(ui: &rho_harness_core::config::UiConfig) -> Theme {
 /// terminal multiplexers replace with their own tracked state.
 pub(crate) fn theme_from_colorfbg(value: &str) -> Option<Theme> {
     let bg = value.rsplit(';').next()?.trim().parse::<u8>().ok()?;
-    let dim = Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::BrightBlack)));
+    let dim = Style::new().fg_color(Some(Color::Ansi(AnsiColor::BrightBlack)));
     Some(Theme {
         is_light: bg >= 7,
         dimmed: dim,
         thinking: dim,
         heading_h3: dim,
-        block_fill: Style::new().bg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black))),
+        block_fill: Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black))),
         agent_border: dim,
         tool_border: dim,
         bash_success_border: dim,
@@ -88,41 +87,40 @@ fn mix(a: u8, b: u8, percent: u32) -> u8 {
     (i32::from(a) + (i32::from(b) - i32::from(a)) * percent as i32 / 100) as u8
 }
 
-pub(crate) fn blend_fill(fg: anstyle::RgbColor, bg: anstyle::RgbColor) -> anstyle::Style {
-    let blended = anstyle::RgbColor(
+pub(crate) fn blend_fill(fg: RgbColor, bg: RgbColor) -> Style {
+    let blended = RgbColor(
         mix(bg.0, fg.0, FG_TINT_PERCENT),
         mix(bg.1, fg.1, FG_TINT_PERCENT),
         mix(bg.2, fg.2, FG_TINT_PERCENT),
     );
-    anstyle::Style::new().bg_color(Some(anstyle::Color::Rgb(blended)))
+    Style::new().bg_color(Some(Color::Rgb(blended)))
 }
 
 /// Secondary-text color: the foreground washed toward the background, so
 /// dimmed text is muted on dark palettes and lightened (never darkened) on
 /// light ones.
-pub(crate) fn dimmed_foreground(fg: anstyle::RgbColor, bg: anstyle::RgbColor, is_light: bool) -> anstyle::Style {
+pub(crate) fn dimmed_foreground(fg: RgbColor, bg: RgbColor, is_light: bool) -> Style {
     let tint = if is_light {
         DIM_TINT_PERCENT_LIGHT
     } else {
         DIM_TINT_PERCENT_DARK
     };
-    let dimmed = anstyle::RgbColor(mix(fg.0, bg.0, tint), mix(fg.1, bg.1, tint), mix(fg.2, bg.2, tint));
-    anstyle::Style::new().fg_color(Some(anstyle::Color::Rgb(dimmed)))
+    let dimmed = RgbColor(mix(fg.0, bg.0, tint), mix(fg.1, bg.1, tint), mix(fg.2, bg.2, tint));
+    Style::new().fg_color(Some(Color::Rgb(dimmed)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anstyle::{Color, RgbColor};
 
-    fn fill_rgb(style: anstyle::Style) -> RgbColor {
+    fn fill_rgb(style: Style) -> RgbColor {
         match style.get_bg_color() {
             Some(Color::Rgb(rgb)) => rgb,
             other => panic!("expected rgb background, got {other:?}"),
         }
     }
 
-    fn dim_rgb(style: anstyle::Style) -> RgbColor {
+    fn dim_rgb(style: Style) -> RgbColor {
         match style.get_fg_color() {
             Some(Color::Rgb(rgb)) => rgb,
             other => panic!("expected rgb foreground, got {other:?}"),

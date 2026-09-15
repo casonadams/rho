@@ -420,7 +420,9 @@ fn modal_hint_uses_native_sgr2_dim_style() {
 #[test]
 fn modal_hint_adopts_custom_theme_dimmed_color() {
     let theme = crate::ui::theme::Theme {
-        dimmed: anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Magenta))),
+        dimmed: crate::ui::theme::Style::new().fg_color(Some(crate::ui::theme::Color::Ansi(
+            crate::ui::theme::AnsiColor::Magenta,
+        ))),
         ..Default::default()
     };
     let magenta_dim = theme.dimmed.render().to_string();

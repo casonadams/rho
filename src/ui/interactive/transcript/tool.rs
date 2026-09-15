@@ -74,7 +74,7 @@ fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui
     }
 }
 
-fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
+fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: crate::ui::theme::Style) {
     content.push_str("\n\n");
     if expanded {
         content.push_str(clean);
@@ -91,7 +91,13 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
     }
 }
 
-fn append_generic_output(content: &mut String, tool: &ToolItem, width: usize, expanded: bool, dim: anstyle::Style) {
+fn append_generic_output(
+    content: &mut String,
+    tool: &ToolItem,
+    width: usize,
+    expanded: bool,
+    dim: crate::ui::theme::Style,
+) {
     let raw = if !tool.output.is_empty() {
         &tool.output
     } else {

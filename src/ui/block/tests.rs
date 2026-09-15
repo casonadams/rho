@@ -1,6 +1,6 @@
 use super::wrap::{sgr_resets_background, visible_width};
 use super::*;
-use anstyle::{AnsiColor, Color};
+use crate::ui::theme::{AnsiColor, Color};
 
 fn background() -> Style {
     Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black)))
