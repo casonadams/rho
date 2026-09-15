@@ -52,7 +52,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into a single event stream feeding `rho-ui-core`.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  7. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, and `screen_sim.rs`.
+  7. (Effort: 2) Delete obsolete ANSI diffing code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/interactive/layout/text.rs` (word wrapping math), and `screen_sim.rs`.
 - **Verification**:
   - `cargo test -p rho --lib ui::interactive`
 
@@ -92,7 +92,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, and session history.
   3. (Effort: 3) Implement tool permission approval screen with scrollable diff/command preview and embedded `ratatui-textarea` for command modification.
   4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
-  5. (Effort: 2) Build active tool card and streaming spinner widget.
+  5. (Effort: 2) Build active tool card and streaming spinner widget driven directly by `Signal<ActiveToolState>`, deleting bespoke channel polling in `src/repl/live/bash_runner/progress.rs`.
   6. (Effort: 2) Unit test modal and permission widget rendering across terminal dimensions using `TestBackend`.
   7. (Effort: 2) Delete legacy `src/ui/render/diff.rs` and `src/repl/interactive/fuzzy.rs`.
 - **Verification**:
@@ -114,7 +114,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed `RpcCommand` and `RpcEvent`.
   3. (Effort: 3) Build Fleet Overview view (node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
-  5. (Effort: 3) Build Modals, Session Sidebar, and Status Bar (session history, conversation branch tree, auth modal, provider credentials, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components.
+  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, auth modal, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components.
   6. (Effort: 2) Connect web storage persistence (saved nodes, tickets, active session ID) via browser `web-sys` hooks.
   7. (Effort: 2) Remove `www/hub/js/*.js` and update `Makefile` target `make wasm` with `wasm-opt` size optimization.
 - **Verification**:
