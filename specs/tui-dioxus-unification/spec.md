@@ -89,6 +89,9 @@ This separation causes significant friction:
 - Render context compaction milestones (`CompactionComplete`) as visual savings badges in both TUI scrollback and the Web Hub transcript.
 - Provide accessible modal dialogs with automatic ARIA focus trapping (`focus-trap`) and keyboard navigation in the Dioxus Web Hub.
 - Standardize tool output truncation presentation, allowing users to toggle expanded outputs (`Ctrl+O`) in the TUI or download full tool logs from `full_output_path` in the Web Hub.
+- Validate image attachments via shared magic-byte sniffing (`detect_supported_image_mime`) directly inside the Web Hub prior to P2P network upload.
+- Centralize numeric token count and byte size formatting (`format_tokens`, `format_size`) in `rho-ui-core`, eliminating duplicate JavaScript numeric formatters in `www/hub/js/app.js`.
+- Map container and card border preferences (`UiConfig::block_style`) directly to native Ratatui `BorderType` (Rounded, Plain, Double).
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -300,6 +303,8 @@ crates/rho-wasm/
 - **REQ-082**: Modal dialogs in the Dioxus Web Hub must enforce accessible ARIA attributes (`role="dialog"`, `aria-modal="true"`) and automatic keyboard focus trapping.
 - **REQ-083**: Tool outputs containing URLs (web search results, fetched links) must project as clickable hyperlinks in the Web Hub transcript.
 - **REQ-084**: Completed context compaction events (`CompactionComplete`) must render as visual compaction milestones in both TUI scrollback and the Web Hub transcript.
+- **REQ-085**: Image attachments in the Web Hub must be validated via client-side magic-byte sniffing (`detect_supported_image_mime`) in Rust WebAssembly before transmission.
+- **REQ-086**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must be centralized in `rho-ui-core`, eliminating duplicate JavaScript formatters.
 
 ## Invariants and security boundaries
 
