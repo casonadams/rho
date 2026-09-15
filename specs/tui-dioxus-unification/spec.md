@@ -25,6 +25,7 @@ This separation causes significant friction:
 ## Goals
 
 - Replace the custom ANSI terminal controller with standard Ratatui components using `Viewport::Inline` to maintain existing inline scrollback behavior.
+- Adopt `ratatui-textarea` for prompt input buffer management, replacing ~620 lines of hand-rolled editor geometry, undo history, and cursor math while enabling first-class Vim mode emulation.
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
   - Reactive signals (`Signal<T>`) for transcripts, prompt editor, modal stack, and active tool states.
@@ -60,6 +61,7 @@ This separation causes significant friction:
 - **Terminal UI (`src/ui/` & `src/repl/`)**:
   - Implemented with Ratatui using `ratatui::Viewport::Inline(height)`.
   - Driven by a headless Dioxus runtime loop that triggers Ratatui redraws whenever signals mutate or coroutines emit events.
+  - Prompt editing powered by `ratatui-textarea`, supporting standard input mode or modal Vim mode (Normal, Insert, Visual, Replace, motions, operators) toggled via settings.
   - Renders active turn progress, editor buffer, autocomplete popup, and modal overlays using standard Ratatui widgets reading from Dioxus signals.
   - Prints finalized turn outputs into stdout scrollback once completed, erasing the inline viewport and restoring normal terminal flow.
 - **Web Hub (`www/hub/` & `crates/rho-wasm`)**:
@@ -86,9 +88,11 @@ This separation causes significant friction:
 +-----------------------+             +-----------------------+
 |     Native TUI        |             |       Web Hub         |
 |  - ratatui            |             |  - dioxus             |
-|  - Viewport::Inline   |             |  - dioxus-components  |
-|  - Headless Runtime   |             |  - wasm32-unknown     |
-|  - stdout scrollback  |             |  - Iroh WebRTC / P2P  |
+|  - ratatui-textarea   |             |  - dioxus-components  |
+|    (Vim/Default mode) |             |  - wasm32-unknown     |
+|  - Viewport::Inline   |             |  - Iroh WebRTC / P2P  |
+|  - Headless Runtime   |             |                       |
+|  - stdout scrollback  |             |                       |
 +-----------------------+             +-----------------------+
 ```
 
@@ -102,22 +106,24 @@ This separation causes significant friction:
 
 ### Ratatui Terminal Interface
 - **REQ-005**: The terminal interactive runner must use Ratatui with `Viewport::Inline` to render the bottom interactive area (prompt editor, autocomplete menu, active tool progress, and modals).
-- **REQ-006**: The inline viewport height must dynamically resize based on active contents (input line count, open modal height, or autocomplete list) without overflowing terminal boundaries.
-- **REQ-007**: When an execution turn finishes, the completed turn content (user prompt, assistant response, and tool summaries) must be written directly to terminal scrollback, leaving the terminal ready for the next prompt.
-- **REQ-008**: Terminal keybinding semantics must remain identical: `Escape` cancels/dismisses, `Ctrl+C` clears input drafts, `Ctrl+D` exits when prompt is empty, and standard arrow/vi keys navigate modals.
-- **REQ-009**: Custom ANSI painting and cursor diffing logic in `src/ui/interactive/controller/paint.rs` and `ansi.rs` must be completely removed.
+- **REQ-006**: The prompt input buffer must be managed by `ratatui-textarea`, deprecating bespoke cursor, geometry, and kill-ring logic in `src/ui/interactive/state/editor/`.
+- **REQ-007**: The prompt editor must support a configurable Vim mode (Normal, Insert, Visual, Replace, motions `h`/`j`/`k`/`l`/`w`/`b`/`$`/`^`, operators `d`/`y`/`c`, undo/redo) following the `ratatui-textarea` transition state machine.
+- **REQ-008**: The inline viewport height must dynamically resize based on active contents (input line count, open modal height, or autocomplete list) without overflowing terminal boundaries.
+- **REQ-009**: When an execution turn finishes, the completed turn content (user prompt, assistant response, and tool summaries) must be written directly to terminal scrollback, leaving the terminal ready for the next prompt.
+- **REQ-010**: Terminal keybinding semantics must remain identical: `Escape` cancels/dismisses, `Ctrl+C` clears input drafts, `Ctrl+D` exits when prompt is empty, and standard arrow/vi keys navigate modals.
+- **REQ-011**: Custom ANSI painting and cursor diffing logic in `src/ui/interactive/controller/paint.rs` and `ansi.rs` must be completely removed.
 
 ### Dioxus Web Hub Interface
-- **REQ-010**: All JavaScript application logic in `www/hub/js/` must be replaced by a Dioxus application compiled to WebAssembly.
-- **REQ-011**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components.
-- **REQ-012**: Peer-to-peer connectivity via Iroh must remain direct in-browser, integrated into the Dioxus component lifecycle via asynchronous hooks/signals.
-- **REQ-013**: Local storage persistence (node tickets, saved sessions, sidebar toggle states) must be managed via web-sys wrappers within the Dioxus application.
-- **REQ-014**: The Web Hub build pipeline must integrate into `make wasm`, producing a production-ready WASM bundle and asset structure.
+- **REQ-012**: All JavaScript application logic in `www/hub/js/` must be replaced by a Dioxus application compiled to WebAssembly.
+- **REQ-013**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components.
+- **REQ-014**: Peer-to-peer connectivity via Iroh must remain direct in-browser, integrated into the Dioxus component lifecycle via asynchronous hooks/signals.
+- **REQ-015**: Local storage persistence (node tickets, saved sessions, sidebar toggle states) must be managed via web-sys wrappers within the Dioxus application.
+- **REQ-016**: The Web Hub build pipeline must integrate into `make wasm`, producing a production-ready WASM bundle and asset structure.
 
 ### UI Parity and Interaction
-- **REQ-015**: All modals (thinking selector, model picker, login provider, MCP servers, session list) must present the same options, indicators (active checkmarks), and search filtering in both interfaces.
-- **REQ-016**: Thinking blocks must stream in real time and support expandable/collapsible accordion display on both platforms.
-- **REQ-017**: Tool execution cards must visually represent status states (running, success, error) consistently across both TUI and Web Hub.
+- **REQ-017**: All modals (thinking selector, model picker, login provider, MCP servers, session list) must present the same options, indicators (active checkmarks), and search filtering in both interfaces.
+- **REQ-018**: Thinking blocks must stream in real time and support expandable/collapsible accordion display on both platforms.
+- **REQ-019**: Tool execution cards must visually represent status states (running, success, error) consistently across both TUI and Web Hub.
 
 ## Invariants and security boundaries
 
