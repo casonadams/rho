@@ -26,8 +26,9 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   5. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
   6. (Effort: 3) Implement `use_modal` state machine handling selection index, `fuzzy-matcher` scoring, active indicators, and pagination.
   7. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
-  8. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths using `fuzzy-matcher`.
-  9. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
+  8. (Effort: 2) Implement `CompletionEngine` for slash commands (`/`), skills, models, and file paths using `fuzzy-matcher`.
+  9. (Effort: 2) Implement `PromptHistory` state tracking (`previous`, `next`, draft preservation) shared between TUI and Web Hub.
+  10. (Effort: 2) Add table-driven unit tests for all state reducers and hooks.
 - **Verification**:
   - `cargo test -p rho-ui-core`
   - `cargo check -p rho-ui-core --target wasm32-unknown-unknown`
@@ -107,7 +108,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - `make wasm` produces an optimized release WASM bundle.
 - **Tasks**:
   1. (Effort: 2) Expand `crates/rho-wasm` to a Dioxus web target (`dioxus`, `dioxus-web`, and `dioxus-components`).
-  2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals.
+  2. (Effort: 3) Implement reactive Iroh client peer hook bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed `RpcCommand` and `RpcEvent`.
   3. (Effort: 3) Build Fleet Overview view (node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
   5. (Effort: 3) Build Modals and Session Sidebar (session history, auth modal, provider credentials) using Dioxus Components.
@@ -128,7 +129,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Documentation in `docs/` and `README.md` accurately describes the new architecture and Vim mode option.
 - **Tasks**:
   1. (Effort: 2) Audit keyboard navigation and visual parity between TUI and Web Hub across all modals.
-  2. (Effort: 2) Delete leftover deprecated structs, unused imports, and unneeded dependencies in `Cargo.toml`.
+  2. (Effort: 2) Remove obsolete dependencies (`inquire`, `indicatif`) from root `Cargo.toml`, and remove leftover deprecated structs and files.
   3. (Effort: 2) Update documentation: document Vim mode keybindings and Web Hub architecture.
   4. (Effort: 2) Run full workspace format check, clippy, and test suite.
 - **Verification**:
