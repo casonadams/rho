@@ -64,6 +64,8 @@ This separation causes significant friction:
 - Prune 20+ redundant low-level text editor keybinding definitions from `src/ui/interactive/keybinding_loader/`, delegating standard Emacs/Readline editing actions directly to `ratatui-textarea`.
 - Unify interactive tool execution and bash streaming directly through reactive tool state signals in `rho-ui-core`, eliminating custom channel polling loops in `src/repl/live/bash_runner/`.
 - Provide browser-native session exporting (Markdown/HTML download) in the Web Hub by reusing `rho_harness_core::session::export` in WASM.
+- Eliminate hardcoded string prefix checking for command arguments in `src/repl/interactive/completion/args.rs`, driving argument completions declaratively from `SlashCommandDef` argument types (`SlashArgumentType`) in `rho-ui-core`.
+- Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
   - Reactive signals (`Signal<T>`) for transcripts, prompt editor, modal stack, and active tool states.
@@ -201,7 +203,7 @@ crates/rho-wasm/
 - **REQ-015**: Session relative timestamps and status formatting must be implemented in `rho-ui-core`, ensuring consistent time representations across TUI and Web Hub session lists.
 - **REQ-016**: Session message hydration and execution lifecycle transitions (`Prompt` when idle, `Steer` when running, `Abort` on cancel) must be managed exclusively by `use_session` in `rho-ui-core`.
 - **REQ-017**: Iroh pairing ticket extraction and decoding must be standardized in `rho-ui-core`, eliminating duplicate regex parsing in JavaScript.
-- **REQ-018**: The slash command registry (`SlashCommandDef`) must be declared once in `rho-ui-core`, automatically generating command lists, autocomplete candidates, `/help` reference strings, and Web Hub command palettes.
+- **REQ-018**: The slash command registry (`SlashCommandDef`) must be declared once in `rho-ui-core` with typed argument definitions (`SlashArgumentType`), automatically generating command lists, argument autocomplete candidates, `/help` reference strings, and Web Hub command palettes without hardcoded string prefix matching.
 - **REQ-019**: Model discovery and metadata must use a strongly-typed `ModelItem` domain struct in `rho-ui-core`, eliminating tab-delimited string packing in `src/repl/live/modal/model.rs`.
 - **REQ-020**: MCP server configuration and toggle states must be managed by `McpModalState` in `rho-ui-core`, enabling the Web Hub to inspect and toggle MCP servers.
 - **REQ-021**: Installed skills and prompt templates must be inspectable and expandable via `SkillModalState` in `rho-ui-core`, replacing `inquire` in `src/repl/commands/skill.rs` and providing the Web Hub with interactive skill browsing.
@@ -234,7 +236,7 @@ crates/rho-wasm/
 
 ### Dioxus Web Hub Interface
 - **REQ-046**: All JavaScript application logic in `www/hub/js/` must be replaced by a Dioxus application compiled to WebAssembly.
-- **REQ-047**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components.
+- **REQ-047**: The Dioxus application must render the Fleet view, Active Node workspace, Session sidebar, Chat transcript, and Modals using Dioxus Components, deprecating manual custom CSS in `www/hub/css/hub.css`.
 - **REQ-048**: The Web Hub must support 1-click in-browser session exporting (Markdown and HTML file download) reusing `rho_harness_core::session::export`.
 - **REQ-049**: Peer-to-peer connectivity via Iroh must remain direct in-browser, integrated into the Dioxus component lifecycle via asynchronous hooks/signals.
 - **REQ-050**: Local storage persistence (node tickets, saved sessions, sidebar toggle states) must be managed via web-sys wrappers within the Dioxus application.
