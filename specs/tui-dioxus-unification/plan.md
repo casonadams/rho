@@ -48,11 +48,11 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Tasks**:
   1. (Effort: 2) Add `ratatui` (with `crossterm` feature) to workspace dependencies.
   2. (Effort: 3) Implement Ratatui `Terminal<CrosstermBackend>` initialization with `Viewport::Inline(height)` dynamically derived from active content.
-  3. (Effort: 3) Connect Dioxus headless reactive runtime to Ratatui draw loop, triggering frame renders upon signal mutations or terminal resize events.
+  3. (Effort: 3) Implement single unified async event loop in `src/ui/terminal.rs`, replacing the fragmented dual `idle_loop` and `turn_loop` machinery (~2,500 lines across `src/repl/live/idle/` and `turn/`).
   4. (Effort: 2) Implement scrollback turn completion writer that prints finalized user prompt and assistant output into stdout history, clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into a single event stream feeding `rho-ui-core`.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, markdown line regexes, session picker engine, and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/markdown/table/`, `src/ui/markdown/line.rs`, `src/ui/markdown/spacing.rs`, `src/ui/render/card.rs`, `src/ui/interactive/session_picker/`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), `src/repl/completer.rs`, `src/repl/prompt.rs`, and `screen_sim.rs`.
+  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, markdown line regexes, session picker engine, fragmented idle/turn loops, and batching code in `src/ui/interactive/controller/paint.rs`, `ansi.rs`, `src/ui/block/`, `src/ui/markdown/table/`, `src/ui/markdown/line.rs`, `src/ui/markdown/spacing.rs`, `src/ui/render/card.rs`, `src/ui/interactive/session_picker/`, `src/ui/interactive/layout/text.rs` (word wrapping math), `src/ui/interactive/events/batch.rs`, `src/repl/live/batch.rs` (`LiveBatch`), `src/repl/completer.rs`, `src/repl/prompt.rs`, and `screen_sim.rs`.
 - **Verification**:
   - `cargo test -p rho --lib ui::interactive`
 
