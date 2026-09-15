@@ -391,6 +391,19 @@ fn render_editor_row(text: &str, _cursor_col: usize) -> String {
     text.to_string()
 }
 
+fn thinking_divider_style(thinking: Option<&str>) -> (&'static str, &'static str) {
+    match thinking.unwrap_or("off") {
+        "off" => ("\x1b[38;2;60;60;60m", "\x1b[0m"),
+        "minimal" => ("\x1b[90m", "\x1b[0m"),
+        "low" => ("\x1b[34m", "\x1b[0m"),
+        "medium" => ("\x1b[36m", "\x1b[0m"),
+        "high" => ("\x1b[35m", "\x1b[0m"),
+        "xhigh" => ("\x1b[31m", "\x1b[0m"),
+        "max" => ("\x1b[1;31m", "\x1b[0m"),
+        _ => ("\x1b[38;2;60;60;60m", "\x1b[0m"),
+    }
+}
+
 fn build_live_lines(
     state: &RunnerState<'_>,
     footer: &FooterInfo,
@@ -404,21 +417,20 @@ fn build_live_lines(
     }
 
     let mut lines = Vec::new();
+    let (style, reset) = thinking_divider_style(footer.thinking.as_deref());
     let top_divider = match activity {
-        Some((act, running_tool, frame)) => {
+        Some((act, _tool, frame)) => {
             let spinner = StreamingSpinner::current_frame(frame);
-            let label = if let Some(tool) = running_tool {
-                format!("Running: {tool}")
-            } else if matches!(act, Activity::Thinking) {
-                "Thinking...".to_string()
+            let label = if matches!(act, Activity::Compacting) {
+                "compacting"
             } else {
-                "Working...".to_string()
+                "working"
             };
             let prefix = format!("── {spinner} {label} ");
             let rem = width.saturating_sub(prefix.chars().count());
-            format!("\x1b[38;2;60;60;60m{prefix}{}\x1b[0m", "─".repeat(rem))
+            format!("{style}{prefix}{}{reset}", "─".repeat(rem))
         }
-        None => format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)),
+        None => format!("{style}{}{reset}", "─".repeat(width)),
     };
     lines.push(top_divider);
 
@@ -434,7 +446,7 @@ fn build_live_lines(
         }
     }
 
-    lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+    lines.push(format!("{style}{}{reset}", "─".repeat(width)));
     lines.push(format_footer_path());
     lines.push(format_footer_stats(footer, width));
 
@@ -634,10 +646,6 @@ async fn cycle_model(state: &mut RunnerState<'_>, engine: &mut AgentEngine, dire
     state.session.config.model = next.id.clone();
     state.session.config.provider = next.provider.clone();
     state.session.sync_engine_model(engine).await;
-    state
-        .session
-        .renderer
-        .print_notice(&format!("Switched model to {} ({})\n", next.id, next.provider));
 }
 
 async fn cycle_thinking_level(state: &mut RunnerState<'_>, engine: &mut AgentEngine) {
@@ -647,10 +655,6 @@ async fn cycle_thinking_level(state: &mut RunnerState<'_>, engine: &mut AgentEng
     let next = THINKING_LEVELS[next_idx];
     state.session.config.thinking_level = Some(next.to_string());
     state.session.sync_engine_model(engine).await;
-    state
-        .session
-        .renderer
-        .print_notice(&format!("Set thinking level to {next}\n"));
 }
 
 async fn handle_input_action(
