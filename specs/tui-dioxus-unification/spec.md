@@ -97,6 +97,8 @@ This separation causes significant friction:
 - Map container and card border preferences (`UiConfig::block_style`) directly to native Ratatui `BorderType` (Rounded, Plain, Double).
 - Route background engine and compaction warnings through canonical `RpcEvent::Notice` channels rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
 - Consolidate atomic file writes across binary self-update (`write_binary_atomically`) and tool modifications (`atomic_write`) in `rho_harness_core::fs`.
+- Automatically enforce repository modal standards (Title Case, fixed-width columns, active checkmarks `"  ✓"`, `Up`/`Down`/`k`/`j`/`Tab`/`Shift+Tab`, digit jump keys `1..=9`, search filtering) across all interactive selectors via `use_modal()` in `rho-ui-core`.
+- Deduplicate YAML frontmatter parsing across skills and prompt templates in `rho_harness_core`.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -314,6 +316,7 @@ crates/rho-wasm/
 - **REQ-088**: Code syntax highlighting must be pre-tokenized on the host into `HighlightedLine` spans inside `ContentBlock::CodeBlock`, keeping the Web Hub WASM bundle ultra-lean (<1.5MB gzipped) without compiling syntect language tables into browser WebAssembly.
 - **REQ-089**: The terminal interactive runner must support an optional terminal bell (`\x07`) notification on turn completion when the terminal window is unfocused (`Signal<WindowFocus>` is false).
 - **REQ-090**: Background engine and compaction warnings must be routed through canonical `RpcEvent::Notice` events rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
+- **REQ-091**: All interactive selectors in both TUI and Web Hub must strictly enforce the repository `/thinking` modal standards (Title Case headers, empty subtitles, fixed-width option columns, active indicators `"  ✓"`, digit jump keys `1..=9`, and fuzzy filtering) via `use_modal` in `rho-ui-core`.
 
 ## Invariants and security boundaries
 

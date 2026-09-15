@@ -89,7 +89,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Active tool running states and thinking status accordions render cleanly in the inline view.
 - **Tasks**:
   1. (Effort: 2) Build reusable `render_modal` helper using Ratatui `Clear`, `Block`, borders, and `ListState`.
-  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, skill explorer (`/skill`), and session history.
+  2. (Effort: 3) Implement modal views for thinking level, model selector, auth provider, MCP management, skill explorer (`/skill`), and session history, enforcing repository `AGENTS.md` modal UX guidelines (Title Case, fixed-width formatting, active indicators, digit jump keys `1..=9`).
   3. (Effort: 3) Implement tool permission approval screen with scrollable diff/command preview and embedded `ratatui-textarea` for command modification.
   4. (Effort: 2) Build autocomplete popup widget anchored to current cursor position using `rho-ui-core` candidates.
   5. (Effort: 2) Build active tool card, visual compaction milestone badges, and streaming spinner widget driven directly by `Signal<ActiveToolState>`, deleting bespoke channel polling in `src/repl/live/bash_runner/progress.rs`.
