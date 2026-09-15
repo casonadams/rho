@@ -59,6 +59,8 @@ This separation causes significant friction:
 - Unify bash escape expansions (`!cmd` local execution, `!!cmd` prompt context injection) and turn usage updates in `use_session()` in `rho-ui-core`, providing Web Hub users with remote node bash escapes.
 - Eliminate over 500 lines of duplicate command handlers in `src/repl/live/message.rs` by routing through `SessionCommandExecutor`.
 - Collapse fragmented presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`, and `ThinkingStreamTracker` - ~700 lines) into direct canonical event async broadcast channels feeding `rho-ui-core` state reducers, eliminating dual-mode (`if has_ui`) branching across every renderer call.
+- Eliminate custom dual-slot transcript render caches (`src/ui/interactive/controller/cache.rs` - 146 lines and 272 lines of tests), relying on Ratatui's high-speed in-memory rendering loop without caching rendered ANSI strings.
+- Consolidate duplicate tool card formatting (`src/ui/interactive/transcript/tool.rs` - 171 lines and `src/ui/render/card.rs` - 118 lines) into the unified `ContentBlock::ToolCall` projection.
 - Eliminate custom event batching queues (`LiveBatch`, `PendingUiBatch` - 617 lines), relying on Ratatui's native in-memory double-buffering to prevent display tearing.
 - Centralize settings configuration (`SettingsState`) in `rho-ui-core`, providing the Web Hub with an interactive Settings dialog and synchronizing preferences (thinking visibility, tool expansion, Vim mode).
 - Unify global keyboard shortcuts (double-escape tree navigation, `Alt+T` to cycle thinking, `Alt+P`/`Alt+N` to cycle models) into `rho-ui-core` action reducers.
@@ -274,6 +276,8 @@ crates/rho-wasm/
 - **REQ-069**: TUI unit and integration tests must standardize on Ratatui's `TestBackend`, replacing custom mock terminal simulators (`HistoryTerminal`, `RedrawCountingTerminal`, `screen_sim.rs`).
 - **REQ-070**: Session conversation exporting (`export.rs`) must project `ContentBlock` directly to Markdown and HTML, eliminating private block enums and duplicate message iteration loops.
 - **REQ-071**: Custom prompt templates and installed skills must be indexed by `CompletionEngine` in `rho-ui-core` and expanded via `PromptTemplate::expand` prior to turn execution.
+- **REQ-072**: Custom transcript render caches (`CachedItemRender`, `TranscriptRenderCache`) must be completely deleted, rendering frames in-memory without string caching.
+- **REQ-073**: Tool card transcript formatting must be consolidated into `ContentBlock::ToolCall`, deleting duplicated formatting logic across `src/ui/interactive/transcript/tool.rs` and `src/ui/render/card.rs`.
 
 ## Invariants and security boundaries
 
