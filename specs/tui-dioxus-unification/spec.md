@@ -335,6 +335,8 @@ crates/rho-wasm/
 - **REQ-098**: Self-update binary downloads must stream byte progress chunks, driving a Ratatui `Gauge` progress widget in the TUI and a progress bar component in the Web Hub.
 - **REQ-099**: The terminal execution runner must register panic hooks and signal handlers (`SIGTERM`, `SIGHUP`) to guarantee terminal raw mode cleanup and cursor restoration on unexpected process termination.
 - **REQ-100**: The terminal presentation layer must wrap Ratatui behind clean traits (`TerminalSurface`, `TerminalComponent`, `PromptEditor`, `ModalView`), isolating application logic from raw Ratatui/textarea struct layouts and enabling seamless headless unit testing.
+- **REQ-101**: Resuming from process suspension (`SIGTSTP`) must trigger `terminal.clear()` and immediately redraw the active inline viewport, preventing shell prompt artifacts from persisting in the viewport area.
+- **REQ-102**: Rapid terminal window resize bursts must debounce in the event loop, collapsing duplicate resize events to render a single flicker-free frame once geometry stabilizes.
 
 ## Invariants and security boundaries
 
