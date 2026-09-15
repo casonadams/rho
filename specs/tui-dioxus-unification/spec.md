@@ -59,6 +59,7 @@ This separation causes significant friction:
 - Unify global keyboard shortcuts (double-escape tree navigation, `Alt+T` to cycle thinking, `Alt+P`/`Alt+N` to cycle models) into `rho-ui-core` action reducers.
 - Prune intermediate styling crate `anstyle` in favor of Ratatui's native `Style` and `Color` definitions.
 - Eliminate manual character-by-character word wrapping math (`src/ui/interactive/layout/text.rs` - 216 lines), delegating terminal text wrapping to Ratatui's native `Paragraph::wrap(Wrap { trim: true })` and web wrapping to native CSS.
+- Eliminate custom ANSI markdown streaming compilers (`src/ui/markdown/renderer.rs` - 357 lines, `src/ui/markdown/stream.rs` - 366 lines, and `src/ui/markdown/elements.rs` - 101 lines), delegating markdown parsing directly to `pulldown-cmark` events constructing `ContentBlock` and `InlineSpan` without manual escape sequence tracking or word boundary regexes.
 - Standardize markdown parsing on `pulldown-cmark`, deleting ~276 lines of manual regex line scanning and blank-line spacing state machines in `src/ui/markdown/line.rs` and `spacing.rs`.
 - Prune 20+ redundant low-level text editor keybinding definitions from `src/ui/interactive/keybinding_loader/`, delegating standard Emacs/Readline editing actions directly to `ratatui-textarea`.
 - Unify interactive tool execution and bash streaming directly through reactive tool state signals in `rho-ui-core`, eliminating custom channel polling loops in `src/repl/live/bash_runner/`.
@@ -186,7 +187,7 @@ crates/rho-wasm/
 - **REQ-001**: A new workspace crate `crates/rho-ui-core` must be established, compiling cleanly on both native targets and `wasm32-unknown-unknown`.
 - **REQ-002**: `rho-ui-core` must implement UI state management using Dioxus reactive signals (`Signal<T>`), memos, and custom hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`).
 - **REQ-003**: `rho-ui-core` must define a Semantic UI Block Intermediate Representation (`ContentBlock`, `InlineSpan`, `DiffHunk`, `StyleToken`) that models headings, paragraphs, code fences, diffs, tables, diagrams, and thinking drawers independently of any renderer.
-- **REQ-004**: All markdown parsing, diff tokenization, table structuring, and streaming tag extraction must execute exclusively within `rho-ui-core`, producing typed `ContentBlock` structures so that neither the TUI nor Web Hub performs bespoke string parsing or regex extraction.
+- **REQ-004**: All markdown parsing, diff tokenization, table structuring, and streaming tag extraction must execute exclusively within `rho-ui-core` via `pulldown-cmark`, producing typed `ContentBlock` and `InlineSpan` structures so that neither the TUI nor Web Hub performs bespoke string parsing, regex extraction, or ANSI escape tracking (`MarkdownRenderer` and `StreamWordWrapper` deleted).
 - **REQ-005**: Diff generation for tool edits must be powered by the `similar` crate in `rho-ui-core`, eliminating custom LCS table calculations and character categorization.
 - **REQ-006**: Fuzzy filtering in modals and autocomplete must standardize on `fuzzy-matcher` (`SkimMatcherV2`), deprecating hand-rolled scoring in `src/repl/interactive/fuzzy.rs`.
 - **REQ-007**: Semantic styling tokens (`ThemeTokens`) must be declared in `rho-ui-core`, mapping to `ratatui::style::Style` in the TUI and CSS variables in the Web Hub.
