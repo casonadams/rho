@@ -68,7 +68,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   - Active editor mode (e.g. `[NORMAL]`, `[INSERT]`) renders cleanly on the input divider.
 - **Tasks**:
   1. (Effort: 1) Add `ratatui-textarea` to workspace dependencies.
-  2. (Effort: 3) Implement `Vim` state transition machine and key dispatcher in the interactive editor following `ratatui-textarea/examples/vim.rs`.
+  2. (Effort: 3) Implement `Vim` state transition machine and key dispatcher in the interactive editor (Normal, Insert, Visual character/line selection, Replace, clipboard yanking/pasting via `arboard`) following `ratatui-textarea/examples/vim.rs`.
   3. (Effort: 2) Integrate `TextArea` widget into the Ratatui inline viewport layout with theme styling and placeholder support.
   4. (Effort: 2) Integrate bracketed paste interception for collapsed paste markers (`PasteStore`) and clipboard image insertion into `ratatui-textarea`.
   5. (Effort: 2) Add configuration option in `config.toml` (`[editor] mode = "vim" | "default"`).
@@ -114,7 +114,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
   2. (Effort: 3) Implement direct in-WASM Iroh client peer hook in Rust bridging P2P byte streams to `rho-ui-core` state signals using strongly-typed canonical events without `JsValue` crossing or JS callbacks.
   3. (Effort: 3) Build Fleet Overview view (`use_fleet()` typed node store, node grid, node cards, connection status pills, ticket pairing modal).
   4. (Effort: 3) Build Workspace Chat view (chat transcript, markdown rendering, tool execution cards, thinking accordion).
-  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, auth modal, MCP server manager, skill explorer, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components, deprecating bespoke CSS in `www/hub/css/hub.css`.
+  5. (Effort: 3) Build Modals, Session Sidebar, Status Bar, and Session Export (session history, conversation branch tree, accessible auth modal with focus trapping, MCP server manager, skill explorer, model picker, provider credentials, in-browser Markdown/HTML export, `StatusBar` component reading `Signal<FooterMetrics>`) using Dioxus Components, deprecating bespoke CSS in `www/hub/css/hub.css`.
   6. (Effort: 2) Connect web storage persistence (saved nodes, tickets, active session ID) via browser `web-sys` hooks.
   7. (Effort: 2) Remove `www/hub/js/*.js` and update `Makefile` target `make wasm` with `wasm-opt` size optimization.
 - **Verification**:
