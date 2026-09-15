@@ -318,7 +318,7 @@ mod native {
             ("app.model.select", &["ctrl+l"]),
             ("app.model.cycleForward", &["ctrl+p"]),
             ("app.model.cycleBackward", &["shift+ctrl+p", "alt+p"]),
-            ("app.thinking.cycle", &["shift+tab"]),
+            ("app.thinking.cycle", &["shift+tab", "backtab", "alt+t"]),
             ("app.thinking.toggle", &["ctrl+t"]),
             ("app.tools.expand", &["ctrl+o"]),
             ("app.message.copy", &["ctrl+x"]),
@@ -436,6 +436,12 @@ mod native {
     pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> InputAction {
         if event.kind == KeyEventKind::Release {
             return InputAction::Ignore;
+        }
+
+        if event.code == KeyCode::BackTab
+            || (event.code == KeyCode::Tab && event.modifiers.contains(KeyModifiers::SHIFT))
+        {
+            return InputAction::ThinkingCycle;
         }
 
         if let Some(action) = bindings.get_action(&event) {

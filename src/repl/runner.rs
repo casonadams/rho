@@ -1141,19 +1141,22 @@ fn handle_turn_key_input(
     cancellation: &CancellationSignal,
     active_responder: &mut Option<InteractionResponder>,
     pending_scrollback: &mut String,
-) {
+) -> bool {
     if let Some(ActiveModal::Permission(p)) = state.active_modal.take() {
         *state.active_modal = handle_permission_key(*p, key, active_responder);
-        return;
+        return false;
     }
     let action = map_key(key);
     match action {
         InputAction::Cancel => {
             cancellation.cancel();
+            rho_engine::process::kill_all_tracked_processes();
             pending_scrollback.push_str("\nCanceled.\n");
+            true
         }
         InputAction::Clear => {
             state.editor.clear();
+            false
         }
         _ => {
             if !state.editor.handle_key(key) {
@@ -1164,6 +1167,7 @@ fn handle_turn_key_input(
                     pending_scrollback.push_str(&format!("\x1b[36m[Steering queued: {steering_text}]\x1b[0m\n"));
                 }
             }
+            false
         }
     }
 }
@@ -1264,7 +1268,7 @@ async fn execute_agent_turn(
     let mut pending_scrollback = String::new();
     let mut active_responder: Option<InteractionResponder> = None;
 
-    let turn_res = loop {
+    loop {
         tokio::select! {
             res = &mut turn_future => {
                 while let Ok(ui_ev) = ui_events.try_recv() {
@@ -1276,7 +1280,7 @@ async fn execute_agent_turn(
                 pending_scrollback.push('\n');
                 refresh_display(state, &footer, None, Some(&pending_scrollback), &mut tracker)?;
                 pending_scrollback.clear();
-                break res;
+                break;
             }
             Some(ui_ev) = ui_events.recv() => {
                 handle_turn_event(
@@ -1295,7 +1299,7 @@ async fn execute_agent_turn(
             }
             maybe_key = events.next() => {
                 if let Some(Ok(Event::Key(key))) = maybe_key {
-                    handle_turn_key_input(
+                    let cancelled = handle_turn_key_input(
                         key,
                         state,
                         &steering,
@@ -1303,18 +1307,23 @@ async fn execute_agent_turn(
                         &mut active_responder,
                         &mut pending_scrollback,
                     );
+                    if cancelled {
+                        let _ = engine.record_cancellation("operator interrupt").await;
+                        refresh_display(state, &footer, None, Some(&pending_scrollback), &mut tracker)?;
+                        pending_scrollback.clear();
+                        break;
+                    }
                     let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
                     refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
                 }
             }
         }
-    };
+    }
     drop(turn_future);
     crate::platform::remote::set_active_steering(None);
     *state.active_modal = None;
 
     finish_turn_execution(state, engine, &mut tracker).await?;
-    let _ = turn_res;
     Ok(())
 }
 
