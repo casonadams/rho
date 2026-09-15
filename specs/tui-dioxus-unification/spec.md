@@ -95,6 +95,8 @@ This separation causes significant friction:
 - Pre-tokenize code syntax on the host engine into structured `HighlightedLine` spans within `ContentBlock::CodeBlock`, preventing multi-megabyte `syntect` grammar sets from bloating the Web Hub WASM binary.
 - Emit a terminal bell (`\x07`) notification on turn completion when window focus is lost, alerting users when background executions finish.
 - Map container and card border preferences (`UiConfig::block_style`) directly to native Ratatui `BorderType` (Rounded, Plain, Double).
+- Route background engine and compaction warnings through canonical `RpcEvent::Notice` channels rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
+- Consolidate atomic file writes across binary self-update (`write_binary_atomically`) and tool modifications (`atomic_write`) in `rho_harness_core::fs`.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -311,6 +313,7 @@ crates/rho-wasm/
 - **REQ-087**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must be centralized in `rho-ui-core`, eliminating duplicate JavaScript formatters.
 - **REQ-088**: Code syntax highlighting must be pre-tokenized on the host into `HighlightedLine` spans inside `ContentBlock::CodeBlock`, keeping the Web Hub WASM bundle ultra-lean (<1.5MB gzipped) without compiling syntect language tables into browser WebAssembly.
 - **REQ-089**: The terminal interactive runner must support an optional terminal bell (`\x07`) notification on turn completion when the terminal window is unfocused (`Signal<WindowFocus>` is false).
+- **REQ-090**: Background engine and compaction warnings must be routed through canonical `RpcEvent::Notice` events rather than direct `eprintln!` calls, preventing terminal row desynchronization during inline viewport execution.
 
 ## Invariants and security boundaries
 
