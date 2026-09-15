@@ -84,7 +84,9 @@ This separation causes significant friction:
 - Strongly type tool argument presentation via `ToolInvocation` in `rho-ui-core`, eliminating fragile string indexing (`args.get("path")`, `args.get("format")`) across tool inspectors.
 - Automatic credential and sensitive secret redaction via `SecretGuard` in `rho-ui-core` before text is projected to terminal cells or Web Hub components.
 - Centralize window focus state tracking (`FocusGained` / `FocusLost` in TUI and browser window focus in Web Hub), dimming or brightening active chrome accents reactively.
-- Support visual selection mode (`v`, `V`) and mouse selection in the terminal editor via `ratatui-textarea`, enabling direct yanking (`y`) and pasting (`p`) to and from the system clipboard via `arboard`.
+- Support visual selection mode (`v`, `V`) and mouse selection in the terminal editor via `ratatui-textarea`, enabling direct yanking (`y`) and pasting (`p`) to and from the system clipboard with OSC 52 escape fallback for remote SSH sessions.
+- Render interactive clickable hyperlinks for search results and fetched URLs in the Dioxus Web Hub transcript.
+- Render context compaction milestones (`CompactionComplete`) as visual savings badges in both TUI scrollback and the Web Hub transcript.
 - Provide accessible modal dialogs with automatic ARIA focus trapping (`focus-trap`) and keyboard navigation in the Dioxus Web Hub.
 - Standardize tool output truncation presentation, allowing users to toggle expanded outputs (`Ctrl+O`) in the TUI or download full tool logs from `full_output_path` in the Web Hub.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
@@ -294,8 +296,10 @@ crates/rho-wasm/
 - **REQ-078**: Truncated tool outputs must present interactive expansion toggles (`Ctrl+O` in TUI) and allow full output log inspection/download via `full_output_path` in both interfaces.
 - **REQ-079**: Transcript presentation in both TUI and Web Hub must run through `SecretGuard::redact` in `rho-ui-core` before rendering, ensuring zero accidental leakage of auth keys or session secrets.
 - **REQ-080**: Terminal and browser focus state changes (`FocusGained` / `FocusLost`) must update a shared `Signal<WindowFocus>` in `rho-ui-core` to reactively dim or highlight active input chrome.
-- **REQ-081**: Visual selection mode (`v`, `V`) and mouse selection in `ratatui-textarea` must support yanking and deleting directly to/from the system clipboard via `arboard`.
+- **REQ-081**: Visual selection mode (`v`, `V`) and mouse selection in `ratatui-textarea` must support yanking and deleting directly to/from the system clipboard via `arboard`, with OSC 52 fallback for remote SSH terminal sessions.
 - **REQ-082**: Modal dialogs in the Dioxus Web Hub must enforce accessible ARIA attributes (`role="dialog"`, `aria-modal="true"`) and automatic keyboard focus trapping.
+- **REQ-083**: Tool outputs containing URLs (web search results, fetched links) must project as clickable hyperlinks in the Web Hub transcript.
+- **REQ-084**: Completed context compaction events (`CompactionComplete`) must render as visual compaction milestones in both TUI scrollback and the Web Hub transcript.
 
 ## Invariants and security boundaries
 
