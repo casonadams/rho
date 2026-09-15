@@ -92,6 +92,8 @@ This separation causes significant friction:
 - Validate and downsample large image attachments via client-side Rust WebAssembly (`fit_dimensions`) directly in the Web Hub, optimizing upload bandwidth prior to P2P network transmission.
 - Centralize session deletion and pruning capabilities in `SessionStore`, allowing users to delete sessions from both the TUI `/session` modal and Web Hub sidebar.
 - Centralize numeric token count and byte size formatting (`format_tokens`, `format_size`) in `rho-ui-core`, eliminating duplicate JavaScript numeric formatters in `www/hub/js/app.js`.
+- Pre-tokenize code syntax on the host engine into structured `HighlightedLine` spans within `ContentBlock::CodeBlock`, preventing multi-megabyte `syntect` grammar sets from bloating the Web Hub WASM binary.
+- Emit a terminal bell (`\x07`) notification on turn completion when window focus is lost, alerting users when background executions finish.
 - Map container and card border preferences (`UiConfig::block_style`) directly to native Ratatui `BorderType` (Rounded, Plain, Double).
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
@@ -307,6 +309,8 @@ crates/rho-wasm/
 - **REQ-085**: Image attachments in the Web Hub must be validated via client-side magic-byte sniffing (`detect_supported_image_mime`) and downsampled in Rust WebAssembly (`fit_dimensions`) before transmission to optimize P2P network bandwidth.
 - **REQ-086**: Session deletion and pruning must be supported in `SessionStore`, allowing users to delete inactive sessions from both the TUI session modal and the Web Hub sidebar.
 - **REQ-087**: Numeric formatting for token quantities (`format_tokens`) and byte memory sizes (`format_size`) must be centralized in `rho-ui-core`, eliminating duplicate JavaScript formatters.
+- **REQ-088**: Code syntax highlighting must be pre-tokenized on the host into `HighlightedLine` spans inside `ContentBlock::CodeBlock`, keeping the Web Hub WASM bundle ultra-lean (<1.5MB gzipped) without compiling syntect language tables into browser WebAssembly.
+- **REQ-089**: The terminal interactive runner must support an optional terminal bell (`\x07`) notification on turn completion when the terminal window is unfocused (`Signal<WindowFocus>` is false).
 
 ## Invariants and security boundaries
 
