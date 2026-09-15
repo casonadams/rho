@@ -1,9 +1,6 @@
 use crossterm::event::{Event, EventStream, KeyCode, KeyEvent, KeyModifiers};
 use futures::StreamExt;
-use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
-use ratatui::widgets::Paragraph;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,9 +19,14 @@ use crate::repl::ReplSession;
 use crate::repl::commands::{CommandResult, SlashCommandContext, SlashCommandHandler};
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::editor::{EditorMode, TextAreaEditor};
+use crate::ui::interactive::{Activity, InteractiveUi, OutputEvent, TranscriptRenderInput, UiEvent};
 use crate::ui::modal::{AutocompletePopupView, RemotePairModalView, StandardModalView};
-use crate::ui::terminal::TerminalRunner;
-use crate::ui::{ModalView, PromptEditor, TerminalComponent, TerminalSurface};
+use crate::ui::terminal::TerminalGuard;
+use crate::ui::widgets::StreamingSpinner;
+use crate::ui::{ModalView, PromptEditor};
+
+const CSI_SYNC_BEGIN: &[u8] = b"\x1b[?2026h";
+const CSI_SYNC_END: &[u8] = b"\x1b[?2026l";
 
 pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
     stdin_is_tty && stdout_is_tty
@@ -35,39 +37,11 @@ enum ActiveModal {
     RemotePair(RemotePairModalView),
 }
 
-impl ModalView for ActiveModal {
-    fn title(&self) -> &str {
+impl ActiveModal {
+    fn is_open(&self) -> bool {
         match self {
-            Self::Standard(m) => m.title(),
-            Self::RemotePair(m) => m.title(),
-        }
-    }
-
-    fn selected_index(&self) -> usize {
-        match self {
-            Self::Standard(m) => m.selected_index(),
-            Self::RemotePair(m) => m.selected_index(),
-        }
-    }
-
-    fn item_count(&self) -> usize {
-        match self {
-            Self::Standard(m) => m.item_count(),
-            Self::RemotePair(m) => m.item_count(),
-        }
-    }
-
-    fn filter(&self) -> &str {
-        match self {
-            Self::Standard(m) => m.filter(),
-            Self::RemotePair(m) => m.filter(),
-        }
-    }
-
-    fn set_filter(&mut self, query: &str) {
-        match self {
-            Self::Standard(m) => m.set_filter(query),
-            Self::RemotePair(m) => m.set_filter(query),
+            Self::Standard(m) => m.state.is_open,
+            Self::RemotePair(m) => m.is_open,
         }
     }
 
@@ -78,31 +52,74 @@ impl ModalView for ActiveModal {
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect) {
+    fn render_lines(&self, width: usize) -> Vec<String> {
         match self {
-            Self::Standard(m) => m.render(frame, area),
-            Self::RemotePair(m) => m.render(frame, area),
+            Self::Standard(m) => {
+                let mut lines = Vec::new();
+                let title = &m.state.title;
+                let sep = "─".repeat(width.saturating_sub(title.len() + 6));
+                lines.push(format!("\x1b[36m── {title} {sep}\x1b[0m"));
+                for (idx, opt) in m.state.filtered_options.iter().take(8).enumerate() {
+                    let marker = if idx == m.state.selected_index { ">" } else { " " };
+                    let active = if opt.is_active { " ✓" } else { "" };
+                    let desc = opt.description.as_deref().unwrap_or("");
+                    let line = format!(" {marker} {:<18} {desc}{active}", opt.label);
+                    if idx == m.state.selected_index {
+                        lines.push(format!("\x1b[1;36m{line}\x1b[0m"));
+                    } else {
+                        lines.push(format!("\x1b[90m{line}\x1b[0m"));
+                    }
+                }
+                lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+                lines
+            }
+            Self::RemotePair(m) => {
+                let mut lines = Vec::new();
+                lines.push(format!(
+                    "\x1b[36m── Pair Remote Node {}\x1b[0m",
+                    "─".repeat(width.saturating_sub(22))
+                ));
+                lines.push(format!("  Ticket: {}", m.ticket.node_id));
+                lines.push("  Press Esc to dismiss".to_string());
+                lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+                lines
+            }
         }
     }
 }
 
-impl ActiveModal {
-    fn is_open(&self) -> bool {
-        match self {
-            Self::Standard(m) => m.state.is_open,
-            Self::RemotePair(m) => m.is_open,
-        }
+#[derive(Clone, Default)]
+struct FooterInfo {
+    pub model: String,
+    pub provider: String,
+    pub thinking: Option<String>,
+    pub total_input: u64,
+    pub total_output: u64,
+    pub total_cache_read: u64,
+    pub total_cache_write: u64,
+}
+
+fn make_footer_info(model: &str, provider: &str, thinking: Option<&str>, engine: &AgentEngine) -> FooterInfo {
+    let totals = engine.session_usage_totals();
+    FooterInfo {
+        model: model.to_string(),
+        provider: provider.to_string(),
+        thinking: thinking.map(str::to_string),
+        total_input: totals.total_input,
+        total_output: totals.total_output,
+        total_cache_read: totals.total_cache_read,
+        total_cache_write: totals.total_cache_write,
     }
 }
 
 struct RunnerState<'a> {
     pub session: &'a mut ReplSession,
-    pub engine: &'a mut AgentEngine,
-    pub runner: &'a mut TerminalRunner<ratatui::backend::CrosstermBackend<std::io::Stdout>>,
     pub editor: &'a mut TextAreaEditor,
     pub history: &'a mut InteractiveHistory,
     pub active_modal: &'a mut Option<ActiveModal>,
     pub autocomplete_popup: &'a mut Option<AutocompletePopupView>,
+    pub prev_lines_count: usize,
+    pub prev_cursor_row: usize,
 }
 
 async fn init_live_engine(session: &mut ReplSession) -> Result<AgentEngine> {
@@ -166,7 +183,7 @@ async fn load_history(session: &ReplSession) -> InteractiveHistory {
         })
 }
 
-fn render_footer_path(f: &mut Frame, area: Rect) {
+fn format_footer_path() -> String {
     let current_dir = std::env::current_dir().unwrap_or_default();
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -177,31 +194,28 @@ fn render_footer_path(f: &mut Frame, area: Rect) {
     {
         path.push_str(&format!(" ({branch})"));
     }
-    let para = Paragraph::new(path).style(Style::default().fg(Color::DarkGray));
-    f.render_widget(para, area);
+    format!("\x1b[90m{path}\x1b[0m")
 }
 
-fn render_footer_stats(f: &mut Frame, area: Rect, engine: &AgentEngine) {
-    let model = &engine.config.model;
-    let window = ModelRegistry::default().context_window_for(model, Some(&engine.config.provider));
-    let usage = engine.session_usage_totals();
+fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
+    let window = ModelRegistry::default().context_window_for(&footer.model, Some(&footer.provider));
     let metrics = FooterMetrics {
-        input_tokens: usage.total_input,
-        output_tokens: usage.total_output,
-        cache_read_tokens: usage.total_cache_read,
-        cache_write_tokens: usage.total_cache_write,
-        context_tokens: usage.total_input as usize,
+        input_tokens: footer.total_input,
+        output_tokens: footer.total_output,
+        cache_read_tokens: footer.total_cache_read,
+        cache_write_tokens: footer.total_cache_write,
+        context_tokens: footer.total_input as usize,
         context_window: window,
         total_cost: None,
         tokens_per_second: None,
         quota_summary: None,
     };
 
-    let thinking = engine.config.thinking_level.as_deref().unwrap_or("default");
+    let thinking = footer.thinking.as_deref().unwrap_or("default");
     let right = if thinking == "off" || thinking.is_empty() {
-        model.to_string()
+        footer.model.clone()
     } else {
-        format!("{model} · {thinking}")
+        format!("{} · {thinking}", footer.model)
     };
 
     let mut parts = Vec::new();
@@ -224,53 +238,182 @@ fn render_footer_stats(f: &mut Frame, area: Rect, engine: &AgentEngine) {
             rho_harness_core::tokens::format_tokens(metrics.context_window as u64)
         ));
     }
-    if let Some(tps) = metrics.tokens_per_second {
-        parts.push(format!("@{tps:.0}t/s"));
-    }
     let left = parts.join(" ");
 
-    let pad = (area.width as usize).saturating_sub(left.len() + right.len());
-    let full = format!("{left}{}{right}", " ".repeat(pad));
-    let para = Paragraph::new(full).style(Style::default().fg(Color::DarkGray));
-    f.render_widget(para, area);
+    let plain_len = left.len() + right.len();
+    let pad = width.saturating_sub(plain_len);
+    format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
-fn render_viewport(state: &mut RunnerState<'_>) -> Result<()> {
-    state.runner.draw(|f| {
-        let area = f.area();
-        if let Some(modal) = state.active_modal.as_ref() {
-            modal.render(f, area);
-            return;
+fn render_editor_row(text: &str, cursor_col: usize) -> String {
+    let char_count = text.chars().count();
+    if cursor_col >= char_count {
+        format!("{text}\x1b[7m \x1b[0m")
+    } else {
+        let mut out = String::new();
+        for (i, c) in text.chars().enumerate() {
+            if i == cursor_col {
+                out.push_str(&format!("\x1b[7m{c}\x1b[0m"));
+            } else {
+                out.push(c);
+            }
         }
+        out
+    }
+}
 
-        let divider = "─".repeat(area.width as usize);
-        let divider_style = Style::default().fg(Color::Rgb(60, 60, 60));
+fn build_live_lines(
+    state: &RunnerState<'_>,
+    footer: &FooterInfo,
+    activity: Option<(&Activity, Option<&str>, usize)>,
+    width: usize,
+) -> (Vec<String>, usize, usize) {
+    if let Some(modal) = state.active_modal.as_ref() {
+        let lines = modal.render_lines(width);
+        let len = lines.len();
+        return (lines, len.saturating_sub(1), 0);
+    }
 
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1), // Top divider ───
-                Constraint::Min(1),    // Editor text lines
-                Constraint::Length(1), // Bottom divider ───
-                Constraint::Length(1), // Footer path/branch
-                Constraint::Length(1), // Footer stats/model
-            ])
-            .split(area);
-
-        f.render_widget(Paragraph::new(divider.clone()).style(divider_style), chunks[0]);
-        state.editor.render(f, chunks[1]);
-        f.render_widget(Paragraph::new(divider).style(divider_style), chunks[2]);
-        render_footer_path(f, chunks[3]);
-        render_footer_stats(f, chunks[4], state.engine);
-
-        if let Some(popup) = state.autocomplete_popup.as_ref() {
-            popup.render_anchored(f, chunks[1], area);
+    let mut lines = Vec::new();
+    let top_divider = match activity {
+        Some((act, running_tool, frame)) => {
+            let spinner = StreamingSpinner::current_frame(frame);
+            let label = if let Some(tool) = running_tool {
+                format!("Running: {tool}")
+            } else if matches!(act, Activity::Thinking) {
+                "Thinking...".to_string()
+            } else {
+                "Working...".to_string()
+            };
+            let prefix = format!("── {spinner} {label} ");
+            let rem = width.saturating_sub(prefix.chars().count());
+            format!("\x1b[38;2;60;60;60m{prefix}{}\x1b[0m", "─".repeat(rem))
         }
-    })?;
+        None => format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)),
+    };
+    lines.push(top_divider);
+
+    let text = state.editor.text();
+    let (_c_row, c_col) = state.editor.cursor();
+    lines.push(render_editor_row(&text, c_col));
+
+    if let Some(popup) = state.autocomplete_popup.as_ref() {
+        for (idx, cand) in popup.candidates.iter().take(5).enumerate() {
+            let marker = if idx == popup.selected_index { ">" } else { " " };
+            let desc = cand.description.as_deref().unwrap_or("");
+            lines.push(format!("\x1b[36m {marker} {:<16} {desc}\x1b[0m", cand.display));
+        }
+    }
+
+    lines.push(format!("\x1b[38;2;60;60;60m{}\x1b[0m", "─".repeat(width)));
+    lines.push(format_footer_path());
+    lines.push(format_footer_stats(footer, width));
+
+    let cursor_row = 1;
+    (lines, cursor_row, c_col)
+}
+
+fn paint_live_region(
+    stdout: &mut std::io::Stdout,
+    lines: &[String],
+    cursor_row: usize,
+    cursor_col: usize,
+) -> std::io::Result<()> {
+    for (i, line) in lines.iter().enumerate() {
+        stdout.write_all(line.as_bytes())?;
+        if i + 1 < lines.len() {
+            stdout.write_all(b"\r\n")?;
+        }
+    }
+    let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor_row);
+    if rows_up > 0 {
+        write!(stdout, "\x1b[{rows_up}A")?;
+    }
+    write!(stdout, "\r\x1b[{cursor_col}C")?;
+    stdout.flush()
+}
+
+fn erase_live_region(stdout: &mut std::io::Stdout, total_lines: usize, cursor_row: usize) -> std::io::Result<()> {
+    if total_lines == 0 {
+        return Ok(());
+    }
+    let rows_down = total_lines.saturating_sub(1).saturating_sub(cursor_row);
+    if rows_down > 0 {
+        write!(stdout, "\x1b[{rows_down}B")?;
+    }
+    stdout.write_all(b"\r")?;
+    for row in (0..total_lines).rev() {
+        stdout.write_all(b"\x1b[2K")?;
+        if row > 0 {
+            stdout.write_all(b"\x1b[1A")?;
+        }
+    }
+    stdout.write_all(b"\r")?;
+    stdout.flush()
+}
+
+fn refresh_display(
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    activity: Option<(&Activity, Option<&str>, usize)>,
+    extra_output: Option<&str>,
+) -> std::io::Result<()> {
+    let width = crate::ui::terminal_width() as usize;
+    let (lines, c_row, c_col) = build_live_lines(state, footer, activity, width);
+
+    let mut stdout = std::io::stdout();
+    stdout.write_all(CSI_SYNC_BEGIN)?;
+    erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row)?;
+
+    if let Some(out) = extra_output
+        && !out.is_empty()
+    {
+        let normalized = out.replace("\r\n", "\n").replace('\n', "\r\n");
+        stdout.write_all(normalized.as_bytes())?;
+    }
+
+    paint_live_region(&mut stdout, &lines, c_row, c_col)?;
+    stdout.write_all(CSI_SYNC_END)?;
+    stdout.flush()?;
+
+    state.prev_lines_count = lines.len();
+    state.prev_cursor_row = c_row;
     Ok(())
 }
 
-fn apply_modal_selection(modal: &ActiveModal, session: &mut ReplSession, _engine: &mut AgentEngine) {
+fn drain_ui_event(
+    ev: UiEvent,
+    output: &mut String,
+    activity: &mut Activity,
+    tool: &mut Option<String>,
+    session: &ReplSession,
+) {
+    match ev {
+        UiEvent::Output(OutputEvent::Text(t) | OutputEvent::StreamText(t)) => {
+            output.push_str(&t);
+        }
+        UiEvent::Transcript(item) => {
+            let width = crate::ui::terminal_width() as usize;
+            let input = TranscriptRenderInput {
+                item: &item,
+                theme: &session.renderer.theme,
+                width,
+                tools_expanded: session.config.ui.tools_expanded.unwrap_or(false),
+                hide_thinking: session.config.ui.hide_thinking.unwrap_or(false),
+            };
+            output.push_str(&crate::ui::interactive::render_transcript_item(input));
+        }
+        UiEvent::Activity(act) => {
+            *activity = act;
+        }
+        UiEvent::RunningTool(t) => {
+            *tool = t;
+        }
+        _ => {}
+    }
+}
+
+fn apply_modal_selection(modal: &ActiveModal, session: &mut ReplSession) {
     if let ActiveModal::Standard(std_modal) = modal
         && let Some(opt) = std_modal.state.selected_option()
     {
@@ -287,14 +430,9 @@ fn apply_modal_selection(modal: &ActiveModal, session: &mut ReplSession, _engine
     }
 }
 
-fn handle_modal_input(
-    mut modal: ActiveModal,
-    key: KeyEvent,
-    session: &mut ReplSession,
-    engine: &mut AgentEngine,
-) -> Option<ActiveModal> {
+fn handle_modal_input(mut modal: ActiveModal, key: KeyEvent, session: &mut ReplSession) -> Option<ActiveModal> {
     if key.code == KeyCode::Enter {
-        apply_modal_selection(&modal, session, engine);
+        apply_modal_selection(&modal, session);
         None
     } else {
         modal.handle_key(key);
@@ -302,43 +440,42 @@ fn handle_modal_input(
     }
 }
 
-fn handle_popup_input(
-    mut popup: AutocompletePopupView,
+async fn handle_key_cycle(
+    state: &mut RunnerState<'_>,
+    engine: &mut AgentEngine,
     key: KeyEvent,
-    editor: &mut TextAreaEditor,
-) -> (Option<AutocompletePopupView>, bool) {
-    match key.code {
-        KeyCode::Enter | KeyCode::Tab if key.modifiers.is_empty() => {
-            if let Some(cand) = popup.selected() {
-                editor.set_text(&cand.value);
-            }
-            (None, true)
-        }
-        KeyCode::Esc => (None, true),
-        KeyCode::Down => {
-            popup.select_next();
-            (Some(popup), true)
-        }
-        KeyCode::Up => {
-            popup.select_prev();
-            (Some(popup), true)
-        }
-        _ => (None, false),
-    }
-}
-
-async fn handle_key_cycle(state: &mut RunnerState<'_>, key: KeyEvent, completions: &CompletionEngine) -> Result<bool> {
+    completions: &CompletionEngine,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    events: &mut EventStream,
+) -> Result<bool> {
     if let Some(modal) = state.active_modal.take() {
-        *state.active_modal = handle_modal_input(modal, key, state.session, state.engine);
-        state.session.sync_engine_model(state.engine).await;
+        *state.active_modal = handle_modal_input(modal, key, state.session);
+        state.session.sync_engine_model(engine).await;
         return Ok(false);
     }
 
-    if let Some(popup) = state.autocomplete_popup.take() {
-        let (next_popup, consumed) = handle_popup_input(popup, key, state.editor);
-        *state.autocomplete_popup = next_popup;
-        if consumed {
-            return Ok(false);
+    if let Some(mut popup) = state.autocomplete_popup.take() {
+        match key.code {
+            KeyCode::Enter | KeyCode::Tab if key.modifiers.is_empty() => {
+                if let Some(cand) = popup.selected() {
+                    state.editor.set_text(&cand.value);
+                }
+                return Ok(false);
+            }
+            KeyCode::Esc => {
+                return Ok(false);
+            }
+            KeyCode::Down => {
+                popup.select_next();
+                *state.autocomplete_popup = Some(popup);
+                return Ok(false);
+            }
+            KeyCode::Up => {
+                popup.select_prev();
+                *state.autocomplete_popup = Some(popup);
+                return Ok(false);
+            }
+            _ => {}
         }
     }
 
@@ -353,10 +490,24 @@ async fn handle_key_cycle(state: &mut RunnerState<'_>, key: KeyEvent, completion
         return Ok(state.editor.is_empty());
     }
 
+    if key.code == KeyCode::Up && state.editor.cursor().0 == 0 {
+        if let Some(prev) = state.history.previous(&state.editor.text()) {
+            state.editor.set_text(&prev);
+        }
+        return Ok(false);
+    }
+
+    if key.code == KeyCode::Down && state.editor.cursor().0 == 0 {
+        if let Some(next) = state.history.next_entry() {
+            state.editor.set_text(&next);
+        }
+        return Ok(false);
+    }
+
     if !state.editor.handle_key(key) {
         let prompt = state.editor.text().to_string();
         state.editor.clear();
-        return handle_submission(state, prompt).await;
+        return handle_submission(state, engine, prompt, ui_events, events).await;
     }
 
     let text = state.editor.text();
@@ -366,14 +517,20 @@ async fn handle_key_cycle(state: &mut RunnerState<'_>, key: KeyEvent, completion
     } else {
         *state.autocomplete_popup = None;
     }
+
     Ok(false)
 }
 
 pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
+    let (ui, mut ui_events) = InteractiveUi::channel();
+    session.renderer = crate::ui::TerminalRenderer::with_ui(ui);
+    session.renderer.theme = crate::ui::theme::detect_with_config(&session.config.ui);
+    session.renderer.set_width(crate::ui::terminal_width() as usize);
+
     let mut engine = init_live_engine(session).await?;
     print_startup_banner(session, &engine).await;
 
-    let mut runner = TerminalRunner::from_stdout(5)?;
+    let _guard = TerminalGuard::enter()?;
 
     let mode = if session.config.editor.is_vim() {
         EditorMode::Vim
@@ -389,18 +546,31 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
     let mut events = EventStream::new();
     let mut ticker = tokio::time::interval(Duration::from_millis(50));
 
-    loop {
-        let mut state = RunnerState {
-            session,
-            engine: &mut engine,
-            runner: &mut runner,
-            editor: &mut editor,
-            history: &mut history,
-            active_modal: &mut active_modal,
-            autocomplete_popup: &mut autocomplete_popup,
-        };
+    let mut state = RunnerState {
+        session,
+        editor: &mut editor,
+        history: &mut history,
+        active_modal: &mut active_modal,
+        autocomplete_popup: &mut autocomplete_popup,
+        prev_lines_count: 0,
+        prev_cursor_row: 0,
+    };
 
-        render_viewport(&mut state)?;
+    let footer = make_footer_info(
+        &state.session.config.model,
+        &state.session.config.provider,
+        state.session.config.thinking_level.as_deref(),
+        &engine,
+    );
+    refresh_display(&mut state, &footer, None, None)?;
+
+    loop {
+        let footer = make_footer_info(
+            &state.session.config.model,
+            &state.session.config.provider,
+            state.session.config.thinking_level.as_deref(),
+            &engine,
+        );
 
         tokio::select! {
             _ = ticker.tick() => {}
@@ -411,22 +581,23 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
 
                 match event {
                     Event::Resize(_, _) => {
-                        let _ = runner.clear();
+                        let width = crate::ui::terminal_width() as usize;
+                        state.session.renderer.set_width(width);
+                        refresh_display(&mut state, &footer, None, None)?;
                     }
                     Event::Key(key) => {
-                        let mut state = RunnerState {
-                            session,
-                            engine: &mut engine,
-                            runner: &mut runner,
-                            editor: &mut editor,
-                            history: &mut history,
-                            active_modal: &mut active_modal,
-                            autocomplete_popup: &mut autocomplete_popup,
-                        };
-                        let should_exit = handle_key_cycle(&mut state, key, &completions).await?;
+                        let should_exit = handle_key_cycle(
+                            &mut state,
+                            &mut engine,
+                            key,
+                            &completions,
+                            &mut ui_events,
+                            &mut events,
+                        ).await?;
                         if should_exit {
                             break;
                         }
+                        refresh_display(&mut state, &footer, None, None)?;
                     }
                     _ => {}
                 }
@@ -434,6 +605,8 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         }
     }
 
+    let mut stdout = std::io::stdout();
+    erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row)?;
     Ok(())
 }
 
@@ -497,20 +670,27 @@ async fn handle_interactive_command(
     }
 }
 
-async fn handle_slash_command(state: &mut RunnerState<'_>, cmd: &str, rest: &str) -> Result<bool> {
+async fn handle_slash_command(
+    state: &mut RunnerState<'_>,
+    engine: &mut AgentEngine,
+    cmd: &str,
+    rest: &str,
+) -> Result<bool> {
     if matches!(cmd, "/quit" | "/exit") {
         return Ok(true);
     }
     if cmd == "/clear" {
-        let _ = state.runner.clear();
+        let mut stdout = std::io::stdout();
+        stdout.write_all(b"\x1b[2J\x1b[H")?;
+        stdout.flush()?;
         return Ok(false);
     }
-    if rest.is_empty() && handle_interactive_command(cmd, state.session, state.engine, state.active_modal).await {
+    if rest.is_empty() && handle_interactive_command(cmd, state.session, engine, state.active_modal).await {
         return Ok(false);
     }
     if cmd == "/model" && !rest.is_empty() {
         state.session.config.model = rest.to_string();
-        state.session.sync_engine_model(state.engine).await;
+        state.session.sync_engine_model(engine).await;
         state
             .session
             .renderer
@@ -519,7 +699,7 @@ async fn handle_slash_command(state: &mut RunnerState<'_>, cmd: &str, rest: &str
     }
     if cmd == "/thinking" && !rest.is_empty() {
         state.session.config.thinking_level = Some(rest.to_string());
-        state.session.sync_engine_model(state.engine).await;
+        state.session.sync_engine_model(engine).await;
         state
             .session
             .renderer
@@ -531,9 +711,9 @@ async fn handle_slash_command(state: &mut RunnerState<'_>, cmd: &str, rest: &str
         config: &mut state.session.config,
         auth_store: &mut state.session.auth_store,
         renderer: &state.session.renderer,
-        session_id: Some(&state.engine.session_manager.session_id),
-        session_manager: Some(&state.engine.session_manager),
-        engine: Some(state.engine),
+        session_id: Some(&engine.session_manager.session_id),
+        session_manager: Some(&engine.session_manager),
+        engine: Some(engine),
         home_dir: None,
     };
     let trimmed = if rest.is_empty() {
@@ -548,23 +728,7 @@ async fn handle_slash_command(state: &mut RunnerState<'_>, cmd: &str, rest: &str
     Ok(should_exit)
 }
 
-async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result<()> {
-    // 1. Clear inline viewport and suspend raw mode so streaming writes directly to scrollback
-    let _ = state.runner.clear();
-    let _ = state.runner.suspend();
-
-    // 2. Print user message into scrollback
-    state.session.renderer.print_user_block(prompt);
-
-    // 3. Set up turn execution and broadcast channels
-    let cancellation = Arc::new(CancellationSignal::default());
-    let request = TurnRequest::new(prompt).with_cancellation(&cancellation);
-    let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> =
-        Arc::new(crate::ui::render::BroadcastPresenter::new(
-            Arc::new(state.session.renderer.clone()),
-            crate::platform::remote::PEER_REGISTRY.clone(),
-        ));
-
+fn broadcast_turn_start(prompt: &str) {
     crate::platform::remote::PEER_REGISTRY.broadcast(&RpcEvent::TurnStart {
         turn_number: 1,
         prompt: prompt.to_string(),
@@ -572,15 +736,10 @@ async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result
     crate::platform::remote::PEER_REGISTRY.broadcast(&RpcEvent::StatusChanged {
         status: "busy".to_string(),
     });
+}
 
-    // 4. Run turn - output streams live to stdout scrollback above!
-    let turn_res = state.engine.run_turn(request, broadcast).await;
-    state.session.renderer.flush();
-
-    state.session.sync_engine_model(state.engine).await;
-    state.engine.refresh_quota().await;
-
-    let totals = state.engine.session_usage_totals();
+fn broadcast_turn_completion(engine: &AgentEngine) {
+    let totals = engine.session_usage_totals();
     crate::platform::remote::PEER_REGISTRY.broadcast(&RpcEvent::UsageUpdate {
         input_tokens: Some(totals.total_input),
         output_tokens: Some(totals.total_output),
@@ -595,17 +754,110 @@ async fn execute_agent_turn(state: &mut RunnerState<'_>, prompt: &str) -> Result
     crate::platform::remote::PEER_REGISTRY.broadcast(&RpcEvent::StatusChanged {
         status: "idle".to_string(),
     });
+}
 
-    if let Err(err) = turn_res {
-        state.session.renderer.write_output(&format!("\nError: {err}\n"));
-    }
+async fn execute_agent_turn(
+    state: &mut RunnerState<'_>,
+    engine: &mut AgentEngine,
+    prompt: &str,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    events: &mut EventStream,
+) -> Result<()> {
+    let width = crate::ui::terminal_width() as usize;
 
-    // 5. Re-enter raw mode and attach the inline viewport below the streamed response
-    let _ = state.runner.resume();
+    let user_box = state.session.renderer.theme.user_block(width).render_plain(prompt);
+    let mut pending_scrollback = format!("{user_box}\n\n");
+
+    let footer = make_footer_info(
+        &state.session.config.model,
+        &state.session.config.provider,
+        state.session.config.thinking_level.as_deref(),
+        engine,
+    );
+    refresh_display(state, &footer, None, Some(&pending_scrollback))?;
+    pending_scrollback.clear();
+
+    let cancellation = Arc::new(CancellationSignal::default());
+    let request = TurnRequest::new(prompt).with_cancellation(&cancellation);
+    let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> =
+        Arc::new(crate::ui::render::BroadcastPresenter::new(
+            Arc::new(state.session.renderer.clone()),
+            crate::platform::remote::PEER_REGISTRY.clone(),
+        ));
+
+    broadcast_turn_start(prompt);
+
+    let mut turn_future = Box::pin(engine.run_turn(request, broadcast));
+    let mut ticker = tokio::time::interval(Duration::from_millis(16));
+    let mut spinner_frame = 0;
+    let mut current_activity = Activity::Working;
+    let mut current_tool: Option<String> = None;
+
+    let turn_res = loop {
+        tokio::select! {
+            res = &mut turn_future => {
+                while let Ok(ui_ev) = ui_events.try_recv() {
+                    drain_ui_event(ui_ev, &mut pending_scrollback, &mut current_activity, &mut current_tool, state.session);
+                }
+                if let Err(ref err) = res {
+                    pending_scrollback.push_str(&format!("\nError: {err}\n"));
+                }
+                pending_scrollback.push('\n');
+                refresh_display(state, &footer, None, Some(&pending_scrollback))?;
+                pending_scrollback.clear();
+                break res;
+            }
+            Some(ui_ev) = ui_events.recv() => {
+                drain_ui_event(ui_ev, &mut pending_scrollback, &mut current_activity, &mut current_tool, state.session);
+            }
+            _ = ticker.tick() => {
+                spinner_frame = (spinner_frame + 1) % 10;
+                let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
+                if !pending_scrollback.is_empty() {
+                    let out = std::mem::take(&mut pending_scrollback);
+                    refresh_display(state, &footer, Some(activity_meta), Some(&out))?;
+                } else {
+                    refresh_display(state, &footer, Some(activity_meta), None)?;
+                }
+            }
+            maybe_key = events.next() => {
+                if let Some(Ok(Event::Key(key))) = maybe_key {
+                    if key.code == KeyCode::Esc {
+                        cancellation.cancel();
+                        pending_scrollback.push_str("\nCanceled.\n");
+                    } else {
+                        state.editor.handle_key(key);
+                        let activity_meta = (&current_activity, current_tool.as_deref(), spinner_frame);
+                        refresh_display(state, &footer, Some(activity_meta), None)?;
+                    }
+                }
+            }
+        }
+    };
+    drop(turn_future);
+
+    state.session.sync_engine_model(engine).await;
+    engine.refresh_quota().await;
+    broadcast_turn_completion(engine);
+
+    let updated_footer = make_footer_info(
+        &state.session.config.model,
+        &state.session.config.provider,
+        state.session.config.thinking_level.as_deref(),
+        engine,
+    );
+    refresh_display(state, &updated_footer, None, None)?;
+    let _ = turn_res;
     Ok(())
 }
 
-async fn handle_submission(state: &mut RunnerState<'_>, prompt: String) -> Result<bool> {
+async fn handle_submission(
+    state: &mut RunnerState<'_>,
+    engine: &mut AgentEngine,
+    prompt: String,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    events: &mut EventStream,
+) -> Result<bool> {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
         return Ok(false);
@@ -617,9 +869,9 @@ async fn handle_submission(state: &mut RunnerState<'_>, prompt: String) -> Resul
             Some((c, r)) => (c, r.trim()),
             None => (trimmed, ""),
         };
-        return handle_slash_command(state, cmd, rest).await;
+        return handle_slash_command(state, engine, cmd, rest).await;
     }
 
-    execute_agent_turn(state, trimmed).await?;
+    execute_agent_turn(state, engine, trimmed, ui_events, events).await?;
     Ok(false)
 }
