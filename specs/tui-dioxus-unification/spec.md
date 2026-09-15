@@ -101,6 +101,8 @@ This separation causes significant friction:
 - Standardize mouse wheel scroll velocity (3 lines per scroll notch) across modals, code previews, and transcript history in both interfaces.
 - Automatically enforce repository modal standards (Title Case, fixed-width columns, active checkmarks `"  ✓"`, `Up`/`Down`/`k`/`j`/`Tab`/`Shift+Tab`, digit jump keys `1..=9`, search filtering) across all interactive selectors via `use_modal()` in `rho-ui-core`.
 - Deduplicate YAML frontmatter parsing across skills and prompt templates in `rho_harness_core`.
+- Standardize theme structures on `ratatui::style::Style` and `Color::Rgb` natively in `rho-ui-core`, eliminating `anstyle` completely from workspace dependencies and feature configurations.
+- Unify MCP server test diagnostics into structured `McpTestReport` in `rho_engine::mcp`, reused identically across CLI `rho mcp test`, the TUI `/mcp` modal, and the Web Hub MCP manager dashboard.
 - Replace ~960 lines of handwritten CSS in `www/hub/css/hub.css` with standard modern styling and accessible component primitives from Dioxus Components (`Card`, `Dialog`, `Accordion`, `Button`, `Input`, `Badge`).
 - Replace the imperative JavaScript Web Hub frontend with a Dioxus-based WebAssembly application utilizing Dioxus Components.
 - Introduce a shared Rust UI presentation crate (`crates/rho-ui-core`) powered by Dioxus reactivity (`dioxus-core` / `dioxus-signals`) that encapsulates:
@@ -321,6 +323,8 @@ crates/rho-wasm/
 - **REQ-091**: All interactive selectors in both TUI and Web Hub must strictly enforce the repository `/thinking` modal standards (Title Case headers, empty subtitles, fixed-width option columns, active indicators `"  ✓"`, digit jump keys `1..=9`, and fuzzy filtering) via `use_modal` in `rho-ui-core`.
 - **REQ-092**: Terminal key-repeat movement events must coalesce in the input channel, updating editor memory coordinates immediately and synchronizing frame redraws to eliminate cursor stutter at high repeat rates.
 - **REQ-093**: Mouse wheel scrolling across modals, diff views, and transcript history must apply standardized velocity scaling (3 lines per notch) in both TUI and Web Hub.
+- **REQ-094**: MCP server connectivity testing must yield a structured `McpTestReport` from `rho_engine::mcp`, displaying initialization duration, server capabilities, and discovered tool counts identically in CLI `rho mcp test`, TUI `/mcp` modal, and Web Hub.
+- **REQ-095**: Theme definition and color palette detection must operate natively via `ratatui::style::Style` and `ratatui::style::Color`, eliminating all usage of `anstyle` and removing `anstyle` feature dependencies from `terminal-colorsaurus`.
 
 ## Invariants and security boundaries
 
