@@ -15,11 +15,12 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Acceptance Criteria**:
   - `crates/rho-ui-core` compiles cleanly on `cargo check --target wasm32-unknown-unknown` and native.
   - View models exist for `TranscriptItem`, `ThinkingBlock`, `ToolCard`, `ModalState`, and `AutocompleteCandidate`.
+  - `StreamChunkParser` extracts streaming tokens, `<thinking>` tags, duration timestamps, and tool parameters into strongly-typed `StreamEvent`s.
   - Reusable hooks (`use_session`, `use_modal`, `use_permission_prompt`, `use_autocomplete`, `use_stream_parser`) pass in-memory headless unit tests.
 - **Tasks**:
   1. (Effort: 2) Add `crates/rho-ui-core` to the root `Cargo.toml` workspace with dependencies on `dioxus-core`, `dioxus-signals`, `serde`, and `fuzzy-matcher`.
   2. (Effort: 3) Implement reactive state structures and signals for chat transcript, active tool progress, and token streaming.
-  3. (Effort: 2) Implement `<thinking>` tag extraction and collapsible state hook in `use_stream_parser`.
+  3. (Effort: 3) Implement `StreamChunkParser` emitting `StreamEvent`s for content deltas, `<thinking>` blocks, and tool executions.
   4. (Effort: 3) Implement `use_modal` state machine handling selection index, fuzzy search filtering, active indicators, and pagination.
   5. (Effort: 3) Implement `use_permission_prompt` state machine handling tool confirmation flow (Allow, Always, Deny, Edit), custom denial reasons, and prefilled command mutations.
   6. (Effort: 2) Implement `use_autocomplete` hook for slash commands and file paths.
@@ -97,6 +98,7 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 - **Acceptance Criteria**:
   - All JavaScript files in `www/hub/js/` are removed; `www/hub/index.html` loads the compiled Dioxus WASM binary.
   - Fleet node grid, session sidebar, chat transcript, thinking accordions, permission approval cards, and modals render using Dioxus Components (`dioxuslabs.com/components`).
+  - Markdown renders with full feature fidelity: syntax-highlighted code blocks with copy buttons, HTML tables, interactive SVG Mermaid diagrams, and formatted diffs.
   - Direct in-browser Iroh P2P connection operates reactively via Dioxus coroutines and `rho-ui-core` signals.
   - `make wasm` produces an optimized release WASM bundle.
 - **Tasks**:
