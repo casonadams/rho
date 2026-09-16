@@ -1490,9 +1490,11 @@ fn handle_turn_key_input(
                 return false;
             }
             if !state.editor.handle_key(key) {
-                let steering_text = state.editor.text().trim().to_string();
-                if !steering_text.is_empty() {
-                    steering.enqueue(steering_text);
+                let steering_text = state.editor.expanded_text();
+                let trimmed = steering_text.trim().to_string();
+                if !trimmed.is_empty() {
+                    steering.enqueue(trimmed);
+                    rho_engine::process::kill_all_tracked_processes();
                     state.editor.clear();
                 }
             }
@@ -1626,6 +1628,71 @@ fn handle_turn_paste(
     Ok(())
 }
 
+fn handle_turn_key(
+    key: KeyEvent,
+    state: &mut RunnerState<'_>,
+    steering: &SharedSteeringQueue,
+    cancellation: &CancellationSignal,
+    stream: &mut TurnStreamState,
+    footer: &FooterInfo,
+) -> bool {
+    let cancelled = handle_turn_key_input(key, state, steering, cancellation, &mut stream.responder, footer);
+    if !cancelled {
+        let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+        let queued = steering.current_items();
+        let _ = refresh_display(state, footer, Some(activity_meta), &queued, None);
+    }
+    cancelled
+}
+
+async fn finalize_turn_cancellation(
+    engine: &mut AgentEngine,
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    stream: &mut TurnStreamState,
+) -> Result<()> {
+    let _ = engine.record_cancellation("operator interrupt").await;
+    refresh_display(state, footer, None, &[], Some("\nCanceled.\n"))?;
+    stream.scrollback.clear();
+    Ok(())
+}
+
+async fn dispatch_unconsumed_steering(
+    unconsumed: Vec<String>,
+    state: &mut RunnerState<'_>,
+    engine: &mut AgentEngine,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    events: &mut EventStream,
+) -> Result<()> {
+    for msg in unconsumed {
+        Box::pin(execute_agent_turn(state, engine, &msg, ui_events, events)).await?;
+    }
+    Ok(())
+}
+
+fn handle_turn_stream_event(
+    ev: Option<std::io::Result<Event>>,
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    stream: &mut TurnStreamState,
+    steering: &SharedSteeringQueue,
+    cancellation: &CancellationSignal,
+) -> Result<bool> {
+    match ev {
+        Some(Ok(Event::Resize(w, _))) => {
+            handle_turn_resize((w as usize).max(1), state, footer, stream, steering)?;
+        }
+        Some(Ok(Event::Paste(text))) => {
+            handle_turn_paste(&text, state, footer, stream, steering)?;
+        }
+        Some(Ok(Event::Key(key))) => {
+            return Ok(handle_turn_key(key, state, steering, cancellation, stream, footer));
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
 async fn execute_agent_turn(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
@@ -1674,45 +1741,26 @@ async fn execute_agent_turn(
                 handle_turn_tick(state, &footer, &mut stream, &steering)?;
             }
             maybe_key = events.next() => {
-                match maybe_key {
-                    Some(Ok(Event::Resize(w, _))) => {
-                        handle_turn_resize((w as usize).max(1), state, &footer, &stream, &steering)?;
-                    }
-                    Some(Ok(Event::Paste(text))) => {
-                        handle_turn_paste(&text, state, &footer, &stream, &steering)?;
-                    }
-                    Some(Ok(Event::Key(key))) => {
-                        let cancelled = handle_turn_key_input(
-                            key,
-                            state,
-                            &steering,
-                            &cancellation,
-                            &mut stream.responder,
-                            &footer,
-                        );
-                        if cancelled {
-                            is_cancelled = true;
-                            break;
-                        }
-                        let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                        let queued = steering.current_items();
-                        refresh_display(state, &footer, Some(activity_meta), &queued, None)?;
-                    }
-                    _ => {}
+                if handle_turn_stream_event(maybe_key, state, &footer, &mut stream, &steering, &cancellation)? {
+                    is_cancelled = true;
+                    break;
                 }
             }
         }
     }
     drop(turn_future);
     if is_cancelled {
-        let _ = engine.record_cancellation("operator interrupt").await;
-        refresh_display(state, &footer, None, &[], Some("\nCanceled.\n"))?;
-        stream.scrollback.clear();
+        finalize_turn_cancellation(engine, state, &footer, &mut stream).await?;
     }
     crate::platform::remote::set_active_steering(None);
     *state.active_modal = None;
 
     finish_turn_execution(state, engine).await?;
+    let unconsumed = steering.current_items();
+    if !unconsumed.is_empty() && !is_cancelled {
+        steering.clear();
+        dispatch_unconsumed_steering(unconsumed, state, engine, ui_events, events).await?;
+    }
     Ok(())
 }
 
