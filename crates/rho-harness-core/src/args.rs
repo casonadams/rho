@@ -91,41 +91,6 @@ pub struct RgArgs {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct WebFetchArgs {
-    /// URL to fetch
-    pub url: String,
-    /// Line number to start reading from (1-indexed, default 1)
-    pub offset: Option<usize>,
-    /// Maximum number of lines to return (default 200)
-    pub limit: Option<usize>,
-    /// Extraction mode ("auto", "main", or "full", default "auto")
-    pub mode: Option<String>,
-    /// Optional format override ("html", "json", "markdown", "csv", "xml", "pdf")
-    pub format: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum WebSearchRecency {
-    Day,
-    Week,
-    Month,
-    Year,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-pub struct WebSearchArgs {
-    /// Search query
-    pub query: String,
-    /// Maximum number of search results to return (default: 5)
-    pub limit: Option<usize>,
-    /// Filter search results by time period: 'day', 'week', 'month', or 'year'
-    pub recency: Option<WebSearchRecency>,
-    /// Limit results to specific domains (e.g. ['github.com']) or exclude domains with a leading '-' (e.g. ['-spam.com'])
-    pub domains: Option<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 pub struct WriteArgs {
     /// Path to the file to write (relative or absolute)
     pub path: String,
@@ -148,12 +113,6 @@ pub mod read {
 }
 pub mod rg {
     pub use super::RgArgs;
-}
-pub mod web_fetch {
-    pub use super::WebFetchArgs;
-}
-pub mod web_search {
-    pub use super::{WebSearchArgs, WebSearchRecency};
 }
 pub mod write {
     pub use super::WriteArgs;

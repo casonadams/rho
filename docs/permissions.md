@@ -150,5 +150,4 @@ bash = ["curl *", "docker run *"]
   `~/.local/share/rho`, and project `.rho/`).
 - **Auditable Dependencies**: The repository contains zero analytics, tracking,
   or telemetry crates. Every outbound network call is initiated strictly by your
-  configured providers or explicit tool invocations (e.g. `web_search` or
-  `web_fetch`).
+  configured providers or explicit tool invocations.

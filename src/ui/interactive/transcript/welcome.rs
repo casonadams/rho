@@ -43,8 +43,6 @@ fn classify_tools(tools: &[String]) -> ToolCategories {
     for tool in tools {
         match tool.as_str() {
             "fd" | "read" | "rg" | "write" | "edit" | "bash" => push_unique(&mut builtins, tool),
-            "search" | "web_search" => push_unique(&mut builtins, "web_search"),
-            "fetch" | "web_fetch" => push_unique(&mut builtins, "web_fetch"),
             "mcp" | "mcpScript" => {}
             other => {
                 if let Some((server, _)) = other.split_once('_') {

@@ -63,12 +63,12 @@ mod tests {
     #[test]
     fn display_transformer_pipeline_applies_in_order() {
         let mut pipeline = DisplayTransformerPipeline::new();
-        pipeline.add(Arc::new(ReplaceTransformer::new("mcp__exa__search", "search")));
-        pipeline.add(Arc::new(ReplaceTransformer::new("search", "web_search")));
+        pipeline.add(Arc::new(ReplaceTransformer::new("foo", "bar")));
+        pipeline.add(Arc::new(ReplaceTransformer::new("bar", "baz")));
 
-        let input = "I will call `mcp__exa__search` to find results.";
+        let input = "I will call `foo` to find results.";
         let output = pipeline.transform(input);
-        assert_eq!(output, "I will call `web_search` to find results.");
+        assert_eq!(output, "I will call `baz` to find results.");
     }
 
     #[test]

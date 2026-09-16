@@ -1,7 +1,4 @@
 use super::*;
-use crate::tools::web::{
-    FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
-};
 use crate::tools::{BashTool, EditTool, FdTool, ReadTool, WriteTool};
 use rig::tool::{ToolContext, ToolErrorKind, ToolSet};
 
@@ -13,33 +10,10 @@ fn add_core_tools(tools: &mut ToolSet, base: &std::path::Path) {
     tools.add_tool(FdTool::new(base));
 }
 
-fn add_web_tools(tools: &mut ToolSet, http: HttpClient) {
-    tools.add_tool(WebSearchTool::new(
-        http.clone(),
-        SearchRateLimiter::new(0),
-        WebSearchConfig {
-            region: "wt-wt".to_string(),
-            timeout_sec: 1,
-        },
-    ));
-    tools.add_tool(WebFetchTool::new(
-        http,
-        FetchCache::new(60, 4),
-        WebFetchConfig {
-            timeout_sec: 1,
-            max_bytes: 1024,
-            pdf_max_bytes: 30 * 1024 * 1024,
-            default_limit: 20,
-        },
-    ));
-}
-
 fn tool_set() -> ToolSet {
     let base = std::env::temp_dir();
-    let http = HttpClient::new(false).unwrap();
     let mut tools = ToolSet::default();
     add_core_tools(&mut tools, &base);
-    add_web_tools(&mut tools, http);
     tools
 }
 
@@ -70,8 +44,6 @@ fn rig_schemas_are_generated_from_typed_arguments() {
         ("write", &["content", "path"][..]),
         ("edit", &["edits", "path"][..]),
         ("bash", &["command"][..]),
-        ("web_search", &["query"][..]),
-        ("web_fetch", &["url"][..]),
     ];
 
     for (name, required) in expected {
@@ -90,11 +62,11 @@ fn rig_schemas_are_generated_from_typed_arguments() {
 #[tokio::test]
 async fn rig_dispatch_rejects_malformed_arguments_for_every_tool() {
     let tools = tool_set();
-    for name in ["read", "write", "edit", "bash", "fd", "web_search", "web_fetch"] {
+    for name in ["read", "write", "edit", "bash", "fd"] {
         let result = tools.execute(name, "not json", &mut ToolContext::new()).await;
         assert!(result.is_error_kind(ToolErrorKind::InvalidArgs), "{name}: {result:?}");
     }
-    for name in ["read", "write", "edit", "bash", "web_search", "web_fetch"] {
+    for name in ["read", "write", "edit", "bash"] {
         let result = tools.execute(name, "{}", &mut ToolContext::new()).await;
         assert!(result.is_error_kind(ToolErrorKind::InvalidArgs), "{name}: {result:?}");
     }

@@ -7,8 +7,6 @@ Available tools:
 - bash: Execute bash commands in the current working directory
 - fd: Find files and directories by workspace-relative path pattern (gitignore-aware, bounded)
 - rg: Search file contents with line-oriented results (gitignore-aware, skips binary and large files, bounded)
-- web_search: Search the web and return structured summaries and URLs
-- web_fetch: Fetch and extract clean text or markdown from URLs
 
 In addition to the tools above, you may have access to other custom tools depending on the project.
 

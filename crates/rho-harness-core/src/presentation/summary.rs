@@ -342,8 +342,6 @@ pub fn format_tool_args_summary(name: &str, args: &serde_json::Value) -> String 
         "read" => format_read_summary(args),
         "write" | "edit" => format_file_mutation_summary(name, args),
         "bash" => format_bash_summary(args),
-        "web_search" => format!("\"{}\"", args.get("query").and_then(|q| q.as_str()).unwrap_or("")),
-        "web_fetch" => to_relative_path(args.get("url").and_then(|u| u.as_str()).unwrap_or("")),
         "grep" | "rg" | "fd" => format_search_summary(name, args),
         "ls" => to_relative_path(args.get("path").and_then(|p| p.as_str()).unwrap_or(".")),
         "mcp" => format_mcp_summary(args),

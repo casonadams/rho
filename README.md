@@ -63,9 +63,6 @@ rho serve --workspace ~/src/my-project
   matching.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files, and bounds output.
-- **`web_search`**: Search the web and retrieve structured summaries and URLs.
-- **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
-  from web URLs.
 
 ---
 

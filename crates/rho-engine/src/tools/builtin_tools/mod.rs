@@ -4,7 +4,7 @@ mod tests;
 
 pub use catalog::{
     BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, PROMPT_BASH, PROMPT_EDIT, PROMPT_FD, PROMPT_READ, PROMPT_RG,
-    PROMPT_WEB_FETCH, PROMPT_WEB_SEARCH, PROMPT_WRITE,
+    PROMPT_WRITE,
 };
 
 use crate::tools::bash::{BashArgs, BashTool};
@@ -13,11 +13,8 @@ use crate::tools::fd::FdTool;
 use crate::tools::read::{ReadArgs, ReadTool};
 use crate::tools::rg::RgTool;
 use crate::tools::types::{ToolResult, generated_schema, into_dynamic_result};
-use crate::tools::web::{
-    FetchCache, HttpClient, SearchRateLimiter, WebFetchConfig, WebFetchTool, WebSearchConfig, WebSearchTool,
-};
 use crate::tools::write::{WriteArgs, WriteTool};
-use rho_harness_core::args::{FdArgs, RgArgs, WebFetchArgs, WebSearchArgs};
+use rho_harness_core::args::{FdArgs, RgArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
 use rig::tool::DynamicTool;
@@ -150,67 +147,7 @@ fn build_rg_dynamic_tool(rg_tool: Arc<RgTool>) -> DynamicTool {
     )
 }
 
-fn build_search_dynamic_tool(s: WebSearchTool) -> DynamicTool {
-    DynamicTool::new(
-        "web_search",
-        "Search the web and return structured search results with titles, summaries, and URLs.",
-        generated_schema::<WebSearchArgs>(),
-        move |_ctx, args| {
-            let s = s.clone();
-            Box::pin(async move {
-                let args: WebSearchArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(s.execute(args).await)
-            })
-        },
-    )
-}
-
-fn build_fetch_dynamic_tool(f: WebFetchTool) -> DynamicTool {
-    DynamicTool::new(
-        "web_fetch",
-        "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        generated_schema::<WebFetchArgs>(),
-        move |_ctx, args| {
-            let f = f.clone();
-            Box::pin(async move {
-                let args: WebFetchArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(f.execute(args).await)
-            })
-        },
-    )
-}
-
-fn build_web_tools(config: &Config) -> Result<(WebSearchTool, WebFetchTool)> {
-    let http = HttpClient::new(config.allow_private_network)?;
-    let search = WebSearchTool::new(
-        http.clone(),
-        SearchRateLimiter::new(config.search_min_interval_ms),
-        WebSearchConfig {
-            region: config.region.clone(),
-            timeout_sec: config.search_timeout_sec,
-        },
-    );
-    let fetch = WebFetchTool::new(
-        http,
-        FetchCache::new(60, 64),
-        WebFetchConfig {
-            timeout_sec: config.fetch_timeout_sec,
-            max_bytes: config.fetch_max_bytes,
-            pdf_max_bytes: 30 * 1024 * 1024,
-            default_limit: config.fetch_limit,
-        },
-    );
-    Ok((search, fetch))
-}
-
 pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
-    let (search, fetch) = build_web_tools(config)?;
     let write = Arc::new(WriteTool::with_exclusions(
         base_dir,
         [&config.config_dir, &config.sessions_dir],
@@ -231,8 +168,6 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
         build_bash_dynamic_tool(bash),
         build_fd_dynamic_tool(fd),
         build_rg_dynamic_tool(rg),
-        build_search_dynamic_tool(search),
-        build_fetch_dynamic_tool(fetch),
     ])
 }
 

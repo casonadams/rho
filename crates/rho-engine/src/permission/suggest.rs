@@ -28,19 +28,11 @@ pub fn suggested_rule(tool: &str, input: &str) -> String {
                 "*".to_string()
             }
         }
-        "fetch" => match input.split_once("://") {
-            Some((scheme, rest)) => format!("{scheme}://{}/*", rest.split('/').next().unwrap_or_default()),
-            _ => "*".to_string(),
-        },
         "read" | "write" | "edit" => format!("{input}/*"),
         _ => "*".to_string(),
     }
 }
 
 pub fn canonical_tool(tool: &str) -> &str {
-    match tool {
-        "webfetch" | "web_fetch" => "fetch",
-        "websearch" | "web_search" => "search",
-        other => other,
-    }
+    tool
 }

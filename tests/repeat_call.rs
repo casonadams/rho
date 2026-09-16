@@ -30,18 +30,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn normalization_web_search_differences() {
-        assert_eq!(
-            key("web_search", json!({"query":" Rig   Memory ", "limit":null})),
-            key("web_search", json!({"query":"rig memory", "limit":5}))
-        );
-        assert_ne!(
-            key("web_search", json!({"query":"rig memory", "limit":5})),
-            key("web_search", json!({"query":"rig memory hook", "limit":5}))
-        );
-    }
-
     #[cfg(unix)]
     #[tokio::test]
     async fn third_whitespace_normalized_mutation_is_blocked_without_side_effect() {

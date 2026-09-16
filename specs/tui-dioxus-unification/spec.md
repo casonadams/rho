@@ -311,13 +311,13 @@ crates/rho-wasm/
 - **REQ-074**: Code syntax highlighting must leverage native 24-bit TrueColor `Color::Rgb` in Ratatui, completely deleting custom RGB-to-ANSI16 color quantization logic in `src/ui/markdown/highlight.rs`.
 - **REQ-075**: Terminal dimensions must be read exclusively from Ratatui's cached `frame.area()`, eliminating ad-hoc `crossterm::terminal::size()` ioctl syscalls on render hot paths.
 - **REQ-076**: Top dividers, version banners, and activity indicators in the TUI must be rendered using Ratatui's native `Block::borders(Borders::TOP)` with title alignment, completely deleting manual `"─".repeat(...)` string formatting in `src/ui/interactive/layout/chrome.rs`.
-- **REQ-077**: Tool argument inspection and file previews must deserialize into typed `ToolInvocation` variants (`ReadArgs`, `EditArgs`, `WriteArgs`, `WebFetchArgs`, `BashArgs`), eliminating untyped `serde_json::Value` string indexing in presentation layers.
+- **REQ-077**: Tool argument inspection and file previews must deserialize into typed `ToolInvocation` variants (`ReadArgs`, `EditArgs`, `WriteArgs`, `BashArgs`), eliminating untyped `serde_json::Value` string indexing in presentation layers.
 - **REQ-078**: Truncated tool outputs must present interactive expansion toggles (`Ctrl+O` in TUI) and allow full output log inspection/download via `full_output_path` in both interfaces.
 - **REQ-079**: Transcript presentation in both TUI and Web Hub must run through `SecretGuard::redact` in `rho-ui-core` before rendering, ensuring zero accidental leakage of auth keys or session secrets.
 - **REQ-080**: Terminal and browser focus state changes (`FocusGained` / `FocusLost`) must update a shared `Signal<WindowFocus>` in `rho-ui-core` to reactively dim or highlight active input chrome.
 - **REQ-081**: Visual selection mode (`v`, `V`) and mouse selection in `ratatui-textarea` must support yanking and deleting directly to/from the system clipboard via `arboard`, with OSC 52 fallback for remote SSH terminal sessions.
 - **REQ-082**: Modal dialogs in the Dioxus Web Hub must enforce accessible ARIA attributes (`role="dialog"`, `aria-modal="true"`) and automatic keyboard focus trapping.
-- **REQ-083**: Tool outputs containing URLs (web search results, fetched links) must project as clickable hyperlinks in the Web Hub transcript.
+- **REQ-083**: Tool outputs containing URLs must project as clickable hyperlinks in the Web Hub transcript.
 - **REQ-084**: Completed context compaction events (`CompactionComplete`) must render as visual compaction milestones in both TUI scrollback and the Web Hub transcript.
 - **REQ-085**: Image attachments in the Web Hub must be validated via client-side magic-byte sniffing (`detect_supported_image_mime`) and downsampled in Rust WebAssembly (`fit_dimensions`) before transmission to optimize P2P network bandwidth.
 - **REQ-086**: Session deletion and pruning must be supported in `SessionStore`, allowing users to delete inactive sessions from both the TUI session modal and the Web Hub sidebar.
@@ -566,14 +566,14 @@ A common question is whether unification saves "25k lines of code". It is critic
    - `src/ui/interactive/layout/` (25 files, 4,554 lines): the entire hand-rolled layout engine, deleted after the REPL runner
      moved its modals onto Ratatui `StandardModalView` + `run_modal_view`. The single surviving helper (`wrap_to_width`,
      ANSI-aware word wrapping) moved to the canonical text module `src/ui/block/wrap.rs` with its behavior tests.
-   - **Current totals**: **24,520 lines deleted**, **15,953 lines added** (Net reduction: **8,567 lines**).
-   - `src/ui/` + `src/repl/` shrank from **269 files / 34,670 lines** to **143 files / 19,460 lines**.
+   - **Current totals**: **25,892 lines deleted**, **16,472 lines added** (Net reduction: **9,420 lines**).
+   - `src/ui/` + `src/repl/` shrank from **269 files / 34,670 lines** to **143 files / 18,590 lines**.
 
 3. **Phase 3 Path A remaining surface**:
-   - `src/ui/interactive/state/` (11 files, ~1,500 lines): to be replaced by `rho-ui-core` signals.
+   - `src/ui/interactive/state/` (~1,000 lines): to be replaced by `rho-ui-core` signals.
    - `src/ui/block/` (3 files, ~560 lines): to be replaced by Ratatui `Block`/`Borders` once transcript rendering
      projects `ContentBlock` instead of pre-rendered ANSI strings.
-   - `src/ui/markdown/` (17 files, 3,398 lines) & `src/ui/render/` (21 files, 3,504 lines): to be streamlined into
+   - `src/ui/markdown/` (~3,300 lines) & `src/ui/render/` (~3,500 lines): to be streamlined into
      `rho-ui-core` block projections.
    - Completing the remainder brings the final net savings to the projected ~10,000–12,000 lines.
 

@@ -20,7 +20,7 @@ pub mod rpc_presenter;
 mod tests;
 
 pub use broadcast_presenter::BroadcastPresenter;
-pub(crate) use card::{fetch_content_kind, format_bash_args_header};
+pub(crate) use card::format_bash_args_header;
 pub use formatters::format_relative_time;
 pub(crate) use formatters::{format_edit_diff, format_read_expanded, format_thinking_block, format_write_preview};
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};

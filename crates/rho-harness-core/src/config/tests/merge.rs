@@ -3,14 +3,13 @@ use clap::Parser;
 
 fn assert_default_limits(cfg: &Config) {
     let actual = (
-        cfg.search_min_interval_ms,
         cfg.output_max_bytes,
         cfg.max_output_tokens,
         cfg.max_turns,
         cfg.context_window_messages,
         cfg.compaction_max_bytes,
     );
-    assert_eq!(actual, (2000, 50_000, None, 1000, 24, 8192));
+    assert_eq!(actual, (50_000, None, 1000, 24, 8192));
 }
 
 fn assert_default_features(cfg: &Config) {
@@ -43,9 +42,8 @@ fn assert_merged_limits(cfg: &Config) {
         cfg.context_limit,
         cfg.context_window_messages,
         cfg.compaction_max_bytes,
-        cfg.search_min_interval_ms,
     );
-    assert_eq!(actual, (Some(8192), 10, Some(65536), 16, 4096, 3000));
+    assert_eq!(actual, (Some(8192), 10, Some(65536), 16, 4096));
 }
 
 #[test]
@@ -59,7 +57,6 @@ fn test_file_merge() {
         context_limit: Some(65536),
         context_window_messages: Some(16),
         compaction_max_bytes: Some(4096),
-        search_min_interval_ms: Some(3000),
         session_retention_days: Some(10),
         ..Default::default()
     };

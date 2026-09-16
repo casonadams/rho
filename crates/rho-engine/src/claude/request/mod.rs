@@ -22,8 +22,6 @@ pub fn is_core_claude_tool(name: &str) -> bool {
             | "task"
             | "taskoutput"
             | "todowrite"
-            | "webfetch"
-            | "websearch"
     )
 }
 
@@ -36,8 +34,6 @@ pub fn to_claude_tool_name(name: &str) -> String {
         "bash" => "Bash".to_string(),
         "grep" => "Grep".to_string(),
         "glob" => "Glob".to_string(),
-        "webfetch" | "web_fetch" => "WebFetch".to_string(),
-        "websearch" | "web_search" => "WebSearch".to_string(),
         "askuserquestion" => "AskUserQuestion".to_string(),
         "enterplanmode" => "EnterPlanMode".to_string(),
         "exitplanmode" => "ExitPlanMode".to_string(),
@@ -67,10 +63,6 @@ pub fn from_claude_tool_name(name: &str) -> &str {
         "glob"
     } else if name.eq_ignore_ascii_case("grep") {
         "grep"
-    } else if name.eq_ignore_ascii_case("webfetch") || name.eq_ignore_ascii_case("web_fetch") {
-        "web_fetch"
-    } else if name.eq_ignore_ascii_case("websearch") || name.eq_ignore_ascii_case("web_search") {
-        "web_search"
     } else {
         name
     }

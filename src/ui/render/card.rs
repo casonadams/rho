@@ -6,42 +6,6 @@ use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, format_tool_args_summary, read_summary_parts,
 };
 
-fn kind_from_format(format: &str) -> &'static str {
-    match format.to_ascii_lowercase().as_str() {
-        "pdf" => "pdf",
-        "json" => "json",
-        "csv" => "csv",
-        "xml" => "xml",
-        _ => "text",
-    }
-}
-
-fn kind_from_url(url: &str) -> &'static str {
-    if url.ends_with(".pdf") {
-        "pdf"
-    } else if url.ends_with(".json") {
-        "json"
-    } else if url.ends_with(".csv") {
-        "csv"
-    } else if url.ends_with(".xml") || url.ends_with(".rss") || url.ends_with(".atom") {
-        "xml"
-    } else {
-        "text"
-    }
-}
-
-pub fn fetch_content_kind(arguments: &serde_json::Value) -> &'static str {
-    if let Some(format) = arguments.get("format").and_then(serde_json::Value::as_str) {
-        return kind_from_format(format);
-    }
-    let url = arguments
-        .get("url")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    kind_from_url(&url)
-}
-
 pub fn format_bash_args_header(summary: &str, accent: crate::ui::theme::Style, dim: crate::ui::theme::Style) -> String {
     if let Some(idx) = summary.rfind(" (timeout ")
         && summary.ends_with(')')
@@ -82,34 +46,19 @@ fn format_read_header(line: &ToolLine, theme: &Theme) -> String {
 fn format_card_header(line: &ToolLine, theme: &Theme) -> String {
     let title = theme.tool_title_style(line.is_error);
     let accent = theme.highlight;
-    let display_name = match line.name.as_str() {
-        "search" | "websearch" => "web_search",
-        "fetch" | "webfetch" => "web_fetch",
-        other => other,
-    };
     if !line.is_error && line.name == "read" {
         return format_read_header(line, theme);
     }
-    if !line.is_error && display_name == "web_fetch" {
-        let url = line
-            .arguments
-            .get("url")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        let status = theme.warning;
-        let kind = fetch_content_kind(&line.arguments);
-        return format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
-    }
     let summary = format_tool_args_summary(&line.name, &line.arguments);
     if summary.is_empty() {
-        format!("{title}{display_name}{title:#}")
+        format!("{title}{}{title:#}", line.name)
     } else {
         let header_args = if line.name == "bash" {
             format_bash_args_header(&summary, accent, theme.dimmed)
         } else {
             format!("{accent}{summary}{accent:#}")
         };
-        format!("{title}{display_name}{title:#} {header_args}")
+        format!("{title}{}{title:#} {header_args}", line.name)
     }
 }
 
