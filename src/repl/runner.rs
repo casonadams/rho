@@ -397,7 +397,24 @@ async fn init_live_engine(session: &mut ReplSession) -> Result<AgentEngine> {
 async fn build_welcome_item(session: &ReplSession, engine: &AgentEngine) -> crate::ui::interactive::WelcomeItem {
     let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
     let tools = engine.tool_names();
-    let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
+    let statuses = rho_engine::mcp::get_mcp_server_statuses();
+    let mcp = session
+        .config
+        .mcp
+        .servers
+        .keys()
+        .map(|name| {
+            if let Some(st) = statuses.get(name) {
+                if st.error.is_some() || !st.is_loaded {
+                    format!("{name} (failed)")
+                } else {
+                    name.clone()
+                }
+            } else {
+                name.clone()
+            }
+        })
+        .collect::<Vec<_>>();
     let agents = engine.instruction_files().await;
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
     let location = std::env::current_dir()
@@ -1315,17 +1332,29 @@ fn build_session_modal(summaries: &[rho_harness_core::session::SessionSummary], 
 }
 
 fn build_mcp_modal(session: &ReplSession) -> ModalState {
+    let statuses = rho_engine::mcp::get_mcp_server_statuses();
     let options = session
         .config
         .mcp
         .servers
         .iter()
         .map(|(name, cfg)| {
-            let active_mark = if cfg.enabled { "✓" } else { "" };
-            ModalOption::new(
-                name.clone(),
-                Some(format!("{}\t{}", cfg.command.as_deref().unwrap_or(""), active_mark)),
-            )
+            let (status_text, is_active) = if let Some(st) = statuses.get(name) {
+                if let Some(err) = &st.error {
+                    (format!("failed: {err}"), false)
+                } else if st.is_loaded {
+                    (format!("active ({} tools)", st.tools_count), true)
+                } else {
+                    ("disabled".to_string(), false)
+                }
+            } else if cfg.enabled {
+                ("active".to_string(), true)
+            } else {
+                ("disabled".to_string(), false)
+            };
+            let check = if is_active { "✓" } else { "" };
+            let command = cfg.command.as_deref().or(cfg.url.as_deref()).unwrap_or("");
+            ModalOption::new(name.clone(), Some(format!("{}\t{}\t{}", command, check, status_text)))
         })
         .collect();
     ModalState::new("Model Context Protocol", "", options)
