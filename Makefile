@@ -56,12 +56,24 @@ run: ## Run the rho CLI
 
 .PHONY: wasm
 wasm: ## Build rho-wasm and generate JS bindings into www/hub/wasm
-	@if [ -d "/opt/homebrew/opt/llvm/bin" ]; then \
-		CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang \
-		AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar \
-		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
+	@if [ -z "$$CC_wasm32_unknown_unknown" ] && [ "$$(uname -s)" = "Darwin" ]; then \
+		LLVM_DIR=$$(if [ -d "/opt/homebrew/opt/llvm/bin" ]; then echo "/opt/homebrew/opt/llvm/bin"; \
+			elif [ -d "/usr/local/opt/llvm/bin" ]; then echo "/usr/local/opt/llvm/bin"; \
+			elif command -v brew >/dev/null 2>&1 && [ -d "$$(brew --prefix llvm 2>/dev/null)/bin" ]; then echo "$$(brew --prefix llvm)/bin"; fi); \
+		if [ -n "$$LLVM_DIR" ]; then \
+			CC_wasm32_unknown_unknown="$$LLVM_DIR/clang" \
+			AR_wasm32_unknown_unknown="$$LLVM_DIR/llvm-ar" \
+			$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
+		else \
+			echo "Error: Apple Clang lacks wasm32 support. Please install LLVM via 'brew install llvm'"; \
+			exit 1; \
+		fi; \
 	else \
 		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
+	fi
+	@if ! command -v wasm-bindgen >/dev/null 2>&1; then \
+		echo "Error: wasm-bindgen CLI not found. Please install via 'cargo install -f wasm-bindgen-cli --version 0.2.106'"; \
+		exit 1; \
 	fi
 	wasm-bindgen target/wasm32-unknown-unknown/release/rho_wasm.wasm --out-dir www/hub/wasm --target web
 	@if command -v wasm-opt >/dev/null 2>&1; then \

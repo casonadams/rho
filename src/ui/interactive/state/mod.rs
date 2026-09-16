@@ -1,6 +1,5 @@
 mod action;
 pub mod autocomplete;
-pub mod editor;
 pub mod modal;
 pub mod paste;
 pub mod running_tool;
@@ -8,8 +7,8 @@ pub mod running_tool;
 mod tests;
 pub mod types;
 
+pub use crate::ui::editor::TextAreaEditor as EditorState;
 pub use autocomplete::{AutocompleteItem, AutocompleteState};
-pub use editor::EditorState;
 pub use modal::{ModalMode, ModalOption, ModalState};
 pub use paste::{PasteStore, check_paste_threshold, sanitize_paste};
 pub use running_tool::{MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, RunningTool};

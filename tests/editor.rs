@@ -29,6 +29,12 @@ fn test_default_mode_typing() {
     assert_eq!(editor.text(), "hi");
     assert!(!editor.is_empty());
 
+    // Arrow keys move cursor without submitting (return true)
+    assert!(editor.handle_key(key(KeyCode::Left)));
+    assert_eq!(editor.cursor(), (0, 1));
+    assert!(editor.handle_key(key(KeyCode::Right)));
+    assert_eq!(editor.cursor(), (0, 2));
+
     // Enter without modifiers returns false to signal submission
     assert!(!editor.handle_key(key(KeyCode::Enter)));
     assert_eq!(editor.text(), "hi");

@@ -15,7 +15,7 @@ pub use editor::{EditorMode, TextAreaEditor, Vim, VimMode};
 pub use markdown::MarkdownRenderer;
 pub use modal::{
     AutocompletePopupView, RemotePairModalView, StandardModalView, centered_modal_area, prompt_session_picker,
-    render_modal, run_modal_view,
+    render_modal, render_modal_lines, run_modal_view, run_modal_view_async,
 };
 pub use render::TerminalRenderer;
 pub use terminal::{

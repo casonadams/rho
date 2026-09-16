@@ -751,6 +751,62 @@ impl TextAreaEditor {
         Some(QueuedMessage { text, kind })
     }
 
+    pub fn insert(&mut self, text: impl AsRef<str>) {
+        self.textarea.insert_str(text.as_ref());
+    }
+
+    pub fn backspace(&mut self) -> bool {
+        self.textarea.delete_char()
+    }
+
+    pub fn delete(&mut self) -> bool {
+        self.textarea.delete_next_char()
+    }
+
+    pub fn move_left(&mut self) {
+        self.textarea.move_cursor(CursorMove::Back);
+    }
+
+    pub fn move_right(&mut self) {
+        self.textarea.move_cursor(CursorMove::Forward);
+    }
+
+    pub fn move_word_left(&mut self) {
+        self.textarea.move_cursor(CursorMove::WordBack);
+    }
+
+    pub fn move_word_right(&mut self) {
+        self.textarea.move_cursor(CursorMove::WordForward);
+    }
+
+    pub fn move_to_start(&mut self) {
+        self.textarea.move_cursor(CursorMove::Head);
+    }
+
+    pub fn move_to_end(&mut self) {
+        self.textarea.move_cursor(CursorMove::End);
+    }
+
+    pub fn delete_word_backward(&mut self) -> bool {
+        self.textarea.delete_word()
+    }
+
+    pub fn delete_word_forward(&mut self) -> bool {
+        self.textarea.delete_next_word()
+    }
+
+    pub fn delete_to_line_start(&mut self) -> bool {
+        self.textarea.delete_line_by_head()
+    }
+
+    pub fn delete_to_line_end(&mut self) -> bool {
+        self.textarea.delete_line_by_end()
+    }
+
+    pub fn yank(&mut self) {
+        self.textarea.paste();
+    }
+
     pub fn undo(&mut self) -> bool {
         self.textarea.undo()
     }
@@ -773,6 +829,14 @@ impl TextAreaEditor {
         }
     }
 }
+
+impl PartialEq for TextAreaEditor {
+    fn eq(&self, other: &Self) -> bool {
+        self.text() == other.text() && self.editor_mode == other.editor_mode && self.pastes == other.pastes
+    }
+}
+
+impl Eq for TextAreaEditor {}
 
 impl PromptEditor for TextAreaEditor {
     fn text(&self) -> String {
@@ -826,7 +890,8 @@ impl PromptEditor for TextAreaEditor {
                 self.textarea.insert_newline();
                 return true;
             }
-            self.textarea.input(key)
+            self.textarea.input(key);
+            true
         }
     }
 

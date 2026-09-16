@@ -16,6 +16,8 @@ use std::collections::HashMap;
 
 use super::ModalView;
 
+pub const MODAL_BG: Color = Color::Rgb(18, 20, 24);
+
 pub fn centered_modal_area(width_req: u16, height_req: u16, area: Rect) -> Rect {
     let width = width_req.min(area.width.saturating_sub(2)).max(20);
     let height = height_req.min(area.height.saturating_sub(2)).max(5);
@@ -70,7 +72,7 @@ fn build_modal_items<'a>(state: &'a ModalState, list_width: usize) -> Vec<ListIt
             let item_style = if is_selected {
                 Style::default().bg(Color::Rgb(30, 45, 65))
             } else {
-                Style::default()
+                Style::default().bg(MODAL_BG)
             };
 
             ListItem::new(Line::from(spans)).style(item_style)
@@ -167,7 +169,10 @@ fn render_inline_input(frame: &mut Frame, inline: &InlineInput, area: Rect) {
         "Enter submit \u{2022} Esc back",
         Style::default().fg(Color::DarkGray),
     ));
-    frame.render_widget(Paragraph::new(vec![entry, hint]), area);
+    frame.render_widget(
+        Paragraph::new(vec![entry, hint]).style(Style::default().bg(MODAL_BG)),
+        area,
+    );
 }
 
 pub fn render_modal(frame: &mut Frame, state: &ModalState, area: Rect, list_state: &mut ListState) {
@@ -200,7 +205,10 @@ fn render_subtitle_area(frame: &mut Frame, subtitle: &str, content_area: Rect) -
             }
         })
         .collect();
-    frame.render_widget(Paragraph::new(rendered_lines), chunks[0]);
+    frame.render_widget(
+        Paragraph::new(rendered_lines).style(Style::default().bg(MODAL_BG)),
+        chunks[0],
+    );
     (Some(chunks[0]), chunks[1])
 }
 
@@ -225,6 +233,7 @@ fn render_modal_inner(
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(MODAL_BG))
         .title(Span::styled(
             format!(" {} ", state.title),
             Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
@@ -269,12 +278,12 @@ fn render_modal_inner(
         } else {
             Span::styled(format!("> {}", state.filter_query), Style::default().fg(Color::Yellow))
         };
-        frame.render_widget(Paragraph::new(query_text), sa);
+        frame.render_widget(Paragraph::new(query_text).style(Style::default().bg(MODAL_BG)), sa);
     }
 
     let items = build_modal_items(state, list_area.width as usize);
     list_state.select(Some(state.selected_index));
-    let list = List::new(items);
+    let list = List::new(items).style(Style::default().bg(MODAL_BG));
     frame.render_stateful_widget(list, list_area, list_state);
 }
 
@@ -411,52 +420,76 @@ impl StandardModalView {
     }
 }
 
-/// Rows reserved for an inline modal viewport, keeping the dialog anchored to
-/// the bottom region instead of taking over the alternate screen.
-fn modal_viewport_height() -> u16 {
-    let rows = crossterm::terminal::size().map(|(_, h)| h).unwrap_or(24);
-    rows.saturating_sub(1).clamp(10, 30)
-}
-
 pub fn run_modal_view<V: ModalView>(view: &mut V) -> std::io::Result<bool> {
     let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
-    let mut terminal = ratatui::Terminal::with_options(
-        backend,
-        ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(modal_viewport_height()),
-        },
-    )?;
+    let mut terminal = ratatui::Terminal::new(backend)?;
 
-    let res = (|| -> std::io::Result<bool> {
-        loop {
-            terminal.draw(|f| {
-                let area = f.area();
-                view.render(f, area);
-            })?;
+    loop {
+        terminal.draw(|f| {
+            let area = f.area();
+            view.render(f, area);
+        })?;
 
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                if key.kind == crossterm::event::KeyEventKind::Release {
-                    continue;
-                }
-                if key.code == KeyCode::Enter {
-                    view.handle_key(key);
-                    if !view.is_open() {
-                        return Ok(false);
-                    }
-                    if view.is_submitted() {
-                        return Ok(true);
-                    }
-                    continue;
-                }
+        if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
+            if key.kind == crossterm::event::KeyEventKind::Release {
+                continue;
+            }
+            if key.code == KeyCode::Enter {
                 view.handle_key(key);
                 if !view.is_open() {
                     return Ok(false);
                 }
+                if view.is_submitted() {
+                    return Ok(true);
+                }
+                continue;
+            }
+            view.handle_key(key);
+            if !view.is_open() {
+                return Ok(false);
             }
         }
-    })();
-    let _ = terminal.clear();
-    res
+    }
+}
+
+pub async fn run_modal_view_async<V: ModalView>(
+    view: &mut V,
+    events: &mut crossterm::event::EventStream,
+) -> std::io::Result<bool> {
+    use futures::StreamExt;
+    let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
+    let mut terminal = ratatui::Terminal::new(backend)?;
+
+    loop {
+        terminal.draw(|f| {
+            let area = f.area();
+            view.render(f, area);
+        })?;
+
+        let Some(Ok(event)) = events.next().await else {
+            return Ok(false);
+        };
+
+        if let crossterm::event::Event::Key(key) = event {
+            if key.kind == crossterm::event::KeyEventKind::Release {
+                continue;
+            }
+            if key.code == KeyCode::Enter {
+                view.handle_key(key);
+                if !view.is_open() {
+                    return Ok(false);
+                }
+                if view.is_submitted() {
+                    return Ok(true);
+                }
+                continue;
+            }
+            view.handle_key(key);
+            if !view.is_open() {
+                return Ok(false);
+            }
+        }
+    }
 }
 
 pub fn prompt_session_picker(sessions_dir: &std::path::Path) -> rho_harness_core::error::Result<Option<String>> {
@@ -583,6 +616,33 @@ impl ModalView for StandardModalView {
     }
 }
 
+pub fn render_modal_lines(view: &StandardModalView, width: usize) -> Vec<String> {
+    let width = (width.max(30) as u16).min(120);
+    let height = (view.state.filtered_options.len() as u16 + 6).clamp(8, 16);
+    let backend = ratatui::backend::TestBackend::new(width, height);
+    let mut terminal = ratatui::Terminal::new(backend).expect("valid test backend");
+    let _ = terminal.draw(|f| {
+        view.render(f, Rect::new(0, 0, width, height));
+    });
+    let buf = terminal.backend().buffer();
+    let mut lines = Vec::new();
+    for y in 0..height {
+        let mut line = String::new();
+        let mut has_content = false;
+        for x in 0..width {
+            let sym = buf[(x, y)].symbol();
+            line.push_str(sym);
+            if !sym.trim().is_empty() {
+                has_content = true;
+            }
+        }
+        if has_content {
+            lines.push(line.trim_end().to_string());
+        }
+    }
+    lines
+}
+
 #[derive(Debug, Clone)]
 pub struct RemotePairModalView {
     pub ticket: RhoTicket,
@@ -644,6 +704,7 @@ impl ModalView for RemotePairModalView {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Magenta))
+            .style(Style::default().bg(MODAL_BG))
             .title(Span::styled(
                 " Pair Remote Node ",
                 Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
@@ -782,6 +843,7 @@ impl AutocompletePopupView {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(Color::Cyan))
+            .style(Style::default().bg(MODAL_BG))
             .title(Span::styled(
                 " Autocomplete ",
                 Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
@@ -809,14 +871,14 @@ impl AutocompletePopupView {
                 let item_style = if is_selected {
                     Style::default().bg(Color::Rgb(30, 45, 65))
                 } else {
-                    Style::default()
+                    Style::default().bg(MODAL_BG)
                 };
 
                 ListItem::new(Line::from(spans)).style(item_style)
             })
             .collect();
 
-        let list = List::new(items);
+        let list = List::new(items).style(Style::default().bg(MODAL_BG));
         frame.render_widget(list, inner);
     }
 }

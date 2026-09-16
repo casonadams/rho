@@ -8,8 +8,9 @@ use crossterm::event::{
 };
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use ratatui::backend::{Backend, CrosstermBackend, TestBackend};
+use ratatui::backend::{Backend, TestBackend};
 use ratatui::layout::{Position, Rect};
+use ratatui::style::{Color, Modifier};
 use ratatui::{CompletedFrame, Frame, Terminal, TerminalOptions, Viewport};
 use tokio::sync::mpsc;
 
@@ -224,6 +225,197 @@ pub fn notice_channel() -> (NoticeSender, NoticeReceiver) {
     (NoticeSender { tx }, NoticeReceiver { rx })
 }
 
+fn crossterm_color(color: Color) -> crossterm::style::Color {
+    match color {
+        Color::Reset => crossterm::style::Color::Reset,
+        Color::Black => crossterm::style::Color::Black,
+        Color::Red => crossterm::style::Color::DarkRed,
+        Color::Green => crossterm::style::Color::DarkGreen,
+        Color::Yellow => crossterm::style::Color::DarkYellow,
+        Color::Blue => crossterm::style::Color::DarkBlue,
+        Color::Magenta => crossterm::style::Color::DarkMagenta,
+        Color::Cyan => crossterm::style::Color::DarkCyan,
+        Color::Gray => crossterm::style::Color::Grey,
+        Color::DarkGray => crossterm::style::Color::DarkGrey,
+        Color::LightRed => crossterm::style::Color::Red,
+        Color::LightGreen => crossterm::style::Color::Green,
+        Color::LightYellow => crossterm::style::Color::Yellow,
+        Color::LightBlue => crossterm::style::Color::Blue,
+        Color::LightMagenta => crossterm::style::Color::Magenta,
+        Color::LightCyan => crossterm::style::Color::Cyan,
+        Color::White => crossterm::style::Color::White,
+        Color::Rgb(r, g, b) => crossterm::style::Color::Rgb { r, g, b },
+        Color::Indexed(i) => crossterm::style::Color::AnsiValue(i),
+    }
+}
+
+fn write_styled_cell<W: Write>(writer: &mut W, cell: &ratatui::buffer::Cell) -> io::Result<u16> {
+    let style = cell.style();
+    if let Some(fg) = style.fg {
+        crossterm::execute!(writer, crossterm::style::SetForegroundColor(crossterm_color(fg)))?;
+    }
+    if let Some(bg) = style.bg {
+        crossterm::execute!(writer, crossterm::style::SetBackgroundColor(crossterm_color(bg)))?;
+    }
+    if style.add_modifier.contains(Modifier::BOLD) {
+        crossterm::execute!(
+            writer,
+            crossterm::style::SetAttribute(crossterm::style::Attribute::Bold)
+        )?;
+    }
+    if style.add_modifier.contains(Modifier::DIM) {
+        crossterm::execute!(writer, crossterm::style::SetAttribute(crossterm::style::Attribute::Dim))?;
+    }
+    if style.add_modifier.contains(Modifier::REVERSED) {
+        crossterm::execute!(
+            writer,
+            crossterm::style::SetAttribute(crossterm::style::Attribute::Reverse)
+        )?;
+    }
+    write!(writer, "{}", cell.symbol())?;
+    crossterm::execute!(
+        writer,
+        crossterm::style::ResetColor,
+        crossterm::style::SetAttribute(crossterm::style::Attribute::Reset)
+    )?;
+    Ok(unicode_width::UnicodeWidthStr::width(cell.symbol()) as u16)
+}
+
+pub struct SafeBackend<W: Write> {
+    writer: W,
+    cursor_pos: Position,
+    height: u16,
+}
+
+impl<W: Write> SafeBackend<W> {
+    pub fn new(mut writer: W, height: u16) -> io::Result<Self> {
+        for _ in 0..height.saturating_sub(1) {
+            writeln!(writer)?;
+        }
+        if height > 1 {
+            write!(writer, "\x1b[{}A\r", height.saturating_sub(1))?;
+        } else {
+            write!(writer, "\r")?;
+        }
+        writer.flush()?;
+        Ok(Self {
+            writer,
+            cursor_pos: Position::new(0, 0),
+            height,
+        })
+    }
+
+    pub fn prepare_frame(&mut self) -> io::Result<()> {
+        if self.cursor_pos.y > 0 {
+            write!(self.writer, "\x1b[{}A\r", self.cursor_pos.y)?;
+            self.cursor_pos.y = 0;
+            self.cursor_pos.x = 0;
+        } else if self.cursor_pos.x > 0 {
+            write!(self.writer, "\r")?;
+            self.cursor_pos.x = 0;
+        }
+        Ok(())
+    }
+
+    pub fn print_scrollback(&mut self, text: &str) -> io::Result<()> {
+        if self.cursor_pos.y > 0 {
+            write!(self.writer, "\x1b[{}A\r", self.cursor_pos.y)?;
+        } else {
+            write!(self.writer, "\r")?;
+        }
+        write!(self.writer, "\x1b[J")?;
+        write!(self.writer, "{text}")?;
+        if !text.ends_with('\n') {
+            writeln!(self.writer)?;
+        }
+        for _ in 0..self.height.saturating_sub(1) {
+            writeln!(self.writer)?;
+        }
+        if self.height > 1 {
+            write!(self.writer, "\x1b[{}A\r", self.height.saturating_sub(1))?;
+        } else {
+            write!(self.writer, "\r")?;
+        }
+        self.cursor_pos = Position::new(0, 0);
+        self.writer.flush()
+    }
+}
+
+impl<W: Write> Backend for SafeBackend<W> {
+    type Error = io::Error;
+
+    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+    where
+        I: Iterator<Item = (u16, u16, &'a ratatui::buffer::Cell)>,
+    {
+        for (x, y, cell) in content {
+            self.set_cursor_position(Position::new(x, y))?;
+            let w = write_styled_cell(&mut self.writer, cell)?;
+            self.cursor_pos.x += w;
+        }
+        self.writer.flush()
+    }
+
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        crossterm::execute!(self.writer, crossterm::cursor::Hide)
+    }
+
+    fn show_cursor(&mut self) -> io::Result<()> {
+        crossterm::execute!(self.writer, crossterm::cursor::Show)
+    }
+
+    fn get_cursor_position(&mut self) -> io::Result<Position> {
+        Ok(self.cursor_pos)
+    }
+
+    fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+        let target = position.into();
+        let dy = target.y as i32 - self.cursor_pos.y as i32;
+        if dy > 0 {
+            write!(self.writer, "\x1b[{}B", dy)?;
+        } else if dy < 0 {
+            write!(self.writer, "\x1b[{}A", -dy)?;
+        }
+        write!(self.writer, "\x1b[{}G", target.x + 1)?;
+        self.cursor_pos = target;
+        Ok(())
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        if self.cursor_pos.y > 0 {
+            write!(self.writer, "\x1b[{}A\r", self.cursor_pos.y)?;
+            self.cursor_pos.y = 0;
+            self.cursor_pos.x = 0;
+        } else {
+            write!(self.writer, "\r")?;
+            self.cursor_pos.x = 0;
+        }
+        write!(self.writer, "\x1b[J")?;
+        self.writer.flush()
+    }
+
+    fn clear_region(&mut self, _clear_type: ratatui::backend::ClearType) -> io::Result<()> {
+        self.clear()
+    }
+
+    fn size(&self) -> io::Result<ratatui::layout::Size> {
+        let (w, _) = crossterm::terminal::size().unwrap_or((80, 24));
+        Ok(ratatui::layout::Size::new(w, self.height))
+    }
+
+    fn window_size(&mut self) -> io::Result<ratatui::backend::WindowSize> {
+        let (w, _) = crossterm::terminal::size().unwrap_or((80, 24));
+        Ok(ratatui::backend::WindowSize {
+            columns_rows: ratatui::layout::Size::new(w, self.height),
+            pixels: ratatui::layout::Size::new(0, 0),
+        })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 pub struct TerminalRunner<B: Backend> {
     terminal: Terminal<B>,
     viewport_height: u16,
@@ -232,12 +424,13 @@ pub struct TerminalRunner<B: Backend> {
     guard: Option<TerminalGuard>,
 }
 
-impl TerminalRunner<CrosstermBackend<io::Stdout>> {
+impl TerminalRunner<SafeBackend<io::Stdout>> {
     pub fn from_stdout(viewport_height: u16) -> io::Result<Self> {
         let guard = TerminalGuard::enter()?;
-        let backend = CrosstermBackend::new(io::stdout());
+        let width = crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80);
+        let backend = SafeBackend::new(io::stdout(), viewport_height)?;
         let options = TerminalOptions {
-            viewport: Viewport::Inline(viewport_height),
+            viewport: Viewport::Fixed(Rect::new(0, 0, width, viewport_height)),
         };
         let terminal = Terminal::with_options(backend, options)?;
         Ok(Self {
@@ -247,6 +440,18 @@ impl TerminalRunner<CrosstermBackend<io::Stdout>> {
             active: true,
             guard: Some(guard),
         })
+    }
+
+    pub fn draw<F>(&mut self, f: F) -> io::Result<CompletedFrame<'_>>
+    where
+        F: FnOnce(&mut Frame),
+    {
+        self.terminal.backend_mut().prepare_frame()?;
+        self.terminal.draw(f).map_err(|e| io::Error::other(e.to_string()))
+    }
+
+    pub fn print_scrollback(&mut self, text: &str) -> io::Result<()> {
+        self.terminal.backend_mut().print_scrollback(text)
     }
 }
 
@@ -291,11 +496,6 @@ impl<B: Backend> TerminalRunner<B> {
         self.viewport_height
     }
 
-    pub fn set_viewport_height(&mut self, height: u16) -> io::Result<()> {
-        self.viewport_height = height;
-        self.terminal.clear().map_err(|e| io::Error::other(e.to_string()))
-    }
-
     pub fn is_focused(&self) -> bool {
         self.focused
     }
@@ -328,6 +528,14 @@ impl<B: Backend> TerminalRunner<B> {
         }
         self.active = true;
         self.terminal.clear().map_err(|e| io::Error::other(e.to_string()))
+    }
+
+    pub fn clear(&mut self) -> io::Result<()> {
+        self.terminal.clear().map_err(|e| io::Error::other(e.to_string()))
+    }
+
+    pub fn autoresize(&mut self) -> io::Result<()> {
+        self.terminal.autoresize().map_err(|e| io::Error::other(e.to_string()))
     }
 
     pub fn commit_turn(&mut self, prompt: &str, assistant_output: &str) -> io::Result<()> {

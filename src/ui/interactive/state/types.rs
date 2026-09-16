@@ -1,4 +1,4 @@
-use super::editor::EditorState;
+use super::EditorState;
 use super::modal::ModalState;
 
 pub use rho_ui_core::{QueueKind, UiAction};

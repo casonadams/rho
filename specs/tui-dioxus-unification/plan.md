@@ -16,10 +16,10 @@ Gross legacy code touched/deletable: **~23,600 lines**.
 Replacing hand-rolled infrastructure with modern crate ecosystems requires writing typed domain models, custom hooks, Dioxus components, and Ratatui widgets (~12,000–14,000 lines added). The projected final **net reduction is ~10,000 to 12,000 lines** (not 25,000 net lines).
 
 #### Progress to Date:
-- **Deletions completed**: **24,520 lines deleted** across 128 files (`src/repl/live/` -10,344, `src/ui/interactive/layout/` -4,554, `src/ui/interactive/controller/` -3,096, `www/hub/js/` -1,334, `screen_sim.rs` -1,142, `diff.rs` -397, `batch.rs` -328, `input_reader/` -320, `session_picker/` -251, `fuzzy.rs` -112, `stream.rs` -18).
-- **Additions (modern architecture)**: **15,953 lines added** (`rho-ui-core` +3,130, `rho-wasm` +2,041, `runner.rs` +1,877, Ratatui modals/editor/widgets +2,900).
-- **Net reduction to date**: **8,567 lines**. `src/ui/` + `src/repl/` went from **269 files / 34,670 lines** to **143 files / 19,460 lines**.
-- **Remaining legacy surface (Path A)**: `state/` (~1,500 lines), `block/` (~560 lines), `markdown/` (3,398 lines), `render/` (3,504 lines). Completing these brings net reduction to ~10,000–12,000 lines.
+- **Deletions completed**: **25,892 lines deleted** across 128 files (`src/repl/live/` -10,344, `src/ui/interactive/layout/` -4,554, `src/ui/interactive/controller/` -3,096, `www/hub/js/` -1,334, `screen_sim.rs` -1,142, `state/editor/` -520, `runner.rs` cleanup -420, `diff.rs` -397, `batch.rs` -328, `input_reader/` -320, `session_picker/` -251, `color quantization` -104, `fuzzy.rs` -112, `stream.rs` -18).
+- **Additions (modern architecture)**: **16,472 lines added** (`rho-ui-core` +3,130, `rho-wasm` +2,041, `runner.rs` +1,450, Ratatui modals/editor/widgets +2,980).
+- **Net reduction to date**: **9,420 lines**. `src/ui/` + `src/repl/` went from **269 files / 34,670 lines** to **143 files / 18,590 lines**.
+- **Remaining legacy surface (Path A)**: `state/` (~1,000 lines), `block/` (~560 lines), `markdown/` (~3,300 lines), `render/` (~3,500 lines). Completing these brings net reduction to ~10,000–12,000 lines.
 
 See `spec.md` § "Codebase audit" for full inventory.
 
