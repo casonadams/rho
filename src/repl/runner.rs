@@ -153,7 +153,7 @@ fn render_running_tool_widget(
 }
 
 #[derive(Clone, Default)]
-struct FooterInfo {
+pub(crate) struct FooterInfo {
     pub model: String,
     pub provider: String,
     pub thinking: Option<String>,
@@ -412,7 +412,7 @@ fn format_footer_path(footer: &FooterInfo, width: usize) -> String {
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
-fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
+pub(crate) fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
     let window = if footer.context_window > 0 {
         footer.context_window
     } else {
@@ -448,6 +448,18 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
         parts.push(format!(
             "↓{}",
             rho_harness_core::tokens::format_tokens(metrics.output_tokens)
+        ));
+    }
+    if metrics.cache_read_tokens > 0 {
+        parts.push(format!(
+            "R{}",
+            rho_harness_core::tokens::format_tokens(metrics.cache_read_tokens)
+        ));
+    }
+    if metrics.cache_write_tokens > 0 {
+        parts.push(format!(
+            "W{}",
+            rho_harness_core::tokens::format_tokens(metrics.cache_write_tokens)
         ));
     }
     if metrics.context_window > 0 {
@@ -1236,6 +1248,19 @@ fn skill_modal_state() -> SkillModalState {
 }
 
 /// Runs a Ratatui modal to completion and returns the confirmed selection value.
+/// Clears the inline live region so a modal owns the rows beneath the
+/// transcript, and resets diff bookkeeping so the next paint starts fresh.
+fn suspend_live_region(state: &mut RunnerState<'_>) {
+    let mut stdout = std::io::stdout();
+    let _ = erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row);
+    state.prev_lines_count = 0;
+    state.prev_cursor_row = 0;
+}
+
+fn is_modal_command(cmd: &str) -> bool {
+    matches!(cmd, "/model" | "/thinking" | "/settings" | "/session" | "/mcp" | "/skill")
+}
+
 fn prompt_modal_selection(view: &mut StandardModalView) -> Option<String> {
     if run_modal_view(view).ok()? {
         view.state.selected_option().map(|opt| opt.value.clone())
@@ -1402,8 +1427,11 @@ async fn handle_slash_command(
         stdout.flush()?;
         return Ok(false);
     }
-    if rest.is_empty() && handle_interactive_command(cmd, state.session, engine).await {
-        return Ok(false);
+    if rest.is_empty() && is_modal_command(cmd) {
+        suspend_live_region(state);
+        if handle_interactive_command(cmd, state.session, engine).await {
+            return Ok(false);
+        }
     }
     if cmd == "/model" && !rest.is_empty() {
         let discovered = crate::repl::interactive::discover_models(&state.session.config, &state.session.auth_store);
@@ -1594,6 +1622,7 @@ struct TurnStreamState {
 fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut TurnStreamState) {
     match ui_ev {
         UiEvent::Interaction { prompt: p, responder } => {
+            suspend_live_region(state);
             resolve_interaction(&p, responder);
         }
         other => {
@@ -1643,6 +1672,23 @@ fn finalize_turn_result<T>(
     Ok(())
 }
 
+fn sync_footer_usage(footer: &mut FooterInfo, usage: &rho_engine::engine::tracking::UsageTracker) {
+    let totals = usage.totals();
+    footer.total_input = totals.total_input;
+    footer.total_output = totals.total_output;
+    footer.total_cache_read = totals.total_cache_read;
+    footer.total_cache_write = totals.total_cache_write;
+    footer.tokens_per_second = usage.tokens_per_second();
+    if footer.context_window > 0 {
+        let active_tokens = usage
+            .latest()
+            .map(|latest| rho_engine::engine::consumed_context_tokens(&latest, &footer.provider))
+            .unwrap_or(totals.total_input);
+        footer.context_percent =
+            Some(((active_tokens as f64 / footer.context_window as f64) * 100.0).clamp(0.0, 100.0));
+    }
+}
+
 fn handle_turn_tick(
     state: &mut RunnerState<'_>,
     usage: &rho_engine::engine::tracking::UsageTracker,
@@ -1653,16 +1699,7 @@ fn handle_turn_tick(
     stream.tick_counter += 1;
     if stream.tick_counter.is_multiple_of(5) {
         stream.spinner_frame = (stream.spinner_frame + 1) % 10;
-        let totals = usage.totals();
-        footer.total_input = totals.total_input;
-        footer.total_output = totals.total_output;
-        footer.total_cache_read = totals.total_cache_read;
-        footer.total_cache_write = totals.total_cache_write;
-        footer.tokens_per_second = usage.tokens_per_second();
-        if footer.context_window > 0 {
-            footer.context_percent =
-                Some(((totals.total_input as f64 / footer.context_window as f64) * 100.0).clamp(0.0, 100.0));
-        }
+        sync_footer_usage(footer, usage);
     }
     let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
     let queued = steering.current_items();
@@ -1794,12 +1831,7 @@ async fn execute_agent_turn(
                 while let Ok(ui_ev) = inputs.ui_events.try_recv() {
                     drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.transcript, state.session);
                 }
-                let totals = usage.totals();
-                footer.total_input = totals.total_input;
-                footer.total_output = totals.total_output;
-                footer.total_cache_read = totals.total_cache_read;
-                footer.total_cache_write = totals.total_cache_write;
-                footer.tokens_per_second = usage.tokens_per_second();
+                sync_footer_usage(&mut footer, &usage);
                 finalize_turn_result(res, state, &footer, &mut stream)?;
                 break;
             }

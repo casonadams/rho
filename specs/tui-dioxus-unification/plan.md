@@ -16,10 +16,10 @@ Gross legacy code touched/deletable: **~23,600 lines**.
 Replacing hand-rolled infrastructure with modern crate ecosystems requires writing typed domain models, custom hooks, Dioxus components, and Ratatui widgets (~12,000–14,000 lines added). The projected final **net reduction is ~10,000 to 12,000 lines** (not 25,000 net lines).
 
 #### Progress to Date:
-- **Deletions completed**: **19,996 lines deleted** across 103 files (`src/repl/live/` -10,344, `www/hub/js/` -1,334, `src/ui/interactive/controller/` -3,096, `session_picker/` -251, `screen_sim.rs` -1,142, `batch.rs` -328, `diff.rs` -397, `input_reader/` -320, `fuzzy.rs` -112, `stream.rs` -18).
-- **Additions (modern architecture)**: **15,570 lines added** (`rho-ui-core` +3,130, `rho-wasm` +2,041, `runner.rs` +1,877, Ratatui modals/editor/widgets +2,900).
-- **Net reduction to date**: **~4,426 lines**.
-- **Remaining legacy surface (Path A)**: `src/ui/interactive/layout/` (2,735 lines), `state/` (~1,500 lines), `block/` (531 lines), `markdown/` (3,398 lines), `render/` (3,504 lines). Final Path A completion will bring net reduction to ~10,000–12,000 lines.
+- **Deletions completed**: **24,520 lines deleted** across 128 files (`src/repl/live/` -10,344, `src/ui/interactive/layout/` -4,554, `src/ui/interactive/controller/` -3,096, `www/hub/js/` -1,334, `screen_sim.rs` -1,142, `diff.rs` -397, `batch.rs` -328, `input_reader/` -320, `session_picker/` -251, `fuzzy.rs` -112, `stream.rs` -18).
+- **Additions (modern architecture)**: **15,953 lines added** (`rho-ui-core` +3,130, `rho-wasm` +2,041, `runner.rs` +1,877, Ratatui modals/editor/widgets +2,900).
+- **Net reduction to date**: **8,567 lines**. `src/ui/` + `src/repl/` went from **269 files / 34,670 lines** to **143 files / 19,460 lines**.
+- **Remaining legacy surface (Path A)**: `state/` (~1,500 lines), `block/` (~560 lines), `markdown/` (3,398 lines), `render/` (3,504 lines). Completing these brings net reduction to ~10,000–12,000 lines.
 
 See `spec.md` § "Codebase audit" for full inventory.
 
@@ -105,12 +105,16 @@ Quick wins that reduce surface area before the Ratatui/Dioxus migration begins. 
        - `src/ui/render/diff.rs` (397 lines) -> replaced by `similar`
        - `src/repl/interactive/fuzzy.rs` (112 lines) -> replaced by `fuzzy-matcher`
        - `www/hub/js/` (5 files, 1,334 lines) -> replaced by Dioxus in `crates/rho-wasm`
+       - `src/ui/interactive/layout/` (25 files, 4,554 lines) -> the whole hand-rolled layout engine. Removable once the
+         REPL runner moved its selectors onto Ratatui `StandardModalView` + `run_modal_view`; `layout()`, `LayoutInput`,
+         and `InteractiveLayout` had no production callers left. The one surviving helper, ANSI-aware `wrap_to_width`,
+         moved into the canonical text module `src/ui/block/wrap.rs` together with its four behavior tests.
      - **Remaining Legacy for Path A Phase 3**:
-       - `src/ui/interactive/layout/` (22 files, 2,735 lines)
-       - `src/ui/interactive/state/` (11 files, ~1,500 lines)
-       - `src/ui/block/` (3 files, 531 lines)
-       - `src/ui/markdown/` (17 files, 3,398 lines)
-       - `src/ui/render/` (21 files, 3,504 lines)
+       - `src/ui/interactive/state/` (11 files, ~1,500 lines) -> replace with `rho-ui-core` signals
+       - `src/ui/block/` (3 files, ~560 lines) -> replace with Ratatui `Block`/`Borders` once the transcript projects
+         `ContentBlock` instead of pre-rendered ANSI strings
+       - `src/ui/markdown/` (17 files, 3,398 lines) -> fold into `rho-ui-core` parser + `ContentBlock`
+       - `src/ui/render/` (21 files, 3,504 lines) -> fold into `rho-ui-core` block projections
 - **Verification**:
   - `cargo test --workspace`
   - `cargo clippy --workspace --all-targets -- -D warnings`

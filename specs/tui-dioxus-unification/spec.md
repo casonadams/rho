@@ -563,14 +563,19 @@ A common question is whether unification saves "25k lines of code". It is critic
    - `src/repl/input_reader/`: **-320 lines**
    - `src/repl/interactive/fuzzy.rs`: **-112 lines**
    - `src/ui/stream.rs`: **-18 lines**
-   - **Current totals**: **19,996 lines deleted**, **15,570 lines added** (Net reduction: **~4,426 lines** to date).
+   - `src/ui/interactive/layout/` (25 files, 4,554 lines): the entire hand-rolled layout engine, deleted after the REPL runner
+     moved its modals onto Ratatui `StandardModalView` + `run_modal_view`. The single surviving helper (`wrap_to_width`,
+     ANSI-aware word wrapping) moved to the canonical text module `src/ui/block/wrap.rs` with its behavior tests.
+   - **Current totals**: **24,520 lines deleted**, **15,953 lines added** (Net reduction: **8,567 lines**).
+   - `src/ui/` + `src/repl/` shrank from **269 files / 34,670 lines** to **143 files / 19,460 lines**.
 
-3. **Phase 3 Path A Target (Remaining Legacy Surface)**:
-   - `src/ui/interactive/layout/` (22 files, 2,735 lines): To be replaced by direct Ratatui layout / widget projections.
-   - `src/ui/interactive/state/` (11 files, ~1,500 lines): To be replaced by `rho-ui-core` signals.
-   - `src/ui/block/` (3 files, 531 lines): To be replaced by Ratatui `Block`/`Borders`.
-   - `src/ui/markdown/` (17 files, 3,398 lines) & `src/ui/render/` (21 files, 3,504 lines): To be streamlined into `rho-ui-core` block projections.
-   - Completing Path A will eliminate an additional ~5,000–8,000 lines of gross legacy code, bringing final net savings to ~10,000–12,000 lines.
+3. **Phase 3 Path A remaining surface**:
+   - `src/ui/interactive/state/` (11 files, ~1,500 lines): to be replaced by `rho-ui-core` signals.
+   - `src/ui/block/` (3 files, ~560 lines): to be replaced by Ratatui `Block`/`Borders` once transcript rendering
+     projects `ContentBlock` instead of pre-rendered ANSI strings.
+   - `src/ui/markdown/` (17 files, 3,398 lines) & `src/ui/render/` (21 files, 3,504 lines): to be streamlined into
+     `rho-ui-core` block projections.
+   - Completing the remainder brings the final net savings to the projected ~10,000–12,000 lines.
 
 ## Out of scope
 

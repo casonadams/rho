@@ -17,7 +17,7 @@ fn is_openai_prompt_cached(provider: &str) -> bool {
         || prov.eq_ignore_ascii_case("cohere")
 }
 
-pub(crate) fn consumed_context_tokens(usage: &StructuralUsage, provider: &str) -> u64 {
+pub fn consumed_context_tokens(usage: &StructuralUsage, provider: &str) -> u64 {
     let cached = usage.cached_input_tokens.unwrap_or(0);
     let creation = usage.cache_creation_input_tokens.unwrap_or(0);
     if cached == 0 {
