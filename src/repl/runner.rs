@@ -170,6 +170,7 @@ impl PermissionModal {
 
     fn render_lines(&self, width: usize, cursor_mode: CursorMode) -> (Vec<String>, usize, usize) {
         let mut lines = Vec::new();
+        lines.push(String::new());
         if self.is_editing {
             let sep = "─".repeat(width.saturating_sub(38));
             lines.push(format!("\x1b[33m── Permission Required · Edit Command {sep}\x1b[0m"));
@@ -255,6 +256,7 @@ impl ActiveModal {
         match self {
             Self::Standard(m) => {
                 let mut lines = Vec::new();
+                lines.push(String::new());
                 let title = &m.state.title;
                 let query = &m.state.filter_query;
                 let header = if query.is_empty() {
@@ -284,8 +286,12 @@ impl ActiveModal {
                     {
                         let actual_idx = window_start + window_idx;
                         let marker = if actual_idx == m.state.selected_index { ">" } else { " " };
-                        let active = if opt.is_active { " ✓" } else { "" };
                         let desc = opt.description.as_deref().unwrap_or("");
+                        let active = if opt.is_active && !desc.contains('✓') {
+                            " ✓"
+                        } else {
+                            ""
+                        };
                         let line = format!(" {marker} {:<18} {desc}{active}", opt.label);
                         if actual_idx == m.state.selected_index {
                             lines.push(format!("\x1b[1;36m{line}\x1b[0m"));
@@ -304,6 +310,7 @@ impl ActiveModal {
             }
             Self::RemotePair(m) => {
                 let mut lines = Vec::new();
+                lines.push(String::new());
                 lines.push(format!(
                     "\x1b[36m── Pair Remote Node {}\x1b[0m",
                     "─".repeat(width.saturating_sub(22))
@@ -498,10 +505,11 @@ fn print_startup_banner_direct(session: &ReplSession, item: &crate::ui::interact
         theme: crate::ui::theme::detect_with_config(&session.config.ui),
         ..Default::default()
     };
-    let rendered = crate::ui::interactive::format_welcome_content(item, 0, &renderer.theme);
+    let width = crate::ui::terminal_width() as usize;
+    let rendered = crate::ui::interactive::format_welcome_content(item, width, &renderer.theme);
     let mut stdout = std::io::stdout();
-    let _ = stdout.write_all(rendered.as_bytes());
-    let _ = stdout.write_all(b"\n\n");
+    let trimmed = rendered.trim_end_matches(['\r', '\n']);
+    let _ = write!(stdout, "{trimmed}\n\n");
     let _ = stdout.flush();
 }
 
@@ -616,6 +624,8 @@ fn build_live_lines(
     }
 
     let mut lines = Vec::new();
+    lines.push(String::new());
+
     let (style, reset) = thinking_divider_style(footer.thinking.as_deref());
     let top_divider = match activity {
         Some((act, _tool, frame)) => {
@@ -777,8 +787,9 @@ fn full_redraw(state: &mut RunnerState<'_>, footer: &FooterInfo) -> std::io::Res
             hide_thinking,
         };
         let rendered = crate::ui::interactive::render_transcript_item(input);
-        if !rendered.is_empty() {
-            let normalized = terminal_newlines(&rendered);
+        let trimmed = rendered.trim_end_matches(['\r', '\n']);
+        if !trimmed.is_empty() {
+            let normalized = terminal_newlines(trimmed);
             stdout.write_all(normalized.as_bytes())?;
             stdout.write_all(b"\r\n")?;
             state.tracker.update(&normalized);
@@ -845,8 +856,15 @@ fn drain_ui_event(
                 tools_expanded: session.config.ui.tools_expanded.unwrap_or(false),
                 hide_thinking: session.config.ui.hide_thinking.unwrap_or(false),
             };
+            if !output.is_empty() && !output.ends_with("\n\n") {
+                if output.ends_with('\n') {
+                    output.push('\n');
+                } else {
+                    output.push_str("\n\n");
+                }
+            }
             output.push_str(&crate::ui::interactive::render_transcript_item(input));
-            output.push('\n');
+            output.push_str("\n\n");
         }
         UiEvent::Activity(act) => {
             *activity = act;
@@ -1064,7 +1082,7 @@ async fn handle_key_cycle(
     }
 
     if !state.editor.handle_key(key) {
-        let prompt = state.editor.text().to_string();
+        let prompt = state.editor.expanded_text();
         if prompt.trim().is_empty() {
             return Ok(false);
         }
@@ -1122,6 +1140,30 @@ async fn init_live_context(session: &mut ReplSession) -> Result<LiveContext> {
     })
 }
 
+fn handle_live_resize(width: usize, state: &mut RunnerState<'_>, engine: &AgentEngine) -> Result<()> {
+    state.session.renderer.set_width(width);
+    let footer = make_footer_info(
+        &state.session.config.model,
+        &state.session.config.provider,
+        state.session.config.thinking_level.as_deref(),
+        engine,
+    );
+    full_redraw(state, &footer)?;
+    Ok(())
+}
+
+fn handle_live_paste(text: &str, state: &mut RunnerState<'_>, engine: &AgentEngine) -> Result<()> {
+    state.editor.handle_paste(text);
+    let footer = make_footer_info(
+        &state.session.config.model,
+        &state.session.config.provider,
+        state.session.config.thinking_level.as_deref(),
+        engine,
+    );
+    refresh_display(state, &footer, None, None)?;
+    Ok(())
+}
+
 pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
     let mut ctx = init_live_context(session).await?;
     let _guard = TerminalGuard::enter()?;
@@ -1162,15 +1204,10 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
 
                 match event {
                     Event::Resize(w, _) => {
-                        let width = (w as usize).max(1);
-                        state.session.renderer.set_width(width);
-                        let footer = make_footer_info(
-                            &state.session.config.model,
-                            &state.session.config.provider,
-                            state.session.config.thinking_level.as_deref(),
-                            &ctx.engine,
-                        );
-                        full_redraw(&mut state, &footer)?;
+                        handle_live_resize((w as usize).max(1), &mut state, &ctx.engine)?;
+                    }
+                    Event::Paste(text) => {
+                        handle_live_paste(&text, &mut state, &ctx.engine)?;
                     }
                     Event::Key(key) => {
                         let should_exit = handle_key_cycle(
@@ -1396,7 +1433,8 @@ fn broadcast_turn_completion(engine: &AgentEngine) {
 fn print_initial_prompt(state: &mut RunnerState<'_>, prompt: &str, footer: &FooterInfo) -> Result<()> {
     let width = crate::ui::terminal_width() as usize;
     let user_box = state.session.renderer.theme.user_block(width).render_plain(prompt);
-    let pending_scrollback = format!("{user_box}\n\n");
+    let trimmed = user_box.trim_end_matches(['\r', '\n']);
+    let pending_scrollback = format!("{trimmed}\n");
     refresh_display(state, footer, None, Some(&pending_scrollback))?;
     Ok(())
 }
@@ -1544,11 +1582,13 @@ fn finalize_turn_result<T>(
     if let Err(ref err) = res {
         stream.scrollback.push_str(&format!("\nError: {err}\n"));
     }
-    if !stream.scrollback.ends_with('\n') {
-        stream.scrollback.push('\n');
-    }
-    stream.scrollback.push('\n');
-    refresh_display(state, footer, None, Some(&stream.scrollback))?;
+    let trimmed = stream.scrollback.trim_end_matches(['\r', '\n']);
+    let out = if trimmed.is_empty() {
+        "\n".to_string()
+    } else {
+        format!("{trimmed}\n\n")
+    };
+    refresh_display(state, footer, None, Some(&out))?;
     stream.scrollback.clear();
     Ok(())
 }
@@ -1608,6 +1648,11 @@ async fn execute_agent_turn(
                 match maybe_key {
                     Some(Ok(Event::Resize(w, _))) => {
                         handle_turn_resize((w as usize).max(1), state, &footer, &stream)?;
+                    }
+                    Some(Ok(Event::Paste(text))) => {
+                        state.editor.handle_paste(&text);
+                        let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+                        refresh_display(state, &footer, Some(activity_meta), None)?;
                     }
                     Some(Ok(Event::Key(key))) => {
                         let cancelled = handle_turn_key_input(

@@ -167,19 +167,28 @@ impl TerminalRenderer {
     }
 
     pub fn finish_thinking(&self, thinking_text: &str) {
+        let mut remaining = String::new();
         if let Ok(mut tracker) = self.thinking_stream.lock() {
-            let remaining = tracker.flush(&self.theme);
-            if !remaining.is_empty() {
-                self.stream_output(remaining);
+            let rem = tracker.flush(&self.theme);
+            if !rem.is_empty() {
+                remaining.push_str(&rem);
             }
         }
-        self.stream_output("\n\n".to_string());
-        let trimmed = thinking_text.trim();
-        if trimmed.is_empty() {
+        let trimmed = remaining.trim_end_matches(['\r', '\n']);
+        let out = if trimmed.is_empty() {
+            "\n".to_string()
+        } else {
+            format!("{trimmed}\n")
+        };
+        self.stream_output(out);
+        let trimmed_text = thinking_text.trim();
+        if trimmed_text.is_empty() {
             return;
         }
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(trimmed.to_string()));
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Thinking(
+                trimmed_text.to_string(),
+            ));
         }
     }
 

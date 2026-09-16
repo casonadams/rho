@@ -3,6 +3,7 @@ use crate::ui::theme::Theme;
 
 pub struct ThinkingStreamTracker {
     wrapper: ChunkWordWrapper,
+    started: bool,
 }
 
 impl Default for ThinkingStreamTracker {
@@ -15,14 +16,25 @@ impl ThinkingStreamTracker {
     pub fn new() -> Self {
         Self {
             wrapper: ChunkWordWrapper::new_thinking(),
+            started: false,
         }
     }
 
     pub fn process_token(&mut self, token: &str, width: usize, theme: &Theme) -> String {
+        let chunk = if !self.started {
+            let trimmed = token.trim_start_matches(['\r', '\n']);
+            if trimmed.is_empty() {
+                return String::new();
+            }
+            self.started = true;
+            trimmed
+        } else {
+            token
+        };
         let max_width = if width > 0 { width.saturating_sub(1).max(10) } else { 79 };
         self.wrapper.set_width(max_width);
         self.wrapper.set_style(Some(theme.dimmed));
-        self.wrapper.process_chunk(token)
+        self.wrapper.process_chunk(chunk)
     }
 
     pub fn flush(&mut self, theme: &Theme) -> String {
