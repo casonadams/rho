@@ -100,3 +100,7 @@ pub trait ModalView {
 pub fn terminal_width() -> u16 {
     crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80)
 }
+
+pub fn terminal_height() -> u16 {
+    crossterm::terminal::size().map(|(_, h)| h).unwrap_or(24)
+}

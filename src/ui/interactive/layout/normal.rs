@@ -130,7 +130,7 @@ fn prepare_layout_pieces(input: &LayoutInput<'_>, width: usize) -> LayoutPieces 
     }
 }
 
-fn window_widget_lines(lines: &[String], budget: usize) -> Vec<String> {
+pub fn window_widget_lines(lines: &[String], budget: usize) -> Vec<String> {
     if lines.len() <= budget {
         return lines.to_vec();
     }

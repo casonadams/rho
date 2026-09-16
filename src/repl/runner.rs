@@ -521,6 +521,33 @@ fn thinking_divider_style(thinking: Option<&str>) -> (&'static str, &'static str
     }
 }
 
+fn render_live_editor_lines(
+    state: &RunnerState<'_>,
+    lines: &mut Vec<String>,
+    cursor_mode: CursorMode,
+) -> (usize, usize) {
+    let ed_lines = state.editor.lines();
+    let (c_row, c_col) = state.editor.cursor();
+    let ed_start = lines.len();
+    for (r, ed_line) in ed_lines.iter().enumerate() {
+        let mut row = ed_line.clone();
+        if r == c_row && cursor_mode == CursorMode::Software {
+            crate::ui::interactive::apply_software_cursor(&mut row, c_col);
+        }
+        lines.push(row);
+    }
+    let c_row = ed_start + c_row.min(ed_lines.len().saturating_sub(1));
+
+    if let Some(popup) = state.autocomplete_popup.as_ref() {
+        for (idx, cand) in popup.candidates.iter().take(5).enumerate() {
+            let marker = if idx == popup.selected_index { ">" } else { " " };
+            let desc = cand.description.as_deref().unwrap_or("");
+            lines.push(format!("\x1b[36m {marker} {:<16} {desc}\x1b[0m", cand.display));
+        }
+    }
+    (c_row, c_col)
+}
+
 fn build_live_lines(
     state: &RunnerState<'_>,
     footer: &FooterInfo,
@@ -539,7 +566,14 @@ fn build_live_lines(
             tools_expanded: state.session.config.ui.tools_expanded.unwrap_or(false),
         };
         let tool_lines = render_running_tool_widget(widget_input);
-        lines.extend(tool_lines);
+        let height = crate::ui::terminal_height() as usize;
+        let budget = if state.session.config.ui.tools_expanded.unwrap_or(false) {
+            ((height as f64) * 0.60).round() as usize
+        } else {
+            10
+        };
+        let windowed = crate::ui::interactive::window_widget_lines(&tool_lines, budget);
+        lines.extend(windowed);
     }
 
     for steer in queued_steering {
@@ -583,26 +617,7 @@ fn build_live_lines(
         lines.extend(modal_lines);
         (start_row + cur_pos.row, cur_pos.column)
     } else {
-        let ed_lines = state.editor.lines();
-        let (c_row, c_col) = state.editor.cursor();
-        let ed_start = lines.len();
-        for (r, ed_line) in ed_lines.iter().enumerate() {
-            let mut row = ed_line.clone();
-            if r == c_row && cursor_mode == CursorMode::Software {
-                crate::ui::interactive::apply_software_cursor(&mut row, c_col);
-            }
-            lines.push(row);
-        }
-        let c_row = ed_start + c_row.min(ed_lines.len().saturating_sub(1));
-
-        if let Some(popup) = state.autocomplete_popup.as_ref() {
-            for (idx, cand) in popup.candidates.iter().take(5).enumerate() {
-                let marker = if idx == popup.selected_index { ">" } else { " " };
-                let desc = cand.description.as_deref().unwrap_or("");
-                lines.push(format!("\x1b[36m {marker} {:<16} {desc}\x1b[0m", cand.display));
-            }
-        }
-        (c_row, c_col)
+        render_live_editor_lines(state, &mut lines, cursor_mode)
     };
 
     lines.push(format!("{style}{}{reset}", "─".repeat(width)));
@@ -745,7 +760,12 @@ fn refresh_display(
     Ok(())
 }
 
-fn full_redraw(state: &mut RunnerState<'_>, footer: &FooterInfo) -> std::io::Result<()> {
+fn full_redraw(
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    activity: Option<(&Activity, Option<&RunningTool>, usize)>,
+    queued_steering: &[String],
+) -> std::io::Result<()> {
     let width = crate::ui::terminal_width() as usize;
     let mut stdout = std::io::stdout();
     stdout.write_all(CSI_SYNC_BEGIN)?;
@@ -778,7 +798,7 @@ fn full_redraw(state: &mut RunnerState<'_>, footer: &FooterInfo) -> std::io::Res
     state.prev_lines_count = 0;
     state.prev_cursor_row = 0;
     let cursor_mode = theme.cursor_mode;
-    let (lines, c_row, c_col) = build_live_lines(state, footer, None, &[], width, cursor_mode);
+    let (lines, c_row, c_col) = build_live_lines(state, footer, activity, queued_steering, width, cursor_mode);
     let cursor = LiveCursorTarget {
         prev_lines: 0,
         prev_cursor_row: 0,
@@ -1001,7 +1021,7 @@ async fn handle_key_cycle(
                     state.session.config.thinking_level.as_deref(),
                     engine,
                 );
-                full_redraw(state, &footer)?;
+                full_redraw(state, &footer, None, &[])?;
                 Ok(false)
             }
             ActionOutcome::Handled => Ok(false),
@@ -1089,7 +1109,7 @@ fn handle_live_resize(width: usize, state: &mut RunnerState<'_>, engine: &AgentE
         state.session.config.thinking_level.as_deref(),
         engine,
     );
-    full_redraw(state, &footer)?;
+    full_redraw(state, &footer, None, &[])?;
     Ok(())
 }
 
@@ -1443,43 +1463,46 @@ async fn finish_turn_execution(state: &mut RunnerState<'_>, engine: &mut AgentEn
     Ok(())
 }
 
+enum TurnKeyOutcome {
+    Handled,
+    FullRedraw,
+    Cancel,
+}
+
 fn handle_turn_key_input(
     key: KeyEvent,
     state: &mut RunnerState<'_>,
     steering: &SharedSteeringQueue,
     cancellation: &CancellationSignal,
     active_responder: &mut Option<InteractionResponder>,
-    footer: &FooterInfo,
-) -> bool {
+) -> TurnKeyOutcome {
     if let Some(mut modal) = state.active_modal.take() {
         let closed = handle_modal_key(&mut modal, key, state.session, active_responder);
         if !closed {
             *state.active_modal = Some(modal);
         }
-        return false;
+        return TurnKeyOutcome::Handled;
     }
     let action = map_key(key);
     match action {
         InputAction::Cancel => {
             cancellation.cancel();
             rho_engine::process::kill_all_tracked_processes();
-            true
+            TurnKeyOutcome::Cancel
         }
         InputAction::Clear => {
             state.editor.clear();
-            false
+            TurnKeyOutcome::Handled
         }
         InputAction::ToggleExpandTools => {
             let exp = !state.session.config.ui.tools_expanded.unwrap_or(false);
             state.session.config.ui.tools_expanded = Some(exp);
-            let _ = full_redraw(state, footer);
-            false
+            TurnKeyOutcome::FullRedraw
         }
         InputAction::ThinkingToggle => {
             let hide = !state.session.config.ui.hide_thinking.unwrap_or(false);
             state.session.config.ui.hide_thinking = Some(hide);
-            let _ = full_redraw(state, footer);
-            false
+            TurnKeyOutcome::FullRedraw
         }
         _ => {
             if (key.code == KeyCode::Up || (key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::ALT)))
@@ -1487,7 +1510,7 @@ fn handle_turn_key_input(
                 && let Some(popped) = steering.pop_last()
             {
                 state.editor.set_text(&popped);
-                return false;
+                return TurnKeyOutcome::Handled;
             }
             if !state.editor.handle_key(key) {
                 let steering_text = state.editor.expanded_text();
@@ -1498,7 +1521,7 @@ fn handle_turn_key_input(
                     state.editor.clear();
                 }
             }
-            false
+            TurnKeyOutcome::Handled
         }
     }
 }
@@ -1572,10 +1595,9 @@ fn handle_turn_resize(
     steering: &SharedSteeringQueue,
 ) -> Result<()> {
     state.session.renderer.set_width(width);
-    full_redraw(state, footer)?;
     let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
     let queued = steering.current_items();
-    refresh_display(state, footer, Some(activity_meta), &queued, None)?;
+    full_redraw(state, footer, Some(activity_meta), &queued)?;
     Ok(())
 }
 
@@ -1635,14 +1657,23 @@ fn handle_turn_key(
     cancellation: &CancellationSignal,
     stream: &mut TurnStreamState,
     footer: &FooterInfo,
-) -> bool {
-    let cancelled = handle_turn_key_input(key, state, steering, cancellation, &mut stream.responder, footer);
-    if !cancelled {
-        let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-        let queued = steering.current_items();
-        let _ = refresh_display(state, footer, Some(activity_meta), &queued, None);
+) -> Result<bool> {
+    let outcome = handle_turn_key_input(key, state, steering, cancellation, &mut stream.responder);
+    match outcome {
+        TurnKeyOutcome::Cancel => Ok(true),
+        TurnKeyOutcome::FullRedraw => {
+            let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+            let queued = steering.current_items();
+            full_redraw(state, footer, Some(activity_meta), &queued)?;
+            Ok(false)
+        }
+        TurnKeyOutcome::Handled => {
+            let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+            let queued = steering.current_items();
+            let _ = refresh_display(state, footer, Some(activity_meta), &queued, None);
+            Ok(false)
+        }
     }
-    cancelled
 }
 
 async fn finalize_turn_cancellation(
@@ -1686,7 +1717,7 @@ fn handle_turn_stream_event(
             handle_turn_paste(&text, state, footer, stream, steering)?;
         }
         Some(Ok(Event::Key(key))) => {
-            return Ok(handle_turn_key(key, state, steering, cancellation, stream, footer));
+            return handle_turn_key(key, state, steering, cancellation, stream, footer);
         }
         _ => {}
     }

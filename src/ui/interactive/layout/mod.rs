@@ -18,6 +18,7 @@ pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
 
 use normal::render_normal_layout;
+pub use normal::window_widget_lines;
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     render_normal_layout(input)

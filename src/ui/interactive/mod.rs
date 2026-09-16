@@ -32,8 +32,8 @@ pub use keymap::{KeyAction, KeyChord, KeybindingMap};
 pub use layout::{
     CursorPosition, InInputModalInput, InteractiveLayout, LayoutInput, RunningToolWidgetInput, SPINNER_FRAMES,
     VisualTruncateResult, apply_software_cursor, layout, modal_banner_title, modal_body_max_scroll, modal_hint,
-    modal_top_divider, render_in_input_modal, render_running_tool_widget, truncate_to_visual_lines, wrap_to_width,
-    wrap_words_to_width,
+    modal_top_divider, render_in_input_modal, render_running_tool_widget, truncate_to_visual_lines,
+    window_widget_lines, wrap_to_width, wrap_words_to_width,
 };
 pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,
