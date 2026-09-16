@@ -488,8 +488,9 @@ fn format_footer_path(footer: &FooterInfo, width: usize) -> String {
     }
     let left = path;
     let right = footer.quota.as_deref().unwrap_or("");
-    let plain_len = left.len() + right.len();
-    let pad = width.saturating_sub(plain_len);
+    let left_w = rho_ui_core::text::visible_width(&left);
+    let right_w = rho_ui_core::text::visible_width(right);
+    let pad = width.saturating_sub(left_w + right_w);
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
@@ -546,8 +547,9 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
     }
     let left = parts.join(" ");
 
-    let plain_len = left.len() + right.len();
-    let pad = width.saturating_sub(plain_len);
+    let left_w = rho_ui_core::text::visible_width(&left);
+    let right_w = rho_ui_core::text::visible_width(&right);
+    let pad = width.saturating_sub(left_w + right_w);
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
@@ -1679,13 +1681,24 @@ fn finalize_turn_result<T>(
 
 fn handle_turn_tick(
     state: &mut RunnerState<'_>,
-    footer: &FooterInfo,
+    usage: &rho_engine::engine::tracking::UsageTracker,
+    footer: &mut FooterInfo,
     stream: &mut TurnStreamState,
     steering: &SharedSteeringQueue,
 ) -> Result<()> {
     stream.tick_counter += 1;
     if stream.tick_counter.is_multiple_of(5) {
         stream.spinner_frame = (stream.spinner_frame + 1) % 10;
+        let totals = usage.totals();
+        footer.total_input = totals.total_input;
+        footer.total_output = totals.total_output;
+        footer.total_cache_read = totals.total_cache_read;
+        footer.total_cache_write = totals.total_cache_write;
+        footer.tokens_per_second = usage.tokens_per_second();
+        if footer.context_window > 0 {
+            footer.context_percent =
+                Some(((totals.total_input as f64 / footer.context_window as f64) * 100.0).clamp(0.0, 100.0));
+        }
     }
     let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
     let queued = steering.current_items();
@@ -1792,7 +1805,8 @@ async fn execute_agent_turn(
     state.transcript.push(TranscriptItem::UserMessage(prompt.to_string()));
     state.tracker.clear();
 
-    let footer = make_footer_info(
+    let usage = engine.usage().clone();
+    let mut footer = make_footer_info(
         &state.session.config.model,
         &state.session.config.provider,
         state.session.config.thinking_level.as_deref(),
@@ -1818,6 +1832,12 @@ async fn execute_agent_turn(
                 while let Ok(ui_ev) = ui_events.try_recv() {
                     drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.transcript, state.session);
                 }
+                let totals = usage.totals();
+                footer.total_input = totals.total_input;
+                footer.total_output = totals.total_output;
+                footer.total_cache_read = totals.total_cache_read;
+                footer.total_cache_write = totals.total_cache_write;
+                footer.tokens_per_second = usage.tokens_per_second();
                 finalize_turn_result(res, state, &footer, &mut stream)?;
                 break;
             }
@@ -1825,7 +1845,7 @@ async fn execute_agent_turn(
                 handle_turn_event(ui_ev, state, &mut stream);
             }
             _ = ticker.tick() => {
-                handle_turn_tick(state, &footer, &mut stream, &steering)?;
+                handle_turn_tick(state, &usage, &mut footer, &mut stream, &steering)?;
             }
             maybe_key = events.next() => {
                 if handle_turn_stream_event(maybe_key, state, &footer, &mut stream, &steering, &cancellation)? {
