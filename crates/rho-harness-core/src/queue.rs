@@ -85,6 +85,17 @@ impl<T> PendingMessageQueue<T> {
     pub fn peek(&self) -> Option<&T> {
         self.messages.front()
     }
+
+    pub fn items(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.messages.iter().cloned().collect()
+    }
+
+    pub fn pop_back(&mut self) -> Option<T> {
+        self.messages.pop_back()
+    }
 }
 
 impl<T> Default for PendingMessageQueue<T> {

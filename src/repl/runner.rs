@@ -1507,7 +1507,7 @@ fn handle_turn_key_input(
     steering: &SharedSteeringQueue,
     cancellation: &CancellationSignal,
     active_responder: &mut Option<InteractionResponder>,
-    queued_steering: &mut Vec<String>,
+    footer: &FooterInfo,
 ) -> bool {
     if let Some(ActiveModal::Permission(mut p)) = state.active_modal.take() {
         p.handle_key(key);
@@ -1534,15 +1534,28 @@ fn handle_turn_key_input(
         InputAction::ToggleExpandTools => {
             let exp = !state.session.config.ui.tools_expanded.unwrap_or(false);
             state.session.config.ui.tools_expanded = Some(exp);
+            let _ = full_redraw(state, footer);
+            false
+        }
+        InputAction::ThinkingToggle => {
+            let hide = !state.session.config.ui.hide_thinking.unwrap_or(false);
+            state.session.config.ui.hide_thinking = Some(hide);
+            let _ = full_redraw(state, footer);
             false
         }
         _ => {
+            if (key.code == KeyCode::Up || (key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::ALT)))
+                && state.editor.is_empty()
+                && let Some(popped) = steering.pop_last()
+            {
+                state.editor.set_text(&popped);
+                return false;
+            }
             if !state.editor.handle_key(key) {
                 let steering_text = state.editor.text().trim().to_string();
                 if !steering_text.is_empty() {
-                    steering.enqueue(steering_text.clone());
+                    steering.enqueue(steering_text);
                     state.editor.clear();
-                    queued_steering.push(steering_text);
                 }
             }
             false
@@ -1585,7 +1598,6 @@ fn flush_or_refresh_turn_tick(
 struct TurnStreamState {
     pub activity: Activity,
     pub running_tool: Option<RunningTool>,
-    pub queued_steering: Vec<String>,
     pub scrollback: String,
     pub responder: Option<InteractionResponder>,
     pub tick_counter: usize,
@@ -1617,11 +1629,13 @@ fn handle_turn_resize(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
     stream: &TurnStreamState,
+    steering: &SharedSteeringQueue,
 ) -> Result<()> {
     state.session.renderer.set_width(width);
     full_redraw(state, footer)?;
     let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-    refresh_display(state, footer, Some(activity_meta), &stream.queued_steering, None)?;
+    let queued = steering.current_items();
+    refresh_display(state, footer, Some(activity_meta), &queued, None)?;
     Ok(())
 }
 
@@ -1642,6 +1656,35 @@ fn finalize_turn_result<T>(
     };
     refresh_display(state, footer, None, &[], if out.is_empty() { None } else { Some(&out) })?;
     stream.scrollback.clear();
+    Ok(())
+}
+
+fn handle_turn_tick(
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    stream: &mut TurnStreamState,
+    steering: &SharedSteeringQueue,
+) -> Result<()> {
+    stream.tick_counter += 1;
+    if stream.tick_counter.is_multiple_of(5) {
+        stream.spinner_frame = (stream.spinner_frame + 1) % 10;
+    }
+    let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+    let queued = steering.current_items();
+    flush_or_refresh_turn_tick(state, footer, activity_meta, &queued, &mut stream.scrollback)
+}
+
+fn handle_turn_paste(
+    text: &str,
+    state: &mut RunnerState<'_>,
+    footer: &FooterInfo,
+    stream: &TurnStreamState,
+    steering: &SharedSteeringQueue,
+) -> Result<()> {
+    state.editor.handle_paste(text);
+    let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
+    let queued = steering.current_items();
+    refresh_display(state, footer, Some(activity_meta), &queued, None)?;
     Ok(())
 }
 
@@ -1675,6 +1718,7 @@ async fn execute_agent_turn(
     let mut turn_future = Box::pin(engine.run_turn(request, broadcast));
     let mut ticker = tokio::time::interval(Duration::from_millis(16));
     let mut stream = TurnStreamState::default();
+    let mut is_cancelled = false;
 
     loop {
         tokio::select! {
@@ -1689,22 +1733,15 @@ async fn execute_agent_turn(
                 handle_turn_event(ui_ev, state, &mut stream);
             }
             _ = ticker.tick() => {
-                stream.tick_counter += 1;
-                if stream.tick_counter.is_multiple_of(5) {
-                    stream.spinner_frame = (stream.spinner_frame + 1) % 10;
-                }
-                let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                flush_or_refresh_turn_tick(state, &footer, activity_meta, &stream.queued_steering, &mut stream.scrollback)?;
+                handle_turn_tick(state, &footer, &mut stream, &steering)?;
             }
             maybe_key = events.next() => {
                 match maybe_key {
                     Some(Ok(Event::Resize(w, _))) => {
-                        handle_turn_resize((w as usize).max(1), state, &footer, &stream)?;
+                        handle_turn_resize((w as usize).max(1), state, &footer, &stream, &steering)?;
                     }
                     Some(Ok(Event::Paste(text))) => {
-                        state.editor.handle_paste(&text);
-                        let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                        refresh_display(state, &footer, Some(activity_meta), &stream.queued_steering, None)?;
+                        handle_turn_paste(&text, state, &footer, &stream, &steering)?;
                     }
                     Some(Ok(Event::Key(key))) => {
                         let cancelled = handle_turn_key_input(
@@ -1713,16 +1750,15 @@ async fn execute_agent_turn(
                             &steering,
                             &cancellation,
                             &mut stream.responder,
-                            &mut stream.queued_steering,
+                            &footer,
                         );
                         if cancelled {
-                            let _ = engine.record_cancellation("operator interrupt").await;
-                            refresh_display(state, &footer, None, &[], Some("\nCanceled.\n"))?;
-                            stream.scrollback.clear();
+                            is_cancelled = true;
                             break;
                         }
                         let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                        refresh_display(state, &footer, Some(activity_meta), &stream.queued_steering, None)?;
+                        let queued = steering.current_items();
+                        refresh_display(state, &footer, Some(activity_meta), &queued, None)?;
                     }
                     _ => {}
                 }
@@ -1730,6 +1766,11 @@ async fn execute_agent_turn(
         }
     }
     drop(turn_future);
+    if is_cancelled {
+        let _ = engine.record_cancellation("operator interrupt").await;
+        refresh_display(state, &footer, None, &[], Some("\nCanceled.\n"))?;
+        stream.scrollback.clear();
+    }
     crate::platform::remote::set_active_steering(None);
     *state.active_modal = None;
 
