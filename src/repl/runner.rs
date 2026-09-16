@@ -616,6 +616,7 @@ fn build_live_lines(
     state: &RunnerState<'_>,
     footer: &FooterInfo,
     activity: Option<(&Activity, Option<&RunningTool>, usize)>,
+    queued_steering: &[String],
     width: usize,
     cursor_mode: CursorMode,
 ) -> (Vec<String>, usize, usize) {
@@ -634,7 +635,10 @@ fn build_live_lines(
         };
         let tool_lines = render_running_tool_widget(widget_input);
         lines.extend(tool_lines);
-        lines.push(String::new());
+    }
+
+    for steer in queued_steering {
+        lines.push(format!("\x1b[36m↳ Steering: {steer}\x1b[0m"));
     }
 
     let (style, reset) = thinking_divider_style(footer.thinking.as_deref());
@@ -735,11 +739,12 @@ fn refresh_display(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
     activity: Option<(&Activity, Option<&RunningTool>, usize)>,
+    queued_steering: &[String],
     extra_output: Option<&str>,
 ) -> std::io::Result<()> {
     let width = crate::ui::terminal_width() as usize;
     let cursor_mode = state.session.renderer.theme.cursor_mode;
-    let (lines, c_row, c_col) = build_live_lines(state, footer, activity, width, cursor_mode);
+    let (lines, c_row, c_col) = build_live_lines(state, footer, activity, queued_steering, width, cursor_mode);
 
     let mut stdout = std::io::stdout();
     stdout.write_all(CSI_SYNC_BEGIN)?;
@@ -800,7 +805,7 @@ fn full_redraw(state: &mut RunnerState<'_>, footer: &FooterInfo) -> std::io::Res
     state.prev_lines_count = 0;
     state.prev_cursor_row = 0;
     let cursor_mode = theme.cursor_mode;
-    let (lines, c_row, c_col) = build_live_lines(state, footer, None, width, cursor_mode);
+    let (lines, c_row, c_col) = build_live_lines(state, footer, None, &[], width, cursor_mode);
     paint_live_region(
         &mut stdout,
         &lines,
@@ -856,15 +861,13 @@ fn drain_ui_event(
                 tools_expanded: session.config.ui.tools_expanded.unwrap_or(false),
                 hide_thinking: session.config.ui.hide_thinking.unwrap_or(false),
             };
-            if !output.is_empty() && !output.ends_with("\n\n") {
-                if output.ends_with('\n') {
-                    output.push('\n');
-                } else {
-                    output.push_str("\n\n");
-                }
+            let rendered = crate::ui::interactive::render_transcript_item(input);
+            let trimmed = rendered.trim_end_matches(['\r', '\n']);
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push('\n');
             }
-            output.push_str(&crate::ui::interactive::render_transcript_item(input));
-            output.push_str("\n\n");
+            output.push_str(trimmed);
+            output.push('\n');
         }
         UiEvent::Activity(act) => {
             *activity = act;
@@ -1160,7 +1163,7 @@ fn handle_live_paste(text: &str, state: &mut RunnerState<'_>, engine: &AgentEngi
         state.session.config.thinking_level.as_deref(),
         engine,
     );
-    refresh_display(state, &footer, None, None)?;
+    refresh_display(state, &footer, None, &[], None)?;
     Ok(())
 }
 
@@ -1192,7 +1195,7 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         state.session.config.thinking_level.as_deref(),
         &ctx.engine,
     );
-    refresh_display(&mut state, &footer, None, None)?;
+    refresh_display(&mut state, &footer, None, &[], None)?;
 
     loop {
         tokio::select! {
@@ -1227,7 +1230,7 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
                             state.session.config.thinking_level.as_deref(),
                             &ctx.engine,
                         );
-                        refresh_display(&mut state, &footer, None, None)?;
+                        refresh_display(&mut state, &footer, None, &[], None)?;
                     }
                     _ => {}
                 }
@@ -1435,7 +1438,7 @@ fn print_initial_prompt(state: &mut RunnerState<'_>, prompt: &str, footer: &Foot
     let user_box = state.session.renderer.theme.user_block(width).render_plain(prompt);
     let trimmed = user_box.trim_end_matches(['\r', '\n']);
     let pending_scrollback = format!("{trimmed}\n");
-    refresh_display(state, footer, None, Some(&pending_scrollback))?;
+    refresh_display(state, footer, None, &[], Some(&pending_scrollback))?;
     Ok(())
 }
 
@@ -1451,7 +1454,7 @@ async fn finish_turn_execution(state: &mut RunnerState<'_>, engine: &mut AgentEn
         state.session.config.thinking_level.as_deref(),
         engine,
     );
-    refresh_display(state, &updated_footer, None, None)?;
+    refresh_display(state, &updated_footer, None, &[], None)?;
     Ok(())
 }
 
@@ -1461,7 +1464,7 @@ fn handle_turn_key_input(
     steering: &SharedSteeringQueue,
     cancellation: &CancellationSignal,
     active_responder: &mut Option<InteractionResponder>,
-    pending_scrollback: &mut String,
+    queued_steering: &mut Vec<String>,
 ) -> bool {
     if let Some(ActiveModal::Permission(mut p)) = state.active_modal.take() {
         p.handle_key(key);
@@ -1479,7 +1482,6 @@ fn handle_turn_key_input(
         InputAction::Cancel => {
             cancellation.cancel();
             rho_engine::process::kill_all_tracked_processes();
-            pending_scrollback.push_str("\nCanceled.\n");
             true
         }
         InputAction::Clear => {
@@ -1493,11 +1495,11 @@ fn handle_turn_key_input(
         }
         _ => {
             if !state.editor.handle_key(key) {
-                let steering_text = state.editor.text().to_string();
-                if !steering_text.trim().is_empty() {
+                let steering_text = state.editor.text().trim().to_string();
+                if !steering_text.is_empty() {
                     steering.enqueue(steering_text.clone());
                     state.editor.clear();
-                    pending_scrollback.push_str(&format!("\x1b[36m[Steering queued: {steering_text}]\x1b[0m\n"));
+                    queued_steering.push(steering_text);
                 }
             }
             false
@@ -1524,13 +1526,14 @@ fn flush_or_refresh_turn_tick(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
     activity_meta: (&Activity, Option<&RunningTool>, usize),
+    queued_steering: &[String],
     pending_scrollback: &mut String,
 ) -> Result<()> {
     if !pending_scrollback.is_empty() {
         let out = std::mem::take(pending_scrollback);
-        refresh_display(state, footer, Some(activity_meta), Some(&out))?;
+        refresh_display(state, footer, Some(activity_meta), queued_steering, Some(&out))?;
     } else {
-        refresh_display(state, footer, Some(activity_meta), None)?;
+        refresh_display(state, footer, Some(activity_meta), queued_steering, None)?;
     }
     Ok(())
 }
@@ -1539,6 +1542,7 @@ fn flush_or_refresh_turn_tick(
 struct TurnStreamState {
     pub activity: Activity,
     pub running_tool: Option<RunningTool>,
+    pub queued_steering: Vec<String>,
     pub scrollback: String,
     pub responder: Option<InteractionResponder>,
     pub tick_counter: usize,
@@ -1574,7 +1578,7 @@ fn handle_turn_resize(
     state.session.renderer.set_width(width);
     full_redraw(state, footer)?;
     let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-    refresh_display(state, footer, Some(activity_meta), None)?;
+    refresh_display(state, footer, Some(activity_meta), &stream.queued_steering, None)?;
     Ok(())
 }
 
@@ -1585,15 +1589,15 @@ fn finalize_turn_result<T>(
     stream: &mut TurnStreamState,
 ) -> Result<()> {
     if let Err(ref err) = res {
-        stream.scrollback.push_str(&format!("\nError: {err}\n"));
+        stream.scrollback.push_str(&format!("Error: {err}\n"));
     }
     let trimmed = stream.scrollback.trim_end_matches(['\r', '\n']);
     let out = if trimmed.is_empty() {
-        "\n".to_string()
+        String::new()
     } else {
-        format!("{trimmed}\n\n")
+        format!("{trimmed}\n")
     };
-    refresh_display(state, footer, None, Some(&out))?;
+    refresh_display(state, footer, None, &[], if out.is_empty() { None } else { Some(&out) })?;
     stream.scrollback.clear();
     Ok(())
 }
@@ -1647,7 +1651,7 @@ async fn execute_agent_turn(
                     stream.spinner_frame = (stream.spinner_frame + 1) % 10;
                 }
                 let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut stream.scrollback)?;
+                flush_or_refresh_turn_tick(state, &footer, activity_meta, &stream.queued_steering, &mut stream.scrollback)?;
             }
             maybe_key = events.next() => {
                 match maybe_key {
@@ -1657,7 +1661,7 @@ async fn execute_agent_turn(
                     Some(Ok(Event::Paste(text))) => {
                         state.editor.handle_paste(&text);
                         let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                        refresh_display(state, &footer, Some(activity_meta), None)?;
+                        refresh_display(state, &footer, Some(activity_meta), &stream.queued_steering, None)?;
                     }
                     Some(Ok(Event::Key(key))) => {
                         let cancelled = handle_turn_key_input(
@@ -1666,16 +1670,16 @@ async fn execute_agent_turn(
                             &steering,
                             &cancellation,
                             &mut stream.responder,
-                            &mut stream.scrollback,
+                            &mut stream.queued_steering,
                         );
                         if cancelled {
                             let _ = engine.record_cancellation("operator interrupt").await;
-                            refresh_display(state, &footer, None, Some(&stream.scrollback))?;
+                            refresh_display(state, &footer, None, &[], Some("\nCanceled.\n"))?;
                             stream.scrollback.clear();
                             break;
                         }
                         let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                        refresh_display(state, &footer, Some(activity_meta), None)?;
+                        refresh_display(state, &footer, Some(activity_meta), &stream.queued_steering, None)?;
                     }
                     _ => {}
                 }
