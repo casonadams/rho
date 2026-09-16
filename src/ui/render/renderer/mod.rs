@@ -173,6 +173,7 @@ impl TerminalRenderer {
                 self.stream_output(remaining);
             }
         }
+        self.stream_output("\n\n".to_string());
         let trimmed = thinking_text.trim();
         if trimmed.is_empty() {
             return;

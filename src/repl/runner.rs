@@ -4,7 +4,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rho_harness_core::presentation::{InteractionPrompt, WelcomeDisplay};
+use rho_harness_core::presentation::InteractionPrompt;
 use rho_harness_core::rpc::protocol::RpcEvent;
 use rho_harness_core::session::list_session_summaries_async;
 use rho_ui_core::autocomplete::CompletionEngine;
@@ -441,6 +441,8 @@ struct RunnerState<'a> {
     pub history: &'a mut InteractiveHistory,
     pub active_modal: &'a mut Option<ActiveModal>,
     pub autocomplete_popup: &'a mut Option<AutocompletePopupView>,
+    pub transcript: &'a mut Vec<TranscriptItem>,
+    pub tracker: &'a mut OutputTracker,
     pub prev_lines_count: usize,
     pub prev_cursor_row: usize,
 }
@@ -464,28 +466,42 @@ async fn init_live_engine(session: &mut ReplSession) -> Result<AgentEngine> {
     Ok(engine)
 }
 
-async fn print_startup_banner_direct(session: &ReplSession, engine: &AgentEngine) {
+async fn build_welcome_item(session: &ReplSession, engine: &AgentEngine) -> crate::ui::interactive::WelcomeItem {
     let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
     let tools = engine.tool_names();
     let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
     let agents = engine.instruction_files().await;
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
-    let display = WelcomeDisplay {
+    let location = std::env::current_dir()
+        .ok()
+        .map(|path| rho_harness_core::presentation::summary::to_relative_path(&path.display().to_string()))
+        .unwrap_or_else(|| ".".to_string());
+    let agent_paths = agents
+        .iter()
+        .map(|path| rho_harness_core::presentation::summary::to_relative_path(path))
+        .collect();
+    crate::ui::interactive::WelcomeItem {
+        version: env!("CARGO_PKG_VERSION").to_string(),
         model: session.config.model.clone(),
         provider: session.config.provider.clone(),
         resumed: session.resume_id.is_some(),
-        agents,
+        location,
+        agents: agent_paths,
         tools,
         skills: skill_names,
         mcp,
-    };
+    }
+}
+
+fn print_startup_banner_direct(session: &ReplSession, item: &crate::ui::interactive::WelcomeItem) {
     let renderer = crate::ui::TerminalRenderer {
         theme: crate::ui::theme::detect_with_config(&session.config.ui),
         ..Default::default()
     };
-    renderer.print_welcome(&display);
+    let rendered = crate::ui::interactive::format_welcome_content(item, 0, &renderer.theme);
     let mut stdout = std::io::stdout();
-    let _ = stdout.write_all(b"\n");
+    let _ = stdout.write_all(rendered.as_bytes());
+    let _ = stdout.write_all(b"\n\n");
     let _ = stdout.flush();
 }
 
@@ -710,7 +726,6 @@ fn refresh_display(
     footer: &FooterInfo,
     activity: Option<(&Activity, Option<&RunningTool>, usize)>,
     extra_output: Option<&str>,
-    tracker: &mut OutputTracker,
 ) -> std::io::Result<()> {
     let width = crate::ui::terminal_width() as usize;
     let cursor_mode = state.session.renderer.theme.cursor_mode;
@@ -723,11 +738,11 @@ fn refresh_display(
     if let Some(out) = extra_output
         && !out.is_empty()
     {
-        tracker.restore_cursor(&mut stdout, width)?;
+        state.tracker.restore_cursor(&mut stdout, width)?;
         let normalized = terminal_newlines(out);
         stdout.write_all(normalized.as_bytes())?;
-        tracker.update(&normalized);
-        if tracker.is_open() {
+        state.tracker.update(&normalized);
+        if state.tracker.is_open() {
             stdout.write_all(b"\r\n")?;
         }
     }
@@ -742,11 +757,61 @@ fn refresh_display(
     Ok(())
 }
 
+fn full_redraw(state: &mut RunnerState<'_>, footer: &FooterInfo) -> std::io::Result<()> {
+    let width = crate::ui::terminal_width() as usize;
+    let mut stdout = std::io::stdout();
+    stdout.write_all(CSI_SYNC_BEGIN)?;
+    stdout.write_all(b"\x1b[2J\x1b[H")?;
+    state.tracker.clear();
+
+    let theme = &state.session.renderer.theme;
+    let tools_expanded = state.session.config.ui.tools_expanded.unwrap_or(false);
+    let hide_thinking = state.session.config.ui.hide_thinking.unwrap_or(false);
+
+    for item in state.transcript.iter() {
+        let input = TranscriptRenderInput {
+            item,
+            theme,
+            width,
+            tools_expanded,
+            hide_thinking,
+        };
+        let rendered = crate::ui::interactive::render_transcript_item(input);
+        if !rendered.is_empty() {
+            let normalized = terminal_newlines(&rendered);
+            stdout.write_all(normalized.as_bytes())?;
+            stdout.write_all(b"\r\n")?;
+            state.tracker.update(&normalized);
+        }
+    }
+    stdout.write_all(b"\r\n")?;
+
+    state.prev_lines_count = 0;
+    state.prev_cursor_row = 0;
+    let cursor_mode = theme.cursor_mode;
+    let (lines, c_row, c_col) = build_live_lines(state, footer, None, width, cursor_mode);
+    paint_live_region(
+        &mut stdout,
+        &lines,
+        c_row,
+        c_col,
+        cursor_mode,
+        state.active_modal.is_none(),
+    )?;
+    stdout.write_all(CSI_SYNC_END)?;
+    stdout.flush()?;
+
+    state.prev_lines_count = lines.len();
+    state.prev_cursor_row = c_row;
+    Ok(())
+}
+
 fn drain_ui_event(
     ev: UiEvent,
     output: &mut String,
     activity: &mut Activity,
     running_tool: &mut Option<RunningTool>,
+    transcript: &mut Vec<TranscriptItem>,
     session: &ReplSession,
 ) {
     match ev {
@@ -765,11 +830,12 @@ fn drain_ui_event(
             *running_tool = None;
         }
         UiEvent::Transcript(item) => {
-            if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
-                return;
-            }
             if matches!(item, TranscriptItem::Tool(_)) {
                 *running_tool = None;
+            }
+            transcript.push(item.clone());
+            if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
+                return;
             }
             let width = crate::ui::terminal_width() as usize;
             let input = TranscriptRenderInput {
@@ -871,55 +937,67 @@ async fn cycle_thinking_level(state: &mut RunnerState<'_>, engine: &mut AgentEng
     state.session.sync_engine_model(engine).await;
 }
 
+enum ActionOutcome {
+    Handled,
+    FullRedraw,
+    Exit,
+}
+
 async fn handle_input_action(
     action: InputAction,
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
-) -> Option<bool> {
+) -> Option<ActionOutcome> {
     match action {
         InputAction::Clear => {
             state.editor.clear();
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
         InputAction::Cancel => {
             if !state.editor.is_empty() {
                 state.editor.clear();
             }
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
-        InputAction::EndOfInput => Some(state.editor.is_empty()),
+        InputAction::EndOfInput => {
+            if state.editor.is_empty() {
+                Some(ActionOutcome::Exit)
+            } else {
+                Some(ActionOutcome::Handled)
+            }
+        }
         InputAction::ModelSelect => {
             *state.active_modal = Some(build_model_modal(state.session));
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
         InputAction::ModelCycleForward => {
             cycle_model(state, engine, 1).await;
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
         InputAction::ModelCycleBackward => {
             cycle_model(state, engine, -1).await;
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
         InputAction::ThinkingCycle => {
             cycle_thinking_level(state, engine).await;
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
         InputAction::ThinkingToggle => {
             let hide = !state.session.config.ui.hide_thinking.unwrap_or(false);
             state.session.config.ui.hide_thinking = Some(hide);
-            Some(false)
+            Some(ActionOutcome::FullRedraw)
         }
         InputAction::ToggleExpandTools => {
             let exp = !state.session.config.ui.tools_expanded.unwrap_or(false);
             state.session.config.ui.tools_expanded = Some(exp);
-            Some(false)
+            Some(ActionOutcome::FullRedraw)
         }
         #[cfg(unix)]
         InputAction::Suspend => {
             unsafe {
                 libc::raise(libc::SIGTSTP);
             }
-            Some(false)
+            Some(ActionOutcome::Handled)
         }
         _ => None,
     }
@@ -954,8 +1032,21 @@ async fn handle_key_cycle(
     }
 
     let action = map_key(key);
-    if let Some(should_exit) = handle_input_action(action, state, engine).await {
-        return Ok(should_exit);
+    if let Some(outcome) = handle_input_action(action, state, engine).await {
+        return match outcome {
+            ActionOutcome::Exit => Ok(true),
+            ActionOutcome::FullRedraw => {
+                let footer = make_footer_info(
+                    &state.session.config.model,
+                    &state.session.config.provider,
+                    state.session.config.thinking_level.as_deref(),
+                    engine,
+                );
+                full_redraw(state, &footer)?;
+                Ok(false)
+            }
+            ActionOutcome::Handled => Ok(false),
+        };
     }
 
     if key.code == KeyCode::Up && state.editor.cursor().0 == 0 {
@@ -998,11 +1089,13 @@ struct LiveContext {
     pub editor: TextAreaEditor,
     pub history: InteractiveHistory,
     pub completions: CompletionEngine,
+    pub transcript: Vec<TranscriptItem>,
 }
 
 async fn init_live_context(session: &mut ReplSession) -> Result<LiveContext> {
     let engine = init_live_engine(session).await?;
-    print_startup_banner_direct(session, &engine).await;
+    let welcome = build_welcome_item(session, &engine).await;
+    print_startup_banner_direct(session, &welcome);
 
     let (ui, ui_events) = InteractiveUi::channel();
     session.renderer = crate::ui::TerminalRenderer::with_ui(ui);
@@ -1017,6 +1110,7 @@ async fn init_live_context(session: &mut ReplSession) -> Result<LiveContext> {
     let editor = TextAreaEditor::new(mode);
     let history = load_history(session).await;
     let completions = build_completions();
+    let transcript = vec![TranscriptItem::Welcome(welcome)];
 
     Ok(LiveContext {
         engine,
@@ -1024,6 +1118,7 @@ async fn init_live_context(session: &mut ReplSession) -> Result<LiveContext> {
         editor,
         history,
         completions,
+        transcript,
     })
 }
 
@@ -1043,6 +1138,8 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         history: &mut ctx.history,
         active_modal: &mut active_modal,
         autocomplete_popup: &mut autocomplete_popup,
+        transcript: &mut ctx.transcript,
+        tracker: &mut tracker,
         prev_lines_count: 0,
         prev_cursor_row: 0,
     };
@@ -1053,7 +1150,7 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         state.session.config.thinking_level.as_deref(),
         &ctx.engine,
     );
-    refresh_display(&mut state, &footer, None, None, &mut tracker)?;
+    refresh_display(&mut state, &footer, None, None)?;
 
     loop {
         tokio::select! {
@@ -1067,18 +1164,13 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
                     Event::Resize(w, _) => {
                         let width = (w as usize).max(1);
                         state.session.renderer.set_width(width);
-                        let mut stdout = std::io::stdout();
-                        let _ = stdout.write_all(b"\r\x1b[J");
-                        let _ = stdout.flush();
-                        state.prev_lines_count = 0;
-                        state.prev_cursor_row = 0;
                         let footer = make_footer_info(
                             &state.session.config.model,
                             &state.session.config.provider,
                             state.session.config.thinking_level.as_deref(),
                             &ctx.engine,
                         );
-                        refresh_display(&mut state, &footer, None, None, &mut tracker)?;
+                        full_redraw(&mut state, &footer)?;
                     }
                     Event::Key(key) => {
                         let should_exit = handle_key_cycle(
@@ -1098,7 +1190,7 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
                             state.session.config.thinking_level.as_deref(),
                             &ctx.engine,
                         );
-                        refresh_display(&mut state, &footer, None, None, &mut tracker)?;
+                        refresh_display(&mut state, &footer, None, None)?;
                     }
                     _ => {}
                 }
@@ -1301,36 +1393,27 @@ fn broadcast_turn_completion(engine: &AgentEngine) {
     });
 }
 
-fn print_initial_prompt(
-    state: &mut RunnerState<'_>,
-    prompt: &str,
-    footer: &FooterInfo,
-    tracker: &mut OutputTracker,
-) -> Result<()> {
+fn print_initial_prompt(state: &mut RunnerState<'_>, prompt: &str, footer: &FooterInfo) -> Result<()> {
     let width = crate::ui::terminal_width() as usize;
     let user_box = state.session.renderer.theme.user_block(width).render_plain(prompt);
     let pending_scrollback = format!("{user_box}\n\n");
-    refresh_display(state, footer, None, Some(&pending_scrollback), tracker)?;
+    refresh_display(state, footer, None, Some(&pending_scrollback))?;
     Ok(())
 }
 
-async fn finish_turn_execution(
-    state: &mut RunnerState<'_>,
-    engine: &mut AgentEngine,
-    tracker: &mut OutputTracker,
-) -> Result<()> {
+async fn finish_turn_execution(state: &mut RunnerState<'_>, engine: &mut AgentEngine) -> Result<()> {
     state.session.sync_engine_model(engine).await;
     engine.refresh_quota().await;
     broadcast_turn_completion(engine);
 
-    tracker.clear();
+    state.tracker.clear();
     let updated_footer = make_footer_info(
         &state.session.config.model,
         &state.session.config.provider,
         state.session.config.thinking_level.as_deref(),
         engine,
     );
-    refresh_display(state, &updated_footer, None, None, tracker)?;
+    refresh_display(state, &updated_footer, None, None)?;
     Ok(())
 }
 
@@ -1399,13 +1482,12 @@ fn flush_or_refresh_turn_tick(
     footer: &FooterInfo,
     activity_meta: (&Activity, Option<&RunningTool>, usize),
     pending_scrollback: &mut String,
-    tracker: &mut OutputTracker,
 ) -> Result<()> {
     if !pending_scrollback.is_empty() {
         let out = std::mem::take(pending_scrollback);
-        refresh_display(state, footer, Some(activity_meta), Some(&out), tracker)?;
+        refresh_display(state, footer, Some(activity_meta), Some(&out))?;
     } else {
-        refresh_display(state, footer, Some(activity_meta), None, tracker)?;
+        refresh_display(state, footer, Some(activity_meta), None)?;
     }
     Ok(())
 }
@@ -1433,6 +1515,7 @@ fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut T
                 &mut stream.scrollback,
                 &mut stream.activity,
                 &mut stream.running_tool,
+                state.transcript,
                 state.session,
             );
         }
@@ -1444,16 +1527,11 @@ fn handle_turn_resize(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
     stream: &TurnStreamState,
-    tracker: &mut OutputTracker,
 ) -> Result<()> {
     state.session.renderer.set_width(width);
-    let mut stdout = std::io::stdout();
-    let _ = stdout.write_all(b"\r\x1b[J");
-    let _ = stdout.flush();
-    state.prev_lines_count = 0;
-    state.prev_cursor_row = 0;
+    full_redraw(state, footer)?;
     let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-    refresh_display(state, footer, Some(activity_meta), None, tracker)?;
+    refresh_display(state, footer, Some(activity_meta), None)?;
     Ok(())
 }
 
@@ -1462,7 +1540,6 @@ fn finalize_turn_result<T>(
     state: &mut RunnerState<'_>,
     footer: &FooterInfo,
     stream: &mut TurnStreamState,
-    tracker: &mut OutputTracker,
 ) -> Result<()> {
     if let Err(ref err) = res {
         stream.scrollback.push_str(&format!("\nError: {err}\n"));
@@ -1471,7 +1548,7 @@ fn finalize_turn_result<T>(
         stream.scrollback.push('\n');
     }
     stream.scrollback.push('\n');
-    refresh_display(state, footer, None, Some(&stream.scrollback), tracker)?;
+    refresh_display(state, footer, None, Some(&stream.scrollback))?;
     stream.scrollback.clear();
     Ok(())
 }
@@ -1485,14 +1562,16 @@ async fn execute_agent_turn(
 ) -> Result<()> {
     while ui_events.try_recv().is_ok() {}
 
-    let mut tracker = OutputTracker::default();
+    state.transcript.push(TranscriptItem::UserMessage(prompt.to_string()));
+    state.tracker.clear();
+
     let footer = make_footer_info(
         &state.session.config.model,
         &state.session.config.provider,
         state.session.config.thinking_level.as_deref(),
         engine,
     );
-    print_initial_prompt(state, prompt, &footer, &mut tracker)?;
+    print_initial_prompt(state, prompt, &footer)?;
 
     let cancellation = Arc::new(CancellationSignal::default());
     let (steering, broadcast) = init_turn_channels(engine, state.session.renderer.clone());
@@ -1509,9 +1588,9 @@ async fn execute_agent_turn(
         tokio::select! {
             res = &mut turn_future => {
                 while let Ok(ui_ev) = ui_events.try_recv() {
-                    drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.session);
+                    drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.transcript, state.session);
                 }
-                finalize_turn_result(res, state, &footer, &mut stream, &mut tracker)?;
+                finalize_turn_result(res, state, &footer, &mut stream)?;
                 break;
             }
             Some(ui_ev) = ui_events.recv() => {
@@ -1523,12 +1602,12 @@ async fn execute_agent_turn(
                     stream.spinner_frame = (stream.spinner_frame + 1) % 10;
                 }
                 let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut stream.scrollback, &mut tracker)?;
+                flush_or_refresh_turn_tick(state, &footer, activity_meta, &mut stream.scrollback)?;
             }
             maybe_key = events.next() => {
                 match maybe_key {
                     Some(Ok(Event::Resize(w, _))) => {
-                        handle_turn_resize((w as usize).max(1), state, &footer, &stream, &mut tracker)?;
+                        handle_turn_resize((w as usize).max(1), state, &footer, &stream)?;
                     }
                     Some(Ok(Event::Key(key))) => {
                         let cancelled = handle_turn_key_input(
@@ -1541,12 +1620,12 @@ async fn execute_agent_turn(
                         );
                         if cancelled {
                             let _ = engine.record_cancellation("operator interrupt").await;
-                            refresh_display(state, &footer, None, Some(&stream.scrollback), &mut tracker)?;
+                            refresh_display(state, &footer, None, Some(&stream.scrollback))?;
                             stream.scrollback.clear();
                             break;
                         }
                         let activity_meta = (&stream.activity, stream.running_tool.as_ref(), stream.spinner_frame);
-                        refresh_display(state, &footer, Some(activity_meta), None, &mut tracker)?;
+                        refresh_display(state, &footer, Some(activity_meta), None)?;
                     }
                     _ => {}
                 }
@@ -1557,7 +1636,7 @@ async fn execute_agent_turn(
     crate::platform::remote::set_active_steering(None);
     *state.active_modal = None;
 
-    finish_turn_execution(state, engine, &mut tracker).await?;
+    finish_turn_execution(state, engine).await?;
     Ok(())
 }
 
