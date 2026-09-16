@@ -223,6 +223,33 @@ fn usage_tracker_tokens_per_second_during_streaming() {
 }
 
 #[test]
+fn tokens_per_second_does_not_double_count_reasoning_tokens() {
+    // Providers report reasoning/thinking tokens as a breakdown already contained in
+    // output_tokens; the Gemini adapter folds thoughtsTokenCount in at wire.rs.
+    let tracker = UsageTracker::default();
+    let mut step = make_usage(1_000, 100, None, None);
+    step.reasoning_tokens = Some(40);
+
+    tracker.record_step(step, 500);
+
+    assert_eq!(tracker.tokens_per_second(), Some(200.0));
+    assert_eq!(tracker.totals().total_reasoning, 40);
+    assert_eq!(tracker.totals().total_output, 100);
+}
+
+#[test]
+fn tokens_per_second_excludes_idle_time_between_generation_windows() {
+    let tracker = UsageTracker::default();
+    tracker.start_turn(Some(100));
+
+    tracker.record_step(make_usage(100, 60, None, None), 300);
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    tracker.record_step(make_usage(200, 40, None, None), 200);
+
+    assert_eq!(tracker.tokens_per_second(), Some(200.0));
+}
+
+#[test]
 fn usage_tracker_step_start_only_on_first_streaming_chunk() {
     let tracker = UsageTracker::default();
     tracker.start_turn(Some(100));
