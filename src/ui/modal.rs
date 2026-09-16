@@ -411,10 +411,21 @@ impl StandardModalView {
     }
 }
 
+/// Rows reserved for an inline modal viewport, keeping the dialog anchored to
+/// the bottom region instead of taking over the alternate screen.
+fn modal_viewport_height() -> u16 {
+    let rows = crossterm::terminal::size().map(|(_, h)| h).unwrap_or(24);
+    rows.saturating_sub(1).clamp(10, 30)
+}
+
 pub fn run_modal_view<V: ModalView>(view: &mut V) -> std::io::Result<bool> {
     let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
-    let mut terminal = ratatui::Terminal::new(backend)?;
-    terminal.clear()?;
+    let mut terminal = ratatui::Terminal::with_options(
+        backend,
+        ratatui::TerminalOptions {
+            viewport: ratatui::Viewport::Inline(modal_viewport_height()),
+        },
+    )?;
 
     let res = (|| -> std::io::Result<bool> {
         loop {

@@ -1258,7 +1258,10 @@ fn suspend_live_region(state: &mut RunnerState<'_>) {
 }
 
 fn is_modal_command(cmd: &str) -> bool {
-    matches!(cmd, "/model" | "/thinking" | "/settings" | "/session" | "/mcp" | "/skill")
+    matches!(
+        cmd,
+        "/model" | "/thinking" | "/settings" | "/session" | "/mcp" | "/skill"
+    )
 }
 
 fn prompt_modal_selection(view: &mut StandardModalView) -> Option<String> {
