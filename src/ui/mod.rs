@@ -14,8 +14,8 @@ pub mod widgets;
 pub use editor::{EditorMode, TextAreaEditor, Vim, VimMode};
 pub use markdown::MarkdownRenderer;
 pub use modal::{
-    AutocompletePopupView, PermissionPromptView, RemotePairModalView, StandardModalView, centered_modal_area,
-    prompt_session_picker, render_modal, run_modal_view,
+    AutocompletePopupView, RemotePairModalView, StandardModalView, centered_modal_area, prompt_session_picker,
+    render_modal, run_modal_view,
 };
 pub use render::TerminalRenderer;
 pub use terminal::{

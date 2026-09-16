@@ -209,6 +209,64 @@ fn test_permission_prompt_actions() {
 }
 
 #[test]
+fn permission_prompt_resolves_each_action_variant() {
+    let args = serde_json::json!({"command": "ls"});
+    let cases = [
+        (0, PermissionAction::AllowOnce),
+        (1, PermissionAction::AllowAlways),
+        (2, PermissionAction::Deny { reason: None }),
+    ];
+
+    for (index, expected) in cases {
+        let mut prompt = PermissionPromptState::new("bash", "ls", args.clone());
+        prompt.selected_index = index;
+        assert_eq!(prompt.resolve(), Some(expected));
+        assert!(!prompt.is_active, "resolving must deactivate the prompt");
+        assert_eq!(prompt.resolve(), None, "an inactive prompt must not resolve twice");
+    }
+}
+
+#[test]
+fn permission_prompt_carries_custom_deny_reason() {
+    let mut prompt = PermissionPromptState::new("bash", "rm -rf /", serde_json::json!({}));
+    prompt.selected_index = 2;
+    prompt.set_deny_reason("  too destructive  ");
+
+    assert_eq!(
+        prompt.resolve(),
+        Some(PermissionAction::Deny {
+            reason: Some("too destructive".to_string())
+        })
+    );
+}
+
+#[test]
+fn permission_prompt_cancel_editing_restores_original_command() {
+    let mut prompt = PermissionPromptState::new("bash", "ls -la", serde_json::json!({}));
+    prompt.start_editing();
+    prompt.set_edited_command("rm -rf /");
+
+    prompt.cancel_editing();
+
+    assert!(!prompt.is_editing);
+    assert_eq!(prompt.edited_command, "ls -la");
+}
+
+#[test]
+fn permission_prompt_selection_wraps_and_locks_while_editing() {
+    let mut prompt = PermissionPromptState::new("bash", "ls", serde_json::json!({}));
+
+    prompt.select_prev();
+    assert_eq!(prompt.selected_index, PERMISSION_ACTIONS.len() - 1);
+    prompt.select_next();
+    assert_eq!(prompt.selected_index, 0);
+
+    prompt.start_editing();
+    prompt.select_next();
+    assert_eq!(prompt.selected_index, 3, "editing must pin selection to Edit");
+}
+
+#[test]
 fn test_footer_metrics_formatting() {
     let metrics = FooterMetrics {
         input_tokens: 1_200,

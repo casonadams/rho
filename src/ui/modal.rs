@@ -7,16 +7,14 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListSt
 
 use rho_harness_core::presentation::InteractionInput;
 use rho_harness_core::session::SessionSummary;
-use std::collections::HashMap;
 use rho_ui_core::autocomplete::{AutocompleteCandidate, THINKING_LEVEL_OPTIONS};
 pub use rho_ui_core::format_relative_time;
 use rho_ui_core::modal::{McpModalState, ModalOption, ModalState, ModelRegistry, SettingsState, SkillModalState};
-use rho_ui_core::permission::{PERMISSION_ACTIONS, PermissionAction, PermissionPromptState};
 use rho_ui_core::session::ProviderDef;
 use rho_ui_core::state::RhoTicket;
+use std::collections::HashMap;
 
-use super::editor::{EditorMode, TextAreaEditor};
-use super::{ModalView, PromptEditor, TerminalComponent};
+use super::ModalView;
 
 pub fn centered_modal_area(width_req: u16, height_req: u16, area: Rect) -> Rect {
     let width = width_req.min(area.width.saturating_sub(2)).max(20);
@@ -176,6 +174,36 @@ pub fn render_modal(frame: &mut Frame, state: &ModalState, area: Rect, list_stat
     render_modal_inner(frame, state, area, list_state, None);
 }
 
+fn render_subtitle_area(frame: &mut Frame, subtitle: &str, content_area: Rect) -> (Option<Rect>, Rect) {
+    if subtitle.is_empty() {
+        return (None, content_area);
+    }
+    let lines: Vec<&str> = subtitle.lines().collect();
+    let subtitle_height = (lines.len() as u16 + 1).min(content_area.height.saturating_sub(3));
+    if subtitle_height == 0 {
+        return (None, content_area);
+    }
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(subtitle_height), Constraint::Min(1)])
+        .split(content_area);
+    let rendered_lines: Vec<Line> = subtitle
+        .lines()
+        .map(|l| {
+            if let Some((k, v)) = l.split_once(": ") {
+                Line::from(vec![
+                    Span::styled(format!("{k}: "), Style::default().fg(Color::DarkGray)),
+                    Span::styled(v.to_string(), Style::default().fg(Color::White)),
+                ])
+            } else {
+                Line::from(Span::styled(l.to_string(), Style::default().fg(Color::White)))
+            }
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(rendered_lines), chunks[0]);
+    (Some(chunks[0]), chunks[1])
+}
+
 fn render_modal_inner(
     frame: &mut Frame,
     state: &ModalState,
@@ -223,14 +251,16 @@ fn render_modal_inner(
         render_inline_input(frame, inline, input_area);
     }
 
+    let (_body_area, list_container) = render_subtitle_area(frame, &state.subtitle, content_area);
+
     let (search_area, list_area) = if state.search_enabled {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Min(1)])
-            .split(content_area);
+            .split(list_container);
         (Some(chunks[0]), chunks[1])
     } else {
-        (None, content_area)
+        (None, list_container)
     };
 
     if let Some(sa) = search_area {
@@ -649,271 +679,6 @@ impl ModalView for RemotePairModalView {
     }
 }
 
-pub struct PermissionPromptView {
-    pub prompt: PermissionPromptState,
-    pub editor: TextAreaEditor,
-    pub scroll_offset: usize,
-    pub resolved_action: Option<PermissionAction>,
-}
-
-impl PermissionPromptView {
-    pub fn new(prompt: PermissionPromptState) -> Self {
-        let cmd = prompt.command_display.clone();
-        let mut editor = TextAreaEditor::new(EditorMode::Default);
-        editor.set_text(&cmd);
-        Self {
-            prompt,
-            editor,
-            scroll_offset: 0,
-            resolved_action: None,
-        }
-    }
-
-    pub fn is_editing(&self) -> bool {
-        self.prompt.is_editing
-    }
-
-    pub fn start_editing(&mut self) {
-        self.prompt.start_editing();
-        self.editor.set_text(&self.prompt.edited_command);
-    }
-
-    pub fn cancel_editing(&mut self) {
-        self.prompt.cancel_editing();
-        self.editor.set_text(&self.prompt.command_display);
-    }
-
-    pub fn handle_key(&mut self, key: KeyEvent) -> bool {
-        if self.prompt.is_editing {
-            match key.code {
-                KeyCode::Enter => {
-                    self.prompt.set_edited_command(self.editor.text());
-                    self.prompt.is_editing = false;
-                    self.resolved_action = Some(PermissionAction::Edit {
-                        mutated_command: self.prompt.edited_command.clone(),
-                    });
-                    return true;
-                }
-                KeyCode::Esc => {
-                    self.cancel_editing();
-                    return true;
-                }
-                _ => return self.editor.handle_key(key),
-            }
-        }
-
-        match (key.code, key.modifiers) {
-            (KeyCode::Esc, _) => {
-                self.resolved_action = Some(PermissionAction::Deny { reason: None });
-                true
-            }
-            (KeyCode::Left, _) | (KeyCode::Up, _) => {
-                self.prompt.select_prev();
-                true
-            }
-            (KeyCode::Right, _) | (KeyCode::Down, _) => {
-                self.prompt.select_next();
-                true
-            }
-            (KeyCode::Tab, KeyModifiers::NONE) => {
-                self.prompt.select_next();
-                true
-            }
-            (KeyCode::BackTab, _) | (KeyCode::Tab, KeyModifiers::SHIFT) => {
-                self.prompt.select_prev();
-                true
-            }
-            (KeyCode::Char('1'), KeyModifiers::NONE) => {
-                self.prompt.selected_index = 0;
-                true
-            }
-            (KeyCode::Char('2'), KeyModifiers::NONE) => {
-                self.prompt.selected_index = 1;
-                true
-            }
-            (KeyCode::Char('3'), KeyModifiers::NONE) => {
-                self.prompt.selected_index = 2;
-                true
-            }
-            (KeyCode::Char('4'), KeyModifiers::NONE) => {
-                self.start_editing();
-                true
-            }
-            (KeyCode::Enter, _) => {
-                if self.prompt.selected_index == 3 {
-                    self.start_editing();
-                } else {
-                    self.resolved_action = self.prompt.resolve();
-                }
-                true
-            }
-            (KeyCode::Backspace, _) if self.prompt.selected_index == 2 => {
-                self.prompt.custom_deny_reason.pop();
-                true
-            }
-            (KeyCode::Char(c), KeyModifiers::NONE) if self.prompt.selected_index == 2 => {
-                self.prompt.custom_deny_reason.push(c);
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn render_editing(&self, frame: &mut Frame, inner: Rect) {
-        let edit_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)])
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new("Editing tool command:").style(Style::default().fg(Color::DarkGray)),
-            edit_chunks[0],
-        );
-
-        let editor_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::Yellow))
-            .title(" Command Editor ");
-        let editor_inner = editor_block.inner(edit_chunks[1]);
-        frame.render_widget(editor_block, edit_chunks[1]);
-
-        self.editor.render(frame, editor_inner);
-
-        frame.render_widget(
-            Paragraph::new("[Enter] Confirm Edit  ·  [Esc] Cancel").style(Style::default().fg(Color::DarkGray)),
-            edit_chunks[2],
-        );
-    }
-
-    fn render_prompt(&self, frame: &mut Frame, inner: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Min(3),
-                Constraint::Length(2),
-                Constraint::Length(1),
-            ])
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new("The model requested execution of the following command:")
-                .style(Style::default().fg(Color::DarkGray)),
-            chunks[0],
-        );
-
-        let cmd_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(Color::DarkGray));
-        let cmd_inner = cmd_block.inner(chunks[1]);
-        frame.render_widget(cmd_block, chunks[1]);
-
-        let cmd_text = &self.prompt.command_display;
-        frame.render_widget(
-            Paragraph::new(cmd_text.as_str()).style(Style::default().fg(Color::White)),
-            cmd_inner,
-        );
-
-        let mut action_spans = Vec::new();
-        for (i, (label, _)) in PERMISSION_ACTIONS.iter().enumerate() {
-            let is_sel = i == self.prompt.selected_index;
-            let digit = i + 1;
-            let span_style = if is_sel {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .bg(Color::Rgb(30, 45, 65))
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
-            action_spans.push(Span::styled(format!(" [{digit}] {label} "), span_style));
-            action_spans.push(Span::raw("  "));
-        }
-        frame.render_widget(Paragraph::new(Line::from(action_spans)), chunks[2]);
-
-        if self.prompt.selected_index == 2 {
-            let reason_prompt = format!("Denial Reason: {}█", self.prompt.custom_deny_reason);
-            frame.render_widget(
-                Paragraph::new(reason_prompt).style(Style::default().fg(Color::Red)),
-                chunks[3],
-            );
-        } else {
-            frame.render_widget(
-                Paragraph::new("[1-4] Quick Jump  ·  [Enter] Confirm  ·  [Esc] Deny")
-                    .style(Style::default().fg(Color::DarkGray)),
-                chunks[3],
-            );
-        }
-    }
-}
-
-impl ModalView for PermissionPromptView {
-    fn title(&self) -> &str {
-        "Tool Permission Approval"
-    }
-
-    fn selected_index(&self) -> usize {
-        self.prompt.selected_index
-    }
-
-    fn item_count(&self) -> usize {
-        PERMISSION_ACTIONS.len()
-    }
-
-    fn filter(&self) -> &str {
-        &self.prompt.custom_deny_reason
-    }
-
-    fn set_filter(&mut self, query: &str) {
-        self.prompt.set_deny_reason(query);
-    }
-
-    fn handle_key(&mut self, key: KeyEvent) -> bool {
-        self.handle_key(key)
-    }
-
-    fn render(&self, frame: &mut Frame, area: Rect) {
-        let popup_w = (area.width * 8 / 10).clamp(50, 95);
-        let popup_h = (area.height * 7 / 10).clamp(10, 24);
-        let popup_area = centered_modal_area(popup_w, popup_h, area);
-
-        frame.render_widget(Clear, popup_area);
-
-        let border_color = if self.prompt.is_editing {
-            Color::Yellow
-        } else {
-            Color::Cyan
-        };
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::default().fg(border_color))
-            .title(Span::styled(
-                format!(" Tool Approval: {} ", self.prompt.tool_name),
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-            ));
-        let inner = block.inner(popup_area);
-        frame.render_widget(block, popup_area);
-
-        if inner.height < 4 || inner.width < 10 {
-            return;
-        }
-
-        if self.prompt.is_editing {
-            self.render_editing(frame, inner);
-        } else {
-            self.render_prompt(frame, inner);
-        }
-    }
-
-    fn is_open(&self) -> bool {
-        self.prompt.is_active
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct AutocompletePopupView {
     pub candidates: Vec<AutocompleteCandidate>,
@@ -1073,6 +838,140 @@ mod tests {
         s
     }
 
+    fn inline_input_view() -> StandardModalView {
+        let options = vec![
+            ModalOption {
+                label: "allow".to_string(),
+                description: None,
+                value: "0".to_string(),
+                is_active: false,
+                shortcut: None,
+            },
+            ModalOption {
+                label: "deny".to_string(),
+                description: None,
+                value: "1".to_string(),
+                is_active: false,
+                shortcut: None,
+            },
+        ];
+        let state = ModalState::new("Approve Tool", options).with_search(false);
+        StandardModalView::new(state).with_inline_inputs([(
+            "1".to_string(),
+            InteractionInput {
+                label: "reason".to_string(),
+                value: None,
+            },
+        )])
+    }
+
+    #[test]
+    fn option_with_input_spec_collects_text_before_submitting() {
+        let mut view = inline_input_view();
+        view.state.select_next();
+
+        view.handle_key(key(KeyCode::Enter));
+        assert!(view.active_input().is_some(), "Enter must open the inline input");
+        assert!(!view.is_submitted(), "modal must stay open to collect text");
+        assert!(view.is_open());
+
+        for c in "nope".chars() {
+            view.handle_key(key(KeyCode::Char(c)));
+        }
+        view.handle_key(key(KeyCode::Enter));
+
+        assert!(view.is_submitted());
+        assert_eq!(view.submitted_input(), Some(("1", "nope")));
+    }
+
+    #[test]
+    fn option_without_input_spec_submits_on_first_enter() {
+        let mut view = inline_input_view();
+
+        view.handle_key(key(KeyCode::Enter));
+
+        assert!(view.active_input().is_none());
+        assert!(view.is_submitted());
+        assert_eq!(view.submitted_input(), None);
+    }
+
+    #[test]
+    fn escape_leaves_inline_input_without_closing_modal() {
+        let mut view = inline_input_view();
+        view.state.select_next();
+        view.handle_key(key(KeyCode::Enter));
+        view.handle_key(key(KeyCode::Char('x')));
+
+        view.handle_key(key(KeyCode::Esc));
+
+        assert!(view.active_input().is_none(), "Esc returns to option selection");
+        assert!(view.is_open(), "Esc from input must not dismiss the modal");
+        assert_eq!(view.submitted_input(), None);
+    }
+
+    #[test]
+    fn inline_input_edits_text_at_cursor() {
+        let mut view = inline_input_view();
+        view.state.select_next();
+        view.handle_key(key(KeyCode::Enter));
+
+        for c in "abc".chars() {
+            view.handle_key(key(KeyCode::Char(c)));
+        }
+        view.handle_key(key(KeyCode::Left));
+        view.handle_key(key(KeyCode::Char('Z')));
+        view.handle_key(key(KeyCode::Backspace));
+        view.handle_key(key(KeyCode::Home));
+        view.handle_key(key(KeyCode::Delete));
+
+        let input = view.active_input().expect("input still active");
+        assert_eq!(input.text, "bc");
+    }
+
+    #[test]
+    fn inline_input_renders_label_and_hint() {
+        let mut view = inline_input_view();
+        view.state.select_next();
+        view.handle_key(key(KeyCode::Enter));
+        view.handle_key(key(KeyCode::Char('h')));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| view.render(f, f.area())).unwrap();
+        let rendered = buffer_text(terminal.backend());
+
+        assert!(rendered.contains("reason >"), "input label must render");
+        assert!(rendered.contains('h'));
+        assert!(rendered.contains("Enter submit"));
+    }
+
+    #[test]
+    fn modal_renders_subtitle_body_above_options() {
+        let options = vec![ModalOption {
+            label: "Allow".to_string(),
+            description: Some("Run this tool call once".to_string()),
+            value: "0".to_string(),
+            is_active: false,
+            shortcut: None,
+        }];
+        let mut state = ModalState::new("Permission Required", options).with_search(false);
+        state.subtitle = "Tool: bash\nInput: rm -rf /tmp/scratch".to_string();
+        let view = StandardModalView::new(state);
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| view.render(f, f.area())).unwrap();
+        let rendered = buffer_text(terminal.backend());
+
+        assert!(rendered.contains("Tool: bash"), "subtitle tool line must render");
+        assert!(
+            rendered.contains("rm -rf /tmp/scratch"),
+            "approval target must be visible before selecting an option"
+        );
+        assert!(
+            rendered.contains("Allow"),
+            "options must still render below the subtitle"
+        );
+    }
+
     #[test]
     fn test_render_modal_across_terminal_dimensions() {
         let dimensions = [(80, 24), (120, 40), (60, 15)];
@@ -1220,49 +1119,6 @@ mod tests {
 
         assert!(pair_view.handle_key(key(KeyCode::Esc)));
         assert!(!pair_view.is_open);
-    }
-
-    #[test]
-    fn test_permission_prompt_navigation_and_deny_reason() {
-        let prompt_state =
-            PermissionPromptState::new("bash", "cargo test", serde_json::json!({"command": "cargo test"}));
-        let mut prompt_view = PermissionPromptView::new(prompt_state);
-
-        assert!(!prompt_view.is_editing());
-        assert_eq!(prompt_view.selected_index(), 0);
-
-        assert!(prompt_view.handle_key(key(KeyCode::Right)));
-        assert_eq!(prompt_view.selected_index(), 1);
-
-        assert!(prompt_view.handle_key(key(KeyCode::Char('3'))));
-        assert_eq!(prompt_view.selected_index(), 2);
-        assert!(prompt_view.handle_key(key(KeyCode::Char('n'))));
-        assert!(prompt_view.handle_key(key(KeyCode::Char('o'))));
-        assert_eq!(prompt_view.prompt.custom_deny_reason, "no");
-    }
-
-    #[test]
-    fn test_permission_prompt_edit_flow() {
-        let prompt_state =
-            PermissionPromptState::new("bash", "cargo test", serde_json::json!({"command": "cargo test"}));
-        let mut prompt_view = PermissionPromptView::new(prompt_state);
-
-        assert!(prompt_view.handle_key(key(KeyCode::Char('4'))));
-        assert!(prompt_view.is_editing());
-
-        assert!(prompt_view.handle_key(key(KeyCode::Char(' '))));
-        assert!(prompt_view.handle_key(key(KeyCode::Char('-'))));
-        assert!(prompt_view.handle_key(key(KeyCode::Char('q'))));
-        assert_eq!(prompt_view.editor.text(), "cargo test -q");
-
-        assert!(prompt_view.handle_key(key(KeyCode::Enter)));
-        assert!(!prompt_view.is_editing());
-        assert_eq!(
-            prompt_view.resolved_action,
-            Some(PermissionAction::Edit {
-                mutated_command: "cargo test -q".to_string()
-            })
-        );
     }
 
     #[test]
