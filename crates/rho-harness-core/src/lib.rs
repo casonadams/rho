@@ -21,6 +21,7 @@ pub mod args;
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod frontmatter;
 pub mod net;
 pub mod presentation;
 pub mod prompts;

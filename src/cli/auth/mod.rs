@@ -127,16 +127,8 @@ pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut
                 println!("No stored credentials to remove.");
                 return Ok(());
             }
-            #[cfg(feature = "ui")]
-            {
-                inquire::Select::new("Select provider credentials to remove:", configured)
-                    .prompt()
-                    .map_err(|_| AppError::Cancelled("Logout cancelled".to_string()))?
-            }
-            #[cfg(not(feature = "ui"))]
-            {
-                configured.first().cloned().unwrap_or_default()
-            }
+            let idx = terminal::prompt_select("Select provider credentials to remove:", &configured)?;
+            configured.get(idx).cloned().unwrap_or_default()
         }
     };
 

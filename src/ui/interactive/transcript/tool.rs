@@ -1,6 +1,6 @@
 use crate::ui::render::{
-    fetch_content_kind, format_bash_args_header, format_duration_ms, format_edit_diff, format_read_expanded,
-    format_tool_args_summary, format_write_preview, read_summary_parts,
+    format_bash_args_header, format_duration_ms, format_edit_diff, format_read_expanded, format_tool_args_summary,
+    format_write_preview, read_summary_parts,
 };
 
 use super::types::{ToolItem, TranscriptRenderInput};
@@ -31,34 +31,19 @@ fn format_read_header(tool: &ToolItem, theme: &crate::ui::theme::Theme) -> Strin
 fn format_tool_header(tool: &ToolItem, theme: &crate::ui::theme::Theme) -> String {
     let title = theme.tool_title_style(tool.is_error);
     let accent = theme.highlight;
-    let display_name = match tool.name.as_str() {
-        "search" | "websearch" => "web_search",
-        "fetch" | "webfetch" => "web_fetch",
-        other => other,
-    };
     if !tool.is_error && tool.name == "read" {
         return format_read_header(tool, theme);
     }
-    if !tool.is_error && display_name == "web_fetch" {
-        let url = tool
-            .arguments
-            .get("url")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        let status = theme.warning;
-        let kind = fetch_content_kind(&tool.arguments);
-        return format!("{title}web_fetch{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
-    }
     let summary = format_tool_args_summary(&tool.name, &tool.arguments);
     if summary.is_empty() {
-        format!("{title}{display_name}{title:#}")
+        format!("{title}{}{title:#}", tool.name)
     } else {
         let header_args = if tool.name == "bash" {
             format_bash_args_header(&summary, accent, theme.dimmed)
         } else {
             format!("{accent}{summary}{accent:#}")
         };
-        format!("{title}{display_name}{title:#} {header_args}")
+        format!("{title}{}{title:#} {header_args}", tool.name)
     }
 }
 
@@ -74,13 +59,12 @@ fn append_read_expanded(content: &mut String, tool: &ToolItem, theme: &crate::ui
     }
 }
 
-fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: anstyle::Style) {
+fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded: bool, dim: crate::ui::theme::Style) {
     content.push_str("\n\n");
     if expanded {
         content.push_str(clean);
     } else {
-        let truncated =
-            crate::ui::interactive::layout::truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
+        let truncated = crate::ui::block::truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
         if truncated.skipped_count > 0 {
             content.push_str(&format!(
                 "{dim}... ({n} earlier lines){dim:#}\n",
@@ -91,7 +75,13 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
     }
 }
 
-fn append_generic_output(content: &mut String, tool: &ToolItem, width: usize, expanded: bool, dim: anstyle::Style) {
+fn append_generic_output(
+    content: &mut String,
+    tool: &ToolItem,
+    width: usize,
+    expanded: bool,
+    dim: crate::ui::theme::Style,
+) {
     let raw = if !tool.output.is_empty() {
         &tool.output
     } else {

@@ -1,16 +1,23 @@
 //! `Presenter` implementation bridging `TerminalRenderer` to harness core.
 
-mod sink;
-
-pub use sink::InteractiveStreamSink;
-
 use super::renderer::TerminalRenderer;
+use crate::ui::interactive::InteractiveUi;
 use async_trait::async_trait;
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::presentation::stream::{ToolStreamPort, ToolStreamSink};
 use rho_harness_core::presentation::{ActivityToken, activity_token};
 use rho_harness_core::presentation::{InteractionPrompt, InteractionResponse, SessionStatus, ToolLine, WelcomeDisplay};
 use serde_json::Value;
+
+pub struct InteractiveStreamSink(pub Option<InteractiveUi>);
+
+impl ToolStreamSink for InteractiveStreamSink {
+    fn tool_chunk(&self, chunk: String) {
+        if let Some(ui) = &self.0 {
+            let _ = ui.tool_chunk(chunk);
+        }
+    }
+}
 
 #[async_trait]
 impl Presenter for TerminalRenderer {

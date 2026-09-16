@@ -5,7 +5,9 @@ mod types;
 pub use builder::CompletionSet;
 pub use types::{BUILTIN_SLASH_COMMANDS, CommandItem, Completion, ModelItem, ProviderItem, SkillItem, THINKING_LEVELS};
 
-use crate::repl::interactive::fuzzy::fuzzy_match;
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
+
 use args::complete_slash_args;
 
 fn complete_files(files: &[String], prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
@@ -35,15 +37,16 @@ fn complete_slash_commands(commands: &[CommandItem], prefix: &str, cursor: usize
         return Vec::new();
     }
     let query = prefix.trim_start_matches('/');
-    let mut scored: Vec<(i32, &CommandItem)> = commands
+    let matcher = SkimMatcherV2::default();
+    let mut scored: Vec<(i64, &CommandItem)> = commands
         .iter()
         .filter_map(|cmd| {
             let cmd_name = cmd.name.trim_start_matches('/');
-            fuzzy_match(query, cmd_name).map(|score| (score, cmd))
+            matcher.fuzzy_match(cmd_name, query).map(|score| (score, cmd))
         })
         .collect();
 
-    scored.sort_by_key(|(score, cmd)| (*score, cmd.name.clone()));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
 
     scored
         .into_iter()

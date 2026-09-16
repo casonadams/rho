@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::compaction::CompactionMetadata;
 
+pub use rho_ui_core::tree::TreeEntryDisplay;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TreeNodeKind {
@@ -235,4 +237,106 @@ impl SessionTree {
 
         (unique_to_source, unique_to_target)
     }
+}
+
+fn truncate_preview(text: &str, limit: usize) -> String {
+    let text = text.replace('\n', " ").trim().to_string();
+    if text.chars().count() > limit {
+        format!("{}...", text.chars().take(limit.saturating_sub(3)).collect::<String>())
+    } else {
+        text
+    }
+}
+
+fn node_preview(node: &TreeNodeData) -> String {
+    match &node.kind {
+        TreeNodeKind::UserTurn => {
+            let text = node
+                .messages
+                .iter()
+                .find_map(|m| match m {
+                    rig::message::Message::User { content } => content.first().map(|c| match c {
+                        rig::message::UserContent::Text(t) => t.text.clone(),
+                        _ => format!("{c:?}"),
+                    }),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            format!("User: \"{}\"", truncate_preview(&text, 45))
+        }
+        TreeNodeKind::AssistantTurn => {
+            let text = node
+                .messages
+                .iter()
+                .find_map(|m| match m {
+                    rig::message::Message::Assistant { content, .. } => content.first().map(|c| match c {
+                        rig::message::AssistantContent::Text(t) => t.text.clone(),
+                        _ => format!("{c:?}"),
+                    }),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            format!("Assistant: \"{}\"", truncate_preview(&text, 45))
+        }
+        TreeNodeKind::BranchSummary => {
+            let text = node
+                .messages
+                .first()
+                .map(|m| match m {
+                    rig::message::Message::Assistant { content, .. } => content
+                        .first()
+                        .map(|c| match c {
+                            rig::message::AssistantContent::Text(t) => t.text.clone(),
+                            _ => format!("{c:?}"),
+                        })
+                        .unwrap_or_default(),
+                    _ => format!("{m:?}"),
+                })
+                .unwrap_or_default();
+            format!("Summary: \"{}\"", truncate_preview(&text, 45))
+        }
+        TreeNodeKind::Compaction => "Compaction Checkpoint".to_string(),
+        TreeNodeKind::Custom => "Custom".to_string(),
+    }
+}
+
+pub fn build_tree_display(tree: &SessionTree) -> Vec<TreeEntryDisplay> {
+    let mut roots = tree.root_nodes();
+    let total_roots = roots.len();
+    let mut entries = Vec::new();
+    for (idx, root) in roots.drain(..).enumerate() {
+        let is_last = idx + 1 == total_roots;
+        visit_tree_display(tree, root, 0, is_last, &mut entries);
+    }
+    entries
+}
+
+fn visit_tree_display(
+    tree: &SessionTree,
+    node: &TreeNodeData,
+    depth: usize,
+    is_last: bool,
+    entries: &mut Vec<TreeEntryDisplay>,
+) {
+    let is_active = tree.active_leaf_id.as_deref() == Some(&node.id);
+    entries.push(TreeEntryDisplay {
+        id: node.id.clone(),
+        parent_id: node.parent_id.clone(),
+        depth,
+        is_last_child: is_last,
+        is_active,
+        label: node.label.clone(),
+        kind: format!("{:?}", node.kind),
+        preview: node_preview(node),
+    });
+    let children = tree.children_of(Some(&node.id));
+    let child_count = children.len();
+    for (idx, child) in children.iter().enumerate() {
+        visit_tree_display(tree, child, depth + 1, idx + 1 == child_count, entries);
+    }
+}
+
+pub fn render_tree_ascii(tree: &SessionTree) -> String {
+    let entries = build_tree_display(tree);
+    rho_ui_core::tree::render_tree_ascii(&entries)
 }

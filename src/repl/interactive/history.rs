@@ -1,9 +1,9 @@
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::PathBuf;
 
-use reedline::{FileBackedHistory, History, HistoryItem, SearchDirection, SearchQuery};
-
 pub struct InteractiveHistory {
-    storage: FileBackedHistory,
+    path: Option<PathBuf>,
     entries: Vec<String>,
     capacity: usize,
     position: Option<usize>,
@@ -11,15 +11,19 @@ pub struct InteractiveHistory {
 }
 
 impl InteractiveHistory {
-    pub fn with_file(capacity: usize, path: PathBuf) -> reedline::Result<Self> {
-        let storage = FileBackedHistory::with_file(capacity, path)?;
-        let entries = storage
-            .search(SearchQuery::everything(SearchDirection::Forward, None))?
-            .into_iter()
-            .map(|item| item.command_line)
-            .collect();
+    pub fn with_file(capacity: usize, path: PathBuf) -> std::io::Result<Self> {
+        let entries = if path.exists() {
+            let content = std::fs::read_to_string(&path)?;
+            let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+            if lines.len() > capacity {
+                lines = lines.split_off(lines.len() - capacity);
+            }
+            lines
+        } else {
+            Vec::new()
+        };
         Ok(Self {
-            storage,
+            path: Some(path),
             entries,
             capacity,
             position: None,
@@ -27,18 +31,24 @@ impl InteractiveHistory {
         })
     }
 
-    pub async fn with_file_async(capacity: usize, path: PathBuf) -> reedline::Result<Self> {
+    pub async fn with_file_async(capacity: usize, path: PathBuf) -> std::io::Result<Self> {
         tokio::task::spawn_blocking(move || Self::with_file(capacity, path))
             .await
             .map_err(|e| std::io::Error::other(e.to_string()))?
     }
 
-    pub fn record(&mut self, value: &str) -> reedline::Result<()> {
+    pub fn record(&mut self, value: &str) -> std::io::Result<()> {
         self.reset_navigation();
         if value.is_empty() || self.capacity == 0 || self.entries.last().is_some_and(|entry| entry == value) {
             return Ok(());
         }
-        self.storage.save(HistoryItem::from_command_line(value))?;
+        if let Some(path) = &self.path {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+            writeln!(file, "{value}")?;
+        }
         if self.entries.len() == self.capacity {
             self.entries.remove(0);
         }

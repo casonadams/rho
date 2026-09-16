@@ -1,10 +1,41 @@
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{Arc, LazyLock, RwLock};
+
 use super::client::{McpClient, McpToolDefinition};
 use super::process::McpProcess;
 use super::transport::McpTransport;
 use rho_harness_core::config::{Config, McpServerConfig};
 use rig::tool::{DynamicTool, ToolOutput};
-use std::path::Path;
-use std::sync::Arc;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerStatus {
+    pub name: String,
+    pub is_loaded: bool,
+    pub tools_count: usize,
+    pub error: Option<String>,
+}
+
+pub static MCP_SERVER_STATUSES: LazyLock<Arc<RwLock<HashMap<String, McpServerStatus>>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(HashMap::new())));
+
+pub fn get_mcp_server_statuses() -> HashMap<String, McpServerStatus> {
+    MCP_SERVER_STATUSES.read().unwrap().clone()
+}
+
+pub fn record_mcp_server_status(name: &str, is_loaded: bool, tools_count: usize, error: Option<String>) {
+    if let Ok(mut lock) = MCP_SERVER_STATUSES.write() {
+        lock.insert(
+            name.to_string(),
+            McpServerStatus {
+                name: name.to_string(),
+                is_loaded,
+                tools_count,
+                error,
+            },
+        );
+    }
+}
 
 struct ServerLoadTarget<'a> {
     name: &'a str,
@@ -69,15 +100,19 @@ async fn spawn_and_init_client(target: &ServerLoadTarget<'_>) -> Option<Arc<McpC
         let kind = target.config.resolved_transport();
         McpTransport::new_http(url, kind, target.config.headers.clone(), timeout)
     } else {
-        let (stdin, stdout, handle) = McpProcess::spawn(target.config, target.working_dir)
-            .map_err(|e| eprintln!("Warning: Failed to spawn MCP server '{}': {e}", target.name))
-            .ok()?;
+        let (stdin, stdout, handle) = match McpProcess::spawn(target.config, target.working_dir) {
+            Ok(proc) => proc,
+            Err(e) => {
+                record_mcp_server_status(target.name, false, 0, Some(format!("Failed to spawn process: {e}")));
+                return None;
+            }
+        };
         McpTransport::new_stdio(stdin, stdout, handle, timeout)
     };
 
     let client = Arc::new(McpClient::new(target.name, transport));
     if let Err(e) = client.initialize().await {
-        eprintln!("Warning: Failed to initialize MCP server '{}': {e}", target.name);
+        record_mcp_server_status(target.name, false, 0, Some(e.to_string()));
         return None;
     }
     Some(client)
@@ -85,11 +120,13 @@ async fn spawn_and_init_client(target: &ServerLoadTarget<'_>) -> Option<Arc<McpC
 
 async fn load_single_server(target: ServerLoadTarget<'_>) -> Option<SingleServerLoaded> {
     let client = spawn_and_init_client(&target).await?;
-    let tools = client
-        .list_tools()
-        .await
-        .map_err(|e| eprintln!("Warning: Failed to list tools from MCP server '{}': {e}", target.name))
-        .ok()?;
+    let tools = match client.list_tools().await {
+        Ok(t) => t,
+        Err(e) => {
+            record_mcp_server_status(target.name, false, 0, Some(format!("Failed to list tools: {e}")));
+            return None;
+        }
+    };
 
     let filtered_tools: Vec<_> = tools
         .into_iter()
@@ -114,16 +151,18 @@ async fn load_single_server(target: ServerLoadTarget<'_>) -> Option<SingleServer
 
     let mut tool_defs = Vec::with_capacity(filtered_tools.len());
     let mut dynamic_tools = Vec::new();
-    for tool in filtered_tools {
+    for tool in &filtered_tools {
         tool_defs.push((target.name.to_string(), tool.clone()));
         if !expose_as_gateway {
             dynamic_tools.push(build_single_mcp_tool(
-                tool,
+                tool.clone(),
                 Arc::clone(&client),
                 (target.name, target.max_bytes),
             ));
         }
     }
+
+    record_mcp_server_status(target.name, true, filtered_tools.len(), None);
 
     Some(SingleServerLoaded {
         server_name: target.name.to_string(),

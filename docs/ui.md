@@ -243,3 +243,30 @@ cursor = "hardware"
 cursor mode preserves your terminal emulator's native cursor shape (beam `|`,
 underline `_`, or block `█`), custom blink settings, and IME candidate popup
 positioning.
+
+---
+
+## Architecture: Unified Core & Inline Viewport
+
+`rho`'s presentation layer is organized into a shared reactive core and two native frontends:
+
+```text
+               ┌───────────────────────────────┐
+               │         rho-ui-core           │
+               │   (State, Signals, Tokens,    │
+               │    Diffs, Autocomplete, IR)   │
+               └───────────────┬───────────────┘
+                               │
+               ┌───────────────┴───────────────┐
+               ▼                               ▼
+┌───────────────────────────────┐ ┌───────────────────────────────┐
+│          Native TUI           │ │       Web Hub Dashboard       │
+│  Ratatui (Viewport::Inline)   │ │  Dioxus 0.6+ WebAssembly     │
+│  ratatui-textarea (Vim mode)  │ │  Dioxus Components (Iroh P2P) │
+│  Crossterm backend            │ │  Zero vanilla JavaScript      │
+└───────────────────────────────┘ └───────────────────────────────┘
+```
+
+- **Shared Reactive State (`crates/rho-ui-core`)**: Platform-agnostic core compiling to both native and `wasm32-unknown-unknown`. Drives modals (`use_modal`), permissions (`use_permission_prompt`), slash command auto-completion (`CompletionEngine`), history (`PromptHistory`), and streaming token processing (`StreamChunkParser`).
+- **Inline Viewport (`ratatui::Viewport::Inline`)**: Native double-buffered rendering that allocates terminal height dynamically for input, tool running status, and modals, while finalized assistant turns and user messages are cleanly committed directly into terminal scrollback history with OSC 133 prompt markers.
+- **Web Hub (`crates/rho-wasm`)**: Client-side single-page application built with Dioxus 0.6+ and Dioxus Components over peer-to-peer Iroh connections, sharing identical event models, markdown rendering, tool inspection, and permission flows with the terminal.

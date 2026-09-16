@@ -160,10 +160,10 @@ async fn discover_ollama_catalog(spec: OllamaCatalog<'_>) -> Result<Vec<Discover
 }
 
 async fn ollama_context_length(client: &reqwest::Client, host: &str, model: &str) -> Option<usize> {
-    let endpoint = format!("{}/api/show", host);
+    let endpoint = format!("{}/api/show", host.trim_end_matches('/'));
     let resp = client
         .post(&endpoint)
-        .json(&serde_json::json!({ "model": model }))
+        .json(&serde_json::json!({ "name": model, "model": model }))
         .send()
         .await
         .ok()?;
@@ -172,6 +172,10 @@ async fn ollama_context_length(client: &reqwest::Client, host: &str, model: &str
     }
     let body: OllamaShowResponse = resp.json().await.ok()?;
     ollama_context_from_info(&body.model_info)
+}
+
+pub async fn query_ollama_model_context(host: &str, model: &str) -> Option<usize> {
+    ollama_context_length(&OLLAMA_CLIENT, host, model).await
 }
 
 /// Ollama reports the architecture's context window in `model_info` under a

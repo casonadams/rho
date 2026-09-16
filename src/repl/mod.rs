@@ -3,20 +3,15 @@
 //! completion, and coordination plumbing used by both.
 
 pub mod commands;
-pub mod completer;
 pub mod coordinator;
-mod input_reader;
 pub mod interactive;
 mod line_mode;
-mod live;
-mod prompt;
+pub mod runner;
 #[cfg(test)]
 mod tests;
 
-pub use completer::RhoCompleter;
 #[cfg(test)]
 pub(crate) use line_mode::submitted_input_rows;
-pub use prompt::SimplePrompt;
 
 use crate::auth::AuthStore;
 use crate::config::Config;
@@ -89,11 +84,15 @@ impl ReplSession {
         }
     }
 
+    pub async fn run_live(&mut self) -> Result<()> {
+        runner::run_unified_live(self).await
+    }
+
     pub async fn run(&mut self) -> Result<()> {
         crate::platform::remote::set_repl_active(true);
         let stdin_is_tty = std::io::stdin().is_tty();
         let stdout_is_tty = std::io::stdout().is_tty();
-        let res = if live::live_ui_supported(stdin_is_tty, stdout_is_tty) {
+        let res = if runner::live_ui_supported(stdin_is_tty, stdout_is_tty) {
             self.run_live().await
         } else {
             line_mode::run_line_mode(self, stdin_is_tty).await

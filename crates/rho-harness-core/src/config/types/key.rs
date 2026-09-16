@@ -9,14 +9,8 @@ pub(crate) enum ConfigKey {
     ContextLimit,
     ContextWindowMessages,
     CompactionMaxBytes,
-    SearchMinIntervalMs,
-    SearchTimeoutSec,
-    FetchTimeoutSec,
-    FetchLimit,
-    FetchMaxBytes,
     OutputMaxBytes,
     AllowPrivateNetwork,
-    Region,
     SteeringMode,
     FollowUpMode,
     ReserveTokens,
@@ -29,6 +23,7 @@ pub(crate) enum ConfigKey {
     ToolsExpanded,
     Cursor,
     ShowLabel,
+    EditorMode,
 }
 
 impl FromStr for ConfigKey {
@@ -44,14 +39,8 @@ impl FromStr for ConfigKey {
             "context_limit" => Ok(Self::ContextLimit),
             "context_window_messages" => Ok(Self::ContextWindowMessages),
             "compaction_max_bytes" => Ok(Self::CompactionMaxBytes),
-            "search_min_interval_ms" => Ok(Self::SearchMinIntervalMs),
-            "search_timeout_sec" => Ok(Self::SearchTimeoutSec),
-            "fetch_timeout_sec" => Ok(Self::FetchTimeoutSec),
-            "fetch_limit" => Ok(Self::FetchLimit),
-            "fetch_max_bytes" => Ok(Self::FetchMaxBytes),
             "output_max_bytes" => Ok(Self::OutputMaxBytes),
             "allow_private_network" => Ok(Self::AllowPrivateNetwork),
-            "region" => Ok(Self::Region),
             "steering_mode" => Ok(Self::SteeringMode),
             "follow_up_mode" => Ok(Self::FollowUpMode),
             "reserve_tokens" => Ok(Self::ReserveTokens),
@@ -65,6 +54,7 @@ impl FromStr for ConfigKey {
                 Ok(Self::Cursor)
             }
             "show_label" => Ok(Self::ShowLabel),
+            "editor.mode" | "editor_mode" | "editor" => Ok(Self::EditorMode),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -80,14 +70,8 @@ impl ConfigKey {
             Self::ContextLimit => "context_limit",
             Self::ContextWindowMessages => "context_window_messages",
             Self::CompactionMaxBytes => "compaction_max_bytes",
-            Self::SearchMinIntervalMs => "search_min_interval_ms",
-            Self::SearchTimeoutSec => "search_timeout_sec",
-            Self::FetchTimeoutSec => "fetch_timeout_sec",
-            Self::FetchLimit => "fetch_limit",
-            Self::FetchMaxBytes => "fetch_max_bytes",
             Self::OutputMaxBytes => "output_max_bytes",
             Self::AllowPrivateNetwork => "allow_private_network",
-            Self::Region => "region",
             Self::SteeringMode => "steering_mode",
             Self::FollowUpMode => "follow_up_mode",
             Self::ReserveTokens => "reserve_tokens",
@@ -100,6 +84,7 @@ impl ConfigKey {
             Self::ToolsExpanded => "ui.tools_expanded",
             Self::Cursor => "ui.cursor",
             Self::ShowLabel => "show_label",
+            Self::EditorMode => "editor.mode",
         }
     }
 }

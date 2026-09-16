@@ -1,6 +1,8 @@
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
+
 use super::builder::CompletionSet;
 use super::types::{Completion, ModelItem, ProviderItem, SkillItem, THINKING_LEVELS};
-use crate::repl::interactive::fuzzy::fuzzy_match;
 
 fn complete_auth_args(set: &CompletionSet, prefix: &str, cursor: usize) -> Option<Vec<Completion>> {
     if let Some(argument) = prefix.strip_prefix("/login ") {
@@ -43,17 +45,18 @@ pub(super) fn complete_slash_args(set: &CompletionSet, prefix: &str, cursor: usi
 }
 
 fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &SkillItem)> = skills
+    let matcher = SkimMatcherV2::default();
+    let mut scored: Vec<(i64, &SkillItem)> = skills
         .iter()
         .filter_map(|s| {
             if argument.is_empty() {
                 Some((0, s))
             } else {
-                fuzzy_match(argument, &s.name).map(|score| (score, s))
+                matcher.fuzzy_match(&s.name, argument).map(|score| (score, s))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, s)| (*score, s.name.clone()));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
 
     scored
         .into_iter()
@@ -66,20 +69,22 @@ fn complete_skills(skills: &[SkillItem], argument: &str, cursor: usize) -> Vec<C
 }
 
 fn complete_models(models: &[ModelItem], argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &ModelItem)> = models
+    let matcher = SkimMatcherV2::default();
+    let mut scored: Vec<(i64, &ModelItem)> = models
         .iter()
         .filter_map(|m| {
             if argument.is_empty() {
                 Some((0, m))
             } else {
                 let query_target = format!("{}:{}", m.provider, m.id);
-                fuzzy_match(argument, &m.id)
-                    .or_else(|| fuzzy_match(argument, &query_target))
+                matcher
+                    .fuzzy_match(&m.id, argument)
+                    .or_else(|| matcher.fuzzy_match(&query_target, argument))
                     .map(|score| (score, m))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, m)| (*score, m.id.clone()));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
 
     scored
         .into_iter()
@@ -92,17 +97,18 @@ fn complete_models(models: &[ModelItem], argument: &str, cursor: usize) -> Vec<C
 }
 
 fn complete_thinking(argument: &str, cursor: usize) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &(&str, &str))> = THINKING_LEVELS
+    let matcher = SkimMatcherV2::default();
+    let mut scored: Vec<(i64, &(&str, &str))> = THINKING_LEVELS
         .iter()
         .filter_map(|lvl| {
             if argument.is_empty() {
                 Some((0, lvl))
             } else {
-                fuzzy_match(argument, lvl.0).map(|score| (score, lvl))
+                matcher.fuzzy_match(lvl.0, argument).map(|score| (score, lvl))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, lvl)| (*score, lvl.0.to_string()));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.0.cmp(b.1.0)));
 
     scored
         .into_iter()
@@ -121,17 +127,18 @@ struct TargetArgs<'a> {
 }
 
 fn complete_provider(providers: &[ProviderItem], target: TargetArgs<'_>) -> Vec<Completion> {
-    let mut scored: Vec<(i32, &ProviderItem)> = providers
+    let matcher = SkimMatcherV2::default();
+    let mut scored: Vec<(i64, &ProviderItem)> = providers
         .iter()
         .filter_map(|p| {
             if target.argument.is_empty() {
                 Some((0, p))
             } else {
-                fuzzy_match(target.argument, &p.name).map(|score| (score, p))
+                matcher.fuzzy_match(&p.name, target.argument).map(|score| (score, p))
             }
         })
         .collect();
-    scored.sort_by_key(|(score, p)| (*score, p.name.clone()));
+    scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
 
     scored
         .into_iter()

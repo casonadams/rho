@@ -90,13 +90,7 @@ fn paths_denied_by_permission_rule() {
 
 #[test]
 fn match_input_and_tool_aliases() {
-    let tool_cases = [
-        ("webfetch", "fetch"),
-        ("web_fetch", "fetch"),
-        ("websearch", "search"),
-        ("web_search", "search"),
-        ("bash", "bash"),
-    ];
+    let tool_cases = [("bash", "bash"), ("read", "read")];
     for (alias, canonical) in tool_cases {
         assert_eq!(canonical_tool(alias), canonical);
     }
@@ -121,9 +115,7 @@ fn suggested_rules_semantics() {
         ("bash", "ls", "ls *"),
         ("read", "src/main.rs", "src/main.rs/*"),
         ("write", "/tmp/notes.txt", "/tmp/notes.txt/*"),
-        ("fetch", "https://github.com/x/y?z=1", "https://github.com/*"),
-        ("fetch", "not a url", "*"),
-        ("search", "rust async", "*"),
+        ("other", "arg", "*"),
     ];
     for (tool, input, expected) in cases {
         assert_eq!(suggested_rule(tool, input), expected);

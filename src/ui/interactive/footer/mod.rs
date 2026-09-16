@@ -4,10 +4,10 @@ pub mod text;
 #[cfg(test)]
 mod tests;
 
+pub use crate::ui::block::{truncate_to_width, visible_width};
 pub use path::{abbreviate_home, get_git_branch};
-pub use text::{
-    fit_right_aligned, format_tokens, sanitize_status_text, truncate_to_width, truncate_with_ellipsis, visible_width,
-};
+pub use rho_harness_core::tokens::format_tokens;
+pub use text::{fit_right_aligned, sanitize_status_text, truncate_with_ellipsis};
 
 use std::path::PathBuf;
 

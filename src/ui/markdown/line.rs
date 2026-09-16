@@ -170,9 +170,7 @@ pub fn is_horizontal_rule(trimmed: &str) -> bool {
 pub fn render_horizontal_rule(line: &str, theme: &Theme) -> Option<String> {
     let trimmed = line.trim();
     if is_horizontal_rule(trimmed) {
-        let width = crossterm::terminal::size()
-            .map(|(cols, _)| usize::from(cols).max(40))
-            .unwrap_or(80);
+        let width = usize::from(crate::ui::terminal_width()).max(40);
         let d = theme.dimmed;
         let rule = "─".repeat(width);
         return Some(format!("{d}{rule}{d:#}"));

@@ -1,13 +1,13 @@
 //! Inline-element rendering (pulldown-cmark) and mermaid diagram blocks.
 
-use crate::ui::theme::Theme;
+use crate::ui::theme::{Style, Theme};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 fn tag_start_style(tag: Tag, theme: &Theme) -> Option<String> {
     match tag {
-        Tag::Strong => Some(anstyle::Style::new().bold().render().to_string()),
-        Tag::Emphasis => Some(anstyle::Style::new().italic().render().to_string()),
-        Tag::Strikethrough => Some(anstyle::Style::new().strikethrough().render().to_string()),
+        Tag::Strong => Some(Style::new().bold().render().to_string()),
+        Tag::Emphasis => Some(Style::new().italic().render().to_string()),
+        Tag::Strikethrough => Some(Style::new().strikethrough().render().to_string()),
         Tag::Link { .. } => Some(theme.highlight.render().to_string()),
         _ => None,
     }
@@ -15,9 +15,9 @@ fn tag_start_style(tag: Tag, theme: &Theme) -> Option<String> {
 
 fn tag_end_style(tag_end: TagEnd, theme: &Theme) -> Option<String> {
     match tag_end {
-        TagEnd::Strong => Some(anstyle::Style::new().bold().render_reset().to_string()),
-        TagEnd::Emphasis => Some(anstyle::Style::new().italic().render_reset().to_string()),
-        TagEnd::Strikethrough => Some(anstyle::Style::new().strikethrough().render_reset().to_string()),
+        TagEnd::Strong => Some(Style::new().bold().render_reset().to_string()),
+        TagEnd::Emphasis => Some(Style::new().italic().render_reset().to_string()),
+        TagEnd::Strikethrough => Some(Style::new().strikethrough().render_reset().to_string()),
         TagEnd::Link => Some(theme.highlight.render_reset().to_string()),
         _ => None,
     }

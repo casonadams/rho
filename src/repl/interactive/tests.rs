@@ -23,6 +23,26 @@ fn completion_reports_replacement_spans_for_commands_and_arguments() {
 }
 
 #[test]
+fn completion_fuzzy_matches_and_ranks_best_first() {
+    let sources = super::CompletionSources::new().with_models(vec![
+        ModelItem {
+            id: "claude-3-haiku".to_string(),
+            provider: "anthropic".to_string(),
+            description: "fast".to_string(),
+        },
+        ModelItem {
+            id: "claude-3-5-sonnet".to_string(),
+            provider: "anthropic".to_string(),
+            description: "smart".to_string(),
+        },
+    ]);
+    let completions = CompletionSet::from_sources(sources);
+    let results = completions.complete("/model sonnet", 13);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].value, "/model claude-3-5-sonnet");
+}
+
+#[test]
 fn completion_rejects_invalid_cursor_boundaries() {
     let completions = CompletionSet::from_sources(super::CompletionSources::default());
     assert!(completions.complete("/model 界", 8).is_empty());

@@ -64,25 +64,7 @@ fn merge_reserve_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
-fn merge_search_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(s) = file.search_min_interval_ms {
-        config.search_min_interval_ms = s;
-    }
-    if let Some(s) = file.search_timeout_sec {
-        config.search_timeout_sec = s;
-    }
-    if let Some(f) = file.fetch_timeout_sec {
-        config.fetch_timeout_sec = f;
-    }
-}
-
-fn merge_fetch_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(l) = file.fetch_limit {
-        config.fetch_limit = l;
-    }
-    if let Some(b) = file.fetch_max_bytes {
-        config.fetch_max_bytes = b;
-    }
+fn merge_network_settings(config: &mut Config, file: &FileConfig) {
     if let Some(o) = file.output_max_bytes {
         config.output_max_bytes = o;
     }
@@ -92,9 +74,6 @@ fn merge_fetch_settings(config: &mut Config, file: &FileConfig) {
 }
 
 fn merge_modes(config: &mut Config, file: &FileConfig) {
-    if let Some(ref r) = file.region {
-        config.region = r.clone();
-    }
     if let Some(v) = file.show_label {
         config.show_label = v;
     }
@@ -125,15 +104,21 @@ fn merge_ui_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_editor_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(ref editor) = file.editor {
+        config.editor.merge(editor);
+    }
+}
+
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_model_and_provider(config, &file);
     merge_token_limits(config, &file);
     merge_context_settings(config, &file);
     merge_reserve_settings(config, &file);
-    merge_search_settings(config, &file);
-    merge_fetch_settings(config, &file);
+    merge_network_settings(config, &file);
     merge_modes(config, &file);
     merge_retention(config, &file);
     merge_permission_and_providers(config, file.clone());
     merge_ui_settings(config, &file);
+    merge_editor_settings(config, &file);
 }

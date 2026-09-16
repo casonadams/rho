@@ -12,11 +12,13 @@ fn format_tokens_matches_status_line_breakpoints() {
         (1_000, "1.0k"),
         (1_234, "1.2k"),
         (9_999, "10.0k"),
-        (10_000, "10k"),
+        (10_000, "10.0k"),
+        (99_999, "100.0k"),
+        (100_000, "100k"),
         (128_000, "128k"),
         (200_000, "200k"),
         (1_000_000, "1M"),
-        (2_500_000, "3M"),
+        (2_500_000, "2.5M"),
     ];
     for (tokens, expected) in cases {
         assert_eq!(format_tokens(tokens), expected);
@@ -89,7 +91,7 @@ fn sample_stats_footer() -> FooterState {
 #[test]
 fn stats_line_formats_usage_and_model() {
     let line = format_stats_line(&sample_stats_footer(), 80);
-    for token in ["↑1.2k", "↓450", "R10k", "W2.0k", "$0.012", "1.2%/200k", "@258t/s"] {
+    for token in ["↑1.2k", "↓450", "R10.0k", "W2.0k", "$0.012", "1.2%/200k", "@258t/s"] {
         assert!(line.contains(token));
     }
     assert!(line.ends_with("gemini-3.8-flash • medium"));

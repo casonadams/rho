@@ -66,9 +66,6 @@ fn apply_retention_env_override<F: Fn(&str) -> Option<String>>(config: &mut Conf
 }
 
 fn apply_runtime_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) -> Result<()> {
-    if let Some(val) = get("WEB_REGION") {
-        config.region = val;
-    }
     if let Some(val) = get("WEB_ALLOW_PRIVATE_NETWORK") {
         config.allow_private_network = parse_bool("WEB_ALLOW_PRIVATE_NETWORK", &val)?;
     }
@@ -91,6 +88,7 @@ where
     apply_token_env_overrides(config, &get)?;
     apply_runtime_env_overrides(config, &get)?;
     apply_ui_env_overrides(config, &get);
+    apply_editor_env_overrides(config, &get);
     Ok(())
 }
 
@@ -100,6 +98,12 @@ fn apply_ui_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, ge
     }
     if let Some(val) = get("RHO_CURSOR").or_else(|| get("RHO_UI_CURSOR")) {
         config.ui.cursor = Some(val);
+    }
+}
+
+fn apply_editor_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) {
+    if let Some(val) = get("RHO_EDITOR_MODE").or_else(|| get("EDITOR_MODE")) {
+        config.editor.mode = Some(val);
     }
 }
 

@@ -10,11 +10,9 @@
 
 pub mod broadcast_presenter;
 pub(crate) mod card;
-pub(crate) mod diff;
 pub(crate) mod formatters;
 pub(crate) mod notices;
 pub(crate) mod presenter;
-pub(crate) mod preview;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
 
@@ -22,38 +20,12 @@ pub mod rpc_presenter;
 mod tests;
 
 pub use broadcast_presenter::BroadcastPresenter;
+pub(crate) use card::format_bash_args_header;
+pub use formatters::format_relative_time;
 pub(crate) use formatters::{format_edit_diff, format_read_expanded, format_thinking_block, format_write_preview};
-pub(crate) use preview::{fetch_content_kind, format_bash_args_header, tool_title_style};
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
 pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
 pub use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
+pub use rho_ui_core::{format_duration, format_duration_ms};
 pub use rpc_presenter::{PendingApprovals, RpcPresenter};
-
-pub fn format_duration(duration: std::time::Duration) -> String {
-    let secs = duration.as_secs();
-    if secs >= 60 {
-        format!("{}m {}s", secs / 60, secs % 60)
-    } else if secs > 0 {
-        format!("{secs}s")
-    } else {
-        format!("{}ms", duration.as_millis())
-    }
-}
-
-/// Formats a tool duration given in milliseconds.
-pub fn format_duration_ms(duration_ms: u64) -> String {
-    let seconds = duration_ms / 1000;
-    let millis = duration_ms % 1000;
-    if seconds >= 60 {
-        format!("{}m {}s", seconds / 60, seconds % 60)
-    } else if seconds > 0 {
-        if millis == 0 {
-            format!("{}s", seconds)
-        } else {
-            format!("{}.{:03}s", seconds, millis)
-        }
-    } else {
-        format!("{}ms", duration_ms)
-    }
-}

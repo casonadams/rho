@@ -63,6 +63,14 @@ impl SharedSteeringQueue {
         self.queue.lock().unwrap().clear();
     }
 
+    pub fn current_items(&self) -> Vec<String> {
+        self.queue.lock().unwrap().items()
+    }
+
+    pub fn pop_last(&self) -> Option<String> {
+        self.queue.lock().unwrap().pop_back()
+    }
+
     pub fn consumed(&self) -> Vec<String> {
         self.consumed.lock().unwrap().clone()
     }

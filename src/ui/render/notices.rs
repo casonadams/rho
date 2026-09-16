@@ -12,17 +12,17 @@ pub struct CacheMissNotice {
     pub idle_minutes: Option<u64>,
 }
 
-fn resolve_block_bg(theme: &Theme, style: &str) -> anstyle::Style {
+fn resolve_block_bg(theme: &Theme, style: &str) -> crate::ui::theme::Style {
     match style {
         "warning" => {
             if let Some(fg) = theme.warning.get_fg_color() {
-                anstyle::Style::new()
+                crate::ui::theme::Style::new()
                     .bg_color(Some(fg))
-                    .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Black)))
+                    .fg_color(Some(crate::ui::theme::Color::Ansi(crate::ui::theme::AnsiColor::Black)))
             } else {
-                anstyle::Style::new()
-                    .bg_color(Some(anstyle::AnsiColor::Yellow.into()))
-                    .fg_color(Some(anstyle::AnsiColor::Black.into()))
+                crate::ui::theme::Style::new()
+                    .bg_color(Some(crate::ui::theme::AnsiColor::Yellow.into()))
+                    .fg_color(Some(crate::ui::theme::AnsiColor::Black.into()))
             }
         }
         _ => theme.block_fill,
@@ -71,7 +71,7 @@ impl TerminalRenderer {
         let formatted_title = if display.title.is_empty() {
             String::new()
         } else {
-            let bold = anstyle::Style::new().bold();
+            let bold = crate::ui::theme::Style::new().bold();
             format!("{bold}{}{bold:#}\n\n", display.title)
         };
         let full_text = format!("{formatted_title}{}", display.content);

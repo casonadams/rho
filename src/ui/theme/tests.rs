@@ -1,6 +1,5 @@
 use super::terminal::{blend_fill, detect, theme_from_colorfbg};
 use super::*;
-use anstyle::{AnsiColor, Color, RgbColor};
 use std::io::IsTerminal;
 
 #[test]
@@ -188,14 +187,14 @@ fn apply_ui_config_configures_border_mode_and_colors() {
 #[test]
 fn default_border_colors() {
     let theme = Theme::default();
-    let blue = anstyle::Color::Ansi(anstyle::AnsiColor::Blue);
-    let grey = anstyle::Color::Ansi(anstyle::AnsiColor::BrightBlack);
+    let blue = Color::Ansi(AnsiColor::Blue);
+    let grey = Color::Ansi(AnsiColor::BrightBlack);
     assert_eq!(theme.user_border.get_fg_color(), Some(blue));
     assert_eq!(theme.agent_border.get_fg_color(), Some(grey));
     assert_eq!(theme.tool_border.get_fg_color(), Some(grey));
     assert_eq!(theme.bash_success_border.get_fg_color(), Some(grey));
     assert_eq!(
         theme.bash_error_border.get_fg_color(),
-        Some(anstyle::Color::Ansi(anstyle::AnsiColor::Red))
+        Some(Color::Ansi(AnsiColor::Red))
     );
 }

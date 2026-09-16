@@ -47,9 +47,8 @@ Everything needed to run model turns and tools:
   discovery/presets.
 - `claude/`, `antigravity/`, `chatgpt/`, `ollama/` — provider-specific wire
   formats, SSE streaming, quota parsing, and OAuth flows (`auth/`).
-- `tools/` — built-in tools (bash, read, edit, write, fd, rg, web_fetch,
-  web_search) plus shared plumbing: output truncation, atomic writes, HTTP
-  client singleton, rate limiting.
+- `tools/` — built-in tools (bash, read, edit, write, fd, rg) plus shared
+  plumbing: output truncation, atomic writes.
 - `permission/` — bash tokenizer, policy evaluation, interactive prompts.
 - `mcp/` — MCP client/process/transport and tool gateway.
 - `hook/` — lightweight one-shot process hooks (`.rho/hooks/`) for turn and tool lifecycle interception.

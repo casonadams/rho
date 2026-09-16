@@ -4,20 +4,6 @@
 use crate::error::{AppError, Result};
 use url::Url;
 
-pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0 Safari/537.36 rho/0.1.0";
-pub const BRAVE_CHROME_UA: &str =
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-pub const LYNX_UA: &str = "Lynx/2.9.3 libwww-FM/2.14 SSL-MM/1.4.1 OpenSSL/4.0.0";
-
-#[derive(Clone)]
-pub struct HttpRequest<'a> {
-    pub url: &'a str,
-    pub user_agent: Option<&'a str>,
-    pub timeout_sec: u64,
-    pub max_bytes: usize,
-    pub pdf_max_bytes: Option<usize>,
-}
-
 pub fn is_private_ip(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => is_private_ipv4(v4),

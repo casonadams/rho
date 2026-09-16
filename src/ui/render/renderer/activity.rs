@@ -2,22 +2,17 @@
 
 use super::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveUi};
-use indicatif::{ProgressBar, ProgressStyle};
 use rho_harness_core::presentation::summary::format_tool_args_summary;
-use std::time::Duration;
 
 pub enum RenderActivity {
-    Progress(ProgressBar),
     Interactive(InteractiveUi),
+    Headless,
 }
 
 impl RenderActivity {
     pub fn finish_and_clear(self) {
-        match self {
-            Self::Progress(progress) => progress.finish_and_clear(),
-            Self::Interactive(ui) => {
-                let _ = ui.set_activity(Activity::Idle);
-            }
+        if let Self::Interactive(ui) = self {
+            let _ = ui.set_activity(Activity::Idle);
         }
     }
 }
@@ -35,15 +30,7 @@ impl TerminalRenderer {
             let _ = ui.set_activity(activity);
             return RenderActivity::Interactive(ui.clone());
         }
-        let pb = ProgressBar::new_spinner();
-        let style = ProgressStyle::default_spinner()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template(" {spinner:.cyan} {msg} {elapsed:.dim}")
-            .unwrap_or_else(|_| ProgressStyle::default_spinner());
-        pb.set_style(style);
-        pb.set_message(message.to_string());
-        pb.enable_steady_tick(Duration::from_millis(80));
-        RenderActivity::Progress(pb)
+        RenderActivity::Headless
     }
 
     pub fn start_tool_spinner(&self, name: &str, args: &serde_json::Value) -> RenderActivity {

@@ -14,8 +14,8 @@ fn bash_summary_formats_timeout_inline() {
 
 #[test]
 fn format_bash_args_header_styles_timeout_part_as_dim() {
-    let accent = anstyle::Style::new().bold();
-    let dim = anstyle::Style::new().dimmed();
+    let accent = crate::ui::theme::Style::new().bold();
+    let dim = crate::ui::theme::Style::new().dimmed();
     let styled = crate::ui::render::format_bash_args_header("cargo build (timeout 30s)", accent, dim);
     assert_eq!(
         styled,

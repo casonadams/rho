@@ -74,6 +74,14 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_editor_mode_async(config_dir: &Path, mode: &str) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        let editor = file_config.editor.get_or_insert_with(Default::default);
+        editor.mode = Some(mode.to_string());
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub async fn save_show_label_async(config_dir: &Path, show: bool) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
@@ -112,7 +120,6 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
         }
-        ConfigKey::Region => file_config.region = Some(value.to_string()),
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::BlockStyle => {
@@ -138,6 +145,10 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::ShowLabel => {
             file_config.show_label = Some(parse_bool(key.as_str(), value)?);
         }
+        ConfigKey::EditorMode => {
+            let editor = file_config.editor.get_or_insert_with(Default::default);
+            editor.mode = Some(value.to_string());
+        }
         _ => return Ok(false),
     }
     Ok(true)
@@ -161,13 +172,6 @@ fn apply_limit_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
 
 fn apply_net_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
     match key {
-        ConfigKey::SearchMinIntervalMs => {
-            file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?)
-        }
-        ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?),
         ConfigKey::SessionRetentionDays => file_config.session_retention_days = parse_retention(key.as_str(), value)?,

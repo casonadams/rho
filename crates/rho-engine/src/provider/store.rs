@@ -106,6 +106,28 @@ impl ModelStore {
         self.save_async().await
     }
 
+    pub async fn set_single_model_context_async(
+        &mut self,
+        provider: &str,
+        model: &str,
+        context_tokens: usize,
+    ) -> Result<()> {
+        let entry = self.models.entry(provider.to_string()).or_default();
+        if let Some(existing) = entry.iter_mut().find(|m| m.id == model) {
+            existing.context_tokens = Some(context_tokens);
+        } else {
+            entry.push(DiscoveredModel {
+                id: model.to_string(),
+                name: model.to_string(),
+                provider: provider.to_string(),
+                description: super::discovery::format_context_tokens(context_tokens),
+                context_tokens: Some(context_tokens),
+            });
+        }
+        self.updated_at_ms = chrono::Utc::now().timestamp_millis();
+        self.save_async().await
+    }
+
     pub fn save(&self) -> Result<()> {
         if let Some(parent) = self.file_path.parent() {
             let _ = std::fs::create_dir_all(parent);

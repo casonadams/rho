@@ -12,8 +12,8 @@ mod validate;
 mod tests;
 
 pub use types::{
-    Config, DEFAULT_MAX_TURNS, McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig,
-    ProviderConfig, UiConfig, default_config_dir, dirs_fallback,
+    Config, DEFAULT_MAX_TURNS, EditorConfig, McpConfig, McpExposureMode, McpServerConfig, McpTransportKind,
+    PermissionConfig, ProviderConfig, UiConfig, default_config_dir, dirs_fallback,
 };
 
 use crate::error::{AppError, Result};

@@ -23,12 +23,18 @@ fn prompt_line_thinking(ctx: &mut SlashCommandContext<'_>) -> Option<CommandResu
     if !std::io::stdin().is_terminal() {
         return None;
     }
-    let levels: Vec<String> = crate::repl::interactive::completion::THINKING_LEVELS
-        .iter()
-        .map(|(lvl, desc)| format!("{lvl} - {desc}"))
-        .collect();
-    let choice = inquire::Select::new("Select thinking level:", levels).prompt().ok()?;
-    let selected = choice.split_whitespace().next().unwrap_or("off");
+    let levels = crate::repl::interactive::completion::THINKING_LEVELS;
+    println!("Select thinking level:");
+    for (idx, (lvl, desc)) in levels.iter().enumerate() {
+        println!("  {}. {lvl} - {desc}", idx + 1);
+    }
+    use std::io::Write;
+    print!("Enter choice (1-{}): ", levels.len());
+    let _ = std::io::stdout().flush();
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).ok()?;
+    let idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
+    let (selected, _) = levels.get(idx)?;
     Some(apply_explicit_level(ctx, selected))
 }
 

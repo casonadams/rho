@@ -1,11 +1,24 @@
 use super::formatters::{format_edit_diff, format_write_preview};
-use super::preview::{fetch_content_kind, format_bash_args_header};
 use crate::ui::block::terminal_width;
 use crate::ui::theme::Theme;
 use rho_harness_core::presentation::ToolLine;
 use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, format_tool_args_summary, read_summary_parts,
 };
+
+pub fn format_bash_args_header(summary: &str, accent: crate::ui::theme::Style, dim: crate::ui::theme::Style) -> String {
+    if let Some(idx) = summary.rfind(" (timeout ")
+        && summary.ends_with(')')
+    {
+        let timeout_part = &summary[idx + 1..];
+        let inner = &timeout_part["(timeout ".len()..timeout_part.len() - 1];
+        if inner.ends_with('s') && inner[..inner.len() - 1].chars().all(|c| c.is_ascii_digit()) {
+            let cmd = &summary[..idx];
+            return format!("{accent}{cmd}{accent:#} {dim}{timeout_part}{dim:#}");
+        }
+    }
+    format!("{accent}{summary}{accent:#}")
+}
 
 fn format_read_header(line: &ToolLine, theme: &Theme) -> String {
     let (path, range) = read_summary_parts(&line.arguments);
@@ -33,34 +46,19 @@ fn format_read_header(line: &ToolLine, theme: &Theme) -> String {
 fn format_card_header(line: &ToolLine, theme: &Theme) -> String {
     let title = theme.tool_title_style(line.is_error);
     let accent = theme.highlight;
-    let display_name = match line.name.as_str() {
-        "search" | "websearch" => "web_search",
-        "fetch" | "webfetch" => "web_fetch",
-        other => other,
-    };
     if !line.is_error && line.name == "read" {
         return format_read_header(line, theme);
     }
-    if !line.is_error && display_name == "web_fetch" {
-        let url = line
-            .arguments
-            .get("url")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        let status = theme.warning;
-        let kind = fetch_content_kind(&line.arguments);
-        return format!("{title}{display_name}{title:#} {accent}{url}{accent:#}\n{status}fetched ({kind}){status:#}");
-    }
     let summary = format_tool_args_summary(&line.name, &line.arguments);
     if summary.is_empty() {
-        format!("{title}{display_name}{title:#}")
+        format!("{title}{}{title:#}", line.name)
     } else {
         let header_args = if line.name == "bash" {
             format_bash_args_header(&summary, accent, theme.dimmed)
         } else {
             format!("{accent}{summary}{accent:#}")
         };
-        format!("{title}{display_name}{title:#} {header_args}")
+        format!("{title}{}{title:#} {header_args}", line.name)
     }
 }
 

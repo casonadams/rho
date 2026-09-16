@@ -4,6 +4,7 @@ members = [
     ".",
     "crates/rho-harness-core",
     "crates/rho-engine",
+    "crates/rho-ui-core",
     "crates/rho-wasm",
 ]
 
@@ -32,7 +33,14 @@ tiktoken-rs = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 fuzzy-matcher = "0.3.7"
+similar = { version = "3.2", features = ["inline"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+ratatui = { version = "0.30", default-features = false }
+ratatui-textarea = { version = "0.9", default-features = false, features = ["crossterm", "search"] }
+dioxus-core = "0.6"
+dioxus-signals = "0.6"
 rho-harness-core = { version = "0.7.5", path = "crates/rho-harness-core" }
+rho-ui-core = { version = "0.7.5", path = "crates/rho-ui-core" }
 rho-engine = { version = "0.7.5", path = "crates/rho-engine" }
 rig = { version = "0.42", default-features = false, features = ["agent", "derive", "test-utils"] }
 rig-memory = "0.42"
@@ -46,6 +54,9 @@ iroh = "1.2.0"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false }
 tokio-websockets = { version = "0.13", default-features = false, features = ["server"] }
+humantime = "2.1"
+crossterm = { version = "0.29", default-features = false }
+
 
 [package]
 name = "rho"
@@ -63,11 +74,7 @@ workspace = true
 [features]
 default = ["ui"]
 ui = [
-    "dep:reedline",
-    "dep:inquire",
-    "dep:indicatif",
     "dep:crossterm",
-    "dep:anstyle",
     "dep:pulldown-cmark",
     "dep:syntect",
     "dep:merman",
@@ -85,6 +92,9 @@ path = "src/main.rs"
 [dependencies]
 rho-harness-core.workspace = true
 rho-engine.workspace = true
+rho-ui-core.workspace = true
+ratatui = { workspace = true, features = ["crossterm"] }
+ratatui-textarea.workspace = true
 
 # Async Runtime & Core
 tokio = { workspace = true, features = ["full"] }
@@ -109,15 +119,11 @@ qrcode.workspace = true
 tokio-websockets = { workspace = true }
 futures-util = "0.3"
 clap = { version = "4.5", features = ["derive", "env"] }
-reedline = { version = "0.51", optional = true }
-inquire = { version = "0.9", optional = true, features = ["fuzzy"] }
-indicatif = { version = "0.18", optional = true }
-crossterm = { version = "0.29", optional = true }
-anstyle = { version = "1.0", optional = true }
+crossterm = { workspace = true, optional = true, features = ["event-stream"] }
 pulldown-cmark = { version = "0.13", optional = true }
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"], optional = true }
 merman = { version = "=0.8.0-alpha.6", default-features = false, features = ["ascii"], optional = true }
-terminal-colorsaurus = { version = "1.0", features = ["anstyle"], optional = true }
+terminal-colorsaurus = { version = "1.0", optional = true }
 
 # Utilities & Config
 toml.workspace = true
@@ -126,6 +132,7 @@ anyhow.workspace = true
 uuid = { workspace = true, features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 fuzzy-matcher.workspace = true
+similar.workspace = true
 regex = "1.11"
 unicode-width = "0.2"
 arboard = "3.4"
@@ -143,58 +150,11 @@ http = "1.0"
 
 [profile.dev]
 opt-level = 0
-debug = 1
-
-[profile.dev.package."*"]
-opt-level = 2
-
-[profile.dev.package.ring]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rig-core]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rig-agent]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rig]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rig-memory]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rustls]
-opt-level = 0
-debug = false
-
-[profile.dev.package.reqwest]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rustls-webpki]
-opt-level = 0
-debug = false
-
-[profile.dev.package.tokio-rustls]
-opt-level = 0
-debug = false
-
-[profile.dev.package.hyper-rustls]
-opt-level = 0
-debug = false
-
-[profile.dev.package.rustls-platform-verifier]
-opt-level = 0
-debug = false
+debug = 0
 
 [profile.release]
-opt-level = 3
-lto = "fat"
-codegen-units = 1
+opt-level = 2
+lto = "off"
+codegen-units = 16
 strip = true
 panic = "abort"

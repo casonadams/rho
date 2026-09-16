@@ -9,43 +9,19 @@ mod tests;
 pub use cut_point::{
     find_node_token_cut_point, find_token_cut_point, is_tool_result_message, is_user_turn_start, message_position_at,
 };
+pub use rho_ui_core::text::{format_size, format_tokens};
 
 pub const ESTIMATED_IMAGE_TOKENS: usize = 1200;
 pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
 pub const DEFAULT_RESERVE_TOKENS: usize = 16_384;
 pub const DEFAULT_KEEP_RECENT_TOKENS: usize = 20_000;
 
-const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
-    (&["gemini-1.5-pro", "gemini-2.5-pro"], 2_000_000),
-    (&["gemini"], 1_000_000),
-    (&["gpt-6-astra"], 1_050_000),
-    (&["sonnet", "opus", "fable"], 1_000_000),
-    (&["gpt-5.6", "luna", "terra", "sol"], 372_000),
-    (&["gpt-5.4", "gpt-5.5"], 272_000),
-    (&["claude", "o1", "o3"], 200_000),
-];
-
 pub fn context_window_size_for_provider(model: &str, provider: &str) -> usize {
-    if model.eq_ignore_ascii_case("gpt-6-astra") {
-        return if provider.eq_ignore_ascii_case("openai") {
-            1_050_000
-        } else if provider.eq_ignore_ascii_case("chatgpt") {
-            372_000
-        } else {
-            128_000
-        };
-    }
-    context_window_size(model)
+    rho_ui_core::modal::ModelRegistry::resolve_context_window(model, Some(provider))
 }
 
 pub fn context_window_size(model: &str) -> usize {
-    let lower = model.to_lowercase();
-    for &(patterns, window) in MODEL_CONTEXT_WINDOWS {
-        if patterns.iter().any(|&p| lower.contains(p)) {
-            return window;
-        }
-    }
-    128_000
+    rho_ui_core::modal::ModelRegistry::resolve_context_window(model, None)
 }
 
 /// Auto-compaction triggers only when context tokens exceed the window minus

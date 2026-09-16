@@ -86,11 +86,7 @@ impl TerminalRenderer {
 
     pub fn width(&self) -> usize {
         let w = self.width.load(Ordering::Relaxed);
-        if w > 0 {
-            w
-        } else {
-            crossterm::terminal::size().map(|(w, _)| w as usize).unwrap_or(80)
-        }
+        if w > 0 { w } else { crate::ui::terminal_width() as usize }
     }
 
     pub fn stream_output(&self, text: String) {

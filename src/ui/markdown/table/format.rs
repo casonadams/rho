@@ -23,7 +23,7 @@ impl TableFormat<'_> {
 
     fn render_row_subline(&self, wrapped: &[Vec<String>], line_idx: usize, header: bool) -> String {
         let border = self.theme.dimmed;
-        let bold = anstyle::Style::new().bold();
+        let bold = crate::ui::theme::Style::new().bold();
         let mut out = format!("{border}│{border:#} ");
         for (col, width) in self.widths.iter().enumerate() {
             let cell = wrapped[col].get(line_idx).map(String::as_str).unwrap_or("");
@@ -157,7 +157,7 @@ pub(super) fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
 }
 
 pub(super) fn render_compact_table(rows: &[Vec<String>], header_end: usize, width: usize) -> String {
-    let bold = anstyle::Style::new().bold();
+    let bold = crate::ui::theme::Style::new().bold();
     let mut output = String::new();
     for (index, row) in rows.iter().enumerate() {
         let joined = row.join(" | ");

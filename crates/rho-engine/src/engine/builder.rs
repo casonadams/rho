@@ -180,14 +180,14 @@ impl AgentEngineBuilder {
         resolve_model_or_fallback((&mut self.config, &self.auth_store, shared_auth))
     }
 
-    fn into_engine(
+    async fn into_engine(
         self,
         base_dir: PathBuf,
         (session_manager, auth_store): (SessionManager, Arc<tokio::sync::Mutex<AuthStore>>),
         (tools, model, agent): (Vec<DynamicTool>, ModelHandle, rig::agent::Agent),
     ) -> AgentEngine {
         let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
-        let context_limit = super::model::resolve_context_limit(&self.config);
+        let context_limit = super::model::resolve_context_limit(&self.config).await;
         AgentEngine {
             config: self.config,
             base_dir,
@@ -228,7 +228,9 @@ impl AgentEngineBuilder {
             },
         )?;
 
-        Ok(self.into_engine(base_dir, (session_manager, shared_auth), (tools, model, agent)))
+        Ok(self
+            .into_engine(base_dir, (session_manager, shared_auth), (tools, model, agent))
+            .await)
     }
 }
 

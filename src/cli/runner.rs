@@ -38,10 +38,8 @@ fn default_terminal_presenter() -> Arc<dyn rho_harness_core::presentation::Prese
     #[cfg(feature = "ui")]
     {
         let renderer = crate::ui::TerminalRenderer::default();
-        if std::io::IsTerminal::is_terminal(&std::io::stdout())
-            && let Ok((cols, _)) = crossterm::terminal::size()
-        {
-            renderer.set_width(cols as usize);
+        if std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+            renderer.set_width(crate::ui::terminal_width() as usize);
         }
         Arc::new(renderer)
     }

@@ -1,6 +1,6 @@
 use super::wrap::{sgr_resets_background, visible_width};
 use super::*;
-use anstyle::{AnsiColor, Color};
+use crate::ui::theme::{AnsiColor, Color};
 
 fn background() -> Style {
     Style::new().bg_color(Some(Color::Ansi(AnsiColor::Black)))
@@ -144,4 +144,35 @@ fn border_blocks_strip_carriage_returns_to_protect_borders() {
     }
     assert!(lines[1].starts_with("\x1b[32m│\x1b[0m 00:01 +0: loading"));
     assert!(lines[1].ends_with("\x1b[32m │\x1b[0m"));
+}
+
+#[test]
+fn wrap_to_width_preserves_ansi_styling_across_word_boundaries() {
+    let text = "\x1b[32malpha beta gamma delta\x1b[0m";
+    let wrapped = wrap_to_width(text, 12);
+    assert_eq!(wrapped, vec!["\x1b[32malpha beta\x1b[0m", "\x1b[32mgamma delta\x1b[0m"]);
+}
+
+#[test]
+fn wrap_to_width_preserves_leading_indentation_on_first_line() {
+    let text = "  alpha beta gamma";
+    let wrapped = wrap_to_width(text, 10);
+    assert_eq!(wrapped, vec!["  alpha", "beta gamma"]);
+}
+
+#[test]
+fn wrap_to_width_preserves_multiple_spaces_when_fitting() {
+    let text = "alpha   beta";
+    let wrapped = wrap_to_width(text, 20);
+    assert_eq!(wrapped, vec!["alpha   beta"]);
+}
+
+#[test]
+fn wrap_to_width_strips_carriage_returns() {
+    let text = "\r00:01 +0: loading\r\n\r00:02 +1: passed\r\n";
+    let wrapped = wrap_to_width(text, 40);
+    assert_eq!(wrapped, vec!["00:01 +0: loading", "00:02 +1: passed", ""]);
+    for line in &wrapped {
+        assert!(!line.contains('\r'));
+    }
 }

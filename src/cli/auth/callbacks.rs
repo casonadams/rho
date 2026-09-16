@@ -1,11 +1,10 @@
-use super::terminal::{open_url_in_browser_async, prompt_password, prompt_text};
+use super::terminal::{open_url_in_browser_async, prompt_password, prompt_select, prompt_text};
 use crate::error::{AppError, Result};
 use async_trait::async_trait;
 use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption};
 
 pub struct TerminalOAuthCallbacks;
 
-#[cfg(feature = "ui")]
 async fn prompt_ui_select(message: &str, options: &[SelectOption]) -> Result<Option<String>> {
     let labels: Vec<String> = options
         .iter()
@@ -15,28 +14,10 @@ async fn prompt_ui_select(message: &str, options: &[SelectOption]) -> Result<Opt
         })
         .collect();
     let msg = message.to_string();
-    let selection = tokio::task::spawn_blocking(move || {
-        inquire::Select::new(&msg, labels)
-            .prompt()
-            .map_err(|_| AppError::Cancelled("Selection cancelled".to_string()))
-    })
-    .await
-    .map_err(|e| AppError::Other(e.into()))??;
-    for opt in options {
-        if selection.starts_with(&opt.label) || selection.contains(&opt.label) {
-            return Ok(Some(opt.id.clone()));
-        }
-    }
-    Ok(None)
-}
-
-#[cfg(not(feature = "ui"))]
-async fn prompt_ui_select(message: &str, options: &[SelectOption]) -> Result<Option<String>> {
-    println!("{message}");
-    for (idx, opt) in options.iter().enumerate() {
-        println!("  {}. {}", idx + 1, opt.label);
-    }
-    Ok(options.first().map(|o| o.id.clone()))
+    let selected_idx = tokio::task::spawn_blocking(move || prompt_select(&msg, &labels))
+        .await
+        .map_err(|e| AppError::Other(e.into()))??;
+    Ok(options.get(selected_idx).map(|o| o.id.clone()))
 }
 
 #[async_trait]

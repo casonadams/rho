@@ -25,9 +25,7 @@ pub fn clear_submitted_input(input: &str) {
     if !stdout.is_tty() {
         return;
     }
-    let width = crossterm::terminal::size()
-        .map(|(columns, _)| usize::from(columns))
-        .unwrap_or(80);
+    let width = usize::from(crate::ui::terminal_width());
     let rows = submitted_input_rows(input, width);
     let _ = stdout
         .queue(MoveUp(rows))

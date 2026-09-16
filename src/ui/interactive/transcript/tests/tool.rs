@@ -111,7 +111,8 @@ fn render_transcript_bash_with_timeout_styles_timeout_with_dimmed() {
 fn render_transcript_tool_with_border_style_uses_outline() {
     let mut theme = Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Border;
-    theme.bash_success_border = anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Green)));
+    theme.bash_success_border = crate::ui::theme::Style::new()
+        .fg_color(Some(crate::ui::theme::Color::Ansi(crate::ui::theme::AnsiColor::Green)));
     let item = TranscriptItem::Tool(ToolItem {
         name: "bash".into(),
         arguments: serde_json::json!({"command": "cargo test"}),

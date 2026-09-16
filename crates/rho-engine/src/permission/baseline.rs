@@ -7,8 +7,6 @@ pub const BASELINE_TOOLS: &[&str] = &[
     "find",
     "fd",
     "rg",
-    "fetch",
-    "search",
     "todo",
     "ask_user_question",
     "subagent",

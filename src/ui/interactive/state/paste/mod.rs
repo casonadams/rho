@@ -1,7 +1,5 @@
 pub mod marker;
 
-pub use marker::{find_marker_covering, find_marker_ending_at, find_marker_starting_at};
-
 use marker::PASTE_MARKER_RE;
 use regex::Regex;
 use std::{collections::BTreeMap, sync::LazyLock};

@@ -1,11 +1,7 @@
-use super::editor::EditorState;
+use super::EditorState;
 use super::modal::ModalState;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QueueKind {
-    Steering,
-    FollowUp,
-}
+pub use rho_ui_core::{QueueKind, UiAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueuedMessage {
@@ -87,29 +83,6 @@ impl PartialEq for FooterState {
 }
 
 impl Eq for FooterState {}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UiAction {
-    Insert(char),
-    InsertNewline,
-    Backspace,
-    Delete,
-    MoveLeft,
-    MoveRight,
-    MoveWordLeft,
-    MoveWordRight,
-    MoveToStart,
-    MoveToEnd,
-    DeleteWordBackward,
-    DeleteWordForward,
-    DeleteToLineStart,
-    DeleteToLineEnd,
-    Yank,
-    Undo,
-    Paste(String),
-    Submit(QueueKind),
-    Exit,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiEffect {

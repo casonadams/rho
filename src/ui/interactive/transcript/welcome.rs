@@ -1,15 +1,20 @@
-use crate::ui::interactive::layout::wrap_words_to_width;
+use crate::ui::block::wrap_words_to_width;
 use crate::ui::theme::Theme;
 use std::collections::BTreeMap;
 
 use super::types::WelcomeItem;
 
-fn append_welcome_section(out: &mut String, title: &str, items: &[String], width: usize, dim: anstyle::Style) {
+fn append_welcome_section(out: &mut String, title: &str, items: &[String], width: usize, dim: crate::ui::theme::Style) {
     if items.is_empty() {
         return;
     }
     let text = items.join(", ");
-    let max_w = width.saturating_sub(4).max(20);
+    let effective_width = if width > 0 {
+        width
+    } else {
+        crate::ui::terminal_width() as usize
+    };
+    let max_w = effective_width.saturating_sub(4).max(20);
     let wrapped = wrap_words_to_width(&text, max_w);
     out.push_str(&format!("{dim}[{title}]{dim:#}\n"));
     for line in wrapped {
@@ -38,8 +43,6 @@ fn classify_tools(tools: &[String]) -> ToolCategories {
     for tool in tools {
         match tool.as_str() {
             "fd" | "read" | "rg" | "write" | "edit" | "bash" => push_unique(&mut builtins, tool),
-            "search" | "web_search" => push_unique(&mut builtins, "web_search"),
-            "fetch" | "web_fetch" => push_unique(&mut builtins, "web_fetch"),
             "mcp" | "mcpScript" => {}
             other => {
                 if let Some((server, _)) = other.split_once('_') {

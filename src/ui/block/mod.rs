@@ -2,9 +2,12 @@
 mod tests;
 pub(crate) mod wrap;
 
-pub(crate) use wrap::{ANSI_PATTERN, visible_width};
+pub use wrap::{
+    ANSI_PATTERN, VisualTruncateResult, truncate_to_visual_lines, truncate_to_width, visible_width, wrap_to_width,
+    wrap_words_to_width,
+};
 
-use anstyle::Style;
+use crate::ui::theme::Style;
 use wrap::{wrap_plain_text, wrap_styled_line};
 
 const HORIZONTAL_PADDING: usize = 1;
@@ -196,7 +199,5 @@ impl BlockFormat {
 }
 
 pub fn terminal_width() -> usize {
-    crossterm::terminal::size()
-        .map(|(columns, _)| usize::from(columns.saturating_sub(1).max(1)))
-        .unwrap_or(79)
+    usize::from(super::terminal_width().saturating_sub(1).max(1))
 }

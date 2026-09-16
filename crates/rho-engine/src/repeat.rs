@@ -46,10 +46,8 @@ impl AgentHook for RepeatedCallHook {
 
 pub fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Path) -> String {
     let mut normalized = arguments.clone();
-    match tool_name {
-        "bash" => normalize_bash(&mut normalized, working_dir),
-        "web_search" => normalize_web_search(&mut normalized),
-        _ => {}
+    if tool_name == "bash" {
+        normalize_bash(&mut normalized, working_dir);
     }
     serde_json::to_string(&(tool_name, normalized)).unwrap_or_else(|_| format!("{tool_name}:<invalid>"))
 }
@@ -67,24 +65,6 @@ fn normalize_bash(arguments: &mut Value, working_dir: &Path) {
         "working_directory".to_string(),
         Value::String(normalize_working_dir(working_dir)),
     );
-}
-
-fn normalize_web_search(arguments: &mut Value) {
-    let Some(values) = arguments.as_object_mut() else {
-        return;
-    };
-    if let Some(query) = values.get_mut("query")
-        && let Some(text) = query.as_str()
-    {
-        *query = Value::String(
-            text.split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_ascii_lowercase(),
-        );
-    }
-    let effective_limit = values.get("limit").and_then(Value::as_u64).unwrap_or(5).clamp(1, 20);
-    values.insert("limit".to_string(), Value::from(effective_limit));
 }
 
 fn normalize_working_dir(working_dir: &Path) -> String {

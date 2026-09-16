@@ -21,6 +21,7 @@ pub mod runtime;
 pub mod tracking;
 
 pub use compactor::CompactionStats;
+pub use display::consumed_context_tokens;
 
 #[cfg(test)]
 mod tests;

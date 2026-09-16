@@ -172,7 +172,7 @@ impl MarkdownRenderer {
         self.spacing.prepare_content(out);
         let rendered = self.render_dispatch(line, theme);
         if self.width > 0 && !self.code_fence.in_code_block {
-            let wrapped = crate::ui::interactive::wrap_to_width(&rendered, self.width);
+            let wrapped = crate::ui::block::wrap_to_width(&rendered, self.width);
             for (idx, wline) in wrapped.iter().enumerate() {
                 if idx > 0 {
                     out.push('\n');

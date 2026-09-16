@@ -104,15 +104,29 @@ fn set_os_clipboard_text(text: &str) {
     }
 }
 
+pub fn set_text_osc52(text: &str) {
+    use base64::Engine;
+    use std::io::Write;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+    let mut stdout = std::io::stdout();
+    let _ = write!(stdout, "\x1b]52;c;{}\x07", encoded);
+    let _ = stdout.flush();
+}
+
 pub fn set_text(text: &str) -> Result<()> {
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut local_success = false;
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && clipboard.set_text(text).is_ok()
     {
-        return Ok(());
+        local_success = true;
+    } else {
+        set_os_clipboard_text(text);
     }
 
-    set_os_clipboard_text(text);
+    if !local_success || std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some() {
+        set_text_osc52(text);
+    }
     Ok(())
 }
 

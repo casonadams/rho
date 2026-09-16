@@ -33,22 +33,24 @@ fn render_transcript_standard_read_collapsed_and_expanded() {
 }
 
 #[test]
-fn render_transcript_web_search_tool_expanded_shows_output() {
+fn render_transcript_custom_tool_expanded_shows_output() {
     let theme = Theme::default();
     let item = TranscriptItem::Tool(ToolItem {
-        name: "web_search".into(),
+        name: "custom_tool".into(),
         arguments: serde_json::json!({"query": "rust async"}),
         is_error: false,
-        output: "Found 10 results from crates.io\n1. tokio\n2. futures".into(),
+        output: "Found 10 results\n1. tokio\n2. futures".into(),
         output_summary: "summary".into(),
         duration_ms: None,
     });
 
     let collapsed = render_tool_item(&item, &theme, false);
     assert!(
-        collapsed.contains("web_search") && collapsed.contains("rust async") && !collapsed.contains("Found 10 results")
+        collapsed.contains("custom_tool")
+            && collapsed.contains("rust async")
+            && !collapsed.contains("Found 10 results")
     );
 
     let expanded = render_tool_item(&item, &theme, true);
-    assert!(expanded.contains("web_search") && expanded.contains("Found 10 results from crates.io"));
+    assert!(expanded.contains("custom_tool") && expanded.contains("Found 10 results"));
 }

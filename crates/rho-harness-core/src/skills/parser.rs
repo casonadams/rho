@@ -7,13 +7,6 @@ use std::path::Path;
 const SKILL_METADATA_PREFIX_BYTES: u64 = 4096;
 const FALLBACK_DESCRIPTION: &str = "Custom agent skill";
 
-#[derive(Default)]
-struct ParsedFrontmatter {
-    name: Option<String>,
-    description: Option<String>,
-    disable_model_invocation: bool,
-}
-
 pub fn parse_skill_file(path: &Path) -> Option<SkillMetadata> {
     let content = read_skill_prefix(path)?;
     let declared_name = if path.file_name().is_some_and(|name| name == "SKILL.md") {
@@ -36,37 +29,6 @@ fn read_skill_prefix(path: &Path) -> Option<String> {
     Some(prefix)
 }
 
-fn parse_frontmatter_line(line: &str, out: &mut ParsedFrontmatter) {
-    if let Some(value) = line.strip_prefix("name:") {
-        out.name = Some(value.trim().trim_matches('"').trim_matches('\'').to_string());
-    } else if let Some(value) = line.strip_prefix("description:") {
-        out.description = Some(value.trim().trim_matches('"').trim_matches('\'').to_string());
-    } else if let Some(value) = line
-        .strip_prefix("disable-model-invocation:")
-        .or_else(|| line.strip_prefix("disable_model_invocation:"))
-    {
-        out.disable_model_invocation = value
-            .trim()
-            .trim_matches('"')
-            .trim_matches('\'')
-            .eq_ignore_ascii_case("true");
-    }
-}
-
-fn parse_skill_frontmatter(content: &str) -> ParsedFrontmatter {
-    let mut out = ParsedFrontmatter::default();
-    if !content.starts_with("---") {
-        return out;
-    }
-    let parts: Vec<&str> = content.splitn(3, "---").collect();
-    if parts.len() >= 3 {
-        for line in parts[1].lines() {
-            parse_frontmatter_line(line.trim(), &mut out);
-        }
-    }
-    out
-}
-
 fn extract_body_description(content: &str) -> String {
     content
         .lines()
@@ -77,18 +39,25 @@ fn extract_body_description(content: &str) -> String {
 }
 
 fn build_metadata(path: &Path, declared_name: Option<String>, content: &str) -> SkillMetadata {
-    let frontmatter = parse_skill_frontmatter(content);
+    let frontmatter = crate::frontmatter::parse_frontmatter(content);
     let name = frontmatter
-        .name
+        .as_ref()
+        .and_then(|fm| fm.get("name").map(str::to_string))
         .or(declared_name)
         .unwrap_or_else(|| "skill".to_string());
     let description = frontmatter
-        .description
+        .as_ref()
+        .and_then(|fm| fm.get("description").map(str::to_string))
         .unwrap_or_else(|| extract_body_description(content));
+    let disable_model_invocation = frontmatter
+        .as_ref()
+        .and_then(|fm| fm.get_with_aliases(&["disable-model-invocation", "disable_model_invocation"]))
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     SkillMetadata {
         name,
         description,
         location: path.display().to_string(),
-        disable_model_invocation: frontmatter.disable_model_invocation,
+        disable_model_invocation,
     }
 }

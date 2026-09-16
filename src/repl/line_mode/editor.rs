@@ -1,59 +1,6 @@
-use crate::auth::AuthStore;
-use crate::config::Config;
 use crate::engine::AgentEngine;
-use crate::error::Result;
 use crate::repl::ReplSession;
-use crate::repl::completer::RhoCompleter;
 use crate::ui::render::WelcomeDisplay;
-use reedline::{
-    ColumnarMenu, Emacs, FileBackedHistory, KeyCode, KeyModifiers, MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
-    default_emacs_keybindings,
-};
-
-fn build_completion_sources(config: &Config, auth_store: &AuthStore) -> crate::repl::interactive::CompletionSources {
-    let cwd = std::env::current_dir().ok();
-    let skills = crate::skills::resolved_skills(cwd.as_deref());
-    let prompt_templates =
-        rho_harness_core::prompts::discover_prompt_templates(Some(&config.config_dir), cwd.as_deref())
-            .into_iter()
-            .map(|t| t.metadata.name)
-            .collect();
-    let models = crate::repl::interactive::discover_models(config, auth_store);
-    let custom_providers = config.providers.keys().cloned().collect();
-    crate::repl::interactive::CompletionSources::new()
-        .with_skills(skills)
-        .with_templates(prompt_templates)
-        .with_models(models)
-        .with_custom_providers(custom_providers)
-}
-
-fn build_emacs_edit_mode() -> Box<Emacs> {
-    let mut keybindings = default_emacs_keybindings();
-    keybindings.add_binding(
-        KeyModifiers::ALT,
-        KeyCode::Enter,
-        ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
-    );
-    Box::new(Emacs::new(keybindings))
-}
-
-pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
-    let edit_mode = build_emacs_edit_mode();
-    let sources = build_completion_sources(config, auth_store);
-    let completer = Box::new(RhoCompleter::new(sources));
-    let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
-
-    let history = Box::new(
-        FileBackedHistory::with_file(1000, config.config_dir.join("history.txt"))
-            .map_err(|error| anyhow::anyhow!("History unavailable: {error}"))?,
-    );
-
-    Ok(Reedline::create()
-        .with_history(history)
-        .with_completer(completer)
-        .with_menu(ReedlineMenu::EngineCompleter(completion_menu))
-        .with_edit_mode(edit_mode))
-}
 
 pub async fn print_line_mode_welcome(session: &ReplSession, engine: &AgentEngine) {
     let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());

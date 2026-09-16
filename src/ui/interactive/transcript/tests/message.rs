@@ -25,7 +25,9 @@ fn render_transcript_user_message() {
 fn render_transcript_user_message_with_border_style() {
     let mut theme = Theme::default();
     theme.block_style = crate::ui::theme::BlockStyle::Border;
-    theme.user_border = anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::BrightBlack)));
+    theme.user_border = crate::ui::theme::Style::new().fg_color(Some(crate::ui::theme::Color::Ansi(
+        crate::ui::theme::AnsiColor::BrightBlack,
+    )));
     let item = TranscriptItem::UserMessage("hello bordered user message".into());
     let rendered = render_transcript_item(TranscriptRenderInput {
         item: &item,

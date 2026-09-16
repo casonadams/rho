@@ -2,7 +2,7 @@ pub mod option;
 
 pub use option::ModalOption;
 
-use super::editor::EditorState;
+use super::EditorState;
 use crate::ui::interactive::OptionLayout;
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;

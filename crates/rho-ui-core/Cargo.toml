@@ -1,0 +1,30 @@
+[package]
+name = "rho-ui-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Platform-agnostic reactive UI core, view models, and state hooks for rho"
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+fuzzy-matcher.workspace = true
+similar.workspace = true
+pulldown-cmark.workspace = true
+dioxus-core.workspace = true
+dioxus-signals.workspace = true
+ratatui = { workspace = true, features = ["serde"] }
+unicode-width = "0.2"
+chrono.workspace = true
+uuid.workspace = true
+humantime.workspace = true
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crossterm = { workspace = true, features = ["events"] }
+
