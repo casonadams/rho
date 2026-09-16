@@ -244,10 +244,18 @@ struct FooterInfo {
     pub total_output: u64,
     pub total_cache_read: u64,
     pub total_cache_write: u64,
+    pub context_window: usize,
+    pub context_percent: Option<f64>,
+    pub tokens_per_second: Option<f64>,
+    pub quota: Option<String>,
 }
 
 fn make_footer_info(model: &str, provider: &str, thinking: Option<&str>, engine: &AgentEngine) -> FooterInfo {
     let totals = engine.session_usage_totals();
+    let context_window = engine.context_limit().unwrap_or(0);
+    let context_percent = engine.context_percent_f64();
+    let tokens_per_second = engine.tokens_per_second();
+    let quota = engine.quota_display();
     FooterInfo {
         model: model.to_string(),
         provider: provider.to_string(),
@@ -256,6 +264,10 @@ fn make_footer_info(model: &str, provider: &str, thinking: Option<&str>, engine:
         total_output: totals.total_output,
         total_cache_read: totals.total_cache_read,
         total_cache_write: totals.total_cache_write,
+        context_window,
+        context_percent,
+        tokens_per_second,
+        quota,
     }
 }
 
@@ -446,7 +458,7 @@ async fn load_history(session: &ReplSession) -> InteractiveHistory {
         })
 }
 
-fn format_footer_path() -> String {
+fn format_footer_path(footer: &FooterInfo, width: usize) -> String {
     let current_dir = std::env::current_dir().unwrap_or_default();
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -457,11 +469,19 @@ fn format_footer_path() -> String {
     {
         path.push_str(&format!(" ({branch})"));
     }
-    format!("\x1b[90m{path}\x1b[0m")
+    let left = path;
+    let right = footer.quota.as_deref().unwrap_or("");
+    let plain_len = left.len() + right.len();
+    let pad = width.saturating_sub(plain_len);
+    format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
 }
 
 fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
-    let window = ModelRegistry::default().context_window_for(&footer.model, Some(&footer.provider));
+    let window = if footer.context_window > 0 {
+        footer.context_window
+    } else {
+        ModelRegistry::default().context_window_for(&footer.model, Some(&footer.provider))
+    };
     let metrics = FooterMetrics {
         input_tokens: footer.total_input,
         output_tokens: footer.total_output,
@@ -470,8 +490,8 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
         context_tokens: footer.total_input as usize,
         context_window: window,
         total_cost: None,
-        tokens_per_second: None,
-        quota_summary: None,
+        tokens_per_second: footer.tokens_per_second,
+        quota_summary: footer.quota.clone(),
     };
 
     let thinking = footer.thinking.as_deref().unwrap_or("default");
@@ -495,11 +515,17 @@ fn format_footer_stats(footer: &FooterInfo, width: usize) -> String {
         ));
     }
     if metrics.context_window > 0 {
+        let pct = footer.context_percent.unwrap_or_else(|| metrics.context_percent());
         parts.push(format!(
             "{:.1}%/{}",
-            metrics.context_percent(),
+            pct,
             rho_harness_core::tokens::format_tokens(metrics.context_window as u64)
         ));
+    }
+    if let Some(tps) = footer.tokens_per_second
+        && tps > 0.0
+    {
+        parts.push(format!("@{tps:.0}t/s"));
     }
     let left = parts.join(" ");
 
@@ -625,7 +651,7 @@ fn build_live_lines(
         let hint = modal_hint(modal);
         lines.push(format!("\x1b[90m{hint}\x1b[0m"));
     }
-    lines.push(format_footer_path());
+    lines.push(format_footer_path(footer, width));
     lines.push(format_footer_stats(footer, width));
 
     (lines, cursor_row, cursor_col)
@@ -1088,6 +1114,7 @@ async fn init_live_context(session: &mut ReplSession) -> Result<LiveContext> {
     };
     let editor = TextAreaEditor::new(mode);
     let history = load_history(session).await;
+    crate::repl::interactive::spawn_background_model_refresh(&session.config, &session.auth_store);
     let completions = build_completions();
     let transcript = vec![TranscriptItem::Welcome(welcome)];
 

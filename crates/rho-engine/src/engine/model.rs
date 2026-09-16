@@ -10,21 +10,35 @@ use super::builder;
 use super::runtime;
 use super::tracking::ContextTracker;
 
-pub(crate) fn resolve_context_limit(config: &Config) -> Option<usize> {
+pub(crate) async fn resolve_context_limit(config: &Config) -> Option<usize> {
     if let Some(limit) = config.context_limit {
         return Some(limit);
     }
     if matches!(config.provider.as_str(), "local" | "ollama" | "ollama-cloud") {
-        let store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+        let store_path = config.config_dir.join("models-store.json");
+        let store = crate::provider::ModelStore::load_async(&store_path).await;
         let keys: &[&str] = if config.provider == "ollama-cloud" {
             &["ollama-cloud"]
         } else {
             &["local", "ollama"]
         };
-        store.context_tokens(keys, &config.model)
-    } else {
-        None
+        if let Some(tokens) = store.context_tokens(keys, &config.model) {
+            return Some(tokens);
+        }
+        if config.provider != "ollama-cloud" {
+            let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
+            if let Some(tokens) =
+                crate::provider::discovery::fetch::query_ollama_model_context(&host, &config.model).await
+            {
+                let mut mut_store = store;
+                let _ = mut_store
+                    .set_single_model_context_async("local", &config.model, tokens)
+                    .await;
+                return Some(tokens);
+            }
+        }
     }
+    None
 }
 
 async fn refresh_oauth_key_if_applicable(provider: &str, auth_store: &tokio::sync::Mutex<AuthStore>) {
@@ -50,7 +64,7 @@ impl AgentEngine {
         refresh_oauth_key_if_applicable(&self.config.provider, &self.auth_store).await;
         let model_handle = self.build_model_handle(&self.config).await?;
         self.model = Some(model_handle.clone());
-        self.context = ContextTracker::new(resolve_context_limit(&self.config));
+        self.context = ContextTracker::new(resolve_context_limit(&self.config).await);
 
         let base_dir = std::env::current_dir()?;
         let new_agent = runtime::build_coding_agent(
