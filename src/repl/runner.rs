@@ -685,30 +685,62 @@ fn build_live_lines(
     (lines, cursor_row, c_col)
 }
 
-fn paint_live_region(
-    stdout: &mut std::io::Stdout,
-    lines: &[String],
-    cursor_row: usize,
-    cursor_col: usize,
-    cursor_mode: CursorMode,
-    active_editor: bool,
-) -> std::io::Result<()> {
-    for (i, line) in lines.iter().enumerate() {
-        stdout.write_all(line.as_bytes())?;
-        if i + 1 < lines.len() {
-            stdout.write_all(b"\r\n")?;
+struct LiveCursorTarget {
+    pub prev_lines: usize,
+    pub prev_cursor_row: usize,
+    pub target_row: usize,
+    pub target_col: usize,
+    pub cursor_mode: CursorMode,
+    pub active_editor: bool,
+}
+
+fn paint_live_region(stdout: &mut std::io::Stdout, lines: &[String], cursor: &LiveCursorTarget) -> std::io::Result<()> {
+    if cursor.prev_lines == 0 {
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                stdout.write_all(b"\r\n")?;
+            }
+            stdout.write_all(line.as_bytes())?;
+        }
+        let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor.target_row);
+        if rows_up > 0 {
+            write!(stdout, "\x1b[{rows_up}A")?;
+        }
+    } else {
+        if cursor.prev_cursor_row > 0 {
+            write!(stdout, "\x1b[{}A", cursor.prev_cursor_row)?;
+        }
+        stdout.write_all(b"\r")?;
+
+        for (i, line) in lines.iter().enumerate() {
+            if i > 0 {
+                if i < cursor.prev_lines {
+                    stdout.write_all(b"\x1b[1B")?;
+                } else {
+                    stdout.write_all(b"\r\n")?;
+                }
+            }
+            stdout.write_all(b"\r\x1b[2K")?;
+            stdout.write_all(line.as_bytes())?;
+        }
+
+        for _ in lines.len()..cursor.prev_lines {
+            stdout.write_all(b"\x1b[1B\r\x1b[2K")?;
+        }
+
+        let base_height = cursor.prev_lines.max(lines.len());
+        let rows_up = base_height.saturating_sub(1).saturating_sub(cursor.target_row);
+        if rows_up > 0 {
+            write!(stdout, "\x1b[{rows_up}A")?;
         }
     }
-    let rows_up = lines.len().saturating_sub(1).saturating_sub(cursor_row);
-    if rows_up > 0 {
-        write!(stdout, "\x1b[{rows_up}A")?;
-    }
-    if cursor_col > 0 {
-        write!(stdout, "\r\x1b[{cursor_col}C")?;
+
+    if cursor.target_col > 0 {
+        write!(stdout, "\r\x1b[{}C", cursor.target_col)?;
     } else {
         stdout.write_all(b"\r")?;
     }
-    if cursor_mode == CursorMode::Hardware && active_editor {
+    if cursor.cursor_mode == CursorMode::Hardware && cursor.active_editor {
         stdout.write_all(b"\x1b[?25h")?;
     } else {
         stdout.write_all(b"\x1b[?25l")?;
@@ -748,11 +780,14 @@ fn refresh_display(
 
     let mut stdout = std::io::stdout();
     stdout.write_all(CSI_SYNC_BEGIN)?;
-    erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row)?;
 
     if let Some(out) = extra_output
         && !out.is_empty()
     {
+        erase_live_region(&mut stdout, state.prev_lines_count, state.prev_cursor_row)?;
+        state.prev_lines_count = 0;
+        state.prev_cursor_row = 0;
+
         state.tracker.restore_cursor(&mut stdout, width)?;
         let normalized = terminal_newlines(out);
         stdout.write_all(normalized.as_bytes())?;
@@ -762,8 +797,15 @@ fn refresh_display(
         }
     }
 
-    let active_editor = state.active_modal.is_none();
-    paint_live_region(&mut stdout, &lines, c_row, c_col, cursor_mode, active_editor)?;
+    let cursor = LiveCursorTarget {
+        prev_lines: state.prev_lines_count,
+        prev_cursor_row: state.prev_cursor_row,
+        target_row: c_row,
+        target_col: c_col,
+        cursor_mode,
+        active_editor: state.active_modal.is_none(),
+    };
+    paint_live_region(&mut stdout, &lines, &cursor)?;
     stdout.write_all(CSI_SYNC_END)?;
     stdout.flush()?;
 
@@ -806,14 +848,15 @@ fn full_redraw(state: &mut RunnerState<'_>, footer: &FooterInfo) -> std::io::Res
     state.prev_cursor_row = 0;
     let cursor_mode = theme.cursor_mode;
     let (lines, c_row, c_col) = build_live_lines(state, footer, None, &[], width, cursor_mode);
-    paint_live_region(
-        &mut stdout,
-        &lines,
-        c_row,
-        c_col,
+    let cursor = LiveCursorTarget {
+        prev_lines: 0,
+        prev_cursor_row: 0,
+        target_row: c_row,
+        target_col: c_col,
         cursor_mode,
-        state.active_modal.is_none(),
-    )?;
+        active_editor: state.active_modal.is_none(),
+    };
+    paint_live_region(&mut stdout, &lines, &cursor)?;
     stdout.write_all(CSI_SYNC_END)?;
     stdout.flush()?;
 
