@@ -92,6 +92,10 @@ fn editor_navigation_and_control_keys_are_mapped() {
             InputAction::Edit(UiAction::Undo),
         ),
         (
+            key(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            InputAction::ToggleExpandTools,
+        ),
+        (
             key(KeyCode::Backspace, KeyModifiers::NONE),
             InputAction::Edit(UiAction::Backspace),
         ),

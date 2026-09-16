@@ -3,7 +3,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossterm::cursor::Show;
-use crossterm::event::{DisableMouseCapture, KeyCode, KeyEvent, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, KeyCode, KeyEvent, MouseEvent, MouseEventKind,
+};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use ratatui::backend::{Backend, CrosstermBackend, TestBackend};
@@ -42,7 +44,7 @@ impl TerminalGuard {
     pub fn enter() -> io::Result<Self> {
         enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(stdout, Show)?;
+        execute!(stdout, Show, EnableBracketedPaste)?;
         install_terminal_panic_hook();
         Ok(Self { active: true })
     }
@@ -51,7 +53,7 @@ impl TerminalGuard {
         if self.active {
             self.active = false;
             let mut stdout = io::stdout();
-            let _ = execute!(stdout, Show, DisableMouseCapture);
+            let _ = execute!(stdout, Show, DisableMouseCapture, DisableBracketedPaste);
             disable_raw_mode()?;
         }
         Ok(())

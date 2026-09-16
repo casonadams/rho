@@ -624,7 +624,18 @@ fn build_live_lines(
     }
 
     let mut lines = Vec::new();
-    lines.push(String::new());
+
+    if let Some((_, Some(tool), _)) = activity {
+        let widget_input = RunningToolWidgetInput {
+            tool,
+            theme: &state.session.renderer.theme,
+            width,
+            tools_expanded: state.session.config.ui.tools_expanded.unwrap_or(false),
+        };
+        let tool_lines = render_running_tool_widget(widget_input);
+        lines.extend(tool_lines);
+        lines.push(String::new());
+    }
 
     let (style, reset) = thinking_divider_style(footer.thinking.as_deref());
     let top_divider = match activity {
@@ -642,17 +653,6 @@ fn build_live_lines(
         None => format!("{style}{}{reset}", "─".repeat(width)),
     };
     lines.push(top_divider);
-
-    if let Some((_, Some(tool), _)) = activity {
-        let widget_input = RunningToolWidgetInput {
-            tool,
-            theme: &state.session.renderer.theme,
-            width,
-            tools_expanded: state.session.config.ui.tools_expanded.unwrap_or(false),
-        };
-        let tool_lines = render_running_tool_widget(widget_input);
-        lines.extend(tool_lines);
-    }
 
     let ed_lines = state.editor.lines();
     let (c_row, c_col) = state.editor.cursor();
@@ -1484,6 +1484,11 @@ fn handle_turn_key_input(
         }
         InputAction::Clear => {
             state.editor.clear();
+            false
+        }
+        InputAction::ToggleExpandTools => {
+            let exp = !state.session.config.ui.tools_expanded.unwrap_or(false);
+            state.session.config.ui.tools_expanded = Some(exp);
             false
         }
         _ => {
