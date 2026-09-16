@@ -4,12 +4,14 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rho_harness_core::presentation::InteractionPrompt;
 use rho_harness_core::rpc::protocol::RpcEvent;
 use rho_harness_core::session::list_session_summaries_async;
 use rho_ui_core::autocomplete::CompletionEngine;
 use rho_ui_core::keymap::{InputAction, map_key};
-use rho_ui_core::modal::ModelRegistry;
+use rho_ui_core::modal::{
+    McpModalState, McpServerInfo, ModalOption, ModalState, ModelCapability, ModelRegistry, SettingsState, SkillInfo,
+    SkillModalState,
+};
 use rho_ui_core::state::FooterMetrics;
 
 use crate::engine::AgentEngine;
@@ -22,11 +24,10 @@ use crate::repl::interactive::InteractiveHistory;
 use crate::ui::PromptEditor;
 use crate::ui::editor::{EditorMode, TextAreaEditor};
 use crate::ui::interactive::{
-    Activity, InInputModalInput, InteractionResponder, InteractionResponse, InteractiveUi, ModalMode, ModalOption,
-    ModalState, OptionLayout, OutputEvent, RunningTool, RunningToolWidgetInput, TranscriptItem, TranscriptRenderInput,
-    UiEvent, modal_banner_title, modal_hint, modal_top_divider, render_in_input_modal, render_running_tool_widget,
+    Activity, InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveUi, OutputEvent, RunningTool,
+    TranscriptItem, TranscriptRenderInput, UiEvent,
 };
-use crate::ui::modal::AutocompletePopupView;
+use crate::ui::modal::{AutocompletePopupView, StandardModalView, run_modal_view};
 use crate::ui::terminal::TerminalGuard;
 use crate::ui::theme::CursorMode;
 use crate::ui::widgets::StreamingSpinner;
@@ -39,200 +40,116 @@ pub fn live_ui_supported(stdin_is_tty: bool, stdout_is_tty: bool) -> bool {
     stdin_is_tty && stdout_is_tty
 }
 
-fn build_interaction_state(prompt: InteractionPrompt) -> ModalState {
-    let options = prompt
-        .options
-        .into_iter()
-        .map(|o| ModalOption {
-            label: o.label,
-            description: o.description,
-            input: o.input,
-        })
-        .collect::<Vec<_>>();
-    let is_empty = options.is_empty();
-    let mut state = ModalState::new(prompt.title, prompt.body, options)
-        .with_custom(prompt.allow_custom)
-        .with_option_layout(prompt.option_layout);
-    state.selected = prompt.initial_selection.min(state.options.len().saturating_sub(1));
-    if is_empty || (prompt.allow_custom && state.options.is_empty()) || prompt.initial_text.is_some() {
-        state.enter_input_mode("input");
-    }
-    if let Some(prefill) = prompt.initial_text {
-        state.input.set_text(prefill);
-    }
-    state
-}
+fn apply_software_cursor(line: &mut String, target_column: usize) {
+    let mut current_col = 0;
+    let mut byte_offset = None;
+    let mut char_len = 0;
 
-fn apply_modal_selection(modal: &ModalState, session: &mut ReplSession) {
-    let Some(opt) = modal.selected_option() else {
-        return;
-    };
-    match modal.title.as_str() {
-        "Select Model" => {
-            let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
-            if let Some(m) = discovered.iter().find(|d| d.id == opt.label) {
-                session.config.model = m.id.clone();
-                session.config.provider = m.provider.clone();
-            } else {
-                session.config.model = opt.label.clone();
-            }
+    for (idx, ch) in line.char_indices() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if current_col == target_column || (cw > 1 && target_column > current_col && target_column < current_col + cw) {
+            byte_offset = Some(idx);
+            char_len = ch.len_utf8();
+            break;
         }
-        "Select Thinking Level" => {
-            let level = opt.label.trim().to_string();
-            session.config.thinking_level = if level == "off" { None } else { Some(level) };
-        }
-        _ => {}
+        current_col += cw;
     }
-}
 
-fn apply_modal_input_key(input: &mut crate::ui::interactive::EditorState, key: KeyEvent) {
-    match key.code {
-        KeyCode::Backspace => input.backspace(),
-        KeyCode::Delete => input.delete(),
-        KeyCode::Left => input.move_left(),
-        KeyCode::Right => input.move_right(),
-        KeyCode::Home => input.move_to_start(),
-        KeyCode::End => input.move_to_end(),
-        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            input.insert(c);
-        }
-        _ => {}
-    }
-}
-
-fn handle_modal_input_mode(
-    modal: &mut ModalState,
-    key: KeyEvent,
-    active_responder: &mut Option<InteractionResponder>,
-) -> bool {
-    match key.code {
-        KeyCode::Enter => {
-            let text = modal.input.text().to_string();
-            if let Some(resp) = active_responder.take() {
-                let index = modal.input_option.unwrap_or(modal.selected);
-                let response = if !text.is_empty() {
-                    InteractionResponse::SelectedWithInput { index, text }
-                } else {
-                    InteractionResponse::Selected(index)
-                };
-                let _ = resp.respond(response);
-            }
-            true
-        }
-        _ => {
-            apply_modal_input_key(&mut modal.input, key);
-            false
-        }
-    }
-}
-
-fn handle_modal_nav_key(modal: &mut ModalState, key: KeyEvent) {
-    if modal.option_layout == OptionLayout::Horizontal {
-        match key.code {
-            KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => modal.select_previous(),
-            KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => modal.select_next(),
-            KeyCode::Up | KeyCode::Char('k') => modal.scroll_body_up(),
-            KeyCode::Down | KeyCode::Char('j') => modal.scroll_body_down(usize::MAX),
-            _ => {}
-        }
+    if let Some(offset) = byte_offset {
+        let before = &line[..offset];
+        let ch_str = &line[offset..offset + char_len];
+        let after = &line[offset + char_len..];
+        *line = format!("{before}\x1b[7m{ch_str}\x1b[27m{after}");
     } else {
-        match key.code {
-            KeyCode::Up | KeyCode::BackTab => modal.select_previous(),
-            KeyCode::Down | KeyCode::Tab => modal.select_next(),
-            KeyCode::Char('k') if !modal.is_searchable || modal.filter_query.is_empty() => {
-                modal.select_previous();
-            }
-            KeyCode::Char('j') if !modal.is_searchable || modal.filter_query.is_empty() => {
-                modal.select_next();
-            }
-            _ => {}
-        }
+        line.push_str("\x1b[7m \x1b[27m");
     }
 }
 
-fn handle_modal_action_key(
-    modal: &mut ModalState,
-    key: KeyEvent,
-    session: &mut ReplSession,
-    active_responder: &mut Option<InteractionResponder>,
-) -> bool {
-    match key.code {
-        KeyCode::Char(c) if ('1'..='9').contains(&c) && !modal.is_searchable => {
-            let digit = (c as u8 - b'1') as usize;
-            if digit < modal.options.len() {
-                modal.selected = digit;
-            }
-        }
-        KeyCode::Backspace if modal.is_searchable => {
-            let mut q = modal.filter_query.clone();
-            q.pop();
-            modal.set_filter(&q);
-        }
-        KeyCode::Char(c)
-            if modal.is_searchable && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-        {
-            let mut q = modal.filter_query.clone();
-            q.push(c);
-            modal.set_filter(&q);
-        }
-        KeyCode::Enter => {
-            let selected = modal.selected;
-            if let Some(opt) = modal.options.get(selected)
-                && let Some(input_spec) = opt.input.clone()
-            {
-                modal.input_option = Some(selected);
-                modal.enter_input_mode(&input_spec.label);
-                if let Some(val) = input_spec.value {
-                    modal.input.set_text(val);
-                }
-                return false;
-            }
-            if let Some(resp) = active_responder.take() {
-                let _ = resp.respond(InteractionResponse::Selected(selected));
-            } else {
-                apply_modal_selection(modal, session);
-            }
-            return true;
-        }
-        _ => {}
+fn window_widget_lines(lines: &[String], budget: usize) -> Vec<String> {
+    if lines.len() <= budget {
+        return lines.to_vec();
     }
-    false
+    if budget == 0 {
+        return Vec::new();
+    }
+    let has_borders = lines.first().is_some_and(|l| l.contains('╭')) && lines.last().is_some_and(|l| l.contains('╰'));
+    if has_borders && budget >= 3 {
+        let top_lines = 2.min(budget.saturating_sub(1));
+        let bottom_lines = 1;
+        let interior_budget = budget.saturating_sub(top_lines + bottom_lines);
+        let interior = &lines[top_lines..lines.len() - bottom_lines];
+        let mut result = Vec::with_capacity(budget);
+        result.extend_from_slice(&lines[..top_lines]);
+        if interior.len() > interior_budget {
+            result.extend_from_slice(&interior[interior.len() - interior_budget..]);
+        } else {
+            result.extend_from_slice(interior);
+        }
+        result.extend_from_slice(&lines[lines.len() - bottom_lines..]);
+        result
+    } else {
+        lines.iter().rev().take(budget).rev().cloned().collect()
+    }
 }
 
-fn handle_modal_key(
-    modal: &mut ModalState,
-    key: KeyEvent,
-    session: &mut ReplSession,
-    active_responder: &mut Option<InteractionResponder>,
-) -> bool {
-    if key.code == KeyCode::Esc {
-        if matches!(modal.mode, ModalMode::Input { .. }) && !modal.options.is_empty() {
-            modal.exit_input_mode();
-            return false;
-        }
-        if let Some(resp) = active_responder.take() {
-            let _ = resp.respond(InteractionResponse::Cancelled);
-        }
-        return true;
+fn render_running_tool_widget(
+    tool: &RunningTool,
+    theme: &crate::ui::Theme,
+    width: usize,
+    tools_expanded: bool,
+) -> Vec<String> {
+    if tool.preview.is_none() && tool.output.is_empty() && tool.name != "bash" {
+        return Vec::new();
     }
-
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-        if !modal.filter_query.is_empty() {
-            modal.set_filter("");
-            return false;
-        }
-        if let Some(resp) = active_responder.take() {
-            let _ = resp.respond(InteractionResponse::Cancelled);
-        }
-        return true;
+    let width = width.max(20);
+    let title = theme.tool_title_style(false);
+    let (accent, dim) = (theme.highlight, theme.dimmed);
+    let display_name = match tool.name.as_str() {
+        "search" | "websearch" => "web_search",
+        "fetch" | "webfetch" => "web_fetch",
+        other => other,
+    };
+    let args_header = if tool.name == "bash" {
+        crate::ui::render::format_bash_args_header(&tool.args_summary, accent, dim)
+    } else {
+        format!("{accent}{}{accent:#}", tool.args_summary)
+    };
+    let mut content = format!("{title}{display_name}{title:#} {args_header}");
+    if let Some(preview) = &tool.preview {
+        content.push_str("\n\n");
+        content.push_str(preview);
     }
-
-    if matches!(modal.mode, ModalMode::Input { .. }) {
-        return handle_modal_input_mode(modal, key, active_responder);
+    let raw_output = tool.output.trim_end().replace('\t', "   ");
+    if !raw_output.is_empty() {
+        content.push_str("\n\n");
+        if tools_expanded {
+            content.push_str(&raw_output);
+        } else {
+            let truncated = crate::ui::block::truncate_to_visual_lines(&raw_output, 5, width.saturating_sub(4).max(1));
+            if truncated.skipped_count > 0 {
+                content.push_str(&format!(
+                    "{dim}... ({} earlier lines){dim:#}\n",
+                    truncated.skipped_count
+                ));
+            }
+            content.push_str(&truncated.visual_lines.join("\n"));
+        }
     }
-
-    handle_modal_nav_key(modal, key);
-    handle_modal_action_key(modal, key, session, active_responder)
+    content.push_str(&format!(
+        "\n\n{dim}Elapsed {}{dim:#}",
+        rho_ui_core::format_duration(tool.elapsed())
+    ));
+    let block = theme
+        .tool_block(tool.name == "bash", false, width)
+        .with_vertical_padding()
+        .render_styled(&content);
+    let mut lines = if theme.block_style == crate::ui::theme::BlockStyle::Border {
+        Vec::new()
+    } else {
+        vec![String::new()]
+    };
+    lines.extend(block.lines().map(String::from));
+    lines
 }
 
 #[derive(Clone, Default)]
@@ -248,9 +165,20 @@ struct FooterInfo {
     pub context_percent: Option<f64>,
     pub tokens_per_second: Option<f64>,
     pub quota: Option<String>,
+    pub path_left: String,
 }
 
 fn make_footer_info(model: &str, provider: &str, thinking: Option<&str>, engine: &AgentEngine) -> FooterInfo {
+    let current_dir = std::env::current_dir().unwrap_or_default();
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+    let mut path = rho_ui_core::footer::abbreviate_home(&current_dir, home.as_deref());
+    if let Some(branch) = rho_ui_core::footer::get_git_branch(&current_dir)
+        && !branch.is_empty()
+    {
+        path.push_str(&format!(" ({branch})"));
+    }
     let totals = engine.session_usage_totals();
     let context_window = engine.context_limit().unwrap_or(0);
     let context_percent = engine.context_percent_f64();
@@ -268,6 +196,7 @@ fn make_footer_info(model: &str, provider: &str, thinking: Option<&str>, engine:
         context_percent,
         tokens_per_second,
         quota,
+        path_left: path,
     }
 }
 
@@ -367,7 +296,6 @@ struct RunnerState<'a> {
     pub session: &'a mut ReplSession,
     pub editor: &'a mut TextAreaEditor,
     pub history: &'a mut InteractiveHistory,
-    pub active_modal: &'a mut Option<ModalState>,
     pub autocomplete_popup: &'a mut Option<AutocompletePopupView>,
     pub transcript: &'a mut Vec<TranscriptItem>,
     pub tracker: &'a mut OutputTracker,
@@ -476,19 +404,9 @@ async fn load_history(session: &ReplSession) -> InteractiveHistory {
 }
 
 fn format_footer_path(footer: &FooterInfo, width: usize) -> String {
-    let current_dir = std::env::current_dir().unwrap_or_default();
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from);
-    let mut path = rho_ui_core::footer::abbreviate_home(&current_dir, home.as_deref());
-    if let Some(branch) = rho_ui_core::footer::get_git_branch(&current_dir)
-        && !branch.is_empty()
-    {
-        path.push_str(&format!(" ({branch})"));
-    }
-    let left = path;
+    let left = &footer.path_left;
     let right = footer.quota.as_deref().unwrap_or("");
-    let left_w = rho_ui_core::text::visible_width(&left);
+    let left_w = rho_ui_core::text::visible_width(left);
     let right_w = rho_ui_core::text::visible_width(right);
     let pad = width.saturating_sub(left_w + right_w);
     format!("\x1b[90m{left}{}{right}\x1b[0m", " ".repeat(pad))
@@ -577,7 +495,7 @@ fn render_live_editor_lines(
     for (r, ed_line) in ed_lines.iter().enumerate() {
         let mut row = ed_line.clone();
         if r == c_row && cursor_mode == CursorMode::Software {
-            crate::ui::interactive::apply_software_cursor(&mut row, c_col);
+            apply_software_cursor(&mut row, c_col);
         }
         lines.push(row);
     }
@@ -604,20 +522,19 @@ fn build_live_lines(
     let mut lines = Vec::new();
 
     if let Some((_, Some(tool), _)) = activity {
-        let widget_input = RunningToolWidgetInput {
+        let tool_lines = render_running_tool_widget(
             tool,
-            theme: &state.session.renderer.theme,
+            &state.session.renderer.theme,
             width,
-            tools_expanded: state.session.config.ui.tools_expanded.unwrap_or(false),
-        };
-        let tool_lines = render_running_tool_widget(widget_input);
+            state.session.config.ui.tools_expanded.unwrap_or(false),
+        );
         let height = crate::ui::terminal_height() as usize;
         let budget = if state.session.config.ui.tools_expanded.unwrap_or(false) {
             ((height as f64) * 0.60).round() as usize
         } else {
             10
         };
-        let windowed = crate::ui::interactive::window_widget_lines(&tool_lines, budget);
+        let windowed = window_widget_lines(&tool_lines, budget);
         lines.extend(windowed);
     }
 
@@ -625,51 +542,33 @@ fn build_live_lines(
         lines.push(format!("\x1b[36m↳ Steering: {steer}\x1b[0m"));
     }
 
-    let (style, reset) = if state.active_modal.is_some() {
-        ("\x1b[1;36m", "\x1b[0m")
-    } else {
-        thinking_divider_style(footer.thinking.as_deref())
-    };
+    let (style, reset) = thinking_divider_style(footer.thinking.as_deref());
 
-    let top_divider = match state.active_modal.as_ref() {
-        Some(modal) => modal_top_divider(width, modal_banner_title(modal), style, reset),
-        None => match activity {
-            Some((act, _tool, frame)) => {
-                let spinner = StreamingSpinner::current_frame(frame);
-                let label = if matches!(act, Activity::Compacting) {
-                    "compacting"
-                } else {
-                    "working"
-                };
-                let prefix = format!("── {spinner} {label} ");
-                let rem = width.saturating_sub(prefix.chars().count());
-                format!("{style}{prefix}{}{reset}", "─".repeat(rem))
-            }
-            None => format!("{style}{}{reset}", "─".repeat(width)),
-        },
+    let top_divider = match activity {
+        Some((act, _tool, frame)) => {
+            let spinner = StreamingSpinner::current_frame(frame);
+            let label = if matches!(act, Activity::Compacting) {
+                "compacting"
+            } else {
+                "working"
+            };
+            let prefix = format!("── {spinner} {label} ");
+            let rem = width.saturating_sub(prefix.chars().count());
+            format!("{style}{prefix}{}{reset}", "─".repeat(rem))
+        }
+        None => format!("{style}{}{reset}", "─".repeat(width)),
     };
     lines.push(top_divider);
 
-    let (cursor_row, cursor_col) = if let Some(modal) = state.active_modal.as_ref() {
-        let (modal_lines, cur_pos, _) = render_in_input_modal(InInputModalInput {
-            modal,
-            draft_text: &state.editor.text(),
-            bounds: (width, 14),
-            theme: &state.session.renderer.theme,
-            focused: true,
-        });
-        let start_row = lines.len();
-        lines.extend(modal_lines);
-        (start_row + cur_pos.row, cur_pos.column)
+    let (cursor_row, cursor_col) = if activity.is_some() && state.editor.text().trim().is_empty() {
+        lines.push(format!("{style}{}{reset}", "─".repeat(width)));
+        (lines.len().saturating_sub(1), 0)
     } else {
-        render_live_editor_lines(state, &mut lines, cursor_mode)
+        let (c_row, c_col) = render_live_editor_lines(state, &mut lines, cursor_mode);
+        lines.push(format!("{style}{}{reset}", "─".repeat(width)));
+        (c_row, c_col)
     };
 
-    lines.push(format!("{style}{}{reset}", "─".repeat(width)));
-    if let Some(modal) = state.active_modal.as_ref() {
-        let hint = modal_hint(modal);
-        lines.push(format!("\x1b[90m{hint}\x1b[0m"));
-    }
     lines.push(format_footer_path(footer, width));
     lines.push(format_footer_stats(footer, width));
 
@@ -779,7 +678,21 @@ fn refresh_display(
         state.prev_lines_count = 0;
         state.prev_cursor_row = 0;
 
-        state.tracker.restore_cursor(&mut stdout, width)?;
+        let is_block = out.starts_with('╭')
+            || out.starts_with('\n')
+            || out.starts_with('\r')
+            || out.contains("╭───")
+            || out.starts_with("Error:");
+
+        if is_block {
+            if state.tracker.is_open() {
+                stdout.write_all(b"\r\n")?;
+            }
+            stdout.write_all(b"\r")?;
+            state.tracker.clear();
+        } else {
+            state.tracker.restore_cursor(&mut stdout, width)?;
+        }
         let normalized = terminal_newlines(out);
         stdout.write_all(normalized.as_bytes())?;
         state.tracker.update(&normalized);
@@ -794,7 +707,7 @@ fn refresh_display(
         target_row: c_row,
         target_col: c_col,
         cursor_mode,
-        active_editor: state.active_modal.is_none(),
+        active_editor: true,
     };
     paint_live_region(&mut stdout, &lines, &cursor)?;
     stdout.write_all(CSI_SYNC_END)?;
@@ -850,7 +763,7 @@ fn full_redraw(
         target_row: c_row,
         target_col: c_col,
         cursor_mode,
-        active_editor: state.active_modal.is_none(),
+        active_editor: true,
     };
     paint_live_region(&mut stdout, &lines, &cursor)?;
     stdout.write_all(CSI_SYNC_END)?;
@@ -994,8 +907,8 @@ async fn handle_input_action(
             }
         }
         InputAction::ModelSelect => {
-            *state.active_modal = Some(build_model_modal(state.session));
-            Some(ActionOutcome::Handled)
+            select_model_modal(state.session, engine).await;
+            Some(ActionOutcome::FullRedraw)
         }
         InputAction::ModelCycleForward => {
             cycle_model(state, engine, 1).await;
@@ -1030,23 +943,21 @@ async fn handle_input_action(
     }
 }
 
+/// The two asynchronous input sources the unified runloop multiplexes:
+/// engine-side UI events and terminal input events.
+struct LiveInputs<'a> {
+    pub ui_events: &'a mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    pub events: &'a mut EventStream,
+}
+
 async fn handle_key_cycle(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
     key: KeyEvent,
     completions: &CompletionEngine,
-    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
-    events: &mut EventStream,
+    inputs: &mut LiveInputs<'_>,
+    footer: &mut FooterInfo,
 ) -> Result<bool> {
-    if let Some(mut modal) = state.active_modal.take() {
-        let closed = handle_modal_key(&mut modal, key, state.session, &mut None);
-        if !closed {
-            *state.active_modal = Some(modal);
-        }
-        state.session.sync_engine_model(engine).await;
-        return Ok(false);
-    }
-
     if let Some(popup) = state.autocomplete_popup.take() {
         let (next_popup, consumed) = handle_popup_input(popup, key, state.editor);
         *state.autocomplete_popup = next_popup;
@@ -1057,16 +968,18 @@ async fn handle_key_cycle(
 
     let action = map_key(key);
     if let Some(outcome) = handle_input_action(action, state, engine).await {
+        if footer.model != state.session.config.model || footer.thinking != state.session.config.thinking_level {
+            *footer = make_footer_info(
+                &state.session.config.model,
+                &state.session.config.provider,
+                state.session.config.thinking_level.as_deref(),
+                engine,
+            );
+        }
         return match outcome {
             ActionOutcome::Exit => Ok(true),
             ActionOutcome::FullRedraw => {
-                let footer = make_footer_info(
-                    &state.session.config.model,
-                    &state.session.config.provider,
-                    state.session.config.thinking_level.as_deref(),
-                    engine,
-                );
-                full_redraw(state, &footer, None, &[])?;
+                full_redraw(state, footer, None, &[])?;
                 Ok(false)
             }
             ActionOutcome::Handled => Ok(false),
@@ -1093,7 +1006,14 @@ async fn handle_key_cycle(
             return Ok(false);
         }
         state.editor.clear();
-        return handle_submission(state, engine, prompt, ui_events, events).await;
+        let should_exit = handle_submission(state, engine, prompt, inputs).await?;
+        *footer = make_footer_info(
+            &state.session.config.model,
+            &state.session.config.provider,
+            state.session.config.thinking_level.as_deref(),
+            engine,
+        );
+        return Ok(should_exit);
     }
 
     let text = state.editor.text();
@@ -1175,7 +1095,6 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
     let mut ctx = init_live_context(session).await?;
     let _guard = TerminalGuard::enter()?;
 
-    let mut active_modal: Option<ModalState> = None;
     let mut autocomplete_popup: Option<AutocompletePopupView> = None;
     let mut events = EventStream::new();
     let mut ticker = tokio::time::interval(Duration::from_millis(50));
@@ -1185,7 +1104,6 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         session,
         editor: &mut ctx.editor,
         history: &mut ctx.history,
-        active_modal: &mut active_modal,
         autocomplete_popup: &mut autocomplete_popup,
         transcript: &mut ctx.transcript,
         tracker: &mut tracker,
@@ -1193,7 +1111,7 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
         prev_cursor_row: 0,
     };
 
-    let footer = make_footer_info(
+    let mut footer = make_footer_info(
         &state.session.config.model,
         &state.session.config.provider,
         state.session.config.thinking_level.as_deref(),
@@ -1217,23 +1135,24 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
                         handle_live_paste(&text, &mut state, &ctx.engine)?;
                     }
                     Event::Key(key) => {
+                        if key.kind == crossterm::event::KeyEventKind::Release {
+                            continue;
+                        }
+                        let mut inputs = LiveInputs {
+                            ui_events: &mut ctx.ui_events,
+                            events: &mut events,
+                        };
                         let should_exit = handle_key_cycle(
                             &mut state,
                             &mut ctx.engine,
                             key,
                             &ctx.completions,
-                            &mut ctx.ui_events,
-                            &mut events,
+                            &mut inputs,
+                            &mut footer,
                         ).await?;
                         if should_exit {
                             break;
                         }
-                        let footer = make_footer_info(
-                            &state.session.config.model,
-                            &state.session.config.provider,
-                            state.session.config.thinking_level.as_deref(),
-                            &ctx.engine,
-                        );
                         refresh_display(&mut state, &footer, None, &[], None)?;
                     }
                     _ => {}
@@ -1247,169 +1166,225 @@ pub async fn run_unified_live(session: &mut ReplSession) -> Result<()> {
     Ok(())
 }
 
-fn build_settings_modal(session: &ReplSession) -> ModalState {
-    let hide_thinking = session.config.ui.hide_thinking.unwrap_or(false);
-    let tools_expanded = session.config.ui.tools_expanded.unwrap_or(true);
-    let vim_mode = session.config.editor.is_vim();
-    let options = vec![
-        ModalOption::new(
-            "Hide Thinking",
-            Some(if hide_thinking { "hidden ✓" } else { "visible" }.to_string()),
-        ),
-        ModalOption::new(
-            "Expand Tools",
-            Some(if tools_expanded { "expanded ✓" } else { "collapsed" }.to_string()),
-        ),
-        ModalOption::new(
-            "Vim Mode",
-            Some(if vim_mode { "enabled ✓" } else { "disabled" }.to_string()),
-        ),
-    ];
-    ModalState::new("Settings", "", options)
-}
-
-fn build_model_modal(session: &ReplSession) -> ModalState {
+fn model_registry_for(session: &ReplSession) -> ModelRegistry {
     let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
-    let mut options = Vec::new();
-    let mut initial_selection = 0;
-
-    for (i, item) in discovered.iter().enumerate() {
-        if item.id == session.config.model {
-            initial_selection = i;
-        }
-        let active_mark = if item.id == session.config.model { "✓" } else { "" };
-        let default_mark = if session.config.default_model.as_deref().is_some_and(|dm| dm == item.id) {
-            "default"
-        } else {
-            ""
-        };
-        options.push(ModalOption::new(
-            item.id.clone(),
-            Some(format!(
-                "{}\t{}\t{}\t{}",
-                item.provider, active_mark, default_mark, item.description
-            )),
-        ));
-    }
-
-    let mut modal = ModalState::new("Select Model", "", options).with_search(true);
-    modal.selected = initial_selection;
-    modal
-}
-
-fn build_thinking_modal(current_thinking: Option<&str>) -> ModalState {
-    let active = current_thinking.unwrap_or("off");
-    let mut options = Vec::new();
-    let mut initial_selection = 0;
-
-    for (i, (level, desc)) in rho_ui_core::autocomplete::THINKING_LEVEL_OPTIONS.iter().enumerate() {
-        let is_active = *level == active;
-        if is_active {
-            initial_selection = i;
-        }
-        let check = if is_active { "✓" } else { "" };
-        options.push(ModalOption::new(
-            format!("{level:<10}"),
-            Some(format!("\t{check}\t\t{desc}")),
-        ));
-    }
-
-    let mut modal = ModalState::new("Select Thinking Level", "", options);
-    modal.selected = initial_selection;
-    modal
-}
-
-fn build_session_modal(summaries: &[rho_harness_core::session::SessionSummary], active_id: Option<&str>) -> ModalState {
-    let options = summaries
-        .iter()
-        .map(|s| {
-            let is_active = active_id.is_some_and(|aid| aid == s.session_id);
-            let active_mark = if is_active { "✓" } else { "" };
-            let time = rho_ui_core::format_relative_time(s.last_modified);
-            let title = s.name.clone().unwrap_or_else(|| s.session_id.clone());
-            ModalOption::new(title, Some(format!("{}\t{}\t{}", s.session_id, active_mark, time)))
+    let models = discovered
+        .into_iter()
+        .map(|item| ModelCapability {
+            context_tokens: ModelRegistry::resolve_context_window(&item.id, Some(&item.provider)),
+            supports_reasoning: item.description.to_ascii_lowercase().contains("reasoning"),
+            is_local: item.provider.eq_ignore_ascii_case("local") || item.provider.eq_ignore_ascii_case("ollama"),
+            display_name: item.description,
+            id: item.id,
+            provider: item.provider,
         })
         .collect();
-    ModalState::new("Resume Session", "", options).with_search(true)
+    ModelRegistry::new(models, session.config.model.clone())
 }
 
-fn build_mcp_modal(session: &ReplSession) -> ModalState {
+fn settings_state_for(session: &ReplSession) -> SettingsState {
+    SettingsState {
+        hide_thinking: session.config.ui.hide_thinking.unwrap_or(false),
+        tools_expanded: session.config.ui.tools_expanded.unwrap_or(true),
+        vim_mode: session.config.editor.is_vim(),
+        show_version_banner: session.config.show_label,
+    }
+}
+
+fn mcp_modal_state_for(session: &ReplSession) -> McpModalState {
     let statuses = rho_engine::mcp::get_mcp_server_statuses();
-    let options = session
+    let servers = session
         .config
         .mcp
         .servers
         .iter()
         .map(|(name, cfg)| {
-            let (status_text, is_active) = if let Some(st) = statuses.get(name) {
-                if let Some(err) = &st.error {
-                    (format!("failed: {err}"), false)
-                } else if st.is_loaded {
-                    (format!("active ({} tools)", st.tools_count), true)
-                } else {
-                    ("disabled".to_string(), false)
-                }
-            } else if cfg.enabled {
-                ("active".to_string(), true)
-            } else {
-                ("disabled".to_string(), false)
+            let (status_message, enabled, tools_count) = match statuses.get(name) {
+                Some(st) if st.error.is_some() => (
+                    format!("failed: {}", st.error.clone().unwrap_or_default()),
+                    false,
+                    st.tools_count,
+                ),
+                Some(st) if st.is_loaded => ("active".to_string(), true, st.tools_count),
+                Some(st) => ("disabled".to_string(), false, st.tools_count),
+                None if cfg.enabled => ("active".to_string(), true, 0),
+                None => ("disabled".to_string(), false, 0),
             };
-            let check = if is_active { "✓" } else { "" };
-            let command = cfg.command.as_deref().or(cfg.url.as_deref()).unwrap_or("");
-            ModalOption::new(name.clone(), Some(format!("{}\t{}\t{}", command, check, status_text)))
+            McpServerInfo {
+                name: name.clone(),
+                command: cfg.command.clone().or_else(|| cfg.url.clone()).unwrap_or_default(),
+                enabled,
+                status_message,
+                tools_count,
+            }
         })
         .collect();
-    ModalState::new("Model Context Protocol", "", options)
+    McpModalState::new(servers)
 }
 
-fn build_skill_modal() -> ModalState {
-    let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
-    let options = skills
+fn skill_modal_state() -> SkillModalState {
+    let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref())
         .into_iter()
-        .map(|s| ModalOption::new(s.metadata.name, Some(s.metadata.description)))
+        .map(|s| SkillInfo {
+            name: s.metadata.name,
+            description: s.metadata.description,
+            origin: format!("{:?}", s.origin),
+            path: Some(s.metadata.location),
+        })
         .collect();
-    ModalState::new("Skills", "", options).with_search(true)
+    SkillModalState::new(skills)
 }
 
-async fn handle_interactive_command(
-    cmd: &str,
-    session: &mut ReplSession,
-    engine: &AgentEngine,
-    active_modal: &mut Option<ModalState>,
-) -> bool {
+/// Runs a Ratatui modal to completion and returns the confirmed selection value.
+fn prompt_modal_selection(view: &mut StandardModalView) -> Option<String> {
+    if run_modal_view(view).ok()? {
+        view.state.selected_option().map(|opt| opt.value.clone())
+    } else {
+        None
+    }
+}
+
+async fn apply_model_selection(session: &mut ReplSession, engine: &mut AgentEngine, selected: &str) {
+    let discovered = crate::repl::interactive::discover_models(&session.config, &session.auth_store);
+    if let Some(item) = discovered.iter().find(|d| d.id == selected) {
+        session.config.model = item.id.clone();
+        session.config.provider = item.provider.clone();
+    } else {
+        session.config.model = selected.to_string();
+    }
+    session.sync_engine_model(engine).await;
+}
+
+async fn select_model_modal(session: &mut ReplSession, engine: &mut AgentEngine) {
+    let registry = model_registry_for(session);
+    let mut view = StandardModalView::model(&registry);
+    if let Some(selected) = prompt_modal_selection(&mut view) {
+        apply_model_selection(session, engine, &selected).await;
+    }
+}
+
+fn apply_settings_selection(session: &mut ReplSession, selected: &str) {
+    match selected {
+        "toggle_thinking" => {
+            let hide = !session.config.ui.hide_thinking.unwrap_or(false);
+            session.config.ui.hide_thinking = Some(hide);
+        }
+        "toggle_tools" => {
+            let expanded = !session.config.ui.tools_expanded.unwrap_or(true);
+            session.config.ui.tools_expanded = Some(expanded);
+        }
+        "toggle_vim" => {
+            let vim = !session.config.editor.is_vim();
+            session.config.editor.mode = Some(if vim { "vim".to_string() } else { "default".to_string() });
+        }
+        "toggle_banner" => {
+            session.config.show_label = !session.config.show_label;
+        }
+        _ => {}
+    }
+}
+
+async fn handle_interactive_command(cmd: &str, session: &mut ReplSession, engine: &mut AgentEngine) -> bool {
     match cmd {
         "/model" => {
-            *active_modal = Some(build_model_modal(session));
+            select_model_modal(session, engine).await;
             true
         }
         "/thinking" => {
-            *active_modal = Some(build_thinking_modal(session.config.thinking_level.as_deref()));
+            let mut view = StandardModalView::thinking(session.config.thinking_level.as_deref());
+            if let Some(level) = prompt_modal_selection(&mut view) {
+                session.config.thinking_level = Some(level);
+                session.sync_engine_model(engine).await;
+            }
             true
         }
         "/settings" => {
-            *active_modal = Some(build_settings_modal(session));
+            let settings = settings_state_for(session);
+            let mut view = StandardModalView::settings(&settings);
+            if let Some(selected) = prompt_modal_selection(&mut view) {
+                apply_settings_selection(session, &selected);
+            }
             true
         }
         "/session" => {
             let summaries = list_session_summaries_async(&session.config.sessions_dir)
                 .await
                 .unwrap_or_default();
-            *active_modal = Some(build_session_modal(
-                &summaries,
-                Some(&engine.session_manager.session_id),
-            ));
+            let mut view = StandardModalView::session(&summaries, Some(&engine.session_manager.session_id));
+            if let Some(id) = prompt_modal_selection(&mut view) {
+                session.resume_id = Some(id);
+            }
             true
         }
         "/mcp" => {
-            *active_modal = Some(build_mcp_modal(session));
+            let mcp_state = mcp_modal_state_for(session);
+            let mut view = StandardModalView::mcp(&mcp_state);
+            let _ = prompt_modal_selection(&mut view);
             true
         }
         "/skill" => {
-            *active_modal = Some(build_skill_modal());
+            let skill_state = skill_modal_state();
+            let mut view = StandardModalView::skill(&skill_state);
+            let _ = prompt_modal_selection(&mut view);
             true
         }
         _ => false,
     }
+}
+
+/// Projects an engine-issued interaction prompt into the shared modal state so
+/// tool approvals render through the same Ratatui modal as every other selector.
+fn interaction_modal_view(prompt: &InteractionPrompt) -> StandardModalView {
+    let options = prompt
+        .options
+        .iter()
+        .enumerate()
+        .map(|(idx, opt)| ModalOption {
+            label: format!("{:<16}", opt.label),
+            description: opt.description.clone(),
+            value: idx.to_string(),
+            is_active: idx == prompt.initial_selection,
+            shortcut: None,
+        })
+        .collect();
+    let mut state = ModalState::new(prompt.title.clone(), options).with_search(false);
+    state.subtitle = prompt.body.clone();
+    state.selected_index = prompt
+        .initial_selection
+        .min(state.filtered_options.len().saturating_sub(1));
+    let inline_inputs = prompt
+        .options
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, opt)| opt.input.clone().map(|spec| (idx.to_string(), spec)));
+    StandardModalView::new(state).with_inline_inputs(inline_inputs)
+}
+
+fn resolve_interaction(prompt: &InteractionPrompt, responder: InteractionResponder) {
+    let mut view = interaction_modal_view(prompt);
+    let response = if run_modal_view(&mut view).unwrap_or(false) {
+        interaction_response_for(&view)
+    } else {
+        InteractionResponse::Cancelled
+    };
+    let _ = responder.respond(response);
+}
+
+fn interaction_response_for(view: &StandardModalView) -> InteractionResponse {
+    if let Some((option_value, text)) = view.submitted_input() {
+        return match option_value.parse::<usize>() {
+            Ok(index) => InteractionResponse::SelectedWithInput {
+                index,
+                text: text.to_string(),
+            },
+            Err(_) => InteractionResponse::Cancelled,
+        };
+    }
+    view.state
+        .selected_option()
+        .and_then(|opt| opt.value.parse::<usize>().ok())
+        .map(InteractionResponse::Selected)
+        .unwrap_or(InteractionResponse::Cancelled)
 }
 
 async fn handle_slash_command(
@@ -1427,7 +1402,7 @@ async fn handle_slash_command(
         stdout.flush()?;
         return Ok(false);
     }
-    if rest.is_empty() && handle_interactive_command(cmd, state.session, engine, state.active_modal).await {
+    if rest.is_empty() && handle_interactive_command(cmd, state.session, engine).await {
         return Ok(false);
     }
     if cmd == "/model" && !rest.is_empty() {
@@ -1532,15 +1507,7 @@ fn handle_turn_key_input(
     state: &mut RunnerState<'_>,
     steering: &SharedSteeringQueue,
     cancellation: &CancellationSignal,
-    active_responder: &mut Option<InteractionResponder>,
 ) -> TurnKeyOutcome {
-    if let Some(mut modal) = state.active_modal.take() {
-        let closed = handle_modal_key(&mut modal, key, state.session, active_responder);
-        if !closed {
-            *state.active_modal = Some(modal);
-        }
-        return TurnKeyOutcome::Handled;
-    }
     let action = map_key(key);
     match action {
         InputAction::Cancel => {
@@ -1620,7 +1587,6 @@ struct TurnStreamState {
     pub activity: Activity,
     pub running_tool: Option<RunningTool>,
     pub scrollback: String,
-    pub responder: Option<InteractionResponder>,
     pub tick_counter: usize,
     pub spinner_frame: usize,
 }
@@ -1628,9 +1594,7 @@ struct TurnStreamState {
 fn handle_turn_event(ui_ev: UiEvent, state: &mut RunnerState<'_>, stream: &mut TurnStreamState) {
     match ui_ev {
         UiEvent::Interaction { prompt: p, responder } => {
-            let modal = build_interaction_state(p);
-            *state.active_modal = Some(modal);
-            stream.responder = Some(responder);
+            resolve_interaction(&p, responder);
         }
         other => {
             drain_ui_event(
@@ -1727,7 +1691,7 @@ fn handle_turn_key(
     stream: &mut TurnStreamState,
     footer: &FooterInfo,
 ) -> Result<bool> {
-    let outcome = handle_turn_key_input(key, state, steering, cancellation, &mut stream.responder);
+    let outcome = handle_turn_key_input(key, state, steering, cancellation);
     match outcome {
         TurnKeyOutcome::Cancel => Ok(true),
         TurnKeyOutcome::FullRedraw => {
@@ -1761,11 +1725,10 @@ async fn dispatch_unconsumed_steering(
     unconsumed: Vec<String>,
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
-    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
-    events: &mut EventStream,
+    inputs: &mut LiveInputs<'_>,
 ) -> Result<()> {
     for msg in unconsumed {
-        Box::pin(execute_agent_turn(state, engine, &msg, ui_events, events)).await?;
+        Box::pin(execute_agent_turn(state, engine, &msg, inputs)).await?;
     }
     Ok(())
 }
@@ -1797,10 +1760,9 @@ async fn execute_agent_turn(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
     prompt: &str,
-    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
-    events: &mut EventStream,
+    inputs: &mut LiveInputs<'_>,
 ) -> Result<()> {
-    while ui_events.try_recv().is_ok() {}
+    while inputs.ui_events.try_recv().is_ok() {}
 
     state.transcript.push(TranscriptItem::UserMessage(prompt.to_string()));
     state.tracker.clear();
@@ -1829,7 +1791,7 @@ async fn execute_agent_turn(
     loop {
         tokio::select! {
             res = &mut turn_future => {
-                while let Ok(ui_ev) = ui_events.try_recv() {
+                while let Ok(ui_ev) = inputs.ui_events.try_recv() {
                     drain_ui_event(ui_ev, &mut stream.scrollback, &mut stream.activity, &mut stream.running_tool, state.transcript, state.session);
                 }
                 let totals = usage.totals();
@@ -1841,13 +1803,13 @@ async fn execute_agent_turn(
                 finalize_turn_result(res, state, &footer, &mut stream)?;
                 break;
             }
-            Some(ui_ev) = ui_events.recv() => {
+            Some(ui_ev) = inputs.ui_events.recv() => {
                 handle_turn_event(ui_ev, state, &mut stream);
             }
             _ = ticker.tick() => {
                 handle_turn_tick(state, &usage, &mut footer, &mut stream, &steering)?;
             }
-            maybe_key = events.next() => {
+            maybe_key = inputs.events.next() => {
                 if handle_turn_stream_event(maybe_key, state, &footer, &mut stream, &steering, &cancellation)? {
                     is_cancelled = true;
                     break;
@@ -1860,13 +1822,12 @@ async fn execute_agent_turn(
         finalize_turn_cancellation(engine, state, &footer, &mut stream).await?;
     }
     crate::platform::remote::set_active_steering(None);
-    *state.active_modal = None;
 
     finish_turn_execution(state, engine).await?;
     let unconsumed = steering.current_items();
     if !unconsumed.is_empty() && !is_cancelled {
         steering.clear();
-        dispatch_unconsumed_steering(unconsumed, state, engine, ui_events, events).await?;
+        dispatch_unconsumed_steering(unconsumed, state, engine, inputs).await?;
     }
     Ok(())
 }
@@ -1875,8 +1836,7 @@ async fn handle_submission(
     state: &mut RunnerState<'_>,
     engine: &mut AgentEngine,
     prompt: String,
-    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
-    events: &mut EventStream,
+    inputs: &mut LiveInputs<'_>,
 ) -> Result<bool> {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
@@ -1892,6 +1852,6 @@ async fn handle_submission(
         return handle_slash_command(state, engine, cmd, rest).await;
     }
 
-    execute_agent_turn(state, engine, trimmed, ui_events, events).await?;
+    execute_agent_turn(state, engine, trimmed, inputs).await?;
     Ok(false)
 }

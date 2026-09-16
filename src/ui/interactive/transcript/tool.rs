@@ -79,8 +79,7 @@ fn append_output_lines(content: &mut String, clean: &str, width: usize, expanded
     if expanded {
         content.push_str(clean);
     } else {
-        let truncated =
-            crate::ui::interactive::layout::truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
+        let truncated = crate::ui::block::truncate_to_visual_lines(clean, 5, width.saturating_sub(4).max(1));
         if truncated.skipped_count > 0 {
             content.push_str(&format!(
                 "{dim}... ({n} earlier lines){dim:#}\n",

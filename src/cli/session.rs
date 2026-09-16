@@ -8,10 +8,7 @@ use std::path::PathBuf;
 
 pub fn resolve_resume_target(cli: &Cli, config: &Config) -> Result<Option<String>, Box<dyn std::error::Error>> {
     if cli.resume_picker {
-        Ok(crate::ui::interactive::session_picker::prompt_session_picker(
-            &config.sessions_dir,
-            &crate::ui::theme::detect_with_config(&config.ui),
-        )?)
+        Ok(crate::ui::modal::prompt_session_picker(&config.sessions_dir)?)
     } else if cli.r#continue {
         let cwd = std::env::current_dir()?;
         Ok(SessionManager::last_session_for_cwd(&config.sessions_dir, &cwd)?)

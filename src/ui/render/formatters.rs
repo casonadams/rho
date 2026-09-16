@@ -307,7 +307,7 @@ pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: u
             out.push_str(&format!("{d} {line}{d:#}\n"));
             continue;
         }
-        for wrapped in crate::ui::interactive::wrap_to_width(line, wrap_width) {
+        for wrapped in crate::ui::block::wrap_to_width(line, wrap_width) {
             out.push_str(&format!("{d} {wrapped}{d:#}\n"));
         }
     }

@@ -1,4 +1,4 @@
-use crate::ui::interactive::layout::wrap_words_to_width;
+use crate::ui::block::wrap_words_to_width;
 use crate::ui::theme::Theme;
 use std::collections::BTreeMap;
 

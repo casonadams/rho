@@ -1,9 +1,7 @@
-pub mod batch;
 #[cfg(test)]
 mod tests;
 pub mod types;
 
-pub use batch::{BatchDecision, FlushBarrier, PendingUiBatch, PendingUiDrain};
 pub use types::{
     InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, OptionLayout,
     OutputEvent, ToolStartRequest, UiEvent, UiPortError,

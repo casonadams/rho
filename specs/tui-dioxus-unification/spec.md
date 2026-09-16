@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented
+In Progress (Phase 1 & Phase 2 Complete, Phase 3 Path A Underway)
 
 ## Problem
 
@@ -539,23 +539,38 @@ Each modal (model, login, mcp, session, settings, tree, remote, help) follows th
 - **`TranscriptRenderCache` / `CachedItemRender`**: not found by name — may have been renamed to `controller/cache.rs` (146 lines).
 - **`ThinkingStreamTracker`**: exists inside `renderer/thinking.rs` (228 lines).
 
-### Total deletable surface estimate
+### Total deletable surface estimate & line-savings reality
 
-Conservatively, the following can be deleted or replaced during unification:
-- **~8,500 lines** of hand-rolled terminal engine code (controller, layout, events, editor state, painting, diffing, wrapping, chrome)
-- **~2,500 lines** of dual idle/turn loop fragmentation
-- **~975 lines** of duplicate command dispatch (message.rs + dispatch.rs + overlapping rpc.rs handlers)
-- **~630 lines** of fragmented presenter/renderer hierarchy
-- **~1,100 lines** of custom markdown compilation (renderer, stream, elements, line, spacing)
-- **~594 lines** of duplicate word-wrapping state machines (stream.rs 366 + thinking.rs 228)
-- **~5,049 lines** of modal system across 29 files, collapsible to a single `use_modal()` hook + per-modal option builders
-- **~2,294 lines** of hand-written JS + CSS in Web Hub
-- **~320 lines** of threaded input reader
-- **~1,142 lines** of custom screen simulator tests
-- **~397 lines** of hand-rolled LCS diff (replaceable by `similar` crate)
-- **~96 lines** of custom `TerminalBackend` trait (parallel to Ratatui's)
-- **Duplicate utilities**: 3x `visible_width()`, 2x `truncate_to_width()`, 2x `format_tokens()`, 2x `tool_title_style()`, 12+ `ANSI_PATTERN` call sites
-- **Estimated total: ~23,600 lines** deletable or replaced
+A common question is whether unification saves "25k lines of code". It is critical to distinguish **gross deletable/replaceable lines** from **net lines saved**:
+
+1. **Gross Deletion vs. Net Savings**:
+   - The ~23,600 line estimate represents **gross legacy surface area touched, deleted, or rewritten**.
+   - Replacing hand-rolled code with modern crate ecosystems still requires writing typed domain models, custom hooks, Dioxus components, and Ratatui widgets:
+     - `crates/rho-ui-core`: **+3,130 lines**
+     - `crates/rho-wasm`: **+2,041 lines** (replacing vanilla JS and custom CSS)
+     - `src/repl/runner.rs`: **+1,877 lines** (replacing ~10,344 lines of fragmented idle/turn loops)
+     - `src/ui/` (editor, modal, terminal, widgets): **+2,900 lines**
+   - Writing ~10,000–12,000 lines of replacement code means the ultimate **net codebase reduction** is around **~10,000 to 12,000 lines**, never 25,000 net lines.
+
+2. **Completed Deletions (Phase 1 & 2)**:
+   - `src/repl/live/`: **-10,344 lines** across 65 files
+   - `www/hub/js/`: **-1,334 lines** across 5 files
+   - `src/ui/interactive/controller/`: **-3,096 lines** across 21 files (replaced by Ratatui modal & TestBackend)
+   - `src/ui/interactive/session_picker/`: **-251 lines** across 2 files (migrated to Ratatui `StandardModalView`)
+   - `src/ui/interactive/controller/tests/screen_sim.rs`: **-1,142 lines**
+   - `src/ui/render/diff.rs`: **-397 lines** (replaced by `similar` in `rho-ui-core`)
+   - `src/ui/interactive/events/batch.rs`: **-328 lines**
+   - `src/repl/input_reader/`: **-320 lines**
+   - `src/repl/interactive/fuzzy.rs`: **-112 lines**
+   - `src/ui/stream.rs`: **-18 lines**
+   - **Current totals**: **19,996 lines deleted**, **15,570 lines added** (Net reduction: **~4,426 lines** to date).
+
+3. **Phase 3 Path A Target (Remaining Legacy Surface)**:
+   - `src/ui/interactive/layout/` (22 files, 2,735 lines): To be replaced by direct Ratatui layout / widget projections.
+   - `src/ui/interactive/state/` (11 files, ~1,500 lines): To be replaced by `rho-ui-core` signals.
+   - `src/ui/block/` (3 files, 531 lines): To be replaced by Ratatui `Block`/`Borders`.
+   - `src/ui/markdown/` (17 files, 3,398 lines) & `src/ui/render/` (21 files, 3,504 lines): To be streamlined into `rho-ui-core` block projections.
+   - Completing Path A will eliminate an additional ~5,000–8,000 lines of gross legacy code, bringing final net savings to ~10,000–12,000 lines.
 
 ## Out of scope
 

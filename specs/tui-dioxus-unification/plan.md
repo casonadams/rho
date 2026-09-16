@@ -7,30 +7,19 @@ This plan defines a vertical-slice migration replacing `rho`'s hand-rolled ANSI 
 2. **Native TUI**: Ratatui with `Viewport::Inline` and `ratatui-textarea` (featuring optional Vim mode).
 3. **Web Hub**: A Dioxus 0.6+ WebAssembly application built with Dioxus Components over Iroh P2P.
 
-### Codebase audit summary (2026-09-15)
+### Codebase audit summary & progress status (2026-09-15)
 
-Total presentation layer: **269 files, 34,670 lines** (`src/ui/` 20,392 + `src/repl/` 14,278).
-Estimated deletable/replaceable: **~17,500 lines**.
+Total presentation layer baseline: **269 files, 34,670 lines** (`src/ui/` 20,392 + `src/repl/` 14,278).
+Gross legacy code touched/deletable: **~23,600 lines**.
 
-Key verified findings driving this plan:
-- Two fuzzy matchers: hand-rolled `fuzzy.rs` (112 lines) alongside already-imported `fuzzy-matcher` (`SkimMatcherV2`)
-- Duplicate `format_tokens()` with divergent thresholds across `src/ui/` and `crates/rho-engine/`
-- Duplicate `tool_title_style()` using different style crates (`anstyle` vs `crossterm`)
-- Triple-defined `visible_width()` and duplicate `truncate_to_width()`
-- Duplicate word-wrapping: `StreamWordWrapper` (366 lines) and `ThinkingStreamTracker` (228 lines) implement the same algorithm
-- Hybrid markdown parsing: `pulldown-cmark` used for inline elements only, block-level parsed manually (225 lines)
-- Hand-rolled LCS diff (200 lines of algorithm) — `similar` crate not yet added
-- 7 redundant `crossterm::terminal::size()` call sites
-- 57 files at directory depth 5, 19 micro-files under 50 lines
-- Modal system fragmented across 29 files / 5,049 lines / 4 architectural layers
-- Tab-delimited string packing in model selector instead of typed struct
-- Custom `TerminalBackend` trait (96 lines) parallel to Ratatui's built-in
-- Custom RGB-to-ANSI16 color quantization (170 lines) — Ratatui TrueColor eliminates this
-- `ANSI_PATTERN` regex used by 12+ files — Ratatui typed `Span`/`Style` eliminates ANSI escapes
-- `PendingUiBatch` + `LiveBatch` still active (397 lines total)
-- `reedline` in 4 files, `inquire` at 10 call sites, `indicatif` in 1 file
-- 975 lines of duplicate command dispatch across `message.rs`, `dispatch.rs`, and `rpc.rs`
-- 1,142-line custom `screen_sim.rs` test harness
+#### Line Savings Reality: Gross vs. Net
+Replacing hand-rolled infrastructure with modern crate ecosystems requires writing typed domain models, custom hooks, Dioxus components, and Ratatui widgets (~12,000–14,000 lines added). The projected final **net reduction is ~10,000 to 12,000 lines** (not 25,000 net lines).
+
+#### Progress to Date:
+- **Deletions completed**: **19,996 lines deleted** across 103 files (`src/repl/live/` -10,344, `www/hub/js/` -1,334, `src/ui/interactive/controller/` -3,096, `session_picker/` -251, `screen_sim.rs` -1,142, `batch.rs` -328, `diff.rs` -397, `input_reader/` -320, `fuzzy.rs` -112, `stream.rs` -18).
+- **Additions (modern architecture)**: **15,570 lines added** (`rho-ui-core` +3,130, `rho-wasm` +2,041, `runner.rs` +1,877, Ratatui modals/editor/widgets +2,900).
+- **Net reduction to date**: **~4,426 lines**.
+- **Remaining legacy surface (Path A)**: `src/ui/interactive/layout/` (2,735 lines), `state/` (~1,500 lines), `block/` (531 lines), `markdown/` (3,398 lines), `render/` (3,504 lines). Final Path A completion will bring net reduction to ~10,000–12,000 lines.
 
 See `spec.md` § "Codebase audit" for full inventory.
 
@@ -104,35 +93,27 @@ Quick wins that reduce surface area before the Ratatui/Dioxus migration begins. 
   4. (Effort: 2) Implement scrollback turn completion writer with OSC 133 semantic prompt marks (`OSC133_ZONE_START` / `OSC133_ZONE_END`) and terminal bell (`\x07`) notification on unfocused window, printing finalized user prompt and assistant output into stdout history and clearing the active inline viewport.
   5. (Effort: 2) Collapse presenter adapters (`BroadcastPresenter`, `RpcPresenter`, `TerminalRenderer`) into direct canonical event broadcast channel feeding `rho-ui-core`, routing all background engine warnings through `RpcEvent::Notice` to protect inline viewport rows from uncoordinated `eprintln!` writes.
   6. (Effort: 3) Port terminal controller unit tests from the custom `screen_sim.rs` to Ratatui `TestBackend`.
-  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, markdown line regexes, stream wrappers, renderer state machines, session picker engine, fragmented idle/turn loops, thinking stream trackers, input reader threads, system message timers, dual-slot transcript caches, color quantization math, layout budget math, chrome divider formatters, and batching code. Verified file inventory and line counts:
-     - `src/ui/interactive/controller/paint.rs` (134), `ansi.rs` (73)
-     - `src/ui/block/` (531: mod 202, wrap 182, tests 147)
-     - `src/ui/markdown/table/` (~269)
-     - `src/ui/markdown/line.rs` (225), `spacing.rs` (51)
-     - `src/ui/markdown/renderer.rs` (357), `stream.rs` (366), `elements.rs` (~101)
-     - `src/ui/markdown/highlight.rs` quantization functions (~60 of 170)
-     - `src/ui/stream.rs` (18)
-     - `src/ui/render/card.rs` (118)
-     - `src/ui/interactive/transcript/tool.rs` (171)
-     - `src/ui/render/renderer/thinking.rs` (228)
-     - `src/ui/render/renderer/activity.rs` (54)
-     - `src/ui/interactive/session_picker/` (251: mod 136, tests 115)
-     - `src/ui/interactive/controller/system_message.rs` (28)
-     - `src/ui/interactive/controller/cache.rs` (146 + 272 test lines)
-     - `src/ui/interactive/layout/text.rs` (216)
-     - `src/ui/interactive/layout/budget.rs` (135)
-     - `src/ui/interactive/layout/chrome.rs` (159)
-     - `src/ui/interactive/events/batch.rs` (194)
-     - `src/repl/live/batch.rs` (203)
-     - `src/repl/live/idle/` (5 files, ~850 lines)
-     - `src/repl/live/turn/` (8 files, ~1,650 lines)
-     - `src/repl/line_mode/` (7 files, 770 lines)
-     - `src/repl/coordinator/` (4 files, 389 lines)
-     - `src/repl/completer.rs` (36), `prompt.rs` (27)
-     - `src/repl/input_reader/` (4 files, 320 lines)
-     - `src/ui/interactive/controller/tests/screen_sim.rs` (1,142)
+  7. (Effort: 2) Delete obsolete ANSI diffing, table formatting, markdown line regexes, stream wrappers, renderer state machines, session picker engine, fragmented idle/turn loops, thinking stream trackers, input reader threads, system message timers, dual-slot transcript caches, color quantization math, layout budget math, chrome divider formatters, and batching code.
+     - **Completed Phase 1 & 2 Deletions**:
+       - `src/ui/interactive/controller/` (all 21 files, 3,096 lines)
+       - `src/ui/interactive/session_picker/` (251 lines) -> migrated `--resume` to Ratatui `StandardModalView`
+       - `src/ui/interactive/events/batch.rs` (328 lines)
+       - `src/ui/stream.rs` (18 lines)
+       - `src/repl/live/` (65 files, 10,344 lines) -> unified into `src/repl/runner.rs`
+       - `src/repl/input_reader/` (4 files, 320 lines)
+       - `src/ui/interactive/controller/tests/screen_sim.rs` (1,142 lines)
+       - `src/ui/render/diff.rs` (397 lines) -> replaced by `similar`
+       - `src/repl/interactive/fuzzy.rs` (112 lines) -> replaced by `fuzzy-matcher`
+       - `www/hub/js/` (5 files, 1,334 lines) -> replaced by Dioxus in `crates/rho-wasm`
+     - **Remaining Legacy for Path A Phase 3**:
+       - `src/ui/interactive/layout/` (22 files, 2,735 lines)
+       - `src/ui/interactive/state/` (11 files, ~1,500 lines)
+       - `src/ui/block/` (3 files, 531 lines)
+       - `src/ui/markdown/` (17 files, 3,398 lines)
+       - `src/ui/render/` (21 files, 3,504 lines)
 - **Verification**:
-  - `cargo test -p rho --lib ui::interactive`
+  - `cargo test --workspace`
+  - `cargo clippy --workspace --all-targets -- -D warnings`
 
 ---
 

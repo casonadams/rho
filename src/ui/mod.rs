@@ -7,20 +7,17 @@ pub mod interactive;
 pub mod markdown;
 pub mod modal;
 pub mod render;
-pub mod stream;
 pub mod terminal;
 pub mod theme;
 pub mod widgets;
 
 pub use editor::{EditorMode, TextAreaEditor, Vim, VimMode};
-pub use interactive::cache;
 pub use markdown::MarkdownRenderer;
 pub use modal::{
     AutocompletePopupView, PermissionPromptView, RemotePairModalView, StandardModalView, centered_modal_area,
-    render_modal,
+    prompt_session_picker, render_modal, run_modal_view,
 };
 pub use render::TerminalRenderer;
-pub use stream::ToolStreamPort;
 pub use terminal::{
     MOUSE_SCROLL_VELOCITY, OSC133_ZONE_END, OSC133_ZONE_FINAL, OSC133_ZONE_START, RESIZE_DEBOUNCE_MILLIS,
     TERMINAL_BELL, TerminalGuard, TerminalRunner, install_terminal_panic_hook, write_turn_completion,
@@ -95,6 +92,14 @@ pub trait ModalView {
     fn set_filter(&mut self, query: &str);
     fn handle_key(&mut self, key: crossterm::event::KeyEvent) -> bool;
     fn render(&self, frame: &mut ratatui::Frame, area: ratatui::layout::Rect);
+    fn is_open(&self) -> bool {
+        true
+    }
+    /// False while the view still needs input after Enter, so the modal driver
+    /// keeps the loop alive instead of closing on the first Enter.
+    fn is_submitted(&self) -> bool {
+        true
+    }
 }
 
 pub fn terminal_width() -> u16 {

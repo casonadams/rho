@@ -2,7 +2,10 @@
 mod tests;
 pub(crate) mod wrap;
 
-pub use wrap::{ANSI_PATTERN, truncate_to_width, visible_width};
+pub use wrap::{
+    ANSI_PATTERN, VisualTruncateResult, truncate_to_visual_lines, truncate_to_width, visible_width, wrap_to_width,
+    wrap_words_to_width,
+};
 
 use crate::ui::theme::Style;
 use wrap::{wrap_plain_text, wrap_styled_line};

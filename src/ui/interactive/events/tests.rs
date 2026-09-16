@@ -1,2 +1,1 @@
-mod batch;
 mod channel;

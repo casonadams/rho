@@ -1,12 +1,9 @@
-mod controller;
 mod events;
 pub mod footer;
 mod input;
 pub mod key_parser;
 pub mod keybinding_loader;
 pub mod keymap;
-mod layout;
-pub mod session_picker;
 #[cfg(test)]
 mod shift_tab_tests;
 mod state;
@@ -15,12 +12,9 @@ pub mod tree_view {
     pub use rho_harness_core::session::tree::{TreeEntryDisplay, build_tree_display, render_tree_ascii};
 }
 
-pub use controller::cache;
-pub use controller::{CrosstermBackend, TerminalBackend, TerminalController};
 pub use events::{
-    BatchDecision, FlushBarrier, InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder,
-    InteractionResponse, InteractiveUi, OptionLayout, OutputEvent, PendingUiBatch, PendingUiDrain, ToolStartRequest,
-    UiEvent, UiPortError,
+    InteractionInput, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveUi,
+    OptionLayout, OutputEvent, ToolStartRequest, UiEvent, UiPortError,
 };
 pub use footer::{
     abbreviate_home, fit_right_aligned, format_footer_lines, format_stats_line, format_tokens, format_top_line,
@@ -29,12 +23,6 @@ pub use footer::{
 pub use input::{InputAction, map_key, map_key_with_bindings};
 pub use keybinding_loader::{default_keybindings, load_keybindings};
 pub use keymap::{KeyAction, KeyChord, KeybindingMap};
-pub use layout::{
-    CursorPosition, InInputModalInput, InteractiveLayout, LayoutInput, RunningToolWidgetInput, SPINNER_FRAMES,
-    VisualTruncateResult, apply_software_cursor, layout, modal_banner_title, modal_body_max_scroll, modal_hint,
-    modal_top_divider, render_in_input_modal, render_running_tool_widget, truncate_to_visual_lines,
-    window_widget_lines, wrap_to_width, wrap_words_to_width,
-};
 pub use state::{
     Activity, AutocompleteItem, AutocompleteState, EditorState, FooterState, InteractiveState,
     MAX_RUNNING_BUFFER_BYTES, MAX_RUNNING_OUTPUT_BYTES, ModalMode, ModalOption, ModalState, PasteStore, QueueKind,

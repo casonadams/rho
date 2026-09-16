@@ -5,7 +5,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph};
 
+use rho_harness_core::presentation::InteractionInput;
 use rho_harness_core::session::SessionSummary;
+use std::collections::HashMap;
 use rho_ui_core::autocomplete::{AutocompleteCandidate, THINKING_LEVEL_OPTIONS};
 pub use rho_ui_core::format_relative_time;
 use rho_ui_core::modal::{McpModalState, ModalOption, ModalState, ModelRegistry, SettingsState, SkillModalState};
@@ -78,7 +80,109 @@ fn build_modal_items<'a>(state: &'a ModalState, list_width: usize) -> Vec<ListIt
         .collect()
 }
 
+/// Inline text entry hosted at the bottom of a modal, driven by an option that
+/// carries an `InteractionInput` spec.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineInput {
+    pub label: String,
+    pub option_value: String,
+    pub text: String,
+    pub cursor: usize,
+    pub submitted: bool,
+}
+
+impl InlineInput {
+    fn new(label: String, option_value: String, value: Option<String>) -> Self {
+        let text = value.unwrap_or_default();
+        let cursor = text.chars().count();
+        Self {
+            label,
+            option_value,
+            text,
+            cursor,
+            submitted: false,
+        }
+    }
+
+    fn byte_offset(&self, cursor: usize) -> usize {
+        self.text
+            .char_indices()
+            .nth(cursor)
+            .map(|(i, _)| i)
+            .unwrap_or(self.text.len())
+    }
+
+    fn insert(&mut self, c: char) {
+        let at = self.byte_offset(self.cursor);
+        self.text.insert(at, c);
+        self.cursor += 1;
+    }
+
+    fn backspace(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let at = self.byte_offset(self.cursor - 1);
+        self.text.remove(at);
+        self.cursor -= 1;
+    }
+
+    fn delete(&mut self) {
+        if self.cursor >= self.text.chars().count() {
+            return;
+        }
+        let at = self.byte_offset(self.cursor);
+        self.text.remove(at);
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                self.text.clear();
+                self.cursor = 0;
+            }
+            (KeyCode::Backspace, _) => self.backspace(),
+            (KeyCode::Delete, _) => self.delete(),
+            (KeyCode::Left, _) => self.cursor = self.cursor.saturating_sub(1),
+            (KeyCode::Right, _) => self.cursor = (self.cursor + 1).min(self.text.chars().count()),
+            (KeyCode::Home, _) => self.cursor = 0,
+            (KeyCode::End, _) => self.cursor = self.text.chars().count(),
+            (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => self.insert(c),
+            _ => {}
+        }
+    }
+}
+
+fn render_inline_input(frame: &mut Frame, inline: &InlineInput, area: Rect) {
+    let before: String = inline.text.chars().take(inline.cursor).collect();
+    let after: String = inline.text.chars().skip(inline.cursor).collect();
+    let entry = Line::from(vec![
+        Span::styled(
+            format!("{} > ", inline.label),
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(before),
+        Span::styled("\u{258f}", Style::default().fg(Color::Cyan)),
+        Span::raw(after),
+    ]);
+    let hint = Line::from(Span::styled(
+        "Enter submit \u{2022} Esc back",
+        Style::default().fg(Color::DarkGray),
+    ));
+    frame.render_widget(Paragraph::new(vec![entry, hint]), area);
+}
+
 pub fn render_modal(frame: &mut Frame, state: &ModalState, area: Rect, list_state: &mut ListState) {
+    render_modal_inner(frame, state, area, list_state, None);
+}
+
+fn render_modal_inner(
+    frame: &mut Frame,
+    state: &ModalState,
+    area: Rect,
+    list_state: &mut ListState,
+    inline: Option<&InlineInput>,
+) {
     let modal_w = if area.width <= 70 {
         area.width.saturating_sub(2).max(20)
     } else {
@@ -104,14 +208,29 @@ pub fn render_modal(frame: &mut Frame, state: &ModalState, area: Rect, list_stat
         return;
     }
 
+    let (content_area, input_area) = match inline {
+        Some(_) if inner_area.height >= 3 => {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(1), Constraint::Length(2)])
+                .split(inner_area);
+            (chunks[0], Some(chunks[1]))
+        }
+        _ => (inner_area, None),
+    };
+
+    if let (Some(inline), Some(input_area)) = (inline, input_area) {
+        render_inline_input(frame, inline, input_area);
+    }
+
     let (search_area, list_area) = if state.search_enabled {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(1), Constraint::Min(1)])
-            .split(inner_area);
+            .split(content_area);
         (Some(chunks[0]), chunks[1])
     } else {
-        (None, inner_area)
+        (None, content_area)
     };
 
     if let Some(sa) = search_area {
@@ -133,13 +252,54 @@ pub fn render_modal(frame: &mut Frame, state: &ModalState, area: Rect, list_stat
 pub struct StandardModalView {
     pub state: ModalState,
     pub list_state: ListState,
+    inline_inputs: HashMap<String, InteractionInput>,
+    active_input: Option<InlineInput>,
 }
 
 impl StandardModalView {
     pub fn new(state: ModalState) -> Self {
         let mut list_state = ListState::default();
         list_state.select(Some(state.selected_index));
-        Self { state, list_state }
+        Self {
+            state,
+            list_state,
+            inline_inputs: HashMap::new(),
+            active_input: None,
+        }
+    }
+
+    /// Registers per-option inline inputs keyed by `ModalOption::value`, so an
+    /// option carrying an input spec collects text before the modal resolves.
+    pub fn with_inline_inputs(mut self, inputs: impl IntoIterator<Item = (String, InteractionInput)>) -> Self {
+        self.inline_inputs = inputs.into_iter().collect();
+        self
+    }
+
+    pub fn active_input(&self) -> Option<&InlineInput> {
+        self.active_input.as_ref()
+    }
+
+    /// Returns the option value and submitted text once an inline input is confirmed.
+    pub fn submitted_input(&self) -> Option<(&str, &str)> {
+        self.active_input
+            .as_ref()
+            .filter(|input| input.submitted)
+            .map(|input| (input.option_value.as_str(), input.text.as_str()))
+    }
+
+    fn begin_inline_input(&mut self) -> bool {
+        let Some(option) = self.state.selected_option() else {
+            return false;
+        };
+        let Some(spec) = self.inline_inputs.get(&option.value) else {
+            return false;
+        };
+        self.active_input = Some(InlineInput::new(
+            spec.label.clone(),
+            option.value.clone(),
+            spec.value.clone(),
+        ));
+        true
     }
 
     pub fn thinking(active_level: Option<&str>) -> Self {
@@ -221,6 +381,59 @@ impl StandardModalView {
     }
 }
 
+pub fn run_modal_view<V: ModalView>(view: &mut V) -> std::io::Result<bool> {
+    let backend = ratatui::backend::CrosstermBackend::new(std::io::stdout());
+    let mut terminal = ratatui::Terminal::new(backend)?;
+    terminal.clear()?;
+
+    let res = (|| -> std::io::Result<bool> {
+        loop {
+            terminal.draw(|f| {
+                let area = f.area();
+                view.render(f, area);
+            })?;
+
+            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    continue;
+                }
+                if key.code == KeyCode::Enter {
+                    view.handle_key(key);
+                    if !view.is_open() {
+                        return Ok(false);
+                    }
+                    if view.is_submitted() {
+                        return Ok(true);
+                    }
+                    continue;
+                }
+                view.handle_key(key);
+                if !view.is_open() {
+                    return Ok(false);
+                }
+            }
+        }
+    })();
+    let _ = terminal.clear();
+    res
+}
+
+pub fn prompt_session_picker(sessions_dir: &std::path::Path) -> rho_harness_core::error::Result<Option<String>> {
+    let summaries = rho_harness_core::session::SessionManager::list_session_summaries(sessions_dir)?;
+    if summaries.is_empty() {
+        return Ok(None);
+    }
+    let mut view = StandardModalView::session(&summaries, None);
+    let guard = crate::ui::terminal::TerminalGuard::enter()?;
+    let selected = if run_modal_view(&mut view)? {
+        view.state.selected_option().map(|opt| opt.value.clone())
+    } else {
+        None
+    };
+    drop(guard);
+    Ok(selected)
+}
+
 impl ModalView for StandardModalView {
     fn title(&self) -> &str {
         &self.state.title
@@ -243,7 +456,19 @@ impl ModalView for StandardModalView {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> bool {
+        if let Some(input) = self.active_input.as_mut() {
+            match key.code {
+                KeyCode::Enter => input.submitted = true,
+                KeyCode::Esc => self.active_input = None,
+                _ => input.handle_key(key),
+            }
+            return true;
+        }
         match (key.code, key.modifiers) {
+            (KeyCode::Enter, _) => {
+                self.begin_inline_input();
+                true
+            }
             (KeyCode::Esc, _) => {
                 self.state.close();
                 true
@@ -305,7 +530,15 @@ impl ModalView for StandardModalView {
 
     fn render(&self, frame: &mut Frame, area: Rect) {
         let mut list_state = self.list_state;
-        render_modal(frame, &self.state, area, &mut list_state);
+        render_modal_inner(frame, &self.state, area, &mut list_state, self.active_input.as_ref());
+    }
+
+    fn is_open(&self) -> bool {
+        self.state.is_open
+    }
+
+    fn is_submitted(&self) -> bool {
+        self.active_input.as_ref().is_none_or(|input| input.submitted)
     }
 }
 
@@ -409,6 +642,10 @@ impl ModalView for RemotePairModalView {
 
         let paragraph = Paragraph::new(lines);
         frame.render_widget(paragraph, inner);
+    }
+
+    fn is_open(&self) -> bool {
+        self.is_open
     }
 }
 
@@ -670,6 +907,10 @@ impl ModalView for PermissionPromptView {
         } else {
             self.render_prompt(frame, inner);
         }
+    }
+
+    fn is_open(&self) -> bool {
+        self.prompt.is_active
     }
 }
 
