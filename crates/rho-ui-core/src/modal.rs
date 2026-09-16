@@ -127,18 +127,14 @@ impl ModalState {
         if self.filtered_options.is_empty() {
             return;
         }
-        self.selected_index = (self.selected_index + 1) % self.filtered_options.len();
+        self.selected_index = (self.selected_index + 1).min(self.filtered_options.len().saturating_sub(1));
     }
 
     pub fn select_prev(&mut self) {
         if self.filtered_options.is_empty() {
             return;
         }
-        if self.selected_index == 0 {
-            self.selected_index = self.filtered_options.len() - 1;
-        } else {
-            self.selected_index -= 1;
-        }
+        self.selected_index = self.selected_index.saturating_sub(1);
     }
 
     pub fn select_first(&mut self) {

@@ -93,7 +93,7 @@ fn select_modal_hint(modal: &ModalState) -> &'static str {
     }
 }
 
-pub(crate) fn modal_hint(modal: &ModalState) -> &'static str {
+pub fn modal_hint(modal: &ModalState) -> &'static str {
     match &modal.mode {
         crate::ui::interactive::ModalMode::Select => select_modal_hint(modal),
         crate::ui::interactive::ModalMode::Input { .. } if modal.options.is_empty() => {

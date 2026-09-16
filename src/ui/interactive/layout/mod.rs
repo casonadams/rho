@@ -10,8 +10,9 @@ pub mod text;
 pub mod types;
 pub mod widget;
 
+pub use chrome::{modal_banner_title, modal_top_divider};
 pub use editor::apply_software_cursor;
-pub use modal::modal_body_max_scroll;
+pub use modal::{InInputModalInput, modal_body_max_scroll, modal_hint, render_in_input_modal};
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width, wrap_words_to_width};
 pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
