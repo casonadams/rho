@@ -1,9 +1,26 @@
 use super::common::HistoryTerminal;
-use crate::ui::interactive::{InteractiveState, TerminalController};
+use crate::auth::AuthStore;
+use crate::repl::ReplSession;
+use crate::repl::live::modal::{
+    ModalKeyResult, handle_modal_key, open_help_selector, open_login_selector, open_mcp_selector, open_model_selector,
+    open_remote_modal, open_session_selector, open_tree_selector,
+};
+use crate::repl::live::turn::{TurnModelSwitchInput, apply_turn_model_switch};
+use crate::ui::TerminalRenderer;
+use crate::ui::interactive::{EditorState, FooterState, InteractiveState, LayoutInput, TerminalController, layout};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use rho_engine::engine::runner::SharedModelSwitch;
+use rho_engine::provider::discovery::claude_preset_models;
+use rho_engine::provider::store::ModelStore;
+use rho_harness_core::auth::StoredCredential;
+use rho_harness_core::config::{Config, McpConfig, McpServerConfig};
 
-fn send_modal_key(c: &mut TerminalController<HistoryTerminal>, code: KeyCode) -> super::super::modal::ModalKeyResult {
-    super::super::modal::handle_modal_key(c, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
+fn send_modal_key(c: &mut TerminalController<HistoryTerminal>, code: KeyCode) -> ModalKeyResult {
+    handle_modal_key(c, KeyEvent::new(code, KeyModifiers::NONE), &mut None).unwrap()
+}
+
+fn send_modal_char(c: &mut TerminalController<HistoryTerminal>, ch: char) -> ModalKeyResult {
+    handle_modal_key(c, KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE), &mut None).unwrap()
 }
 
 fn setup_model_selector_session(config_dir: std::path::PathBuf) -> crate::repl::ReplSession {
@@ -475,4 +492,548 @@ async fn init_live_state_hydrates_ui_preferences() {
     assert!(controller.hide_thinking());
     assert!(controller.tools_expanded());
     assert!(controller.state().show_label());
+}
+
+// =========================================================================
+// Help Modal Tests
+// =========================================================================
+
+#[test]
+fn help_modal_opens_with_commands_and_shortcuts() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_help_selector(&mut controller);
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Help");
+    assert_eq!(modal.body, "");
+    assert!(modal.is_searchable);
+
+    let labels: Vec<&str> = modal.options.iter().map(|o| o.label.trim()).collect();
+    let expected_items = [
+        "/settings",
+        "/model",
+        "/resume",
+        "/session",
+        "/compact",
+        "/tree",
+        "/mcp",
+        "/login",
+        "/clear",
+        "Tab",
+        "Shift+Tab",
+        "Ctrl+L",
+        "Escape",
+    ];
+    for expected in expected_items {
+        assert!(labels.contains(&expected));
+    }
+}
+
+#[test]
+fn help_modal_navigates_and_filters() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_help_selector(&mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+
+    let _ = send_modal_key(&mut controller, KeyCode::Down);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+
+    let _ = send_modal_key(&mut controller, KeyCode::Up);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+
+    send_modal_char(&mut controller, 'm');
+    send_modal_char(&mut controller, 'c');
+    send_modal_char(&mut controller, 'p');
+
+    let modal = controller.state().active_modal().unwrap();
+    assert!(!modal.options.is_empty());
+    assert_eq!(modal.options[0].label.trim(), "/mcp");
+
+    send_modal_key(&mut controller, KeyCode::Backspace);
+    let modal_back = controller.state().active_modal().unwrap();
+    assert!(modal_back.options.len() > 1);
+}
+
+#[test]
+fn help_modal_enter_on_command_returns_command_selected() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_help_selector(&mut controller);
+
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    assert_eq!(
+        res,
+        ModalKeyResult::HelpCommandSelected {
+            command: "/settings".to_string()
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn help_modal_esc_and_ctrl_c_dismiss() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_help_selector(&mut controller);
+    assert!(controller.state().active_modal().is_some());
+
+    let res = send_modal_key(&mut controller, KeyCode::Esc);
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+
+    open_help_selector(&mut controller);
+    send_modal_char(&mut controller, 'x');
+    assert_eq!(controller.state().active_modal().unwrap().filter_query, "x");
+
+    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    let res = handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert_eq!(controller.state().active_modal().unwrap().filter_query, "");
+    assert!(controller.state().active_modal().is_some());
+
+    let res = handle_modal_key(&mut controller, ctrl_c, &mut None).unwrap();
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+}
+
+// =========================================================================
+// Login Modal Tests
+// =========================================================================
+
+fn setup_login_controller(provider: &str) -> (TerminalController<HistoryTerminal>, tempfile::TempDir) {
+    let temp = tempfile::tempdir().unwrap();
+    let auth_file = temp.path().join("auth.json");
+    let mut auth_store = AuthStore::load(&auth_file).unwrap();
+    auth_store.set_key("anthropic", "test-key").unwrap();
+    let config = Config {
+        provider: provider.to_string(),
+        auth_file,
+        ..Default::default()
+    };
+    let session = ReplSession::new(config, auth_store, None);
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_login_selector(&session, &mut controller);
+    (controller, temp)
+}
+
+fn assert_contains_providers(modal: &crate::ui::interactive::ModalState) {
+    let labels: std::collections::HashSet<_> = modal.options.iter().map(|o| o.label.trim()).collect();
+    assert!(labels.contains("claude"));
+    assert!(labels.contains("openai"));
+    assert!(labels.contains("anthropic"));
+    assert!(labels.contains("chatgpt"));
+}
+
+#[test]
+fn login_selector_opens_with_clean_title_and_search() {
+    let (controller, _temp) = setup_login_controller("claude");
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Login Provider");
+    assert_eq!(modal.body, "");
+    assert!(modal.is_searchable);
+    assert_contains_providers(modal);
+}
+
+#[test]
+fn login_selector_marks_configured_providers_with_check() {
+    let (controller, _temp) = setup_login_controller("claude");
+    let modal = controller.state().active_modal().unwrap();
+    let anthropic_opt = modal.options.iter().find(|o| o.label.trim() == "anthropic").unwrap();
+    assert!(anthropic_opt.description.as_deref().unwrap().contains('✓'));
+
+    let openai_opt = modal.options.iter().find(|o| o.label.trim() == "openai").unwrap();
+    assert!(!openai_opt.description.as_deref().unwrap().contains('✓'));
+}
+
+#[test]
+fn login_selector_initial_selection_matches_active_provider() {
+    let (controller, _temp) = setup_login_controller("claude");
+    let modal = controller.state().active_modal().unwrap();
+    let selected_opt = &modal.options[modal.selected];
+    assert_eq!(selected_opt.label.trim(), "claude");
+}
+
+#[test]
+fn login_selector_navigates_with_arrows() {
+    let (mut controller, _temp) = setup_login_controller("antigravity");
+    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+
+    let _ = send_modal_key(&mut controller, KeyCode::Down);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+
+    let _ = send_modal_key(&mut controller, KeyCode::Up);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 0);
+}
+
+#[test]
+fn login_selector_filters_with_fuzzy_search() {
+    let (mut controller, _temp) = setup_login_controller("antigravity");
+    send_modal_char(&mut controller, 'g');
+    send_modal_char(&mut controller, 'r');
+    send_modal_char(&mut controller, 'o');
+    send_modal_char(&mut controller, 'q');
+
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.options.len(), 1);
+    assert_eq!(modal.options[0].label.trim(), "groq");
+
+    send_modal_key(&mut controller, KeyCode::Backspace);
+    let modal_back = controller.state().active_modal().unwrap();
+    assert!(modal_back.options.len() > 1);
+}
+
+#[test]
+fn login_selector_selects_on_enter() {
+    let (mut controller, _temp) = setup_login_controller("claude");
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    assert_eq!(
+        res,
+        ModalKeyResult::LoginProviderSelected {
+            provider: "claude".to_string(),
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn login_selector_cancels_on_esc() {
+    let (mut controller, _temp) = setup_login_controller("claude");
+    let res = send_modal_key(&mut controller, KeyCode::Esc);
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+}
+
+// =========================================================================
+// MCP Modal Tests
+// =========================================================================
+
+fn setup_mcp_controller() -> TerminalController<HistoryTerminal> {
+    let mut servers = std::collections::BTreeMap::new();
+    servers.insert(
+        "filesystem".to_string(),
+        McpServerConfig::stdio("npx", vec!["-y".to_string()]),
+    );
+    let remote = McpServerConfig {
+        url: Some("https://example.com/mcp".to_string()),
+        enabled: false,
+        ..Default::default()
+    };
+    servers.insert("remote_tool".to_string(), remote);
+
+    let config = Config {
+        mcp: McpConfig { enabled: true, servers },
+        ..Default::default()
+    };
+    let session = ReplSession::new(config, AuthStore::default(), None);
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_mcp_selector(&session, &mut controller);
+    controller
+}
+
+#[test]
+fn mcp_selector_opens_with_configured_servers() {
+    let controller = setup_mcp_controller();
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Model Context Protocol");
+    assert_eq!(modal.options.len(), 2);
+}
+
+#[test]
+fn mcp_selector_marks_active_servers() {
+    let controller = setup_mcp_controller();
+    let modal = controller.state().active_modal().unwrap();
+    assert!(modal.options[0].description.as_deref().unwrap().contains('✓'));
+    assert!(modal.options[1].description.as_deref().unwrap().contains("(off)"));
+}
+
+#[test]
+fn mcp_selector_navigates_and_toggles() {
+    let mut controller = setup_mcp_controller();
+    let _ = send_modal_key(&mut controller, KeyCode::Down);
+    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    assert_eq!(
+        res,
+        ModalKeyResult::McpServerToggled {
+            server: "remote_tool".to_string()
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn mcp_selector_cancels_on_esc() {
+    let mut controller = setup_mcp_controller();
+    let res = send_modal_key(&mut controller, KeyCode::Esc);
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+}
+
+// =========================================================================
+// Remote Modal Tests
+// =========================================================================
+
+#[test]
+fn remote_modal_opens_and_navigates() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_remote_modal(&mut controller, "https://casonadams.github.io/rho/hub/#ticket=rho_abc");
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Remote Access");
+    assert_eq!(modal.body, "https://casonadams.github.io/rho/hub/#ticket=rho_abc");
+    assert_eq!(modal.options.len(), 3);
+
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn remote_modal_copy_shortcut() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_remote_modal(&mut controller, "https://casonadams.github.io/rho/hub/#ticket=rho_xyz");
+
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+    assert_eq!(
+        controller.state().system_message(),
+        Some("Copied pairing URL to clipboard")
+    );
+}
+
+// =========================================================================
+// Session Modal Tests
+// =========================================================================
+
+#[test]
+fn session_selector_modal_selection() {
+    let temp_dir = std::env::temp_dir().join(format!("test_sessions_{}", uuid::Uuid::new_v4()));
+    let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    let session_id = manager.session_id.clone();
+
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_session_selector(&temp_dir, &mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Resume Session");
+
+    let enter_key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = handle_modal_key(&mut controller, enter_key, &mut None).unwrap();
+    assert_eq!(res, ModalKeyResult::SessionSelected { session_id });
+    assert!(controller.state().active_modal().is_none());
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+#[test]
+fn session_selector_modal_ctrl_d_deletes_session() {
+    let temp_dir = std::env::temp_dir().join(format!("test_sessions_del_{}", uuid::Uuid::new_v4()));
+    let manager = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    let session_id = manager.session_id.clone();
+
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_session_selector(&temp_dir, &mut controller);
+
+    let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
+    let res = handle_modal_key(&mut controller, ctrl_d, &mut None).unwrap();
+    assert_eq!(res, ModalKeyResult::SessionDeleted { session_id });
+    assert!(controller.state().active_modal().unwrap().options.is_empty());
+    let _ = std::fs::remove_dir_all(temp_dir);
+}
+
+// =========================================================================
+// Tree Modal Tests
+// =========================================================================
+
+fn make_tree_with_node(id: &str, label: Option<&str>) -> rho_harness_core::session::tree::SessionTree {
+    let mut tree = rho_harness_core::session::tree::SessionTree::new();
+    tree.add_node(rho_harness_core::session::tree::TreeNodeData {
+        id: id.into(),
+        parent_id: None,
+        timestamp: chrono::Utc::now(),
+        kind: rho_harness_core::session::tree::TreeNodeKind::UserTurn,
+        messages: vec![rig::message::Message::user("Hello")],
+        label: label.map(Into::into),
+        metadata: None,
+    });
+    tree
+}
+
+#[test]
+fn tree_selector_modal_selection() {
+    let tree = make_tree_with_node("node-1", Some("checkpoint-1"));
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_tree_selector(&tree, &mut controller);
+
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = handle_modal_key(&mut controller, enter, &mut None).unwrap();
+    assert_eq!(
+        res,
+        ModalKeyResult::TreeNodeSelected {
+            node_id: "node-1".into()
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn tree_selector_modal_shift_l_labels_checkpoint() {
+    let tree = make_tree_with_node("node-42", None);
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_tree_selector(&tree, &mut controller);
+
+    let shift_l = KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT);
+    assert_eq!(
+        handle_modal_key(&mut controller, shift_l, &mut None).unwrap(),
+        ModalKeyResult::Handled
+    );
+
+    for c in ['a', 'b'] {
+        let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        let _ = handle_modal_key(&mut controller, key, &mut None).unwrap();
+    }
+
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = handle_modal_key(&mut controller, enter, &mut None).unwrap();
+    assert_eq!(
+        res,
+        ModalKeyResult::NodeLabelUpdated {
+            node_id: "node-42".into(),
+            label: "ab".into()
+        }
+    );
+}
+
+// =========================================================================
+// Claude Modal Tests
+// =========================================================================
+
+fn seed_claude_auth(auth_file: &std::path::Path) -> AuthStore {
+    let mut auth_store = AuthStore::load(auth_file).unwrap();
+    auth_store
+        .set_credential(
+            "claude",
+            StoredCredential::OAuth {
+                access_token: "test-access-token".into(),
+                refresh_token: Some("test-refresh-token".into()),
+                expires_at_ms: Some((chrono::Utc::now().timestamp() + 3600) * 1000),
+                account_id: None,
+                account_email: Some("user@example.com".into()),
+            },
+        )
+        .unwrap();
+    auth_store
+}
+
+fn setup_claude_session() -> (tempfile::TempDir, ReplSession) {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_dir = temp_dir.path().to_path_buf();
+    let auth_file = config_dir.join("auth.json");
+    let auth_store = seed_claude_auth(&auth_file);
+
+    let mut model_store = ModelStore::load(config_dir.join("models-store.json"));
+    model_store.set_models("claude", claude_preset_models()).unwrap();
+
+    let config = Config {
+        config_dir,
+        auth_file,
+        model: "claude-sonnet-4-6".into(),
+        provider: "claude".into(),
+        ..Config::default()
+    };
+    (temp_dir, ReplSession::new(config, auth_store, None))
+}
+
+#[test]
+fn model_selector_displays_claude_tag() {
+    let (_dir, session) = setup_claude_session();
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_model_selector(&session, &mut controller);
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Select Model");
+
+    let claude_opt = modal.options.iter().find(|o| o.label == "claude-sonnet-4-6").unwrap();
+    assert!(claude_opt.description.as_deref().unwrap().starts_with("claude\t"));
+
+    let rendered = layout(LayoutInput {
+        editor: &EditorState::default(),
+        modal: Some(modal),
+        autocomplete: None,
+        footer: &FooterState::default(),
+        system_message: None,
+        queued_messages: &[],
+        widget_lines: &[],
+        terminal_width: 80,
+        terminal_height: 24,
+        spinner_frame: 0,
+        theme: None,
+        focused: true,
+    });
+    assert!(rendered.editor_lines.iter().any(|l| l.contains("[claude]")));
+}
+
+#[test]
+fn model_selector_selects_claude_model() {
+    let (_dir, session) = setup_claude_session();
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    open_model_selector(&session, &mut controller);
+
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    match res {
+        ModalKeyResult::ModelSelected {
+            model,
+            provider,
+            save_as_default,
+        } => {
+            assert_eq!(
+                (model.as_str(), provider.as_str(), save_as_default),
+                ("claude-sonnet-4-6", "claude", false)
+            );
+        }
+        _ => panic!("expected ModelSelected"),
+    }
+}
+
+fn assert_model_switch_state(config: &Config, switch: &SharedModelSwitch, m: &str, p: &str) {
+    assert_eq!((config.model.as_str(), config.provider.as_str()), (m, p));
+    assert_eq!(
+        (switch.current_model().as_deref(), switch.current_provider().as_deref()),
+        (Some(m), Some(p))
+    );
+}
+
+#[tokio::test]
+async fn turn_model_switch_applies_claude_model_and_creates_handle() {
+    let (_dir, session) = setup_claude_session();
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut batch = crate::repl::live::batch::LiveBatch::new();
+    let mut config = session.config.clone();
+    let renderer = TerminalRenderer::default();
+    let model_switch = std::sync::Arc::new(SharedModelSwitch::new());
+
+    let input = TurnModelSwitchInput {
+        model: "claude-opus-4-6",
+        provider: "claude",
+        save_as_default: false,
+        config: &mut config,
+        auth_store: &session.auth_store,
+        renderer: &renderer,
+        controller: &mut controller,
+        model_switch: &model_switch,
+        batch: &mut batch,
+        shared_auth: None,
+    };
+
+    apply_turn_model_switch(input).await.unwrap();
+    assert_model_switch_state(&config, &model_switch, "claude-opus-4-6", "claude");
 }

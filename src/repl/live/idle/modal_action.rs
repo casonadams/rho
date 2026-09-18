@@ -16,7 +16,9 @@ pub(crate) struct ModalActionContext<'a, 'b, 'c, B: TerminalBackend> {
 
 fn print_model_status(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    (model, provider, save_as_default): (&str, &str, bool),
+    model: &str,
+    provider: &str,
+    save_as_default: bool,
 ) {
     if save_as_default {
         ctx.session.config.set_default_model(model, provider);
@@ -32,7 +34,9 @@ fn print_model_status(
 
 async fn handle_model_selected(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    (model, provider, save_as_default): (String, String, bool),
+    model: String,
+    provider: String,
+    save_as_default: bool,
     batch: &mut LiveBatch,
 ) -> Result<bool> {
     ctx.session.config.model = model.clone();
@@ -45,7 +49,7 @@ async fn handle_model_selected(
         )
         .await;
     }
-    print_model_status(ctx, (&model, &provider, save_as_default));
+    print_model_status(ctx, &model, &provider, save_as_default);
     if let Err(err) = ctx.engine.switch_model(&model, &provider).await {
         ctx.session
             .renderer
@@ -79,7 +83,8 @@ async fn handle_node_selected(
 
 async fn handle_node_label_updated(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    (node_id, label): (String, String),
+    node_id: String,
+    label: String,
 ) -> Result<bool> {
     let label_opt = if label.is_empty() { None } else { Some(label.clone()) };
     match ctx.engine.session_manager.set_node_label(&node_id, label_opt).await {
@@ -137,7 +142,8 @@ async fn save_or_print_thinking(
 
 async fn handle_thinking_selected(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    (level, save_as_default): (Option<String>, bool),
+    level: Option<String>,
+    save_as_default: bool,
 ) -> Result<bool> {
     ctx.session.config.thinking_level = level.clone();
     ctx.engine.config.thinking_level = level.clone();
@@ -164,49 +170,70 @@ async fn handle_session_deleted(
     Ok(true)
 }
 
-async fn dispatch_modal_result_rest(
-    res: ModalKeyResult,
+async fn handle_login_provider_selected(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    provider: String,
 ) -> Result<bool> {
-    match res {
-        ModalKeyResult::SessionSelected { session_id } => handle_session_selected(ctx, session_id).await,
-        rest => dispatch_modal_result_rest2(rest, ctx).await,
+    ctx.controller.suspend()?;
+    let login_res = crate::cli::login_provider(Some(&provider), &ctx.session.config, &mut ctx.session.auth_store).await;
+    ctx.controller.resume()?;
+    match login_res {
+        Ok(()) => {
+            *ctx.engine = ctx
+                .engine
+                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
+                .await?;
+        }
+        Err(crate::error::AppError::Cancelled(_)) => {}
+        Err(err) => {
+            ctx.session.renderer.print_notice(&format!("  Login failed: {err}\n"));
+        }
     }
+    update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
+    ctx.controller.redraw()?;
+    Ok(true)
 }
 
-async fn dispatch_session_or_node_result(
-    res: &ModalKeyResult,
+async fn handle_help_command_selected(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-) -> Result<Option<bool>> {
-    match res {
-        ModalKeyResult::NodeLabelUpdated { node_id, label } => Ok(Some(
-            handle_node_label_updated(ctx, (node_id.clone(), label.clone())).await?,
-        )),
-        ModalKeyResult::SessionDeleted { session_id } => {
-            Ok(Some(handle_session_deleted(ctx, session_id.clone()).await?))
+    command: &str,
+) -> Result<bool> {
+    match command {
+        "/settings" => {
+            super::super::modal::open_settings_selector(
+                Some(&ctx.session.config.model),
+                ctx.session.config.thinking_level.as_deref(),
+                ctx.controller,
+            );
         }
-        _ => Ok(None),
+        "/model" => {
+            super::super::modal::open_model_selector(ctx.session, ctx.controller);
+        }
+        "/resume" => {
+            super::super::modal::open_session_selector(&ctx.session.config.sessions_dir, ctx.controller);
+        }
+        "/tree" => {
+            if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
+                super::super::modal::open_tree_selector(&tree, ctx.controller);
+            }
+        }
+        "/mcp" => {
+            super::super::modal::open_mcp_selector(ctx.session, ctx.controller);
+        }
+        "/login" => {
+            super::super::modal::open_login_selector(ctx.session, ctx.controller);
+        }
+        _ => {}
     }
+    ctx.controller.redraw()?;
+    Ok(true)
 }
 
-async fn dispatch_modal_result_rest2(
-    res: ModalKeyResult,
+async fn handle_ui_setting_toggled(
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    res: ModalKeyResult,
 ) -> Result<bool> {
-    if let Some(handled) = dispatch_session_or_node_result(&res, ctx).await? {
-        return Ok(handled);
-    }
     match res {
-        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
-            handle_thinking_selected(ctx, (level, save_as_default)).await
-        }
-        ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
-        ModalKeyResult::HelpCommandSelected { command } => handle_help_command_selected(ctx, &command).await,
-        ModalKeyResult::OpenModelSelector { save_as_default } => {
-            super::super::modal::open_model_selector_with_default(ctx.session, ctx.controller, save_as_default);
-            ctx.controller.redraw()?;
-            Ok(true)
-        }
         ModalKeyResult::BlockStyleToggled { style } => {
             ctx.session.config.ui.block_style = Some(style.clone());
             let _ = rho_harness_core::config::Config::save_ui_block_style_async(&ctx.session.config.config_dir, &style)
@@ -270,73 +297,28 @@ async fn dispatch_modal_result(
 ) -> Result<bool> {
     match res {
         ModalKeyResult::Handled => Ok(true),
+        ModalKeyResult::NotHandled => Ok(false),
         ModalKeyResult::ModelSelected {
             model,
             provider,
             save_as_default,
-        } => handle_model_selected(ctx, (model, provider, save_as_default), batch).await,
+        } => handle_model_selected(ctx, model, provider, save_as_default, batch).await,
         ModalKeyResult::TreeNodeSelected { node_id } => handle_node_selected(ctx, node_id).await,
-        rest => dispatch_modal_result_rest(rest, ctx).await,
+        ModalKeyResult::NodeLabelUpdated { node_id, label } => handle_node_label_updated(ctx, node_id, label).await,
+        ModalKeyResult::SessionSelected { session_id } => handle_session_selected(ctx, session_id).await,
+        ModalKeyResult::SessionDeleted { session_id } => handle_session_deleted(ctx, session_id).await,
+        ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
+            handle_thinking_selected(ctx, level, save_as_default).await
+        }
+        ModalKeyResult::LoginProviderSelected { provider } => handle_login_provider_selected(ctx, provider).await,
+        ModalKeyResult::HelpCommandSelected { command } => handle_help_command_selected(ctx, &command).await,
+        ModalKeyResult::OpenModelSelector { save_as_default } => {
+            super::super::modal::open_model_selector_with_default(ctx.session, ctx.controller, save_as_default);
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
+        setting => handle_ui_setting_toggled(ctx, setting).await,
     }
-}
-
-async fn handle_login_provider_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    provider: String,
-) -> Result<bool> {
-    ctx.controller.suspend()?;
-    let login_res = crate::cli::login_provider(Some(&provider), &ctx.session.config, &mut ctx.session.auth_store).await;
-    ctx.controller.resume()?;
-    match login_res {
-        Ok(()) => {
-            *ctx.engine = ctx
-                .engine
-                .rebuild(ctx.session.config.clone(), ctx.session.auth_store.clone())
-                .await?;
-        }
-        Err(crate::error::AppError::Cancelled(_)) => {}
-        Err(err) => {
-            ctx.session.renderer.print_notice(&format!("  Login failed: {err}\n"));
-        }
-    }
-    update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
-    ctx.controller.redraw()?;
-    Ok(true)
-}
-
-async fn handle_help_command_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    command: &str,
-) -> Result<bool> {
-    match command {
-        "/settings" => {
-            super::super::modal::open_settings_selector(
-                Some(&ctx.session.config.model),
-                ctx.session.config.thinking_level.as_deref(),
-                ctx.controller,
-            );
-        }
-        "/model" => {
-            super::super::modal::open_model_selector(ctx.session, ctx.controller);
-        }
-        "/resume" => {
-            super::super::modal::open_session_selector(&ctx.session.config.sessions_dir, ctx.controller);
-        }
-        "/tree" => {
-            if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
-                super::super::modal::open_tree_selector(&tree, ctx.controller);
-            }
-        }
-        "/mcp" => {
-            super::super::modal::open_mcp_selector(ctx.session, ctx.controller);
-        }
-        "/login" => {
-            super::super::modal::open_login_selector(ctx.session, ctx.controller);
-        }
-        _ => {}
-    }
-    ctx.controller.redraw()?;
-    Ok(true)
 }
 
 pub(crate) async fn apply_modal_key_result<B: TerminalBackend>(

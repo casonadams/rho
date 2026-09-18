@@ -7,15 +7,64 @@ pub mod normal;
 #[cfg(test)]
 mod tests;
 pub mod text;
-pub mod types;
 pub mod widget;
+
+use crate::ui::interactive::{AutocompleteState, EditorState, FooterState, ModalState, QueuedMessage};
 
 pub use modal::modal_body_max_scroll;
 pub use text::{SPINNER_FRAMES, VisualTruncateResult, truncate_to_visual_lines, wrap_to_width, wrap_words_to_width};
-pub use types::{CursorPosition, InteractiveLayout, LayoutInput};
 pub use widget::{RunningToolWidgetInput, render_running_tool_widget};
 
 use normal::render_normal_layout;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CursorPosition {
+    pub row: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InteractiveLayout {
+    pub lines: Vec<String>,
+    pub cursor: CursorPosition,
+    pub cursor_visible: bool,
+    pub cursor_row: usize,
+    pub cursor_mode: crate::ui::theme::CursorMode,
+    pub queued_lines: Vec<String>,
+    pub widget_lines: Vec<String>,
+    pub working_line: String,
+    pub top_divider: String,
+    pub editor_lines: Vec<String>,
+    pub bottom_divider: String,
+    pub footer_lines: Vec<String>,
+    pub footer: String,
+}
+
+impl InteractiveLayout {
+    pub fn height(&self) -> usize {
+        self.lines.len()
+    }
+
+    pub fn cursor_row(&self) -> usize {
+        self.cursor_row
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LayoutInput<'a> {
+    pub editor: &'a EditorState,
+    pub modal: Option<&'a ModalState>,
+    pub autocomplete: Option<&'a AutocompleteState>,
+    pub footer: &'a FooterState,
+    pub system_message: Option<&'a str>,
+    pub queued_messages: &'a [QueuedMessage],
+    pub widget_lines: &'a [String],
+    pub terminal_width: usize,
+    pub terminal_height: usize,
+    pub spinner_frame: usize,
+    pub theme: Option<&'a crate::ui::theme::Theme>,
+    pub focused: bool,
+}
 
 pub fn layout(input: LayoutInput<'_>) -> InteractiveLayout {
     render_normal_layout(input)

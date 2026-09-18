@@ -12,11 +12,12 @@ use crate::ui::interactive::{QueuedMessage, TerminalBackend, TerminalController}
 use crossterm::event::Event;
 
 type UiEventReceiver = tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>;
-type KeyRest<'a, 'b, 'c> = (
-    &'a mut ReplSession,
-    &'b mut crate::engine::AgentEngine,
-    &'c mut Option<std::time::Instant>,
-);
+
+pub(crate) struct LiveIdleContext<'a, 'b> {
+    pub session: &'b mut ReplSession,
+    pub engine: &'b mut crate::engine::AgentEngine,
+    pub last_escape_time: &'a mut Option<std::time::Instant>,
+}
 
 struct IdleUi {
     batch: LiveBatch,
@@ -67,14 +68,16 @@ async fn handle_ui_event<B: TerminalBackend>(
 
 async fn handle_tick<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (batch, tick, rest): (&mut LiveBatch, IdleTick, &mut KeyRest<'_, '_, '_>),
+    batch: &mut LiveBatch,
+    tick: IdleTick,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<()> {
     match tick {
         IdleTick::Frame => {
             let expired = controller.check_system_message_expiration();
             let resized = controller.refresh_size()?;
             if resized {
-                rest.0.renderer.set_width(controller.width());
+                ctx.session.renderer.set_width(controller.width());
             }
             if !batch.ui.is_empty() || expired || resized {
                 batch.flush(controller, expired || resized)?;
@@ -91,32 +94,32 @@ async fn handle_tick<B: TerminalBackend>(
 
 async fn handle_input_source<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (event, batch, resources, input, rest): (
-        Option<std::io::Result<Event>>,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut super::TerminalInputReader,
-        &mut KeyRest<'_, '_, '_>,
-    ),
+    event: Option<std::io::Result<Event>>,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    input: &mut super::TerminalInputReader,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
     let Some(event) = event else {
         batch.flush(controller, false)?;
         return Err(anyhow::anyhow!("Terminal input reader stopped").into());
     };
     let event = event?;
-    process_raw_input(controller, (event, batch, resources, input, rest)).await
+    process_raw_input(controller, event, batch, resources, input, ctx).await
 }
 
 async fn drive_idle_loop<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (ui_events, input): (&mut UiEventReceiver, &mut super::TerminalInputReader),
-    (resources, rest): (&mut EditorResources<'_>, &mut KeyRest<'_, '_, '_>),
+    ui_events: &mut UiEventReceiver,
+    input: &mut super::TerminalInputReader,
+    resources: &mut EditorResources<'_>,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<Option<QueuedMessage>> {
     let mut ui = IdleUi::new();
     loop {
         match next_idle_step(&mut ui.frame, input, ui_events).await {
             IdleSource::Tick(tick) => {
-                handle_tick(controller, (&mut ui.batch, tick, &mut *rest)).await?;
+                handle_tick(controller, &mut ui.batch, tick, ctx).await?;
                 if let Some(prompt) = crate::platform::remote::REMOTE_PROMPT_QUEUE.pop() {
                     return Ok(Some(QueuedMessage {
                         text: prompt,
@@ -125,9 +128,8 @@ async fn drive_idle_loop<B: TerminalBackend>(
                 }
             }
             IdleSource::Input(event) => {
-                let args = (event, &mut ui.batch, &mut *resources, &mut *input, &mut *rest);
-                match handle_input_source(controller, args).await? {
-                    IdleInputResult::Message(msg) => return Ok(Some(msg)),
+                match handle_input_source(controller, event, &mut ui.batch, resources, input, ctx).await? {
+                    IdleInputResult::Message(message) => return Ok(Some(message)),
                     IdleInputResult::Exit => return Ok(None),
                     IdleInputResult::None => {}
                 }
@@ -147,6 +149,10 @@ pub(crate) async fn read_idle_input<B: TerminalBackend>(ctx: IdleContext<'_, '_,
         history: ctx.editor.history,
         completions: ctx.editor.completions,
     };
-    let mut rest: KeyRest = (&mut *ctx.session, &mut *ctx.engine, &mut last_escape_time);
-    drive_idle_loop(controller, (ui_events, input), (&mut resources, &mut rest)).await
+    let mut idle_ctx = LiveIdleContext {
+        session: ctx.session,
+        engine: ctx.engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    drive_idle_loop(controller, ui_events, input, &mut resources, &mut idle_ctx).await
 }

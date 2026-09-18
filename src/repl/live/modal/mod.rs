@@ -1,10 +1,5 @@
-pub mod help;
 pub mod interaction;
-pub mod login;
-pub mod mcp;
-pub mod model;
-pub mod remote;
-pub mod session;
+pub mod selectors;
 pub mod settings;
 #[cfg(test)]
 mod tests;
@@ -14,13 +9,11 @@ use crate::error::Result;
 use crate::ui::interactive::{EditorState, ModalMode, TerminalBackend, TerminalController, UiAction};
 use crossterm::event::KeyEvent;
 
-pub use help::open_help_selector;
 pub use interaction::{PendingModal, install_interaction};
-pub use login::open_login_selector;
-pub use mcp::open_mcp_selector;
-pub use model::{open_model_selector, open_model_selector_with_default};
-pub use remote::open_remote_modal;
-pub use session::open_session_selector;
+pub use selectors::{
+    open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
+    open_remote_modal, open_session_selector,
+};
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
 
@@ -298,14 +291,14 @@ pub fn handle_modal_key<B: TerminalBackend>(
     }
 
     match active.title.as_str() {
-        "Help" => help::handle_help_key(controller, key),
+        "Help" => selectors::handle_help_key(controller, key),
         "Settings" => settings::handle_settings_key(controller, key),
-        "Resume Session" => session::handle_session_key(controller, key),
+        "Resume Session" => selectors::handle_session_key(controller, key),
         "Conversation Tree" => tree::handle_tree_key(controller, key),
-        "Select Model" => model::handle_model_key(controller, key),
-        "Model Context Protocol" => mcp::handle_mcp_key(controller, key),
-        "Login Provider" => login::handle_login_key(controller, key),
-        "Remote Access" => remote::handle_remote_key(controller, key),
+        "Select Model" => selectors::handle_model_key(controller, key),
+        "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
+        "Login Provider" => selectors::handle_login_key(controller, key),
+        "Remote Access" => selectors::handle_remote_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

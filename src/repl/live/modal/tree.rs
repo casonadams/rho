@@ -90,23 +90,17 @@ fn handle_tree_select_key<B: TerminalBackend>(
     key: &KeyEvent,
 ) -> Result<ModalKeyResult> {
     match key.code {
-        KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
+        KeyCode::Enter => handle_tree_enter(controller),
+        KeyCode::Esc | KeyCode::Char('c')
+            if key.modifiers.contains(KeyModifiers::CONTROL) || key.code == KeyCode::Esc =>
+        {
+            pop_and_redraw_tree(controller)
         }
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
+        _ => {
+            super::handle_selector_nav(controller, key)?;
+            Ok(ModalKeyResult::Handled)
         }
-        KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Enter => return handle_tree_enter(controller),
-        KeyCode::Esc | KeyCode::Char('c') => return pop_and_redraw_tree(controller),
-        _ => {}
     }
-    Ok(ModalKeyResult::Handled)
 }
 
 pub fn handle_tree_key<B: TerminalBackend>(

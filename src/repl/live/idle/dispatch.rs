@@ -1,6 +1,7 @@
+use super::EditorResources;
+use super::LiveIdleContext;
 use super::modal_action::{ModalActionContext, apply_modal_key_result};
 use super::shortcut::{IdleShortcutContext, handle_shortcut_action};
-use super::{EditorResources, KeyRest};
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::repl::live::autocomplete::{AutocompleteKeyResult, handle_autocomplete_key, update_autocomplete_state};
@@ -33,7 +34,9 @@ pub(super) fn classify_event(event: Event) -> RawInput {
 
 pub(super) fn handle_paste<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (batch, text, completions): (&mut LiveBatch, String, &CompletionSet),
+    batch: &mut LiveBatch,
+    text: String,
+    completions: &CompletionSet,
 ) -> Result<()> {
     if !handle_modal_paste(controller, &text) {
         controller.state_mut().apply(UiAction::Paste(text));
@@ -44,7 +47,9 @@ pub(super) fn handle_paste<B: TerminalBackend>(
 
 fn handle_history_nav<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (next, batch, history): (bool, &mut LiveBatch, &mut InteractiveHistory),
+    next: bool,
+    batch: &mut LiveBatch,
+    history: &mut InteractiveHistory,
 ) -> Result<()> {
     let moved = if next {
         navigate_history_next(controller, history)
@@ -59,7 +64,9 @@ fn handle_history_nav<B: TerminalBackend>(
 
 fn handle_edit_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (batch, action, completions): (&mut LiveBatch, UiAction, &CompletionSet),
+    batch: &mut LiveBatch,
+    action: UiAction,
+    completions: &CompletionSet,
 ) -> Result<Option<QueuedMessage>> {
     let effect = controller.state_mut().apply(action);
     update_autocomplete_state(controller, completions);
@@ -84,12 +91,10 @@ fn handle_dequeue<B: TerminalBackend>(controller: &mut TerminalController<B>, ba
 
 async fn handle_misc_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (action, batch, resources, input): (
-        &InputAction,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut crate::repl::input_reader::TerminalInputReader,
-    ),
+    action: &InputAction,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    input: &mut crate::repl::input_reader::TerminalInputReader,
 ) -> Result<()> {
     match action {
         InputAction::Complete => {
@@ -139,9 +144,9 @@ async fn open_external_editor<B: TerminalBackend>(
 }
 
 pub(super) enum IdleInputResult {
+    None,
     Message(QueuedMessage),
     Exit,
-    None,
 }
 
 enum PlainActionResult {
@@ -153,27 +158,27 @@ enum PlainActionResult {
 
 async fn handle_plain_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (action, batch, resources, input): (
-        &InputAction,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut crate::repl::input_reader::TerminalInputReader,
-    ),
+    action: &InputAction,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    input: &mut crate::repl::input_reader::TerminalInputReader,
 ) -> Result<PlainActionResult> {
     match action {
         InputAction::Edit(edit) => {
-            let res = handle_edit_action(controller, (batch, edit.clone(), resources.completions))?;
+            let res = handle_edit_action(controller, batch, edit.clone(), resources.completions)?;
             Ok(res.map_or(PlainActionResult::Handled, PlainActionResult::Message))
         }
         InputAction::HistoryPrevious | InputAction::HistoryNext => {
             handle_history_nav(
                 controller,
-                (matches!(action, InputAction::HistoryNext), batch, resources.history),
+                matches!(action, InputAction::HistoryNext),
+                batch,
+                resources.history,
             )?;
             Ok(PlainActionResult::Handled)
         }
         InputAction::Complete | InputAction::ExternalEditor | InputAction::DequeueQueued => {
-            handle_misc_action(controller, (action, batch, resources, input)).await?;
+            handle_misc_action(controller, action, batch, resources, input).await?;
             Ok(PlainActionResult::Handled)
         }
         InputAction::EndOfInput if controller.state().editor().is_empty() => {
@@ -186,29 +191,26 @@ async fn handle_plain_action<B: TerminalBackend>(
 
 async fn handle_plain_or_shortcut<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (action, batch, resources, input, rest): (
-        &InputAction,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut crate::repl::input_reader::TerminalInputReader,
-        &mut KeyRest<'_, '_, '_>,
-    ),
+    action: &InputAction,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    input: &mut crate::repl::input_reader::TerminalInputReader,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
-    match handle_plain_action(controller, (action, batch, resources, input)).await? {
+    match handle_plain_action(controller, action, batch, resources, input).await? {
         PlainActionResult::Message(msg) => return Ok(IdleInputResult::Message(msg)),
         PlainActionResult::Exit => return Ok(IdleInputResult::Exit),
         PlainActionResult::Handled => return Ok(IdleInputResult::None),
         PlainActionResult::Unhandled => {}
     }
-    let (session, engine, last_escape_time) = rest;
     if !matches!(action, InputAction::EndOfInput | InputAction::Ignore) {
         handle_shortcut_action(
             action.clone(),
             IdleShortcutContext {
                 controller,
-                session,
-                engine,
-                last_escape_time,
+                session: ctx.session,
+                engine: ctx.engine,
+                last_escape_time: ctx.last_escape_time,
             },
             batch,
         )
@@ -224,19 +226,17 @@ enum KeyPhase {
 
 async fn try_modal_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (key, batch, resources, rest): (
-        KeyEvent,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut KeyRest<'_, '_, '_>,
-    ),
+    key: KeyEvent,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<KeyPhase> {
     let modal_res = handle_modal_key(controller, key, &mut batch.modal)?;
     let modal = ModalActionContext {
         controller,
         history: resources.history,
-        session: rest.0,
-        engine: rest.1,
+        session: ctx.session,
+        engine: ctx.engine,
     };
     if apply_modal_key_result(modal_res, modal, batch).await? {
         batch.flush(controller, true)?;
@@ -254,51 +254,47 @@ async fn try_modal_key<B: TerminalBackend>(
 
 async fn process_key_event<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (key, batch, resources, input, rest): (
-        KeyEvent,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut crate::repl::input_reader::TerminalInputReader,
-        &mut KeyRest<'_, '_, '_>,
-    ),
+    key: KeyEvent,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    input: &mut crate::repl::input_reader::TerminalInputReader,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
-    if let KeyPhase::Handled = try_modal_key(controller, (key, batch, resources, &mut *rest)).await? {
+    if let KeyPhase::Handled = try_modal_key(controller, key, batch, resources, ctx).await? {
         return Ok(IdleInputResult::None);
     }
     let action = map_key(key);
-    handle_plain_or_shortcut(controller, (&action, batch, resources, input, &mut *rest)).await
+    handle_plain_or_shortcut(controller, &action, batch, resources, input, ctx).await
 }
 
 pub(super) async fn process_raw_input<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
-    (event, batch, resources, input, rest): (
-        Event,
-        &mut LiveBatch,
-        &mut EditorResources<'_>,
-        &mut crate::repl::input_reader::TerminalInputReader,
-        &mut KeyRest<'_, '_, '_>,
-    ),
+    event: Event,
+    batch: &mut LiveBatch,
+    resources: &mut EditorResources<'_>,
+    input: &mut crate::repl::input_reader::TerminalInputReader,
+    ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
     match classify_event(event) {
         RawInput::Resize(cols, rows) => {
             let resized = controller.resize_to(usize::from(cols), usize::from(rows))? || controller.refresh_size()?;
             if resized {
-                rest.0.renderer.set_width(controller.width());
+                ctx.session.renderer.set_width(controller.width());
             }
             batch.flush(controller, true)?;
             Ok(IdleInputResult::None)
         }
         RawInput::Paste(text) => {
             if controller.refresh_size()? {
-                rest.0.renderer.set_width(controller.width());
+                ctx.session.renderer.set_width(controller.width());
                 batch.flush(controller, true)?;
             }
-            handle_paste(controller, (batch, text, resources.completions)).map(|_| IdleInputResult::None)
+            handle_paste(controller, batch, text, resources.completions).map(|_| IdleInputResult::None)
         }
         RawInput::Focus(focused) => {
             let resized = controller.refresh_size()?;
             if resized {
-                rest.0.renderer.set_width(controller.width());
+                ctx.session.renderer.set_width(controller.width());
             }
             if controller.focused() != focused || resized {
                 controller.set_focused(focused);
@@ -306,7 +302,7 @@ pub(super) async fn process_raw_input<B: TerminalBackend>(
             }
             Ok(IdleInputResult::None)
         }
-        RawInput::Key(key) => process_key_event(controller, (key, batch, resources, input, rest)).await,
+        RawInput::Key(key) => process_key_event(controller, key, batch, resources, input, ctx).await,
         RawInput::Skip => Ok(IdleInputResult::None),
     }
 }

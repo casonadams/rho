@@ -5,7 +5,7 @@ use super::chrome::{
     top_divider, working_line_text,
 };
 use super::editor::{render_editor_lines, window_editor, wrap_editor};
-use super::types::{CursorPosition, InteractiveLayout, LayoutInput};
+use super::{CursorPosition, InteractiveLayout, LayoutInput};
 
 fn desired_autocomplete_count(input: &LayoutInput<'_>, width: usize) -> usize {
     if input.modal.is_none()

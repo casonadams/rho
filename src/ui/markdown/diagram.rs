@@ -1,5 +1,6 @@
 //! Mermaid diagram rendering via headless Merman ASCII/Unicode engine.
 
+use crate::ui::theme::Theme;
 use merman::OperationControl;
 use merman::ascii::{AsciiColorMode, AsciiRenderOptions, AsciiViewportPolicy, OverflowPolicy};
 use merman::render::{AsciiRequest, RenderOutput, RenderRequest, Renderer};
@@ -111,5 +112,91 @@ fn render_with_preset(renderer: &Renderer, source: &str, width: usize, preset: &
             if text.trim().is_empty() { None } else { Some(text) }
         }
         _ => None,
+    }
+}
+
+pub fn render_mermaid_block(source: &str, theme: &Theme, width: usize) -> String {
+    let dim = theme.dimmed;
+
+    if let Some(rendered) = render_diagram(source, width) {
+        let mut out = format!("{dim}Mermaid{dim:#}\n");
+        for line in rendered.lines() {
+            out.push(' ');
+            out.push_str(&clipped(line, width.saturating_sub(1)));
+            out.push('\n');
+        }
+        if out.ends_with('\n') {
+            out.pop();
+        }
+        return out;
+    }
+
+    let mut out = format!("{dim}```mermaid{dim:#}\n");
+    for line in source.lines() {
+        out.push_str(&clipped(line, width));
+        out.push('\n');
+    }
+    out.push_str(&format!("{dim}```{dim:#}"));
+    out
+}
+
+fn clipped(line: &str, width: usize) -> String {
+    if width == 0 {
+        line.to_string()
+    } else {
+        crate::ui::interactive::footer::truncate_to_width(line, width)
+    }
+}
+
+#[derive(Default)]
+pub struct MermaidBlockTracker {
+    in_block: bool,
+    lines: Vec<String>,
+    width: usize,
+}
+
+impl MermaidBlockTracker {
+    pub fn in_block(&self) -> bool {
+        self.in_block
+    }
+
+    pub fn push_line(&mut self, line: &str) {
+        self.lines.push(line.to_string());
+    }
+
+    pub fn set_width(&mut self, width: usize) {
+        self.width = width;
+    }
+
+    pub fn try_render_fence(&mut self, trimmed: &str, theme: &Theme) -> Option<Option<String>> {
+        if !trimmed.starts_with("```") {
+            return None;
+        }
+        let tag = trimmed.trim_start_matches('`').trim();
+        if self.in_block {
+            self.in_block = false;
+            let src = std::mem::take(&mut self.lines).join("\n");
+            Some(Some(render_mermaid_block(&src, theme, self.width)))
+        } else if tag.eq_ignore_ascii_case("mermaid") {
+            self.in_block = true;
+            self.lines.clear();
+            Some(None)
+        } else {
+            None
+        }
+    }
+
+    pub fn flush_rendered(&mut self, theme: &Theme) -> Option<String> {
+        if self.in_block && !self.lines.is_empty() {
+            self.in_block = false;
+            Some(render_mermaid_block(
+                &std::mem::take(&mut self.lines).join("\n"),
+                theme,
+                self.width,
+            ))
+        } else {
+            self.in_block = false;
+            None
+        }
     }
 }

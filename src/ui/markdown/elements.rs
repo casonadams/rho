@@ -66,36 +66,3 @@ pub fn render_inline_elements(text: &str, theme: &Theme) -> String {
     restore_trailing_spaces(&mut out, text);
     out
 }
-
-pub fn render_mermaid_block(source: &str, theme: &Theme, width: usize) -> String {
-    let dim = theme.dimmed;
-
-    if let Some(rendered) = super::diagram::render_diagram(source, width) {
-        let mut out = format!("{dim}Mermaid{dim:#}\n");
-        for line in rendered.lines() {
-            out.push(' ');
-            out.push_str(&clipped(line, width.saturating_sub(1)));
-            out.push('\n');
-        }
-        if out.ends_with('\n') {
-            out.pop();
-        }
-        return out;
-    }
-
-    let mut out = format!("{dim}```mermaid{dim:#}\n");
-    for line in source.lines() {
-        out.push_str(&clipped(line, width));
-        out.push('\n');
-    }
-    out.push_str(&format!("{dim}```{dim:#}"));
-    out
-}
-
-fn clipped(line: &str, width: usize) -> String {
-    if width == 0 {
-        line.to_string()
-    } else {
-        crate::ui::interactive::footer::truncate_to_width(line, width)
-    }
-}
