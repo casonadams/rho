@@ -10,7 +10,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 use super::LiveIo;
-use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
+use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVAL};
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InputAction, TerminalBackend, TerminalController, map_key};
@@ -80,6 +80,12 @@ fn configure_shell_command(cmd: &str) -> tokio::process::Command {
     command.env("CI", "true");
     command.env("GIT_TERMINAL_PROMPT", "0");
     command.env("PAGER", "cat");
+    command.env("GIT_PAGER", "cat");
+    command.env("CLICOLOR", "1");
+    command.env("CLICOLOR_FORCE", "1");
+    command.env("FORCE_COLOR", "1");
+    command.env("COLORTERM", "truecolor");
+    command.env("TERM", "xterm-256color");
     isolate_group(&mut command);
     command
 }
@@ -99,7 +105,7 @@ fn spawn_stream_reader<R: AsyncReadExt + Unpin + Send + 'static>(
 }
 
 struct StreamProgress {
-    spinner_tick: usize,
+    last_spinner: Instant,
     last_redraw: Instant,
     needs_redraw: bool,
 }
@@ -107,7 +113,7 @@ struct StreamProgress {
 impl StreamProgress {
     fn new() -> Self {
         Self {
-            spinner_tick: 0,
+            last_spinner: Instant::now(),
             last_redraw: Instant::now(),
             needs_redraw: false,
         }
@@ -125,9 +131,8 @@ impl StreamProgress {
     }
 
     fn on_tick<B: TerminalBackend>(&mut self, controller: &mut TerminalController<B>) -> bool {
-        self.spinner_tick += 1;
-        let spinner_advanced = if self.spinner_tick >= SPINNER_FRAME_INTERVALS {
-            self.spinner_tick = 0;
+        let spinner_advanced = if self.last_spinner.elapsed() >= SPINNER_FRAME_INTERVAL {
+            self.last_spinner = Instant::now();
             controller.advance_spinner();
             !matches!(controller.state().footer().activity, Activity::Idle)
         } else {

@@ -63,15 +63,14 @@ fn test_output_accumulator_creates_temp_file_when_truncated() {
 }
 
 #[test]
-fn test_output_accumulator_strips_ansi_escapes_split_across_chunks() {
+fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     let mut acc = OutputAccumulator::new();
     acc.append(b"starting \x1b[4");
     acc.append(b"0mblack background\x1b[0m ending");
     acc.finish();
 
     let snap = acc.snapshot();
-    assert_eq!(snap.formatted_text, "starting black background ending");
-    assert!(!snap.formatted_text.contains("[40m"));
+    assert_eq!(snap.formatted_text, "starting \x1b[40mblack background\x1b[0m ending");
 }
 
 #[tokio::test]
@@ -276,14 +275,19 @@ async fn test_bash_sets_noninteractive_env_safeguards() {
     let tool = BashTool::new(std::env::current_dir().unwrap());
     let res = tool
         .execute(BashArgs {
-            command: "echo \"CI=$CI;GIT=$GIT_TERMINAL_PROMPT;PAGER=$PAGER;NO_COLOR=$NO_COLOR;TERM=$TERM\"".to_string(),
+            command:
+                "echo \"CI=$CI;GIT=$GIT_TERMINAL_PROMPT;PAGER=$PAGER;GIT_PAGER=$GIT_PAGER;CLICOLOR=$CLICOLOR;COLORTERM=$COLORTERM;TERM=$TERM\""
+                    .to_string(),
             timeout: Some(5),
         })
         .await
         .unwrap();
 
     assert!(!res.is_error);
-    assert!(res.content.contains("CI=true;GIT=0;PAGER=cat;NO_COLOR=1;TERM=dumb"));
+    assert!(
+        res.content
+            .contains("CI=true;GIT=0;PAGER=cat;GIT_PAGER=cat;CLICOLOR=1;COLORTERM=truecolor;TERM=xterm-256color")
+    );
 }
 
 #[tokio::test]

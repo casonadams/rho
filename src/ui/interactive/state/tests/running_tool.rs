@@ -102,10 +102,9 @@ fn running_tool_massive_line_without_newlines_bounded_safely() {
 }
 
 #[test]
-fn running_tool_sanitizes_ansi_escapes_across_chunk_boundaries() {
+fn running_tool_preserves_ansi_escapes_across_chunk_boundaries() {
     let mut tool = super::super::RunningTool::new("bash", "test", None);
     tool.append_chunk("compiling \x1b[4");
     tool.append_chunk("0mwith fill\x1b[0m done\n");
-    assert_eq!(tool.output, "compiling with fill done\n");
-    assert!(!tool.output.contains("[40m"));
+    assert_eq!(tool.output, "compiling \x1b[40mwith fill\x1b[0m done\n");
 }

@@ -144,6 +144,13 @@ pub(super) enum IdleInputResult {
     None,
 }
 
+enum PlainActionResult {
+    Message(QueuedMessage),
+    Exit,
+    Handled,
+    Unhandled,
+}
+
 async fn handle_plain_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     (action, batch, resources, input): (
@@ -152,28 +159,28 @@ async fn handle_plain_action<B: TerminalBackend>(
         &mut EditorResources<'_>,
         &mut crate::repl::input_reader::TerminalInputReader,
     ),
-) -> Result<IdleInputResult> {
+) -> Result<PlainActionResult> {
     match action {
         InputAction::Edit(edit) => {
             let res = handle_edit_action(controller, (batch, edit.clone(), resources.completions))?;
-            Ok(res.map_or(IdleInputResult::None, IdleInputResult::Message))
+            Ok(res.map_or(PlainActionResult::Handled, PlainActionResult::Message))
         }
         InputAction::HistoryPrevious | InputAction::HistoryNext => {
             handle_history_nav(
                 controller,
                 (matches!(action, InputAction::HistoryNext), batch, resources.history),
             )?;
-            Ok(IdleInputResult::None)
+            Ok(PlainActionResult::Handled)
         }
         InputAction::Complete | InputAction::ExternalEditor | InputAction::DequeueQueued => {
             handle_misc_action(controller, (action, batch, resources, input)).await?;
-            Ok(IdleInputResult::None)
+            Ok(PlainActionResult::Handled)
         }
         InputAction::EndOfInput if controller.state().editor().is_empty() => {
             batch.flush(controller, false)?;
-            Ok(IdleInputResult::Exit)
+            Ok(PlainActionResult::Exit)
         }
-        _ => Ok(IdleInputResult::None),
+        _ => Ok(PlainActionResult::Unhandled),
     }
 }
 
@@ -188,12 +195,13 @@ async fn handle_plain_or_shortcut<B: TerminalBackend>(
     ),
 ) -> Result<IdleInputResult> {
     match handle_plain_action(controller, (action, batch, resources, input)).await? {
-        IdleInputResult::None => {}
-        other => return Ok(other),
+        PlainActionResult::Message(msg) => return Ok(IdleInputResult::Message(msg)),
+        PlainActionResult::Exit => return Ok(IdleInputResult::Exit),
+        PlainActionResult::Handled => return Ok(IdleInputResult::None),
+        PlainActionResult::Unhandled => {}
     }
     let (session, engine, last_escape_time) = rest;
     if !matches!(action, InputAction::EndOfInput | InputAction::Ignore) {
-        let is_display_toggle = matches!(action, InputAction::ToggleExpandTools | InputAction::ThinkingToggle);
         handle_shortcut_action(
             action.clone(),
             IdleShortcutContext {
@@ -205,9 +213,6 @@ async fn handle_plain_or_shortcut<B: TerminalBackend>(
             batch,
         )
         .await?;
-        if !is_display_toggle {
-            batch.flush(controller, true)?;
-        }
     }
     Ok(IdleInputResult::None)
 }
@@ -301,13 +306,7 @@ pub(super) async fn process_raw_input<B: TerminalBackend>(
             }
             Ok(IdleInputResult::None)
         }
-        RawInput::Key(key) => {
-            if controller.refresh_size()? {
-                rest.0.renderer.set_width(controller.width());
-                batch.flush(controller, true)?;
-            }
-            process_key_event(controller, (key, batch, resources, input, rest)).await
-        }
+        RawInput::Key(key) => process_key_event(controller, (key, batch, resources, input, rest)).await,
         RawInput::Skip => Ok(IdleInputResult::None),
     }
 }

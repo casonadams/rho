@@ -34,14 +34,20 @@ struct LiveMetrics {
 
 fn metric_changes_differ(footer: &mut crate::ui::interactive::FooterState, m: &LiveMetrics) -> bool {
     let mut changed = false;
-    if footer.tokens_per_second.map(f64::to_bits) != m.tokens_per_second.map(f64::to_bits) {
-        footer.tokens_per_second = m.tokens_per_second;
+    let rounded_tps = m.tokens_per_second.map(|s| (s.round() as u64).max(1));
+    let prev_tps = footer.tokens_per_second.map(|s| (s.round() as u64).max(1));
+    if prev_tps != rounded_tps {
         changed = true;
     }
-    if footer.context_percent.map(f64::to_bits) != m.context_percent.map(f64::to_bits) {
-        footer.context_percent = m.context_percent;
+    footer.tokens_per_second = m.tokens_per_second;
+
+    let rounded_pct = m.context_percent.map(|p| (p * 10.0).round() as u64);
+    let prev_pct = footer.context_percent.map(|p| (p * 10.0).round() as u64);
+    if prev_pct != rounded_pct {
         changed = true;
     }
+    footer.context_percent = m.context_percent;
+
     if footer.context_window != m.context_window {
         footer.context_window = m.context_window;
         changed = true;

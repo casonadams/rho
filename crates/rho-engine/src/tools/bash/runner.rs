@@ -90,8 +90,12 @@ fn configure_child_command(base_dir: &Path, command_str: &str) -> Command {
     cmd.env("CI", "true");
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.env("PAGER", "cat");
-    cmd.env("NO_COLOR", "1");
-    cmd.env("TERM", "dumb");
+    cmd.env("GIT_PAGER", "cat");
+    cmd.env("CLICOLOR", "1");
+    cmd.env("CLICOLOR_FORCE", "1");
+    cmd.env("FORCE_COLOR", "1");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM", "xterm-256color");
     crate::process::isolate_group(&mut cmd);
     cmd
 }

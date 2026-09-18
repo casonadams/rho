@@ -39,14 +39,6 @@ enum IdleTick {
     Ui(Option<crate::ui::interactive::UiEvent>),
 }
 
-async fn next_frame_or_ui(frame: &mut tokio::time::Interval, ui: &mut UiEventReceiver) -> IdleTick {
-    tokio::select! {
-        biased;
-        _ = frame.tick() => IdleTick::Frame,
-        event = ui.recv() => IdleTick::Ui(event),
-    }
-}
-
 enum IdleSource {
     Tick(IdleTick),
     Input(Option<std::io::Result<Event>>),
@@ -59,8 +51,9 @@ async fn next_idle_step(
 ) -> IdleSource {
     tokio::select! {
         biased;
-        tick = next_frame_or_ui(frame, ui) => IdleSource::Tick(tick),
         event = input.recv() => IdleSource::Input(event),
+        _ = frame.tick() => IdleSource::Tick(IdleTick::Frame),
+        event = ui.recv() => IdleSource::Tick(IdleTick::Ui(event)),
     }
 }
 

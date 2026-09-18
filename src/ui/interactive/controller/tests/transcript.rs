@@ -65,10 +65,12 @@ mod expansion {
         assert_eq!(controller.cache().len(), 1);
 
         controller.toggle_tools_expanded().unwrap();
+        controller.full_redraw().unwrap();
         let expanded = cache_entry_0(&controller);
         assert!(expanded.standard.is_some() && expanded.alternate.is_some());
 
         controller.toggle_tools_expanded().unwrap();
+        controller.full_redraw().unwrap();
         let collapsed = cache_entry_0(&controller);
         assert_eq!(expanded, collapsed);
 

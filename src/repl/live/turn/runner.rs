@@ -5,7 +5,7 @@ use super::input::reconcile_consumed_steering;
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::coordinator::SharedSteeringQueue;
-use crate::repl::live::batch::{LiveBatch, SPINNER_FRAME_INTERVALS};
+use crate::repl::live::batch::{LiveBatch, SPINNER_FRAME_INTERVAL};
 use crate::ui::interactive::{Activity, TerminalBackend, TerminalController, UiEvent};
 
 pub(super) fn reset_controller_idle<B: TerminalBackend>(controller: &mut TerminalController<B>) {
@@ -21,7 +21,7 @@ pub(super) struct TurnLoop<'a, B: TerminalBackend> {
     pub steering: Arc<SharedSteeringQueue>,
     pub model_switch: Arc<rho_engine::engine::runner::SharedModelSwitch>,
     pub batch: LiveBatch,
-    pub spinner_tick: usize,
+    pub last_spinner: std::time::Instant,
 }
 
 impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
@@ -42,13 +42,12 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
             steering,
             model_switch,
             batch: LiveBatch::turn(),
-            spinner_tick: 0,
+            last_spinner: std::time::Instant::now(),
         }
     }
 
     pub fn on_tick(&mut self) -> Result<()> {
         let steering = reconcile_consumed_steering(self.controller, &self.steering);
-        self.spinner_tick += 1;
         let spinner = self.tick_spinner();
         let expired = self.controller.check_system_message_expiration();
         let resized = self.controller.refresh_size()?;
@@ -62,23 +61,24 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
     }
 
     fn tick_spinner(&mut self) -> bool {
-        if self.spinner_tick < SPINNER_FRAME_INTERVALS {
+        if self.last_spinner.elapsed() < SPINNER_FRAME_INTERVAL {
             return false;
         }
-        self.spinner_tick = 0;
+        self.last_spinner = std::time::Instant::now();
         self.controller.advance_spinner();
         !matches!(self.controller.state().footer().activity, Activity::Idle)
     }
 
     pub fn drain_ui_batch(&mut self, ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Result<()> {
         let steering = reconcile_consumed_steering(self.controller, &self.steering);
+        let spinner = self.tick_spinner();
         let mut dirty = false;
         while let Ok(next) = ui_events.try_recv() {
             dirty |= self.batch.push_event(self.controller, next)?;
         }
         let footer = sync_turn_footer(self.controller, self.engine);
-        if dirty || footer || steering {
-            self.batch.flush(self.controller, footer || steering)?;
+        if dirty || footer || steering || spinner {
+            self.batch.flush(self.controller, footer || steering || spinner)?;
         }
         if matches!(self.controller.state().footer().activity, Activity::Idle) {
             self.controller.state_mut().footer_mut().activity = Activity::Working;

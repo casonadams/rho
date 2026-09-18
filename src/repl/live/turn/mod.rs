@@ -85,24 +85,16 @@ async fn handle_input_res<B: TerminalBackend>(
     dispatch_turn_input(&mut ctx.loop_ctx, &mut ctx.resources, event).await
 }
 
-async fn wait_io(
-    input: &mut TerminalInputReader,
-    ui: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
-) -> TurnEvent {
-    tokio::select! {
-        res = input.recv() => TurnEvent::Input(res),
-        ev = ui.recv() => TurnEvent::Ui(ev),
-    }
-}
-
 async fn next_turn_event(
     frame: &mut tokio::time::Interval,
     input: &mut TerminalInputReader,
     ui: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
 ) -> TurnEvent {
     tokio::select! {
+        biased;
+        res = input.recv() => TurnEvent::Input(res),
         _ = frame.tick() => TurnEvent::Tick,
-        ev = wait_io(input, ui) => ev,
+        ev = ui.recv() => TurnEvent::Ui(ev),
     }
 }
 

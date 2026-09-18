@@ -25,23 +25,38 @@ fn is_filtered_char(c: char) -> bool {
     (0xFFF9..=0xFFFB).contains(&u)
 }
 
-fn sanitize_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
+fn needs_sanitization(text: &str) -> bool {
+    if text.contains('\r') {
+        return true;
+    }
+    if !text.contains('\x1b') {
+        return text.chars().any(is_filtered_char);
+    }
+    let mut last_idx = 0;
+    for m in ANSI_ESCAPE_REGEX.find_iter(text) {
+        if text[last_idx..m.start()].chars().any(is_filtered_char) {
+            return true;
+        }
+        last_idx = m.end();
+    }
+    text[last_idx..].chars().any(is_filtered_char)
+}
+
+fn sanitize_text_into(text: &str, out: &mut String, at_line_start: &mut bool) {
     let mut chars = text.chars().peekable();
-    let mut at_line_start = true;
 
     while let Some(c) = chars.next() {
         if c == '\r' {
             if chars.peek() == Some(&'\n') {
                 continue;
             }
-            if !at_line_start {
+            if !*at_line_start {
                 out.push('\n');
-                at_line_start = true;
+                *at_line_start = true;
             }
         } else if c == '\n' {
             out.push('\n');
-            at_line_start = true;
+            *at_line_start = true;
             while chars.peek() == Some(&'\r') {
                 chars.next();
                 if chars.peek() == Some(&'\n') {
@@ -50,21 +65,30 @@ fn sanitize_text(text: &str) -> String {
             }
         } else if !is_filtered_char(c) {
             out.push(c);
-            at_line_start = false;
+            *at_line_start = false;
         }
     }
-
-    out
 }
 
-/// Sanitizes binary output to remove ANSI color escapes, control characters,
-/// and Unicode format characters that corrupt model context and terminal rendering.
 pub fn sanitize_binary_output(text: &str) -> Cow<'_, str> {
-    let stripped = strip_ansi(text);
-    if !stripped.contains('\r') && !stripped.chars().any(is_filtered_char) {
-        return stripped;
+    if !needs_sanitization(text) {
+        return Cow::Borrowed(text);
     }
-    Cow::Owned(sanitize_text(&stripped))
+    let mut out = String::with_capacity(text.len());
+    let mut last_idx = 0;
+    let mut at_line_start = true;
+
+    for m in ANSI_ESCAPE_REGEX.find_iter(text) {
+        if m.start() > last_idx {
+            sanitize_text_into(&text[last_idx..m.start()], &mut out, &mut at_line_start);
+        }
+        out.push_str(m.as_str());
+        last_idx = m.end();
+    }
+    if last_idx < text.len() {
+        sanitize_text_into(&text[last_idx..], &mut out, &mut at_line_start);
+    }
+    Cow::Owned(out)
 }
 
 pub fn split_at_incomplete_ansi(text: &str) -> (&str, &str) {
@@ -124,13 +148,23 @@ mod tests {
     }
 
     #[test]
-    fn test_sanitize_strips_ansi_color_escapes() {
+    fn test_sanitize_preserves_ansi_color_escapes() {
         let input =
             "\x1b[32mFinished\x1b[0m \x1b[1mdev\x1b[0m profile [\x1b[33munoptimized\x1b[0m + \x1b[36mdebuginfo\x1b[0m]";
-        assert_eq!(
-            sanitize_binary_output(input),
-            "Finished dev profile [unoptimized + debuginfo]"
-        );
+        assert_eq!(sanitize_binary_output(input), input);
+    }
+
+    #[test]
+    fn test_sanitize_preserves_ansi_escapes_with_control_chars() {
+        let input = "\x1b[32mhello\x00\x07world\x1b[0m";
+        assert_eq!(sanitize_binary_output(input), "\x1b[32mhelloworld\x1b[0m");
+    }
+
+    #[test]
+    fn test_strip_ansi_removes_color_escapes() {
+        let input =
+            "\x1b[32mFinished\x1b[0m \x1b[1mdev\x1b[0m profile [\x1b[33munoptimized\x1b[0m + \x1b[36mdebuginfo\x1b[0m]";
+        assert_eq!(strip_ansi(input), "Finished dev profile [unoptimized + debuginfo]");
     }
 
     #[test]

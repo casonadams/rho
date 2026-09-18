@@ -211,9 +211,39 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
-    fn repaint_history(&mut self, redraw_buffer: &mut String) -> io::Result<()> {
+    fn repaint_history(&mut self, redraw_buffer: &mut String, available_height: usize) -> io::Result<()> {
         let items = std::mem::take(&mut self.transcript);
-        for (idx, item) in items.iter().enumerate() {
+        let count = items.len();
+        if count == 0 || available_height == 0 {
+            self.transcript = items;
+            return Ok(());
+        }
+
+        let mut start_idx = 0;
+        let mut accumulated_lines = 0;
+
+        for idx in (0..count).rev() {
+            let item = &items[idx];
+            let rendered = self.render_cached(idx, item);
+            if rendered.is_empty() {
+                continue;
+            }
+            let formatted = terminal_newlines(&rendered);
+            let item_lines = formatted.split('\n').count();
+            if accumulated_lines + item_lines <= available_height {
+                accumulated_lines += item_lines;
+                start_idx = idx;
+            } else {
+                if accumulated_lines == 0 {
+                    start_idx = idx;
+                }
+                break;
+            }
+        }
+
+        self.transcript = items;
+        let items = std::mem::take(&mut self.transcript);
+        for (idx, item) in items.iter().enumerate().skip(start_idx) {
             self.repaint_item(idx, item, redraw_buffer)?;
         }
         self.transcript = items;
@@ -244,16 +274,19 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn run_full_redraw(&mut self) -> io::Result<()> {
+        let rendered = self.current_layout();
+        let live_height = rendered.height();
+        let available_height = self.height.saturating_sub(live_height);
+
         self.backend.write_text("\x1b[2J\x1b[H\x1b[0m")?;
         self.output.clear();
         let mut redraw_buffer = String::new();
-        self.repaint_history(&mut redraw_buffer)?;
+        self.repaint_history(&mut redraw_buffer, available_height)?;
         self.repaint_streamed_output(&mut redraw_buffer);
         if !redraw_buffer.is_empty() {
             self.backend.write_text(&redraw_buffer)?;
         }
 
-        let rendered = self.current_layout();
         paint::write_live_region(&mut self.backend, &rendered)?;
         paint::apply_cursor_visibility(&mut self.backend, &rendered)?;
         self.rendered = Some(rendered);
