@@ -81,6 +81,13 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_semantic_search_async(config_dir: &Path, enabled: bool) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        file_config.semantic_search = Some(enabled);
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub fn add_mcp_server(target: &Path, name: &str, server: McpServerConfig) -> Result<()> {
         let path = if target.is_dir() {
             super::mcp::global_mcp_path(target)
@@ -137,6 +144,9 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         }
         ConfigKey::ShowLabel => {
             file_config.show_label = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::SemanticSearch => {
+            file_config.semantic_search = Some(parse_bool(key.as_str(), value)?);
         }
         _ => return Ok(false),
     }

@@ -42,6 +42,7 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     let footer = state.footer_mut();
     footer.activity = Activity::Idle;
     footer.running_tool = None;
+    footer.provider = session.config.provider.clone();
     footer.model = session.config.model.clone();
     footer.thinking_level = session.config.thinking_level.clone();
 

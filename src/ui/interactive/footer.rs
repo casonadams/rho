@@ -231,21 +231,14 @@ fn collect_token_parts(footer: &FooterState, parts: &mut Vec<String>) {
 
 fn format_context_percent(footer: &FooterState) -> String {
     match footer.context_percent {
-        Some(percent) => format_percent_value(percent, footer.total_input_tokens),
+        Some(percent) => format_percent_value(percent),
         None if footer.context_window > 0 => "0%".to_string(),
         None => footer.context.clone().unwrap_or_else(|| "?".to_string()),
     }
 }
 
-fn format_percent_value(percent: f64, total_input: u64) -> String {
-    if percent < 0.05 && total_input > 0 {
-        return "0.1%".to_string();
-    }
-    if (percent.fract() * 10.0).round() == 0.0 {
-        format!("{percent:.0}%")
-    } else {
-        format!("{percent:.1}%")
-    }
+fn format_percent_value(percent: f64) -> String {
+    format!("{}%", percent.floor() as u64)
 }
 
 fn push_context_part(footer: &FooterState, parts: &mut Vec<String>) {
@@ -272,14 +265,21 @@ fn push_speed_part(footer: &FooterState, parts: &mut Vec<String>) {
 }
 
 fn format_model_details(footer: &FooterState) -> String {
+    let provider = (!footer.provider.is_empty()).then_some(footer.provider.as_str());
     let model_id = if footer.model.is_empty() {
         "no-model"
     } else {
         &footer.model
     };
-    match &footer.thinking_level {
-        Some(thinking) if !thinking.is_empty() && thinking != "off" => format!("{model_id} • {thinking}"),
-        _ => model_id.to_string(),
+    let thinking = footer
+        .thinking_level
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("off");
+
+    match provider {
+        Some(p) => format!("{p}/{model_id}/{thinking}"),
+        None => format!("{model_id}/{thinking}"),
     }
 }
 
@@ -381,6 +381,7 @@ mod tests {
     fn sample_stats_footer() -> FooterState {
         FooterState {
             activity: Activity::Idle,
+            provider: "gemini".into(),
             model: "gemini-3.8-flash".into(),
             thinking_level: Some("medium".into()),
             total_input_tokens: 1_200,
@@ -398,10 +399,10 @@ mod tests {
     #[test]
     fn stats_line_formats_usage_and_model() {
         let line = format_stats_line(&sample_stats_footer(), 80);
-        for token in ["↑1.2k", "↓450", "R10k", "W2.0k", "$0.012", "1.2%/200k", "@258t/s"] {
+        for token in ["↑1.2k", "↓450", "R10k", "W2.0k", "$0.012", "1%/200k", "@258t/s"] {
             assert!(line.contains(token));
         }
-        assert!(line.ends_with("gemini-3.8-flash • medium"));
+        assert!(line.ends_with("gemini/gemini-3.8-flash/medium"));
     }
 
     #[test]
@@ -475,5 +476,33 @@ mod tests {
             ..FooterState::default()
         };
         assert!(format_top_line(&footer, 80, Some("   ")).ends_with("5h: 80%"));
+    }
+
+    #[test]
+    fn format_model_details_formats_provider_model_and_thinking() {
+        let mut footer = FooterState {
+            provider: "gemini".into(),
+            model: "gemini-2.5-flash".into(),
+            thinking_level: None,
+            ..FooterState::default()
+        };
+        assert_eq!(format_model_details(&footer), "gemini/gemini-2.5-flash/off");
+
+        footer.thinking_level = Some("high".into());
+        assert_eq!(format_model_details(&footer), "gemini/gemini-2.5-flash/high");
+
+        footer.provider.clear();
+        assert_eq!(format_model_details(&footer), "gemini-2.5-flash/high");
+
+        footer.model.clear();
+        assert_eq!(format_model_details(&footer), "no-model/high");
+    }
+
+    #[test]
+    fn format_percent_value_formats_whole_number() {
+        assert_eq!(format_percent_value(30.9), "30%");
+        assert_eq!(format_percent_value(0.0), "0%");
+        assert_eq!(format_percent_value(1.2), "1%");
+        assert_eq!(format_percent_value(100.0), "100%");
     }
 }

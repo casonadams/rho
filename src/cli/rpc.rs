@@ -398,6 +398,9 @@ async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
             let payload = serde_json::json!({
                 "session_id": sid,
+                "model": new_eng.config.model,
+                "provider": new_eng.config.provider,
+                "thinking_level": new_eng.config.thinking_level,
                 "messages": messages,
                 "active_workspace": new_eng.base_dir.display().to_string(),
                 "active_branch": active_branch,

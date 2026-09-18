@@ -31,6 +31,8 @@ pub struct Config {
     pub thinking_level: Option<String>,
     pub context_injection_max_tokens: usize,
     #[serde(default)]
+    pub semantic_search: bool,
+    #[serde(default)]
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub append_system_prompt: Option<String>,
@@ -76,6 +78,7 @@ macro_rules! default_config_literal {
             follow_up_mode: crate::queue::QueueMode::OneAtATime,
             thinking_level: None,
             context_injection_max_tokens: 4000,
+            semantic_search: false,
             system_prompt: None,
             append_system_prompt: None,
             no_context_files: false,

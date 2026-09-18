@@ -47,6 +47,7 @@ pub async fn handle_command(
     match cmd {
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config, auth_store).await?,
         Commands::Update => handle_update_command(config).await?,
+        Commands::Index { path, force } => handle_index_command(path, force).await?,
         Commands::Serve { workspace, port, name } => {
             super::serve::handle_serve(workspace, port, name, config, auth_store).await?
         }
@@ -78,6 +79,10 @@ async fn handle_config(
             println!("Max turns: {}", config.max_turns);
             println!("Context window messages: {}", config.context_window_messages);
             println!("Compaction max bytes: {}", config.compaction_max_bytes);
+            println!(
+                "Semantic search: {}",
+                if config.semantic_search { "enabled" } else { "disabled" }
+            );
         }
     }
     Ok(())
@@ -108,6 +113,27 @@ fn print_provider_models(provider: ProviderId, config_model: &str) {
         ProviderId::DeepSeek => println!("  - deepseek-chat\n  - deepseek-reasoner"),
         _ => println!("  - {config_model}"),
     }
+}
+
+async fn handle_index_command(path: Option<String>, force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let workspace = match path {
+        Some(p) => std::path::PathBuf::from(p),
+        None => std::env::current_dir()?,
+    };
+    println!("Indexing workspace: {}", workspace.display());
+    let embedder = rho_engine::rag::LocalEmbedder::new();
+    let summary = rho_engine::rag::index_workspace(&workspace, force, &embedder)
+        .await
+        .map_err(|e| format!("Indexing failed: {e}"))?;
+    println!(
+        "Index complete: {} files scanned, {} total chunks ({} new, {} reused)",
+        summary.files_indexed, summary.total_chunks, summary.new_chunks, summary.reused_chunks
+    );
+    println!(
+        "Index saved to: {}",
+        rho_engine::rag::CodebaseIndex::index_path(&workspace).display()
+    );
+    Ok(())
 }
 
 fn handle_models(config: &Config) {

@@ -73,6 +73,9 @@ pub enum ModalKeyResult {
     CursorToggled {
         cursor: String,
     },
+    SemanticSearchToggled {
+        enabled: bool,
+    },
 }
 
 pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {

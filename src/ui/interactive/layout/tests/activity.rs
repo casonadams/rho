@@ -39,7 +39,7 @@ fn busy_activity_renders_working_line_above_the_editor() {
             && layout.working_line.contains("working")
             && layout.working_line.contains("\u{1b}[2m")
     );
-    assert!(layout.footer_lines[1].ends_with("model"));
+    assert!(layout.footer_lines[1].ends_with("model/off"));
     assert!(layout.top_divider.contains("working"));
     assert!(layout.top_divider.contains('\u{280b}'));
     assert_eq!(layout.height(), 6);

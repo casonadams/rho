@@ -390,6 +390,7 @@ async fn session_command_prints_diagnostics() {
     let output = collected_output(&mut events);
     assert!(output.contains("Session Diagnostics"));
     assert!(output.contains("Session ID:                  session-diag-123"));
+    assert!(output.contains("Semantic Search (RAG):       Disabled"));
 }
 
 async fn setup_engine_session(temp: &std::path::Path, config: Config) -> (crate::engine::AgentEngine, String) {

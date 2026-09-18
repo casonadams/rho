@@ -4,5 +4,7 @@
 .specs
 improvements.md
 .rho/sessions/
+.fastembed_cache/
+**/.fastembed_cache/
 .playwright-mcp/
 .pi/

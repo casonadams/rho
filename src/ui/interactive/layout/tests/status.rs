@@ -28,7 +28,7 @@ fn footer_contains_available_status_and_queue_count() {
     });
 
     assert!(layout.footer_lines[0].ends_with("80% quota"));
-    assert!(layout.footer_lines[1].ends_with("model"));
+    assert!(layout.footer_lines[1].ends_with("model/off"));
 }
 
 fn test_status_layout(

@@ -415,6 +415,7 @@ function updateFooterState(data) {
   if (data.active_branch !== undefined) currentFooterState.active_branch = data.active_branch;
   if (data.session_id !== undefined) currentFooterState.session_id = data.session_id;
   if (data.session_name !== undefined) currentFooterState.session_name = data.session_name;
+  if (data.provider !== undefined && data.provider !== null) currentFooterState.provider = data.provider;
   if (data.model !== undefined && data.model !== null) currentFooterState.model = data.model;
   if (data.thinking_level !== undefined && data.thinking_level !== null) currentFooterState.thinking_level = data.thinking_level;
   if (data.quota !== undefined) currentFooterState.quota = data.quota;
@@ -478,7 +479,7 @@ function renderFooter() {
   }
 
   if (currentFooterState.context_percent != null) {
-    const pct = Number(currentFooterState.context_percent).toFixed(1);
+    const pct = Math.floor(Number(currentFooterState.context_percent));
     if (currentFooterState.context_window > 0) {
       parts.push(`${pct}%/${formatTokens(currentFooterState.context_window)}`);
     } else {
@@ -493,10 +494,13 @@ function renderFooter() {
   }
   statsEl.textContent = parts.join(' ');
 
-  // Stats line: right = model • thinking
-  let modelStr = currentFooterState.model || '';
-  if (currentFooterState.thinking_level && currentFooterState.thinking_level !== 'off') {
-    modelStr = modelStr ? `${modelStr} • ${currentFooterState.thinking_level}` : currentFooterState.thinking_level;
+  // Stats line: right = <provider>/<model>/<thinking>
+  let modelStr = currentFooterState.model || 'no-model';
+  let thinkingStr = (currentFooterState.thinking_level && currentFooterState.thinking_level !== '') ? currentFooterState.thinking_level : 'off';
+  if (currentFooterState.provider) {
+    modelStr = `${currentFooterState.provider}/${modelStr}/${thinkingStr}`;
+  } else {
+    modelStr = `${modelStr}/${thinkingStr}`;
   }
   modelEl.textContent = modelStr;
 }

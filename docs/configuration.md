@@ -130,10 +130,11 @@ Top-level preferences:
 - `allow_private_network = true`: Permit connections to loopback and private
   network addresses.
 - `show_label = true`: Display the agent branding banner in the divider.
+- `semantic_search = true`: Enable local ONNX embeddings and passive RAG code retrieval across turns (default: `false`). Can also be set as `[features] semantic_search = true`.
 
 All adjustments made in the interactive `/settings` modal (Block Style, Box
-Responses, Cursor Style, Model, Thinking Effort, Thinking Output, Tool Output,
-and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
+Responses, Cursor Style, Model, Semantic Search, Thinking Effort, Thinking Output,
+Tool Output, and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
 
 Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
 

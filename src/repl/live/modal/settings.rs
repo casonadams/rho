@@ -27,6 +27,7 @@ fn prev_thinking_level(current: &str) -> &'static str {
 pub fn open_settings_selector<B: TerminalBackend>(
     model: Option<&str>,
     thinking_level: Option<&str>,
+    semantic_search: bool,
     controller: &mut TerminalController<B>,
 ) {
     let hide_thinking = controller.state().hide_thinking();
@@ -48,6 +49,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
     let agent_status = if boxed { "On" } else { "Off" };
     let label_status = if show_label { "Shown" } else { "Hidden" };
+    let semantic_status = if semantic_search { "On" } else { "Off" };
 
     let options = vec![
         ModalOption::new("Block Style       ", Some(block_style.to_string())),
@@ -58,6 +60,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
         ModalOption::new("Tool Output       ", Some(tools_status.to_string())),
         ModalOption::new("Version Banner    ", Some(label_status.to_string())),
         ModalOption::new("Cursor Style      ", Some(cursor_mode.to_string())),
+        ModalOption::new("Semantic Search   ", Some(semantic_status.to_string())),
     ];
 
     let modal = ModalState::new("Settings", "", options);
@@ -162,6 +165,17 @@ fn toggle_selected_setting<B: TerminalBackend>(
             ModalKeyResult::CursorToggled {
                 cursor: label.to_lowercase(),
             }
+        }
+        8 => {
+            let current = controller
+                .state()
+                .active_modal()
+                .and_then(|m| m.options.get(8))
+                .and_then(|o| o.description.as_deref())
+                .unwrap_or("Off");
+            let next = current != "On";
+            update_setting_description(controller, (if next { "On" } else { "Off" }, 8));
+            ModalKeyResult::SemanticSearchToggled { enabled: next }
         }
         _ => ModalKeyResult::Handled,
     }

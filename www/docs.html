@@ -248,6 +248,9 @@ max_turns = 1000
 context_window_messages = 24
 compaction_max_bytes = 8192
 
+# Local embeddings & passive RAG code retrieval (off by default)
+semantic_search = false          # or [features] semantic_search = false
+
 # Custom OpenAI-compatible endpoints
 [providers.my-local-endpoint]
 base_url = "http://127.0.0.1:8000/v1"
@@ -375,7 +378,7 @@ bash_error_border = "red"        # Failed bash commands</code></pre>
         <tbody>
           <tr>
             <td><code>/settings</code></td>
-            <td>Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles)</td>
+            <td>Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles, semantic search)</td>
           </tr>
         </tbody>
       </table>

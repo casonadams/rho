@@ -37,6 +37,7 @@ impl Activity {
 pub struct FooterState {
     pub activity: Activity,
     pub running_tool: Option<String>,
+    pub provider: String,
     pub model: String,
     pub thinking_level: Option<String>,
     pub cwd: Option<String>,
@@ -63,6 +64,7 @@ impl PartialEq for FooterState {
     fn eq(&self, other: &Self) -> bool {
         self.activity == other.activity
             && self.running_tool == other.running_tool
+            && self.provider == other.provider
             && self.model == other.model
             && self.thinking_level == other.thinking_level
             && self.cwd == other.cwd

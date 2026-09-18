@@ -41,8 +41,8 @@ fn metric_changes_differ(footer: &mut crate::ui::interactive::FooterState, m: &L
     }
     footer.tokens_per_second = m.tokens_per_second;
 
-    let rounded_pct = m.context_percent.map(|p| (p * 10.0).round() as u64);
-    let prev_pct = footer.context_percent.map(|p| (p * 10.0).round() as u64);
+    let rounded_pct = m.context_percent.map(|p| p.floor() as u64);
+    let prev_pct = footer.context_percent.map(|p| p.floor() as u64);
     if prev_pct != rounded_pct {
         changed = true;
     }
@@ -76,6 +76,18 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
     };
     let mut changed = token_changes_differ(footer, &totals);
     changed |= metric_changes_differ(footer, &metrics);
+    if footer.provider != engine.config.provider {
+        footer.provider = engine.config.provider.clone();
+        changed = true;
+    }
+    if footer.model != engine.config.model {
+        footer.model = engine.config.model.clone();
+        changed = true;
+    }
+    if footer.thinking_level != engine.config.thinking_level {
+        footer.thinking_level = engine.config.thinking_level.clone();
+        changed = true;
+    }
     let remote_active = crate::platform::remote::is_remote_active();
     let remote_peers = crate::platform::remote::remote_peer_count();
     if footer.remote_active != remote_active || footer.remote_peers != remote_peers {

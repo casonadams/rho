@@ -42,4 +42,14 @@ pub(crate) struct FileConfig {
     pub permission: Option<PermissionConfig>,
     #[serde(default)]
     pub ui: Option<super::UiConfig>,
+    #[serde(default)]
+    pub semantic_search: Option<bool>,
+    #[serde(default)]
+    pub features: Option<FeaturesConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FeaturesConfig {
+    #[serde(default)]
+    pub semantic_search: Option<bool>,
 }

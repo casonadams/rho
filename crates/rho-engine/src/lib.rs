@@ -25,12 +25,14 @@ pub mod auth;
 pub mod chatgpt;
 pub mod claude;
 pub mod engine;
+pub mod gemini;
 pub mod hook;
 pub mod mcp;
 pub mod ollama;
 pub mod permission;
 pub mod process;
 pub mod provider;
+pub mod rag;
 pub mod repeat;
 pub mod tools;
 

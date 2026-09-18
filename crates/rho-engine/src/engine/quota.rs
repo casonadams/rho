@@ -18,6 +18,7 @@ pub(crate) fn canonical_quota_provider(provider: &str) -> Option<&'static str> {
         ProviderId::Antigravity => Some("antigravity"),
         ProviderId::ChatGpt => Some("chatgpt"),
         ProviderId::ClaudeCode => Some("claude"),
+        ProviderId::Gemini => Some("gemini"),
         _ => None,
     }
 }
@@ -47,6 +48,16 @@ impl AgentEngine {
                     Arc::clone(&self.auth_store),
                     self.quota.clone(),
                     self.config.model.clone(),
+                )
+                .await;
+            }
+            "gemini" => {
+                do_refresh_gemini_quota(
+                    &self.config.sessions_dir,
+                    Some(&self.session_manager.session_id),
+                    self.session_usage_totals(),
+                    &self.config.model,
+                    self.quota.clone(),
                 )
                 .await;
             }
@@ -81,6 +92,15 @@ impl AgentEngine {
                 let model = self.config.model.clone();
                 tokio::spawn(async move {
                     do_refresh_claude_quota(auth, quota, model).await;
+                });
+            }
+            "gemini" => {
+                let sessions_dir = self.config.sessions_dir.clone();
+                let sid = self.session_manager.session_id.clone();
+                let totals = self.session_usage_totals();
+                let model = self.config.model.clone();
+                tokio::spawn(async move {
+                    do_refresh_gemini_quota(&sessions_dir, Some(&sid), totals, &model, quota).await;
                 });
             }
             _ => {}
@@ -223,5 +243,23 @@ async fn do_refresh_claude_quota(
     match display {
         Some(display) => quota.record_success(&key, display),
         None => quota.record_failure(&key),
+    }
+}
+
+async fn do_refresh_gemini_quota(
+    sessions_dir: &std::path::Path,
+    current_session_id: Option<&str>,
+    totals: crate::engine::SessionUsageTotals,
+    target_model: &str,
+    quota: QuotaTracker,
+) {
+    let key = QuotaKey::new("gemini", Some(target_model));
+    if !quota.should_fetch(&key) {
+        return;
+    }
+    if let Some(display) = crate::gemini::fetch_quota(sessions_dir, current_session_id, &totals, target_model).await {
+        quota.record_success(&key, display);
+    } else {
+        quota.record_failure(&key);
     }
 }

@@ -182,6 +182,7 @@ async fn handle_selector_command(
         CommandResult::OpenSettingsSelector => super::modal::open_settings_selector(
             Some(&ctx.session.config.model),
             ctx.session.config.thinking_level.as_deref(),
+            ctx.session.config.semantic_search,
             io_controller,
         ),
         CommandResult::OpenHelpSelector => super::modal::open_help_selector(io_controller),

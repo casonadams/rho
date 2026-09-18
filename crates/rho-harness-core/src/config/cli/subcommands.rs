@@ -28,6 +28,14 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<McpCommands>,
     },
+    /// Index the workspace codebase for local semantic search and passive RAG
+    Index {
+        /// Workspace directory path to index (defaults to current working directory)
+        path: Option<String>,
+        /// Force re-indexing all files
+        #[arg(long, short)]
+        force: bool,
+    },
     /// Serve as an autonomous remote agent node over Iroh P2P
     Serve {
         /// Workspace directory to serve (defaults to current working directory)

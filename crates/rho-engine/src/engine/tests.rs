@@ -280,6 +280,31 @@ async fn refresh_quota_ollama_cloud_without_key_stays_empty() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[tokio::test]
+async fn refresh_quota_gemini_populates_billing_window_cost() {
+    let (config, dir) = test_config("quota_gemini");
+    let config = Config {
+        provider: "gemini".to_string(),
+        model: "gemini-2.5-flash".to_string(),
+        ..config
+    };
+    let engine = crate::engine::eval::mock::mock_engine(
+        rig::test_utils::MockCompletionModel::default(),
+        crate::engine::eval::mock::MockEngineConfig {
+            base_dir: &dir,
+            app_config: config,
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+
+    assert_eq!(engine.quota_display(), None);
+    engine.refresh_quota().await;
+    assert_eq!(engine.quota_display(), Some("$0.000 • $0.000".to_string()));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn mock_quota_engine(dir: &std::path::Path, provider: &str, model: &str) -> crate::engine::AgentEngine {
     crate::engine::eval::mock::mock_engine(
         rig::test_utils::MockCompletionModel::default(),
@@ -350,6 +375,15 @@ async fn quota_display_isolated_across_providers_and_models() {
     assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
     engine.config.provider = "claude-oauth".to_string();
     assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
+
+    engine.config.provider = "gemini".to_string();
+    engine.config.model = "gemini-2.5-flash".to_string();
+    assert_eq!(engine.quota_display(), None);
+    let gemini_key = crate::engine::tracking::QuotaKey::new("gemini", Some("gemini-2.5-flash"));
+    engine.quota.record_success(&gemini_key, "$0.025 • $0.150".to_string());
+    assert_eq!(engine.quota_display(), Some("$0.025 • $0.150".to_string()));
+    engine.config.provider = "google".to_string();
+    assert_eq!(engine.quota_display(), Some("$0.025 • $0.150".to_string()));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
