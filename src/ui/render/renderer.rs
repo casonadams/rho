@@ -387,16 +387,7 @@ impl TerminalRenderer {
 
     pub fn finish_tool_line(&self, line: ToolLine) {
         if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(
-                crate::ui::interactive::ToolItem {
-                    name: line.name,
-                    arguments: line.arguments,
-                    is_error: line.is_error,
-                    output: line.output,
-                    output_summary: line.output_summary,
-                    duration_ms: line.duration_ms,
-                },
-            ));
+            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Tool(line));
             return;
         }
         let card = render_headless_tool_card(&line, &self.theme);

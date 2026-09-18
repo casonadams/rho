@@ -1,6 +1,6 @@
 use super::text::truncate_to_visual_lines;
 use crate::ui::interactive::state::RunningTool;
-use crate::ui::render::{format_bash_args_header, tool_title_style};
+use crate::ui::render::{format_bash_args_header, normalize_tool_name, tool_title_style};
 use crate::ui::theme::Theme;
 
 #[derive(Debug, Clone, Copy)]
@@ -9,14 +9,6 @@ pub struct RunningToolWidgetInput<'a> {
     pub theme: &'a Theme,
     pub width: usize,
     pub tools_expanded: bool,
-}
-
-fn normalize_tool_name(name: &str) -> &str {
-    match name {
-        "search" | "websearch" => "web_search",
-        "fetch" | "webfetch" => "web_fetch",
-        other => other,
-    }
 }
 
 fn format_elapsed(duration: std::time::Duration) -> String {

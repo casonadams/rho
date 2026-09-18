@@ -26,12 +26,11 @@ pub(super) struct TurnLoop<'a, B: TerminalBackend> {
 
 impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
     pub fn new(
-        (session, engine): (&'a mut crate::repl::ReplSession, &'a AgentEngine),
+        session: &'a mut crate::repl::ReplSession,
+        engine: &'a AgentEngine,
         controller: &'a mut TerminalController<B>,
-        (steering, model_switch): (
-            Arc<SharedSteeringQueue>,
-            Arc<rho_engine::engine::runner::SharedModelSwitch>,
-        ),
+        steering: Arc<SharedSteeringQueue>,
+        model_switch: Arc<rho_engine::engine::runner::SharedModelSwitch>,
     ) -> Self {
         controller.state_mut().footer_mut().activity = Activity::Working;
         sync_turn_footer(controller, engine);

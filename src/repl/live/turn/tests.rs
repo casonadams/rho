@@ -367,7 +367,7 @@ async fn test_turn_cancellation_during_thinking_preserves_partial_thinking_in_tr
     ));
     let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
     let mut loop_ctx =
-        super::runner::TurnLoop::new((&mut h.session, &h.engine), &mut h.controller, (steering, model_switch));
+        super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering, model_switch);
 
     loop_ctx.session.renderer.finish_thinking("partial ponderings");
 
@@ -411,7 +411,7 @@ async fn test_turn_finish_active_turn_handles_compacted_notice() {
     ));
     let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
     let mut loop_ctx =
-        super::runner::TurnLoop::new((&mut h.session, &h.engine), &mut h.controller, (steering, model_switch));
+        super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering, model_switch);
     super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
     assert_eq!(h.controller.state().footer().activity, Activity::Idle);
 }
@@ -427,9 +427,11 @@ async fn test_turn_paste_routes_to_active_modal() {
 
     let steering = std::sync::Arc::new(f.steering.clone());
     let mut lp = super::runner::TurnLoop::new(
-        (&mut f.session, &engine),
+        &mut f.session,
+        &engine,
         &mut f.controller,
-        (steering, f.model_switch.clone()),
+        steering,
+        f.model_switch.clone(),
     );
     let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
     let cancellation = crate::engine::runner::CancellationSignal::default();
@@ -465,9 +467,11 @@ async fn test_turn_focus_events_toggle_focused_state() {
 
     let steering = std::sync::Arc::new(f.steering.clone());
     let mut lp = super::runner::TurnLoop::new(
-        (&mut f.session, &engine),
+        &mut f.session,
+        &engine,
         &mut f.controller,
-        (steering, f.model_switch.clone()),
+        steering,
+        f.model_switch.clone(),
     );
     let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
     let cancellation = crate::engine::runner::CancellationSignal::default();
@@ -503,9 +507,11 @@ async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_
     let mut f = TurnTestFixture::new("text");
     let steering = std::sync::Arc::new(f.steering.clone());
     let mut lp = super::runner::TurnLoop::new(
-        (&mut f.session, &engine),
+        &mut f.session,
+        &engine,
         &mut f.controller,
-        (steering, f.model_switch.clone()),
+        steering,
+        f.model_switch.clone(),
     );
     assert_eq!(lp.controller.state().footer().activity, Activity::Working);
 

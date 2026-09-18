@@ -14,7 +14,6 @@ pub(crate) mod diff;
 pub(crate) mod formatters;
 pub(crate) mod notices;
 pub(crate) mod presenter;
-pub(crate) mod preview;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
 
@@ -22,11 +21,14 @@ pub mod rpc_presenter;
 mod tests;
 
 pub use broadcast_presenter::BroadcastPresenter;
-pub(crate) use formatters::{format_edit_diff, format_read_expanded, format_thinking_block, format_write_preview};
-pub(crate) use preview::{fetch_content_kind, format_bash_args_header, tool_title_style};
+pub use card::{
+    detect_language_from_args, detect_language_from_path, fetch_content_kind, format_bash_args_header,
+    format_read_header, format_tool_header, normalize_tool_name, render_headless_tool_card, render_tool_block,
+    render_tool_transcript, tool_title_style,
+};
+pub(crate) use formatters::format_thinking_block;
 pub use renderer::{CacheMissNotice, RenderActivity, TerminalRenderer};
 pub use rho_harness_core::presentation::summary::summarize_tool_output;
-pub(crate) use rho_harness_core::presentation::summary::{format_tool_args_summary, read_summary_parts};
 pub use rho_harness_core::presentation::{SessionStatus, ToolLine, ToolOutcome, WelcomeDisplay};
 pub use rpc_presenter::{PendingApprovals, RpcPresenter};
 

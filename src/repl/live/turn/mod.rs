@@ -41,7 +41,8 @@ enum TurnEvent {
 }
 
 fn build_turn_context<'a, B: TerminalBackend>(
-    (session, engine): (&'a mut crate::repl::ReplSession, &'a AgentEngine),
+    session: &'a mut crate::repl::ReplSession,
+    engine: &'a AgentEngine,
     turn: &'a mut ActiveTurn<'_, B>,
     cancellation: &'a Arc<CancellationSignal>,
 ) -> (TurnContext<'a, B>, TurnRequest<'a>) {
@@ -53,7 +54,7 @@ fn build_turn_context<'a, B: TerminalBackend>(
         .with_cancellation(cancellation)
         .with_steering(steering.clone())
         .with_model_switch(model_switch.clone());
-    let loop_ctx = TurnLoop::new((session, engine), turn.io.controller, (steering, model_switch));
+    let loop_ctx = TurnLoop::new(session, engine, turn.io.controller, steering, model_switch);
     let resources = TurnInputResources {
         history: turn.editor.history,
         completions: turn.editor.completions,
@@ -145,7 +146,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
 ) -> Result<()> {
     let renderer = std::sync::Arc::new(session.renderer.clone());
     let cancellation = Arc::new(CancellationSignal::default());
-    let (mut ctx, request) = build_turn_context((session, engine), &mut turn, &cancellation);
+    let (mut ctx, request) = build_turn_context(session, engine, &mut turn, &cancellation);
     ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
     let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(
         crate::ui::render::BroadcastPresenter::new(renderer, crate::platform::remote::PEER_REGISTRY.clone()),

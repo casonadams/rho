@@ -1,16 +1,15 @@
 pub mod ansi;
 pub mod backend;
 pub mod cache;
-pub mod output;
 pub mod paint;
 #[cfg(test)]
 mod tests;
 pub mod tools;
 pub mod transcript;
 
+pub use ansi::OutputTracker;
 use ansi::terminal_newlines;
 pub use backend::{CrosstermBackend, TerminalBackend};
-pub use output::OutputTracker;
 
 use std::io;
 use std::time::{Duration, Instant};

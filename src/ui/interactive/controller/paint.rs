@@ -43,7 +43,7 @@ pub fn erase_live_region<B: TerminalBackend>(backend: &mut B, rendered: Option<&
     Ok(())
 }
 
-fn paint_diff_lines<B: TerminalBackend>(backend: &mut B, (lines, prev_height): (&[String], usize)) -> io::Result<()> {
+fn paint_diff_lines<B: TerminalBackend>(backend: &mut B, lines: &[String], prev_height: usize) -> io::Result<()> {
     for (i, line) in lines.iter().enumerate() {
         if i > 0 {
             if i < prev_height {
@@ -59,10 +59,7 @@ fn paint_diff_lines<B: TerminalBackend>(backend: &mut B, (lines, prev_height): (
     Ok(())
 }
 
-fn clear_excess_lines<B: TerminalBackend>(
-    backend: &mut B,
-    (prev_height, new_height): (usize, usize),
-) -> io::Result<()> {
+fn clear_excess_lines<B: TerminalBackend>(backend: &mut B, prev_height: usize, new_height: usize) -> io::Result<()> {
     for _ in new_height..prev_height {
         backend.move_to_column(0)?;
         backend.move_down(1)?;
@@ -93,8 +90,8 @@ fn render_diff_with_prev<B: TerminalBackend>(
         backend.move_up(prev.cursor_row())?;
     }
     backend.move_to_column(0)?;
-    paint_diff_lines(backend, (&next.lines, prev.height()))?;
-    clear_excess_lines(backend, (prev.height(), next.lines.len()))?;
+    paint_diff_lines(backend, &next.lines, prev.height())?;
+    clear_excess_lines(backend, prev.height(), next.lines.len())?;
     move_cursor_to_target(backend, prev.height().max(next.lines.len()), next)
 }
 

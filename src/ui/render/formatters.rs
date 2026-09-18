@@ -55,7 +55,7 @@ pub(crate) fn format_read_expanded(raw: &str, args: &serde_json::Value, theme: &
     if clean.is_empty() {
         return None;
     }
-    let lang = super::preview::detect_language_from_args(args);
+    let lang = super::card::detect_language_from_args(args);
     let mut highlighter = crate::ui::markdown::CodeHighlighter::new(lang, theme);
     let lines: Vec<&str> = clean.lines().collect();
 
@@ -115,7 +115,7 @@ pub(crate) fn format_write_preview(args: &serde_json::Value, theme: &Theme, expa
     if content.trim().is_empty() {
         return None;
     }
-    let lang = super::preview::detect_language_from_args(args);
+    let lang = super::card::detect_language_from_args(args);
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len();
     let max = if expanded { total } else { 8.min(total) };
