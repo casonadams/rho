@@ -141,14 +141,37 @@ pub fn sanitize_tool_call_id(id: &str) -> String {
     cleaned.chars().take(64).collect()
 }
 
-/// Model enum labels the backend expects for rollout-era runtime ids (pi parity).
+/// Model enum labels the backend expects for runtime ids (pi-antigravity parity).
 pub fn model_enum_label(runtime: &str) -> Option<&'static str> {
     match runtime {
+        // Gemini 3.8 Flash
+        "gemini-3.8-flash" | "gemini-3.8-flash-high" => Some("MODEL_PLACEHOLDER_M318"),
+        "gemini-3.8-flash-medium" => Some("MODEL_PLACEHOLDER_M319"),
+        "gemini-3.8-flash-low" => Some("MODEL_PLACEHOLDER_M320"),
+        "gemini-3.8-flash-tiered" => Some("MODEL_PLACEHOLDER_M322"),
+        // Gemini 3.7 Flash
+        "gemini-3.7-flash" | "gemini-3.7-flash-high" => Some("MODEL_PLACEHOLDER_M298"),
+        "gemini-3.7-flash-medium" => Some("MODEL_PLACEHOLDER_M299"),
+        "gemini-3.7-flash-low" => Some("MODEL_PLACEHOLDER_M300"),
+        "gemini-3.7-flash-tiered" => Some("MODEL_PLACEHOLDER_M301"),
+        // Gemini 3.6 Flash
+        "gemini-3.6-flash" | "gemini-3.6-flash-high" => Some("MODEL_PLACEHOLDER_M71"),
+        "gemini-3.6-flash-medium" => Some("MODEL_PLACEHOLDER_M72"),
+        "gemini-3.6-flash-low" => Some("MODEL_PLACEHOLDER_M73"),
+        "gemini-3.6-flash-tiered" => Some("MODEL_PLACEHOLDER_M196"),
+        // Gemini 3.5 Flash
+        "gemini-3.5-flash" | "gemini-3.5-flash-low" => Some("MODEL_PLACEHOLDER_M20"),
         "gemini-3.5-flash-extra-low" => Some("MODEL_PLACEHOLDER_M187"),
-        "gemini-3.5-flash-low" => Some("MODEL_PLACEHOLDER_M20"),
-        "gemini-3-flash-agent" => Some("MODEL_PLACEHOLDER_M132"),
-        "gemini-3.1-pro-low" => Some("MODEL_PLACEHOLDER_M36"),
+        "gemini-3-flash-agent" => Some("MODEL_PLACEHOLDER_M84"),
+        // Gemini 3.1 Pro
+        "gemini-3.1-pro" | "gemini-3.1-pro-low" => Some("MODEL_PLACEHOLDER_M36"),
+        "gemini-3.1-pro-high" => Some("MODEL_PLACEHOLDER_M37"),
         "gemini-pro-agent" => Some("MODEL_PLACEHOLDER_M16"),
+        // Claude
+        "claude-sonnet-4-6" => Some("MODEL_PLACEHOLDER_M35"),
+        "claude-opus-4-6" | "claude-opus-4-6-thinking" => Some("MODEL_PLACEHOLDER_M26"),
+        // GPT-OSS
+        "gpt-oss-120b" | "gpt-oss-120b-medium" => Some("MODEL_OPENAI_GPT_OSS_120B_MEDIUM"),
         _ => None,
     }
 }
@@ -159,46 +182,41 @@ pub fn wants_claude_thinking_header(runtime_model: &str, effort: Effort) -> bool
     effort != Effort::Off && runtime_model.starts_with("claude-")
 }
 
-/// Gemini thinkingConfig for the effort (pi parity). `Null` = omit the field
-/// (Claude/GPT-OSS take the Claude beta header path instead).
-fn flash_thinking_config(effort: Effort) -> Value {
-    match effort {
-        Effort::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
-        Effort::Minimal | Effort::Low => {
-            json!({ "includeThoughts": true, "thinkingBudget": 1000 })
-        }
-        Effort::Medium => json!({ "includeThoughts": true, "thinkingBudget": 4000 }),
-        Effort::High => json!({ "includeThoughts": true, "thinkingBudget": 10000 }),
-    }
-}
-
-fn pro_thinking_config(effort: Effort) -> Value {
-    match effort {
-        Effort::Off => json!({ "includeThoughts": false, "thinkingBudget": 0 }),
-        Effort::High => json!({ "includeThoughts": true, "thinkingBudget": 10001 }),
-        _ => json!({ "includeThoughts": true, "thinkingBudget": 1001 }),
-    }
-}
-
-fn default_gemini_thinking_config(effort: Effort) -> Value {
-    match effort {
-        Effort::Off => json!({ "includeThoughts": false }),
-        Effort::Minimal => json!({ "includeThoughts": true, "thinkingLevel": "MINIMAL" }),
-        Effort::Low => json!({ "includeThoughts": true, "thinkingLevel": "LOW" }),
-        Effort::Medium => json!({ "includeThoughts": true, "thinkingLevel": "MEDIUM" }),
-        Effort::High => json!({ "includeThoughts": true, "thinkingLevel": "HIGH" }),
-    }
-}
-
+/// Gemini/Claude/GPT-OSS thinkingConfig for the effort (pi-antigravity parity).
+/// All supported models send integer `thinkingBudget` matching Cloud Code Assist's
+/// official wire protocol.
 pub fn thinking_config(runtime_model: &str, effort: Effort) -> Value {
     if !runtime_model.starts_with("gemini-") {
         return Value::Null;
     }
-    if runtime_model.starts_with("gemini-3.5-flash") && !runtime_model.contains("flash-lite") {
-        flash_thinking_config(effort)
-    } else if runtime_model.starts_with("gemini-3.1-pro") || runtime_model == "gemini-pro-agent" {
-        pro_thinking_config(effort)
-    } else {
-        default_gemini_thinking_config(effort)
+    if runtime_model.starts_with("gemini-3.5-flash") || runtime_model == "gemini-3-flash-agent" {
+        if effort == Effort::Off {
+            return json!({ "includeThoughts": false, "thinkingBudget": 0 });
+        }
+        let thinking_budget = match effort {
+            Effort::High => 10_000,
+            Effort::Medium => 4_000,
+            _ => 1_000,
+        };
+        return json!({ "includeThoughts": true, "thinkingBudget": thinking_budget });
     }
+    if runtime_model.starts_with("gemini-3.1-pro") || runtime_model == "gemini-pro-agent" {
+        if effort == Effort::Off {
+            return json!({ "includeThoughts": false, "thinkingBudget": 0 });
+        }
+        let thinking_budget = match effort {
+            Effort::High => 10_001,
+            _ => 1_001,
+        };
+        return json!({ "includeThoughts": true, "thinkingBudget": thinking_budget });
+    }
+    if effort == Effort::Off {
+        return json!({ "includeThoughts": false, "thinkingBudget": 0 });
+    }
+    let thinking_budget = match effort {
+        Effort::High => -1,
+        Effort::Medium => 4_000,
+        _ => 1_000,
+    };
+    json!({ "includeThoughts": true, "thinkingBudget": thinking_budget })
 }

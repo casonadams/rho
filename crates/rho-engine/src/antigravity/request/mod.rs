@@ -66,11 +66,13 @@ fn build_generation_config(runtime_model: &str, effort: Effort, request: &Comple
 
 fn build_request_labels(runtime_model: &str, is_claude: bool) -> Value {
     let used_claude = is_claude.to_string();
+    let is_non_gemini = is_claude || runtime_model.starts_with("gpt-oss-") || !runtime_model.starts_with("gemini-");
     let mut labels = json!({
         "last_step_index": "1",
         "trajectory_id": uuid::Uuid::new_v4().to_string(),
         "used_claude": used_claude,
         "used_claude_conservative": used_claude,
+        "used_non_gemini_model": is_non_gemini.to_string(),
     });
     if let Some(enum_label) = model_enum_label(runtime_model) {
         labels["model_enum"] = json!(enum_label);

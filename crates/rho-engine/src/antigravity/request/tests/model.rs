@@ -99,14 +99,17 @@ fn thinking_config_tracks_gemini() {
     let body = build_request_body(high_target("p", "gemini-3.7-flash-high"), &request, &envelope()).unwrap();
     let cfg = &body["request"]["generationConfig"]["thinkingConfig"];
     assert_eq!(
-        (cfg["thinkingLevel"].as_str(), cfg["includeThoughts"].as_bool()),
-        (Some("HIGH"), Some(true))
+        (cfg["thinkingBudget"].as_i64(), cfg["includeThoughts"].as_bool()),
+        (Some(-1), Some(true))
     );
 
     let body_off = build_request_body(target("p", "gemini-3.7-flash-low"), &request, &envelope()).unwrap();
     assert_eq!(
-        body_off["request"]["generationConfig"]["thinkingConfig"]["includeThoughts"],
-        false
+        (
+            body_off["request"]["generationConfig"]["thinkingConfig"]["includeThoughts"].as_bool(),
+            body_off["request"]["generationConfig"]["thinkingConfig"]["thinkingBudget"].as_i64(),
+        ),
+        (Some(false), Some(0))
     );
 
     let body_pro = build_request_body(high_target("p", "gemini-pro-agent"), &request, &envelope()).unwrap();
@@ -115,25 +118,21 @@ fn thinking_config_tracks_gemini() {
         10001
     );
 
-    let body_lite = build_request_body(
+    let body_medium = build_request_body(
         RequestTarget {
             project: "p",
-            runtime_model: "gemini-3.5-flash-lite",
+            runtime_model: "gemini-3.8-flash-medium",
             effort: Effort::Medium,
         },
         &request,
         &envelope(),
     )
     .unwrap();
-    let lite_cfg = &body_lite["request"]["generationConfig"]["thinkingConfig"];
+    let med_cfg = &body_medium["request"]["generationConfig"]["thinkingConfig"];
     assert_eq!(
-        (
-            lite_cfg["thinkingLevel"].as_str(),
-            lite_cfg["includeThoughts"].as_bool()
-        ),
-        (Some("MEDIUM"), Some(true))
+        (med_cfg["thinkingBudget"].as_i64(), med_cfg["includeThoughts"].as_bool()),
+        (Some(4000), Some(true))
     );
-    assert!(lite_cfg.get("thinkingBudget").is_none());
 }
 
 #[test]
