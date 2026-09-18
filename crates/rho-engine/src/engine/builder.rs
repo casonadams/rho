@@ -21,6 +21,7 @@ pub struct AgentEngineBuilder {
     rig_tools: Option<Vec<rig::tool::DynamicTool>>,
     extra_tools: Vec<rig::tool::DynamicTool>,
     model: Option<ModelHandle>,
+    demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
 }
 
 impl AgentEngineBuilder {
@@ -34,6 +35,7 @@ impl AgentEngineBuilder {
             session_manager: None,
             base_dir: None,
             model: None,
+            demotion_hook: None,
         }
     }
 
@@ -69,6 +71,11 @@ impl AgentEngineBuilder {
 
     pub fn base_dir(mut self, base_dir: PathBuf) -> Self {
         self.base_dir = Some(base_dir);
+        self
+    }
+
+    pub fn demotion_hook(mut self, hook: Arc<dyn rig::memory::DemotionHook>) -> Self {
+        self.demotion_hook = Some(hook);
         self
     }
 }
@@ -201,6 +208,7 @@ impl AgentEngineBuilder {
             project_context: Arc::default(),
             auth_store,
             model: Some(model),
+            demotion_hook: self.demotion_hook,
         }
     }
 

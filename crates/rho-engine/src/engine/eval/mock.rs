@@ -66,6 +66,7 @@ fn assemble_mock_engine(
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
         model: Some(model_handle),
+        demotion_hook: None,
     }
 }
 

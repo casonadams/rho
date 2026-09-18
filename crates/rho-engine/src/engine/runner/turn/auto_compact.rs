@@ -73,6 +73,7 @@ pub(crate) struct AutoCompactHook {
     context: ContextTracker,
     provider: String,
     reserve_tokens: usize,
+    demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
 }
 
 impl AutoCompactHook {
@@ -84,6 +85,7 @@ impl AutoCompactHook {
         provider: &str,
         reserve_tokens: usize,
     ) -> Self {
+        let demotion_hook = compactor.demotion_hook().cloned();
         Self {
             compactor,
             presenter,
@@ -91,7 +93,13 @@ impl AutoCompactHook {
             context,
             provider: provider.to_string(),
             reserve_tokens,
+            demotion_hook,
         }
+    }
+
+    pub(crate) fn with_demotion_hook(mut self, hook: Arc<dyn rig::memory::DemotionHook>) -> Self {
+        self.demotion_hook = Some(hook);
+        self
     }
 
     fn model_name(&self) -> &str {
@@ -139,6 +147,13 @@ impl AutoCompactHook {
         if cut.cut_index == 0 {
             return None;
         }
+        let evicted = &history[..cut.cut_index];
+        crate::engine::compactor::orchestrator::dispatch_demote(
+            self.demotion_hook.as_ref(),
+            &self.compactor.session_manager().session_id,
+            evicted,
+        )
+        .await;
         let compactor = LlmCompactor::new(self.compactor.model().cloned());
         let summary = compactor
             .summarize(

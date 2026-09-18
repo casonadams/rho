@@ -297,6 +297,172 @@ async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
     }
 }
 
+#[derive(Default)]
+struct CapturingDemotionHook {
+    demotions: std::sync::Mutex<Vec<(String, Vec<Message>)>>,
+    fail: bool,
+    panic: bool,
+}
+
+impl rig::memory::DemotionHook for CapturingDemotionHook {
+    fn on_demote<'a>(
+        &'a self,
+        conversation_id: &'a str,
+        messages: Vec<Message>,
+    ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
+        Box::pin(async move {
+            if self.panic {
+                panic!("simulated hook panic");
+            }
+            if self.fail {
+                return Err(rig::memory::MemoryError::Internal("test demotion failure".to_string()));
+            }
+            self.demotions
+                .lock()
+                .unwrap()
+                .push((conversation_id.to_string(), messages));
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn test_auto_compact_hook_forwards_evicted_messages_to_demotion_hook() {
+    let dir = std::env::temp_dir().join(format!("demote_eph_{}", uuid::Uuid::new_v4()));
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("response"), final_event(Usage::default())]]);
+    let engine = engine_for(&dir, model);
+    seed_history(&engine).await;
+    engine
+        .session_manager
+        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .await
+        .unwrap();
+    let usage = Usage {
+        input_tokens: 120_000,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let presenter = Arc::new(CapturingPresenter::default());
+    let hook_recorder = Arc::new(CapturingDemotionHook::default());
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter.clone(),
+        engine.usage.clone(),
+        engine.context,
+        &engine.config.provider,
+        engine.config.reserve_tokens,
+    )
+    .with_demotion_hook(hook_recorder.clone());
+
+    let history = vec![
+        Message::user("prior prompt"),
+        Message::assistant("prior response"),
+        Message::user("pending checkpoint work"),
+    ];
+    let action = hook.handle(None, &history, &Message::user("latest prompt")).await;
+    assert!(matches!(action, CompletionCallAction::Patch(_)));
+
+    let demotions = hook_recorder.demotions.lock().unwrap();
+    assert_eq!(demotions.len(), 1);
+    assert_eq!(demotions[0].0, engine.session_manager.session_id);
+    assert!(!demotions[0].1.is_empty());
+}
+
+#[tokio::test]
+async fn test_auto_compact_hook_failing_demotion_hook_does_not_abort_turn() {
+    let dir = std::env::temp_dir().join(format!("demote_fail_{}", uuid::Uuid::new_v4()));
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("response"), final_event(Usage::default())]]);
+    let engine = engine_for(&dir, model);
+    seed_history(&engine).await;
+    engine
+        .session_manager
+        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .await
+        .unwrap();
+    let usage = Usage {
+        input_tokens: 120_000,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let presenter = Arc::new(CapturingPresenter::default());
+    let hook_recorder = Arc::new(CapturingDemotionHook {
+        fail: true,
+        ..Default::default()
+    });
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter.clone(),
+        engine.usage.clone(),
+        engine.context,
+        &engine.config.provider,
+        engine.config.reserve_tokens,
+    )
+    .with_demotion_hook(hook_recorder);
+
+    let history = vec![
+        Message::user("prior prompt"),
+        Message::assistant("prior response"),
+        Message::user("pending checkpoint work"),
+    ];
+    let action = hook.handle(None, &history, &Message::user("latest prompt")).await;
+    assert!(matches!(action, CompletionCallAction::Patch(_)));
+}
+
+#[tokio::test]
+async fn test_auto_compact_hook_panicking_demotion_hook_does_not_abort_turn() {
+    let dir = std::env::temp_dir().join(format!("demote_panic_{}", uuid::Uuid::new_v4()));
+    let model =
+        MockCompletionModel::from_stream_turns([[MockStreamEvent::text("response"), final_event(Usage::default())]]);
+    let engine = engine_for(&dir, model);
+    seed_history(&engine).await;
+    engine
+        .session_manager
+        .save_checkpoint(vec![Message::user("pending checkpoint work")])
+        .await
+        .unwrap();
+    let usage = Usage {
+        input_tokens: 120_000,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let presenter = Arc::new(CapturingPresenter::default());
+    let hook_recorder = Arc::new(CapturingDemotionHook {
+        panic: true,
+        ..Default::default()
+    });
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter.clone(),
+        engine.usage.clone(),
+        engine.context,
+        &engine.config.provider,
+        engine.config.reserve_tokens,
+    )
+    .with_demotion_hook(hook_recorder);
+
+    let history = vec![
+        Message::user("prior prompt"),
+        Message::assistant("prior response"),
+        Message::user("pending checkpoint work"),
+    ];
+    let action = hook.handle(None, &history, &Message::user("latest prompt")).await;
+    assert!(matches!(action, CompletionCallAction::Patch(_)));
+}
+
 fn as_text_of(message: &Message) -> String {
     match message {
         Message::User { content } => content

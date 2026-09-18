@@ -6,7 +6,9 @@ use rho_harness_core::session::compaction::{
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
 use rho_harness_core::tokens::{calculate_context_tokens, find_token_cut_point, is_tool_result_message};
 use rig::agent::ModelHandle;
+use rig::memory::DemotionHook;
 use rig::message::Message;
+use std::sync::Arc;
 
 use super::llm::LlmCompactor;
 use crate::engine::AgentEngine;
@@ -143,6 +145,7 @@ pub struct SessionCompactor {
     model_name: String,
     keep_recent_tokens: usize,
     max_bytes: usize,
+    demotion_hook: Option<Arc<dyn DemotionHook>>,
 }
 
 impl SessionCompactor {
@@ -159,7 +162,17 @@ impl SessionCompactor {
             model_name: model_name.to_string(),
             keep_recent_tokens,
             max_bytes,
+            demotion_hook: None,
         }
+    }
+
+    pub fn with_demotion_hook(mut self, hook: Arc<dyn DemotionHook>) -> Self {
+        self.demotion_hook = Some(hook);
+        self
+    }
+
+    pub fn demotion_hook(&self) -> Option<&Arc<dyn DemotionHook>> {
+        self.demotion_hook.as_ref()
     }
 
     pub(crate) fn session_manager(&self) -> &SessionManager {
@@ -274,6 +287,7 @@ impl SessionCompactor {
         (tokens_before, kept_id, kept_msg_idx): (usize, Option<String>, Option<usize>),
     ) -> Result<CompactionStats> {
         let (to_sum, kept) = (&plan.messages[..plan.cut_index], &plan.messages[plan.cut_index..]);
+        dispatch_demote(self.demotion_hook.as_ref(), &self.session_manager.session_id, to_sum).await;
         let md_summary = self
             .generate_compaction_summary(to_sum, (plan.prior_summary, plan.instructions, plan.is_split_turn))
             .await;
@@ -309,7 +323,7 @@ impl SessionCompactor {
 
 impl AgentEngine {
     pub(crate) fn session_compactor(&self) -> SessionCompactor {
-        SessionCompactor::new(
+        let mut compactor = SessionCompactor::new(
             self.session_manager.clone(),
             self.usage.clone(),
             self.model.clone(),
@@ -318,10 +332,35 @@ impl AgentEngine {
                 self.config.keep_recent_tokens,
                 self.config.compaction_max_bytes,
             ),
-        )
+        );
+        if let Some(hook) = &self.demotion_hook {
+            compactor = compactor.with_demotion_hook(Arc::clone(hook));
+        }
+        compactor
     }
 
     pub async fn compact_session(&self, instructions: Option<&str>) -> Result<CompactionStats> {
         self.session_compactor().compact(instructions).await
+    }
+}
+
+pub(crate) async fn dispatch_demote(hook: Option<&Arc<dyn DemotionHook>>, session_id: &str, messages: &[Message]) {
+    if let Some(hook) = hook {
+        if messages.is_empty() {
+            return;
+        }
+        let hook = Arc::clone(hook);
+        let sid = session_id.to_string();
+        let msgs = messages.to_vec();
+        let fut = std::panic::AssertUnwindSafe(async move { hook.on_demote(&sid, msgs).await });
+        match futures::FutureExt::catch_unwind(fut).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                eprintln!("Warning: Demotion hook error: {err}");
+            }
+            Err(_) => {
+                eprintln!("Warning: Demotion hook panicked during execution");
+            }
+        }
     }
 }

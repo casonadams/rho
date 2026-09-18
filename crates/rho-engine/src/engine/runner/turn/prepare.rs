@@ -160,14 +160,18 @@ impl AgentEngine {
         if self.config.permission.enabled {
             hook_stack.push(crate::permission::PermissionHook::new(Some(cwd), presenter.clone()));
         }
-        hook_stack.push(super::auto_compact::AutoCompactHook::new(
+        let mut auto_compact = super::auto_compact::AutoCompactHook::new(
             self.session_compactor(),
             presenter.clone(),
             self.usage.clone(),
             self.context,
             &self.config.provider,
             self.config.reserve_tokens,
-        ));
+        );
+        if let Some(hook) = &self.demotion_hook {
+            auto_compact = auto_compact.with_demotion_hook(Arc::clone(hook));
+        }
+        hook_stack.push(auto_compact);
         let ceiling = crate::engine::model::resolve_context_limit(&self.config)
             .map(|l| l as u64)
             .unwrap_or(65536);

@@ -85,6 +85,7 @@ fn build_eval_engine(
         project_context: std::sync::Arc::default(),
         auth_store: std::sync::Arc::new(tokio::sync::Mutex::new(crate::auth::AuthStore::default())),
         model: None,
+        demotion_hook: None,
     }
 }
 

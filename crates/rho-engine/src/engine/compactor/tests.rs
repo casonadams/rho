@@ -508,6 +508,124 @@ mod orchestrator {
         }));
     }
 
+    #[derive(Default)]
+    struct CapturingDemotionHook {
+        demotions: std::sync::Mutex<Vec<(String, Vec<Message>)>>,
+        fail: bool,
+        panic: bool,
+    }
+
+    impl rig::memory::DemotionHook for CapturingDemotionHook {
+        fn on_demote<'a>(
+            &'a self,
+            conversation_id: &'a str,
+            messages: Vec<Message>,
+        ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
+            Box::pin(async move {
+                if self.panic {
+                    panic!("simulated hook panic");
+                }
+                if self.fail {
+                    return Err(rig::memory::MemoryError::Internal("simulated hook failure".to_string()));
+                }
+                self.demotions
+                    .lock()
+                    .unwrap()
+                    .push((conversation_id.to_string(), messages));
+                Ok(())
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compact_session_forwards_evicted_messages_to_demotion_hook() {
+        let hook = std::sync::Arc::new(CapturingDemotionHook::default());
+        let dir = std::env::temp_dir().join(format!("demote_hook_{}", uuid::Uuid::new_v4()));
+        let config = Config {
+            sessions_dir: dir.join("sessions"),
+            auth_file: dir.join("auth.json"),
+            keep_recent_tokens: 10,
+            ..Default::default()
+        };
+        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+        let engine = AgentEngineBuilder::new(config, auth_store)
+            .base_dir(dir)
+            .tools(Vec::new())
+            .demotion_hook(hook.clone())
+            .build()
+            .await
+            .unwrap();
+
+        let session_id = engine.session_manager.session_id.clone();
+        populate_test_turns(&engine.session_manager, &session_id).await;
+
+        let stats = engine.compact_session(None).await.unwrap();
+        assert!(stats.tokens_before > 0);
+
+        let demotions = hook.demotions.lock().unwrap();
+        assert_eq!(demotions.len(), 1);
+        assert_eq!(demotions[0].0, session_id);
+        assert!(!demotions[0].1.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_compact_session_failing_demotion_hook_does_not_abort_compaction() {
+        let hook = std::sync::Arc::new(CapturingDemotionHook {
+            fail: true,
+            ..Default::default()
+        });
+        let dir = std::env::temp_dir().join(format!("demote_fail_{}", uuid::Uuid::new_v4()));
+        let config = Config {
+            sessions_dir: dir.join("sessions"),
+            auth_file: dir.join("auth.json"),
+            keep_recent_tokens: 10,
+            ..Default::default()
+        };
+        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+        let engine = AgentEngineBuilder::new(config, auth_store)
+            .base_dir(dir)
+            .tools(Vec::new())
+            .demotion_hook(hook)
+            .build()
+            .await
+            .unwrap();
+
+        let session_id = engine.session_manager.session_id.clone();
+        populate_test_turns(&engine.session_manager, &session_id).await;
+
+        let stats = engine.compact_session(None).await.unwrap();
+        assert!(stats.tokens_before > 0);
+    }
+
+    #[tokio::test]
+    async fn test_compact_session_panicking_demotion_hook_does_not_abort_compaction() {
+        let hook = std::sync::Arc::new(CapturingDemotionHook {
+            panic: true,
+            ..Default::default()
+        });
+        let dir = std::env::temp_dir().join(format!("demote_panic_{}", uuid::Uuid::new_v4()));
+        let config = Config {
+            sessions_dir: dir.join("sessions"),
+            auth_file: dir.join("auth.json"),
+            keep_recent_tokens: 10,
+            ..Default::default()
+        };
+        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+        let engine = AgentEngineBuilder::new(config, auth_store)
+            .base_dir(dir)
+            .tools(Vec::new())
+            .demotion_hook(hook)
+            .build()
+            .await
+            .unwrap();
+
+        let session_id = engine.session_manager.session_id.clone();
+        populate_test_turns(&engine.session_manager, &session_id).await;
+
+        let stats = engine.compact_session(None).await.unwrap();
+        assert!(stats.tokens_before > 0);
+    }
+
     #[tokio::test]
     async fn test_compact_session_split_turn_prunes_prefix_messages() {
         let mock = MockCompletionModel::text("## Goal\nComplete huge operation");

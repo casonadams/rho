@@ -48,6 +48,7 @@ pub struct AgentEngine {
     pub(crate) project_context: Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, context::ProjectContext)>>>,
     pub(crate) auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
     pub(crate) model: Option<rig::agent::ModelHandle>,
+    pub(crate) demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
 }
 
 impl AgentEngine {
@@ -68,11 +69,13 @@ impl AgentEngine {
 
     pub async fn rebuild(&self, config: Config, auth_store: AuthStore) -> Result<Self> {
         let base_dir = std::env::current_dir()?;
-        let rebuilt = builder::AgentEngineBuilder::new(config, auth_store)
+        let mut builder = builder::AgentEngineBuilder::new(config, auth_store)
             .session(self.session_manager.clone())
-            .base_dir(base_dir)
-            .build()
-            .await?;
+            .base_dir(base_dir);
+        if let Some(hook) = &self.demotion_hook {
+            builder = builder.demotion_hook(Arc::clone(hook));
+        }
+        let rebuilt = builder.build().await?;
         rebuilt.refresh_quota().await;
         Ok(rebuilt)
     }
