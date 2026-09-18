@@ -1,11 +1,56 @@
-pub mod option;
-
-pub use option::ModalOption;
-
 use super::editor::EditorState;
-use crate::ui::interactive::OptionLayout;
+use crate::ui::interactive::{InteractionInput, InteractionOption, OptionLayout};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModalOption {
+    pub label: String,
+    pub description: Option<String>,
+    /// Inline input shown at the bottom of the same modal when this option
+    /// is chosen; the submitted text travels back with the selection.
+    pub input: Option<InteractionInput>,
+}
+
+impl ModalOption {
+    pub fn new(label: impl Into<String>, description: Option<impl Into<String>>) -> Self {
+        Self {
+            label: label.into(),
+            description: description.map(Into::into),
+            input: None,
+        }
+    }
+}
+
+impl From<String> for ModalOption {
+    fn from(label: String) -> Self {
+        Self {
+            label,
+            description: None,
+            input: None,
+        }
+    }
+}
+
+impl From<&str> for ModalOption {
+    fn from(label: &str) -> Self {
+        Self {
+            label: label.to_string(),
+            description: None,
+            input: None,
+        }
+    }
+}
+
+impl From<InteractionOption> for ModalOption {
+    fn from(opt: InteractionOption) -> Self {
+        Self {
+            label: opt.label,
+            description: opt.description,
+            input: opt.input,
+        }
+    }
+}
 
 /// Fuzzy score for `query` against `text`: `None` when the query characters
 /// do not appear in order. Higher is better; `None`/`-1` for empty queries is

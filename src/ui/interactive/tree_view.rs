@@ -1,4 +1,5 @@
 use rho_harness_core::session::tree::{SessionTree, TreeNodeData, TreeNodeKind};
+use std::fmt::Write as _;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreeEntryDisplay {
@@ -33,6 +34,31 @@ pub fn build_tree_display(tree: &SessionTree) -> Vec<TreeEntryDisplay> {
         builder.visit(root, ctx);
     }
     builder.entries
+}
+
+pub fn render_tree_ascii(tree: &SessionTree) -> String {
+    let entries = build_tree_display(tree);
+    if entries.is_empty() {
+        return String::from("  (No conversation tree nodes recorded yet)\n");
+    }
+    let mut out = String::new();
+    for entry in entries {
+        let indent = "  ".repeat(entry.depth);
+        let branch_char = if entry.is_last_child {
+            "└── "
+        } else {
+            "├── "
+        };
+        let active_tag = if entry.is_active { " [ACTIVE]" } else { "" };
+        let label_tag = entry.label.map(|l| format!(" [{l}]")).unwrap_or_default();
+        let short_id = &entry.id[..entry.id.floor_char_boundary(8.min(entry.id.len()))];
+        let _ = writeln!(
+            out,
+            "  {indent}{branch_char}{}{label_tag}{active_tag} ({short_id})",
+            entry.preview
+        );
+    }
+    out
 }
 
 struct TreeDisplayBuilder<'a> {
@@ -133,5 +159,52 @@ fn truncate_preview(text: &str, limit: usize) -> String {
         format!("{}...", text.chars().take(limit.saturating_sub(3)).collect::<String>())
     } else {
         text
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use rig::message::Message;
+
+    fn sample_two_node_tree() -> SessionTree {
+        let mut tree = SessionTree::new();
+        tree.add_node(TreeNodeData {
+            id: "root-1".to_string(),
+            parent_id: None,
+            timestamp: Utc::now(),
+            kind: TreeNodeKind::UserTurn,
+            messages: vec![Message::user("Root prompt")],
+            label: Some("root".to_string()),
+            metadata: None,
+        });
+        tree.add_node(TreeNodeData {
+            id: "child-1".to_string(),
+            parent_id: Some("root-1".to_string()),
+            timestamp: Utc::now(),
+            kind: TreeNodeKind::AssistantTurn,
+            messages: vec![Message::assistant("Child answer")],
+            label: None,
+            metadata: None,
+        });
+        tree
+    }
+
+    #[test]
+    fn test_tree_display_hierarchy() {
+        let tree = sample_two_node_tree();
+        let display = build_tree_display(&tree);
+        assert_eq!(display.len(), 2);
+        assert_eq!((display[0].depth, display[0].label.as_deref()), (0, Some("root")));
+        assert_eq!((display[1].depth, display[1].is_active), (1, true));
+    }
+
+    #[test]
+    fn test_tree_display_ascii() {
+        let tree = sample_two_node_tree();
+        let ascii = render_tree_ascii(&tree);
+        assert!(ascii.contains("User: \"Root prompt\""));
+        assert!(ascii.contains("Assistant: \"Child answer\"") && ascii.contains("[ACTIVE]"));
     }
 }

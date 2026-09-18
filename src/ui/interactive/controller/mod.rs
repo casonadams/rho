@@ -1,10 +1,8 @@
 pub mod ansi;
 pub mod backend;
 pub mod cache;
-pub mod lifecycle;
 pub mod output;
 pub mod paint;
-pub mod system_message;
 #[cfg(test)]
 mod tests;
 pub mod tools;
@@ -15,8 +13,11 @@ pub use backend::{CrosstermBackend, TerminalBackend};
 pub use output::OutputTracker;
 
 use std::io;
+use std::time::{Duration, Instant};
 
 use super::{InteractiveLayout, InteractiveState, LayoutInput, layout};
+
+pub const SYSTEM_MESSAGE_DURATION: Duration = Duration::from_secs(3);
 
 pub struct TerminalController<B: TerminalBackend> {
     pub(super) backend: B,
@@ -45,6 +46,12 @@ fn init_terminal<B: TerminalBackend>(backend: &mut B) -> io::Result<(usize, usiz
             let _ = backend.set_raw_mode(false);
             Err(err)
         }
+    }
+}
+
+impl TerminalController<CrosstermBackend> {
+    pub fn stdout(state: crate::ui::interactive::InteractiveState) -> io::Result<Self> {
+        Self::new(CrosstermBackend::stdout(), state)
     }
 }
 
@@ -188,6 +195,78 @@ impl<B: TerminalBackend> TerminalController<B> {
         self.redraw()
     }
 
+    pub fn state(&self) -> &crate::ui::interactive::InteractiveState {
+        &self.state
+    }
+
+    pub fn state_mut(&mut self) -> &mut crate::ui::interactive::InteractiveState {
+        &mut self.state
+    }
+
+    pub fn terminal_width(&self) -> usize {
+        self.width.max(1)
+    }
+
+    pub fn terminal_height(&self) -> usize {
+        self.height.max(1)
+    }
+
+    pub fn suspend(&mut self) -> io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+        paint::erase_live_region(&mut self.backend, self.rendered.as_ref())?;
+        self.rendered = None;
+        self.output.clear();
+        self.backend.show_cursor()?;
+        self.backend.set_raw_mode(false)?;
+        self.backend.flush()?;
+        self.active = false;
+        Ok(())
+    }
+
+    pub fn resume(&mut self) -> io::Result<()> {
+        if self.active {
+            return Ok(());
+        }
+        self.backend.set_raw_mode(true)?;
+        self.backend.hide_cursor()?;
+        self.active = true;
+        self.redraw()
+    }
+
+    pub(super) fn restore(&mut self) {
+        if !self.active {
+            return;
+        }
+        let _ = paint::erase_live_region(&mut self.backend, self.rendered.as_ref());
+        self.rendered = None;
+        let _ = self.backend.show_cursor();
+        let _ = self.backend.set_raw_mode(false);
+        let _ = self.backend.flush();
+        self.active = false;
+    }
+
+    pub fn set_system_message(&mut self, message: impl Into<String>) {
+        self.state.set_system_message(Some(message.into()));
+        self.system_message_expires_at = Some(Instant::now() + SYSTEM_MESSAGE_DURATION);
+    }
+
+    pub fn clear_system_message(&mut self) {
+        self.state.set_system_message(None);
+        self.system_message_expires_at = None;
+    }
+
+    pub fn check_system_message_expiration(&mut self) -> bool {
+        if let Some(expires_at) = self.system_message_expires_at
+            && Instant::now() >= expires_at
+        {
+            self.clear_system_message();
+            return true;
+        }
+        false
+    }
+
     fn active_widget_lines(&self) -> Vec<String> {
         self.state.active_tool().map_or_else(Vec::new, |tool| {
             super::layout::render_running_tool_widget(super::layout::RunningToolWidgetInput {
@@ -221,5 +300,11 @@ impl<B: TerminalBackend> TerminalController<B> {
             theme: Some(&self.theme),
             focused: self.focused,
         })
+    }
+}
+
+impl<B: TerminalBackend> Drop for TerminalController<B> {
+    fn drop(&mut self) {
+        self.restore();
     }
 }

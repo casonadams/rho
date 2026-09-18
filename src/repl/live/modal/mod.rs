@@ -105,6 +105,84 @@ pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {
     }
 }
 
+pub(crate) fn pop_and_cancel<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<()> {
+    controller.state_mut().pop_modal();
+    controller.redraw()?;
+    Ok(())
+}
+
+pub(crate) fn apply_filter<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    character: Option<char>,
+) -> Result<()> {
+    if let Some(modal) = controller.state_mut().active_modal_mut() {
+        let mut query = modal.filter_query.clone();
+        if let Some(c) = character {
+            query.push(c);
+        } else {
+            query.pop();
+        }
+        modal.set_filter(&query);
+    }
+    controller.redraw()?;
+    Ok(())
+}
+
+pub(crate) fn clear_filter_or_cancel<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<bool> {
+    let has_filter = controller
+        .state()
+        .active_modal()
+        .is_some_and(|m| !m.filter_query.is_empty());
+    if has_filter {
+        if let Some(modal) = controller.state_mut().active_modal_mut() {
+            modal.set_filter("");
+        }
+        controller.redraw()?;
+        Ok(false)
+    } else {
+        pop_and_cancel(controller)?;
+        Ok(true)
+    }
+}
+
+pub(crate) fn handle_selector_nav<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: &KeyEvent,
+) -> Result<bool> {
+    use crossterm::event::{KeyCode, KeyModifiers};
+
+    match key.code {
+        KeyCode::Up | KeyCode::BackTab => {
+            controller.state_mut().select_previous_modal_option();
+            controller.redraw()?;
+            Ok(true)
+        }
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            controller.state_mut().select_previous_modal_option();
+            controller.redraw()?;
+            Ok(true)
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            controller.state_mut().select_next_modal_option();
+            controller.redraw()?;
+            Ok(true)
+        }
+        KeyCode::Backspace => {
+            apply_filter(controller, None)?;
+            Ok(true)
+        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            clear_filter_or_cancel(controller)?;
+            Ok(true)
+        }
+        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            apply_filter(controller, Some(c))?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 pub fn handle_modal_paste<B: TerminalBackend>(controller: &mut TerminalController<B>, text: &str) -> bool {
     let Some(active) = controller.state().active_modal() else {
         return false;

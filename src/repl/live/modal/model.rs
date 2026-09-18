@@ -88,67 +88,6 @@ fn pop_and_select<B: TerminalBackend>(
     })
 }
 
-fn apply_model_filter<B: TerminalBackend>(controller: &mut TerminalController<B>, character: Option<char>) {
-    if let Some(modal) = controller.state_mut().active_modal_mut() {
-        let mut query = modal.filter_query.clone();
-        if let Some(c) = character {
-            query.push(c);
-        } else {
-            query.pop();
-        }
-        modal.set_filter(&query);
-    }
-    controller.redraw().ok();
-}
-
-fn is_plain_char(key: &KeyEvent) -> bool {
-    !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-}
-
-fn clear_filter_action<B: TerminalBackend>(controller: &mut TerminalController<B>) -> bool {
-    let has_filter = controller
-        .state()
-        .active_modal()
-        .is_some_and(|m| !m.filter_query.is_empty());
-    if has_filter {
-        if let Some(modal) = controller.state_mut().active_modal_mut() {
-            modal.set_filter("");
-        }
-        controller.redraw().ok();
-        return true;
-    }
-    controller.state_mut().pop_modal();
-    controller.redraw().ok();
-    false
-}
-
-fn handle_model_nav<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    key: &KeyEvent,
-) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Backspace => apply_model_filter(controller, None),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            let _ = clear_filter_action(controller);
-        }
-        KeyCode::Char(c) if is_plain_char(key) => apply_model_filter(controller, Some(c)),
-        _ => {}
-    }
-    Ok(ModalKeyResult::Handled)
-}
-
 pub fn handle_model_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -160,10 +99,12 @@ pub fn handle_model_key<B: TerminalBackend>(
     match key.code {
         KeyCode::Enter => pop_and_select(controller, save_as_default),
         KeyCode::Esc => {
-            controller.state_mut().pop_modal();
-            controller.redraw()?;
+            super::pop_and_cancel(controller)?;
             Ok(ModalKeyResult::Handled)
         }
-        _ => handle_model_nav(controller, &key),
+        _ => {
+            super::handle_selector_nav(controller, &key)?;
+            Ok(ModalKeyResult::Handled)
+        }
     }
 }

@@ -3,8 +3,8 @@ mod events;
 pub mod footer;
 mod input;
 pub mod key_parser;
-pub mod keybinding_loader;
 pub mod keymap;
+pub use keymap as keybinding_loader;
 mod layout;
 pub mod session_picker;
 #[cfg(test)]
@@ -25,8 +25,7 @@ pub use footer::{
     get_git_branch, sanitize_status_text,
 };
 pub use input::{InputAction, map_key, map_key_with_bindings};
-pub use keybinding_loader::{default_keybindings, load_keybindings};
-pub use keymap::{KeyAction, KeyChord, KeybindingMap};
+pub use keymap::{KeyAction, KeyChord, KeybindingMap, default_keybindings, load_keybindings};
 pub use layout::{
     CursorPosition, InteractiveLayout, LayoutInput, SPINNER_FRAMES, VisualTruncateResult, layout,
     modal_body_max_scroll, truncate_to_visual_lines, wrap_to_width, wrap_words_to_width,

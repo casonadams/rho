@@ -1,4 +1,4 @@
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthChar;
 
 pub const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -31,8 +31,7 @@ pub fn truncate_to_visual_lines(text: &str, max_visual_lines: usize, width: usiz
 }
 
 pub fn visible_width(content: &str) -> usize {
-    let clean = crate::ui::block::ANSI_PATTERN.replace_all(content, "");
-    UnicodeWidthStr::width(clean.replace('\r', "").as_str())
+    crate::ui::block::visible_width(content)
 }
 
 struct LineWrapper<'a> {

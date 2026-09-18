@@ -28,44 +28,6 @@ fn selected_session_id<B: TerminalBackend>(controller: &TerminalController<B>) -
     Some(desc.split('\t').next().unwrap_or(&desc).trim().to_string())
 }
 
-fn pop_and_redraw<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
-}
-
-fn apply_session_filter<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    character: Option<char>,
-) -> Result<ModalKeyResult> {
-    if let Some(modal) = controller.state_mut().active_modal_mut() {
-        let mut query = modal.filter_query.clone();
-        if let Some(c) = character {
-            query.push(c);
-        } else {
-            query.pop();
-        }
-        modal.set_filter(&query);
-    }
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
-}
-
-fn clear_session_filter<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<()> {
-    let has_filter = controller
-        .state()
-        .active_modal()
-        .is_some_and(|m| !m.filter_query.is_empty());
-    if has_filter {
-        if let Some(modal) = controller.state_mut().active_modal_mut() {
-            modal.set_filter("");
-        }
-        controller.redraw()?;
-        return Ok(());
-    }
-    pop_and_redraw(controller).map(|_| ())
-}
-
 fn delete_selected_session<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
     let Some(session_id) = selected_session_id(controller) else {
         return Ok(ModalKeyResult::Handled);
@@ -82,55 +44,31 @@ fn delete_selected_session<B: TerminalBackend>(controller: &mut TerminalControll
     Ok(ModalKeyResult::SessionDeleted { session_id })
 }
 
-fn handle_session_nav<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    key: &KeyEvent,
-) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Backspace => apply_session_filter(controller, None),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            clear_session_filter(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => delete_selected_session(controller),
-        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            apply_session_filter(controller, Some(c))
-        }
-        _ => Ok(ModalKeyResult::Handled),
-    }
-}
-
 fn handle_session_enter<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    let Some(session_id) = selected_session_id(controller) else {
-        return pop_and_redraw(controller);
-    };
-    pop_and_redraw(controller)?;
-    Ok(ModalKeyResult::SessionSelected { session_id })
-}
-
-fn select_session_nav<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    prev: bool,
-) -> Result<ModalKeyResult> {
-    if prev {
-        controller.state_mut().select_previous_modal_option();
-    } else {
-        controller.state_mut().select_next_modal_option();
-    }
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
+    let selected = selected_session_id(controller);
+    super::pop_and_cancel(controller)?;
+    Ok(match selected {
+        Some(session_id) => ModalKeyResult::SessionSelected { session_id },
+        None => ModalKeyResult::Handled,
+    })
 }
 
 pub fn handle_session_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
+    if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return delete_selected_session(controller);
+    }
     match key.code {
-        KeyCode::Up | KeyCode::BackTab => select_session_nav(controller, true),
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => select_session_nav(controller, true),
-        KeyCode::Down | KeyCode::Tab => select_session_nav(controller, false),
         KeyCode::Enter => handle_session_enter(controller),
-        KeyCode::Esc => pop_and_redraw(controller),
-        _ => handle_session_nav(controller, &key),
+        KeyCode::Esc => {
+            super::pop_and_cancel(controller)?;
+            Ok(ModalKeyResult::Handled)
+        }
+        _ => {
+            super::handle_selector_nav(controller, &key)?;
+            Ok(ModalKeyResult::Handled)
+        }
     }
 }

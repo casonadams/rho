@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 
 use super::ModalKeyResult;
 
@@ -91,90 +91,26 @@ fn extract_selected_command<B: TerminalBackend>(controller: &TerminalController<
     }
 }
 
-fn pop_and_select<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    let selected = extract_selected_command(controller);
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(match selected {
-        Some(command) => ModalKeyResult::HelpCommandSelected { command },
-        None => ModalKeyResult::Handled,
-    })
-}
-
-fn pop_and_cancel<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
-}
-
-fn apply_help_filter<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    character: Option<char>,
-) -> Result<ModalKeyResult> {
-    if let Some(modal) = controller.state_mut().active_modal_mut() {
-        let mut query = modal.filter_query.clone();
-        if let Some(c) = character {
-            query.push(c);
-        } else {
-            query.pop();
-        }
-        modal.set_filter(&query);
-    }
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
-}
-
-fn clear_filter_or_cancel<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    let has_filter = controller
-        .state()
-        .active_modal()
-        .is_some_and(|m| !m.filter_query.is_empty());
-    if has_filter {
-        if let Some(modal) = controller.state_mut().active_modal_mut() {
-            modal.set_filter("");
-        }
-        controller.redraw()?;
-        return Ok(ModalKeyResult::Handled);
-    }
-    pop_and_cancel(controller)
-}
-
-fn handle_nav_or_filter<B: TerminalBackend>(
-    controller: &mut TerminalController<B>,
-    key: &KeyEvent,
-) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-        }
-        KeyCode::Backspace => return apply_help_filter(controller, None),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            return clear_filter_or_cancel(controller);
-        }
-        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            return apply_help_filter(controller, Some(c));
-        }
-        _ => {}
-    }
-    Ok(ModalKeyResult::Handled)
-}
-
 pub fn handle_help_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
     match key.code {
-        KeyCode::Enter => pop_and_select(controller),
-        KeyCode::Esc => pop_and_cancel(controller),
-        _ => handle_nav_or_filter(controller, &key),
+        KeyCode::Enter => {
+            let command = extract_selected_command(controller);
+            super::pop_and_cancel(controller)?;
+            Ok(match command {
+                Some(command) => ModalKeyResult::HelpCommandSelected { command },
+                None => ModalKeyResult::Handled,
+            })
+        }
+        KeyCode::Esc => {
+            super::pop_and_cancel(controller)?;
+            Ok(ModalKeyResult::Handled)
+        }
+        _ => {
+            super::handle_selector_nav(controller, &key)?;
+            Ok(ModalKeyResult::Handled)
+        }
     }
 }
