@@ -67,6 +67,7 @@ workspace = true
 
 [features]
 default = ["ui"]
+fastembed = ["rho-engine/fastembed"]
 ui = [
     "dep:reedline",
     "dep:inquire",
@@ -169,6 +170,6 @@ debug = false
 [profile.release]
 opt-level = 3
 lto = "thin"
-codegen-units = 16
+codegen-units = 1
 strip = true
 panic = "abort"

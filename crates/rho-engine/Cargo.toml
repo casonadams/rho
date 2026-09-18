@@ -14,7 +14,7 @@ workspace = true
 rho-harness-core.workspace = true
 async-trait.workspace = true
 futures.workspace = true
-rig = { workspace = true, features = ["fastembed"] }
+rig.workspace = true
 rig-memory.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -48,6 +48,10 @@ memchr = "2"
 streaming-iterator = "0.1"
 toml.workspace = true
 toml_edit.workspace = true
+
+[features]
+default = []
+fastembed = ["rig/fastembed"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

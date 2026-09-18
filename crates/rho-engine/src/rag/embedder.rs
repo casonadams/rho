@@ -1,11 +1,15 @@
+#[cfg(feature = "fastembed")]
 use rig::embeddings::EmbeddingModel;
+#[cfg(feature = "fastembed")]
 use rig::fastembed::{Client, FastembedModel};
+#[cfg(feature = "fastembed")]
 use std::sync::Arc;
 
 pub const EMBEDDING_DIM: usize = 384;
 
 #[derive(Clone)]
 pub enum EmbedderBackend {
+    #[cfg(feature = "fastembed")]
     FastEmbed(Arc<rig::fastembed::EmbeddingModel>),
     Deterministic,
 }
@@ -22,6 +26,7 @@ impl Default for LocalEmbedder {
 }
 
 impl LocalEmbedder {
+    #[cfg(feature = "fastembed")]
     pub fn try_new_fastembed() -> Result<Self, String> {
         let client = Client::new();
         let model = client
@@ -30,6 +35,11 @@ impl LocalEmbedder {
         Ok(Self {
             backend: EmbedderBackend::FastEmbed(Arc::new(model)),
         })
+    }
+
+    #[cfg(not(feature = "fastembed"))]
+    pub fn try_new_fastembed() -> Result<Self, String> {
+        Err("FastEmbed is not enabled in this build".to_string())
     }
 
     pub fn new_deterministic() -> Self {
@@ -47,6 +57,7 @@ impl LocalEmbedder {
 
     pub async fn embed(&self, text: &str) -> Result<Vec<f32>, String> {
         match &self.backend {
+            #[cfg(feature = "fastembed")]
             EmbedderBackend::FastEmbed(model) => {
                 let embeddings = model
                     .embed_texts(vec![text.to_string()])
@@ -64,6 +75,7 @@ impl LocalEmbedder {
 
     pub async fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, String> {
         match &self.backend {
+            #[cfg(feature = "fastembed")]
             EmbedderBackend::FastEmbed(model) => {
                 let embeddings = model.embed_texts(texts.to_vec()).await.map_err(|e| e.to_string())?;
                 Ok(embeddings
