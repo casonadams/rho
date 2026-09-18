@@ -1,3 +1,5 @@
+use super::types::CompactionSummaryPayload;
+
 pub const SUMMARIZATION_SYSTEM_PROMPT: &str = "\
 You are a context summarization assistant. Your task is to read a conversation between a user and \
 an AI coding assistant, then produce a structured summary following the exact format specified.
@@ -132,6 +134,31 @@ pub fn compose_compaction_summary(markdown_summary: &str, file_xml: &str) -> Str
     } else {
         format!("{trimmed_summary}\n\n{trimmed_xml}")
     }
+}
+
+pub fn render_compaction_payload(payload: &CompactionSummaryPayload) -> String {
+    let mut out = String::new();
+
+    fn render_list_section(out: &mut String, title: &str, items: &[String]) {
+        out.push_str(title);
+        out.push('\n');
+        if items.is_empty() {
+            out.push_str("- (none)\n\n");
+        } else {
+            for item in items {
+                out.push_str(&format!("- {item}\n"));
+            }
+            out.push('\n');
+        }
+    }
+
+    render_list_section(&mut out, "## Goals", &payload.goals);
+    render_list_section(&mut out, "## Key Decisions", &payload.decisions);
+    render_list_section(&mut out, "## Completed Work", &payload.completed);
+    render_list_section(&mut out, "## Active Files", &payload.active_files);
+    render_list_section(&mut out, "## Open Questions", &payload.open_questions);
+
+    out.trim_end().to_string()
 }
 
 fn append_custom_instructions(out: &mut String, custom_instructions: Option<&str>) {

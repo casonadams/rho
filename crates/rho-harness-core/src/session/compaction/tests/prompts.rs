@@ -114,3 +114,63 @@ fn test_compose_compaction_summary() {
     let no_xml = compose_compaction_summary(summary, "   ");
     assert_eq!(no_xml, "## Goal\nFix bug");
 }
+
+#[test]
+fn test_compaction_summary_payload_serde_and_schema() {
+    use super::super::types::CompactionSummaryPayload;
+
+    let payload = CompactionSummaryPayload {
+        goals: vec!["Implement structured compaction".to_string()],
+        decisions: vec!["Use ExtractorBuilder with schemars".to_string()],
+        completed: vec!["Added schema and types".to_string()],
+        active_files: vec!["crates/rho-harness-core/src/session/compaction/types.rs".to_string()],
+        open_questions: vec!["Check fallback paths".to_string()],
+    };
+
+    let serialized = serde_json::to_string(&payload).expect("serialization succeeds");
+    let deserialized: CompactionSummaryPayload = serde_json::from_str(&serialized).expect("deserialization succeeds");
+    assert_eq!(payload, deserialized);
+
+    let empty_json = "{}";
+    let default_payload: CompactionSummaryPayload =
+        serde_json::from_str(empty_json).expect("deserialization of empty json succeeds");
+    assert_eq!(default_payload, CompactionSummaryPayload::default());
+
+    let schema = schemars::schema_for!(CompactionSummaryPayload);
+    let schema_json = serde_json::to_value(&schema).expect("schema serialization succeeds");
+    assert!(schema_json["properties"]["goals"].is_object());
+    assert!(schema_json["properties"]["decisions"].is_object());
+    assert!(schema_json["properties"]["completed"].is_object());
+    assert!(schema_json["properties"]["active_files"].is_object());
+    assert!(schema_json["properties"]["open_questions"].is_object());
+}
+
+#[test]
+fn test_render_compaction_payload() {
+    use super::super::prompts::render_compaction_payload;
+    use super::super::types::CompactionSummaryPayload;
+
+    let payload = CompactionSummaryPayload {
+        goals: vec!["Refactor compactor".to_string()],
+        decisions: vec!["Use Rig ExtractorBuilder".to_string()],
+        completed: vec!["Defined schema".to_string()],
+        active_files: vec!["src/lib.rs".to_string()],
+        open_questions: vec!["Verify fallback".to_string()],
+    };
+
+    let rendered = render_compaction_payload(&payload);
+    assert!(rendered.contains("## Goals\n- Refactor compactor"));
+    assert!(rendered.contains("## Key Decisions\n- Use Rig ExtractorBuilder"));
+    assert!(rendered.contains("## Completed Work\n- Defined schema"));
+    assert!(rendered.contains("## Active Files\n- src/lib.rs"));
+    assert!(rendered.contains("## Open Questions\n- Verify fallback"));
+    assert_eq!(rendered, payload.render_markdown());
+
+    let empty_payload = CompactionSummaryPayload::default();
+    let empty_rendered = render_compaction_payload(&empty_payload);
+    assert!(empty_rendered.contains("## Goals\n- (none)"));
+    assert!(empty_rendered.contains("## Key Decisions\n- (none)"));
+    assert!(empty_rendered.contains("## Completed Work\n- (none)"));
+    assert!(empty_rendered.contains("## Active Files\n- (none)"));
+    assert!(empty_rendered.contains("## Open Questions\n- (none)"));
+}

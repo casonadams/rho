@@ -12,10 +12,12 @@ pub use files::{extract_file_ops, normalize_path, render_file_lists_xml};
 pub use prompts::{
     SUMMARIZATION_PROMPT, SUMMARIZATION_SYSTEM_PROMPT, TURN_PREFIX_SUMMARIZATION_PROMPT, UPDATE_SUMMARIZATION_PROMPT,
     build_summarization_prompt, build_turn_prefix_prompt, build_update_summarization_prompt,
-    compose_compaction_summary, merge_split_turn_summary,
+    compose_compaction_summary, merge_split_turn_summary, render_compaction_payload,
 };
 pub use serialize::{MAX_TOOL_RESULT_CHARS, serialize_conversation};
-pub use types::{CompactionCut, CompactionDetails, CompactionMetadata, compaction_summary_message};
+pub use types::{
+    CompactionCut, CompactionDetails, CompactionMetadata, CompactionSummaryPayload, compaction_summary_message,
+};
 
 use super::SessionManager;
 use super::format::{SessionRecord, append_durable_record};
