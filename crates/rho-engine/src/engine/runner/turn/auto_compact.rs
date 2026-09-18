@@ -147,6 +147,7 @@ impl AutoCompactHook {
                     prior_summary: None,
                     custom_instructions: None,
                     is_split_turn: cut.is_split_turn,
+                    structured: false,
                 },
             )
             .await;

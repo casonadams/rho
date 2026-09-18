@@ -233,6 +233,7 @@ impl SessionCompactor {
                     prior_summary,
                     custom_instructions,
                     is_split_turn,
+                    structured: false,
                 },
             )
             .await

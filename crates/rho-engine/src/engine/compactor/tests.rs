@@ -160,6 +160,105 @@ mod compactor {
     }
 
     #[tokio::test]
+    async fn test_llm_compactor_structured_extract_and_render() {
+        let mock = MockCompletionModel::new([MockTurn::tool_call(
+            "1",
+            "submit",
+            serde_json::json!({
+                "goals": ["Build fast CLI"],
+                "decisions": ["Use Rust"],
+                "completed": ["Scaffolded repo"],
+                "active_files": ["src/main.rs"],
+                "open_questions": ["Add tests"],
+            }),
+        )]);
+        let handle = ModelHandle::new(mock);
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let messages = vec![
+            Message::user("Please build fast CLI"),
+            Message::assistant("I scaffolded the repo"),
+        ];
+
+        let summary = compactor
+            .summarize(
+                &messages,
+                SummarizeOptions {
+                    structured: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(summary.contains("## Goals\n- Build fast CLI"));
+        assert!(summary.contains("## Key Decisions\n- Use Rust"));
+        assert!(summary.contains("## Completed Work\n- Scaffolded repo"));
+        assert!(summary.contains("## Active Files\n- src/main.rs"));
+        assert!(summary.contains("## Open Questions\n- Add tests"));
+    }
+
+    #[tokio::test]
+    async fn test_llm_compactor_invalid_extraction_falls_back_to_completion() {
+        let mock = MockCompletionModel::new([
+            MockTurn::tool_call(
+                "1",
+                "submit",
+                serde_json::json!({
+                    "goals": 12345,
+                }),
+            ),
+            MockTurn::text("## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item"),
+        ]);
+        let handle = ModelHandle::new(mock);
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let messages = vec![Message::user("Please test fallback"), Message::assistant("Will do")];
+
+        let summary = compactor
+            .summarize(
+                &messages,
+                SummarizeOptions {
+                    structured: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert_eq!(
+            summary,
+            "## Goal\nFallback completion goal\n\n## Progress\n### Done\n- [x] Done item"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_llm_compactor_completion_failure_falls_back_to_deterministic_summary() {
+        let mock = MockCompletionModel::new([
+            MockTurn::text("non-json text causing extraction failure"),
+            MockTurn::text(""),
+        ]);
+        let handle = ModelHandle::new(mock);
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let messages = vec![
+            Message::user("Critical task to summarize"),
+            Message::assistant("Work in progress"),
+        ];
+
+        let summary = compactor
+            .summarize(
+                &messages,
+                SummarizeOptions {
+                    structured: true,
+                    ..Default::default()
+                },
+            )
+            .await;
+
+        assert!(summary.contains("## Goal\nCritical task to summarize"));
+        assert!(summary.contains("## Progress\n### Done"));
+    }
+
+    #[tokio::test]
     async fn test_llm_compactor_update_with_prior_summary() {
         let mock = MockCompletionModel::text("## Goal\nUpdated goal");
         let handle = ModelHandle::new(mock.clone());
@@ -178,6 +277,7 @@ mod compactor {
                     prior_summary: Some(prior),
                     custom_instructions: Some("Focus on tests"),
                     is_split_turn: false,
+                    structured: false,
                 },
             )
             .await;

@@ -3,7 +3,7 @@ use rig::message::Message;
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
-    SUMMARIZATION_SYSTEM_PROMPT, build_summarization_prompt, build_turn_prefix_prompt,
+    CompactionSummaryPayload, SUMMARIZATION_SYSTEM_PROMPT, build_summarization_prompt, build_turn_prefix_prompt,
     build_update_summarization_prompt, generate_fallback_summary, merge_split_turn_summary, serialize_conversation,
 };
 use rho_harness_core::tokens::is_user_turn_start;
@@ -17,6 +17,7 @@ pub struct SummarizeOptions<'a> {
     pub prior_summary: Option<&'a str>,
     pub custom_instructions: Option<&'a str>,
     pub is_split_turn: bool,
+    pub structured: bool,
 }
 
 async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Option<String> {
@@ -92,6 +93,12 @@ impl LlmCompactor {
             Some(prior) => build_update_summarization_prompt(&transcript, prior, options.custom_instructions),
             None => build_summarization_prompt(&transcript, options.custom_instructions),
         };
+
+        if options.structured
+            && let Some(payload) = self.extract::<CompactionSummaryPayload>(&prompt).await
+        {
+            return payload.render_markdown();
+        }
 
         if let Some(summary) = self.complete(&prompt).await {
             summary
