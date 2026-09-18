@@ -156,3 +156,20 @@ pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
 pub fn estimate_messages_tokens(messages: &[Message], model: &str) -> usize {
     messages.iter().map(|msg| estimate_message_tokens(msg, model)).sum()
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct BpeTokenCounter {
+    model: String,
+}
+
+impl BpeTokenCounter {
+    pub fn new(model: impl Into<String>) -> Self {
+        Self { model: model.into() }
+    }
+}
+
+impl rig_memory::TokenCounter for BpeTokenCounter {
+    fn count(&self, message: &Message) -> usize {
+        estimate_message_tokens(message, &self.model)
+    }
+}

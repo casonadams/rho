@@ -116,3 +116,43 @@ fn context_window_size_is_provider_aware_for_gpt_6_astra() {
     assert_eq!(context_window_size_for_provider("gpt-6-astra", "openai"), 1_050_000);
     assert_eq!(context_window_size_for_provider("gpt-6-astra", "chatgpt"), 372_000);
 }
+
+#[test]
+fn test_bpe_token_counter_matches_estimate_message_tokens() {
+    use rig_memory::TokenCounter;
+
+    let model = "gpt-4";
+    let counter = BpeTokenCounter::new(model);
+
+    let messages = [
+        Message::system("System instructions for testing"),
+        Message::user("Hello user prompt"),
+        Message::assistant("Hello assistant response"),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(ToolCall::new(
+                ToolCallId::new_or_mint("call-1"),
+                ToolFunction::new("read".to_string(), serde_json::json!({"path": "file.txt"})),
+            ))],
+        },
+        Message::User {
+            content: vec![UserContent::ToolResult(ToolResult {
+                call: ToolCallId::new_or_mint("call-1"),
+                provider: None,
+                name: "read".to_string(),
+                content: vec![ToolResultContent::Text(rig::message::Text::new("file contents"))],
+            })],
+        },
+    ];
+
+    for msg in &messages {
+        let expected = estimate_message_tokens(msg, model);
+        assert_eq!(counter.count(msg), expected);
+    }
+
+    let default_counter = BpeTokenCounter::default();
+    let text_msg = Message::user("Another test message");
+    assert_eq!(default_counter.count(&text_msg), estimate_message_tokens(&text_msg, ""));
+
+    let _policy = rig_memory::TokenWindowMemory::new(1000, counter);
+}
