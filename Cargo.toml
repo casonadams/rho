@@ -7,6 +7,10 @@ members = [
     "crates/rho-wasm",
 ]
 
+[workspace.lints.rust]
+# Apple ld warns when __eh_frame exceeds Mach-O's 16MB compact-unwind table limit in dev builds.
+linker_messages = "allow"
+
 [workspace.lints.clippy]
 too_many_lines = "warn"
 cognitive_complexity = "warn"
