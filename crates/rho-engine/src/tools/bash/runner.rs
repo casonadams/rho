@@ -159,6 +159,18 @@ fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccu
     if status.success() {
         let res = if output.is_empty() {
             "[Command completed with exit code 0 (no output)]".to_string()
+        } else if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
+            let log_path = snapshot
+                .full_output_path
+                .as_ref()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|| "temp log".to_string());
+            let lines = snapshot.truncation.total_lines;
+            let size = crate::tools::truncate::format_size(snapshot.truncation.total_bytes);
+            format!(
+                "{}\n\n[Command completed successfully with exit code 0 ({lines} lines, {size}). Full log: {log_path}]",
+                snapshot.formatted_text
+            )
         } else {
             snapshot.formatted_text
         };

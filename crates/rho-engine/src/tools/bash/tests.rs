@@ -63,6 +63,25 @@ fn test_output_accumulator_creates_temp_file_when_truncated() {
 }
 
 #[test]
+fn test_output_accumulator_creates_temp_file_when_lines_exceed_threshold() {
+    let mut acc = OutputAccumulator::new();
+    for i in 1..=20 {
+        acc.append(format!("line {i}\n").as_bytes());
+    }
+    acc.finish();
+
+    let snap = acc.snapshot();
+    assert!(!snap.truncation.truncated);
+    assert!(snap.full_output_path.is_some());
+    let path = snap.full_output_path.unwrap();
+    assert!(path.exists());
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert!(content.contains("line 1\n"));
+    assert!(content.contains("line 20\n"));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn test_output_accumulator_preserves_ansi_escapes_split_across_chunks() {
     let mut acc = OutputAccumulator::new();
     acc.append(b"starting \x1b[4");
@@ -303,4 +322,38 @@ async fn test_bash_sanitizes_cargo_environment_variables() {
 
     assert!(!res.is_error);
     assert!(res.content.contains("PKG=;DIR=;OUT="));
+}
+
+#[tokio::test]
+async fn test_bash_exit_zero_over_threshold_includes_metadata_footer() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "seq 1 25".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(
+        res.content
+            .contains("[Command completed successfully with exit code 0 (25 lines,")
+    );
+    assert!(res.content.contains("Full log:"));
+}
+
+#[tokio::test]
+async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "seq 1 5".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(!res.content.contains("Command completed successfully with exit code 0"));
 }

@@ -1,6 +1,7 @@
 mod auto_compact;
 mod completion;
 mod prepare;
+pub(crate) mod prune;
 mod stream;
 mod streaming_tool;
 mod tool_hook;

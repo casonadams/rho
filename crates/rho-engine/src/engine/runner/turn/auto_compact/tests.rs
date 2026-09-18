@@ -236,6 +236,67 @@ async fn test_mid_run_auto_compaction_falls_back_to_ephemeral_summary_with_pendi
     );
 }
 
+#[tokio::test]
+async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        50,
+    );
+
+    let output = (1..=30)
+        .map(|i| format!("cargo build line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let output_with_footer = format!(
+        "{output}\n\n[Command completed successfully with exit code 0 (30 lines, 600B). Full log: /tmp/log.txt]"
+    );
+
+    let call = rig::message::ToolCall::new(
+        rig::message::ToolCallId::new_or_mint("c1"),
+        rig::message::ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo build" })),
+    );
+    let res = rig::message::ToolResult {
+        call: rig::message::ToolCallId::new_or_mint("c1"),
+        provider: None,
+        name: "bash".to_string(),
+        content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(
+            output_with_footer,
+        ))],
+    };
+
+    let history = vec![
+        Message::user("Please build"),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(call)],
+        },
+        Message::User {
+            content: vec![UserContent::ToolResult(res)],
+        },
+        Message::assistant("Build completed successfully"),
+        Message::user("Now run tests"),
+    ];
+
+    let action = hook.handle(&history, &Message::user("latest prompt")).await;
+    match action {
+        CompletionCallAction::Patch(patch) => {
+            let patched = patch.history.expect("patch supplies history");
+            assert_eq!(patched.len(), 5);
+            let text = as_text_of(&patched[2]);
+            assert!(text.contains("[Command 'cargo build' completed with exit code 0. Output pruned (30 lines, 600B). Full log: /tmp/log.txt]"));
+        }
+        other => panic!("expected history patch with pruned bash output, got {other:?}"),
+    }
+}
+
 fn as_text_of(message: &Message) -> String {
     match message {
         Message::User { content } => content

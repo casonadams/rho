@@ -67,9 +67,14 @@ impl AgentEngine {
     }
 
     async fn load_initial_history(&self) -> Result<Vec<Message>> {
-        ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
+        let raw = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
             .await
-            .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))
+            .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
+        Ok(super::prune::prune_historical_tool_outputs(
+            &raw,
+            1,
+            super::prune::DEFAULT_PRUNE_LINE_THRESHOLD,
+        ))
     }
 
     async fn check_turn_proactive_compaction(

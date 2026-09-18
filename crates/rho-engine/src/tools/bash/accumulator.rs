@@ -5,6 +5,8 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
+pub const BASH_PRUNE_LINE_THRESHOLD: usize = 15;
+
 #[derive(Debug, Clone)]
 pub struct OutputSnapshot {
     pub content: String,
@@ -184,7 +186,9 @@ impl OutputAccumulator {
     }
 
     fn should_use_temp_file(&self) -> bool {
-        self.total_raw_bytes > self.max_bytes || self.total_lines > self.max_lines
+        self.total_raw_bytes > self.max_bytes
+            || self.total_lines > self.max_lines
+            || self.total_lines > BASH_PRUNE_LINE_THRESHOLD
     }
 
     fn ensure_temp_file(&mut self) {

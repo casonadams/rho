@@ -185,14 +185,19 @@ impl AgentHook for AutoCompactHook {
 
 impl AutoCompactHook {
     async fn handle(&self, history: &[Message], prompt: &Message) -> CompletionCallAction {
+        let pruned =
+            super::prune::prune_historical_tool_outputs(history, 1, super::prune::DEFAULT_PRUNE_LINE_THRESHOLD);
+        let was_pruned = pruned != history;
+        let effective_history = if was_pruned { &pruned } else { history };
+
         let tripped = {
             let mut state = self.state.lock().unwrap();
-            state.base_len.get_or_insert(history.len());
+            state.base_len.get_or_insert(effective_history.len());
             state.tripped
         };
         if !tripped {
             let window = context_window(self.model_name(), &self.provider, self.context);
-            let mut messages = estimated_tokens(history, self.model_name());
+            let mut messages = estimated_tokens(effective_history, self.model_name());
             messages = messages
                 .saturating_add(estimate_message_tokens(prompt, self.model_name()))
                 .max(
@@ -202,8 +207,8 @@ impl AutoCompactHook {
                         .unwrap_or(0),
                 );
             if should_compact(messages, window, self.reserve_tokens) {
-                let base_len = self.state.lock().unwrap().base_len.unwrap_or(history.len());
-                let plan = self.compact_and_plan(history, base_len).await;
+                let base_len = self.state.lock().unwrap().base_len.unwrap_or(effective_history.len());
+                let plan = self.compact_and_plan(effective_history, base_len).await;
                 let mut state = self.state.lock().unwrap();
                 state.tripped = true;
                 state.patch = plan;
@@ -211,10 +216,11 @@ impl AutoCompactHook {
         }
         let replacement = {
             let state = self.state.lock().unwrap();
-            state.patch.as_ref().map(|plan| plan.apply(history))
+            state.patch.as_ref().map(|plan| plan.apply(effective_history))
         };
         match replacement {
             Some(replacement) => CompletionCallAction::patch(RequestPatch::new().history(replacement)),
+            None if was_pruned => CompletionCallAction::patch(RequestPatch::new().history(pruned)),
             None => CompletionCallAction::continue_run(),
         }
     }
