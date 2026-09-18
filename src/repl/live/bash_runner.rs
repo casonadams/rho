@@ -1,26 +1,239 @@
-mod command;
-mod format;
-mod progress;
-
-pub use format::UserBashResult;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
 
 use crossterm::event::Event;
+use rho_engine::process::{ProcessTreeGuard, isolate_group};
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
-use std::time::Instant;
-
-use command::RunningCommand;
-use format::{BashOutcome, finalize_run, finish_bash_result};
-use progress::StreamProgress;
+use tokio::io::AsyncReadExt;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::task::JoinHandle;
 
 use super::LiveIo;
-use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVALS};
 use crate::error::Result;
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{InputAction, map_key};
+use crate::ui::interactive::{Activity, InputAction, TerminalBackend, TerminalController, map_key};
 
-type UiEvents = tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>;
-type ChunkRx = tokio::sync::mpsc::UnboundedReceiver<String>;
+const STREAM_REDRAW_INTERVAL: Duration = Duration::from_millis(50);
+
+pub struct UserBashResult {
+    pub output: String,
+    pub is_cancelled: bool,
+    pub is_error: bool,
+}
+
+struct BashOutcome {
+    pub exit_code: Option<i32>,
+    pub duration_ms: u64,
+    pub args_val: serde_json::Value,
+}
+
+struct RunningCommand {
+    pub guard: ProcessTreeGuard,
+    pub stdout_task: JoinHandle<()>,
+    pub stderr_task: JoinHandle<()>,
+}
+
+impl RunningCommand {
+    fn spawn(cmd: &str) -> std::io::Result<(Self, UnboundedReceiver<String>)> {
+        let mut command = configure_shell_command(cmd);
+        let mut child = command.spawn()?;
+        let stdout = child.stdout.take().expect("stdout piped");
+        let stderr = child.stderr.take().expect("stderr piped");
+        let guard = ProcessTreeGuard::new(child);
+        let (chunk_tx, chunk_rx) = tokio::sync::mpsc::unbounded_channel();
+        let stdout_task = spawn_stream_reader(stdout, chunk_tx.clone());
+        let stderr_task = spawn_stream_reader(stderr, chunk_tx);
+        Ok((
+            Self {
+                guard,
+                stdout_task,
+                stderr_task,
+            },
+            chunk_rx,
+        ))
+    }
+
+    async fn cancel(&mut self) {
+        self.stdout_task.abort();
+        self.stderr_task.abort();
+        self.guard.kill().await;
+    }
+
+    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
+        self.guard.wait().await
+    }
+
+    async fn drain_tasks(&mut self) {
+        let _ = (&mut self.stdout_task).await;
+        let _ = (&mut self.stderr_task).await;
+    }
+}
+
+fn configure_shell_command(cmd: &str) -> tokio::process::Command {
+    let mut command = rho_engine::tools::bash::resolve_shell_command(cmd);
+    command.stdin(Stdio::null());
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    command.kill_on_drop(true);
+    command.env("CI", "true");
+    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.env("PAGER", "cat");
+    isolate_group(&mut command);
+    command
+}
+
+fn spawn_stream_reader<R: AsyncReadExt + Unpin + Send + 'static>(
+    mut reader: R,
+    tx: UnboundedSender<String>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = reader.read(&mut buf).await {
+            if n == 0 || tx.send(String::from_utf8_lossy(&buf[..n]).to_string()).is_err() {
+                break;
+            }
+        }
+    })
+}
+
+struct StreamProgress {
+    spinner_tick: usize,
+    last_redraw: Instant,
+    needs_redraw: bool,
+}
+
+impl StreamProgress {
+    fn new() -> Self {
+        Self {
+            spinner_tick: 0,
+            last_redraw: Instant::now(),
+            needs_redraw: false,
+        }
+    }
+
+    fn on_chunk(&mut self) -> bool {
+        self.needs_redraw = true;
+        if self.last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
+            self.last_redraw = Instant::now();
+            self.needs_redraw = false;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn on_tick<B: TerminalBackend>(&mut self, controller: &mut TerminalController<B>) -> bool {
+        self.spinner_tick += 1;
+        let spinner_advanced = if self.spinner_tick >= SPINNER_FRAME_INTERVALS {
+            self.spinner_tick = 0;
+            controller.advance_spinner();
+            !matches!(controller.state().footer().activity, Activity::Idle)
+        } else {
+            false
+        };
+        if self.needs_redraw && self.last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
+            self.needs_redraw = false;
+            self.last_redraw = Instant::now();
+            true
+        } else {
+            spinner_advanced
+        }
+    }
+}
+
+fn finalize_run(
+    chunk_rx: &mut UnboundedReceiver<String>,
+    accumulator: &mut OutputAccumulator,
+    renderer: &TerminalRenderer,
+) -> OutputSnapshot {
+    while let Ok(chunk) = chunk_rx.try_recv() {
+        accumulator.append(chunk.as_bytes());
+        renderer.tool_chunk(&chunk);
+    }
+    accumulator.finish();
+    accumulator.snapshot()
+}
+
+fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, code: i32) -> (ToolLine, UserBashResult) {
+    let is_error = code != 0;
+    let output = format_bash_output(snapshot, code);
+    let summary = if is_error {
+        format!("exit {code}")
+    } else {
+        "completed".to_string()
+    };
+    (
+        ToolLine {
+            name: "bash".to_string(),
+            arguments: outcome.args_val,
+            is_error,
+            output: output.clone(),
+            output_summary: summary,
+            duration_ms: Some(outcome.duration_ms),
+        },
+        UserBashResult {
+            output,
+            is_cancelled: false,
+            is_error,
+        },
+    )
+}
+
+fn cancelled_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
+    let output = format_cancel_output(snapshot);
+    (
+        ToolLine {
+            name: "bash".to_string(),
+            arguments: outcome.args_val,
+            is_error: true,
+            output: output.clone(),
+            output_summary: "(cancelled)".to_string(),
+            duration_ms: Some(outcome.duration_ms),
+        },
+        UserBashResult {
+            output,
+            is_cancelled: true,
+            is_error: true,
+        },
+    )
+}
+
+fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
+    match outcome.exit_code {
+        Some(code) => completed_bash_result(snapshot, outcome, code),
+        None => cancelled_bash_result(snapshot, outcome),
+    }
+}
+
+fn format_bash_output(snapshot: &OutputSnapshot, exit_code: i32) -> String {
+    let output_trimmed = snapshot.formatted_text.trim();
+    if exit_code != 0 {
+        let status_msg = format!("Command exited with code {exit_code}");
+        if output_trimmed.is_empty() {
+            status_msg
+        } else {
+            format!("{output_trimmed}\n\n{status_msg}")
+        }
+    } else if output_trimmed.is_empty() {
+        "[Command completed with exit code 0 (no output)]".to_string()
+    } else {
+        snapshot.formatted_text.clone()
+    }
+}
+
+fn format_cancel_output(snapshot: &OutputSnapshot) -> String {
+    let output_trimmed = snapshot.formatted_text.trim();
+    if output_trimmed.is_empty() {
+        "(cancelled)".to_string()
+    } else {
+        format!("{output_trimmed}\n(cancelled)")
+    }
+}
+
+type UiEvents = UnboundedReceiver<crate::ui::interactive::UiEvent>;
+type ChunkRx = UnboundedReceiver<String>;
 
 struct StreamBuffers {
     chunk_rx: ChunkRx,
@@ -33,14 +246,14 @@ struct SpawnOutcome {
     duration_ms: u64,
 }
 
-struct BashRun<'a, B: crate::ui::interactive::TerminalBackend> {
+struct BashRun<'a, B: TerminalBackend> {
     renderer: &'a TerminalRenderer,
-    controller: &'a mut crate::ui::interactive::TerminalController<B>,
+    controller: &'a mut TerminalController<B>,
     batch: LiveBatch,
     events: &'a mut UiEvents,
 }
 
-impl<B: crate::ui::interactive::TerminalBackend> BashRun<'_, B> {
+impl<B: TerminalBackend> BashRun<'_, B> {
     fn drain_and_flush(&mut self, spinner: bool) -> Result<()> {
         self.batch.drain_events(self.controller, self.events)?;
         self.batch.flush(self.controller, spinner)
@@ -135,7 +348,7 @@ fn exit_code_of(res: std::io::Result<std::process::ExitStatus>) -> Option<i32> {
     Some(res.ok().and_then(|s| s.code()).unwrap_or(-1))
 }
 
-struct BashStreamState<'a, 'b, B: crate::ui::interactive::TerminalBackend> {
+struct BashStreamState<'a, 'b, B: TerminalBackend> {
     run: &'a mut BashRun<'b, B>,
     running: RunningCommand,
     stream: StreamBuffers,
@@ -146,7 +359,7 @@ struct BashStreamState<'a, 'b, B: crate::ui::interactive::TerminalBackend> {
     exit: Option<Option<i32>>,
 }
 
-impl<B: crate::ui::interactive::TerminalBackend> BashStreamState<'_, '_, B> {
+impl<B: TerminalBackend> BashStreamState<'_, '_, B> {
     fn outcome(&self, exit_code: Option<i32>) -> BashOutcome {
         BashOutcome {
             exit_code,
@@ -240,9 +453,12 @@ impl<B: crate::ui::interactive::TerminalBackend> BashStreamState<'_, '_, B> {
     }
 }
 
-async fn spawn_failure<B: crate::ui::interactive::TerminalBackend>(
+async fn spawn_failure<B: TerminalBackend>(
     run: &mut BashRun<'_, B>,
-    (cmd, e, args_val, started): (&str, &std::io::Error, serde_json::Value, Instant),
+    cmd: &str,
+    e: &std::io::Error,
+    args_val: serde_json::Value,
+    started: Instant,
 ) -> Result<UserBashResult> {
     let outcome = SpawnOutcome {
         args_val,
@@ -265,10 +481,13 @@ async fn spawn_failure<B: crate::ui::interactive::TerminalBackend>(
     })
 }
 
-fn build_stream_state<'a, 'b, B: crate::ui::interactive::TerminalBackend>(
+fn build_stream_state<'a, 'b, B: TerminalBackend>(
     run: &'a mut BashRun<'b, B>,
-    (running, chunk_rx): (RunningCommand, ChunkRx),
-    (input, started, args_val): (&'a mut super::TerminalInputReader, Instant, serde_json::Value),
+    running: RunningCommand,
+    chunk_rx: ChunkRx,
+    input: &'a mut super::TerminalInputReader,
+    started: Instant,
+    args_val: serde_json::Value,
 ) -> BashStreamState<'a, 'b, B> {
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -288,7 +507,7 @@ fn build_stream_state<'a, 'b, B: crate::ui::interactive::TerminalBackend>(
     }
 }
 
-pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
+pub async fn run_user_bash<B: TerminalBackend>(
     cmd: &str,
     renderer: &TerminalRenderer,
     io: &mut LiveIo<'_, B>,
@@ -306,12 +525,12 @@ pub async fn run_user_bash<B: crate::ui::interactive::TerminalBackend>(
 
     let (running, chunk_rx) = match RunningCommand::spawn(cmd) {
         Ok(res) => res,
-        Err(e) => return spawn_failure(&mut run, (cmd, &e, args_val, started)).await,
+        Err(e) => return spawn_failure(&mut run, cmd, &e, args_val, started).await,
     };
 
     run.drain_and_flush(true)?;
 
-    let mut state = build_stream_state(&mut run, (running, chunk_rx), (io.input, started, args_val));
+    let mut state = build_stream_state(&mut run, running, chunk_rx, io.input, started, args_val);
     let exit_code = state.stream_until_exit().await?;
     state.finish(exit_code).await
 }

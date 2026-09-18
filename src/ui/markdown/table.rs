@@ -1,11 +1,12 @@
-//! Markdown table layout, cell wrapping, and borders.
+//! Markdown table parsing, column constraints, and layout.
 
-use crate::ui::theme::Theme;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-pub(super) const MIN_COLUMN_WIDTH: usize = 5;
+use crate::ui::theme::Theme;
 
-pub(super) struct TableFormat<'a> {
+const MIN_COLUMN_WIDTH: usize = 5;
+
+struct TableFormat<'a> {
     pub widths: &'a [usize],
     pub theme: &'a Theme,
 }
@@ -56,7 +57,7 @@ impl TableFormat<'_> {
     }
 }
 
-pub(super) fn constrain_column_widths(widths: &mut [usize], available: usize) {
+fn constrain_column_widths(widths: &mut [usize], available: usize) {
     while widths.iter().sum::<usize>() > available {
         let Some((index, _)) = widths.iter().enumerate().max_by_key(|(_, width)| *width) else {
             return;
@@ -68,7 +69,7 @@ pub(super) fn constrain_column_widths(widths: &mut [usize], available: usize) {
     }
 }
 
-pub(super) fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
+fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines = Vec::new();
     let mut current = String::new();
@@ -156,7 +157,7 @@ pub(super) fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
     lines
 }
 
-pub(super) fn render_compact_table(rows: &[Vec<String>], header_end: usize, width: usize) -> String {
+fn render_compact_table(rows: &[Vec<String>], header_end: usize, width: usize) -> String {
     let bold = anstyle::Style::new().bold();
     let mut output = String::new();
     for (index, row) in rows.iter().enumerate() {
@@ -173,11 +174,89 @@ pub(super) fn render_compact_table(rows: &[Vec<String>], header_end: usize, widt
     output
 }
 
-pub(super) fn render_table_fallback(lines: &[String], theme: &Theme) -> String {
+fn render_table_fallback(lines: &[String], theme: &Theme) -> String {
     let mut output = String::new();
     for line in lines {
-        output.push_str(&super::super::elements::render_inline_elements(line, theme));
+        output.push_str(&super::elements::render_inline_elements(line, theme));
         output.push('\n');
     }
     output
+}
+
+pub fn is_table_line(trimmed: &str) -> bool {
+    (trimmed.starts_with('|') && trimmed.ends_with('|') && trimmed.len() >= 2) || is_table_divider(trimmed)
+}
+
+pub fn is_table_divider(line: &str) -> bool {
+    let stripped: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+    stripped.starts_with('|')
+        && stripped.ends_with('|')
+        && stripped.len() >= 3
+        && stripped.contains('-')
+        && stripped.chars().all(|c| matches!(c, '|' | '-' | ':'))
+}
+
+pub fn render_markdown_table(lines: &[String], theme: &Theme) -> String {
+    let width = crossterm::terminal::size()
+        .map(|(cols, _)| usize::from(cols.saturating_sub(2)).max(40))
+        .unwrap_or(78);
+    render_markdown_table_at_width(lines, theme, width)
+}
+
+fn parse_table_rows(lines: &[String]) -> Vec<Vec<String>> {
+    lines
+        .iter()
+        .filter(|line| !is_table_divider(line.trim()))
+        .map(|line| {
+            line.trim()
+                .trim_matches('|')
+                .split('|')
+                .map(|cell| strip_markdown_decorations(cell.trim()))
+                .collect()
+        })
+        .collect()
+}
+
+fn compute_column_widths(rows: &[Vec<String>], col_count: usize, max_budget: usize) -> Vec<usize> {
+    let mut widths = vec![MIN_COLUMN_WIDTH; col_count];
+    for row in rows {
+        for (col, cell) in row.iter().enumerate() {
+            widths[col] = widths[col].max(UnicodeWidthStr::width(cell.as_str()));
+        }
+    }
+    constrain_column_widths(&mut widths, max_budget);
+    widths
+}
+
+fn format_table_output(table: &TableFormat<'_>, rows: &[Vec<String>], divider_index: usize) -> String {
+    let mut out = format!("{}\n", table.border('╭', '┬', '╮'));
+    for (idx, row) in rows.iter().enumerate() {
+        out.push_str(&table.row(row, idx < divider_index));
+        if idx + 1 < rows.len() {
+            out.push_str(&format!("{}\n", table.border('├', '┼', '┤')));
+        }
+    }
+    out.push_str(&format!("{}\n", table.border('╰', '┴', '╯')));
+    out
+}
+
+pub(crate) fn render_markdown_table_at_width(lines: &[String], theme: &Theme, width: usize) -> String {
+    let Some(divider_index) = lines.iter().position(|line| is_table_divider(line.trim())) else {
+        return render_table_fallback(lines, theme);
+    };
+    let rows = parse_table_rows(lines);
+    let col_count = rows.iter().map(Vec::len).max().unwrap_or(0);
+    if col_count == 0 {
+        return String::new();
+    }
+    let overhead = col_count * 3 + 1;
+    if width < overhead + col_count * MIN_COLUMN_WIDTH {
+        return render_compact_table(&rows, divider_index, width);
+    }
+    let widths = compute_column_widths(&rows, col_count, width - overhead);
+    format_table_output(&TableFormat { widths: &widths, theme }, &rows, divider_index)
+}
+
+pub fn strip_markdown_decorations(s: &str) -> String {
+    s.replace("**", "").replace(['*', '`'], "").trim().to_string()
 }

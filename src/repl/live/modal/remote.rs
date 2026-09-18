@@ -26,27 +26,26 @@ pub fn handle_remote_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match (key.modifiers, key.code) {
-        (KeyModifiers::NONE, KeyCode::Char('c' | 'C')) => {
-            let url = controller
-                .state()
-                .active_modal()
-                .map(|m| m.body.clone())
-                .unwrap_or_default();
-            controller.state_mut().pop_modal();
-            if !url.is_empty() {
-                let _ = crate::platform::clipboard::set_text(&url);
-                controller.set_system_message("Copied pairing URL to clipboard");
-            }
+    if matches!(
+        (key.modifiers, key.code),
+        (KeyModifiers::NONE, KeyCode::Char('c' | 'C'))
+    ) {
+        let url = controller
+            .state()
+            .active_modal()
+            .map(|m| m.body.clone())
+            .unwrap_or_default();
+        super::pop_and_cancel(controller)?;
+        if !url.is_empty() {
+            let _ = crate::platform::clipboard::set_text(&url);
+            controller.set_system_message("Copied pairing URL to clipboard");
             controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
         }
-        (KeyModifiers::NONE, KeyCode::Esc) | (KeyModifiers::CONTROL, KeyCode::Char('c' | 'C')) => {
-            controller.state_mut().pop_modal();
-            controller.redraw()?;
-            Ok(ModalKeyResult::Handled)
-        }
-        (KeyModifiers::NONE, KeyCode::Enter) => {
+        return Ok(ModalKeyResult::Handled);
+    }
+
+    match key.code {
+        KeyCode::Enter => {
             let selected = controller
                 .state()
                 .active_modal()
@@ -58,33 +57,23 @@ pub fn handle_remote_key<B: TerminalBackend>(
                 .active_modal()
                 .map(|m| m.body.clone())
                 .unwrap_or_default();
-            controller.state_mut().pop_modal();
-
-            if selected.starts_with("Copy Link") {
-                if !url.is_empty() {
-                    let _ = crate::platform::clipboard::set_text(&url);
-                    controller.set_system_message("Copied pairing URL to clipboard");
-                }
+            super::pop_and_cancel(controller)?;
+            if selected.starts_with("Copy Link") && !url.is_empty() {
+                let _ = crate::platform::clipboard::set_text(&url);
+                controller.set_system_message("Copied pairing URL to clipboard");
             } else if selected.starts_with("Show QR Code") && !url.is_empty() {
                 controller.set_system_message("Pairing QR code generated");
             }
             controller.redraw()?;
             Ok(ModalKeyResult::Handled)
         }
-        (KeyModifiers::NONE, KeyCode::Up | KeyCode::Char('k')) => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                modal.select_previous();
-            }
-            controller.redraw()?;
+        KeyCode::Esc => {
+            super::pop_and_cancel(controller)?;
             Ok(ModalKeyResult::Handled)
         }
-        (KeyModifiers::NONE, KeyCode::Down | KeyCode::Char('j')) => {
-            if let Some(modal) = controller.state_mut().active_modal_mut() {
-                modal.select_next();
-            }
-            controller.redraw()?;
+        _ => {
+            super::handle_selector_nav(controller, &key)?;
             Ok(ModalKeyResult::Handled)
         }
-        _ => Ok(ModalKeyResult::Handled),
     }
 }

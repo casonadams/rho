@@ -1,6 +1,6 @@
 use crate::error::Result;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 
 use super::ModalKeyResult;
 
@@ -81,36 +81,14 @@ pub fn open_help_selector<B: TerminalBackend>(controller: &mut TerminalControlle
     controller.state_mut().push_modal(modal);
 }
 
-fn extract_selected_command<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
-    let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let raw = opt.label.trim();
-    if raw.starts_with('/') {
-        Some(raw.to_string())
-    } else {
-        None
-    }
-}
-
 pub fn handle_help_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => {
-            let command = extract_selected_command(controller);
-            super::pop_and_cancel(controller)?;
-            Ok(match command {
-                Some(command) => ModalKeyResult::HelpCommandSelected { command },
-                None => ModalKeyResult::Handled,
-            })
-        }
-        KeyCode::Esc => {
-            super::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            super::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    super::dispatch_simple_selector(controller, key, |opt| {
+        let raw = opt.label.trim();
+        raw.starts_with('/').then(|| ModalKeyResult::HelpCommandSelected {
+            command: raw.to_string(),
+        })
+    })
 }

@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 
 use super::ModalKeyResult;
 
@@ -63,31 +63,13 @@ pub fn open_login_selector<B: TerminalBackend>(session: &ReplSession, controller
     controller.state_mut().push_modal(modal);
 }
 
-fn extract_selected_provider<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
-    let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    Some(opt.label.trim().to_string())
-}
-
 pub fn handle_login_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => {
-            let provider = extract_selected_provider(controller);
-            super::pop_and_cancel(controller)?;
-            Ok(match provider {
-                Some(provider) => ModalKeyResult::LoginProviderSelected { provider },
-                None => ModalKeyResult::Handled,
-            })
-        }
-        KeyCode::Esc => {
-            super::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            super::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    super::dispatch_simple_selector(controller, key, |opt| {
+        Some(ModalKeyResult::LoginProviderSelected {
+            provider: opt.label.trim().to_string(),
+        })
+    })
 }

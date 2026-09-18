@@ -44,15 +44,6 @@ fn delete_selected_session<B: TerminalBackend>(controller: &mut TerminalControll
     Ok(ModalKeyResult::SessionDeleted { session_id })
 }
 
-fn handle_session_enter<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    let selected = selected_session_id(controller);
-    super::pop_and_cancel(controller)?;
-    Ok(match selected {
-        Some(session_id) => ModalKeyResult::SessionSelected { session_id },
-        None => ModalKeyResult::Handled,
-    })
-}
-
 pub fn handle_session_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
@@ -60,15 +51,9 @@ pub fn handle_session_key<B: TerminalBackend>(
     if key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return delete_selected_session(controller);
     }
-    match key.code {
-        KeyCode::Enter => handle_session_enter(controller),
-        KeyCode::Esc => {
-            super::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            super::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    super::dispatch_simple_selector(controller, key, |opt| {
+        let desc = opt.description.as_deref().unwrap_or("");
+        let session_id = desc.split('\t').next().unwrap_or(desc).trim().to_string();
+        Some(ModalKeyResult::SessionSelected { session_id })
+    })
 }

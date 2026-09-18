@@ -151,6 +151,8 @@ pub(crate) fn handle_selector_nav<B: TerminalBackend>(
 ) -> Result<bool> {
     use crossterm::event::{KeyCode, KeyModifiers};
 
+    let is_searchable = controller.state().active_modal().is_some_and(|m| m.is_searchable);
+
     match key.code {
         KeyCode::Up | KeyCode::BackTab => {
             controller.state_mut().select_previous_modal_option();
@@ -167,7 +169,33 @@ pub(crate) fn handle_selector_nav<B: TerminalBackend>(
             controller.redraw()?;
             Ok(true)
         }
-        KeyCode::Backspace => {
+        KeyCode::Char('k') if !is_searchable && key.modifiers.is_empty() => {
+            controller.state_mut().select_previous_modal_option();
+            controller.redraw()?;
+            Ok(true)
+        }
+        KeyCode::Char('j') if !is_searchable && key.modifiers.is_empty() => {
+            controller.state_mut().select_next_modal_option();
+            controller.redraw()?;
+            Ok(true)
+        }
+        KeyCode::Char(c)
+            if !is_searchable
+                && c.is_ascii_digit()
+                && c != '0'
+                && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+        {
+            let idx = (c as usize).saturating_sub('1' as usize);
+            let count = controller.state().active_modal().map_or(0, |m| m.options.len());
+            if idx < count
+                && let Some(modal) = controller.state_mut().active_modal_mut()
+            {
+                modal.selected = idx;
+                controller.redraw()?;
+            }
+            Ok(true)
+        }
+        KeyCode::Backspace if is_searchable => {
             apply_filter(controller, None)?;
             Ok(true)
         }
@@ -175,11 +203,42 @@ pub(crate) fn handle_selector_nav<B: TerminalBackend>(
             clear_filter_or_cancel(controller)?;
             Ok(true)
         }
-        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+        KeyCode::Char(c) if is_searchable && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
             apply_filter(controller, Some(c))?;
             Ok(true)
         }
         _ => Ok(false),
+    }
+}
+
+pub(crate) fn dispatch_simple_selector<B: TerminalBackend, F>(
+    controller: &mut TerminalController<B>,
+    key: KeyEvent,
+    on_enter: F,
+) -> Result<ModalKeyResult>
+where
+    F: FnOnce(&crate::ui::interactive::ModalOption) -> Option<ModalKeyResult>,
+{
+    use crossterm::event::KeyCode;
+
+    match key.code {
+        KeyCode::Enter => {
+            let selected = controller
+                .state()
+                .active_modal()
+                .and_then(|m| m.selected_option())
+                .cloned();
+            pop_and_cancel(controller)?;
+            Ok(selected.as_ref().and_then(on_enter).unwrap_or(ModalKeyResult::Handled))
+        }
+        KeyCode::Esc => {
+            pop_and_cancel(controller)?;
+            Ok(ModalKeyResult::Handled)
+        }
+        _ => {
+            handle_selector_nav(controller, &key)?;
+            Ok(ModalKeyResult::Handled)
+        }
     }
 }
 

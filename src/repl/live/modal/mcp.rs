@@ -1,7 +1,7 @@
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::KeyEvent;
 
 use super::ModalKeyResult;
 
@@ -47,36 +47,14 @@ pub fn open_mcp_selector<B: TerminalBackend>(session: &ReplSession, controller: 
     controller.state_mut().push_modal(modal);
 }
 
-fn extract_selected_server<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<String> {
-    let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let raw = opt.label.trim();
-    if raw.eq_ignore_ascii_case("none") {
-        None
-    } else {
-        Some(raw.to_string())
-    }
-}
-
 pub fn handle_mcp_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    match key.code {
-        KeyCode::Enter => {
-            let server = extract_selected_server(controller);
-            super::pop_and_cancel(controller)?;
-            Ok(match server {
-                Some(server) => ModalKeyResult::McpServerToggled { server },
-                None => ModalKeyResult::Handled,
-            })
-        }
-        KeyCode::Esc => {
-            super::pop_and_cancel(controller)?;
-            Ok(ModalKeyResult::Handled)
-        }
-        _ => {
-            super::handle_selector_nav(controller, &key)?;
-            Ok(ModalKeyResult::Handled)
-        }
-    }
+    super::dispatch_simple_selector(controller, key, |opt| {
+        let raw = opt.label.trim();
+        (!raw.eq_ignore_ascii_case("none")).then(|| ModalKeyResult::McpServerToggled {
+            server: raw.to_string(),
+        })
+    })
 }

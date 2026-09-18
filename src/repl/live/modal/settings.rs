@@ -167,44 +167,6 @@ fn toggle_selected_setting<B: TerminalBackend>(
     }
 }
 
-fn pop_and_redraw_settings<B: TerminalBackend>(controller: &mut TerminalController<B>) -> Result<ModalKeyResult> {
-    controller.state_mut().pop_modal();
-    controller.redraw()?;
-    Ok(ModalKeyResult::Handled)
-}
-
-fn is_settings_exit(key: &KeyEvent) -> bool {
-    key.code == KeyCode::Esc || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
-}
-
-fn handle_digit_jump<B: TerminalBackend>(controller: &mut TerminalController<B>, c: char) {
-    let idx = (c as usize).saturating_sub('1' as usize);
-    let count = controller.state().active_modal().map_or(0, |m| m.options.len());
-    if idx < count
-        && let Some(modal) = controller.state_mut().active_modal_mut()
-    {
-        modal.selected = idx;
-    }
-}
-
-fn handle_arrow_nav<B: TerminalBackend>(controller: &mut TerminalController<B>, key: &KeyEvent) -> bool {
-    match key.code {
-        KeyCode::Up | KeyCode::BackTab | KeyCode::Char('k') => {
-            controller.state_mut().select_previous_modal_option();
-            true
-        }
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            controller.state_mut().select_previous_modal_option();
-            true
-        }
-        KeyCode::Down | KeyCode::Tab | KeyCode::Char('j') => {
-            controller.state_mut().select_next_modal_option();
-            true
-        }
-        _ => false,
-    }
-}
-
 fn handle_settings_action<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: &KeyEvent,
@@ -240,21 +202,15 @@ pub fn handle_settings_key<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: KeyEvent,
 ) -> Result<ModalKeyResult> {
-    if is_settings_exit(&key) {
-        return pop_and_redraw_settings(controller);
+    if key.code == KeyCode::Esc || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
+        super::pop_and_cancel(controller)?;
+        return Ok(ModalKeyResult::Handled);
     }
-    let mut result = ModalKeyResult::Handled;
-    if handle_arrow_nav(controller, &key) {
-        // Navigated option
-    } else if let KeyCode::Char(c) = key.code
-        && c.is_ascii_digit()
-        && c != '0'
-        && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-    {
-        handle_digit_jump(controller, c);
+    if super::handle_selector_nav(controller, &key)? {
+        Ok(ModalKeyResult::Handled)
     } else {
-        result = handle_settings_action(controller, &key);
+        let result = handle_settings_action(controller, &key);
+        controller.redraw()?;
+        Ok(result)
     }
-    controller.redraw()?;
-    Ok(result)
 }
