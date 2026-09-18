@@ -13,16 +13,11 @@ pub(crate) fn resolve_context_limit(config: &Config) -> Option<usize> {
     if let Some(limit) = config.context_limit {
         return Some(limit);
     }
-    if matches!(config.provider.as_str(), "local" | "ollama" | "ollama-cloud") {
-        let store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
-        let keys: &[&str] = if config.provider == "ollama-cloud" {
-            &["ollama-cloud"]
-        } else {
-            &["local", "ollama"]
-        };
-        store.context_tokens(keys, &config.model)
+    let store = crate::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+    if matches!(config.provider.as_str(), "local" | "ollama") {
+        store.context_tokens(&["local", "ollama"], &config.model)
     } else {
-        None
+        store.context_tokens(&[&config.provider], &config.model)
     }
 }
 

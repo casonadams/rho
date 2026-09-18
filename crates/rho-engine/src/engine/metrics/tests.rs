@@ -98,3 +98,17 @@ fn structural_metrics_contain_no_response_or_identity_content() {
     assert!(!encoded.contains("\"output\":"));
     assert!(!encoded.contains("message_id"));
 }
+
+#[test]
+fn format_tokens_powers_of_two_and_decimal() {
+    use super::types::format_tokens;
+
+    assert_eq!(format_tokens(262_144), "256k");
+    assert_eq!(format_tokens(131_072), "128k");
+    assert_eq!(format_tokens(65_536), "64k");
+    assert_eq!(format_tokens(32_768), "32k");
+    assert_eq!(format_tokens(1_048_576), "1M");
+    assert_eq!(format_tokens(128_000), "128k");
+    assert_eq!(format_tokens(200_000), "200k");
+    assert_eq!(format_tokens(1_000_000), "1M");
+}

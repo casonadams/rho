@@ -75,8 +75,9 @@ pub(crate) async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
     if let Ok(client) = builder.build()
         && let Ok(list) = client.list_models().await
     {
-        let models = map_rig_models(list.data, "local");
+        let mut models = map_rig_models(list.data, "local");
         if !models.is_empty() {
+            enrich_ollama_models(&host, &mut models).await;
             return Ok(models);
         }
     }
@@ -97,6 +98,48 @@ pub fn ollama_context_from_info(model_info: &serde_json::Map<String, serde_json:
         .iter()
         .find(|(key, _)| key.ends_with(".context_length"))
         .and_then(|(_, value)| value.as_u64().map(|n| n as usize))
+}
+
+pub(crate) fn parse_num_ctx(parameters: &str) -> Option<usize> {
+    for line in parameters.lines() {
+        let mut parts = line.split_whitespace();
+        if parts.next() == Some("num_ctx") {
+            return parts.next().and_then(|val| val.parse().ok());
+        }
+    }
+    None
+}
+
+async fn ollama_context_length(host: &str, model: &str) -> Option<usize> {
+    let endpoint = format!("{}/api/show", host.trim_end_matches('/'));
+    let resp = SHARED_HTTP_CLIENT
+        .post(&endpoint)
+        .json(&serde_json::json!({ "model": model }))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    if let Some(params) = body.get("parameters").and_then(|p| p.as_str())
+        && let Some(num_ctx) = parse_num_ctx(params)
+    {
+        return Some(num_ctx);
+    }
+    let model_info = body.get("model_info")?.as_object()?;
+    ollama_context_from_info(model_info)
+}
+
+async fn enrich_ollama_models(host: &str, models: &mut [DiscoveredModel]) {
+    let futures = models.iter().map(|m| ollama_context_length(host, &m.id));
+    let results = futures::future::join_all(futures).await;
+    for (model, ctx_opt) in models.iter_mut().zip(results) {
+        if let Some(ctx) = ctx_opt {
+            model.description = format_context_tokens(ctx);
+            model.context_tokens = Some(ctx);
+        }
+    }
 }
 
 pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {

@@ -23,6 +23,12 @@ impl TerminalStatus {
 pub fn format_tokens(count: u64) -> String {
     if count < 1_000 {
         count.to_string()
+    } else if count.is_power_of_two() {
+        if count >= 1024 * 1024 {
+            format!("{}M", count / (1024 * 1024))
+        } else {
+            format!("{}k", count / 1024)
+        }
     } else if count < 100_000 {
         format!("{:.1}k", count as f64 / 1_000.0)
     } else if count < 1_000_000 {

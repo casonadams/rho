@@ -25,15 +25,11 @@ fn append_active_model(models: &mut Vec<ModelItem>, config: &Config, store: &Mod
         .and_then(|m_list| m_list.iter().find(|m| m.id == config.model))
         .and_then(|m| m.context_tokens)
         .unwrap_or_else(|| rho_harness_core::tokens::context_window_size(&config.model));
-    let ctx_str = if active_ctx >= 1_000_000 {
-        format!("{}M ctx", active_ctx / 1_000_000)
-    } else {
-        format!("{}k ctx", active_ctx / 1000)
-    };
+    let ctx_desc = rho_engine::provider::discovery::format_context_tokens(active_ctx);
     models.push(ModelItem {
         id: config.model.clone(),
         provider: config.provider.clone(),
-        description: format!("{ctx_str} · active"),
+        description: format!("{ctx_desc} · active"),
     });
 }
 

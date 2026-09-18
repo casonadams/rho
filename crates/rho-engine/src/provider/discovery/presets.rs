@@ -7,7 +7,13 @@ pub(crate) fn format_context_desc(model_id: &str) -> String {
 }
 
 pub fn format_context_tokens(ctx: usize) -> String {
-    if ctx >= 1_000_000 {
+    if ctx.is_power_of_two() {
+        if ctx >= 1024 * 1024 {
+            format!("{}M ctx", ctx / (1024 * 1024))
+        } else {
+            format!("{}k ctx", ctx / 1024)
+        }
+    } else if ctx >= 1_000_000 {
         format!("{}M ctx", ctx / 1_000_000)
     } else {
         format!("{}k ctx", ctx / 1000)

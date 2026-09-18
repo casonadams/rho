@@ -68,6 +68,19 @@ fn test_format_context_tokens_megabytes_and_kilobytes() {
     assert_eq!(format_context_tokens(2_000_000), "2M ctx");
     assert_eq!(format_context_tokens(200_000), "200k ctx");
     assert_eq!(format_context_tokens(128_000), "128k ctx");
+    assert_eq!(format_context_tokens(262_144), "256k ctx");
+    assert_eq!(format_context_tokens(131_072), "128k ctx");
+    assert_eq!(format_context_tokens(65_536), "64k ctx");
+    assert_eq!(format_context_tokens(1_048_576), "1M ctx");
+}
+
+#[test]
+fn test_parse_num_ctx() {
+    use super::fetch::parse_num_ctx;
+
+    let params = "stop \"<|im_start|>\"\nnum_ctx 262144\ntemperature 0.7";
+    assert_eq!(parse_num_ctx(params), Some(262_144));
+    assert_eq!(parse_num_ctx("temperature 0.7"), None);
 }
 
 #[test]

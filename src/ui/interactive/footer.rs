@@ -84,6 +84,12 @@ pub fn get_git_branch(cwd: &Path) -> Option<String> {
 pub fn format_tokens(count: u64) -> String {
     if count < 1_000 {
         count.to_string()
+    } else if count.is_power_of_two() {
+        if count >= 1024 * 1024 {
+            format!("{}M", count / (1024 * 1024))
+        } else {
+            format!("{}k", count / 1024)
+        }
     } else if count < 10_000 {
         format!("{:.1}k", count as f64 / 1_000.0)
     } else if count < 1_000_000 {
@@ -323,7 +329,9 @@ mod tests {
             (9_999, "10.0k"),
             (10_000, "10k"),
             (128_000, "128k"),
+            (131_072, "128k"),
             (200_000, "200k"),
+            (262_144, "256k"),
             (1_000_000, "1M"),
             (2_500_000, "3M"),
         ];
