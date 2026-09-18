@@ -210,7 +210,7 @@ async fn test_mid_run_auto_compaction_falls_back_to_ephemeral_summary_with_pendi
         Message::assistant("prior response"),
         Message::user("pending checkpoint work"),
     ];
-    let action = hook.handle(&history, &Message::user("latest prompt")).await;
+    let action = hook.handle(None, &history, &Message::user("latest prompt")).await;
 
     match action {
         CompletionCallAction::Patch(patch) => {
@@ -285,7 +285,7 @@ async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
         Message::user("Now run tests"),
     ];
 
-    let action = hook.handle(&history, &Message::user("latest prompt")).await;
+    let action = hook.handle(None, &history, &Message::user("latest prompt")).await;
     match action {
         CompletionCallAction::Patch(patch) => {
             let patched = patch.history.expect("patch supplies history");

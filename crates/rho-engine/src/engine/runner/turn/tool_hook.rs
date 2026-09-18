@@ -17,6 +17,9 @@ pub use steering::{STEERING_SKIP_REASON, attach_steering_to_output, format_steer
 type ProjectContextCache =
     Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, crate::engine::context::ProjectContext)>>>;
 
+#[derive(Clone, Copy, Default, Debug)]
+struct SteeringFlag(bool);
+
 /// Renders the sink display and decides the model-visible action for every
 /// tool result. Image blocks are kept only for providers whose rig adapter
 /// serializes them; for everyone else they are replaced with an omission note
@@ -86,18 +89,25 @@ impl AgentHook for TurnToolExecutionHook {
         ModelSelectionAction::Continue
     }
 
-    async fn on_completion_call(&self, _ctx: &HookContext, _event: CompletionCall<'_>) -> CompletionCallAction {
+    async fn on_completion_call(&self, ctx: &HookContext, _event: CompletionCall<'_>) -> CompletionCallAction {
+        ctx.scratchpad().insert(SteeringFlag(false));
         self.set_steered(false);
         CompletionCallAction::continue_run()
     }
 
-    async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
-        if self.is_steered() {
+    async fn on_tool_call(&self, ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
+        let is_steered = ctx
+            .scratchpad()
+            .get::<SteeringFlag>()
+            .map(|s| s.0)
+            .unwrap_or_else(|| self.is_steered());
+        if is_steered {
             return ToolCallAction::skip(STEERING_SKIP_REASON);
         }
         if let Some(steering) = &self.steering {
             let messages = steering.poll_steering().await;
             if !messages.is_empty() {
+                ctx.scratchpad().insert(SteeringFlag(true));
                 self.set_steered(true);
                 let text = format_steering_messages(&messages);
                 return ToolCallAction::skip(format!("{STEERING_SKIP_REASON}\n\n{text}"));

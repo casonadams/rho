@@ -118,3 +118,20 @@ fn test_default_presets_for_unknown_provider() {
     assert_eq!(fallback[0].id, "my-custom-provider-default");
     assert_eq!(fallback[0].provider, "my-custom-provider");
 }
+
+#[tokio::test]
+async fn test_discover_fallbacks_when_offline_or_empty_key() {
+    let openai = super::fetch::discover_openai_compatible("openai", "http://127.0.0.1:9", "")
+        .await
+        .unwrap();
+    assert!(!openai.is_empty());
+    assert_eq!(openai[0].provider, "openai");
+
+    let anthropic = super::fetch::discover_anthropic_models("").await.unwrap();
+    assert!(!anthropic.is_empty());
+    assert_eq!(anthropic[0].provider, "anthropic");
+
+    let gemini = super::fetch::discover_gemini_models("").await.unwrap();
+    assert!(!gemini.is_empty());
+    assert_eq!(gemini[0].provider, "gemini");
+}

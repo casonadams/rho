@@ -14,7 +14,8 @@ use super::streaming_tool::StreamingToolTracker;
 use super::types::TurnOutput;
 use crate::engine::AgentEngine;
 use crate::engine::runner::history::{
-    DisplayEvent, budget_history, checkpoint_messages, display_events, map_streaming_error,
+    DisplayEvent, budget_history, checkpoint_messages, display_events, extract_retry_after, map_streaming_error,
+    streaming_error_provider_request_id,
 };
 use crate::engine::runner::sink::{TerminalApprovalSink, TurnArtifacts};
 use crate::engine::tracking::UsageTracker;
@@ -44,12 +45,14 @@ impl TurnStreamState {
 pub(super) enum StreamRunResult {
     Compacted,
     BudgetContinue,
+    RateLimitRetry,
     Complete(Box<TurnStreamState>),
 }
 
 enum StreamErrorAction {
     Compacted,
     BudgetContinue,
+    RateLimitRetry,
 }
 
 fn record_streaming_text(text: &str, _model: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
@@ -247,6 +250,9 @@ impl AgentEngine {
     }
 
     async fn handle_fatal_stream_error(&self, error: StreamingError) -> Result<StreamErrorAction> {
+        if let Some(req_id) = streaming_error_provider_request_id(&error) {
+            self.run_tracker.set_last_request_id(req_id);
+        }
         let err = map_streaming_error(error);
         if matches!(err, AppError::InvalidToolCall(_)) {
             self.run_tracker.invalid_tool();
@@ -258,7 +264,12 @@ impl AgentEngine {
     async fn handle_stream_error(
         &self,
         (error, presenter, sink): (StreamingError, &dyn Presenter, &Arc<TerminalApprovalSink>),
-        (visible_history, checkpoint, overflow_recovered): (&mut Vec<Message>, &mut Option<Vec<Message>>, &mut bool),
+        (visible_history, checkpoint, overflow_recovered, rate_limit_retries): (
+            &mut Vec<Message>,
+            &mut Option<Vec<Message>>,
+            &mut bool,
+            &mut usize,
+        ),
     ) -> Result<StreamErrorAction> {
         sink.finish_spinner();
         sink.flush_display();
@@ -279,17 +290,29 @@ impl AgentEngine {
         {
             return Ok(StreamErrorAction::BudgetContinue);
         }
+        if let Some(duration) = extract_retry_after(&error)
+            && duration.as_secs() <= 30
+            && *rate_limit_retries < 2
+        {
+            *rate_limit_retries += 1;
+            let secs = duration.as_secs().max(1);
+            presenter.print_notice(&format!("[Rate limit reached; retrying in {secs}s...]"));
+            tokio::time::sleep(duration).await;
+            sink.resume_model_spinner();
+            return Ok(StreamErrorAction::RateLimitRetry);
+        }
         self.handle_fatal_stream_error(error).await
     }
 
     pub(super) async fn run_turn_stream(
         &self,
         (runner, sink, presenter): (AgentRunner, &Arc<TerminalApprovalSink>, &dyn Presenter),
-        (active_model, visible_history, checkpoint, overflow_recovered): (
+        (active_model, visible_history, checkpoint, overflow_recovered, rate_limit_retries): (
             &str,
             &mut Vec<Message>,
             &mut Option<Vec<Message>>,
             &mut bool,
+            &mut usize,
         ),
     ) -> Result<StreamRunResult> {
         let mut state = TurnStreamState::new();
@@ -301,12 +324,13 @@ impl AgentEngine {
                     let action = self
                         .handle_stream_error(
                             (err, presenter, sink),
-                            (visible_history, checkpoint, overflow_recovered),
+                            (visible_history, checkpoint, overflow_recovered, rate_limit_retries),
                         )
                         .await?;
                     match action {
                         StreamErrorAction::Compacted => return Ok(StreamRunResult::Compacted),
                         StreamErrorAction::BudgetContinue => return Ok(StreamRunResult::BudgetContinue),
+                        StreamErrorAction::RateLimitRetry => return Ok(StreamRunResult::RateLimitRetry),
                     }
                 }
             }

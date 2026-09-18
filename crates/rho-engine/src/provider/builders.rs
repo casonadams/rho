@@ -5,7 +5,7 @@ use rho_harness_core::provider::ProviderId;
 use rig::agent::ModelHandle;
 use rig::client::CompletionClient;
 
-pub(super) static SHARED_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+pub(crate) static SHARED_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
     crate::install_crypto_provider();
     reqwest::Client::builder()
         .no_proxy()

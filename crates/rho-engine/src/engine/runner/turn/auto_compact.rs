@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::engine::AgentEngine;
 use crate::engine::compactor::SessionCompactor;
@@ -41,8 +41,15 @@ fn context_window(model: &str, provider: &str, context: ContextTracker) -> usize
 
 /// Replacement history for a compacted model call: `prefix` stands in for
 /// `history[..cut]`, and everything from `cut` on is kept verbatim.
+#[derive(Default, Clone)]
+pub(crate) struct CompactState {
+    pub(crate) base_len: Option<usize>,
+    pub(crate) tripped: bool,
+    pub(crate) patch: Option<PatchPlan>,
+}
+
 #[derive(Debug, Clone)]
-struct PatchPlan {
+pub(crate) struct PatchPlan {
     cut: usize,
     prefix: Vec<Message>,
 }
@@ -53,13 +60,6 @@ impl PatchPlan {
         messages.extend_from_slice(&history[self.cut.min(history.len())..]);
         messages
     }
-}
-
-#[derive(Default)]
-struct HookState {
-    base_len: Option<usize>,
-    tripped: bool,
-    patch: Option<PatchPlan>,
 }
 
 /// Auto-compaction boundary: after tools finish and before the next assistant
@@ -73,7 +73,6 @@ pub(crate) struct AutoCompactHook {
     context: ContextTracker,
     provider: String,
     reserve_tokens: usize,
-    state: Mutex<HookState>,
 }
 
 impl AutoCompactHook {
@@ -92,7 +91,6 @@ impl AutoCompactHook {
             context,
             provider: provider.to_string(),
             reserve_tokens,
-            state: Mutex::new(HookState::default()),
         }
     }
 
@@ -178,23 +176,34 @@ impl AutoCompactHook {
 }
 
 impl AgentHook for AutoCompactHook {
-    async fn on_completion_call(&self, _ctx: &HookContext, event: CompletionCall<'_>) -> CompletionCallAction {
-        self.handle(event.history, event.prompt).await
+    async fn on_completion_call(&self, ctx: &HookContext, event: CompletionCall<'_>) -> CompletionCallAction {
+        self.handle(Some(ctx), event.history, event.prompt).await
     }
 }
 
 impl AutoCompactHook {
-    async fn handle(&self, history: &[Message], prompt: &Message) -> CompletionCallAction {
+    pub(crate) async fn handle(
+        &self,
+        ctx: Option<&HookContext>,
+        history: &[Message],
+        prompt: &Message,
+    ) -> CompletionCallAction {
         let pruned =
             super::prune::prune_historical_tool_outputs(history, 1, super::prune::DEFAULT_PRUNE_LINE_THRESHOLD);
         let was_pruned = pruned != history;
         let effective_history = if was_pruned { &pruned } else { history };
 
-        let tripped = {
-            let mut state = self.state.lock().unwrap();
-            state.base_len.get_or_insert(effective_history.len());
-            state.tripped
+        let mut local_state = CompactState::default();
+        let (tripped, base_len) = if let Some(c) = ctx {
+            c.scratchpad().update::<CompactState, _>(|state| {
+                state.base_len.get_or_insert(effective_history.len());
+                (state.tripped, state.base_len.unwrap_or(effective_history.len()))
+            })
+        } else {
+            local_state.base_len = Some(effective_history.len());
+            (local_state.tripped, effective_history.len())
         };
+
         if !tripped {
             let window = context_window(self.model_name(), &self.provider, self.context);
             let mut messages = estimated_tokens(effective_history, self.model_name());
@@ -207,17 +216,26 @@ impl AutoCompactHook {
                         .unwrap_or(0),
                 );
             if should_compact(messages, window, self.reserve_tokens) {
-                let base_len = self.state.lock().unwrap().base_len.unwrap_or(effective_history.len());
                 let plan = self.compact_and_plan(effective_history, base_len).await;
-                let mut state = self.state.lock().unwrap();
-                state.tripped = true;
-                state.patch = plan;
+                if let Some(c) = ctx {
+                    c.scratchpad().update::<CompactState, _>(|state| {
+                        state.tripped = true;
+                        state.patch = plan;
+                    });
+                } else {
+                    local_state.tripped = true;
+                    local_state.patch = plan;
+                }
             }
         }
-        let replacement = {
-            let state = self.state.lock().unwrap();
-            state.patch.as_ref().map(|plan| plan.apply(effective_history))
+        let replacement = if let Some(c) = ctx {
+            c.scratchpad()
+                .get::<CompactState>()
+                .and_then(|state| state.patch.map(|plan| plan.apply(effective_history)))
+        } else {
+            local_state.patch.map(|plan| plan.apply(effective_history))
         };
+
         match replacement {
             Some(replacement) => CompletionCallAction::patch(RequestPatch::new().history(replacement)),
             None if was_pruned => CompletionCallAction::patch(RequestPatch::new().history(pruned)),

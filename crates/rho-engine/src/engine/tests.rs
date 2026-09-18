@@ -481,3 +481,107 @@ async fn switch_model_updates_model_and_preserves_tools() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[derive(Default)]
+struct RetryTestPresenter {
+    notices: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait::async_trait]
+impl rho_harness_core::presentation::presenter::Presenter for RetryTestPresenter {
+    fn write_output(&self, _text: &str) {}
+    fn print_welcome(&self, _display: &rho_harness_core::presentation::WelcomeDisplay) {}
+    fn print_session_status(&self, _display: &rho_harness_core::presentation::SessionStatus) {}
+    fn print_notice(&self, text: &str) {
+        self.notices.lock().unwrap().push(text.to_string());
+    }
+    fn print_user_block(&self, _input: &str) {}
+    fn print_token(&self, _token: &str) {}
+    fn print_thinking_token(&self, _token: &str) {}
+    fn finish_tool_line(&self, _line: rho_harness_core::presentation::ToolLine) {}
+    fn flush(&self) {}
+    fn has_interactive_ui(&self) -> bool {
+        false
+    }
+    fn start_spinner(&self, _message: &str) -> rho_harness_core::presentation::activity::ActivityToken {
+        rho_harness_core::presentation::activity::ActivityToken::default()
+    }
+    fn start_tool_spinner(
+        &self,
+        _name: &str,
+        _arguments: &serde_json::Value,
+    ) -> rho_harness_core::presentation::activity::ActivityToken {
+        rho_harness_core::presentation::activity::ActivityToken::default()
+    }
+    fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
+    fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
+        rho_harness_core::presentation::ToolStreamPort::default()
+    }
+    async fn prompt_continue_budget(&self, _max_turns: usize) -> bool {
+        false
+    }
+}
+
+#[tokio::test]
+async fn rate_limit_429_with_retry_after_retries_and_succeeds() {
+    use crate::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
+    use reqwest::StatusCode;
+    use rig::ProviderResponseError;
+    use rig::test_utils::{MockCompletionModel, MockError, MockStreamEvent};
+
+    let dir = std::env::temp_dir().join(format!("retry_429_{}", uuid::Uuid::new_v4()));
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::RETRY_AFTER,
+        reqwest::header::HeaderValue::from_static("1"),
+    );
+
+    let err_429 = MockError::ProviderResponse(
+        ProviderResponseError::new(StatusCode::TOO_MANY_REQUESTS, "rate limited")
+            .with_headers(Some(Box::new(headers)))
+            .with_provider_request_id(Some("req-rate-limit-test".to_string())),
+    );
+
+    let model = MockCompletionModel::from_stream_turns([
+        vec![MockStreamEvent::Error(err_429)],
+        vec![
+            MockStreamEvent::text("recovered successfully after rate limit"),
+            final_event(rig::completion::Usage::default()),
+        ],
+    ]);
+
+    let app_config = Config {
+        keep_recent_tokens: 5,
+        auth_file: dir.join("auth.json"),
+        ..Config::default()
+    };
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &dir,
+            app_config,
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+
+    let presenter = Arc::new(RetryTestPresenter::default());
+    let output = engine
+        .run_turn(
+            crate::engine::runner::TurnRequest::new("Hello after rate limit"),
+            presenter.clone(),
+        )
+        .await
+        .expect("turn should succeed after retry");
+
+    assert_eq!(output.final_text, "recovered successfully after rate limit");
+    let notices = presenter.notices.lock().unwrap().clone();
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.contains("[Rate limit reached; retrying in 1s...]")),
+        "expected rate limit notice, got: {notices:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}

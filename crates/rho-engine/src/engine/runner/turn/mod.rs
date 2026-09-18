@@ -50,6 +50,7 @@ impl AgentEngine {
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
+            StreamRunResult::RateLimitRetry => Ok(None),
             StreamRunResult::Compacted => self.compacted_turn_output().await.map(Some),
             StreamRunResult::BudgetContinue => self.handle_budget_continue((sink, presenter), loop_state).await,
             StreamRunResult::Complete(state) => {
@@ -77,6 +78,7 @@ impl AgentEngine {
                     &mut loop_state.visible_history,
                     &mut loop_state.checkpoint,
                     &mut loop_state.overflow_recovered,
+                    &mut loop_state.rate_limit_retries,
                 ),
             )
             .await?;

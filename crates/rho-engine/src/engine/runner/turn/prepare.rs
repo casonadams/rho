@@ -34,6 +34,7 @@ pub(super) struct TurnLoopState {
     pub current_prompt: String,
     pub current_budget: usize,
     pub overflow_recovered: bool,
+    pub rate_limit_retries: usize,
 }
 
 impl AgentEngine {
@@ -115,6 +116,7 @@ impl AgentEngine {
             current_prompt: prompt.to_string(),
             current_budget: self.config.max_turns,
             overflow_recovered: false,
+            rate_limit_retries: 0,
         };
         Ok(PreparedTurn {
             preamble,

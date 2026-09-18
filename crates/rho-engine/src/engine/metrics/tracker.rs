@@ -18,6 +18,7 @@ pub(crate) struct RunObservation {
     pub(crate) tool_errors: usize,
     pub(crate) tool_denials: usize,
     pub(crate) completion_calls: Vec<CompletionCall>,
+    pub(crate) last_request_id: Option<String>,
 }
 
 impl RunTracker {
@@ -29,6 +30,7 @@ impl RunTracker {
                 tool_errors: 0,
                 tool_denials: 0,
                 completion_calls: Vec::new(),
+                last_request_id: None,
             });
         }
     }
@@ -59,8 +61,21 @@ impl RunTracker {
 
     pub fn completion(&self, call: CompletionCall) {
         if let Some(state) = self.state().as_mut() {
+            if let Some(ref req_id) = call.provider_request_id {
+                state.last_request_id = Some(req_id.clone());
+            }
             state.completion_calls.push(call);
         }
+    }
+
+    pub fn set_last_request_id(&self, request_id: impl Into<String>) {
+        if let Some(state) = self.state().as_mut() {
+            state.last_request_id = Some(request_id.into());
+        }
+    }
+
+    pub fn last_request_id(&self) -> Option<String> {
+        self.state().as_ref().and_then(|s| s.last_request_id.clone())
     }
 
     pub fn complete(&self, outcome: CompletionOutcome<'_>) -> RunMetrics {
