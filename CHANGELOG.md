@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.8.0](https://github.com/casonadams/rho/compare/v0.7.5...v0.8.0) (2026-09-18)
+
+
+### Features
+
+* **compaction:** add CompactionSummaryPayload schema and renderer ([cf95d6b](https://github.com/casonadams/rho/commit/cf95d6bf979e441d290a8ea56ce9b0841683a23b))
+* **compactor:** integrate DemotionHook for context eviction ([e3d3a92](https://github.com/casonadams/rho/commit/e3d3a92066687b08affbaaca8c778bcbac13efe7))
+* **compactor:** structured summary extraction with multi-stage fallback ([0ba9851](https://github.com/casonadams/rho/commit/0ba98512e1ccd1eee351bbb35e9baf3d651a1cbe))
+* **engine:** adopt rig 0.42 model listing, 429 retries, and hook scratchpads ([de7afcf](https://github.com/casonadams/rho/commit/de7afcfc73ccb66ae878573d1afab99c87680a7b))
+* **engine:** adopt rig 0.42 truncation recovery, invalid tool healing, and tool simplification ([a9ab82b](https://github.com/casonadams/rho/commit/a9ab82bb1a0875168d81076c0e85e4cdc1c48d42))
+* **engine:** implement local embeddings, passive RAG, and settings toggle ([a37e577](https://github.com/casonadams/rho/commit/a37e577aa68b862f19f7fd260dd9f3f389361523))
+* **engine:** prune verbose historical bash outputs across turns ([fa7fbc6](https://github.com/casonadams/rho/commit/fa7fbc6a1e639b7064cd02137d1e3ffe07729578))
+* **tokens:** implement rig TokenCounter for BpeTokenCounter ([4e8d672](https://github.com/casonadams/rho/commit/4e8d67204dca1b6076b200733c9d5fd3a3cd0510))
+
+
+### Bug Fixes
+
+* **antigravity:** align thinking budget and model enum wire protocol with pi-antigravity ([47542b1](https://github.com/casonadams/rho/commit/47542b1ce62c1f2aa8b66339b13bf940bc2935ef))
+* **build:** allow linker_messages to suppress macOS eh_frame warning ([dd30e54](https://github.com/casonadams/rho/commit/dd30e5455819b6b55870d01367e71b83b6c782c1))
+* **chatgpt:** track reasoning part coordinates across output items in sse parser ([3d2477f](https://github.com/casonadams/rho/commit/3d2477fbbf8967fc002af43f095faeb77ff46dd7))
+* **provider:** restore ollama real context discovery and power-of-two formatting ([a75c6b8](https://github.com/casonadams/rho/commit/a75c6b8e8a4a4007950b9336ef02d167bb5281e8))
+* **quota:** refresh quota synchronously on model switch and retry with token refresh ([3617932](https://github.com/casonadams/rho/commit/36179329425937beb84856dec60aeaea6dc28407))
+* **ui:** eliminate jumpiness, blocking redraws, and spinner starvation ([0d2e075](https://github.com/casonadams/rho/commit/0d2e075315ee7075689c96355f26f6ae9ecd82e6))
+
+
+### Performance Improvements
+
+* **build:** feature-gate fastembed and tune release codegen to reduce binary bloat ([30cc80d](https://github.com/casonadams/rho/commit/30cc80d05cc2d50ffe6b26336079186650daffcc))
+* **build:** optimize compile profiles and consolidate integration test binaries ([52b4b74](https://github.com/casonadams/rho/commit/52b4b748d660018fda6b377f2193436d158c4a39))
+
 ## [0.7.5](https://github.com/casonadams/rho/compare/v0.7.4...v0.7.5) (2026-09-14)
 
 
