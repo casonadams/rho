@@ -20,7 +20,7 @@ use crate::tools::write::{WriteArgs, WriteTool};
 use rho_harness_core::args::{FdArgs, RgArgs, WebFetchArgs, WebSearchArgs};
 use rho_harness_core::config::Config;
 use rho_harness_core::error::Result;
-use rig::tool::DynamicTool;
+use rig::tool::{DynamicTool, ToolContext};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -28,165 +28,111 @@ fn parse_args<T: serde::de::DeserializeOwned>(args: serde_json::Value) -> std::r
     serde_json::from_value(args).map_err(|e| ToolResult::error(format!("failed to parse tool arguments: {e}")))
 }
 
-fn build_read_dynamic_tool(r: Arc<ReadTool>) -> DynamicTool {
-    DynamicTool::new(
+fn dynamic_tool<A, F, Fut>(name: &'static str, description: &'static str, execute: F) -> DynamicTool
+where
+    A: serde::de::DeserializeOwned + schemars::JsonSchema + Send + 'static,
+    F: Fn(&ToolContext, A) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = std::result::Result<ToolResult, rho_harness_core::error::AppError>>
+        + Send
+        + 'static,
+{
+    DynamicTool::new(name, description, generated_schema::<A>(), move |ctx, args| {
+        let fut = match parse_args::<A>(args) {
+            Ok(a) => Ok(execute(ctx, a)),
+            Err(err) => Err(err),
+        };
+        Box::pin(async move {
+            match fut {
+                Ok(f) => into_dynamic_result(f.await),
+                Err(err) => into_dynamic_result(Ok(err)),
+            }
+        })
+    })
+}
+
+fn make_read_tool(read: Arc<ReadTool>) -> DynamicTool {
+    dynamic_tool(
         "read",
         "Read file contents with line numbering, offset, and limit safeguards. Reads supported images (png, jpeg, gif, webp, bmp) and attaches them to the result.",
-        generated_schema::<ReadArgs>(),
-        move |_ctx, args| {
-            let r = Arc::clone(&r);
-            Box::pin(async move {
-                let args: ReadArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(r.execute(args).await)
-            })
+        move |_ctx, args: ReadArgs| {
+            let r = Arc::clone(&read);
+            async move { r.execute(args).await }
         },
     )
 }
 
-fn build_write_dynamic_tool(w: Arc<WriteTool>) -> DynamicTool {
-    DynamicTool::new(
+fn make_write_tool(write: Arc<WriteTool>) -> DynamicTool {
+    dynamic_tool(
         "write",
         "Write full content to a file, automatically creating parent directories.",
-        generated_schema::<WriteArgs>(),
-        move |ctx, args| {
-            let w = Arc::clone(&w);
+        move |ctx, args: WriteArgs| {
+            let w = Arc::clone(&write);
             let stream = ctx.get::<rho_harness_core::presentation::ToolStreamPort>().cloned();
-            Box::pin(async move {
-                let args: WriteArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
+            async move {
                 if let Some(stream_port) = stream {
                     for line in args.content.lines() {
                         stream_port.stream_chunk(&format!("{line}\n"));
                     }
                 }
-                into_dynamic_result(w.execute(args).await)
-            })
+                w.execute(args).await
+            }
         },
     )
 }
 
-fn build_edit_dynamic_tool(e: Arc<EditTool>) -> DynamicTool {
-    DynamicTool::new(
+fn make_edit_tool(edit: Arc<EditTool>) -> DynamicTool {
+    dynamic_tool(
         "edit",
         "Edit a file by applying exact string replacements. Every oldText must match exactly once.",
-        generated_schema::<EditArgs>(),
-        move |_ctx, args| {
-            let e = Arc::clone(&e);
-            Box::pin(async move {
-                let args: EditArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(e.execute(args).await)
-            })
+        move |_ctx, args: EditArgs| {
+            let e = Arc::clone(&edit);
+            async move { e.execute(args).await }
         },
     )
 }
 
-fn build_bash_dynamic_tool(b: Arc<BashTool>) -> DynamicTool {
-    DynamicTool::new(
+fn make_bash_tool(bash: Arc<BashTool>) -> DynamicTool {
+    dynamic_tool(
         "bash",
         "Execute a shell command in the current working directory with a timeout. Do not prefix commands with cd.",
-        generated_schema::<BashArgs>(),
-        move |ctx, args| {
-            let b = Arc::clone(&b);
+        move |ctx, args: BashArgs| {
+            let b = Arc::clone(&bash);
             let stream = ctx.get::<rho_harness_core::presentation::ToolStreamPort>().cloned();
-            Box::pin(async move {
-                let args: BashArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
+            async move {
                 if let Some(stream_port) = stream {
-                    into_dynamic_result(
-                        b.execute_streaming(args, move |chunk| stream_port.stream_chunk(chunk))
-                            .await,
-                    )
+                    b.execute_streaming(args, move |chunk| stream_port.stream_chunk(chunk))
+                        .await
                 } else {
-                    into_dynamic_result(b.execute(args).await)
+                    b.execute(args).await
                 }
-            })
+            }
         },
     )
 }
 
-fn build_fd_dynamic_tool(fd_tool: Arc<FdTool>) -> DynamicTool {
-    DynamicTool::new(
+fn make_fd_tool(fd: Arc<FdTool>) -> DynamicTool {
+    dynamic_tool(
         "fd",
         "Find files and directories by workspace-relative path with a smart-case regex; gitignore-aware and bounded.",
-        generated_schema::<FdArgs>(),
-        move |_ctx, args| {
-            let fd_tool = Arc::clone(&fd_tool);
-            Box::pin(async move {
-                let args: FdArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(fd_tool.execute(args).await)
-            })
+        move |_ctx, args: FdArgs| {
+            let fd_tool = Arc::clone(&fd);
+            async move { fd_tool.execute(args).await }
         },
     )
 }
 
-fn build_rg_dynamic_tool(rg_tool: Arc<RgTool>) -> DynamicTool {
-    DynamicTool::new(
+fn make_rg_tool(rg: Arc<RgTool>) -> DynamicTool {
+    dynamic_tool(
         "rg",
         "Search file contents with a smart-case regex; gitignore-aware, skips binary and large files, bounded.",
-        generated_schema::<RgArgs>(),
-        move |_ctx, args| {
-            let rg_tool = Arc::clone(&rg_tool);
-            Box::pin(async move {
-                let args: RgArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(rg_tool.execute(args).await)
-            })
+        move |_ctx, args: RgArgs| {
+            let rg_tool = Arc::clone(&rg);
+            async move { rg_tool.execute(args).await }
         },
     )
 }
 
-fn build_search_dynamic_tool(s: WebSearchTool) -> DynamicTool {
-    DynamicTool::new(
-        "web_search",
-        "Search the web and return structured search results with titles, summaries, and URLs.",
-        generated_schema::<WebSearchArgs>(),
-        move |_ctx, args| {
-            let s = s.clone();
-            Box::pin(async move {
-                let args: WebSearchArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(s.execute(args).await)
-            })
-        },
-    )
-}
-
-fn build_fetch_dynamic_tool(f: WebFetchTool) -> DynamicTool {
-    DynamicTool::new(
-        "web_fetch",
-        "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
-        generated_schema::<WebFetchArgs>(),
-        move |_ctx, args| {
-            let f = f.clone();
-            Box::pin(async move {
-                let args: WebFetchArgs = match parse_args(args) {
-                    Ok(a) => a,
-                    Err(err) => return into_dynamic_result(Ok(err)),
-                };
-                into_dynamic_result(f.execute(args).await)
-            })
-        },
-    )
-}
-
-fn build_web_tools(config: &Config) -> Result<(WebSearchTool, WebFetchTool)> {
+fn build_web_dynamic_tools(config: &Config) -> Result<Vec<DynamicTool>> {
     let http = HttpClient::new(config.allow_private_network)?;
     let search = WebSearchTool::new(
         http.clone(),
@@ -206,11 +152,28 @@ fn build_web_tools(config: &Config) -> Result<(WebSearchTool, WebFetchTool)> {
             default_limit: config.fetch_limit,
         },
     );
-    Ok((search, fetch))
+
+    Ok(vec![
+        dynamic_tool(
+            "web_search",
+            "Search the web and return structured search results with titles, summaries, and URLs.",
+            move |_ctx, args: WebSearchArgs| {
+                let s = search.clone();
+                async move { s.execute(args).await }
+            },
+        ),
+        dynamic_tool(
+            "web_fetch",
+            "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
+            move |_ctx, args: WebFetchArgs| {
+                let f = fetch.clone();
+                async move { f.execute(args).await }
+            },
+        ),
+    ])
 }
 
-pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
-    let (search, fetch) = build_web_tools(config)?;
+fn build_workspace_tools(base_dir: &Path, config: &Config) -> Vec<DynamicTool> {
     let write = Arc::new(WriteTool::with_exclusions(
         base_dir,
         [&config.config_dir, &config.sessions_dir],
@@ -224,16 +187,20 @@ pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<Dynam
     let fd = Arc::new(FdTool::new(base_dir));
     let rg = Arc::new(RgTool::new(base_dir));
 
-    Ok(vec![
-        build_read_dynamic_tool(read),
-        build_write_dynamic_tool(write),
-        build_edit_dynamic_tool(edit),
-        build_bash_dynamic_tool(bash),
-        build_fd_dynamic_tool(fd),
-        build_rg_dynamic_tool(rg),
-        build_search_dynamic_tool(search),
-        build_fetch_dynamic_tool(fetch),
-    ])
+    vec![
+        make_read_tool(read),
+        make_write_tool(write),
+        make_edit_tool(edit),
+        make_bash_tool(bash),
+        make_fd_tool(fd),
+        make_rg_tool(rg),
+    ]
+}
+
+pub fn build_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {
+    let mut tools = build_workspace_tools(base_dir, config);
+    tools.extend(build_web_dynamic_tools(config)?);
+    Ok(tools)
 }
 
 pub fn build_all_builtin_tools(base_dir: &Path, config: &Config) -> Result<Vec<DynamicTool>> {

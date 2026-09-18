@@ -4,8 +4,8 @@ use crate::engine::runner::sink::{TerminalApprovalSink, ToolFinishDetails};
 use crate::engine::runner::turn::types::{SharedModelSwitch, SteeringQueueProvider};
 use crate::provider::supports_tool_result_images;
 use rig::agent::hook::{
-    AgentHook, CompletionCall, CompletionCallAction, HookContext, ModelSelection, ModelSelectionAction, ToolCall,
-    ToolCallAction, ToolResultAction, ToolResultEvent,
+    AgentHook, CompletionCall, CompletionCallAction, HookContext, InvalidToolCallAction, InvalidToolCallContext,
+    ModelSelection, ModelSelectionAction, ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent,
 };
 use rig::completion::message::{Image, MimeType, ToolResultContent};
 use rig::tool::ToolOutput;
@@ -103,10 +103,25 @@ impl AgentHook for TurnToolExecutionHook {
                 return ToolCallAction::skip(format!("{STEERING_SKIP_REASON}\n\n{text}"));
             }
         }
-        let arguments = serde_json::from_str(event.args).unwrap_or(serde_json::Value::Null);
+        let (arguments, should_rewrite) = match serde_json::from_str::<serde_json::Value>(event.args) {
+            Ok(v) => (v, false),
+            Err(_) => {
+                if let Some(repaired) = try_repair_json(event.args)
+                    && let Ok(v) = serde_json::from_str::<serde_json::Value>(&repaired)
+                {
+                    (v, true)
+                } else {
+                    (serde_json::Value::Null, false)
+                }
+            }
+        };
         self.sink.tool_start(event.tool_name, &arguments);
         self.activate_path_from_arguments(&arguments).await;
-        ToolCallAction::run()
+        if should_rewrite {
+            ToolCallAction::Rewrite(arguments)
+        } else {
+            ToolCallAction::run()
+        }
     }
 
     async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
@@ -132,6 +147,54 @@ impl AgentHook for TurnToolExecutionHook {
         }
         action
     }
+
+    async fn on_invalid_tool_call(
+        &self,
+        _ctx: &HookContext,
+        event: &InvalidToolCallContext,
+    ) -> Option<InvalidToolCallAction> {
+        if let Some(repaired) = try_repair_tool_name(&event.tool_name, &event.available_tools) {
+            return Some(InvalidToolCallAction::Repair { tool_name: repaired });
+        }
+        if !event.available_tools.iter().any(|t| t == &event.tool_name) {
+            return Some(InvalidToolCallAction::Retry {
+                feedback: format!(
+                    "Tool '{}' does not exist. Available tools: {}. Please call an available tool.",
+                    event.tool_name,
+                    event.available_tools.join(", ")
+                ),
+            });
+        }
+        if let Some(args_str) = event.args.as_deref()
+            && serde_json::from_str::<serde_json::Value>(args_str).is_err()
+        {
+            return Some(InvalidToolCallAction::Retry {
+                feedback: format!(
+                    "Arguments for tool '{}' were not valid JSON. Please emit a valid JSON object matching the tool's schema.",
+                    event.tool_name
+                ),
+            });
+        }
+        None
+    }
+}
+
+fn try_repair_tool_name(called: &str, available: &[String]) -> Option<String> {
+    let normalized = called.trim().to_ascii_lowercase();
+    for valid in available {
+        let valid_lower = valid.to_ascii_lowercase();
+        if normalized == valid_lower {
+            return Some(valid.clone());
+        }
+        if normalized == format!("{valid_lower}_tool")
+            || normalized == format!("{valid_lower}_command")
+            || normalized.ends_with(&format!("::{valid_lower}"))
+            || normalized.ends_with(&format!(".{valid_lower}"))
+        {
+            return Some(valid.clone());
+        }
+    }
+    None
 }
 
 impl TurnToolExecutionHook {
@@ -156,6 +219,42 @@ impl TurnToolExecutionHook {
                     .await;
             }
         }
+    }
+}
+
+pub fn try_repair_json(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
+        return None;
+    }
+
+    let stripped = if (trimmed.starts_with("```json") || trimmed.starts_with("```")) && trimmed.ends_with("```") {
+        let lines: Vec<&str> = trimmed.lines().collect();
+        if lines.len() >= 2 {
+            lines[1..lines.len() - 1].join("\n").trim().to_string()
+        } else {
+            trimmed.to_string()
+        }
+    } else {
+        trimmed.to_string()
+    };
+
+    if serde_json::from_str::<serde_json::Value>(&stripped).is_ok() {
+        return Some(stripped);
+    }
+
+    let mut candidate = stripped;
+    if let Ok(trailing_comma_object) = regex::Regex::new(r",\s*\}") {
+        candidate = trailing_comma_object.replace_all(&candidate, "}").to_string();
+    }
+    if let Ok(trailing_comma_array) = regex::Regex::new(r",\s*\]") {
+        candidate = trailing_comma_array.replace_all(&candidate, "]").to_string();
+    }
+
+    if serde_json::from_str::<serde_json::Value>(&candidate).is_ok() {
+        Some(candidate)
+    } else {
+        None
     }
 }
 

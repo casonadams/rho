@@ -192,7 +192,6 @@ impl AgentEngineBuilder {
             config: self.config,
             base_dir,
             session_manager,
-            tools,
             tool_names: Arc::new(std::sync::RwLock::new(tool_names)),
             agent: Arc::new(tokio::sync::RwLock::new(agent)),
             usage: UsageTracker::default(),

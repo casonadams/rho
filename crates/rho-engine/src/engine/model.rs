@@ -7,7 +7,6 @@ use rho_harness_core::provider::ProviderId;
 
 use super::AgentEngine;
 use super::builder;
-use super::runtime;
 use super::tracking::ContextTracker;
 
 pub(crate) fn resolve_context_limit(config: &Config) -> Option<usize> {
@@ -52,17 +51,7 @@ impl AgentEngine {
         self.model = Some(model_handle.clone());
         self.context = ContextTracker::new(resolve_context_limit(&self.config));
 
-        let base_dir = std::env::current_dir()?;
-        let new_agent = runtime::build_coding_agent(
-            model_handle,
-            &self.config,
-            runtime::CodingRuntime {
-                base_dir: &base_dir,
-                memory: self.session_manager.clone(),
-                built_in_tools: Some(self.tools.clone()),
-            },
-        )?;
-        *self.agent.write().await = new_agent;
+        self.agent.write().await.set_model_handle(model_handle);
         self.refresh_quota().await;
         Ok(())
     }

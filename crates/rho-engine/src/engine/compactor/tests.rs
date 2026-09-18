@@ -86,7 +86,7 @@ mod branch {
 mod compactor {
     use rig::agent::ModelHandle;
     use rig::message::{AssistantContent, Message, ToolCall, ToolCallId, ToolFunction};
-    use rig::test_utils::MockCompletionModel;
+    use rig::test_utils::{MockCompletionModel, MockTurn};
 
     use crate::engine::compactor::llm::{LlmCompactor, SummarizeOptions};
 
@@ -127,6 +127,35 @@ mod compactor {
             Message::System {
                 content: rho_harness_core::session::compaction::SUMMARIZATION_SYSTEM_PROMPT.to_string(),
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_llm_compactor_structured_extract() {
+        #[derive(Debug, serde::Deserialize, serde::Serialize, schemars::JsonSchema, PartialEq, Eq)]
+        struct TestMetadata {
+            goal: String,
+            files: Vec<String>,
+        }
+
+        let mock = MockCompletionModel::new([MockTurn::tool_call(
+            "1",
+            "submit",
+            serde_json::json!({
+                "goal": "Fix bug",
+                "files": ["src/main.rs"],
+            }),
+        )]);
+        let handle = ModelHandle::new(mock.clone());
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let res: Option<TestMetadata> = compactor.extract("extract summary").await;
+        assert_eq!(
+            res,
+            Some(TestMetadata {
+                goal: "Fix bug".to_string(),
+                files: vec!["src/main.rs".to_string()],
+            })
         );
     }
 

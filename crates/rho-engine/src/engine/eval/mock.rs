@@ -57,7 +57,6 @@ fn assemble_mock_engine(
         config: app_config,
         base_dir,
         session_manager,
-        tools,
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(tool_names)),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),

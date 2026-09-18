@@ -166,6 +166,14 @@ impl AgentEngine {
             &self.config.provider,
             self.config.reserve_tokens,
         ));
+        let ceiling = crate::engine::model::resolve_context_limit(&self.config)
+            .map(|l| l as u64)
+            .unwrap_or(65536);
+        hook_stack.push(super::truncation_hook::TruncationRecoveryHook::new(
+            self.config.max_output_tokens,
+            ceiling,
+            2,
+        ));
         hook_stack.push(
             TurnToolExecutionHook::new(sink.clone(), &self.config.provider, request.steering.clone())
                 .with_model_switch(request.model_switch.clone())

@@ -5,6 +5,7 @@ pub(crate) mod prune;
 mod stream;
 mod streaming_tool;
 mod tool_hook;
+mod truncation_hook;
 pub mod types;
 
 pub use types::{

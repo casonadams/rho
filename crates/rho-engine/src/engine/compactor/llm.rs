@@ -50,6 +50,30 @@ impl LlmCompactor {
         run_agent_completion(model, prompt).await
     }
 
+    pub async fn extract<T>(&self, prompt: &str) -> Option<T>
+    where
+        T: schemars::JsonSchema
+            + for<'de> serde::Deserialize<'de>
+            + serde::Serialize
+            + rig::wasm_compat::WasmCompatSend
+            + rig::wasm_compat::WasmCompatSync
+            + 'static,
+    {
+        let model = self.model.as_ref()?.clone();
+        let extractor = rig::extractor::ExtractorBuilder::<T>::new(model).build();
+        match tokio::time::timeout(Duration::from_secs(60), extractor.extract(prompt)).await {
+            Ok(Ok(val)) => Some(val),
+            Ok(Err(e)) => {
+                eprintln!("Warning: Extraction failed: {e}");
+                None
+            }
+            Err(_) => {
+                eprintln!("Warning: Extraction timed out after 60s");
+                None
+            }
+        }
+    }
+
     pub async fn summarize(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
         if messages.is_empty() {
             return options.prior_summary.unwrap_or_default().to_string();

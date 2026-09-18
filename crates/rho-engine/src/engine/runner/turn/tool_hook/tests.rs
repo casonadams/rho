@@ -468,3 +468,38 @@ mod steering {
         assert_eq!(content, "created");
     }
 }
+
+mod invalid_tool_call {
+    use super::super::{try_repair_json, try_repair_tool_name};
+
+    #[test]
+    fn test_try_repair_json_valid_returns_none() {
+        assert!(try_repair_json(r#"{"valid": true}"#).is_none());
+    }
+
+    #[test]
+    fn test_try_repair_json_strips_markdown_fences() {
+        let input = "```json\n{\"path\": \"foo.rs\"}\n```";
+        let repaired = try_repair_json(input).expect("should repair fenced JSON");
+        assert_eq!(repaired, r#"{"path": "foo.rs"}"#);
+    }
+
+    #[test]
+    fn test_try_repair_json_fixes_trailing_commas() {
+        let input = r#"{"path": "foo.rs", "limit": 10, }"#;
+        let repaired = try_repair_json(input).expect("should repair trailing comma");
+        assert_eq!(repaired, r#"{"path": "foo.rs", "limit": 10}"#);
+    }
+
+    #[test]
+    fn test_try_repair_tool_name() {
+        let available = vec!["read".to_string(), "bash".to_string(), "write".to_string()];
+        assert_eq!(try_repair_tool_name("read", &available), Some("read".to_string()));
+        assert_eq!(try_repair_tool_name("read_tool", &available), Some("read".to_string()));
+        assert_eq!(
+            try_repair_tool_name("tools::bash", &available),
+            Some("bash".to_string())
+        );
+        assert_eq!(try_repair_tool_name("unknown_xyz", &available), None);
+    }
+}

@@ -76,7 +76,6 @@ fn build_eval_engine(
         config,
         base_dir: sessions,
         session_manager: store,
-        tools: Vec::new(),
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(Vec::new())),
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
