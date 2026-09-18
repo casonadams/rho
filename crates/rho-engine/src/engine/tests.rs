@@ -348,6 +348,8 @@ async fn quota_display_isolated_across_providers_and_models() {
     assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
     engine.config.provider = "claude-code".to_string();
     assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
+    engine.config.provider = "claude-oauth".to_string();
+    assert_eq!(engine.quota_display(), Some("100% 3h15m 68% 4d11h".to_string()));
     std::fs::remove_dir_all(dir).unwrap();
 }
 

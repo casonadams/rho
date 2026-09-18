@@ -28,10 +28,13 @@ pub async fn fetch_quota(token: &str, target_model: Option<&str>) -> Option<Stri
         .header("User-Agent", super::http::USER_AGENT)
         .send()
         .await
-        .ok()?
-        .json::<Value>()
-        .await
         .ok()?;
+
+    if !response.status().is_success() {
+        return None;
+    }
+
+    let response = response.json::<Value>().await.ok()?;
 
     parse_quota(&response, target_model, Utc::now())
 }

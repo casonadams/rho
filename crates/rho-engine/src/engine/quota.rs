@@ -1,6 +1,8 @@
+use std::str::FromStr;
 use std::sync::Arc;
 
 use rho_harness_core::auth::StoredCredential;
+use rho_harness_core::provider::ProviderId;
 
 use super::AgentEngine;
 use crate::auth::AuthStore;
@@ -8,16 +10,15 @@ use crate::engine::tracking::{QuotaKey, QuotaTracker};
 
 pub(crate) fn canonical_quota_provider(provider: &str) -> Option<&'static str> {
     let trimmed = provider.trim();
-    if trimmed.eq_ignore_ascii_case("ollama-cloud") {
-        Some("ollama-cloud")
-    } else if trimmed.eq_ignore_ascii_case("antigravity") || trimmed.eq_ignore_ascii_case("google-antigravity") {
-        Some("antigravity")
-    } else if trimmed.eq_ignore_ascii_case("chatgpt") || trimmed.eq_ignore_ascii_case("openai-chatgpt") {
-        Some("chatgpt")
-    } else if trimmed.eq_ignore_ascii_case("claude") || trimmed.eq_ignore_ascii_case("claude-code") {
-        Some("claude")
-    } else {
-        None
+    if trimmed.eq_ignore_ascii_case("openai-chatgpt") {
+        return Some("chatgpt");
+    }
+    match ProviderId::from_str(trimmed).ok()? {
+        ProviderId::OllamaCloud => Some("ollama-cloud"),
+        ProviderId::Antigravity => Some("antigravity"),
+        ProviderId::ChatGpt => Some("chatgpt"),
+        ProviderId::ClaudeCode => Some("claude"),
+        _ => None,
     }
 }
 
@@ -138,7 +139,19 @@ async fn do_refresh_antigravity_quota(
         quota.record_failure(&key);
         return;
     };
-    match crate::antigravity::fetch_quota(&token, &project_id, &target_model).await {
+    let display = match crate::antigravity::fetch_quota(&token, &project_id, &target_model).await {
+        Some(display) => Some(display),
+        None => {
+            if auth_store.lock().await.force_refresh("antigravity").await.is_ok()
+                && let Some((fresh_token, fresh_project)) = resolve_antigravity_credentials(&auth_store).await
+            {
+                crate::antigravity::fetch_quota(&fresh_token, &fresh_project, &target_model).await
+            } else {
+                None
+            }
+        }
+    };
+    match display {
         Some(display) => quota.record_success(&key, display),
         None => quota.record_failure(&key),
     }
@@ -165,7 +178,19 @@ async fn do_refresh_chatgpt_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>
         quota.record_failure(&key);
         return;
     };
-    match crate::chatgpt::fetch_quota(&token, account_id.as_deref()).await {
+    let display = match crate::chatgpt::fetch_quota(&token, account_id.as_deref()).await {
+        Some(display) => Some(display),
+        None => {
+            if auth_store.lock().await.force_refresh("chatgpt").await.is_ok()
+                && let Some((fresh_token, fresh_account)) = resolve_chatgpt_credentials(&auth_store).await
+            {
+                crate::chatgpt::fetch_quota(&fresh_token, fresh_account.as_deref()).await
+            } else {
+                None
+            }
+        }
+    };
+    match display {
         Some(display) => quota.record_success(&key, display),
         None => quota.record_failure(&key),
     }
@@ -185,7 +210,17 @@ async fn do_refresh_claude_quota(
         quota.record_failure(&key);
         return;
     };
-    match crate::claude::quota::fetch_quota(&token, Some(&target_model)).await {
+    let display = match crate::claude::quota::fetch_quota(&token, Some(&target_model)).await {
+        Some(display) => Some(display),
+        None => {
+            if let Ok(Some(fresh_token)) = auth_store.lock().await.force_refresh("claude").await {
+                crate::claude::quota::fetch_quota(&fresh_token, Some(&target_model)).await
+            } else {
+                None
+            }
+        }
+    };
+    match display {
         Some(display) => quota.record_success(&key, display),
         None => quota.record_failure(&key),
     }

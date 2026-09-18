@@ -63,7 +63,7 @@ impl AgentEngine {
             },
         )?;
         *self.agent.write().await = new_agent;
-        self.spawn_refresh_quota();
+        self.refresh_quota().await;
         Ok(())
     }
 

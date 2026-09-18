@@ -120,3 +120,19 @@ async fn update_footer_clears_quota_when_switching_to_unsupported_provider() {
     update_footer(&mut state, &session, &engine);
     assert_eq!(state.footer().quota, None);
 }
+
+#[tokio::test]
+async fn switch_model_preserves_or_updates_quota_immediately() {
+    let (mut engine, mut session, _temp) = test_quota_harness().await;
+    let chatgpt_key = rho_engine::engine::tracking::QuotaKey::new("chatgpt", None::<String>);
+    engine.quota().record_success(&chatgpt_key, "30% 2d19h".to_string());
+
+    session.config.provider = "chatgpt".to_string();
+    session.config.model = "gpt-5.4".to_string();
+    engine.config.provider = "chatgpt".to_string();
+    engine.config.model = "gpt-5.4".to_string();
+
+    let mut state = InteractiveState::default();
+    update_footer(&mut state, &session, &engine);
+    assert_eq!(state.footer().quota, Some("30% 2d19h".to_string()));
+}
