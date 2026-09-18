@@ -63,7 +63,14 @@ wasm: ## Build rho-wasm and generate JS bindings into www/hub/wasm
 	else \
 		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
 	fi
-	wasm-bindgen target/wasm32-unknown-unknown/release/rho_wasm.wasm --out-dir www/hub/wasm --target web
+	@WASM="target/wasm32-unknown-unknown/release/rho_wasm.wasm"; \
+	HASH_FILE="target/wasm32-unknown-unknown/release/.bindgen-hash"; \
+	HASH_CMD=$$(command -v sha256sum 2>/dev/null || echo "shasum -a 256"); \
+	CURRENT_HASH=$$($$HASH_CMD "$$WASM" | cut -d ' ' -f 1); \
+	if [ ! -f "$$HASH_FILE" ] || [ "$$(cat "$$HASH_FILE" 2>/dev/null)" != "$$CURRENT_HASH" ] || [ ! -f "www/hub/wasm/rho_wasm.js" ]; then \
+		wasm-bindgen "$$WASM" --out-dir www/hub/wasm --target web && \
+		echo "$$CURRENT_HASH" > "$$HASH_FILE"; \
+	fi
 
 .PHONY: clean
 clean: ## Clean cargo build artifacts
