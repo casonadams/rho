@@ -288,3 +288,92 @@ impl Drop for TerminalApprovalSink {
         self.flush_reasoning();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use rho_harness_core::presentation::ActivityToken;
+    use rho_harness_core::presentation::activity::activity_token;
+    use rho_harness_core::presentation::stream::ToolStreamPort;
+    use rho_harness_core::presentation::{SessionStatus, WelcomeDisplay};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct TrackingPresenter {
+        idle_count: Arc<AtomicUsize>,
+        active_tools: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Presenter for TrackingPresenter {
+        fn write_output(&self, _text: &str) {}
+        fn print_welcome(&self, _display: &WelcomeDisplay) {}
+        fn print_session_status(&self, _display: &SessionStatus) {}
+        fn print_notice(&self, _text: &str) {}
+        fn print_user_block(&self, _input: &str) {}
+        fn print_token(&self, _token: &str) {}
+        fn print_thinking_token(&self, _token: &str) {}
+        fn finish_tool_line(&self, _line: ToolLine) {}
+        fn flush(&self) {}
+        fn has_interactive_ui(&self) -> bool {
+            true
+        }
+        fn start_spinner(&self, _message: &str) -> ActivityToken {
+            let idles = self.idle_count.clone();
+            activity_token(move || {
+                idles.fetch_add(1, Ordering::SeqCst);
+            })
+        }
+        fn start_tool_spinner(&self, _name: &str, _arguments: &Value) -> ActivityToken {
+            let idles = self.idle_count.clone();
+            activity_token(move || {
+                idles.fetch_add(1, Ordering::SeqCst);
+            })
+        }
+        fn start_tool_run(&self, _name: &str, _arguments: &Value) {
+            self.active_tools.fetch_add(1, Ordering::SeqCst);
+        }
+        fn stream_port(&self) -> ToolStreamPort {
+            ToolStreamPort::default()
+        }
+    }
+
+    #[test]
+    fn tool_transitions_disarm_intermediate_spinners_without_emitting_idle() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = rho_harness_core::session::SessionManager::new(temp.path(), None).unwrap();
+        let idle_count = Arc::new(AtomicUsize::new(0));
+        let active_tools = Arc::new(AtomicUsize::new(0));
+        let presenter: Arc<dyn Presenter> = Arc::new(TrackingPresenter {
+            idle_count: idle_count.clone(),
+            active_tools: active_tools.clone(),
+        });
+        let sink = TerminalApprovalSink::new(
+            &presenter,
+            TerminalSinkConfig {
+                model_label: "test".to_string(),
+                run_tracker: crate::engine::metrics::RunTracker::default(),
+            },
+            session,
+        );
+
+        sink.resume_model_spinner();
+        assert_eq!(idle_count.load(Ordering::SeqCst), 0);
+
+        sink.tool_start("write", &serde_json::json!({"path": "file.txt", "content": "data"}));
+        assert_eq!(idle_count.load(Ordering::SeqCst), 0);
+        assert_eq!(active_tools.load(Ordering::SeqCst), 1);
+
+        sink.tool_finished(ToolFinishDetails {
+            name: "write",
+            arguments: &serde_json::json!({"path": "file.txt"}),
+            output: "ok",
+            is_error: false,
+        });
+        assert_eq!(idle_count.load(Ordering::SeqCst), 0);
+
+        sink.finish_spinner();
+        assert_eq!(idle_count.load(Ordering::SeqCst), 1);
+    }
+}
