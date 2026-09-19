@@ -127,15 +127,25 @@ pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut
                 println!("No stored credentials to remove.");
                 return Ok(());
             }
-            #[cfg(feature = "ui")]
-            {
-                inquire::Select::new("Select provider credentials to remove:", configured)
-                    .prompt()
-                    .map_err(|_| AppError::Cancelled("Logout cancelled".to_string()))?
+            println!("\nSelect provider credentials to remove:");
+            for (i, p) in configured.iter().enumerate() {
+                println!("  {}. {p}", i + 1);
             }
-            #[cfg(not(feature = "ui"))]
-            {
-                configured.first().cloned().unwrap_or_default()
+            use std::io::Write;
+            print!("Enter choice [1-{}]: ", configured.len());
+            std::io::stdout().flush().ok();
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| AppError::Other(e.into()))?;
+            let idx = input
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| AppError::Cancelled("Logout cancelled".to_string()))?;
+            if idx >= 1 && idx <= configured.len() {
+                configured[idx - 1].clone()
+            } else {
+                return Err(AppError::Cancelled("Logout cancelled".to_string()));
             }
         }
     };

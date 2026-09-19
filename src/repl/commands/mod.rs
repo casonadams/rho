@@ -113,7 +113,20 @@ fn prompt_terminal_model_select(ctx: &mut SlashCommandContext<'_>) -> Option<Com
         .iter()
         .map(|m| format!("{} ({}) - {}", m.id, m.provider, m.description))
         .collect();
-    let choice = inquire::Select::new("Select a model:", models).prompt().ok()?;
+    if models.is_empty() {
+        return None;
+    }
+    println!("\nSelect a model:");
+    for (i, m) in models.iter().enumerate() {
+        println!("  {}. {m}", i + 1);
+    }
+    use std::io::Write;
+    print!("Enter choice [1-{}]: ", models.len());
+    std::io::stdout().flush().ok()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).ok()?;
+    let choice_idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
+    let choice = models.get(choice_idx)?;
     let model_str = choice.split_whitespace().next().unwrap_or("");
     let provider_str = choice.split('(').nth(1).and_then(|s| s.split(')').next()).unwrap_or("");
     ctx.config.model = model_str.to_string();
@@ -215,14 +228,22 @@ async fn prompt_skill_selection(skills: &[ResolvedSkill]) -> Option<String> {
         .iter()
         .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
         .collect();
-    tokio::task::spawn_blocking(move || {
-        inquire::Select::new("Select a skill to inspect:", choices)
-            .prompt()
-            .ok()
-            .and_then(|choice| choice.split_whitespace().next().map(str::to_string))
-    })
-    .await
-    .unwrap_or(None)
+    if choices.is_empty() {
+        return None;
+    }
+    println!("\nSelect a skill to inspect:");
+    for (i, c) in choices.iter().enumerate() {
+        println!("  {}. {c}", i + 1);
+    }
+    use std::io::Write;
+    print!("Enter choice [1-{}]: ", choices.len());
+    std::io::stdout().flush().ok()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).ok()?;
+    let idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
+    choices
+        .get(idx)
+        .and_then(|c| c.split_whitespace().next().map(str::to_string))
 }
 
 async fn inspect_selected_skill(renderer: &TerminalRenderer, skills: &[ResolvedSkill], name: &str) {

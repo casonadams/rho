@@ -637,10 +637,16 @@ fn is_session_switch_arm(result: &CommandResult) -> bool {
 // ---------------------------------------------------------------------------
 
 fn confirm_branch_summary() -> bool {
-    inquire::Confirm::new("Summarize discoveries from abandoned branch before switching?")
-        .with_default(true)
-        .prompt()
-        .is_ok_and(|v| v)
+    use std::io::Write;
+    print!("Summarize discoveries from abandoned branch before switching? [Y/n]: ");
+    std::io::stdout().flush().ok();
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_ok() {
+        let trimmed = input.trim().to_lowercase();
+        trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
+    } else {
+        false
+    }
 }
 
 async fn summarize_if_confirmed(ctx: &mut BranchSwitchContext<'_, '_, '_, impl TerminalBackend>) -> Option<()> {

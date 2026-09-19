@@ -5,38 +5,33 @@ use rho_harness_core::auth::{DeviceCodeInfo, OAuthLoginCallbacks, SelectOption};
 
 pub struct TerminalOAuthCallbacks;
 
-#[cfg(feature = "ui")]
 async fn prompt_ui_select(message: &str, options: &[SelectOption]) -> Result<Option<String>> {
-    let labels: Vec<String> = options
-        .iter()
-        .map(|o| match &o.description {
-            Some(d) => format!("{} - {d}", o.label),
-            None => o.label.clone(),
-        })
-        .collect();
-    let msg = message.to_string();
-    let selection = tokio::task::spawn_blocking(move || {
-        inquire::Select::new(&msg, labels)
-            .prompt()
-            .map_err(|_| AppError::Cancelled("Selection cancelled".to_string()))
-    })
-    .await
-    .map_err(|e| AppError::Other(e.into()))??;
-    for opt in options {
-        if selection.starts_with(&opt.label) || selection.contains(&opt.label) {
-            return Ok(Some(opt.id.clone()));
+    if options.is_empty() {
+        return Ok(None);
+    }
+    println!("\n{message}");
+    for (idx, opt) in options.iter().enumerate() {
+        if let Some(desc) = &opt.description {
+            println!("  {}. {} - {desc}", idx + 1, opt.label);
+        } else {
+            println!("  {}. {}", idx + 1, opt.label);
         }
     }
-    Ok(None)
-}
-
-#[cfg(not(feature = "ui"))]
-async fn prompt_ui_select(message: &str, options: &[SelectOption]) -> Result<Option<String>> {
-    println!("{message}");
-    for (idx, opt) in options.iter().enumerate() {
-        println!("  {}. {}", idx + 1, opt.label);
+    use std::io::Write;
+    print!("Enter selection [1-{}]: ", options.len());
+    std::io::stdout().flush().ok();
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| AppError::Other(e.into()))?;
+    if let Ok(idx) = input.trim().parse::<usize>()
+        && idx >= 1
+        && idx <= options.len()
+    {
+        Ok(Some(options[idx - 1].id.clone()))
+    } else {
+        Ok(None)
     }
-    Ok(options.first().map(|o| o.id.clone()))
 }
 
 #[async_trait]

@@ -41,6 +41,7 @@ rho-engine = { version = "0.8.0", path = "crates/rho-engine" }
 rig = { version = "0.42", default-features = false, features = ["agent", "derive", "test-utils"] }
 similar = "2.7"
 strip-ansi-escapes = "0.2"
+rpassword = "7.5"
 rig-memory = "0.42"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "form", "json", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -72,7 +73,6 @@ default = ["ui"]
 fastembed = ["rho-engine/fastembed"]
 ui = [
     "dep:reedline",
-    "dep:inquire",
     "dep:indicatif",
     "dep:crossterm",
     "dep:anstyle",
@@ -122,7 +122,6 @@ tokio-websockets = { workspace = true }
 futures-util = "0.3"
 clap = { version = "4.5", features = ["derive", "env"] }
 reedline = { version = "0.51", optional = true }
-inquire = { version = "0.9", optional = true, features = ["fuzzy"] }
 indicatif = { version = "0.18", optional = true }
 crossterm = { version = "0.29", optional = true }
 anstyle = { version = "1.0", optional = true }
@@ -143,6 +142,7 @@ unicode-width = "0.2"
 arboard = "3.4"
 similar.workspace = true
 strip-ansi-escapes.workspace = true
+rpassword.workspace = true
 image.workspace = true
 dirs = "7.0"
 

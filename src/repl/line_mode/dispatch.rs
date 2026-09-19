@@ -30,11 +30,13 @@ async fn maybe_summarize_abandoned(
     if !has_assistant || !has_ui {
         return None;
     }
-    let confirm = inquire::Confirm::new("Summarize discoveries from abandoned branch before switching?")
-        .with_default(true)
-        .prompt()
-        .ok()?;
-    if !confirm {
+    use std::io::Write;
+    print!("Summarize discoveries from abandoned branch before switching? [Y/n]: ");
+    std::io::stdout().flush().ok()?;
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).ok()?;
+    let trimmed = input.trim().to_lowercase();
+    if !trimmed.is_empty() && trimmed != "y" && trimmed != "yes" {
         return None;
     }
     let messages: Vec<_> = abandoned.iter().flat_map(|n| n.messages.clone()).collect();

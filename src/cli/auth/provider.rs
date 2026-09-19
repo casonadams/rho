@@ -43,97 +43,66 @@ pub fn api_key_provider_options(config: &Config) -> Vec<(String, String)> {
     options
 }
 
-pub fn prompt_select_auth_method() -> Result<AuthMethod> {
-    #[cfg(feature = "ui")]
-    {
-        let options = vec![
-            "API key (Anthropic, OpenAI, Gemini, etc.)",
-            "OAuth / Subscription (ChatGPT, Claude, Copilot, Antigravity, OpenRouter)",
-        ];
-        let selection = inquire::Select::new("Select authentication method:", options)
-            .prompt()
-            .map_err(|_| crate::error::AppError::Cancelled("Login cancelled".to_string()))?;
-
-        if selection.starts_with("API key") {
-            Ok(AuthMethod::ApiKey)
-        } else {
-            Ok(AuthMethod::OAuth)
-        }
+fn prompt_select_from_list(prompt: &str, items: &[String]) -> Result<usize> {
+    println!("\n{prompt}");
+    for (idx, item) in items.iter().enumerate() {
+        println!("  {}. {item}", idx + 1);
     }
-    #[cfg(not(feature = "ui"))]
-    {
-        println!("Select authentication method:");
-        println!("  1. API key");
-        println!("  2. OAuth / Subscription");
+    use std::io::Write;
+    print!("Enter choice [1-{}]: ", items.len());
+    std::io::stdout().flush().ok();
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .map_err(|e| crate::error::AppError::Other(e.into()))?;
+    let idx = input
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| crate::error::AppError::Cancelled("Invalid selection".to_string()))?;
+    if idx >= 1 && idx <= items.len() {
+        Ok(idx - 1)
+    } else {
+        Err(crate::error::AppError::Cancelled("Selection out of range".to_string()))
+    }
+}
+
+pub fn prompt_select_auth_method() -> Result<AuthMethod> {
+    let options = vec![
+        "API key (Anthropic, OpenAI, Gemini, etc.)".to_string(),
+        "OAuth / Subscription (ChatGPT, Claude, Copilot, Antigravity, OpenRouter)".to_string(),
+    ];
+    let idx = prompt_select_from_list("Select authentication method:", &options)?;
+    if idx == 0 {
         Ok(AuthMethod::ApiKey)
+    } else {
+        Ok(AuthMethod::OAuth)
     }
 }
 
 pub fn prompt_select_oauth_provider() -> Result<String> {
     let options = oauth_provider_options();
-    #[cfg(feature = "ui")]
-    {
-        let items: Vec<String> = options.iter().map(|(id, desc)| format!("{id:<14} [{desc}]")).collect();
-        let selection = inquire::Select::new("Select provider to log in:", items)
-            .prompt()
-            .map_err(|_| crate::error::AppError::Cancelled("Login cancelled".to_string()))?;
-        let selected_id = selection.split_whitespace().next().unwrap_or("antigravity");
-        Ok(selected_id.to_string())
-    }
-    #[cfg(not(feature = "ui"))]
-    {
-        println!("Available OAuth providers:");
-        for (id, desc) in &options {
-            println!("  - {id:<14} ({desc})");
-        }
-        Ok("antigravity".to_string())
-    }
+    let items: Vec<String> = options.iter().map(|(id, desc)| format!("{id:<14} [{desc}]")).collect();
+    let idx = prompt_select_from_list("Select provider to log in:", &items)?;
+    Ok(options[idx].0.to_string())
 }
 
 pub fn prompt_select_api_key_provider(config: &Config) -> Result<String> {
     let options = api_key_provider_options(config);
-    #[cfg(feature = "ui")]
-    {
-        let items: Vec<String> = options.iter().map(|(id, desc)| format!("{id:<14} [{desc}]")).collect();
-        let selection = inquire::Select::new("Select provider to configure:", items)
-            .prompt()
-            .map_err(|_| crate::error::AppError::Cancelled("Login cancelled".to_string()))?;
-        let selected_id = selection.split_whitespace().next().unwrap_or("anthropic");
-        Ok(selected_id.to_string())
-    }
-    #[cfg(not(feature = "ui"))]
-    {
-        println!("Available API key providers:");
-        for (id, desc) in &options {
-            println!("  - {id:<14} ({desc})");
-        }
-        Ok("anthropic".to_string())
-    }
+    let items: Vec<String> = options.iter().map(|(id, desc)| format!("{id:<14} [{desc}]")).collect();
+    let idx = prompt_select_from_list("Select provider to configure:", &items)?;
+    Ok(options[idx].0.to_string())
 }
 
 pub fn prompt_auth_method(provider_label: &str) -> Result<AuthMethod> {
-    #[cfg(feature = "ui")]
-    {
-        let options = vec![
-            "OAuth (sign in with browser to generate API key)",
-            "API key (enter manually)",
-        ];
-        let selection = inquire::Select::new(&format!("Select authentication method for {provider_label}:"), options)
-            .prompt()
-            .map_err(|_| crate::error::AppError::Cancelled("Login cancelled".to_string()))?;
-
-        if selection.starts_with("OAuth") {
-            Ok(AuthMethod::OAuth)
-        } else {
-            Ok(AuthMethod::ApiKey)
-        }
-    }
-    #[cfg(not(feature = "ui"))]
-    {
-        println!("Select authentication method for {provider_label}:");
-        println!("  1. OAuth (sign in with browser to generate API key)");
-        println!("  2. API key (enter manually)");
+    let options = vec![
+        "OAuth (sign in with browser to generate API key)".to_string(),
+        "API key (enter manually)".to_string(),
+    ];
+    let idx = prompt_select_from_list(&format!("Select authentication method for {provider_label}:"), &options)?;
+    if idx == 0 {
         Ok(AuthMethod::OAuth)
+    } else {
+        Ok(AuthMethod::ApiKey)
     }
 }
 
