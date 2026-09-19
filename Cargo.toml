@@ -39,6 +39,7 @@ fuzzy-matcher = "0.3.7"
 rho-harness-core = { version = "0.8.0", path = "crates/rho-harness-core" }
 rho-engine = { version = "0.8.0", path = "crates/rho-engine" }
 rig = { version = "0.42", default-features = false, features = ["agent", "derive", "test-utils"] }
+rmcp = { version = "3.4", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider"] }
 similar = "2.7"
 strip-ansi-escapes = "0.2"
 rpassword = "7.5"
