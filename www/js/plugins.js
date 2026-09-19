@@ -59,8 +59,8 @@ export function renderExtensionCard(item) {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
           <span style="font-size: 0.74rem; font-weight: 600; color: var(--text-muted);">${escapeHtml(item.snippetLabel || "Configuration")}</span>
         </div>
-        <div class="install-bar" style="align-items: flex-start; padding: 0.6rem 0.75rem;">
-          <pre style="margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; color: var(--accent-green); flex: 1; overflow-x: auto; white-space: pre;"><code>${escapeHtml(item.snippet)}</code></pre>
+        <div class="install-bar" style="align-items: flex-start; padding: 0.6rem 0.75rem; min-width: 0; overflow: hidden;">
+          <pre style="margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; color: var(--accent-green); flex: 1; min-width: 0; overflow-x: auto; white-space: pre;"><code>${escapeHtml(item.snippet)}</code></pre>
           <button class="copy-btn" data-copy="${escapeHtml(item.snippet)}" aria-label="Copy snippet" style="margin-left: 0.5rem; flex-shrink: 0;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             <span>Copy</span>
