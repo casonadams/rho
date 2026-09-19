@@ -6,7 +6,7 @@ pub enum RenderSlot {
     Alternate,
 }
 
-pub fn is_invariant(item: &TranscriptItem) -> bool {
+fn is_invariant(item: &TranscriptItem) -> bool {
     matches!(
         item,
         TranscriptItem::Welcome(_)
@@ -16,11 +16,11 @@ pub fn is_invariant(item: &TranscriptItem) -> bool {
     )
 }
 
-pub fn is_dual_state(item: &TranscriptItem) -> bool {
+fn is_dual_state(item: &TranscriptItem) -> bool {
     !is_invariant(item)
 }
 
-pub fn target_slot(item: &TranscriptItem, tools_expanded: bool, hide_thinking: bool) -> RenderSlot {
+pub(super) fn target_slot(item: &TranscriptItem, tools_expanded: bool, hide_thinking: bool) -> RenderSlot {
     if is_dual_state(item) {
         match item {
             TranscriptItem::Tool(_) if tools_expanded => RenderSlot::Alternate,

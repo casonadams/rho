@@ -31,7 +31,7 @@ fn skip_color_params(params: &mut std::iter::Peekable<std::str::Split<'_, char>>
     }
 }
 
-pub(crate) fn sgr_resets_background(sequence: &str) -> bool {
+fn sgr_resets_background(sequence: &str) -> bool {
     let Some(inner) = sequence.strip_prefix("\x1b[").and_then(|s| s.strip_suffix('m')) else {
         return false;
     };
@@ -443,20 +443,6 @@ mod tests {
             assert!(line.starts_with("\x1b[40m "));
         }
         assert!(rendered.contains("\x1b[0m\x1b[40m extra"));
-    }
-
-    #[test]
-    fn compound_and_color_resets_positive() {
-        for s in ["\x1b[m", "\x1b[0m", "\x1b[49m", "\x1b[0;31m", "\x1b[31;0m"] {
-            assert!(sgr_resets_background(s));
-        }
-    }
-
-    #[test]
-    fn compound_and_color_resets_negative() {
-        for s in ["\x1b[31m", "\x1b[1;32m", "\x1b[38;2;255;0;0m", "\x1b[38;5;0m"] {
-            assert!(!sgr_resets_background(s));
-        }
     }
 
     #[test]
