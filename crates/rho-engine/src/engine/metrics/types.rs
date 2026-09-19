@@ -59,6 +59,16 @@ impl StructuralUsage {
     pub fn has_values(self) -> bool {
         self.input_tokens != 0 || self.output_tokens != 0 || self.total_tokens != 0
     }
+
+    pub fn cache_hit_rate(&self) -> Option<f64> {
+        let cached = self.cached_input_tokens?;
+        let total_prompt = self.input_tokens.saturating_add(cached);
+        if total_prompt == 0 {
+            None
+        } else {
+            Some((cached as f64 / total_prompt as f64) * 100.0)
+        }
+    }
 }
 
 impl From<Usage> for StructuralUsage {
@@ -118,6 +128,10 @@ impl RunMetrics {
         self.session_id = "<session>".to_string();
         self.elapsed_ms = 0;
         self
+    }
+
+    pub fn cache_hit_rate(&self) -> Option<f64> {
+        self.usage.as_ref().and_then(StructuralUsage::cache_hit_rate)
     }
 }
 

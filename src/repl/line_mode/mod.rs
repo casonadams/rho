@@ -245,10 +245,14 @@ async fn process_line_input(
 
 fn render_line_mode_prompt(session: &ReplSession, engine: &AgentEngine) {
     let quota = engine.quota_display();
+    let context = match engine.cache_hit_display() {
+        Some(hit) => format!("{} ({hit})", engine.context_remaining_display()),
+        None => engine.context_remaining_display(),
+    };
     session.renderer.print_session_status(&SessionStatus {
         model: session.config.model.clone(),
         provider: session.config.provider.clone(),
-        context: engine.context_remaining_display(),
+        context,
         quota,
     });
 }

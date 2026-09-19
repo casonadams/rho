@@ -559,3 +559,45 @@ async fn tokens_command_displays_cache_hit_when_present() {
     assert!(output.contains("cache: R900 W100"));
     assert!(output.contains("Prompt Cache Hit:            90.0%"));
 }
+
+#[tokio::test]
+async fn session_command_displays_cache_efficiency_when_present() {
+    let (mut config, mut auth) = (Config::default(), AuthStore::default());
+    let (renderer, mut events) = collecting_renderer();
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("test response");
+    let engine = mock_engine_with_session(
+        model,
+        MockEngineConfig {
+            base_dir: dir.path(),
+            app_config: config.clone(),
+            session_manager: None,
+            built_in_tools: None,
+        },
+    );
+    let step = rho_engine::engine::metrics::StructuralUsage {
+        input_tokens: 1_000,
+        output_tokens: 200,
+        cached_input_tokens: Some(9_000),
+        ..Default::default()
+    };
+    engine
+        .usage()
+        .record_turn(rho_engine::engine::tracking::TurnUsage::single(step), 500);
+
+    let mut context = SlashCommandContext {
+        config: &mut config,
+        auth_store: &mut auth,
+        renderer: &renderer,
+        session_id: Some("test-session"),
+        session_manager: None,
+        engine: Some(&engine),
+        home_dir: None,
+    };
+
+    let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
+    assert_eq!(result, Some(CommandResult::Continue));
+    let output = collected_output(&mut events);
+    assert!(output.contains("Cache Efficiency:            cache hit: 90%"));
+    assert!(output.contains("Prompt Cache Hit:            90.0%"));
+}

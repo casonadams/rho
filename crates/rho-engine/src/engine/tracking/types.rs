@@ -18,6 +18,15 @@ impl SessionUsageTotals {
             || self.total_reasoning > 0
     }
 
+    pub fn cache_hit_rate(&self) -> Option<f64> {
+        let total_prompt = self.total_input.saturating_add(self.total_cache_read);
+        if total_prompt == 0 || self.total_cache_read == 0 {
+            None
+        } else {
+            Some((self.total_cache_read as f64 / total_prompt as f64) * 100.0)
+        }
+    }
+
     pub fn add_usage(&mut self, usage: &StructuralUsage) {
         self.total_input = self.total_input.saturating_add(usage.input_tokens);
         self.total_output = self.total_output.saturating_add(usage.output_tokens);
