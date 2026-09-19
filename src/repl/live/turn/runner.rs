@@ -68,10 +68,14 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         !matches!(self.controller.state().footer().activity, Activity::Idle)
     }
 
-    pub fn drain_ui_batch(&mut self, ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>) -> Result<()> {
+    pub fn drain_ui_batch(
+        &mut self,
+        ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+        initial_dirty: bool,
+    ) -> Result<()> {
         let steering = reconcile_consumed_steering(self.controller, &self.steering);
         let spinner = self.tick_spinner();
-        let mut dirty = false;
+        let mut dirty = initial_dirty;
         while let Ok(next) = ui_events.try_recv() {
             dirty |= self.batch.push_event(self.controller, next)?;
         }

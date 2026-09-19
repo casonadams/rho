@@ -42,7 +42,7 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
         Event::FocusGained => {
             if !lp.controller.focused() {
                 lp.controller.set_focused(true);
-                let _ = lp.drain_ui_batch(res.ui_events);
+                let _ = lp.drain_ui_batch(res.ui_events, false);
                 if matches!(lp.controller.state().footer().activity, Activity::Idle) {
                     lp.controller.state_mut().footer_mut().activity = Activity::Working;
                 }
@@ -53,7 +53,7 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
         Event::FocusLost => {
             if lp.controller.focused() {
                 lp.controller.set_focused(false);
-                let _ = lp.drain_ui_batch(res.ui_events);
+                let _ = lp.drain_ui_batch(res.ui_events, false);
                 if matches!(lp.controller.state().footer().activity, Activity::Idle) {
                     lp.controller.state_mut().footer_mut().activity = Activity::Working;
                 }

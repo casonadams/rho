@@ -526,7 +526,7 @@ async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_
 
     tx.send(crate::ui::interactive::UiEvent::Activity(Activity::Idle))
         .unwrap();
-    lp.drain_ui_batch(res.ui_events).unwrap();
+    lp.drain_ui_batch(res.ui_events, false).unwrap();
     assert_eq!(lp.controller.state().footer().activity, Activity::Working);
 
     super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
@@ -536,4 +536,50 @@ async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_
     let unfocused_layout = lp.controller.rendered().unwrap();
     assert!(unfocused_layout.working_line.contains("working"));
     assert!(!unfocused_layout.cursor_visible);
+}
+
+#[tokio::test]
+async fn test_turn_ui_transcript_event_flushes_immediately() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, _, engine) = create_harness_engine(temp.path()).await;
+    let mut f = TurnTestFixture::new("text");
+    let steering = std::sync::Arc::new(f.steering.clone());
+    let lp = super::runner::TurnLoop::new(
+        &mut f.session,
+        &engine,
+        &mut f.controller,
+        steering,
+        f.model_switch.clone(),
+    );
+    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
+    let cancellation = crate::engine::runner::CancellationSignal::default();
+    let res = super::event::TurnInputResources {
+        history: &mut f.history,
+        completions: &f.completions,
+        ui_events: &mut ui_events,
+        cancellation: &cancellation,
+    };
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+    let mut ctx = super::TurnContext {
+        loop_ctx: lp,
+        input_reader: &mut input_reader,
+        resources: res,
+    };
+
+    let tool_item = rho_harness_core::presentation::ToolLine {
+        name: "write".to_string(),
+        arguments: serde_json::json!({"path": "foo.txt", "content": "bar"}),
+        output: "ok".to_string(),
+        output_summary: "ok".to_string(),
+        is_error: false,
+        duration_ms: None,
+    };
+    let event = super::TurnEvent::Ui(Some(crate::ui::interactive::UiEvent::Transcript(
+        crate::ui::interactive::TranscriptItem::Tool(tool_item),
+    )));
+
+    super::handle_turn_event(&mut ctx, event).await.unwrap();
+
+    assert_eq!(ctx.loop_ctx.controller.transcript().len(), 1);
+    assert!(ctx.loop_ctx.batch.ui.is_empty());
 }
