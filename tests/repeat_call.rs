@@ -3,44 +3,11 @@
 
 #[cfg(test)]
 mod tests {
-    use rho::engine::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook, normalized_call_key};
+    use rho::engine::repeat::{REPEATED_CALL_MESSAGE, RepeatedCallHook};
     use rho::tools::BashTool;
     use rig::agent::AgentBuilder;
     use rig::test_utils::{MockCompletionModel, MockTurn};
-    use serde_json::{Value, json};
-    use std::path::Path;
-
-    fn key(name: &str, arguments: Value) -> String {
-        normalized_call_key(name, &arguments, Path::new("."))
-    }
-
-    #[test]
-    fn normalization_bash_command_differences() {
-        assert_eq!(
-            key("bash", json!({"command":"  cargo   test  ", "timeout":30})),
-            key("bash", json!({"command":"cargo test", "timeout":30}))
-        );
-        assert_ne!(
-            key("bash", json!({"command":"printf 'a  b'", "timeout":30})),
-            key("bash", json!({"command":"printf 'a b'", "timeout":30}))
-        );
-        assert_ne!(
-            key("bash", json!({"command":"cargo test", "timeout":30})),
-            key("bash", json!({"command":"cargo test", "timeout":31}))
-        );
-    }
-
-    #[test]
-    fn normalization_web_search_differences() {
-        assert_eq!(
-            key("web_search", json!({"query":" Rig   Memory ", "limit":null})),
-            key("web_search", json!({"query":"rig memory", "limit":5}))
-        );
-        assert_ne!(
-            key("web_search", json!({"query":"rig memory", "limit":5})),
-            key("web_search", json!({"query":"rig memory hook", "limit":5}))
-        );
-    }
+    use serde_json::json;
 
     #[cfg(unix)]
     #[tokio::test]

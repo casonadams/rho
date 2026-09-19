@@ -11,7 +11,7 @@ pub struct PendingModal {
     pub(crate) responder: InteractionResponder,
 }
 
-pub fn is_input_trigger(label: &str) -> bool {
+fn is_input_trigger(label: &str) -> bool {
     const PATTERNS: &[&str] = &[
         "with reason",
         "with feedback",
@@ -25,7 +25,7 @@ pub fn is_input_trigger(label: &str) -> bool {
     PATTERNS.iter().any(|p| label.contains(p))
 }
 
-pub fn prompt_label_for(label: &str) -> &'static str {
+pub(super) fn prompt_label_for(label: &str) -> &'static str {
     if label.contains("reason")
         || label.contains("feedback")
         || label.contains("Permission")

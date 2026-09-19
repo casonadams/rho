@@ -44,7 +44,7 @@ impl AgentHook for RepeatedCallHook {
     }
 }
 
-pub fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Path) -> String {
+fn normalized_call_key(tool_name: &str, arguments: &Value, working_dir: &Path) -> String {
     let mut normalized = arguments.clone();
     match tool_name {
         "bash" => normalize_bash(&mut normalized, working_dir),

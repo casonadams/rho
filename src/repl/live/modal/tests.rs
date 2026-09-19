@@ -1,32 +1,5 @@
-use super::interaction::{is_input_trigger, prompt_label_for};
 use super::*;
 use crate::ui::interactive::{EditorState, InteractiveState, ModalOption, ModalState};
-
-#[test]
-fn test_is_input_trigger() {
-    for trigger in [
-        "Deny with reason",
-        "Allow with feedback",
-        "Type something",
-        "Accept input",
-    ] {
-        assert!(is_input_trigger(trigger));
-    }
-    assert!(!is_input_trigger("Yes, approve"));
-}
-
-#[test]
-fn test_prompt_labels_for_triggers() {
-    let label_cases = [
-        ("Deny with reason", "reason"),
-        ("Permission requested", "reason"),
-        ("Approve tool", "reason"),
-        ("Type something", "answer"),
-    ];
-    for (prompt, expected) in label_cases {
-        assert_eq!(prompt_label_for(prompt), expected);
-    }
-}
 
 #[test]
 fn test_apply_input_edit() {

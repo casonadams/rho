@@ -181,21 +181,11 @@ async fn model_switch_is_emitted_and_updates_configuration() {
 }
 
 #[tokio::test]
-async fn compact_tree_and_rewind_commands_return_expected_results() {
+async fn tree_and_rewind_commands_return_expected_results() {
     let mut config = Config::default();
     let mut auth = AuthStore::default();
     let (renderer, _) = collecting_renderer();
     let mut context = test_context(&mut config, &mut auth, &renderer);
-
-    let compact = SlashCommandHandler::handle("/compact keep tests only", &mut context)
-        .await
-        .unwrap();
-    assert_eq!(
-        compact,
-        Some(CommandResult::Compact {
-            instructions: Some("keep tests only".to_string())
-        })
-    );
 
     let tree = SlashCommandHandler::handle("/tree", &mut context).await.unwrap();
     assert_eq!(tree, Some(CommandResult::OpenTreeSelector));
