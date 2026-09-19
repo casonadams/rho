@@ -1,43 +1,11 @@
 use std::sync::Arc;
-use tokio::io::BufReader;
-use tokio::sync::{RwLock, mpsc};
 
-use crate::auth::AuthStore;
-use crate::config::Config;
+use super::types::RpcDaemonContext;
 use crate::error::Result;
-use crate::repl::coordinator::SharedSteeringQueue;
-use crate::ui::render::RpcPresenter;
-use crate::ui::render::rpc_presenter::PendingApprovals;
-use rho_engine::engine::runner::TurnOutput;
 use rho_harness_core::presentation::types::InteractionResponse;
-use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcRequest, RpcResponse};
-use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
+use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcResponse};
 
-enum RpcLoopAction {
-    Continue,
-    Break,
-}
-
-enum NextRpcItem {
-    Event(Option<RpcEvent>),
-    Request(rho_harness_core::error::Result<Option<RpcRequest>>),
-    TurnDone(Box<std::result::Result<Result<TurnOutput>, tokio::task::JoinError>>),
-}
-
-struct RpcDaemonContext<'a, W> {
-    writer: &'a mut JsonLinesWriter<W>,
-    engine: Arc<RwLock<rho_engine::engine::AgentEngine>>,
-    presenter: Arc<dyn rho_harness_core::presentation::Presenter>,
-    config: Arc<RwLock<Config>>,
-    auth_store: Arc<RwLock<AuthStore>>,
-    pending_approvals: PendingApprovals,
-    steering: Arc<SharedSteeringQueue>,
-    active_turn: &'a mut Option<tokio::task::JoinHandle<Result<TurnOutput>>>,
-    event_tx: mpsc::UnboundedSender<RpcEvent>,
-    auth_bridge: rho_harness_core::rpc::RpcAuthBridge,
-}
-
-async fn handle_compact_cmd(
+pub(crate) async fn handle_compact_cmd(
     engine: &rho_engine::engine::AgentEngine,
     instructions: Option<String>,
     req_id: Option<String>,
@@ -56,7 +24,7 @@ async fn handle_compact_cmd(
     }
 }
 
-async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
     (message, req_id): (String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -72,7 +40,7 @@ async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
-async fn handle_abort_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_abort_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -92,7 +60,7 @@ async fn handle_abort_cmd<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
-fn parse_tool_decision(decision: &str) -> InteractionResponse {
+pub(crate) fn parse_tool_decision(decision: &str) -> InteractionResponse {
     let lower = decision.trim().to_lowercase();
     match lower.as_str() {
         "allow" | "0" => InteractionResponse::Selected(0),
@@ -110,7 +78,7 @@ fn parse_tool_decision(decision: &str) -> InteractionResponse {
     }
 }
 
-async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (approval_id, decision, req_id): (String, String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -131,7 +99,7 @@ async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
-async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (message, req_id): (String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -190,7 +158,7 @@ async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -223,7 +191,7 @@ async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
-async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: &RpcCommand,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -273,7 +241,7 @@ async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
-fn extract_user_chat_messages(
+pub(crate) fn extract_user_chat_messages(
     content: &[rig::message::UserContent],
     pending_tools: &mut std::collections::HashMap<String, serde_json::Value>,
     out: &mut Vec<serde_json::Value>,
@@ -322,7 +290,7 @@ fn extract_user_chat_messages(
     }
 }
 
-fn extract_assistant_chat_messages(
+pub(crate) fn extract_assistant_chat_messages(
     content: &[rig::message::AssistantContent],
     pending_tools: &mut std::collections::HashMap<String, serde_json::Value>,
     out: &mut Vec<serde_json::Value>,
@@ -362,7 +330,7 @@ fn extract_assistant_chat_messages(
     }
 }
 
-fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::Value> {
+pub(crate) fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     let mut pending_tools = std::collections::HashMap::new();
 
@@ -380,7 +348,7 @@ fn extract_chat_messages(messages: &[rig::message::Message]) -> Vec<serde_json::
     out
 }
 
-async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     session_id: &str,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -428,7 +396,7 @@ async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_fork_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_fork_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     node_id: Option<&str>,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -451,7 +419,7 @@ async fn handle_fork_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_resume_or_fork_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_resume_or_fork_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: &RpcCommand,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -469,7 +437,7 @@ async fn handle_resume_or_fork_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
-async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -514,7 +482,7 @@ async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
-fn get_host_name() -> String {
+pub(crate) fn get_host_name() -> String {
     if let Ok(name) = std::env::var("HOSTNAME") {
         let trimmed = name.trim();
         if !trimmed.is_empty() {
@@ -530,7 +498,7 @@ fn get_host_name() -> String {
         .unwrap_or_else(|| "localhost".to_string())
 }
 
-async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -557,7 +525,7 @@ async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     workspace: Option<String>,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -615,7 +583,7 @@ async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
     provider_str: String,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -666,7 +634,7 @@ async fn handle_auth_login_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_auth_input_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_auth_input_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (interaction_id, secret_value, selected_option): (String, Option<String>, Option<String>),
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -685,7 +653,7 @@ async fn handle_auth_input_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (provider, api_key): (String, String),
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -707,7 +675,7 @@ async fn handle_set_api_key_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_remote_auth_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_remote_auth_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: &RpcCommand,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -746,7 +714,7 @@ async fn handle_remote_auth_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
-async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (model, provider): (String, Option<String>),
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -774,7 +742,7 @@ async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     Ok(())
 }
 
-async fn handle_set_thinking_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_set_thinking_cmd<W: tokio::io::AsyncWrite + Unpin>(
     level: String,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -789,7 +757,7 @@ async fn handle_set_thinking_cmd<W: tokio::io::AsyncWrite + Unpin>(
         .await
 }
 
-async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
+pub(crate) async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: RpcCommand,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
@@ -809,467 +777,4 @@ async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
         _ => {}
     }
     Ok(())
-}
-
-async fn dispatch_rpc<W: tokio::io::AsyncWrite + Unpin>(
-    (cmd, req_id): (RpcCommand, Option<String>),
-    ctx: &mut RpcDaemonContext<'_, W>,
-) -> Result<RpcLoopAction> {
-    match cmd {
-        RpcCommand::Prompt { message, .. } => {
-            handle_prompt_cmd((message, req_id), ctx).await?;
-        }
-        RpcCommand::Steer { message } => {
-            handle_steer_command((message, req_id), ctx).await?;
-        }
-        RpcCommand::Abort => {
-            handle_abort_cmd(req_id, ctx).await?;
-        }
-        RpcCommand::ToolResponse { approval_id, decision } => {
-            handle_tool_response_cmd((approval_id, decision, req_id), ctx).await?;
-        }
-        RpcCommand::GetState => {
-            handle_state_command(req_id, ctx).await?;
-        }
-        ref other if handle_remote_auth_cmd(other, req_id.clone(), ctx).await? => {}
-        RpcCommand::Exit => {
-            if let Some(handle) = ctx.active_turn.take() {
-                handle.abort();
-            }
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "exit", None))
-                .await?;
-            return Ok(RpcLoopAction::Break);
-        }
-        ref other if handle_session_lifecycle_cmd(other, req_id.clone(), ctx).await? => {}
-        ref other if handle_resume_or_fork_cmd(other, req_id.clone(), ctx).await? => {}
-        other => {
-            handle_config_update_cmd(other, req_id, ctx).await?;
-        }
-    }
-    Ok(RpcLoopAction::Continue)
-}
-
-async fn handle_read_request<W: tokio::io::AsyncWrite + Unpin>(
-    res: rho_harness_core::error::Result<Option<RpcRequest>>,
-    writer: &mut JsonLinesWriter<W>,
-) -> Result<Option<RpcRequest>> {
-    match res {
-        Ok(opt) => Ok(opt),
-        Err(e) => {
-            writer
-                .write_message(&RpcResponse::failure(None, "parse", &e.to_string()))
-                .await?;
-            Ok(None)
-        }
-    }
-}
-
-async fn poll_next_rpc<R: tokio::io::AsyncBufRead + Unpin>(
-    reader: &mut JsonLinesReader<R>,
-    event_rx: &mut mpsc::UnboundedReceiver<RpcEvent>,
-    active_turn: &mut Option<tokio::task::JoinHandle<Result<TurnOutput>>>,
-) -> NextRpcItem {
-    if let Some(turn) = active_turn.as_mut() {
-        tokio::select! {
-            ev = event_rx.recv() => NextRpcItem::Event(ev),
-            res = turn => NextRpcItem::TurnDone(Box::new(res)),
-            req = reader.read_message::<RpcRequest>() => NextRpcItem::Request(req),
-        }
-    } else {
-        tokio::select! {
-            ev = event_rx.recv() => NextRpcItem::Event(ev),
-            req = reader.read_message::<RpcRequest>() => NextRpcItem::Request(req),
-        }
-    }
-}
-
-async fn handle_turn_done<W: tokio::io::AsyncWrite + Unpin>(
-    ctx: &mut RpcDaemonContext<'_, W>,
-    res: std::result::Result<Result<TurnOutput>, tokio::task::JoinError>,
-) -> Result<()> {
-    *ctx.active_turn = None;
-    ctx.writer
-        .write_message(&RpcEvent::StatusChanged {
-            status: "idle".to_string(),
-        })
-        .await?;
-    if let Ok(Err(err)) = res {
-        ctx.writer
-            .write_message(&RpcEvent::Error {
-                code: "turn_error".to_string(),
-                message: err.to_string(),
-            })
-            .await?;
-    }
-    let eng = ctx.engine.read().await;
-    eng.refresh_quota().await;
-    let totals = eng.session_usage_totals();
-    let usage_ev = RpcEvent::UsageUpdate {
-        input_tokens: Some(totals.total_input),
-        output_tokens: Some(totals.total_output),
-        cache_read_tokens: Some(totals.total_cache_read),
-        cache_write_tokens: Some(totals.total_cache_write),
-        total_cost: None,
-        context_percent: eng.context_percent_f64(),
-        context_window: eng.context_limit(),
-        tokens_per_second: eng.tokens_per_second(),
-        quota: eng.quota_display(),
-    };
-    ctx.writer.write_message(&usage_ev).await?;
-    Ok(())
-}
-
-async fn handle_next_rpc_item<R, W>(
-    reader: &mut JsonLinesReader<R>,
-    event_rx: &mut mpsc::UnboundedReceiver<RpcEvent>,
-    ctx: &mut RpcDaemonContext<'_, W>,
-) -> Result<RpcLoopAction>
-where
-    R: tokio::io::AsyncBufRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    match poll_next_rpc(reader, event_rx, ctx.active_turn).await {
-        NextRpcItem::Event(Some(event)) => {
-            ctx.writer.write_message(&event).await?;
-            Ok(RpcLoopAction::Continue)
-        }
-        NextRpcItem::Event(None) => Ok(RpcLoopAction::Break),
-        NextRpcItem::TurnDone(res) => {
-            handle_turn_done(ctx, *res).await?;
-            Ok(RpcLoopAction::Continue)
-        }
-        NextRpcItem::Request(res) => {
-            let Some(req) = handle_read_request(res, ctx.writer).await? else {
-                return Ok(RpcLoopAction::Break);
-            };
-            dispatch_rpc((req.command, req.id), ctx).await
-        }
-    }
-}
-
-async fn run_rpc_loop<R, W>(
-    reader: &mut JsonLinesReader<R>,
-    event_rx: &mut mpsc::UnboundedReceiver<RpcEvent>,
-    ctx: &mut RpcDaemonContext<'_, W>,
-) -> Result<()>
-where
-    R: tokio::io::AsyncBufRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    loop {
-        let action = handle_next_rpc_item(reader, event_rx, ctx).await?;
-        if matches!(action, RpcLoopAction::Break) {
-            break;
-        }
-    }
-    Ok(())
-}
-
-pub async fn run_rpc_session_over_stream<R, W>(
-    reader_stream: R,
-    writer_stream: W,
-    engine_lock: Arc<RwLock<rho_engine::engine::AgentEngine>>,
-    config_lock: Arc<RwLock<Config>>,
-    auth_store_lock: Arc<RwLock<AuthStore>>,
-) -> Result<()>
-where
-    R: tokio::io::AsyncRead + Unpin,
-    W: tokio::io::AsyncWrite + Unpin,
-{
-    let mut reader = JsonLinesReader::new(BufReader::new(reader_stream));
-    let mut writer = JsonLinesWriter::new(writer_stream);
-    let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
-    crate::platform::remote::PEER_REGISTRY.register(event_tx.clone());
-    let rpc_presenter = RpcPresenter::new(event_tx.clone());
-    let pending_approvals = rpc_presenter.pending_approvals();
-    let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(rpc_presenter);
-
-    let (session_id, steering_mode) = {
-        let eng = engine_lock.read().await;
-        (eng.session_manager.session_id.clone(), eng.config.steering_mode)
-    };
-    let (model, provider) = {
-        let cfg = config_lock.read().await;
-        (cfg.model.clone(), cfg.provider.clone())
-    };
-
-    let steering = Arc::new(SharedSteeringQueue::new(steering_mode));
-
-    let init = RpcEvent::SessionStart {
-        session_id,
-        model,
-        provider,
-    };
-    writer.write_message(&init).await?;
-
-    let mut active_turn = None;
-    let mut ctx = RpcDaemonContext {
-        writer: &mut writer,
-        engine: engine_lock,
-        presenter,
-        config: config_lock,
-        auth_store: auth_store_lock,
-        pending_approvals,
-        steering,
-        active_turn: &mut active_turn,
-        event_tx,
-        auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
-    };
-    run_rpc_loop(&mut reader, &mut event_rx, &mut ctx).await
-}
-
-pub async fn run_rpc_daemon(config: Config, auth_store: AuthStore) -> Result<()> {
-    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None).await?;
-    let engine_lock = Arc::new(RwLock::new(engine));
-    let config_lock = Arc::new(RwLock::new(config));
-    let auth_store_lock = Arc::new(RwLock::new(auth_store));
-    run_rpc_session_over_stream(
-        tokio::io::stdin(),
-        tokio::io::stdout(),
-        engine_lock,
-        config_lock,
-        auth_store_lock,
-    )
-    .await
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rho_harness_core::presentation::presenter::Presenter;
-    use rho_harness_core::presentation::{InteractionOption, InteractionPrompt, OptionLayout};
-    use tokio::io::duplex;
-
-    #[test]
-    fn test_parse_tool_decision_mappings() {
-        assert_eq!(parse_tool_decision("allow"), InteractionResponse::Selected(0));
-        assert_eq!(parse_tool_decision("0"), InteractionResponse::Selected(0));
-        assert_eq!(parse_tool_decision("always"), InteractionResponse::Selected(2));
-        assert_eq!(parse_tool_decision("always_allow"), InteractionResponse::Selected(2));
-        assert_eq!(parse_tool_decision("deny"), InteractionResponse::Cancelled);
-        assert_eq!(parse_tool_decision("cancel"), InteractionResponse::Cancelled);
-        assert_eq!(
-            parse_tool_decision("edit: echo hello"),
-            InteractionResponse::SelectedWithInput {
-                index: 1,
-                text: "echo hello".to_string(),
-            }
-        );
-        assert_eq!(
-            parse_tool_decision("deny: security policy violation"),
-            InteractionResponse::SelectedWithInput {
-                index: 3,
-                text: "security policy violation".to_string(),
-            }
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rpc_presenter_tool_approval_roundtrip() {
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel();
-        let presenter = RpcPresenter::new(event_tx);
-        let pending = presenter.pending_approvals();
-
-        let prompt = InteractionPrompt {
-            title: "bash".to_string(),
-            body: "rm -rf target".to_string(),
-            options: vec![InteractionOption {
-                label: "Allow".to_string(),
-                description: Some("Run command".to_string()),
-                input: None,
-            }],
-            initial_selection: 0,
-            allow_custom: false,
-            initial_text: None,
-            option_layout: OptionLayout::Vertical,
-        };
-
-        let pres_clone = presenter.clone();
-        let handle = tokio::spawn(async move { pres_clone.request_interaction(prompt).await });
-
-        // 1. First event: ToolApprovalRequest
-        let ev1 = event_rx.recv().await.expect("expected tool approval event");
-        let approval_id = match ev1 {
-            RpcEvent::ToolApprovalRequest { approval_id, tool, .. } => {
-                assert_eq!(tool, "bash");
-                approval_id
-            }
-            other => panic!("expected ToolApprovalRequest, got {other:?}"),
-        };
-
-        // 2. Second event: StatusChanged { status: "waiting_approval" }
-        let ev2 = event_rx.recv().await.expect("expected status change");
-        assert_eq!(
-            ev2,
-            RpcEvent::StatusChanged {
-                status: "waiting_approval".to_string()
-            }
-        );
-
-        // 3. Resolve approval via handle_tool_response_cmd
-        let (_client_io, server_io) = duplex(1024);
-        let mut writer = JsonLinesWriter::new(server_io);
-        let temp_dir = std::env::temp_dir().join(format!("rpc_test_{}", uuid::Uuid::new_v4()));
-        let config = Config {
-            sessions_dir: temp_dir.join("sessions"),
-            auth_file: temp_dir.join("auth.json"),
-            ..Config::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None)
-            .await
-            .unwrap();
-        let engine_lock = Arc::new(RwLock::new(engine));
-        let config_lock = Arc::new(RwLock::new(config));
-        let auth_store_lock = Arc::new(RwLock::new(auth_store));
-        let steering = Arc::new(SharedSteeringQueue::new(rho_engine::engine::runner::QueueMode::All));
-        let mut active_turn = None;
-
-        let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
-        let pres_arc: Arc<dyn Presenter> = Arc::new(presenter);
-        let mut ctx = RpcDaemonContext {
-            writer: &mut writer,
-            engine: engine_lock,
-            presenter: pres_arc,
-            config: config_lock,
-            auth_store: auth_store_lock,
-            pending_approvals: pending,
-            steering,
-            active_turn: &mut active_turn,
-            event_tx: test_event_tx,
-            auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
-        };
-
-        handle_tool_response_cmd((approval_id, "allow".to_string(), None), &mut ctx)
-            .await
-            .unwrap();
-
-        let response = handle.await.unwrap();
-        assert_eq!(response, Some(InteractionResponse::Selected(0)));
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[tokio::test]
-    async fn test_rpc_state_command_and_get_tree() {
-        let (event_tx, _event_rx) = mpsc::unbounded_channel();
-        let presenter = RpcPresenter::new(event_tx);
-        let pending = presenter.pending_approvals();
-
-        let (client_io, server_io) = duplex(4096);
-        let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
-        let mut writer = JsonLinesWriter::new(server_io);
-        let temp_dir = std::env::temp_dir().join(format!("rpc_tree_test_{}", uuid::Uuid::new_v4()));
-        let config = Config {
-            sessions_dir: temp_dir.join("sessions"),
-            auth_file: temp_dir.join("auth.json"),
-            model: "mock-model".to_string(),
-            provider: "ollama".to_string(),
-            ..Config::default()
-        };
-        let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
-        let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None)
-            .await
-            .unwrap();
-        let engine_lock = Arc::new(RwLock::new(engine));
-        let config_lock = Arc::new(RwLock::new(config));
-        let auth_store_lock = Arc::new(RwLock::new(auth_store));
-        let steering = Arc::new(SharedSteeringQueue::new(rho_engine::engine::runner::QueueMode::All));
-        let mut active_turn = None;
-
-        let (test_event_tx, _test_event_rx) = mpsc::unbounded_channel();
-        let pres_arc: Arc<dyn Presenter> = Arc::new(presenter);
-        let mut ctx = RpcDaemonContext {
-            writer: &mut writer,
-            engine: engine_lock,
-            presenter: pres_arc,
-            config: config_lock,
-            auth_store: auth_store_lock,
-            pending_approvals: pending,
-            steering,
-            active_turn: &mut active_turn,
-            event_tx: test_event_tx,
-            auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
-        };
-
-        handle_state_command(Some("req-state".to_string()), &mut ctx)
-            .await
-            .unwrap();
-        handle_get_tree_cmd(Some("req-tree".to_string()), &mut ctx)
-            .await
-            .unwrap();
-        handle_node_info_cmd(Some("req-info".to_string()), &mut ctx)
-            .await
-            .unwrap();
-        handle_create_session_cmd(
-            Some(temp_dir.display().to_string()),
-            Some("req-create".to_string()),
-            &mut ctx,
-        )
-        .await
-        .unwrap();
-
-        let resp1: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
-        assert_eq!(resp1.id, Some("req-state".to_string()));
-        let state_data = resp1.data.unwrap();
-        assert!(state_data.get("active_workspace").is_some());
-        assert!(state_data.get("total_input_tokens").is_some());
-        assert!(state_data.get("context_window").is_some());
-
-        let _resp2: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
-        let _resp3: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
-
-        let resp4: RpcResponse = client_reader.read_message().await.unwrap().unwrap();
-        assert_eq!(resp4.id, Some("req-create".to_string()));
-        let create_data = resp4.data.unwrap();
-        assert!(create_data.get("active_workspace").is_some());
-        assert!(create_data.get("total_input_tokens").is_some());
-
-        let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn test_extract_chat_messages_preserves_tools() {
-        use rig::message::{
-            AssistantContent, Message, ToolCall, ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
-        };
-        let msgs = vec![
-            Message::user("run check"),
-            Message::Assistant {
-                id: None,
-                content: vec![
-                    AssistantContent::text("I will run the command."),
-                    AssistantContent::ToolCall(ToolCall::new(
-                        ToolCallId::new_or_mint("call_1"),
-                        ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo check" })),
-                    )),
-                ],
-            },
-            Message::User {
-                content: vec![UserContent::ToolResult(ToolResult {
-                    call: ToolCallId::new_or_mint("call_1"),
-                    provider: None,
-                    name: "bash".to_string(),
-                    content: vec![ToolResultContent::Text(rig::message::Text::new(
-                        "Finished dev [unoptimized + debuginfo]",
-                    ))],
-                })],
-            },
-            Message::assistant("Check passed cleanly."),
-        ];
-
-        let extracted = extract_chat_messages(&msgs);
-        assert_eq!(extracted.len(), 4);
-        assert_eq!(extracted[0]["role"], "user");
-        assert_eq!(extracted[0]["content"], "run check");
-        assert_eq!(extracted[1]["role"], "assistant");
-        assert_eq!(extracted[1]["content"], "I will run the command.");
-        assert_eq!(extracted[2]["role"], "tool");
-        assert_eq!(extracted[2]["tool"], "bash");
-        assert_eq!(extracted[2]["arguments"]["command"], "cargo check");
-        assert_eq!(extracted[2]["output"], "Finished dev [unoptimized + debuginfo]");
-        assert_eq!(extracted[3]["role"], "assistant");
-        assert_eq!(extracted[3]["content"], "Check passed cleanly.");
-    }
 }
