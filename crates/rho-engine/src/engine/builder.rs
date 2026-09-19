@@ -137,20 +137,25 @@ async fn build_engine_tools(
     (base_dir, config): (&Path, &Config),
     rig_tools: Option<Vec<DynamicTool>>,
     extra_tools: Vec<DynamicTool>,
-) -> Result<Vec<DynamicTool>> {
+    history_tools: &std::collections::HashSet<String>,
+) -> Result<(Vec<DynamicTool>, crate::mcp::DynamicToolActivator)> {
+    let (mcp_tools, activator) = if config.mcp.enabled && !config.mcp.servers.is_empty() {
+        crate::mcp::load_mcp_tools_with_activator(config, base_dir, history_tools).await
+    } else {
+        (Vec::new(), crate::mcp::DynamicToolActivator::new())
+    };
+
     let mut tools = match rig_tools {
         Some(t) => t,
         None => {
             let mut t = crate::tools::builtin_tools::build_builtin_tools(base_dir, config)?;
-            if config.mcp.enabled && !config.mcp.servers.is_empty() {
-                t.extend(crate::mcp::load_mcp_tools(config, base_dir).await);
-            }
+            t.extend(mcp_tools);
             t
         }
     };
     tools.extend(extra_tools);
     tools.sort_by(|a, b| a.name().cmp(b.name()));
-    Ok(tools)
+    Ok((tools, activator))
 }
 
 impl AgentEngineBuilder {
@@ -192,7 +197,12 @@ impl AgentEngineBuilder {
         self,
         base_dir: PathBuf,
         (session_manager, auth_store): (SessionManager, Arc<tokio::sync::Mutex<AuthStore>>),
-        (tools, model, agent): (Vec<DynamicTool>, ModelHandle, rig::agent::Agent),
+        (tools, model, agent, tool_handle): (
+            Vec<DynamicTool>,
+            ModelHandle,
+            rig::agent::Agent,
+            rig::tool::server::ToolServerHandle,
+        ),
     ) -> AgentEngine {
         let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
         let context_limit = super::model::resolve_context_limit(&self.config);
@@ -201,6 +211,7 @@ impl AgentEngineBuilder {
             base_dir,
             session_manager,
             tool_names: Arc::new(std::sync::RwLock::new(tool_names)),
+            tool_server_handle: tool_handle,
             agent: Arc::new(tokio::sync::RwLock::new(agent)),
             usage: UsageTracker::default(),
             quota: QuotaTracker::default(),
@@ -220,13 +231,17 @@ impl AgentEngineBuilder {
         let shared_auth = Arc::new(tokio::sync::Mutex::new(self.auth_store.clone()));
         let model = self.resolve_model(shared_auth.clone())?;
 
-        let tools = build_engine_tools(
+        let history_messages = session_manager.active_messages().await.unwrap_or_default();
+        let history_tools = crate::mcp::extract_invoked_tool_names(&history_messages);
+
+        let (tools, activator) = build_engine_tools(
             (&base_dir, &self.config),
             self.rig_tools.take(),
             std::mem::take(&mut self.extra_tools),
+            &history_tools,
         )
         .await?;
-        let agent = super::runtime::build_coding_agent(
+        let (agent, tool_handle) = super::runtime::build_coding_agent(
             model.clone(),
             &self.config,
             CodingRuntime {
@@ -236,7 +251,13 @@ impl AgentEngineBuilder {
             },
         )?;
 
-        Ok(self.into_engine(base_dir, (session_manager, shared_auth), (tools, model, agent)))
+        let engine = self.into_engine(
+            base_dir,
+            (session_manager, shared_auth),
+            (tools, model, agent, tool_handle.clone()),
+        );
+        activator.attach(tool_handle, engine.tool_names.clone());
+        Ok(engine)
     }
 }
 

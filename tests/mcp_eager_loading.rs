@@ -31,7 +31,11 @@ fn build_mcp_test_config(workspace: &std::path::Path, server_name: &str, cmd: &s
     let mut servers = BTreeMap::new();
     servers.insert(server_name.to_string(), McpServerConfig::stdio(cmd, Vec::new()));
     Config {
-        mcp: McpConfig { enabled: true, servers },
+        mcp: McpConfig {
+            enabled: true,
+            defer_threshold: 10,
+            servers,
+        },
         config_dir: workspace.to_path_buf(),
         sessions_dir: workspace.join("sessions"),
         auth_file: workspace.join("auth.json"),

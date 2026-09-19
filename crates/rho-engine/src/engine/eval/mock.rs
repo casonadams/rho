@@ -50,7 +50,7 @@ fn assemble_mock_engine(
     app_config: Config,
     base_dir: std::path::PathBuf,
     (session_manager, tools): (SessionManager, Vec<DynamicTool>),
-    (agent, model_handle): (rig::agent::Agent, ModelHandle),
+    (agent, model_handle, tool_handle): (rig::agent::Agent, ModelHandle, rig::tool::server::ToolServerHandle),
 ) -> AgentEngine {
     let tool_names = tools.iter().map(|tool| tool.name().to_string()).collect();
     AgentEngine {
@@ -58,6 +58,7 @@ fn assemble_mock_engine(
         base_dir,
         session_manager,
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(tool_names)),
+        tool_server_handle: tool_handle,
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),
@@ -77,7 +78,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
     };
     let session_manager = resolve_mock_session_manager(&config);
     let model_handle = ModelHandle::new(model);
-    let agent = build_coding_agent(
+    let (agent, tool_handle) = build_coding_agent(
         model_handle.clone(),
         &app_config,
         CodingRuntime {
@@ -92,7 +93,7 @@ pub fn mock_engine_with_session(model: MockCompletionModel, config: MockEngineCo
         app_config,
         config.base_dir.to_path_buf(),
         (session_manager, tools),
-        (agent, model_handle),
+        (agent, model_handle, tool_handle),
     )
 }
 

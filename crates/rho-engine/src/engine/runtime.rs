@@ -23,7 +23,11 @@ pub struct CodingRuntime<'a> {
     pub built_in_tools: Option<Vec<rig::tool::DynamicTool>>,
 }
 
-pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRuntime<'_>) -> Result<Agent> {
+pub fn build_coding_agent(
+    model: ModelHandle,
+    config: &Config,
+    runtime: CodingRuntime<'_>,
+) -> Result<(Agent, rig::tool::server::ToolServerHandle)> {
     let CodingRuntime {
         memory, built_in_tools, ..
     } = runtime;
@@ -35,11 +39,13 @@ pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRu
     );
     let mut tools = built_in_tools.unwrap_or_default();
     tools.sort_by(|a, b| a.name().cmp(b.name()));
+    let tool_server = rig::tool::server::ToolServer::new().dynamic_tools(tools);
+    let tool_handle = tool_server.run();
     let builder = AgentBuilder::from_model_handle(model)
         .memory(memory)
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
-        .dynamic_tools(tools);
+        .tool_server_handle(tool_handle.clone());
     let builder = match extras {
         Some(extras) => builder.additional_params(extras),
         None => builder,
@@ -62,10 +68,11 @@ pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRu
         builder
     };
 
-    Ok(match config.max_output_tokens {
+    let agent = match config.max_output_tokens {
         Some(max_tokens) => builder.max_tokens(max_tokens).build(),
         None => builder.build(),
-    })
+    };
+    Ok((agent, tool_handle))
 }
 
 pub fn build_runner(agent: &Agent, prompt: impl Into<rig::message::Message>) -> AgentRunner {
@@ -221,6 +228,7 @@ mod tests {
                 built_in_tools: None,
             },
         )
+        .map(|(agent, _)| agent)
         .unwrap()
     }
 }

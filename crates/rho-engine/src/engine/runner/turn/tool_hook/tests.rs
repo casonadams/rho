@@ -503,3 +503,90 @@ mod invalid_tool_call {
         assert_eq!(try_repair_tool_name("unknown_xyz", &available), None);
     }
 }
+
+mod tool_search_activation {
+    use crate::mcp::{
+        DeferredMcpTool, DynamicToolActivator, ToolSearchCatalog, build_tool_search_tool, extract_invoked_tool_names,
+    };
+    use rig::agent::{AgentBuilder, ModelHandle};
+    use rig::message::{AssistantContent, Message, ToolCall, ToolFunction};
+    use rig::test_utils::{MockCompletionModel, MockTurn};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_tool_search_activation_makes_tool_available_on_subsequent_turn() {
+        let handle = rig::tool::server::ToolServer::new().run();
+        let activator = DynamicToolActivator::new();
+        let tool_names = Arc::new(std::sync::RwLock::new(vec!["tool_search".to_string()]));
+        activator.attach(handle.clone(), tool_names.clone());
+
+        let client_transport = crate::mcp::transport::McpTransport::new_http(
+            "http://127.0.0.1:9999",
+            rho_harness_core::config::McpTransportKind::StreamableHttp,
+            std::collections::BTreeMap::new(),
+            None,
+        );
+        let client = Arc::new(crate::mcp::McpClient::new("weather", client_transport));
+        let deferred_tool = DeferredMcpTool::new(
+            "weather".to_string(),
+            "get_forecast".to_string(),
+            "Get weather forecast".to_string(),
+            serde_json::json!({
+                "type": "object",
+                "properties": { "city": { "type": "string" } },
+                "required": ["city"]
+            }),
+            client,
+            1000,
+        );
+
+        let catalog = ToolSearchCatalog::new(vec![deferred_tool]);
+        let search_tool = build_tool_search_tool(catalog, activator.clone());
+        handle.add_dynamic_tool(search_tool).await;
+
+        let model = MockCompletionModel::new([
+            MockTurn::tool_call("call-1", "tool_search", serde_json::json!({ "query": "weather" })),
+            MockTurn::text("Weather tool found and loaded"),
+        ]);
+
+        let agent = AgentBuilder::from_model_handle(ModelHandle::new(model.clone()))
+            .tool_server_handle(handle)
+            .record_content_telemetry(false)
+            .build();
+
+        let runner = crate::engine::runtime::build_runner(&agent, "What tools do you have?").max_turns(3);
+        let response = runner.run().await.unwrap();
+
+        assert_eq!(response.output, "Weather tool found and loaded");
+
+        let requests = model.requests();
+        assert_eq!(requests.len(), 2);
+
+        let turn1_tool_names: Vec<&str> = requests[0].tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(turn1_tool_names.contains(&"tool_search"));
+        assert!(!turn1_tool_names.contains(&"weather_get_forecast"));
+
+        let turn2_tool_names: Vec<&str> = requests[1].tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(turn2_tool_names.contains(&"tool_search"));
+        assert!(turn2_tool_names.contains(&"weather_get_forecast"));
+    }
+
+    #[test]
+    fn test_pre_activation_extracts_invoked_tools_from_session_history() {
+        let history = vec![
+            Message::user("Please check the issue"),
+            Message::Assistant {
+                content: vec![AssistantContent::ToolCall(ToolCall::from_wire(
+                    "call-1",
+                    ToolFunction::new("github_create_issue".to_string(), serde_json::json!({})),
+                ))],
+                id: None,
+            },
+            Message::user("Also check weather"),
+        ];
+
+        let invoked = extract_invoked_tool_names(&history);
+        assert!(invoked.contains("github_create_issue"));
+        assert!(!invoked.contains("weather_get_forecast"));
+    }
+}

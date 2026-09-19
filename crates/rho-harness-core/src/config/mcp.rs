@@ -139,7 +139,18 @@ pub fn parse_mcp_json_str(content: &str) -> Result<McpConfig> {
         }
     }
 
-    Ok(McpConfig { enabled: true, servers })
+    let defer_threshold = root
+        .get("defer_threshold")
+        .or_else(|| root.get("deferThreshold"))
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(10);
+
+    Ok(McpConfig {
+        enabled: true,
+        defer_threshold,
+        servers,
+    })
 }
 
 pub fn global_mcp_path(config_dir: &Path) -> PathBuf {

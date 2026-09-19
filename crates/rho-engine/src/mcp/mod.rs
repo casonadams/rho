@@ -7,6 +7,7 @@ pub mod client;
 pub mod gateway;
 pub mod manager;
 pub mod process;
+pub mod search;
 pub mod transport;
 pub mod trust;
 pub mod types;
@@ -17,8 +18,11 @@ pub use client::{
     McpResourceDefinition, McpRoot, McpToolDefinition, McpToolResult,
 };
 pub use gateway::McpGateway;
-pub use manager::load_mcp_tools;
+pub use manager::{load_mcp_tools, load_mcp_tools_with_activator};
 pub use process::{McpChildHandle, McpProcess};
+pub use search::{
+    DeferredMcpTool, DynamicToolActivator, ToolSearchCatalog, build_tool_search_tool, extract_invoked_tool_names,
+};
 pub use transport::McpTransport;
 pub use trust::{is_workspace_trusted, trust_workspace, untrust_workspace};
 pub use types::{JsonRpcError, JsonRpcNotification, JsonRpcRequest, JsonRpcResponse};

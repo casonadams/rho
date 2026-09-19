@@ -40,6 +40,7 @@ pub struct AgentEngine {
     pub base_dir: std::path::PathBuf,
     pub session_manager: SessionManager,
     pub(crate) tool_names: Arc<std::sync::RwLock<Vec<String>>>,
+    pub(crate) tool_server_handle: rig::tool::server::ToolServerHandle,
     pub(crate) agent: Arc<tokio::sync::RwLock<Agent>>,
     pub(crate) usage: UsageTracker,
     pub(crate) quota: QuotaTracker,
@@ -61,6 +62,10 @@ impl AgentEngine {
 
     pub fn tool_names(&self) -> Vec<String> {
         self.tool_names.read().unwrap().clone()
+    }
+
+    pub fn tool_server_handle(&self) -> &rig::tool::server::ToolServerHandle {
+        &self.tool_server_handle
     }
 
     pub fn shared_auth_store(&self) -> Arc<tokio::sync::Mutex<AuthStore>> {

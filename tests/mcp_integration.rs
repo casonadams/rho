@@ -28,7 +28,11 @@ fn mcp_fs_config(script: &std::path::Path) -> Config {
         McpServerConfig::stdio(script.to_str().unwrap(), Vec::new()),
     );
     Config {
-        mcp: McpConfig { enabled: true, servers },
+        mcp: McpConfig {
+            enabled: true,
+            defer_threshold: 10,
+            servers,
+        },
         ..Config::default()
     }
 }

@@ -739,7 +739,11 @@ fn setup_mcp_controller() -> TerminalController<HistoryTerminal> {
     servers.insert("remote_tool".to_string(), remote);
 
     let config = Config {
-        mcp: McpConfig { enabled: true, servers },
+        mcp: McpConfig {
+            enabled: true,
+            defer_threshold: 10,
+            servers,
+        },
         ..Default::default()
     };
     let session = ReplSession::new(config, AuthStore::default(), None);

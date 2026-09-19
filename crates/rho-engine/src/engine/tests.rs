@@ -59,7 +59,11 @@ done
 fn with_mock_mcp(mut config: Config, command: String) -> Config {
     let mut servers = BTreeMap::new();
     servers.insert("mock".to_string(), McpServerConfig::stdio(command, Vec::new()));
-    config.mcp = McpConfig { enabled: true, servers };
+    config.mcp = McpConfig {
+        enabled: true,
+        defer_threshold: 10,
+        servers,
+    };
     config
 }
 

@@ -68,15 +68,18 @@ fn build_eval_engine(
         sessions_dir: sessions.clone(),
         ..Config::default()
     };
+    let tool_handle = rig::tool::server::ToolServer::new().run();
     let agent = rig::agent::AgentBuilder::from_model_handle(ModelHandle::new(model))
         .memory(memory)
         .record_content_telemetry(false)
+        .tool_server_handle(tool_handle.clone())
         .build();
     AgentEngine {
         config,
         base_dir: sessions,
         session_manager: store,
         tool_names: std::sync::Arc::new(std::sync::RwLock::new(Vec::new())),
+        tool_server_handle: tool_handle,
         agent: std::sync::Arc::new(tokio::sync::RwLock::new(agent)),
         usage: crate::engine::tracking::UsageTracker::default(),
         quota: crate::engine::tracking::QuotaTracker::default(),

@@ -16,9 +16,9 @@ struct ServerLoadTarget<'a> {
 struct SingleServerLoaded {
     server_name: String,
     client: Arc<McpClient>,
-    tool_defs: Vec<(String, McpToolDefinition)>,
-    dynamic_tools: Vec<DynamicTool>,
-    is_gateway: bool,
+    tools: Vec<McpToolDefinition>,
+    max_bytes: usize,
+    mode: rho_harness_core::config::McpExposureMode,
 }
 
 fn is_tool_allowed(name: &str, include: Option<&[String]>, exclude: Option<&[String]>) -> bool {
@@ -106,59 +106,97 @@ async fn load_single_server(target: ServerLoadTarget<'_>) -> Option<SingleServer
         .config
         .mode
         .unwrap_or(rho_harness_core::config::McpExposureMode::Auto);
-    let expose_as_gateway = match mode {
-        rho_harness_core::config::McpExposureMode::Gateway => true,
-        rho_harness_core::config::McpExposureMode::Direct => false,
-        rho_harness_core::config::McpExposureMode::Auto => filtered_tools.len() > 5,
-    };
-
-    let mut tool_defs = Vec::with_capacity(filtered_tools.len());
-    let mut dynamic_tools = Vec::new();
-    for tool in filtered_tools {
-        tool_defs.push((target.name.to_string(), tool.clone()));
-        if !expose_as_gateway {
-            dynamic_tools.push(build_single_mcp_tool(
-                tool,
-                Arc::clone(&client),
-                (target.name, target.max_bytes),
-            ));
-        }
-    }
 
     Some(SingleServerLoaded {
         server_name: target.name.to_string(),
         client,
-        tool_defs,
-        dynamic_tools,
-        is_gateway: expose_as_gateway,
+        tools: filtered_tools,
+        max_bytes: target.max_bytes,
+        mode,
     })
 }
 
-fn aggregate_loaded_servers(results: Vec<SingleServerLoaded>, max_output_bytes: usize) -> Vec<DynamicTool> {
-    let mut dynamic_tools = Vec::new();
-    let mut all_clients = std::collections::BTreeMap::new();
-    let mut all_tool_defs = Vec::new();
+fn aggregate_loaded_servers(
+    results: Vec<SingleServerLoaded>,
+    config: &Config,
+    active_history_tools: &std::collections::HashSet<String>,
+) -> (Vec<DynamicTool>, super::search::DynamicToolActivator) {
+    let activator = super::search::DynamicToolActivator::new();
+    let mut initial_tools = Vec::new();
+    let mut gateway_clients = std::collections::BTreeMap::new();
+    let mut gateway_tool_defs = Vec::new();
 
-    let has_gateway = results.iter().any(|r| r.is_gateway);
+    let mut non_gateway_servers = Vec::new();
     for loaded in results {
-        all_clients.insert(loaded.server_name, loaded.client);
-        all_tool_defs.extend(loaded.tool_defs);
-        dynamic_tools.extend(loaded.dynamic_tools);
+        if loaded.mode == rho_harness_core::config::McpExposureMode::Gateway {
+            gateway_clients.insert(loaded.server_name.clone(), Arc::clone(&loaded.client));
+            for tool in loaded.tools {
+                gateway_tool_defs.push((loaded.server_name.clone(), tool));
+            }
+        } else {
+            non_gateway_servers.push(loaded);
+        }
     }
 
-    if has_gateway && !all_clients.is_empty() {
-        let gateway = super::gateway::McpGateway::new(all_clients, all_tool_defs, max_output_bytes);
+    if !gateway_clients.is_empty() {
+        let gateway = super::gateway::McpGateway::new(gateway_clients, gateway_tool_defs, config.output_max_bytes);
         let (gw_tool, script_tool) = gateway.into_dynamic_tools();
-        dynamic_tools.push(gw_tool);
-        dynamic_tools.push(script_tool);
+        initial_tools.push(gw_tool);
+        initial_tools.push(script_tool);
     }
 
-    dynamic_tools
+    let total_tools: usize = non_gateway_servers.iter().map(|s| s.tools.len()).sum();
+    let should_defer = total_tools > config.mcp.defer_threshold;
+
+    let mut deferred_tools = Vec::new();
+    for loaded in non_gateway_servers {
+        for tool in loaded.tools {
+            let wire_name = format!("{}_{}", loaded.server_name, tool.name);
+            let must_expose_directly = loaded.mode == rho_harness_core::config::McpExposureMode::Direct
+                || !should_defer
+                || active_history_tools.contains(&wire_name);
+
+            if must_expose_directly {
+                activator.mark_activated(&wire_name);
+                initial_tools.push(build_single_mcp_tool(
+                    tool,
+                    Arc::clone(&loaded.client),
+                    (&loaded.server_name, loaded.max_bytes),
+                ));
+            } else {
+                deferred_tools.push(super::search::DeferredMcpTool::new(
+                    loaded.server_name.clone(),
+                    tool.name,
+                    tool.description.unwrap_or_default(),
+                    tool.input_schema,
+                    Arc::clone(&loaded.client),
+                    loaded.max_bytes,
+                ));
+            }
+        }
+    }
+
+    if !deferred_tools.is_empty() {
+        let catalog = super::search::ToolSearchCatalog::new(deferred_tools);
+        let search_tool = super::search::build_tool_search_tool(catalog, activator.clone());
+        initial_tools.push(search_tool);
+    }
+
+    (initial_tools, activator)
 }
 
 pub async fn load_mcp_tools(config: &Config, working_dir: &Path) -> Vec<DynamicTool> {
+    let (tools, _) = load_mcp_tools_with_activator(config, working_dir, &std::collections::HashSet::new()).await;
+    tools
+}
+
+pub async fn load_mcp_tools_with_activator(
+    config: &Config,
+    working_dir: &Path,
+    active_history_tools: &std::collections::HashSet<String>,
+) -> (Vec<DynamicTool>, super::search::DynamicToolActivator) {
     if !config.mcp.enabled {
-        return Vec::new();
+        return (Vec::new(), super::search::DynamicToolActivator::new());
     }
 
     let futures: Vec<_> = config
@@ -177,5 +215,5 @@ pub async fn load_mcp_tools(config: &Config, working_dir: &Path) -> Vec<DynamicT
         .collect();
 
     let results: Vec<_> = futures::future::join_all(futures).await.into_iter().flatten().collect();
-    aggregate_loaded_servers(results, config.output_max_bytes)
+    aggregate_loaded_servers(results, config, active_history_tools)
 }
