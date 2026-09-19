@@ -24,13 +24,13 @@
     <circle cx="52" cy="19" r="5" fill="#27c93f" stroke="#1aab29" stroke-width="0.5"/>
     
     <!-- Window Title -->
-    <text x="380" y="23" fill="#8b95a8" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho — /model selector</text>
+    <text x="380" y="23" fill="#8b95a8" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho — /model selector</text>
   </g>
 
   <!-- Terminal Content Area -->
   <g transform="translate(24, 60)">
     
-    <text font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="13" xml:space="preserve">
+    <text font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13" xml:space="preserve">
       <!-- Transcript header -->
       <tspan x="0" y="0" fill="#525d74">[agents] ~/.agents/AGENTS.md, AGENTS.md</tspan>
       <tspan x="0" y="20" fill="#525d74">[skills] create-skill, google-agents-cli, plan, spec</tspan>

@@ -16,6 +16,7 @@ pub(crate) mod notices;
 pub(crate) mod presenter;
 pub(crate) mod renderer;
 pub mod rpc_presenter;
+pub(crate) mod thinking_stream;
 
 #[cfg(test)]
 mod tests;

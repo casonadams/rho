@@ -20,7 +20,7 @@
 
     <!-- URL Bar -->
     <rect x="140" y="9" width="580" height="22" rx="5" fill="#0d111a" stroke="#2b354a" stroke-width="1"/>
-    <text x="430" y="24" fill="#8da0bd" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11" text-anchor="middle">
+    <text x="430" y="24" fill="#8da0bd" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11" text-anchor="middle">
       https://casonadams.github.io/rho/hub/ — rho fleet hub
     </text>
   </g>
@@ -28,29 +28,29 @@
   <!-- Hub Header Navigation -->
   <g transform="translate(28, 56)">
     <!-- Brand -->
-    <text y="20" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="16" font-weight="bold" fill="#f2f5fa">
+    <text y="20" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="16" font-weight="bold" fill="#f2f5fa">
       <tspan fill="#52e096">ρ</tspan> rho
     </text>
     <rect x="68" y="5" width="70" height="18" rx="4" fill="rgba(82, 224, 150, 0.12)" stroke="#52e096" stroke-width="1"/>
-    <text x="103" y="18" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10" font-weight="600" fill="#52e096" text-anchor="middle">fleet hub</text>
+    <text x="103" y="18" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10" font-weight="600" fill="#52e096" text-anchor="middle">fleet hub</text>
 
     <!-- Powered by Iroh badge -->
     <rect x="580" y="3" width="106" height="22" rx="4" fill="#161c28" stroke="#273248" stroke-width="1"/>
-    <text x="633" y="17" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" fill="#8da0bd" text-anchor="middle">
+    <text x="633" y="17" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" fill="#8da0bd" text-anchor="middle">
       powered by <tspan fill="#60a5fa" font-weight="bold">iroh</tspan>
     </text>
 
     <!-- + Add Node Button -->
     <rect x="698" y="3" width="86" height="22" rx="4" fill="#52e096"/>
-    <text x="741" y="17" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11" font-weight="bold" fill="#0a0d13" text-anchor="middle">
+    <text x="741" y="17" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11" font-weight="bold" fill="#0a0d13" text-anchor="middle">
       + Add Node
     </text>
   </g>
 
   <!-- Page Title & Subtitle -->
   <g transform="translate(28, 110)">
-    <text y="0" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="20" font-weight="bold" fill="#f2f5fa">Active Fleet</text>
-    <text y="20" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="12" fill="#8da0bd">
+    <text y="0" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="20" font-weight="bold" fill="#f2f5fa">Active Fleet</text>
+    <text y="20" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" fill="#8da0bd">
       Zero-cloud peer-to-peer control of your rho nodes, powered by Iroh
     </text>
   </g>
@@ -60,55 +60,55 @@
     <!-- Card 1: Local Mac Studio (Online) -->
     <g transform="translate(0, 0)">
       <rect width="250" height="155" rx="6" fill="#111622" stroke="#253046" stroke-width="1.2"/>
-      <text x="16" y="28" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="14" font-weight="bold" fill="#f2f5fa">mac-studio</text>
+      <text x="16" y="28" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="14" font-weight="bold" fill="#f2f5fa">mac-studio</text>
       <rect x="170" y="16" width="64" height="18" rx="9" fill="rgba(82, 224, 150, 0.12)" stroke="#52e096" stroke-width="1"/>
       <circle cx="180" cy="25" r="3" fill="#52e096"/>
-      <text x="208" y="28" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10" font-weight="bold" fill="#52e096" text-anchor="middle">Online</text>
+      <text x="208" y="28" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10" font-weight="bold" fill="#52e096" text-anchor="middle">Online</text>
 
-      <text x="16" y="60" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#dce3f0">📁 ~/src/github.com/casonadams/rho</text>
-      <text x="16" y="80" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#717c96">🌿 main</text>
-      <text x="16" y="100" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11" fill="#52e096">⚡ Active turn • 53%/1M</text>
+      <text x="16" y="60" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#dce3f0">📁 ~/src/github.com/casonadams/rho</text>
+      <text x="16" y="80" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#717c96">🌿 main</text>
+      <text x="16" y="100" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11" fill="#52e096">⚡ Active turn • 53%/1M</text>
 
       <line x1="0" y1="118" x2="250" y2="118" stroke="#1f283a" stroke-width="1"/>
-      <text x="16" y="138" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" fill="#717c96">node-8f2a9b1c</text>
+      <text x="16" y="138" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" fill="#717c96">node-8f2a9b1c</text>
       <rect x="180" y="126" width="54" height="20" rx="3" fill="#1b2232" stroke="#2c3952" stroke-width="1"/>
-      <text x="207" y="139" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" fill="#dce3f0" text-anchor="middle">Open →</text>
+      <text x="207" y="139" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" fill="#dce3f0" text-anchor="middle">Open →</text>
     </g>
 
     <!-- Card 2: Linux Dev Server (Busy / Steering) -->
     <g transform="translate(268, 0)">
       <rect width="250" height="155" rx="6" fill="#111622" stroke="#f59e0b" stroke-width="1.2"/>
-      <text x="16" y="28" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="14" font-weight="bold" fill="#f2f5fa">cloud-runner</text>
+      <text x="16" y="28" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="14" font-weight="bold" fill="#f2f5fa">cloud-runner</text>
       <rect x="170" y="16" width="64" height="18" rx="9" fill="rgba(245, 158, 11, 0.12)" stroke="#f59e0b" stroke-width="1"/>
       <circle cx="180" cy="25" r="3" fill="#f59e0b"/>
-      <text x="208" y="28" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10" font-weight="bold" fill="#f59e0b" text-anchor="middle">Busy</text>
+      <text x="208" y="28" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10" font-weight="bold" fill="#f59e0b" text-anchor="middle">Busy</text>
 
-      <text x="16" y="60" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#dce3f0">📁 ~/work/api-service</text>
-      <text x="16" y="80" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#717c96">🌿 feature/auth-v2</text>
-      <text x="16" y="100" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11" fill="#f59e0b">⠋ Steerable turn in progress</text>
+      <text x="16" y="60" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#dce3f0">📁 ~/work/api-service</text>
+      <text x="16" y="80" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#717c96">🌿 feature/auth-v2</text>
+      <text x="16" y="100" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11" fill="#f59e0b">⠋ Steerable turn in progress</text>
 
       <line x1="0" y1="118" x2="250" y2="118" stroke="#1f283a" stroke-width="1"/>
-      <text x="16" y="138" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" fill="#717c96">node-e4c1973f</text>
+      <text x="16" y="138" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" fill="#717c96">node-e4c1973f</text>
       <rect x="180" y="126" width="54" height="20" rx="3" fill="#f59e0b"/>
-      <text x="207" y="139" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" font-weight="bold" fill="#0a0d13" text-anchor="middle">Steer ↗</text>
+      <text x="207" y="139" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" font-weight="bold" fill="#0a0d13" text-anchor="middle">Steer ↗</text>
     </g>
 
     <!-- Card 3: Laptop (P2P Connected) -->
     <g transform="translate(536, 0)">
       <rect width="250" height="155" rx="6" fill="#111622" stroke="#253046" stroke-width="1.2"/>
-      <text x="16" y="28" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="14" font-weight="bold" fill="#f2f5fa">macbook-air</text>
+      <text x="16" y="28" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="14" font-weight="bold" fill="#f2f5fa">macbook-air</text>
       <rect x="170" y="16" width="64" height="18" rx="9" fill="rgba(82, 224, 150, 0.12)" stroke="#52e096" stroke-width="1"/>
       <circle cx="180" cy="25" r="3" fill="#52e096"/>
-      <text x="208" y="28" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10" font-weight="bold" fill="#52e096" text-anchor="middle">Online</text>
+      <text x="208" y="28" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10" font-weight="bold" fill="#52e096" text-anchor="middle">Online</text>
 
-      <text x="16" y="60" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#dce3f0">📁 ~/src/docs-site</text>
-      <text x="16" y="80" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#717c96">🌿 staging</text>
-      <text x="16" y="100" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11" fill="#717c96">Idle • ready for prompts</text>
+      <text x="16" y="60" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#dce3f0">📁 ~/src/docs-site</text>
+      <text x="16" y="80" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#717c96">🌿 staging</text>
+      <text x="16" y="100" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11" fill="#717c96">Idle • ready for prompts</text>
 
       <line x1="0" y1="118" x2="250" y2="118" stroke="#1f283a" stroke-width="1"/>
-      <text x="16" y="138" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" fill="#717c96">node-77b310aa</text>
+      <text x="16" y="138" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" fill="#717c96">node-77b310aa</text>
       <rect x="180" y="126" width="54" height="20" rx="3" fill="#1b2232" stroke="#2c3952" stroke-width="1"/>
-      <text x="207" y="139" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10.5" fill="#dce3f0" text-anchor="middle">Open →</text>
+      <text x="207" y="139" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10.5" fill="#dce3f0" text-anchor="middle">Open →</text>
     </g>
   </g>
 
@@ -120,30 +120,30 @@
     <rect x="0" y="20" width="786" height="10" fill="#141a27"/>
     <line x1="0" y1="30" x2="786" y2="30" stroke="#222b3d" stroke-width="1"/>
 
-    <text x="16" y="20" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" font-weight="bold" fill="#dce3f0">
+    <text x="16" y="20" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" font-weight="bold" fill="#dce3f0">
       Live Session Stream: mac-studio
     </text>
-    <text x="770" y="20" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="10" fill="#52e096" text-anchor="end">
+    <text x="770" y="20" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="10" fill="#52e096" text-anchor="end">
       ● 12ms P2P direct iroh quic
     </text>
 
-    <text x="16" y="55" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#717c96">
+    <text x="16" y="55" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#717c96">
       &gt; Inspecting workspace and running verified test suite...
     </text>
-    <text x="16" y="78" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#52e096">
+    <text x="16" y="78" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#52e096">
       ✓ cargo test --workspace (60 tests passed)
     </text>
-    <text x="16" y="101" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#60a5fa">
+    <text x="16" y="101" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#60a5fa">
       ✓ Synchronized bidirectional approval: tool write accepted from web dashboard
     </text>
 
     <!-- Steering Input Bar -->
     <rect x="16" y="125" width="665" height="32" rx="4" fill="#0d111a" stroke="#26334a" stroke-width="1"/>
-    <text x="28" y="145" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="11.5" fill="#8da0bd">
+    <text x="28" y="145" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="11.5" fill="#8da0bd">
       Type steer prompt or mid-turn redirect...
     </text>
     <rect x="690" y="125" width="80" height="32" rx="4" fill="#52e096"/>
-    <text x="730" y="145" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="12" font-weight="bold" fill="#0a0d13" text-anchor="middle">
+    <text x="730" y="145" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="bold" fill="#0a0d13" text-anchor="middle">
       Send ↵
     </text>
   </g>

@@ -26,8 +26,8 @@ function initGallery() {
     },
     turn: {
       src: "assets/chat.svg",
-      alt: "rho interactive turn with reasoning block and speed telemetry",
-      caption: "Streaming assistant turn showing collapsible reasoning block, clean syntax, and live speed telemetry (<code>@43t/s</code>)."
+      alt: "rho active turn with streaming tool execution, diffs, and live status line",
+      caption: "Active agent turn executing tools (bash, edit), live diffs, working spinner, and status line metrics (<code>↑17M ↓203k R167M 53%/1M @55t/s</code>)."
     },
     model: {
       src: "assets/modal-model.svg",

@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const FONT_FAMILY = 'ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace';
+const FONT_FAMILY = 'ui-monospace, Menlo, Monaco, Consolas, monospace';
 
 function terminalWindow({ width = 760, height = 840, title = "rho", contentSvg }) {
   return `
