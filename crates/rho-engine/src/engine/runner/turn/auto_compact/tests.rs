@@ -153,7 +153,7 @@ async fn test_mid_run_auto_compaction_continues_run_on_compacted_context() {
     }
     let as_text = as_text_of;
     assert_eq!(as_text(&patched[2]), "prior response");
-    assert_eq!(as_text(&patched[3]), "run the echo tool");
+    assert!(as_text(&patched[3]).contains("run the echo tool"));
     assert!(as_text(&patched[5]).contains("echoed"));
 
     assert_compaction_node_present(&engine).await;

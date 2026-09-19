@@ -99,8 +99,13 @@ fn append_environment_info(prompt: &mut String, ctx: &ProjectContext) {
         ctx.date_str
     ));
     prompt.push_str(&format!("Platform: {}", ctx.os_info));
-    if let Some(ref git) = ctx.git_status {
-        prompt.push_str(&format!("\nGit repository status: {git}"));
+}
+
+pub fn format_turn_prompt(prompt: &str, git_status: Option<&str>) -> String {
+    if let Some(git) = git_status.filter(|s| !s.trim().is_empty()) {
+        format!("[Git repository status: {git}]\n\n{prompt}")
+    } else {
+        prompt.to_string()
     }
 }
 

@@ -98,22 +98,25 @@ impl AgentEngine {
 
     async fn build_ready_turn(
         &self,
-        (prompt, preamble): (&str, String),
+        ((user_prompt, effective_prompt), preamble): ((&str, &str), String),
         (history, presenter): (Vec<Message>, &Arc<dyn Presenter>),
     ) -> Result<PreparedTurn> {
         self.session_manager
-            .append_event(SessionEventKind::UserMessage, serde_json::json!({ "prompt": prompt }))
+            .append_event(
+                SessionEventKind::UserMessage,
+                serde_json::json!({ "prompt": user_prompt }),
+            )
             .await?;
         let checkpoint = self.session_manager.load_checkpoint().await?;
         let add_tokens = rho_harness_core::tokens::estimate_text_tokens(&preamble, &self.config.model).saturating_add(
-            rho_harness_core::tokens::estimate_text_tokens(prompt, &self.config.model),
+            rho_harness_core::tokens::estimate_text_tokens(effective_prompt, &self.config.model),
         );
         self.start_turn_metrics(add_tokens, &history);
         let sink = self.create_approval_sink(presenter);
         let loop_state = TurnLoopState {
             visible_history: history,
             checkpoint,
-            current_prompt: prompt.to_string(),
+            current_prompt: effective_prompt.to_string(),
             current_budget: self.config.max_turns,
             overflow_recovered: false,
             rate_limit_retries: 0,
@@ -132,14 +135,15 @@ impl AgentEngine {
     ) -> Result<PreparedTurnOutcome> {
         let context = self.project_context().await?;
         let preamble = context.build_system_prompt();
+        let effective_prompt = crate::engine::context::format_turn_prompt(prompt, context.git_status.as_deref());
         let mut history = self.load_initial_history().await?;
         if let Some(out) = self
-            .check_turn_proactive_compaction((&preamble, prompt), (presenter.as_ref(), &mut history))
+            .check_turn_proactive_compaction((&preamble, &effective_prompt), (presenter.as_ref(), &mut history))
             .await?
         {
             return Ok(PreparedTurnOutcome::Compacted(Box::new(out)));
         }
-        self.build_ready_turn((prompt, preamble), (history, presenter))
+        self.build_ready_turn(((prompt, &effective_prompt), preamble), (history, presenter))
             .await
             .map(PreparedTurnOutcome::Ready)
     }

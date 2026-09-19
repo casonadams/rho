@@ -167,3 +167,27 @@ async fn skills_omitted_when_no_reader_tool_active() {
     assert_contains_none(&prompt, &["<available_skills>", "visible-skill"]);
     let _ = tokio::fs::remove_dir_all(temp).await;
 }
+
+#[tokio::test]
+async fn system_prompt_omits_git_status_to_preserve_cache_prefix() {
+    let temp = std::env::temp_dir().join(format!("test_git_cache_{}", uuid::Uuid::new_v4()));
+    let _ = tokio::fs::create_dir_all(&temp).await;
+    let mut ctx = ProjectContext::discover(&temp, None).await;
+    ctx.git_status = Some("## main...origin/main [ahead 1] M src/lib.rs".to_string());
+
+    let prompt = ctx.build_system_prompt();
+    assert_contains_none(&prompt, &["Git repository status:"]);
+    let _ = tokio::fs::remove_dir_all(temp).await;
+}
+
+#[test]
+fn format_turn_prompt_prepends_git_status_when_present() {
+    let enriched = format_turn_prompt("Fix the bug", Some("## main M src/lib.rs"));
+    assert_eq!(enriched, "[Git repository status: ## main M src/lib.rs]\n\nFix the bug");
+
+    let empty = format_turn_prompt("Fix the bug", None);
+    assert_eq!(empty, "Fix the bug");
+
+    let whitespace = format_turn_prompt("Fix the bug", Some("   "));
+    assert_eq!(whitespace, "Fix the bug");
+}

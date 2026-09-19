@@ -14,7 +14,7 @@ pub use activation::{MAX_DYNAMIC_INSTRUCTION_BYTES, MAX_DYNAMIC_INSTRUCTION_FILE
 pub use instructions::{
     ContextDirs, discover_ancestry_instructions, discover_instructions, discover_instructions_with_seen, find_repo_root,
 };
-pub use prompt::{assemble_base_system_prompt, escape_xml};
+pub use prompt::{assemble_base_system_prompt, escape_xml, format_turn_prompt};
 pub use rho_harness_core::prompts::DEFAULT_SYSTEM_PROMPT;
 pub use transclusion::expand_transclusions;
 

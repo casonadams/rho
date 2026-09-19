@@ -333,3 +333,29 @@ async fn test_completion_model_aggregates_unary_response() {
             .any(|c| matches!(c, AssistantContent::Text(t) if t.text == "Full response text"))
     );
 }
+
+#[tokio::test]
+async fn test_claude_system_prompt_remains_invariant_across_git_status_updates() {
+    let temp = std::env::temp_dir().join(format!("test_claude_cache_{}", uuid::Uuid::new_v4()));
+    let _ = tokio::fs::create_dir_all(&temp).await;
+    let mut ctx = crate::engine::context::ProjectContext::discover(&temp, None).await;
+
+    ctx.git_status = Some("## main...origin/main".to_string());
+    let preamble_turn1 = ctx.build_system_prompt();
+    let mut req1 = sample_request();
+    req1.preamble = Some(preamble_turn1.clone());
+    let body1 = build_request_body("claude-sonnet-4-5", None, &req1).unwrap();
+
+    ctx.git_status = Some("## main...origin/main [ahead 1] | M src/lib.rs | ?? new_file.rs".to_string());
+    let preamble_turn2 = ctx.build_system_prompt();
+    let mut req2 = sample_request();
+    req2.preamble = Some(preamble_turn2.clone());
+    let body2 = build_request_body("claude-sonnet-4-5", None, &req2).unwrap();
+
+    assert_eq!(preamble_turn1, preamble_turn2);
+    assert_eq!(body1["system"], body2["system"]);
+    assert_eq!(body1["system"][1]["cache_control"]["type"], "ephemeral");
+    assert_eq!(body2["system"][1]["cache_control"]["type"], "ephemeral");
+
+    let _ = tokio::fs::remove_dir_all(temp).await;
+}
