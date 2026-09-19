@@ -70,6 +70,10 @@ rho mcp remove db
 
 Or view and test active servers interactively inside the REPL with `/mcp`.
 
+### Deferred Tool Search
+
+When configured MCP servers expose more tools than the deferral threshold (`defer_threshold`, default: 10), `rho` defers individual tool definitions behind a compact `tool_search` tool to conserve context tokens. When the model needs a tool, it calls `tool_search` with keywords or tool names, which dynamically loads the matching tools with their full JSON schemas for subsequent turns. Tools already invoked in conversation history are automatically preserved and pre-activated upon session resumption.
+
 ---
 
 ## 2. Agent Lifecycle Hooks
