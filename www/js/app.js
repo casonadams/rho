@@ -213,9 +213,12 @@ function initDocsMobileToc() {
   const sidebar = document.querySelector(".docs-sidebar");
   if (!toggleBtn || !drawer || !sidebar) return;
 
-  // Clone sidebar navigation into drawer if empty
+  // Clone ONLY the nav groups into drawer if empty (avoid duplicate search IDs)
   if (!drawer.children.length) {
-    drawer.innerHTML = sidebar.innerHTML;
+    const navGroups = sidebar.querySelectorAll(".docs-nav-group");
+    navGroups.forEach((group) => {
+      drawer.appendChild(group.cloneNode(true));
+    });
   }
 
   toggleBtn.addEventListener("click", () => {

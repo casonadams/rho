@@ -782,16 +782,16 @@ code, pre {
   margin-bottom: 0.35rem;
 }
 
-/* pirho Callout & Equation */
+/* pirho Callout & Equation - Mobile First */
 .pirho-callout {
   background: linear-gradient(135deg, rgba(245, 158, 11, 0.05) 0%, var(--bg-surface) 50%, rgba(248, 113, 113, 0.05) 100%);
   border: 1px solid rgba(245, 158, 11, 0.3);
   border-radius: var(--radius-lg);
-  padding: 2.5rem;
+  padding: 2rem 1.25rem;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2.5rem;
+  flex-direction: column;
+  text-align: center;
+  gap: 2rem;
   position: relative;
   overflow: hidden;
 }
@@ -862,6 +862,7 @@ code, pre {
 .pirho-tags {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem;
 }
 
@@ -887,15 +888,16 @@ code, pre {
 .pirho-equation {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: center;
+  gap: 0.4rem;
 }
 
 .eq-card {
   background-color: var(--bg-surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  padding: 1.25rem 1.1rem;
-  min-width: 92px;
+  padding: 0.85rem 0.6rem;
+  min-width: 72px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -924,7 +926,7 @@ code, pre {
 }
 
 .eq-symbol {
-  font-size: 2.1rem;
+  font-size: 1.5rem;
   font-weight: 800;
   line-height: 1.1;
 }
@@ -977,7 +979,8 @@ code, pre {
 
 .footer-links-group {
   display: flex;
-  gap: 3rem;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
 .footer-col {
@@ -1007,15 +1010,14 @@ code, pre {
   gap: 1rem;
 }
 
-/* Documentation styling */
+/* Documentation styling - Mobile First */
 .docs-layout {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 3rem;
-  padding: 2.5rem 0 5rem;
+  display: block;
+  padding: 1.5rem 0 4rem;
 }
 
 .docs-sidebar {
+  display: none;
   position: sticky;
   top: 84px;
   max-height: calc(100vh - 104px);
@@ -1441,35 +1443,117 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
   padding: 0 1.25rem;
 }
 
-/* Responsive */
-@media (max-width: 900px) {
-  .hero-title { font-size: 2.2rem; }
-  .grid-3 { grid-template-columns: 1fr; }
-  .grid-2 { grid-template-columns: 1fr; }
-  .grid-4 { grid-template-columns: repeat(2, 1fr); }
-  .publish-steps { grid-template-columns: 1fr; }
-  .docs-layout { grid-template-columns: 1fr; }
-  .docs-sidebar { display: none; }
-  .docs-mobile-toc-bar { display: block; }
-  .docs-mobile-toc-drawer { display: block; }
-  .pirho-callout { flex-direction: column; text-align: center; gap: 2rem; padding: 2rem 1.5rem; }
-  .pirho-tags { justify-content: center; }
-  .pirho-equation { justify-content: center; }
+/* =========================================================================
+   Responsive Breakpoints (Mobile-First Progressive Enhancement)
+   ========================================================================= */
+
+/* Small Tablets & Landscape Phones (min-width: 640px) */
+@media (min-width: 640px) {
+  .container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+  .hero-title {
+    font-size: 2.3rem;
+  }
+  .hero-subtitle {
+    font-size: 1.1rem;
+  }
+  .install-command-bar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .copy-btn {
+    justify-content: flex-start;
+  }
+  .grid-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .docs-pagination {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
-@media (max-width: 768px) {
-  .nav-links { display: none; }
-  .mobile-nav-toggle { display: inline-flex; }
-  .mobile-nav-drawer { display: block; }
+/* Tablets & Small Desktops (min-width: 769px) */
+@media (min-width: 769px) {
+  .nav-links {
+    display: flex;
+  }
+  .mobile-nav-toggle {
+    display: none;
+  }
+  .mobile-nav-drawer {
+    display: none !important;
+  }
+  .hero-section {
+    padding: 3.5rem 0 3rem;
+  }
+  .gallery-tabs {
+    justify-content: center;
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .grid-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .publish-steps {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .footer-links-group {
+    flex-direction: row;
+    gap: 4rem;
+  }
+  .pirho-callout {
+    flex-direction: row;
+    text-align: left;
+    padding: 2.5rem 3rem;
+  }
+  .pirho-tags {
+    justify-content: flex-start;
+  }
+  .pirho-equation {
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+  .eq-card {
+    min-width: 88px;
+    padding: 1.25rem 1rem;
+  }
+  .eq-symbol {
+    font-size: 2.2rem;
+  }
 }
 
-@media (max-width: 640px) {
-  .hero-title { font-size: 1.85rem; }
-  .grid-4 { grid-template-columns: 1fr; }
-  .install-command-bar { flex-direction: column; align-items: stretch; }
-  .copy-btn { justify-content: center; }
-  .footer-links-group { flex-direction: column; gap: 1.5rem; }
-  .pirho-equation { gap: 0.4rem; }
-  .eq-card { min-width: 72px; padding: 0.85rem 0.6rem; }
-  .eq-symbol { font-size: 1.5rem; }
+/* Large Screens & Multi-Column Docs (min-width: 1024px) */
+@media (min-width: 1024px) {
+  .hero-title {
+    font-size: 2.9rem;
+  }
+  .hero-subtitle {
+    font-size: 1.18rem;
+    margin-bottom: 2.25rem;
+  }
+  .grid-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .docs-layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 3rem;
+    padding: 2.5rem 0 5rem;
+  }
+  .docs-sidebar {
+    display: block;
+    position: sticky;
+  }
+  .docs-mobile-toc-bar {
+    display: none !important;
+  }
+  .docs-mobile-toc-drawer {
+    display: none !important;
+  }
 }
