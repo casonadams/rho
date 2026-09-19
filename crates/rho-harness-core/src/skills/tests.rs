@@ -99,7 +99,7 @@ fn seed_override_skills(fixture: &SkillFixture) {
         "---\nname: plan\ndescription: User plan\n---\n# User Plan\n",
     );
     write_skill(
-        &fixture.project_dir.join(".rho/skills"),
+        &fixture.project_dir.join(".agents/skills"),
         "plan",
         "---\nname: plan\ndescription: Project plan\n---\n# Project Plan\n",
     );
@@ -129,7 +129,7 @@ fn project_override_beats_user_and_user_additions_survive() {
 #[test]
 fn flat_skill_files_use_their_file_stem_as_name() {
     let fixture = fixture();
-    let skills_dir = fixture.project_dir.join(".rho/skills");
+    let skills_dir = fixture.project_dir.join(".agents/skills");
     std::fs::create_dir_all(&skills_dir).unwrap();
     std::fs::write(skills_dir.join("deploy.md"), "# Deploy workflow\nPush builds.\n").unwrap();
 

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 /// Resolve every skill available to the session: declarative skills as `SKILL.md`
 /// files under user directory `~/.agents/skills` and project skill directories
-/// (`.agents/skills`, `.rho/skills`, `skills`). Project skills replace user skills by name.
+/// (`.agents/skills`, `skills`). Project skills replace user skills by name.
 /// Skills carry readable content only and are never executed.
 pub fn resolved_skills(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     resolved_skills_with_home(project_dir, None)
@@ -33,7 +33,6 @@ pub fn resolved_skills_for_paths(paths: SkillResolutionPaths<'_>) -> Vec<Resolve
     if let Some(project_dir) = paths.project_dir {
         if paths.home_dir != Some(project_dir) {
             scan_directory(&project_dir.join(".agents/skills"), SkillOrigin::Project, &mut resolved);
-            scan_directory(&project_dir.join(".rho/skills"), SkillOrigin::Project, &mut resolved);
         }
         scan_directory(&project_dir.join("skills"), SkillOrigin::Project, &mut resolved);
     }

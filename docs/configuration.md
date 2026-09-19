@@ -163,7 +163,7 @@ hints.
 
 Skills are scanned from:
 
-1. **Project Directory**: `.agents/skills/`, `.rho/skills/`, or `./skills/`
+1. **Project Directory**: `.agents/skills/` or `./skills/`
    (highest precedence; overrides user skills)
 2. **Global User Directory**: `~/.agents/skills/`
 
