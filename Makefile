@@ -1,6 +1,9 @@
 .DEFAULT_GOAL := help
 
 CARGO ?= cargo
+CPUS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+export CARGO_BUILD_JOBS ?= $(CPUS)
+export RUST_TEST_THREADS ?= $(CPUS)
 
 .PHONY: help
 help: ## Display this help screen
@@ -39,16 +42,16 @@ clippy-fix: ## Automatically fix Clippy suggestions where possible
 
 .PHONY: test
 test: ## Run tests across the workspace
-	$(CARGO) test --workspace --all-targets --quiet
+	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --all-targets --quiet
 
 .PHONY: test-cargo
 test-cargo: ## Run standard cargo tests across all targets
-	$(CARGO) test --workspace --all-targets
+	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --all-targets
 
 .PHONY: test-all
 test-all: ## Run all tests including unit, integration, and doc tests
-	$(CARGO) test --workspace --all-targets
-	$(CARGO) test --workspace --doc
+	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --all-targets
+	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --doc
 
 .PHONY: run
 run: ## Run the rho CLI
