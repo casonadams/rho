@@ -31,9 +31,13 @@ async fn resolve_and_read_bytes(base_dir: &Path, clean_path: &str) -> std::resul
     }
 }
 
-fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<ToolResult> {
+async fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<ToolResult> {
     if let Some(sniffed) = images::detect_supported_image_mime(raw_bytes) {
-        return Some(images::tool_result(raw_bytes, sniffed.mime()));
+        let bytes = raw_bytes.to_vec();
+        let mime = sniffed.mime();
+        return tokio::task::spawn_blocking(move || images::tool_result(&bytes, mime))
+            .await
+            .ok();
     }
     if is_binary(raw_bytes) {
         return Some(ToolResult::success(format!(
@@ -63,7 +67,7 @@ impl ReadTool {
             Err(e) => return Ok(e),
         };
 
-        if let Some(res) = handle_non_text_content(&raw_bytes, clean_path) {
+        if let Some(res) = handle_non_text_content(&raw_bytes, clean_path).await {
             return Ok(res);
         }
 

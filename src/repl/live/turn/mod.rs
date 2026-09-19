@@ -37,7 +37,7 @@ struct TurnContext<'a, B: TerminalBackend> {
 enum TurnEvent {
     Tick,
     Input(Option<std::io::Result<crossterm::event::Event>>),
-    Ui(Option<crate::ui::interactive::UiEvent>),
+    Ui(crate::ui::interactive::UiEvent),
 }
 
 fn build_turn_context<'a, B: TerminalBackend>(
@@ -98,7 +98,7 @@ async fn next_turn_event(
         biased;
         res = input.recv() => TurnEvent::Input(res),
         _ = frame.tick() => TurnEvent::Tick,
-        ev = ui.recv() => TurnEvent::Ui(ev),
+        Some(ev) = ui.recv() => TurnEvent::Ui(ev),
     }
 }
 
@@ -113,11 +113,10 @@ async fn handle_turn_event<B: TerminalBackend>(ctx: &mut TurnContext<'_, B>, ev:
             Ok(false)
         }
         TurnEvent::Input(res) => handle_input_res(ctx, res).await,
-        TurnEvent::Ui(Some(ev)) => {
+        TurnEvent::Ui(ev) => {
             ctx.loop_ctx.handle_ui_event(ctx.resources.ui_events, ev)?;
             Ok(false)
         }
-        TurnEvent::Ui(None) => Ok(false),
     }
 }
 

@@ -574,9 +574,9 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
         is_error: false,
         duration_ms: None,
     };
-    let event = super::TurnEvent::Ui(Some(crate::ui::interactive::UiEvent::Transcript(
+    let event = super::TurnEvent::Ui(crate::ui::interactive::UiEvent::Transcript(
         crate::ui::interactive::TranscriptItem::Tool(tool_item),
-    )));
+    ));
 
     super::handle_turn_event(&mut ctx, event).await.unwrap();
 

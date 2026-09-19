@@ -37,7 +37,7 @@ impl IdleUi {
 
 enum IdleTick {
     Frame,
-    Ui(Option<crate::ui::interactive::UiEvent>),
+    Ui(crate::ui::interactive::UiEvent),
 }
 
 enum IdleSource {
@@ -54,7 +54,7 @@ async fn next_idle_step(
         biased;
         event = input.recv() => IdleSource::Input(event),
         _ = frame.tick() => IdleSource::Tick(IdleTick::Frame),
-        event = ui.recv() => IdleSource::Tick(IdleTick::Ui(event)),
+        Some(event) = ui.recv() => IdleSource::Tick(IdleTick::Ui(event)),
     }
 }
 
@@ -84,9 +84,7 @@ async fn handle_tick<B: TerminalBackend>(
             }
         }
         IdleTick::Ui(event) => {
-            if let Some(event) = event {
-                handle_ui_event(controller, batch, event).await?;
-            }
+            handle_ui_event(controller, batch, event).await?;
         }
     }
     Ok(())

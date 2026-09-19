@@ -27,7 +27,15 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
             .or_else(|| {
                 let path = path_str?;
                 let content = cached_content
-                    .get_or_insert_with(|| std::fs::read_to_string(path).ok())
+                    .get_or_insert_with(|| {
+                        if std::fs::metadata(path)
+                            .map(|m| m.len() > 10 * 1024 * 1024)
+                            .unwrap_or(false)
+                        {
+                            return None;
+                        }
+                        std::fs::read_to_string(path).ok()
+                    })
                     .as_deref()?;
                 super::diff::locate_edit_line_number(content, old_text, new_text)
             });
