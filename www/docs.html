@@ -47,9 +47,39 @@
         <button id="themeToggle" class="btn-icon" aria-label="Toggle dark/light theme">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         </button>
+
+        <button id="mobileNavBtn" class="btn-icon mobile-nav-toggle" aria-label="Toggle navigation menu" aria-expanded="false">
+          <svg class="icon-menu" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <svg class="icon-close" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Navigation Drawer -->
+    <div id="mobileNavDrawer" class="mobile-nav-drawer">
+      <div class="container">
+        <ul class="mobile-nav-links">
+          <li><a href="./" class="mobile-nav-link">Home</a></li>
+          <li><a href="packages.html" class="mobile-nav-link">Ecosystem</a></li>
+          <li><a href="hub/" class="mobile-nav-link">Hub</a></li>
+          <li><a href="docs.html" class="mobile-nav-link active">Documentation</a></li>
+          <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="mobile-nav-link">crates.io ↗</a></li>
+          <li><a href="https://github.com/casonadams/rho" target="_blank" rel="noopener" class="mobile-nav-link">GitHub ↗</a></li>
+        </ul>
       </div>
     </div>
   </nav>
+
+  <!-- Mobile Docs Table of Contents Bar -->
+  <div class="docs-mobile-toc-bar">
+    <div class="container">
+      <button id="docsTocToggleBtn" class="docs-mobile-toc-toggle" aria-expanded="false">
+        <span class="toc-label">Table of Contents</span>
+        <svg class="toc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="docsTocDrawer" class="docs-mobile-toc-drawer"></div>
 
   <!-- Docs Content -->
   <main class="container docs-layout">
@@ -94,7 +124,7 @@
       <p>
         <code>rho</code> is a fast, clean, local, private, and secure coding agent CLI built in Rust. It delivers native performance, strict in-process safety boundaries, session persistence, standard MCP tool servers, and lightweight lifecycle hooks.
       </p>
-      <img src="assets/welcome.png" alt="rho startup screen with live quota in footer" class="doc-screenshot">
+      <img src="assets/welcome.svg" alt="rho startup screen with live quota in footer" class="doc-screenshot" width="960" height="620">
 
       <!-- pirho Heritage Callout -->
       <div class="pirho-callout" id="pirho" style="margin: 2rem 0;">
@@ -196,6 +226,8 @@ rho mcp remove db
 rho update</code></pre>
       </div>
 
+      <img src="assets/chat.svg" alt="rho streaming assistant turn with collapsible reasoning block" class="doc-screenshot" width="960" height="620">
+
       <h2 id="built-in-tools">8 Built-in Native Tools</h2>
       <p>
         rho includes 8 fast, native tools designed specifically for coding agents:
@@ -224,7 +256,7 @@ rho update</code></pre>
         <li><strong>Live Rolling Quotas</strong>: Interactive footer displays 5-hour and weekly remaining cooldowns for Antigravity and ChatGPT (e.g. <code>95% 4h23m 89% 3d21h</code>) and monthly quota for Ollama Cloud.</li>
       </ul>
 
-      <img src="assets/modal-login.png" alt="rho login provider selector modal" class="doc-screenshot">
+      <img src="assets/modal-login.svg" alt="rho login provider selector modal" class="doc-screenshot" width="960" height="620">
 
       <p>Configure defaults globally in <code>~/.config/rho/config.toml</code> or per-project in <code>.rho/config.toml</code>:</p>
 
@@ -372,7 +404,7 @@ bash_error_border = "red"        # Failed bash commands</code></pre>
         </tbody>
       </table>
 
-      <img src="assets/modal-model.png" alt="rho model selector modal with fuzzy search" class="doc-screenshot">
+      <img src="assets/modal-model.svg" alt="rho model selector modal with fuzzy search" class="doc-screenshot" width="960" height="620">
 
       <table class="shortcuts-table">
         <tbody>
@@ -585,6 +617,8 @@ rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"</code>
         <li><strong>Synchronized Permission Approvals</strong>: When tools request execution approval, cards appear on both the TUI modal and the web UI. Approving or denying on either screen immediately unblocks execution.</li>
         <li><strong>Session DAG Navigation</strong>: Browse past turns, switch branches, or create new sessions from the sidebar.</li>
       </ul>
+
+      <img src="assets/hub.svg" alt="rho fleet hub P2P remote control dashboard" class="doc-screenshot" width="960" height="620">
 
       <h2 id="compaction">Dynamic Context Compaction &amp; Token Budgeting</h2>
       <p>

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 420" width="100%" height="auto">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="110%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1e2230" />
+      <stop offset="100%" stop-color="#141824" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Outer Window Frame with Shadow -->
+  <g filter="url(#shadow)">
+    <!-- Terminal Background -->
+    <rect x="2" y="2" width="756" height="416" rx="10" fill="#0d1017" stroke="#252b3d" stroke-width="1.5"/>
+    
+    <!-- Titlebar -->
+    <path d="M 2 12 Q 2 2 12 2 L 746 2 Q 758 2 758 12 L 758 36 L 2 36 Z" fill="url(#headerGrad)"/>
+    <line x1="2" y1="36" x2="758" y2="36" stroke="#222838" stroke-width="1"/>
+    
+    <!-- Window Control Buttons (macOS traffic lights) -->
+    <circle cx="20" cy="19" r="5" fill="#ff5f56" stroke="#e0443e" stroke-width="0.5"/>
+    <circle cx="36" cy="19" r="5" fill="#ffbd2e" stroke="#dea123" stroke-width="0.5"/>
+    <circle cx="52" cy="19" r="5" fill="#27c93f" stroke="#1aab29" stroke-width="0.5"/>
+    
+    <!-- Window Title -->
+    <text x="380" y="23" fill="#8b95a8" font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho — /model selector</text>
+  </g>
+
+  <!-- Terminal Content Area -->
+  <g transform="translate(24, 60)">
+    
+    <text font-family="ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace" font-size="13" xml:space="preserve">
+      <!-- Transcript header -->
+      <tspan x="0" y="0" fill="#525d74">[agents] ~/.agents/AGENTS.md, AGENTS.md</tspan>
+      <tspan x="0" y="20" fill="#525d74">[skills] create-skill, google-agents-cli, plan, spec</tspan>
+      <tspan x="0" y="40" fill="#525d74">[tools]  read, write, edit, bash, fd, rg, web_search, web_fetch</tspan>
+
+      <!-- Modal Top Divider -->
+      <tspan x="0" y="80"><tspan fill="#52e096">── </tspan><tspan fill="#52e096" font-weight="bold">Select Model </tspan><tspan fill="#52e096">─────────────────────────────────────────────────────────────</tspan></tspan>
+
+      <!-- Search Prompt -->
+      <tspan x="0" y="105"><tspan fill="#52e096" font-weight="bold">&gt; </tspan><tspan fill="#f2f5fa">█</tspan></tspan>
+
+      <!-- Options -->
+      <tspan x="0" y="132"><tspan fill="#52e096">▸ </tspan><tspan fill="#f2f5fa" font-weight="bold">gemini-3.8-flash</tspan><tspan fill="#717c96"> [antigravity] · default </tspan><tspan fill="#52e096" font-weight="bold">✓</tspan></tspan>
+      <tspan x="0" y="152"><tspan fill="#dce3f0">  ornith-1.5:35b   [local]</tspan></tspan>
+      <tspan x="0" y="172"><tspan fill="#dce3f0">  qwen3.8:27b-mlx  [local]</tspan></tspan>
+      <tspan x="0" y="192"><tspan fill="#dce3f0">  minimax-m3:cloud [local]</tspan></tspan>
+      <tspan x="0" y="212"><tspan fill="#dce3f0">  claude-opus-4-6  [antigravity]</tspan></tspan>
+      <tspan x="0" y="232"><tspan fill="#dce3f0">  claude-sonnet-4-6 [antigravity]</tspan></tspan>
+      <tspan x="0" y="252"><tspan fill="#dce3f0">  gemini-3.7-flash [antigravity]</tspan></tspan>
+      <tspan x="0" y="272" fill="#525d74">  (1/36)</tspan>
+
+      <!-- Modal Bottom Divider -->
+      <tspan x="0" y="300" fill="#404b62">──────────────────────────────────────────────────────────────────────────────</tspan>
+
+      <!-- Bottom Keybinding Hint -->
+      <tspan x="0" y="325" fill="#717c96">Enter to select • Ctrl+S to set as default • Esc to cancel</tspan>
+    </text>
+  
+  </g>
+</svg>
