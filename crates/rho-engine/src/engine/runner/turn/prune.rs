@@ -99,27 +99,50 @@ fn check_prunable_bash_output(text: &str, line_threshold: usize) -> Option<BashP
     }
 }
 
-fn collect_tool_commands(messages: &[Message]) -> HashMap<String, String> {
-    let mut tool_commands = HashMap::new();
+#[derive(Debug, Clone)]
+struct ToolCallMeta {
+    name: String,
+    target: String,
+}
+
+fn collect_tool_calls(messages: &[Message]) -> HashMap<String, ToolCallMeta> {
+    let mut map = HashMap::new();
     for msg in messages {
         if let Message::Assistant { content, .. } = msg {
             for item in content {
-                if let AssistantContent::ToolCall(call) = item
-                    && call.function.name == "bash"
-                {
-                    let cmd = call
-                        .function
-                        .arguments
-                        .get("command")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("bash")
-                        .to_string();
-                    tool_commands.insert(call.id.to_string(), cmd);
+                if let AssistantContent::ToolCall(call) = item {
+                    let name = call.function.name.to_ascii_lowercase();
+                    let target = match name.as_str() {
+                        "bash" => call
+                            .function
+                            .arguments
+                            .get("command")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("bash")
+                            .to_string(),
+                        "read" | "read_file" | "write" | "write_file" | "edit" | "edit_file" => call
+                            .function
+                            .arguments
+                            .get("path")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        "rg" | "grep" | "fd" | "find" | "glob" => call
+                            .function
+                            .arguments
+                            .get("pattern")
+                            .and_then(|v| v.as_str())
+                            .or_else(|| call.function.arguments.get("query").and_then(|v| v.as_str()))
+                            .unwrap_or("")
+                            .to_string(),
+                        _ => String::new(),
+                    };
+                    map.insert(call.id.to_string(), ToolCallMeta { name, target });
                 }
             }
         }
     }
-    tool_commands
+    map
 }
 
 fn format_pruned_stub(cmd: &str, details: &BashPruneDetails) -> String {
@@ -135,18 +158,34 @@ fn format_pruned_stub(cmd: &str, details: &BashPruneDetails) -> String {
     }
 }
 
+fn is_read_error(text: &str) -> bool {
+    text.starts_with("Error")
+        || text.contains("File not found")
+        || text.contains("Failed to read")
+        || text.contains("Empty file path")
+        || text.contains("File contains invalid UTF-8")
+        || (text.starts_with("Offset ") && text.contains("is beyond end of file"))
+}
+
+fn is_search_error(text: &str) -> bool {
+    text.starts_with("Error") || text.starts_with("Search timed out") || text.starts_with("Failed ")
+}
+
 fn prune_tool_result_item(
     item: &UserContent,
-    tool_commands: &HashMap<String, String>,
+    tool_calls: &HashMap<String, ToolCallMeta>,
     line_threshold: usize,
 ) -> Option<UserContent> {
     let UserContent::ToolResult(res) = item else {
         return None;
     };
-    let is_bash = res.name == "bash" || tool_commands.contains_key(&res.call.to_string());
-    if !is_bash {
-        return None;
-    }
+    let meta = tool_calls.get(&res.call.to_string());
+    let tool_name = if !res.name.is_empty() {
+        res.name.to_ascii_lowercase()
+    } else {
+        meta.map_or(String::new(), |m| m.name.clone())
+    };
+
     let text = res
         .content
         .iter()
@@ -157,37 +196,130 @@ fn prune_tool_result_item(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let details = check_prunable_bash_output(&text, line_threshold)?;
-    let cmd = tool_commands
-        .get(&res.call.to_string())
-        .cloned()
-        .unwrap_or_else(|| "bash".to_string());
-    let stub = format_pruned_stub(&cmd, &details);
-    Some(UserContent::ToolResult(rig::message::ToolResult {
-        call: res.call.clone(),
-        provider: res.provider.clone(),
-        name: res.name.clone(),
-        content: vec![ToolResultContent::text(stub)],
-    }))
+    if tool_name == "bash" {
+        let details = check_prunable_bash_output(&text, line_threshold)?;
+        let cmd = meta.map(|m| m.target.as_str()).unwrap_or("bash");
+        let stub = format_pruned_stub(cmd, &details);
+        return Some(UserContent::ToolResult(rig::message::ToolResult {
+            call: res.call.clone(),
+            provider: res.provider.clone(),
+            name: res.name.clone(),
+            content: vec![ToolResultContent::text(stub)],
+        }));
+    }
+
+    if tool_name == "read" || tool_name == "read_file" {
+        if is_read_error(&text) {
+            return None;
+        }
+        let line_count = text.lines().count();
+        if line_count > line_threshold {
+            let size_str = crate::tools::truncate::format_size(text.len());
+            let target = meta.map(|m| m.target.as_str()).unwrap_or("");
+            let stub = if target.is_empty() {
+                format!("[File read ({line_count} lines, {size_str}). Output pruned for historical turn.]")
+            } else {
+                format!("[File '{target}' read ({line_count} lines, {size_str}). Output pruned for historical turn.]")
+            };
+            return Some(UserContent::ToolResult(rig::message::ToolResult {
+                call: res.call.clone(),
+                provider: res.provider.clone(),
+                name: res.name.clone(),
+                content: vec![ToolResultContent::text(stub)],
+            }));
+        }
+        return None;
+    }
+
+    if matches!(tool_name.as_str(), "rg" | "grep" | "fd" | "find" | "glob") {
+        if is_search_error(&text) {
+            return None;
+        }
+        let line_count = text.lines().count();
+        if line_count > line_threshold {
+            let size_str = crate::tools::truncate::format_size(text.len());
+            let target = meta.map(|m| m.target.as_str()).unwrap_or("");
+            let stub = if target.is_empty() {
+                format!(
+                    "[Tool '{tool_name}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
+                )
+            } else {
+                format!(
+                    "[Tool '{tool_name}' with pattern '{target}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
+                )
+            };
+            return Some(UserContent::ToolResult(rig::message::ToolResult {
+                call: res.call.clone(),
+                provider: res.provider.clone(),
+                name: res.name.clone(),
+                content: vec![ToolResultContent::text(stub)],
+            }));
+        }
+        return None;
+    }
+
+    None
+}
+
+fn prune_assistant_item(item: &AssistantContent, line_threshold: usize) -> Option<AssistantContent> {
+    let AssistantContent::ToolCall(call) = item else {
+        return None;
+    };
+    let name = call.function.name.to_ascii_lowercase();
+    if name != "write" && name != "write_file" {
+        return None;
+    }
+    let content_str = call.function.arguments.get("content")?.as_str()?;
+    let line_count = content_str.lines().count();
+    let bytes = content_str.len();
+    if line_count <= line_threshold && bytes <= 500 {
+        return None;
+    }
+    let size_str = crate::tools::truncate::format_size(bytes);
+    let stub = format!("[Content written ({line_count} lines, {size_str})]");
+    let mut new_args = call.function.arguments.clone();
+    new_args["content"] = serde_json::Value::String(stub);
+
+    Some(AssistantContent::ToolCall(rig::message::ToolCall::new(
+        call.id.clone(),
+        rig::message::ToolFunction::new(call.function.name.clone(), new_args),
+    )))
+}
+
+fn prune_assistant_message_content(
+    content: &[AssistantContent],
+    line_threshold: usize,
+) -> Option<Vec<AssistantContent>> {
+    let mut modified = false;
+    let new_content: Vec<AssistantContent> = content
+        .iter()
+        .map(|item| match prune_assistant_item(item, line_threshold) {
+            Some(pruned) => {
+                modified = true;
+                pruned
+            }
+            None => item.clone(),
+        })
+        .collect();
+
+    if modified { Some(new_content) } else { None }
 }
 
 fn prune_user_message_content(
     content: &[UserContent],
-    tool_commands: &HashMap<String, String>,
+    tool_calls: &HashMap<String, ToolCallMeta>,
     line_threshold: usize,
 ) -> Option<Vec<UserContent>> {
     let mut modified = false;
     let new_content: Vec<UserContent> = content
         .iter()
-        .map(
-            |item| match prune_tool_result_item(item, tool_commands, line_threshold) {
-                Some(pruned) => {
-                    modified = true;
-                    pruned
-                }
-                None => item.clone(),
-            },
-        )
+        .map(|item| match prune_tool_result_item(item, tool_calls, line_threshold) {
+            Some(pruned) => {
+                modified = true;
+                pruned
+            }
+            None => item.clone(),
+        })
         .collect();
 
     if modified { Some(new_content) } else { None }
@@ -207,7 +339,7 @@ pub fn prune_historical_tool_outputs(
         return messages.to_vec();
     }
 
-    let tool_commands = collect_tool_commands(messages);
+    let tool_calls = collect_tool_calls(messages);
     messages
         .iter()
         .enumerate()
@@ -215,12 +347,19 @@ pub fn prune_historical_tool_outputs(
             if idx >= cutoff_idx {
                 return msg.clone();
             }
-            let Message::User { content } = msg else {
-                return msg.clone();
-            };
-            match prune_user_message_content(content, &tool_commands, line_threshold) {
-                Some(new_content) => Message::User { content: new_content },
-                None => msg.clone(),
+            match msg {
+                Message::User { content } => match prune_user_message_content(content, &tool_calls, line_threshold) {
+                    Some(new_content) => Message::User { content: new_content },
+                    None => msg.clone(),
+                },
+                Message::Assistant { id, content } => match prune_assistant_message_content(content, line_threshold) {
+                    Some(new_content) => Message::Assistant {
+                        id: id.clone(),
+                        content: new_content,
+                    },
+                    None => msg.clone(),
+                },
+                _ => msg.clone(),
             }
         })
         .collect()
@@ -241,6 +380,75 @@ mod tests {
             provider: None,
             name: tool.to_string(),
             content: vec![ToolResultContent::Text(Text::new(tool_output))],
+        };
+        (
+            Message::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            Message::User {
+                content: vec![UserContent::ToolResult(res)],
+            },
+        )
+    }
+
+    fn make_read_turn(cid: &str, path: &str, tool_output: &str) -> (Message, Message) {
+        let call = ToolCall::new(
+            ToolCallId::new_or_mint(cid),
+            ToolFunction::new("read".to_string(), serde_json::json!({ "path": path })),
+        );
+        let res = rig::message::ToolResult {
+            call: ToolCallId::new_or_mint(cid),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+        };
+        (
+            Message::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            Message::User {
+                content: vec![UserContent::ToolResult(res)],
+            },
+        )
+    }
+
+    fn make_search_turn(cid: &str, tool: &str, pattern: &str, tool_output: &str) -> (Message, Message) {
+        let call = ToolCall::new(
+            ToolCallId::new_or_mint(cid),
+            ToolFunction::new(tool.to_string(), serde_json::json!({ "pattern": pattern })),
+        );
+        let res = rig::message::ToolResult {
+            call: ToolCallId::new_or_mint(cid),
+            provider: None,
+            name: tool.to_string(),
+            content: vec![ToolResultContent::Text(Text::new(tool_output))],
+        };
+        (
+            Message::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            Message::User {
+                content: vec![UserContent::ToolResult(res)],
+            },
+        )
+    }
+
+    fn make_write_turn(cid: &str, path: &str, content: &str, result_msg: &str) -> (Message, Message) {
+        let call = ToolCall::new(
+            ToolCallId::new_or_mint(cid),
+            ToolFunction::new(
+                "write".to_string(),
+                serde_json::json!({ "path": path, "content": content }),
+            ),
+        );
+        let res = rig::message::ToolResult {
+            call: ToolCallId::new_or_mint(cid),
+            provider: None,
+            name: "write".to_string(),
+            content: vec![ToolResultContent::Text(Text::new(result_msg))],
         };
         (
             Message::Assistant {
@@ -372,12 +580,12 @@ mod tests {
     }
 
     #[test]
-    fn test_prior_turn_non_bash_tool_output_is_not_pruned() {
+    fn test_prior_turn_verbose_read_output_is_pruned() {
         let output = (1..=40)
             .map(|i| format!("fn line_{i}() {{}}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let (call_msg, res_msg) = make_tool_turn("c1", "read", "src/lib.rs", &output);
+        let (call_msg, res_msg) = make_read_turn("c1", "src/lib.rs", &output);
 
         let history = vec![
             Message::user("Read file"),
@@ -398,7 +606,230 @@ mod tests {
             ToolResultContent::Text(t) => &t.text,
             _ => panic!(),
         };
-        assert_eq!(text, &output);
+        assert!(text.contains("[File 'src/lib.rs' read (40 lines,"));
+        assert!(text.contains("Output pruned for historical turn."));
+    }
+
+    #[test]
+    fn test_prior_turn_short_read_output_is_not_pruned() {
+        let output = "fn small() {}\n";
+        let (call_msg, res_msg) = make_read_turn("c1", "src/lib.rs", output);
+
+        let history = vec![
+            Message::user("Read file"),
+            call_msg,
+            res_msg,
+            Message::assistant("Read file done"),
+            Message::user("Next"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
+        assert_eq!(text, output);
+    }
+
+    #[test]
+    fn test_prior_turn_failed_read_output_is_not_pruned() {
+        let output = "File not found: src/missing.rs (in working directory: /tmp)";
+        let (call_msg, res_msg) = make_read_turn("c1", "src/missing.rs", output);
+
+        let history = vec![
+            Message::user("Read file"),
+            call_msg,
+            res_msg,
+            Message::assistant("File is missing"),
+            Message::user("Create it"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
+        assert_eq!(text, output);
+    }
+
+    #[test]
+    fn test_prior_turn_verbose_search_output_is_pruned() {
+        let output = (1..=30)
+            .map(|i| format!("crates/lib.rs:{i}:match_{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (call_msg, res_msg) = make_search_turn("c1", "rg", "match_", &output);
+
+        let history = vec![
+            Message::user("Search matches"),
+            call_msg,
+            res_msg,
+            Message::assistant("Found 30 matches"),
+            Message::user("Continue"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
+        assert!(text.contains("[Tool 'rg' with pattern 'match_' completed with 30 lines"));
+        assert!(text.contains("Output pruned for historical turn."));
+    }
+
+    #[test]
+    fn test_prior_turn_failed_search_output_is_not_pruned() {
+        let output = "Search timed out after 30s";
+        let (call_msg, res_msg) = make_search_turn("c1", "rg", "slow_pattern", output);
+
+        let history = vec![
+            Message::user("Search"),
+            call_msg,
+            res_msg,
+            Message::assistant("Search timed out"),
+            Message::user("Retry"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
+        assert_eq!(text, output);
+    }
+
+    #[test]
+    fn test_prior_turn_verbose_write_tool_call_is_pruned() {
+        let write_body = (1..=30)
+            .map(|i| format!("pub fn generated_func_{i}() {{}}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (call_msg, res_msg) = make_write_turn(
+            "c1",
+            "src/generated.rs",
+            &write_body,
+            "Successfully wrote 30 lines to src/generated.rs",
+        );
+
+        let history = vec![
+            Message::user("Write generated code"),
+            call_msg,
+            res_msg,
+            Message::assistant("File written"),
+            Message::user("Now test it"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::Assistant { content, .. } = &pruned[1] else {
+            panic!()
+        };
+        let AssistantContent::ToolCall(call) = &content[0] else {
+            panic!()
+        };
+        let content_val = call.function.arguments.get("content").unwrap().as_str().unwrap();
+        assert!(content_val.contains("[Content written (30 lines,"));
+        assert_eq!(
+            call.function.arguments.get("path").unwrap().as_str().unwrap(),
+            "src/generated.rs"
+        );
+    }
+
+    #[test]
+    fn test_prior_turn_short_write_tool_call_is_not_pruned() {
+        let short_body = "pub const VERSION: &str = \"1.0.0\";\n";
+        let (call_msg, res_msg) = make_write_turn(
+            "c1",
+            "src/version.rs",
+            short_body,
+            "Successfully wrote 1 lines to src/version.rs",
+        );
+
+        let history = vec![
+            Message::user("Set version"),
+            call_msg,
+            res_msg,
+            Message::assistant("Version set"),
+            Message::user("Next"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::Assistant { content, .. } = &pruned[1] else {
+            panic!()
+        };
+        let AssistantContent::ToolCall(call) = &content[0] else {
+            panic!()
+        };
+        let content_val = call.function.arguments.get("content").unwrap().as_str().unwrap();
+        assert_eq!(content_val, short_body);
+    }
+
+    #[test]
+    fn test_current_turn_write_and_read_are_not_pruned() {
+        let read_body = (1..=30).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n");
+        let (read_call, read_res) = make_read_turn("c1", "src/main.rs", &read_body);
+        let write_body = (1..=30).map(|i| format!("code {i}")).collect::<Vec<_>>().join("\n");
+        let (write_call, write_res) = make_write_turn(
+            "c2",
+            "src/main.rs",
+            &write_body,
+            "Successfully wrote 30 lines to src/main.rs",
+        );
+
+        let history = vec![
+            Message::user("Active turn work"),
+            read_call,
+            read_res,
+            write_call,
+            write_res,
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        assert_eq!(pruned.len(), 5);
+
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
+        assert_eq!(text, &read_body);
+
+        let Message::Assistant { content: a_content, .. } = &pruned[3] else {
+            panic!()
+        };
+        let AssistantContent::ToolCall(call) = &a_content[0] else {
+            panic!()
+        };
+        let content_val = call.function.arguments.get("content").unwrap().as_str().unwrap();
+        assert_eq!(content_val, &write_body);
     }
 
     fn extract_tool_result_first_text(message: &Message) -> &str {
@@ -462,5 +893,68 @@ mod tests {
         assert!(extract_tool_result_first_text(&t3_pruned[2]).contains("Output pruned (25 lines, 400B)"));
         assert!(extract_tool_result_first_text(&t3_pruned[6]).contains("cannot find value `x`"));
         assert!(extract_tool_result_first_text(&t3_pruned[10]).contains("test 1 passed"));
+    }
+
+    #[test]
+    fn test_multi_turn_mixed_tools_sequence_prunes_historical_reads_writes_and_searches() {
+        let read_out = (1..=30)
+            .map(|i| format!("fn f{i}() {{}}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (read_call, read_res) = make_read_turn("c1", "src/models.rs", &read_out);
+
+        let search_out = (1..=20).map(|i| format!("hit_{i}.rs")).collect::<Vec<_>>().join("\n");
+        let (search_call, search_res) = make_search_turn("c2", "fd", "*.rs", &search_out);
+
+        let write_body = (1..=25)
+            .map(|i| format!("pub struct S{i};"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let (write_call, write_res) = make_write_turn("c3", "src/types.rs", &write_body, "Wrote 25 lines");
+
+        let bash_out = (1..=20).map(|i| format!("pass {i}")).collect::<Vec<_>>().join("\n");
+        let bash_footer = format!(
+            "{bash_out}\n\n[Command completed successfully with exit code 0 (20 lines, 200B). Full log: /tmp/test.log]"
+        );
+        let (bash_call, bash_res) = make_tool_turn("c4", "bash", "cargo test", &bash_footer);
+
+        let history = vec![
+            Message::user("Inspect codebase"),
+            read_call,
+            read_res,
+            search_call,
+            search_res,
+            Message::assistant("Finished inspecting"),
+            Message::user("Implement types and test"),
+            write_call,
+            write_res,
+            bash_call,
+            bash_res,
+            Message::assistant("Implementation and tests complete"),
+            Message::user("Now what?"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+
+        let read_text = extract_tool_result_first_text(&pruned[2]);
+        assert!(read_text.contains("[File 'src/models.rs' read (30 lines,"));
+
+        let search_text = extract_tool_result_first_text(&pruned[4]);
+        assert!(search_text.contains("[Tool 'fd' with pattern '*.rs' completed with 20 lines"));
+
+        let Message::Assistant {
+            content: write_content, ..
+        } = &pruned[7]
+        else {
+            panic!()
+        };
+        let AssistantContent::ToolCall(call) = &write_content[0] else {
+            panic!()
+        };
+        let written_val = call.function.arguments.get("content").unwrap().as_str().unwrap();
+        assert!(written_val.contains("[Content written (25 lines,"));
+
+        let bash_text = extract_tool_result_first_text(&pruned[10]);
+        assert!(bash_text.contains("Command 'cargo test' completed with exit code 0. Output pruned"));
     }
 }
