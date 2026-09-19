@@ -13,6 +13,7 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
         return None;
     }
     let path_str = args.get("path").and_then(|v| v.as_str());
+    let mut cached_content: Option<Option<String>> = None;
     let mut out = String::new();
     for (idx, edit) in edits.iter().enumerate() {
         let old_text = edit.get("oldText").and_then(|v| v.as_str()).unwrap_or("");
@@ -23,7 +24,13 @@ pub(crate) fn format_edit_diff(args: &serde_json::Value, theme: &Theme) -> Optio
             .or_else(|| edit.get("line_number"))
             .and_then(|v| v.as_u64())
             .map(|v| v as usize)
-            .or_else(|| path_str.and_then(|p| super::diff::find_edit_line_number(p, old_text, new_text)));
+            .or_else(|| {
+                let path = path_str?;
+                let content = cached_content
+                    .get_or_insert_with(|| std::fs::read_to_string(path).ok())
+                    .as_deref()?;
+                super::diff::locate_edit_line_number(content, old_text, new_text)
+            });
 
         out.push_str(&super::diff::format_entry_diff(super::diff::EntryDiffInput {
             idx,

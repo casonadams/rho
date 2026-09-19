@@ -7,13 +7,12 @@ use crate::ui::theme::Theme;
 // Line number resolution for edit diffs
 // ---------------------------------------------------------------------------
 
-/// Attempts to locate the 1-based start line of an edit replacement in a file.
+/// Attempts to locate the 1-based start line of an edit replacement in file content.
 ///
 /// It checks `old_text` first (prior to the edit being applied on disk), and falls
 /// back to `new_text` (if the edit has already been applied to the file on disk).
-pub fn find_edit_line_number(path_str: &str, old_text: &str, new_text: &str) -> Option<usize> {
-    let content = std::fs::read_to_string(path_str).ok()?;
-    locate_match_line(&content, old_text).or_else(|| locate_match_line(&content, new_text))
+pub fn locate_edit_line_number(content: &str, old_text: &str, new_text: &str) -> Option<usize> {
+    locate_match_line(content, old_text).or_else(|| locate_match_line(content, new_text))
 }
 
 fn locate_match_line(content: &str, target: &str) -> Option<usize> {

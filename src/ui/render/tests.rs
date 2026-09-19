@@ -167,6 +167,26 @@ fn test_format_edit_diff_locates_line_from_file_on_disk() {
 }
 
 #[test]
+fn test_format_edit_diff_multi_edit_resolves_lines_from_single_read() {
+    let theme = Theme::default();
+    let temp_dir = tempfile::tempdir().unwrap();
+    let file_path = temp_dir.path().join("example_multi.rs");
+    std::fs::write(&file_path, "fn one() {}\n\nfn two() {}\n").unwrap();
+
+    let path_str = file_path.to_str().unwrap();
+    let args = serde_json::json!({
+        "path": path_str,
+        "edits": [
+            { "oldText": "fn one() {}", "newText": "fn first() {}" },
+            { "oldText": "fn two() {}", "newText": "fn second() {}" }
+        ]
+    });
+
+    let diff = format_edit_diff(&args, &theme).unwrap();
+    assert_contains_all(&diff, &["  1 │ ", "  3 │ ", "first", "second"]);
+}
+
+#[test]
 fn test_format_gutter_prefix_formats_aligned_and_dimmed() {
     let dim = anstyle::Style::new().dimmed();
     let prefix = format_gutter_prefix(1, 3, dim);
