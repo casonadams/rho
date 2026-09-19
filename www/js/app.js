@@ -7,6 +7,9 @@ document.addEventListener("DOMContentLoaded", () => {
   initGallery();
   initMobileNav();
   initDocsMobileToc();
+  initDocsScrollSpy();
+  initDocsSearchFilter();
+  initDocsHeadingAnchors();
 });
 
 /* =========================================================================
@@ -234,5 +237,131 @@ function initDocsMobileToc() {
       const label = toggleBtn.querySelector(".toc-label");
       if (label) label.textContent = link.textContent;
     });
+  });
+}
+
+/* =========================================================================
+   Documentation ScrollSpy
+   ========================================================================= */
+function initDocsScrollSpy() {
+  const headings = document.querySelectorAll(".docs-content h2[id], .docs-content h1[id]");
+  const sidebarLinks = document.querySelectorAll(".docs-sidebar .docs-nav-item a");
+  const mobileTocLabel = document.querySelector("#docsTocToggleBtn .toc-label");
+  if (!headings.length || !sidebarLinks.length) return;
+
+  const linkMap = new Map();
+  sidebarLinks.forEach((link) => {
+    const hash = link.getAttribute("href");
+    if (hash && hash.startsWith("#")) {
+      linkMap.set(hash.slice(1), link.parentElement);
+    }
+  });
+
+  const onScroll = () => {
+    const scrollPos = window.scrollY + 100;
+    let currentId = "";
+
+    headings.forEach((heading) => {
+      const top = heading.offsetTop;
+      if (scrollPos >= top) {
+        currentId = heading.id;
+      }
+    });
+
+    if (currentId) {
+      sidebarLinks.forEach((l) => l.parentElement.classList.remove("active"));
+      const activeItem = linkMap.get(currentId);
+      if (activeItem) {
+        activeItem.classList.add("active");
+        if (mobileTocLabel) {
+          const text = activeItem.querySelector("a")?.textContent;
+          if (text) mobileTocLabel.textContent = text;
+        }
+      }
+    }
+  };
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+}
+
+/* =========================================================================
+   Documentation Sidebar Filter Search
+   ========================================================================= */
+function initDocsSearchFilter() {
+  const searchInput = document.getElementById("docsSearchInput");
+  const navGroups = document.querySelectorAll(".docs-sidebar .docs-nav-group");
+  if (!searchInput || !navGroups.length) return;
+
+  searchInput.addEventListener("input", (e) => {
+    const query = e.target.value.toLowerCase().trim();
+
+    navGroups.forEach((group) => {
+      const items = group.querySelectorAll(".docs-nav-item");
+      let visibleCount = 0;
+
+      items.forEach((item) => {
+        const text = item.textContent.toLowerCase();
+        const matches = !query || text.includes(query);
+        item.style.display = matches ? "block" : "none";
+        if (matches) visibleCount++;
+      });
+
+      group.style.display = visibleCount > 0 ? "block" : "none";
+    });
+  });
+
+  // Global shortcut: press '/' to focus search
+  document.addEventListener("keydown", (e) => {
+    if (
+      e.key === "/" &&
+      document.activeElement.tagName !== "INPUT" &&
+      document.activeElement.tagName !== "TEXTAREA"
+    ) {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+    } else if (e.key === "Escape" && document.activeElement === searchInput) {
+      searchInput.value = "";
+      searchInput.dispatchEvent(new Event("input"));
+      searchInput.blur();
+    }
+  });
+}
+
+/* =========================================================================
+   Documentation Heading Anchors (# Permalinks)
+   ========================================================================= */
+function initDocsHeadingAnchors() {
+  const headings = document.querySelectorAll(".docs-content h2[id], .docs-content h3[id]");
+  if (!headings.length) return;
+
+  headings.forEach((heading) => {
+    if (heading.querySelector(".heading-anchor")) return;
+
+    const anchor = document.createElement("a");
+    anchor.className = "heading-anchor";
+    anchor.href = `#${heading.id}`;
+    anchor.textContent = "#";
+    anchor.setAttribute("aria-label", `Link to ${heading.textContent}`);
+    anchor.title = "Copy link to section";
+
+    anchor.addEventListener("click", async (e) => {
+      const url = `${window.location.origin}${window.location.pathname}#${heading.id}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        const originalText = anchor.textContent;
+        anchor.textContent = "✓";
+        anchor.style.color = "var(--accent-green)";
+        setTimeout(() => {
+          anchor.textContent = originalText;
+          anchor.style.color = "";
+        }, 1500);
+      } catch (_) {
+        // Fallback to normal anchor jump
+      }
+    });
+
+    heading.appendChild(anchor);
   });
 }

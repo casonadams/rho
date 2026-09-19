@@ -1,4 +1,6 @@
-use unicode_width::UnicodeWidthChar;
+pub mod cursor;
+
+use cursor::{char_class, compute_vertical_target, skip_whitespace_back, skip_whitespace_fwd, snap_to_marker_end};
 
 use crate::ui::interactive::state::{
     paste::{
@@ -7,8 +9,6 @@ use crate::ui::interactive::state::{
     },
     types::{QueueKind, QueuedMessage},
 };
-
-type CharIndicesItr<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EditorSnapshot {
@@ -338,128 +338,18 @@ impl EditorState {
     }
 
     fn move_vertical(&mut self, terminal_width: usize, row_delta: isize) -> bool {
-        let terminal_width = terminal_width.max(1);
-        let (current_row, current_column) = editor_cursor_position(&self.text, self.cursor, terminal_width);
-        let Some(target_row) = current_row.checked_add_signed(row_delta) else {
-            return false;
-        };
-        let preferred_column = self.preferred_column.unwrap_or(current_column);
-        let target = editor_boundaries(&self.text)
-            .map(|cursor| {
-                let (row, column) = editor_cursor_position(&self.text, cursor, terminal_width);
-                (cursor, row, column)
-            })
-            .filter(|(_, row, _)| *row == target_row)
-            .min_by_key(|(_, _, column)| column.abs_diff(preferred_column));
-        if let Some((cursor, _, _)) = target {
-            self.cursor = cursor;
-            if let Some(marker) = find_marker_covering(&self.text, self.cursor) {
-                let to_start = self.cursor - marker.start;
-                let to_end = marker.end - self.cursor;
-                self.cursor = if to_start <= to_end { marker.start } else { marker.end };
-            }
+        if let Some((target_cursor, preferred_column)) = compute_vertical_target(
+            &self.text,
+            self.cursor,
+            terminal_width,
+            row_delta,
+            self.preferred_column,
+        ) {
+            self.cursor = target_cursor;
             self.preferred_column = Some(preferred_column);
             true
         } else {
             false
         }
     }
-}
-
-fn skip_whitespace_back(slice: &str) -> std::iter::Peekable<std::iter::Rev<std::str::CharIndices<'_>>> {
-    let mut chars = slice.char_indices().rev().peekable();
-    while let Some((_, c)) = chars.peek() {
-        if c.is_whitespace() {
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    chars
-}
-
-fn skip_whitespace_fwd(slice: &str) -> CharIndicesItr<'_> {
-    let mut chars = slice.char_indices().peekable();
-    while let Some((_, c)) = chars.peek() {
-        if c.is_whitespace() {
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    chars
-}
-
-fn char_class(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-fn snap_to_marker_end(text: &str, cursor: &mut usize, start: bool) {
-    if let Some(marker) = find_marker_covering(text, *cursor) {
-        *cursor = if start { marker.start } else { marker.end };
-    }
-}
-
-fn editor_boundaries(text: &str) -> impl Iterator<Item = usize> + '_ {
-    std::iter::once(0).chain(
-        text.char_indices()
-            .map(|(index, character)| index + character.len_utf8()),
-    )
-}
-
-#[derive(Default)]
-struct CursorWalk {
-    row: usize,
-    column: usize,
-    cursor: usize,
-    terminal_width: usize,
-}
-
-impl CursorWalk {
-    fn new(cursor: usize, terminal_width: usize) -> Self {
-        Self {
-            cursor,
-            terminal_width,
-            ..Default::default()
-        }
-    }
-
-    fn step(&mut self, byte_index: usize, character: char) -> Option<(usize, usize)> {
-        if character == '\n' {
-            if byte_index == self.cursor {
-                return Some((self.row, self.column));
-            }
-            self.row += 1;
-            self.column = 0;
-            return None;
-        }
-        if wraps_to_next_row(self.column, character, self.terminal_width) {
-            self.row += 1;
-            self.column = 0;
-        }
-        if byte_index == self.cursor {
-            return Some((self.row, self.column));
-        }
-        self.column += character.width().unwrap_or(0);
-        None
-    }
-}
-
-fn wraps_to_next_row(column: usize, character: char, terminal_width: usize) -> bool {
-    let character_width = character.width().unwrap_or(0);
-    column > 0 && column + character_width > terminal_width
-}
-
-fn editor_cursor_position(text: &str, cursor: usize, terminal_width: usize) -> (usize, usize) {
-    let mut walk = CursorWalk::new(cursor, terminal_width.max(1));
-    for (byte_index, character) in text.char_indices() {
-        if let Some(position) = walk.step(byte_index, character) {
-            return position;
-        }
-    }
-    if walk.column == walk.terminal_width {
-        walk.row += 1;
-        walk.column = 0;
-    }
-    (walk.row, walk.column)
 }
