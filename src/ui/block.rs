@@ -100,18 +100,14 @@ impl WrapState<'_> {
             self.pending_spaces.push(character);
             self.pending_spaces_width += character_width;
         } else {
-            if self.pending_word_width + character_width > self.width {
-                if self.current_width > 0 {
-                    self.flush_line();
-                }
-                if !self.pending_spaces.is_empty() {
-                    self.current.push_str(&self.pending_spaces);
-                    self.current_width += self.pending_spaces_width;
-                    self.pending_spaces.clear();
-                    self.pending_spaces_width = 0;
-                }
+            let needed = self.pending_spaces_width + self.pending_word_width + character_width;
+            if self.current_width > 0 && self.current_width + needed > self.width {
+                self.flush_line();
+                self.pending_spaces.clear();
+                self.pending_spaces_width = 0;
+            }
+            if self.pending_word_width + character_width > self.width && self.pending_word_width > 0 {
                 self.current.push_str(&self.pending_word);
-                self.current_width += self.pending_word_width;
                 self.flush_line();
                 self.pending_word.clear();
                 self.pending_word_width = 0;
@@ -516,5 +512,30 @@ mod tests {
         }
         assert!(lines[1].starts_with("\x1b[32m│\x1b[0m 00:01 +0: loading"));
         assert!(lines[1].ends_with("\x1b[32m │\x1b[0m"));
+    }
+
+    #[test]
+    fn border_blocks_wrap_long_urls_without_exceeding_card_width() {
+        let border_style = Style::new();
+        let urls = [
+            "https://raw.githubusercontent.com/ornith-ai/Tokenless-Claw-Code/main/CLAW.md",
+            "https://raw.githubusercontent.com/ornith-ai/Tokenless-Claw-Code/main/PARITY.md",
+            "https://raw.githubusercontent.com/ornith-ai/Tokenless-Claw-Code/main/rust/Cargo.toml",
+            "https://api.github.com/repos/ornith-ai/Tokenless-Claw-Code/git/trees/main?recursive=1",
+            "https://api.github.com/repos/ornith-ai/Tokenless-Claw-Code/commits",
+        ];
+        for url in urls {
+            let content = format!("\x1b[1mweb_fetch\x1b[0m \x1b[36m{url}\x1b[0m\nfetched (text)");
+            let rendered = BlockFormat::border(border_style, 78).render_styled(&content);
+            for line in rendered.lines() {
+                assert_eq!(visible_width(line), 78, "line '{line}' exceeded width 78 for url {url}");
+            }
+            let lines: Vec<&str> = rendered.lines().collect();
+            if lines.len() > 4 {
+                let stripped = strip_ansi(lines[2]);
+                assert!(stripped.contains("│ https://"), "expected single space before url, got: {stripped}");
+                assert!(!stripped.contains("│  https://"), "unexpected leading double space: {stripped}");
+            }
+        }
     }
 }
