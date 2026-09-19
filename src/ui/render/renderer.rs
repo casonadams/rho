@@ -236,7 +236,7 @@ impl TerminalRenderer {
             .unwrap_or_else(|_| ProgressStyle::default_spinner());
         pb.set_style(style);
         pb.set_message(message.to_string());
-        pb.enable_steady_tick(Duration::from_millis(80));
+        pb.enable_steady_tick(Duration::from_millis(64));
         RenderActivity::Progress(pb)
     }
 
