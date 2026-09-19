@@ -1,291 +1,8 @@
+use super::types::{InInputModalInput, ModalOptionsLayout};
+use super::vertical::render_modal_options;
 use crate::ui::interactive::layout::editor::{render_editor_lines, window_editor, wrap_editor};
 use crate::ui::interactive::layout::text::{truncate_to_width, visible_width, wrap_to_width};
-use crate::ui::interactive::{CursorPosition, ModalMode, ModalOption, ModalState, OptionLayout};
-
-pub struct OptionFormat<'a> {
-    pub is_selected: bool,
-    pub is_selector: bool,
-    pub theme: &'a crate::ui::theme::Theme,
-}
-
-fn format_selector_tab_desc(desc: &str, theme: &crate::ui::theme::Theme) -> String {
-    let mut p = desc.split('\t');
-    let (prov, active, def) = (p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""));
-    let prov_s = if prov.is_empty() {
-        String::new()
-    } else {
-        format!(" {}[{prov}]{}", theme.dimmed, theme.dimmed)
-    };
-    let def_s = if def.is_empty() {
-        String::new()
-    } else {
-        format!(" {}· default{}", theme.dimmed, theme.dimmed)
-    };
-    let check_s = if active.is_empty() {
-        String::new()
-    } else {
-        format!(" {}✓{}", theme.tool_ok, theme.tool_ok)
-    };
-    format!("{prov_s}{def_s}{check_s}")
-}
-
-pub fn format_option_line(opt: &ModalOption, fmt: OptionFormat<'_>) -> String {
-    let highlight = fmt.theme.highlight;
-    let (prefix, label) = if fmt.is_selected {
-        (
-            format!("{highlight}▸{highlight:#} "),
-            format!("\x1b[1m{}\x1b[0m", opt.label),
-        )
-    } else {
-        ("  ".to_string(), opt.label.clone())
-    };
-    let Some(desc) = &opt.description else {
-        return format!("{prefix}{label}");
-    };
-    if fmt.is_selector && desc.contains('\t') {
-        let tabs = format_selector_tab_desc(desc, fmt.theme);
-        return format!("{prefix}{label}{tabs}");
-    }
-    let cleaned = desc.replace('\t', " • ");
-    format!("{prefix}{label}  {}{cleaned}{}", fmt.theme.dimmed, fmt.theme.dimmed)
-}
-
-const TITLE_HINTS: &[(&str, &str)] = &[
-    (
-        "Select Model",
-        "Enter to select • Ctrl+S to set as default • Esc to cancel",
-    ),
-    (
-        "Select Thinking Level",
-        "Enter to select • Ctrl+S to set as default • Esc to cancel",
-    ),
-    ("Select Theme", "↑/↓ preview • Enter select • Esc cancel"),
-    (
-        "Conversation Tree",
-        "↑/↓ select • Enter navigate • Shift+L label • Esc cancel",
-    ),
-    ("Settings", "↑/↓ select • Enter toggle • Esc close"),
-    (
-        "Resume Session",
-        "↑/↓ select • Enter resume • Ctrl+D delete • Esc cancel",
-    ),
-];
-
-fn fallback_select_hint(modal: &ModalState) -> &'static str {
-    if modal.title.contains("Permission") || modal.title.contains("Approve") {
-        "↑/↓ select • Enter confirm • Esc deny"
-    } else if modal.allow_custom {
-        "↑/↓ select • Enter confirm • Esc cancel • or type custom"
-    } else {
-        "↑/↓ select • Enter confirm • Esc cancel"
-    }
-}
-
-fn select_modal_hint(modal: &ModalState) -> &'static str {
-    if let Some((_, hint)) = TITLE_HINTS.iter().find(|(title, _)| modal.title == *title) {
-        return hint;
-    }
-    if modal.is_searchable {
-        "Enter to select • Esc to cancel"
-    } else if modal.option_layout == OptionLayout::Horizontal {
-        "←/→ or h/l select • ↑/↓ or j/k scroll • Enter confirm • Esc deny"
-    } else {
-        fallback_select_hint(modal)
-    }
-}
-
-pub fn modal_hint(modal: &ModalState) -> &'static str {
-    match &modal.mode {
-        crate::ui::interactive::ModalMode::Select => select_modal_hint(modal),
-        crate::ui::interactive::ModalMode::Input { .. } if modal.options.is_empty() => {
-            "Enter submit • Shift+Enter newline • Esc cancel"
-        }
-        crate::ui::interactive::ModalMode::Input { .. } => "Enter submit • Shift+Enter newline • Esc back",
-    }
-}
-
-pub struct ModalOptionsLayout<'a> {
-    pub inner_width: usize,
-    pub max_visible: usize,
-    pub theme: &'a crate::ui::theme::Theme,
-}
-
-fn calculate_pagination(total: usize, selected: usize, max_visible: usize) -> (usize, usize, bool) {
-    if total <= max_visible {
-        (0, total, false)
-    } else {
-        let page_size = max_visible.saturating_sub(1).max(1);
-        let start = selected
-            .saturating_sub(page_size / 2)
-            .min(total.saturating_sub(page_size));
-        let end = (start + page_size).min(total);
-        (start, end, true)
-    }
-}
-
-fn render_visible_options(
-    modal: &ModalState,
-    layout: &ModalOptionsLayout<'_>,
-    (start, end): (usize, usize),
-) -> Vec<String> {
-    let mut lines = Vec::new();
-    let is_selector = modal.title == "Select Model" || modal.title == "Select Theme";
-    for i in start..end {
-        let opt_line = format_option_line(
-            &modal.options[i],
-            OptionFormat {
-                is_selected: i == modal.selected,
-                is_selector,
-                theme: layout.theme,
-            },
-        );
-        for wrapped in wrap_to_width(&opt_line, layout.inner_width) {
-            lines.push(format!("  {wrapped}"));
-        }
-    }
-    lines
-}
-
-pub fn render_modal_options(modal: &ModalState, layout: ModalOptionsLayout<'_>) -> Vec<String> {
-    if modal.option_layout == OptionLayout::Horizontal {
-        return render_horizontal_options(modal, &layout);
-    }
-    let total = modal.options.len();
-    if total == 0 {
-        if modal.is_searchable {
-            let msg = if modal.title == "Select Model" {
-                "No matching models found"
-            } else {
-                "No matching options found"
-            };
-            let dimmed = layout.theme.dimmed;
-            return vec![format!("    {dimmed}{msg}{dimmed:#}")];
-        }
-        return Vec::new();
-    }
-    let (start, end, is_paginated) = calculate_pagination(total, modal.selected, layout.max_visible);
-    let mut lines = render_visible_options(modal, &layout, (start, end));
-    if is_paginated {
-        let dim = layout.theme.dimmed;
-        lines.push(format!("    {dim}(showing {}-{} of {total}){dim:#}", start + 1, end));
-    }
-    lines
-}
-
-// --- Horizontal Options Layout ---
-
-fn horizontal_item_width(opt: &ModalOption, is_selected: bool) -> usize {
-    visible_width(&opt.label) + if is_selected { 2 } else { 0 }
-}
-
-fn window_width(modal: &ModalState, start: usize, end: usize) -> usize {
-    let mut width = 0;
-    if start > 0 {
-        width += 2;
-    }
-    for i in start..=end {
-        width += horizontal_item_width(&modal.options[i], i == modal.selected);
-        if i < end {
-            width += 3;
-        }
-    }
-    if end + 1 < modal.options.len() {
-        width += 2;
-    }
-    width
-}
-
-fn expand_window(modal: &ModalState, inner_width: usize, (mut start, mut end): (usize, usize)) -> (usize, usize) {
-    let (n, sel) = (
-        modal.options.len(),
-        modal.selected.min(modal.options.len().saturating_sub(1)),
-    );
-    loop {
-        let can_left = start > 0 && window_width(modal, start - 1, end) <= inner_width;
-        let can_right = end + 1 < n && window_width(modal, start, end + 1) <= inner_width;
-        if !can_left && !can_right {
-            break;
-        }
-        if can_left && can_right {
-            if sel - start <= end - sel {
-                start -= 1;
-            } else {
-                end += 1;
-            }
-        } else if can_left {
-            start -= 1;
-        } else {
-            end += 1;
-        }
-    }
-    (start, end)
-}
-
-pub fn calculate_horizontal_window(modal: &ModalState, inner_width: usize) -> (usize, usize) {
-    let n = modal.options.len();
-    if n == 0 {
-        return (0, 0);
-    }
-    let sel = modal.selected.min(n - 1);
-    if window_width(modal, 0, n - 1) <= inner_width {
-        return (0, n - 1);
-    }
-    expand_window(modal, inner_width, (sel, sel))
-}
-
-fn format_horizontal_option(opt: &ModalOption, is_selected: bool, theme: &crate::ui::theme::Theme) -> String {
-    if is_selected {
-        let hl = theme.highlight;
-        format!("{hl}▸{hl:#} \x1b[1m{}\x1b[0m", opt.label)
-    } else {
-        opt.label.clone()
-    }
-}
-
-pub fn format_horizontal_row(
-    modal: &ModalState,
-    layout: &ModalOptionsLayout<'_>,
-    (start, end): (usize, usize),
-) -> String {
-    let mut parts = Vec::new();
-    if start > 0 {
-        parts.push(format!("{}‹{} ", layout.theme.dimmed, layout.theme.dimmed));
-    }
-    for i in start..=end {
-        parts.push(format_horizontal_option(
-            &modal.options[i],
-            i == modal.selected,
-            layout.theme,
-        ));
-        if i < end {
-            parts.push("   ".to_string());
-        }
-    }
-    if end + 1 < modal.options.len() {
-        parts.push(format!(" {}›{}", layout.theme.dimmed, layout.theme.dimmed));
-    }
-    parts.concat()
-}
-
-pub fn render_horizontal_options(modal: &ModalState, layout: &ModalOptionsLayout<'_>) -> Vec<String> {
-    if layout.max_visible == 0 {
-        return Vec::new();
-    }
-    if modal.options.is_empty() {
-        let msg = if modal.is_searchable {
-            "No matching models found"
-        } else {
-            "No matching options found"
-        };
-        let dimmed = layout.theme.dimmed;
-        return vec![format!("    {dimmed}{msg}{dimmed:#}")];
-    }
-    let window = calculate_horizontal_window(modal, layout.inner_width);
-    let row = format_horizontal_row(modal, layout, window);
-    vec![format!("  {row}")]
-}
-
-// --- In-Input Modal Rendering ---
+use crate::ui::interactive::{CursorPosition, ModalMode, ModalState, OptionLayout};
 
 fn input_prompt_width(modal: &ModalState) -> usize {
     let ModalMode::Input { prompt_label } = &modal.mode else {
@@ -354,14 +71,6 @@ pub fn in_input_modal_desired_lines(modal: &ModalState, draft_text: &str, inner_
     (search + input + draft + body + options).max(1)
 }
 
-pub struct InInputModalInput<'a> {
-    pub modal: &'a ModalState,
-    pub draft_text: &'a str,
-    pub bounds: (usize, usize),
-    pub theme: &'a crate::ui::theme::Theme,
-    pub focused: bool,
-}
-
 pub fn calculate_content_space(modal: &ModalState, space_for_content: usize) -> (usize, usize) {
     if matches!(modal.mode, ModalMode::Input { .. }) || modal.options.is_empty() {
         (space_for_content, 0)
@@ -381,7 +90,7 @@ pub fn calculate_content_space(modal: &ModalState, space_for_content: usize) -> 
     }
 }
 
-fn push_search_row(
+pub(crate) fn push_search_row(
     modal: &ModalState,
     width: usize,
     (focused, cursor_mode): (bool, crate::ui::theme::CursorMode),
@@ -410,7 +119,7 @@ fn input_prompt_prefix(modal: &ModalState, theme: &crate::ui::theme::Theme) -> (
     (styled, input_prompt_width(modal))
 }
 
-fn push_modal_input_prompt(
+pub(crate) fn push_modal_input_prompt(
     modal: &ModalState,
     theme: &crate::ui::theme::Theme,
     (width, max_input_lines, focused, lines): (usize, usize, bool, &mut Vec<String>),
@@ -445,7 +154,7 @@ fn push_modal_input_prompt(
     Some((cursor, focused))
 }
 
-fn format_draft_line(draft_text: &str, inner_width: usize, theme: &crate::ui::theme::Theme) -> String {
+pub(crate) fn format_draft_line(draft_text: &str, inner_width: usize, theme: &crate::ui::theme::Theme) -> String {
     let single_line = draft_text.trim().replace('\n', " ");
     let max_preview = inner_width.saturating_sub(29).max(5);
     let preview = truncate_to_width(&single_line, max_preview);
@@ -454,7 +163,7 @@ fn format_draft_line(draft_text: &str, inner_width: usize, theme: &crate::ui::th
     wrap_to_width(&line, inner_width.saturating_add(2)).remove(0)
 }
 
-fn collect_modal_content(
+pub(crate) fn collect_modal_content(
     input: &InInputModalInput<'_>,
     (inner_width, body_space, opt_space): (usize, usize, usize),
     has_draft: bool,
@@ -476,7 +185,7 @@ fn collect_modal_content(
     lines
 }
 
-fn modal_in_input_spaces(
+pub(crate) fn modal_in_input_spaces(
     modal: &ModalState,
     draft_text: &str,
     (max_lines, inner_width): (usize, usize),
@@ -581,14 +290,4 @@ fn render_in_input_body(modal: &ModalState, inner_width: usize, space: usize) ->
 
 fn format_omission_line(omitted: usize) -> String {
     format!("  \x1b[2m[... {omitted} lines omitted ...]\x1b[0m")
-}
-
-#[cfg(test)]
-pub mod in_input {
-    pub use super::*;
-}
-
-#[cfg(test)]
-pub mod options {
-    pub use super::*;
 }
