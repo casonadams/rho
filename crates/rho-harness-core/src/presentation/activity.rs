@@ -18,6 +18,12 @@ impl ActivityToken {
             finish();
         }
     }
+
+    pub fn disarm(&self) {
+        if let Ok(mut slot) = self.finisher.lock() {
+            slot.take();
+        }
+    }
 }
 
 impl Drop for ActivityToken {

@@ -57,3 +57,16 @@ fn finish_and_clear_on_clone_prevents_last_drop_invocation() {
     drop(token2);
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn disarm_prevents_finisher_on_drop() {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let counter_clone = counter.clone();
+    let token = activity_token(move || {
+        counter_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    token.disarm();
+    drop(token);
+    assert_eq!(counter.load(Ordering::SeqCst), 0);
+}

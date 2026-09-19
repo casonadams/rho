@@ -47,10 +47,18 @@ fn interactive_sink_uses_footer_activity_instead_of_a_progress_bar() {
 
     assert!(sink.state.lock().unwrap().spinner.is_some());
     sink.tool_start("read", &serde_json::json!({"path": "src/lib.rs"}));
-    assert_eq!(
-        collect_activities(&mut events),
-        [Activity::Thinking, Activity::Idle, Activity::Working]
-    );
+    assert_eq!(collect_activities(&mut events), [Activity::Thinking, Activity::Working]);
+
+    sink.tool_finished(crate::engine::runner::ToolFinishDetails {
+        name: "read",
+        arguments: &serde_json::json!({"path": "src/lib.rs"}),
+        output: "file contents",
+        is_error: false,
+    });
+    assert_eq!(collect_activities(&mut events), [Activity::Thinking]);
+
+    sink.finish_spinner();
+    assert_eq!(collect_activities(&mut events), [Activity::Idle]);
 }
 
 #[test]

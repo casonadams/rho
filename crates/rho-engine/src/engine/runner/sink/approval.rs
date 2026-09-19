@@ -1,4 +1,4 @@
-use super::super::helpers::{clear_spinner, redact_value};
+use super::super::helpers::{clear_spinner, disarm_spinner, redact_value};
 use super::reasoning::split_reasoning_chunk;
 use super::types::{
     CompletedTool, DisplayKind, PendingToolCall, TerminalSinkConfig, TerminalSinkState, ToolFinishDetails,
@@ -216,7 +216,7 @@ impl TerminalApprovalSink {
         self.presenter.flush();
         let arguments = redact_value(&self.session_manager, arguments);
         if let Ok(mut state) = self.state.lock() {
-            clear_spinner(&mut state);
+            disarm_spinner(&mut state);
             state.pending.insert(
                 name.to_string(),
                 PendingToolCall {
@@ -248,7 +248,7 @@ impl TerminalApprovalSink {
     }
 
     fn record_completed_tool(&self, state: &mut TerminalSinkState, details: ToolFinishDetails<'_>, status: &str) {
-        clear_spinner(state);
+        disarm_spinner(state);
         state.last_display = DisplayKind::Tool;
         let duration_ms = state
             .pending

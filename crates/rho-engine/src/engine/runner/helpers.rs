@@ -9,6 +9,12 @@ pub fn clear_spinner(state: &mut TerminalSinkState) {
     }
 }
 
+pub fn disarm_spinner(state: &mut TerminalSinkState) {
+    if let Some(spinner) = state.spinner.take() {
+        spinner.disarm();
+    }
+}
+
 pub fn redact_value(session: &SessionManager, value: &Value) -> Value {
     match value {
         Value::String(value) => Value::String(session.redact_credentials(value)),
