@@ -23,10 +23,12 @@ fn locate_match_line(content: &str, target: &str) -> Option<usize> {
     if let Some(idx) = content.find(target) {
         return Some(1 + content[..idx].matches('\n').count());
     }
-    let norm_content = content.replace("\r\n", "\n");
-    let norm_target = target.replace("\r\n", "\n");
-    if let Some(idx) = norm_content.find(&norm_target) {
-        return Some(1 + norm_content[..idx].matches('\n').count());
+    if target.contains("\r\n") || content.contains("\r\n") {
+        let norm_content = content.replace("\r\n", "\n");
+        let norm_target = target.replace("\r\n", "\n");
+        if let Some(idx) = norm_content.find(&norm_target) {
+            return Some(1 + norm_content[..idx].matches('\n').count());
+        }
     }
     let first_line = target.lines().find(|l| !l.trim().is_empty())?;
     if content.matches(first_line).count() == 1 {

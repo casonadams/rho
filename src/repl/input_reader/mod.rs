@@ -32,12 +32,15 @@ pub(crate) struct TerminalInputReader {
 
 impl TerminalInputReader {
     pub(crate) fn spawn() -> io::Result<Self> {
-        Self::spawn_with(Box::new(|timeout| {
-            if event::poll(timeout)? {
-                event::read().map(Some)
-            } else {
-                Ok(None)
-            }
+        Self::spawn_with(Box::new(|timeout| match event::poll(timeout) {
+            Ok(true) => match event::read() {
+                Ok(ev) => Ok(Some(ev)),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => Ok(None),
+                Err(e) => Err(e),
+            },
+            Ok(false) => Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => Ok(None),
+            Err(e) => Err(e),
         }))
     }
 

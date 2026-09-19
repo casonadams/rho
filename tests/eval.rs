@@ -510,11 +510,11 @@ fn text_occurrences(request: &CompletionRequest, needle: &str) -> usize {
         .map(|message| match message {
             Message::User { content } => content
                 .iter()
-                .filter(|part| matches!(part, UserContent::Text(text) if text.text == needle))
+                .filter(|part| matches!(part, UserContent::Text(text) if text.text.contains(needle)))
                 .count(),
             Message::Assistant { content, .. } => content
                 .iter()
-                .filter(|part| matches!(part, AssistantContent::Text(text) if text.text == needle))
+                .filter(|part| matches!(part, AssistantContent::Text(text) if text.text.contains(needle)))
                 .count(),
             Message::System { .. } => 0,
         })

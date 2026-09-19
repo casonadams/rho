@@ -75,7 +75,10 @@ async fn handle_input_res<B: TerminalBackend>(
     ctx: &mut TurnContext<'_, B>,
     res: Option<std::io::Result<crossterm::event::Event>>,
 ) -> Result<bool> {
-    let Some(event_res) = res else { return Ok(false) };
+    let Some(event_res) = res else {
+        ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, false)?;
+        return Err(anyhow::anyhow!("Terminal input reader stopped").into());
+    };
     let event = match event_res {
         Ok(e) => e,
         Err(err) => {

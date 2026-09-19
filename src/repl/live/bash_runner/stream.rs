@@ -182,9 +182,10 @@ impl<B: TerminalBackend> BashStreamState<'_, '_, B> {
     }
 
     async fn handle_key_event(&mut self, event: Option<std::io::Result<Event>>) -> Result<bool> {
-        let Some(Ok(event)) = event else {
-            return Ok(false);
+        let Some(event_res) = event else {
+            return Err(anyhow::anyhow!("Terminal input reader stopped").into());
         };
+        let event = event_res?;
         match event {
             Event::Resize(cols, rows) => {
                 let resized = self.run.controller.resize_to(usize::from(cols), usize::from(rows))?

@@ -35,6 +35,7 @@ pub(super) fn read_loop(
                 }
             }
             Ok(None) => {}
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => {
                 let _ = event_sender.send(Err(error));
                 return;

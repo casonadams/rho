@@ -3,8 +3,7 @@ use std::io;
 use super::TerminalController;
 use super::backend::TerminalBackend;
 use crate::ui::interactive::{
-    Activity, InteractiveLayout, RunningTool, ToolItem, ToolStartRequest, TranscriptItem, TranscriptRenderInput,
-    render_tool_block,
+    Activity, RunningTool, ToolItem, ToolStartRequest, TranscriptItem, TranscriptRenderInput, render_tool_block,
 };
 
 impl<B: TerminalBackend> TerminalController<B> {
@@ -56,7 +55,7 @@ impl<B: TerminalBackend> TerminalController<B> {
         Ok(())
     }
 
-    fn render_tool_lines(&self, tool: &ToolItem) -> (String, Vec<String>) {
+    fn render_tool_block_str(&self, tool: &ToolItem) -> String {
         let input = TranscriptRenderInput {
             item: &TranscriptItem::Tool(tool.clone()),
             theme: &self.theme,
@@ -64,82 +63,24 @@ impl<B: TerminalBackend> TerminalController<B> {
             tools_expanded: self.state.tools_expanded(),
             hide_thinking: self.state.hide_thinking(),
         };
-        let block = render_tool_block(tool, &input);
-        let mut card_lines = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
-            Vec::new()
-        } else {
-            vec![String::new()]
-        };
-        card_lines.extend(block.lines().map(String::from));
-        (block, card_lines)
+        render_tool_block(tool, &input)
     }
 
-    fn tool_layout(&self, card_lines: &[String]) -> InteractiveLayout {
-        let queue: Vec<crate::ui::interactive::QueuedMessage> = self.state.queue().iter().cloned().collect();
-        crate::ui::interactive::layout(crate::ui::interactive::LayoutInput {
-            editor: self.state.editor(),
-            modal: self.state.active_modal(),
-            autocomplete: Some(&self.state.autocomplete),
-            footer: self.state.footer(),
-            system_message: self.state.system_message(),
-            queued_messages: &queue,
-            widget_lines: card_lines,
-            terminal_width: self.width,
-            terminal_height: self.height,
-            spinner_frame: self.spinner_frame,
-            theme: Some(&self.theme),
-            focused: self.focused,
-        })
-    }
-
-    fn record_completed_tool(&mut self, tool: ToolItem, block: &str) {
+    pub fn commit_active_tool(&mut self, tool: ToolItem, needs_prefix_newline: bool) -> io::Result<bool> {
+        let block = self.render_tool_block_str(&tool);
         let item = TranscriptItem::Tool(tool);
         let rendered = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
-            block.to_string()
+            block
         } else {
             format!("\n{block}")
         };
+        self.clear_active_tool();
         self.cache.push(
             super::cache::target_slot(&item, self.state.tools_expanded(), self.state.hide_thinking()),
             &rendered,
         );
         self.transcript.push(item);
-
-        let formatted = super::ansi::terminal_newlines(&rendered);
-        self.output.update(&formatted);
-        if self.output.is_open() {
-            self.output.update("\n");
-        }
-    }
-
-    pub fn commit_active_tool(&mut self, tool: ToolItem) -> io::Result<()> {
-        if self.output.is_open() {
-            self.write_output("\n")?;
-        }
-        let (block, card_lines) = self.render_tool_lines(&tool);
-        let budget =
-            ((self.height as f64) * crate::ui::interactive::layout::budget::MAX_WIDGET_HEIGHT_RATIO).round() as usize;
-        if card_lines.len() > budget || self.state.tools_expanded() {
-            let item = TranscriptItem::Tool(tool);
-            let rendered = if self.theme.block_style == crate::ui::theme::BlockStyle::Border {
-                block
-            } else {
-                format!("\n{block}")
-            };
-            self.clear_active_tool();
-            self.cache.push(
-                super::cache::target_slot(&item, self.state.tools_expanded(), self.state.hide_thinking()),
-                &rendered,
-            );
-            self.transcript.push(item);
-            self.write_output(&rendered)?;
-            return Ok(());
-        }
-        let completed_layout = self.tool_layout(&card_lines);
-        super::paint::render_live_diff(&mut self.backend, self.rendered.as_ref(), &completed_layout)?;
-        self.record_completed_tool(tool, &block);
-        self.clear_active_tool();
-        self.rendered = Some(self.current_layout());
-        self.backend.flush()
+        self.write_transcript_card(&rendered, needs_prefix_newline)?;
+        Ok(true)
     }
 }

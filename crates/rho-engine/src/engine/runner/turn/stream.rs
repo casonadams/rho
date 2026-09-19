@@ -334,6 +334,7 @@ impl AgentEngine {
                     }
                 }
             }
+            tokio::task::yield_now().await;
         }
         Ok(StreamRunResult::Complete(Box::new(state)))
     }

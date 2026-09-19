@@ -81,9 +81,14 @@ async fn consume_stream_chunks<F: FnMut(&str)>(
     on_chunk: &mut F,
     accumulator: &mut OutputAccumulator,
 ) {
+    let mut chunk_count = 0usize;
     while let Some(chunk) = rx.recv().await {
         on_chunk(&chunk);
         accumulator.append(chunk.as_bytes());
+        chunk_count += 1;
+        if chunk_count.is_multiple_of(16) {
+            tokio::task::yield_now().await;
+        }
     }
 }
 

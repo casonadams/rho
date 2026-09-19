@@ -65,17 +65,9 @@ fn make_write_tool(write: Arc<WriteTool>) -> DynamicTool {
     dynamic_tool(
         "write",
         "Write full content to a file, automatically creating parent directories.",
-        move |ctx, args: WriteArgs| {
+        move |_ctx, args: WriteArgs| {
             let w = Arc::clone(&write);
-            let stream = ctx.get::<rho_harness_core::presentation::ToolStreamPort>().cloned();
-            async move {
-                if let Some(stream_port) = stream {
-                    for line in args.content.lines() {
-                        stream_port.stream_chunk(&format!("{line}\n"));
-                    }
-                }
-                w.execute(args).await
-            }
+            async move { w.execute(args).await }
         },
     )
 }

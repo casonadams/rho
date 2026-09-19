@@ -148,6 +148,13 @@ fn tool_completion_in_place_preserves_editor_row_and_output_continuity() {
     let rendered = controller.rendered.as_ref().expect("rendered layout exists");
     assert_eq!((rendered.cursor_row(), rendered.lines.len()), (2, 6));
 
+    controller.redraw().unwrap();
+    let rendered_after_redraw = controller.rendered.as_ref().expect("rendered layout exists");
+    assert_eq!(
+        (rendered_after_redraw.cursor_row(), rendered_after_redraw.lines.len()),
+        (2, 6)
+    );
+
     operations.borrow_mut().clear();
     controller.write_output("Done.\n").unwrap();
     assert!(

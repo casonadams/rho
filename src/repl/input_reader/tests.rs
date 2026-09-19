@@ -6,6 +6,7 @@ use super::TerminalInputReader;
 
 enum SourceCommand {
     Event(Event),
+    Interrupted,
     Error,
 }
 
@@ -20,6 +21,7 @@ fn test_reader() -> (
         let _ = read_started.send(());
         match receiver.recv_timeout(timeout) {
             Ok(SourceCommand::Event(event)) => Ok(Some(event)),
+            Ok(SourceCommand::Interrupted) => Err(io::Error::from(io::ErrorKind::Interrupted)),
             Ok(SourceCommand::Error) => Err(io::Error::other("input failed")),
             Err(std_mpsc::RecvTimeoutError::Timeout) => Ok(None),
             Err(std_mpsc::RecvTimeoutError::Disconnected) => Err(io::Error::other("source closed")),
@@ -39,6 +41,17 @@ async fn forwards_events_and_propagates_input_errors() {
     assert_eq!(reader.recv().await.unwrap().unwrap(), event);
     assert_eq!(reader.recv().await.unwrap().unwrap_err().kind(), io::ErrorKind::Other);
     assert!(reader.recv().await.is_none());
+    reader.stop_and_join().unwrap();
+}
+
+#[tokio::test]
+async fn ignores_interrupted_errors_and_continues_reading() {
+    let (mut reader, source, _) = test_reader();
+    let event = Event::Key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+    source.send(SourceCommand::Interrupted).unwrap();
+    source.send(SourceCommand::Event(event.clone())).unwrap();
+
+    assert_eq!(reader.recv().await.unwrap().unwrap(), event);
     reader.stop_and_join().unwrap();
 }
 
