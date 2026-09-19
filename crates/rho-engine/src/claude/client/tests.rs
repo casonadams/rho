@@ -189,7 +189,7 @@ fn test_build_request_body_marks_conversation_tail_without_tools() {
 }
 
 #[test]
-fn test_build_request_body_marks_only_tail_in_multi_turn() {
+fn test_build_request_body_marks_penultimate_turn_and_tail_in_multi_turn() {
     let mut req = sample_request();
     req.chat_history = vec![
         Message::user("first"),
@@ -200,7 +200,7 @@ fn test_build_request_body_marks_only_tail_in_multi_turn() {
     let messages = body["messages"].as_array().unwrap();
     assert_eq!(messages.len(), 3);
     assert!(messages[0]["content"][0].get("cache_control").is_none());
-    assert!(messages[1]["content"][0].get("cache_control").is_none());
+    assert_eq!(messages[1]["content"][0]["cache_control"]["type"], "ephemeral");
     assert_eq!(messages[2]["content"][0]["cache_control"]["type"], "ephemeral");
 }
 

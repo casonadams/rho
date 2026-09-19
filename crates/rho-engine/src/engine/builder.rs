@@ -149,6 +149,7 @@ async fn build_engine_tools(
         }
     };
     tools.extend(extra_tools);
+    tools.sort_by(|a, b| a.name().cmp(b.name()));
     Ok(tools)
 }
 

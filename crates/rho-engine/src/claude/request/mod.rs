@@ -1,6 +1,8 @@
 //! Claude Messages API request serialization.
 
 mod contents;
+#[cfg(test)]
+mod tests;
 
 pub use contents::convert_messages;
 
@@ -177,24 +179,111 @@ pub fn build_request_body(
     Ok(body)
 }
 
-/// Anthropic prompt caching: up to 4 breakpoints across tools, system, and messages tail.
-fn mark_cache_breakpoints(body: &mut Value) {
-    if let Some(last_tool) = body
-        .get_mut("tools")
-        .and_then(Value::as_array_mut)
-        .and_then(|tools| tools.last_mut())
+/// Anthropic prompt caching: up to 4 breakpoints across tools, system, turn N-1, and messages tail.
+pub fn count_cache_breakpoints(body: &Value) -> usize {
+    let mut count = 0;
+    if let Some(system) = body.get("system").and_then(Value::as_array) {
+        for block in system {
+            if block.get("cache_control").is_some() {
+                count += 1;
+            }
+        }
+    }
+    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
+        for tool in tools {
+            if tool.get("cache_control").is_some() {
+                count += 1;
+            }
+        }
+    }
+    if let Some(messages) = body.get("messages").and_then(Value::as_array) {
+        for msg in messages {
+            if let Some(parts) = msg.get("content").and_then(Value::as_array) {
+                for part in parts {
+                    if part.get("cache_control").is_some() {
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+    count
+}
+
+fn is_tool_result_message(message: &Value) -> bool {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .any(|part| part.get("type").and_then(Value::as_str) == Some("tool_result"))
+        })
+        .unwrap_or(false)
+}
+
+pub fn mark_cache_breakpoints(body: &mut Value) {
+    let mut count = count_cache_breakpoints(body);
+
+    if count < 4
+        && let Some(last_system) = body
+            .get_mut("system")
+            .and_then(Value::as_array_mut)
+            .and_then(|blocks| blocks.last_mut())
+        && last_system.get("cache_control").is_none()
+    {
+        last_system["cache_control"] = json!({ "type": "ephemeral" });
+        count += 1;
+    }
+
+    if count < 4
+        && let Some(last_tool) = body
+            .get_mut("tools")
+            .and_then(Value::as_array_mut)
+            .and_then(|tools| tools.last_mut())
+        && last_tool.get("cache_control").is_none()
     {
         last_tool["cache_control"] = json!({ "type": "ephemeral" });
+        count += 1;
     }
+
     let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) else {
         return;
     };
-    if let Some(last_message) = messages.last_mut()
-        && let Some(parts) = last_message.get_mut("content").and_then(Value::as_array_mut)
+    if messages.is_empty() {
+        return;
+    }
+
+    let turn_n_start_idx = messages
+        .iter()
+        .rposition(|msg| msg.get("role").and_then(Value::as_str) == Some("user") && !is_tool_result_message(msg))
+        .unwrap_or(0);
+
+    if turn_n_start_idx > 0
+        && count + 2 <= 4
+        && let Some(checkpoint_msg) = messages.get_mut(turn_n_start_idx - 1)
+        && let Some(parts) = checkpoint_msg.get_mut("content").and_then(Value::as_array_mut)
         && let Some(last_part) = parts.last_mut()
+        && last_part.get("cache_control").is_none()
     {
         last_part["cache_control"] = json!({ "type": "ephemeral" });
+        count += 1;
     }
+
+    if count < 4
+        && let Some(last_message) = messages.last_mut()
+        && let Some(parts) = last_message.get_mut("content").and_then(Value::as_array_mut)
+        && let Some(last_part) = parts.last_mut()
+        && last_part.get("cache_control").is_none()
+    {
+        last_part["cache_control"] = json!({ "type": "ephemeral" });
+        count += 1;
+    }
+
+    debug_assert!(
+        count <= 4,
+        "Anthropic allows at most 4 cache_control breakpoints, got {count}"
+    );
 }
 
 fn system_prompt(request: &CompletionRequest) -> Option<String> {
@@ -207,9 +296,10 @@ fn system_prompt(request: &CompletionRequest) -> Option<String> {
 }
 
 fn convert_tools(request: &CompletionRequest) -> Vec<Value> {
-    request
-        .tools
-        .iter()
+    let mut tools = request.tools.clone();
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+    tools
+        .into_iter()
         .map(|t| {
             json!({
                 "name": to_claude_tool_name(&t.name),

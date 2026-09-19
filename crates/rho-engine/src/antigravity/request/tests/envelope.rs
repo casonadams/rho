@@ -200,3 +200,33 @@ fn tool_result_with_image_gemini_observation() {
         (Some("image/png"), Some("iVBORw0KGgo="))
     );
 }
+
+#[test]
+fn antigravity_tools_are_sorted_by_name() {
+    let mut request = minimal_request(vec![Message::User {
+        content: vec![UserContent::text("hi")],
+    }]);
+    request.tools = vec![
+        ToolDefinition {
+            name: "write".to_string(),
+            description: "write file".to_string(),
+            parameters: serde_json::json!({ "type": "object" }),
+        },
+        ToolDefinition {
+            name: "bash".to_string(),
+            description: "run shell".to_string(),
+            parameters: serde_json::json!({ "type": "object" }),
+        },
+        ToolDefinition {
+            name: "read".to_string(),
+            description: "read file".to_string(),
+            parameters: serde_json::json!({ "type": "object" }),
+        },
+    ];
+    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+    let declarations = body["request"]["tools"][0]["functionDeclarations"].as_array().unwrap();
+    assert_eq!(declarations.len(), 3);
+    assert_eq!(declarations[0]["name"], "bash");
+    assert_eq!(declarations[1]["name"], "read");
+    assert_eq!(declarations[2]["name"], "write");
+}

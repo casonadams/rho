@@ -33,11 +33,13 @@ pub fn build_coding_agent(model: ModelHandle, config: &Config, runtime: CodingRu
         config.thinking_level.as_deref(),
         &memory.session_id,
     );
+    let mut tools = built_in_tools.unwrap_or_default();
+    tools.sort_by(|a, b| a.name().cmp(b.name()));
     let builder = AgentBuilder::from_model_handle(model)
         .memory(memory)
         .default_max_turns(config.max_turns)
         .record_content_telemetry(false)
-        .dynamic_tools(built_in_tools.unwrap_or_default());
+        .dynamic_tools(tools);
     let builder = match extras {
         Some(extras) => builder.additional_params(extras),
         None => builder,

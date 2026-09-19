@@ -81,10 +81,11 @@ pub fn convert_tools(request: &CompletionRequest, legacy_parameters: bool) -> Op
     if request.tools.is_empty() {
         return None;
     }
-    let declarations: Vec<Value> = request
-        .tools
-        .iter()
-        .map(|tool: &ToolDefinition| {
+    let mut tools = request.tools.clone();
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+    let declarations: Vec<Value> = tools
+        .into_iter()
+        .map(|tool: ToolDefinition| {
             let schema = strip_meta_schema(&tool.parameters);
             let schema = ensure_root_object(&schema);
             let mut declaration = json!({
