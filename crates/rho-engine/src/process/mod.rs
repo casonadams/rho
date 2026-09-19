@@ -1,10 +1,12 @@
 //! Process-group isolation and RAII lifecycle guards so kills reach the entire command tree.
 
 mod guard;
+mod streaming;
 #[cfg(test)]
 mod tests;
 
 pub use guard::ProcessTreeGuard;
+pub use streaming::{StreamingCommand, configure_shell_command};
 
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};

@@ -1,13 +1,10 @@
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use crossterm::event::Event;
-use rho_engine::process::{ProcessTreeGuard, isolate_group};
+use rho_engine::process::{StreamingCommand, configure_shell_command};
 use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
-use tokio::io::AsyncReadExt;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use super::LiveIo;
 use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVAL};
@@ -27,81 +24,6 @@ struct BashOutcome {
     pub exit_code: Option<i32>,
     pub duration_ms: u64,
     pub args_val: serde_json::Value,
-}
-
-struct RunningCommand {
-    pub guard: ProcessTreeGuard,
-    pub stdout_task: JoinHandle<()>,
-    pub stderr_task: JoinHandle<()>,
-}
-
-impl RunningCommand {
-    fn spawn(cmd: &str) -> std::io::Result<(Self, UnboundedReceiver<String>)> {
-        let mut command = configure_shell_command(cmd);
-        let mut child = command.spawn()?;
-        let stdout = child.stdout.take().expect("stdout piped");
-        let stderr = child.stderr.take().expect("stderr piped");
-        let guard = ProcessTreeGuard::new(child);
-        let (chunk_tx, chunk_rx) = tokio::sync::mpsc::unbounded_channel();
-        let stdout_task = spawn_stream_reader(stdout, chunk_tx.clone());
-        let stderr_task = spawn_stream_reader(stderr, chunk_tx);
-        Ok((
-            Self {
-                guard,
-                stdout_task,
-                stderr_task,
-            },
-            chunk_rx,
-        ))
-    }
-
-    async fn cancel(&mut self) {
-        self.stdout_task.abort();
-        self.stderr_task.abort();
-        self.guard.kill().await;
-    }
-
-    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
-        self.guard.wait().await
-    }
-
-    async fn drain_tasks(&mut self) {
-        let _ = (&mut self.stdout_task).await;
-        let _ = (&mut self.stderr_task).await;
-    }
-}
-
-fn configure_shell_command(cmd: &str) -> tokio::process::Command {
-    let mut command = rho_engine::tools::bash::resolve_shell_command(cmd);
-    command.stdin(Stdio::null());
-    command.stdout(Stdio::piped());
-    command.stderr(Stdio::piped());
-    command.kill_on_drop(true);
-    command.env("CI", "true");
-    command.env("GIT_TERMINAL_PROMPT", "0");
-    command.env("PAGER", "cat");
-    command.env("GIT_PAGER", "cat");
-    command.env("CLICOLOR", "1");
-    command.env("CLICOLOR_FORCE", "1");
-    command.env("FORCE_COLOR", "1");
-    command.env("COLORTERM", "truecolor");
-    command.env("TERM", "xterm-256color");
-    isolate_group(&mut command);
-    command
-}
-
-fn spawn_stream_reader<R: AsyncReadExt + Unpin + Send + 'static>(
-    mut reader: R,
-    tx: UnboundedSender<String>,
-) -> JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut buf = [0u8; 4096];
-        while let Ok(n) = reader.read(&mut buf).await {
-            if n == 0 || tx.send(String::from_utf8_lossy(&buf[..n]).to_string()).is_err() {
-                break;
-            }
-        }
-    })
 }
 
 struct StreamProgress {
@@ -264,7 +186,7 @@ impl<B: TerminalBackend> BashRun<'_, B> {
         self.batch.flush(self.controller, spinner)
     }
 
-    async fn handle_input_action(&mut self, action: InputAction, running: &mut RunningCommand) -> Result<bool> {
+    async fn handle_input_action(&mut self, action: InputAction, running: &mut StreamingCommand) -> Result<bool> {
         if action == InputAction::Cancel {
             running.cancel().await;
             return Ok(true);
@@ -341,7 +263,7 @@ async fn select_input_chunk(input: &mut super::TerminalInputReader, chunk_rx: &m
     }
 }
 
-async fn select_frame_exit(frame: &mut tokio::time::Interval, running: &mut RunningCommand) -> StreamStep {
+async fn select_frame_exit(frame: &mut tokio::time::Interval, running: &mut StreamingCommand) -> StreamStep {
     tokio::select! {
         biased;
         _ = frame.tick() => StreamStep::Frame,
@@ -355,7 +277,7 @@ fn exit_code_of(res: std::io::Result<std::process::ExitStatus>) -> Option<i32> {
 
 struct BashStreamState<'a, 'b, B: TerminalBackend> {
     run: &'a mut BashRun<'b, B>,
-    running: RunningCommand,
+    running: StreamingCommand,
     stream: StreamBuffers,
     input: &'a mut super::TerminalInputReader,
     frame: tokio::time::Interval,
@@ -488,7 +410,7 @@ async fn spawn_failure<B: TerminalBackend>(
 
 fn build_stream_state<'a, 'b, B: TerminalBackend>(
     run: &'a mut BashRun<'b, B>,
-    running: RunningCommand,
+    running: StreamingCommand,
     chunk_rx: ChunkRx,
     input: &'a mut super::TerminalInputReader,
     started: Instant,
@@ -528,7 +450,8 @@ pub async fn run_user_bash<B: TerminalBackend>(
         events: io.events,
     };
 
-    let (running, chunk_rx) = match RunningCommand::spawn(cmd) {
+    let cmd_obj = configure_shell_command(cmd, None);
+    let (running, chunk_rx) = match StreamingCommand::spawn(cmd_obj) {
         Ok(res) => res,
         Err(e) => return spawn_failure(&mut run, cmd, &e, args_val, started).await,
     };
