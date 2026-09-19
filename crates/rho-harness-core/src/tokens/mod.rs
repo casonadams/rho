@@ -2,6 +2,7 @@ use rig::message::{AssistantContent, Message, UserContent};
 use std::sync::LazyLock;
 
 pub mod cut_point;
+pub mod memo;
 
 #[cfg(test)]
 mod tests;
@@ -9,6 +10,7 @@ mod tests;
 pub use cut_point::{
     find_node_token_cut_point, find_token_cut_point, is_tool_result_message, is_user_turn_start, message_position_at,
 };
+pub use memo::MessageTokenCache;
 
 pub const ESTIMATED_IMAGE_TOKENS: usize = 1200;
 pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
@@ -59,7 +61,7 @@ pub fn should_compact(context_tokens: usize, context_window: usize, reserve_toke
     context_tokens > context_window.saturating_sub(effective_reserve)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ContextTokenStats {
     pub total_tokens: usize,
     pub usage_anchor_tokens: usize,
@@ -125,7 +127,16 @@ fn estimate_assistant_content_tokens(item: &AssistantContent, model: &str) -> us
         AssistantContent::Text(text) => estimate_text_tokens(&text.text, model),
         AssistantContent::ToolCall(call) => {
             let name_tokens = estimate_text_tokens(&call.function.name, model);
-            let args_str = call.function.arguments.to_string();
+            let args_str = match &call.function.arguments {
+                serde_json::Value::String(s) => {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(s) {
+                        serde_json::to_string(&val).unwrap_or_else(|_| s.clone())
+                    } else {
+                        s.clone()
+                    }
+                }
+                other => serde_json::to_string(other).unwrap_or_else(|_| other.to_string()),
+            };
             let arg_tokens = estimate_text_tokens(&args_str, model);
             name_tokens.saturating_add(arg_tokens)
         }

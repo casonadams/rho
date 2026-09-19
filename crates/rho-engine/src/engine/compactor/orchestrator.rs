@@ -4,7 +4,7 @@ use rho_harness_core::session::compaction::{
     extract_file_ops, render_file_lists_xml,
 };
 use rho_harness_core::session::tree::{TreeNodeData, TreeNodeKind};
-use rho_harness_core::tokens::{calculate_context_tokens, find_token_cut_point, is_tool_result_message};
+use rho_harness_core::tokens::{find_token_cut_point, is_tool_result_message};
 use rig::agent::ModelHandle;
 use rig::memory::DemotionHook;
 use rig::message::Message;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use super::llm::LlmCompactor;
 use crate::engine::AgentEngine;
 use crate::engine::metrics::StructuralUsage;
-use crate::engine::tracking::UsageTracker;
+use crate::engine::tracking::{ContextTracker, UsageTracker};
 use rho_harness_core::session::SessionManager;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,11 +105,13 @@ fn calculate_effective_cut(
     cut
 }
 
-fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str) -> usize {
+fn compute_post_compaction_tokens(summary: &str, kept: &[Message], model: &str, context: &ContextTracker) -> usize {
     let summary_msg = compaction_summary_message(summary);
     let mut kept_with_summary = vec![summary_msg];
     kept_with_summary.extend_from_slice(kept);
-    calculate_context_tokens(&kept_with_summary, None, model).total_tokens
+    context
+        .calculate_context_tokens(&kept_with_summary, None, model)
+        .total_tokens
 }
 
 fn filter_conversation_messages(
@@ -141,6 +143,7 @@ fn filter_conversation_messages(
 pub struct SessionCompactor {
     session_manager: SessionManager,
     usage: UsageTracker,
+    context: ContextTracker,
     model: Option<ModelHandle>,
     model_name: String,
     keep_recent_tokens: usize,
@@ -152,12 +155,14 @@ impl SessionCompactor {
     pub fn new(
         session_manager: SessionManager,
         usage: UsageTracker,
+        context: ContextTracker,
         model: Option<ModelHandle>,
         (model_name, keep_recent_tokens, max_bytes): (&str, usize, usize),
     ) -> Self {
         Self {
             session_manager,
             usage,
+            context,
             model,
             model_name: model_name.to_string(),
             keep_recent_tokens,
@@ -214,7 +219,10 @@ impl SessionCompactor {
     ) -> Result<CompactionStats> {
         let (prior_sum, prior_det, prior_msg_idx, active_nodes) = resolve_prior_compaction(ancestor_nodes);
         let (all_msgs, positions) = filter_conversation_messages(active_nodes, prior_msg_idx.unwrap_or(0));
-        let tokens_before = calculate_context_tokens(&tree.active_messages(), None, &self.model_name).total_tokens;
+        let tokens_before = self
+            .context
+            .calculate_context_tokens(&tree.active_messages(), None, &self.model_name)
+            .total_tokens;
         let cut = calculate_effective_cut(&all_msgs, &positions, (self.keep_recent_tokens, &self.model_name));
         if cut.cut_index == 0 || all_msgs.is_empty() {
             return Ok(noop_stats(tokens_before));
@@ -304,7 +312,7 @@ impl SessionCompactor {
             redacted_summary
         };
 
-        let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name);
+        let tokens_after = compute_post_compaction_tokens(&final_summary, kept, &self.model_name, &self.context);
         let saved_tokens = tokens_before.saturating_sub(tokens_after);
         self.persist_compaction(
             (&final_summary, &file_details, kept_id, kept_msg_idx, plan.instructions),
@@ -326,6 +334,7 @@ impl AgentEngine {
         let mut compactor = SessionCompactor::new(
             self.session_manager.clone(),
             self.usage.clone(),
+            self.context.clone(),
             self.model.clone(),
             (
                 &self.config.model,

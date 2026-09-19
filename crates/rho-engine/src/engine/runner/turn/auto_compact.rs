@@ -8,10 +8,7 @@ use crate::engine::tracking::{ContextTracker, UsageTracker};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::presentation::presenter::Presenter;
 use rho_harness_core::session::compaction::compaction_summary_message;
-use rho_harness_core::tokens::{
-    calculate_context_tokens, context_window_size_for_provider, estimate_message_tokens, find_token_cut_point,
-    should_compact,
-};
+use rho_harness_core::tokens::{context_window_size_for_provider, find_token_cut_point, should_compact};
 use rig::agent::hook::{AgentHook, CompletionCall, CompletionCallAction, HookContext, RequestPatch};
 use rig::memory::ConversationMemory;
 use rig::message::Message;
@@ -23,17 +20,23 @@ fn usage_anchor_tokens(usage: &StructuralUsage, provider: &str) -> usize {
     consumed.saturating_add(usage.output_tokens) as usize
 }
 
-fn estimated_tokens(messages: &[Message], model: &str) -> usize {
-    calculate_context_tokens(messages, None, model).total_tokens
+fn estimated_tokens(messages: &[Message], model: &str, context: &ContextTracker) -> usize {
+    context.calculate_context_tokens(messages, None, model).total_tokens
 }
 
 /// Compaction pressure: the more reliable of the provider-reported usage anchor
 /// and a tokenizer estimate over the messages themselves.
-fn trigger_tokens(messages: &[Message], usage: Option<&StructuralUsage>, model: &str, provider: &str) -> usize {
-    estimated_tokens(messages, model).max(usage.map(|u| usage_anchor_tokens(u, provider)).unwrap_or(0))
+fn trigger_tokens(
+    messages: &[Message],
+    usage: Option<&StructuralUsage>,
+    model: &str,
+    provider: &str,
+    context: &ContextTracker,
+) -> usize {
+    estimated_tokens(messages, model, context).max(usage.map(|u| usage_anchor_tokens(u, provider)).unwrap_or(0))
 }
 
-fn context_window(model: &str, provider: &str, context: ContextTracker) -> usize {
+fn context_window(model: &str, provider: &str, context: &ContextTracker) -> usize {
     context
         .limit_for(model, provider)
         .unwrap_or_else(|| context_window_size_for_provider(model, provider))
@@ -179,7 +182,10 @@ impl AutoCompactHook {
         let summary_message = compaction_summary_message(&summary);
         let mut kept_with_summary = vec![summary_message.clone()];
         kept_with_summary.extend_from_slice(&history[cut.cut_index..]);
-        let tokens_after = calculate_context_tokens(&kept_with_summary, None, model).total_tokens;
+        let tokens_after = self
+            .context
+            .calculate_context_tokens(&kept_with_summary, None, model)
+            .total_tokens;
         self.usage.record(StructuralUsage {
             input_tokens: tokens_after as u64,
             ..Default::default()
@@ -221,10 +227,12 @@ impl AutoCompactHook {
         };
 
         if !tripped {
-            let window = context_window(self.model_name(), &self.provider, self.context);
-            let mut messages = estimated_tokens(effective_history, self.model_name());
+            let window = context_window(self.model_name(), &self.provider, &self.context);
+            let mut messages = self
+                .context
+                .estimate_messages_tokens(effective_history, self.model_name());
             messages = messages
-                .saturating_add(estimate_message_tokens(prompt, self.model_name()))
+                .saturating_add(self.context.estimate_message_tokens(prompt, self.model_name()))
                 .max(
                     self.usage
                         .latest()
@@ -294,12 +302,13 @@ impl AgentEngine {
         presenter: &dyn Presenter,
         (history, additional_tokens): (&mut Vec<Message>, usize),
     ) -> Result<Option<crate::engine::CompactionStats>> {
-        let window = context_window(&self.config.model, &self.config.provider, self.context);
+        let window = context_window(&self.config.model, &self.config.provider, &self.context);
         let tokens = trigger_tokens(
             history,
             self.usage.latest().as_ref(),
             &self.config.model,
             &self.config.provider,
+            &self.context,
         );
         if should_compact(
             tokens.saturating_add(additional_tokens),

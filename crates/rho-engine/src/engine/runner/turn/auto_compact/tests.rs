@@ -492,3 +492,44 @@ fn as_text_of(message: &Message) -> String {
         Message::System { content } => content.clone(),
     }
 }
+
+#[tokio::test]
+async fn test_auto_compaction_check_with_20_messages_reuses_cached_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::default();
+    let engine = engine_for(dir.path(), model);
+
+    let presenter = CapturingPresenter::default();
+    let mut history = Vec::new();
+    for i in 0..20 {
+        if i % 2 == 0 {
+            history.push(Message::user(format!(
+                "User message {i} with some detailed context text."
+            )));
+        } else {
+            history.push(Message::assistant(format!(
+                "Assistant response {i} providing helpful explanations."
+            )));
+        }
+    }
+
+    // First check computes tokens for all 20 messages
+    let _ = engine
+        .check_proactive_compaction(&presenter, (&mut history, 0))
+        .await
+        .unwrap();
+    let misses_after_first = engine.context.token_cache().lock().unwrap().misses();
+    let hits_after_first = engine.context.token_cache().lock().unwrap().hits();
+    assert_eq!(misses_after_first, 20);
+    assert_eq!(hits_after_first, 0);
+
+    // Second check with identical history reuses memoized counts
+    let _ = engine
+        .check_proactive_compaction(&presenter, (&mut history, 0))
+        .await
+        .unwrap();
+    let misses_after_second = engine.context.token_cache().lock().unwrap().misses();
+    let hits_after_second = engine.context.token_cache().lock().unwrap().hits();
+    assert_eq!(misses_after_second, 20);
+    assert_eq!(hits_after_second, 20);
+}

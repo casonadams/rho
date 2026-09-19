@@ -49,8 +49,10 @@ impl AgentEngine {
         } else {
             None
         };
-        let hist_tokens =
-            rho_harness_core::tokens::calculate_context_tokens(history, anchor, &self.config.model).total_tokens;
+        let hist_tokens = self
+            .context
+            .calculate_context_tokens(history, anchor, &self.config.model)
+            .total_tokens;
         let est = additional_tokens.saturating_add(hist_tokens) as u64;
         self.usage.start_turn(Some(est));
     }
@@ -168,7 +170,7 @@ impl AgentEngine {
             self.session_compactor(),
             presenter.clone(),
             self.usage.clone(),
-            self.context,
+            self.context.clone(),
             &self.config.provider,
             self.config.reserve_tokens,
         );

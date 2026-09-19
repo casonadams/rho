@@ -156,3 +156,96 @@ fn test_bpe_token_counter_matches_estimate_message_tokens() {
 
     let _policy = rig_memory::TokenWindowMemory::new(1000, counter);
 }
+
+#[test]
+fn test_estimate_assistant_tool_call_compact_json() {
+    let pretty_call = AssistantContent::ToolCall(ToolCall::new(
+        ToolCallId::new_or_mint("call-1"),
+        ToolFunction::new(
+            "write".to_string(),
+            serde_json::Value::String("{\n  \"path\": \"hello.rs\",\n  \"content\": \"world\"\n}".to_string()),
+        ),
+    ));
+    let compact_call = AssistantContent::ToolCall(ToolCall::new(
+        ToolCallId::new_or_mint("call-1"),
+        ToolFunction::new(
+            "write".to_string(),
+            serde_json::json!({"path": "hello.rs", "content": "world"}),
+        ),
+    ));
+    let tokens_pretty = estimate_assistant_content_tokens(&pretty_call, "gpt-4");
+    let tokens_compact = estimate_assistant_content_tokens(&compact_call, "gpt-4");
+    assert_eq!(tokens_pretty, tokens_compact);
+}
+
+#[test]
+fn test_message_token_cache_memoization() {
+    let mut cache = MessageTokenCache::new();
+    let messages = vec![
+        Message::user("First user message"),
+        Message::assistant("First assistant reply"),
+        Message::user("Second user query"),
+    ];
+
+    let count1 = cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
+    assert_eq!(cache.misses(), 3);
+    assert_eq!(cache.hits(), 0);
+    assert_eq!(count1, estimate_messages_tokens(&messages, "gpt-4"));
+
+    let count2 = cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
+    assert_eq!(count2, count1);
+    assert_eq!(cache.misses(), 3);
+    assert_eq!(cache.hits(), 3);
+}
+
+#[test]
+fn test_message_token_cache_incremental_addition() {
+    let mut cache = MessageTokenCache::new();
+    let mut messages = vec![
+        Message::user("First user message"),
+        Message::assistant("First assistant reply"),
+    ];
+
+    cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
+    assert_eq!(cache.misses(), 2);
+    assert_eq!(cache.hits(), 0);
+
+    // Add 1 message
+    messages.push(Message::user("Third message newly added"));
+    cache.estimate_messages_tokens_memoized(&messages, "gpt-4");
+    // Prior 2 messages were hits, 1 new message was a miss
+    assert_eq!(cache.misses(), 3);
+    assert_eq!(cache.hits(), 2);
+}
+
+#[test]
+fn test_message_token_cache_context_tokens_calculation() {
+    let mut cache = MessageTokenCache::new();
+    let messages = vec![
+        Message::user("User question 1"),
+        Message::assistant("Assistant answer 1"),
+        Message::user("User question 2"),
+    ];
+
+    let stats_unanchored = cache.calculate_context_tokens(&messages, None, "gpt-4");
+    let baseline_unanchored = calculate_context_tokens(&messages, None, "gpt-4");
+    assert_eq!(stats_unanchored, baseline_unanchored);
+
+    let stats_anchored = cache.calculate_context_tokens(&messages, Some((1, 400)), "gpt-4");
+    let baseline_anchored = calculate_context_tokens(&messages, Some((1, 400)), "gpt-4");
+    assert_eq!(stats_anchored, baseline_anchored);
+}
+
+#[test]
+fn test_message_token_cache_clear() {
+    let mut cache = MessageTokenCache::new();
+    let msg = Message::user("test message");
+    cache.get_or_compute(&msg, "gpt-4");
+    assert_eq!(cache.len(), 1);
+    assert_eq!(cache.misses(), 1);
+
+    cache.clear();
+    assert!(cache.is_empty());
+    assert_eq!(cache.hits(), 0);
+    assert_eq!(cache.misses(), 0);
+}
