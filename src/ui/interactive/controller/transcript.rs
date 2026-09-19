@@ -141,12 +141,14 @@ impl<B: TerminalBackend> TerminalController<B> {
         if matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
             self.commit_streamed_output();
         }
-        if self.output.is_open() && !matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_)) {
-            self.write_output("\n")?;
-        }
+        let needs_prefix_newline =
+            self.output.is_open() && !matches!(item, TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_));
         if let TranscriptItem::Tool(ref tool) = item
             && self.state.active_tool().is_some()
         {
+            if needs_prefix_newline {
+                self.write_output("\n")?;
+            }
             self.commit_active_tool(tool.clone())?;
             return Ok(true);
         }
@@ -164,9 +166,19 @@ impl<B: TerminalBackend> TerminalController<B> {
             Some(TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_))
         );
         if !rendered.is_empty() && !is_streamed_content {
-            self.write_output(&rendered)?;
+            if needs_prefix_newline {
+                let mut combined = String::with_capacity(rendered.len() + 1);
+                combined.push('\n');
+                combined.push_str(&rendered);
+                self.write_output(&combined)?;
+            } else {
+                self.write_output(&rendered)?;
+            }
             Ok(true)
         } else {
+            if needs_prefix_newline {
+                self.write_output("\n")?;
+            }
             Ok(false)
         }
     }

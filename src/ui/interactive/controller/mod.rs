@@ -128,13 +128,12 @@ impl<B: TerminalBackend> TerminalController<B> {
     }
 
     fn write_normalized_output(&mut self, output: &str) -> io::Result<()> {
-        if self.output.is_open() && output.trim_start_matches('\r').starts_with('╭') {
-            self.prepare_output_write()?;
+        let prefix_newline = self.output.is_open() && output.trim_start_matches('\r').starts_with('╭');
+        self.prepare_output_write()?;
+        if prefix_newline {
             self.backend.write_text("\r\n")?;
             self.output.update("\n");
-            self.finish_output_write()?;
         }
-        self.prepare_output_write()?;
         self.backend.write_text(output)?;
         self.output.update(output);
         if self.output.is_open() {

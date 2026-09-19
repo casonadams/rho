@@ -102,3 +102,18 @@ fn streamed_output_resumes_at_the_previous_line_end() {
     assert!(move_index < column_index);
     assert!(column_index < output_index);
 }
+
+#[test]
+fn push_transcript_item_with_open_output_executes_single_flush_transaction() {
+    let (backend, operations, _) = FakeTerminal::new(40);
+    let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+
+    controller.write_stream_output("in-progress text").unwrap();
+    operations.borrow_mut().clear();
+
+    let notice = crate::ui::interactive::TranscriptItem::Notice("completed item".into());
+    controller.push_transcript_item(notice).unwrap();
+
+    let ops = operations.borrow();
+    assert_eq!(ops.iter().filter(|op| op == &&Operation::Flush).count(), 1);
+}
