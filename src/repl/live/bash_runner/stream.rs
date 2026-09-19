@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crossterm::event::Event;
 use rho_engine::process::{StreamingCommand, configure_shell_command};
@@ -6,158 +6,13 @@ use rho_engine::tools::bash::{OutputAccumulator, OutputSnapshot};
 use rho_harness_core::presentation::ToolLine;
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use super::LiveIo;
-use super::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL, SPINNER_FRAME_INTERVAL};
+use super::outcome::{BashOutcome, UserBashResult, finalize_run, finish_bash_result};
+use super::progress::StreamProgress;
 use crate::error::Result;
+use crate::repl::live::LiveIo;
+use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
 use crate::ui::TerminalRenderer;
-use crate::ui::interactive::{Activity, InputAction, TerminalBackend, TerminalController, map_key};
-
-const STREAM_REDRAW_INTERVAL: Duration = Duration::from_millis(50);
-
-pub struct UserBashResult {
-    pub output: String,
-    pub is_cancelled: bool,
-    pub is_error: bool,
-}
-
-struct BashOutcome {
-    pub exit_code: Option<i32>,
-    pub duration_ms: u64,
-    pub args_val: serde_json::Value,
-}
-
-struct StreamProgress {
-    last_spinner: Instant,
-    last_redraw: Instant,
-    needs_redraw: bool,
-}
-
-impl StreamProgress {
-    fn new() -> Self {
-        Self {
-            last_spinner: Instant::now(),
-            last_redraw: Instant::now(),
-            needs_redraw: false,
-        }
-    }
-
-    fn on_chunk(&mut self) -> bool {
-        self.needs_redraw = true;
-        if self.last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
-            self.last_redraw = Instant::now();
-            self.needs_redraw = false;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn on_tick<B: TerminalBackend>(&mut self, controller: &mut TerminalController<B>) -> bool {
-        let spinner_advanced = if self.last_spinner.elapsed() >= SPINNER_FRAME_INTERVAL {
-            self.last_spinner = Instant::now();
-            controller.advance_spinner();
-            !matches!(controller.state().footer().activity, Activity::Idle)
-        } else {
-            false
-        };
-        if self.needs_redraw && self.last_redraw.elapsed() >= STREAM_REDRAW_INTERVAL {
-            self.needs_redraw = false;
-            self.last_redraw = Instant::now();
-            true
-        } else {
-            spinner_advanced
-        }
-    }
-}
-
-fn finalize_run(
-    chunk_rx: &mut UnboundedReceiver<String>,
-    accumulator: &mut OutputAccumulator,
-    renderer: &TerminalRenderer,
-) -> OutputSnapshot {
-    while let Ok(chunk) = chunk_rx.try_recv() {
-        accumulator.append(chunk.as_bytes());
-        renderer.tool_chunk(&chunk);
-    }
-    accumulator.finish();
-    accumulator.snapshot()
-}
-
-fn completed_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome, code: i32) -> (ToolLine, UserBashResult) {
-    let is_error = code != 0;
-    let output = format_bash_output(snapshot, code);
-    let summary = if is_error {
-        format!("exit {code}")
-    } else {
-        "completed".to_string()
-    };
-    (
-        ToolLine {
-            name: "bash".to_string(),
-            arguments: outcome.args_val,
-            is_error,
-            output: output.clone(),
-            output_summary: summary,
-            duration_ms: Some(outcome.duration_ms),
-        },
-        UserBashResult {
-            output,
-            is_cancelled: false,
-            is_error,
-        },
-    )
-}
-
-fn cancelled_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
-    let output = format_cancel_output(snapshot);
-    (
-        ToolLine {
-            name: "bash".to_string(),
-            arguments: outcome.args_val,
-            is_error: true,
-            output: output.clone(),
-            output_summary: "(cancelled)".to_string(),
-            duration_ms: Some(outcome.duration_ms),
-        },
-        UserBashResult {
-            output,
-            is_cancelled: true,
-            is_error: true,
-        },
-    )
-}
-
-fn finish_bash_result(snapshot: &OutputSnapshot, outcome: BashOutcome) -> (ToolLine, UserBashResult) {
-    match outcome.exit_code {
-        Some(code) => completed_bash_result(snapshot, outcome, code),
-        None => cancelled_bash_result(snapshot, outcome),
-    }
-}
-
-fn format_bash_output(snapshot: &OutputSnapshot, exit_code: i32) -> String {
-    let output_trimmed = snapshot.formatted_text.trim();
-    if exit_code != 0 {
-        let status_msg = format!("Command exited with code {exit_code}");
-        if output_trimmed.is_empty() {
-            status_msg
-        } else {
-            format!("{output_trimmed}\n\n{status_msg}")
-        }
-    } else if output_trimmed.is_empty() {
-        "[Command completed with exit code 0 (no output)]".to_string()
-    } else {
-        snapshot.formatted_text.clone()
-    }
-}
-
-fn format_cancel_output(snapshot: &OutputSnapshot) -> String {
-    let output_trimmed = snapshot.formatted_text.trim();
-    if output_trimmed.is_empty() {
-        "(cancelled)".to_string()
-    } else {
-        format!("{output_trimmed}\n(cancelled)")
-    }
-}
+use crate::ui::interactive::{InputAction, TerminalBackend, TerminalController, map_key};
 
 type UiEvents = UnboundedReceiver<crate::ui::interactive::UiEvent>;
 type ChunkRx = UnboundedReceiver<String>;
@@ -255,7 +110,10 @@ enum StreamStep {
     Exit(Option<i32>),
 }
 
-async fn select_input_chunk(input: &mut super::TerminalInputReader, chunk_rx: &mut ChunkRx) -> StreamStep {
+async fn select_input_chunk(
+    input: &mut crate::repl::input_reader::TerminalInputReader,
+    chunk_rx: &mut ChunkRx,
+) -> StreamStep {
     tokio::select! {
         biased;
         event = input.recv() => StreamStep::Key(event),
@@ -279,7 +137,7 @@ struct BashStreamState<'a, 'b, B: TerminalBackend> {
     run: &'a mut BashRun<'b, B>,
     running: StreamingCommand,
     stream: StreamBuffers,
-    input: &'a mut super::TerminalInputReader,
+    input: &'a mut crate::repl::input_reader::TerminalInputReader,
     frame: tokio::time::Interval,
     started: Instant,
     args_val: serde_json::Value,
@@ -412,7 +270,7 @@ fn build_stream_state<'a, 'b, B: TerminalBackend>(
     run: &'a mut BashRun<'b, B>,
     running: StreamingCommand,
     chunk_rx: ChunkRx,
-    input: &'a mut super::TerminalInputReader,
+    input: &'a mut crate::repl::input_reader::TerminalInputReader,
     started: Instant,
     args_val: serde_json::Value,
 ) -> BashStreamState<'a, 'b, B> {
