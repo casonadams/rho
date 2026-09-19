@@ -68,6 +68,11 @@ fn append_engine_totals(out: &mut String, engine: &rho_engine::engine::AgentEngi
             format_tokens(totals.total_cache_read),
             format_tokens(totals.total_cache_write),
         );
+        let total_prompt = totals.total_input.saturating_add(totals.total_cache_read);
+        if total_prompt > 0 && totals.total_cache_read > 0 {
+            let hit_ratio = (totals.total_cache_read as f64 / total_prompt as f64) * 100.0;
+            let _ = writeln!(out, "  Prompt Cache Hit:            {hit_ratio:.1}%");
+        }
         if totals.total_reasoning > 0 {
             let _ = writeln!(
                 out,
