@@ -44,6 +44,7 @@ pub(super) fn init_live_ui(
     tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
 )> {
     let (ui, ui_events) = crate::ui::interactive::InteractiveUi::channel();
+    tokio::task::spawn_blocking(crate::ui::markdown::warmup_syntax_highlighter);
     session.renderer = TerminalRenderer::with_ui(ui);
     session.renderer.theme = crate::ui::theme::detect_with_config(&session.config.ui);
     let state = init_live_state(session, engine);

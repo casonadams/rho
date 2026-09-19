@@ -22,6 +22,6 @@ mod tests;
 
 pub use diagram::render_mermaid_block;
 pub use elements::render_inline_elements;
-pub use highlight::{CodeHighlighter, highlight_code_line};
+pub use highlight::{CodeHighlighter, highlight_code_line, warmup_syntax_highlighter};
 pub use renderer::MarkdownRenderer;
 pub use table::{is_table_divider, is_table_line, render_markdown_table, strip_markdown_decorations};

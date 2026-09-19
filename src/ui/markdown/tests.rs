@@ -581,3 +581,9 @@ fn table_cell_wraps_on_word_boundaries() {
     assert!(rendered.contains("safe"));
     assert!(!rendered.contains("reli-"));
 }
+
+#[test]
+fn test_warmup_syntax_highlighter_completes() {
+    super::warmup_syntax_highlighter();
+    super::warmup_syntax_highlighter();
+}

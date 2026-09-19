@@ -68,6 +68,11 @@ pub fn highlight_code_line(line: &str, lang: Option<&str>, theme: &Theme) -> Str
     CodeHighlighter::new(lang, theme).highlight_line(line, theme)
 }
 
+pub fn warmup_syntax_highlighter() {
+    let _ = &*SYNTAX_SET;
+    let _ = &*THEME_SET;
+}
+
 const ANSI16_CODES: [&str; 16] = [
     "\x1b[30m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m", "\x1b[36m", "\x1b[37m", "\x1b[90m",
     "\x1b[91m", "\x1b[92m", "\x1b[93m", "\x1b[94m", "\x1b[95m", "\x1b[96m", "\x1b[97m",
