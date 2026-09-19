@@ -1,85 +1,102 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 800" width="100%" height="auto">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 655" width="100%" height="auto">
   <defs>
-    <filter id="shadow" x="-4%" y="-4%" width="108%" height="110%" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000000" flood-opacity="0.45"/>
+    <filter id="shadow" x="-3%" y="-3%" width="106%" height="108%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000000" flood-opacity="0.45"/>
     </filter>
     <linearGradient id="headerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#1e2230" />
-      <stop offset="100%" stop-color="#141824" />
+      <stop offset="0%" stop-color="#1c202d" />
+      <stop offset="100%" stop-color="#131622" />
     </linearGradient>
   </defs>
   
   <!-- Outer Window Frame with Shadow -->
   <g filter="url(#shadow)">
     <!-- Terminal Background -->
-    <rect x="2" y="2" width="756" height="796" rx="10" fill="#0d1017" stroke="#252b3d" stroke-width="1.5"/>
+    <rect x="2" y="2" width="896" height="651" rx="9" fill="#0d1017" stroke="#252b3d" stroke-width="1.5"/>
     
     <!-- Titlebar -->
-    <path d="M 2 12 Q 2 2 12 2 L 746 2 Q 758 2 758 12 L 758 36 L 2 36 Z" fill="url(#headerGrad)"/>
-    <line x1="2" y1="36" x2="758" y2="36" stroke="#222838" stroke-width="1"/>
+    <path d="M 2 11 Q 2 2 11 2 L 887 2 Q 898 2 898 11 L 898 35 L 2 35 Z" fill="url(#headerGrad)"/>
+    <line x1="2" y1="35" x2="898" y2="35" stroke="#222838" stroke-width="1"/>
     
     <!-- Window Control Buttons (macOS traffic lights) -->
-    <circle cx="20" cy="19" r="5" fill="#ff5f56" stroke="#e0443e" stroke-width="0.5"/>
-    <circle cx="36" cy="19" r="5" fill="#ffbd2e" stroke="#dea123" stroke-width="0.5"/>
-    <circle cx="52" cy="19" r="5" fill="#27c93f" stroke="#1aab29" stroke-width="0.5"/>
+    <circle cx="20" cy="18.5" r="5" fill="#ff5f56" stroke="#e0443e" stroke-width="0.5"/>
+    <circle cx="36" cy="18.5" r="5" fill="#ffbd2e" stroke="#dea123" stroke-width="0.5"/>
+    <circle cx="52" cy="18.5" r="5" fill="#27c93f" stroke="#1aab29" stroke-width="0.5"/>
     
     <!-- Window Title -->
-    <text x="380" y="23" fill="#8b95a8" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho — active turn</text>
+    <text x="450" y="22.5" fill="#8b95a8" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="12" font-weight="500" text-anchor="middle" letter-spacing="0.3">rho — active turn</text>
   </g>
 
   <!-- Terminal Content Area -->
-  <g transform="translate(24, 60)">
+  <g transform="translate(26, 52)">
     
-    <text font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13" xml:space="preserve">
-      <!-- Tool 1: bash -->
-      <tspan x="0" y="0" fill="#404b62">╭────────────────────────────────────────────────────────────────────────────╮</tspan>
-      <tspan x="0" y="20"><tspan fill="#404b62">│ </tspan><tspan fill="#60a5fa" font-weight="bold">bash </tspan><tspan fill="#f2f5fa">python3 -c &quot;                                                          </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="40"><tspan fill="#404b62">│ </tspan><tspan fill="#9aa7bc">import subprocess                                                          </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="60"><tspan fill="#404b62">│ </tspan><tspan fill="#9aa7bc">code = &apos;&apos;&apos;                                                                 </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="80"><tspan fill="#404b62">│ </tspan><tspan fill="#9aa7bc">fn check(r: rmcp::...                                                      </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="100"><tspan fill="#404b62">│                                                                            │</tspan></tspan>
-      <tspan x="0" y="120"><tspan fill="#404b62">│                                                                            │</tspan></tspan>
-      <tspan x="0" y="140"><tspan fill="#404b62">│ </tspan><tspan fill="#52e096">Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s        </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="160"><tspan fill="#404b62">│                                                                            │</tspan></tspan>
-      <tspan x="0" y="180"><tspan fill="#404b62">│ </tspan><tspan fill="#717c96">Took 256ms                                                                 </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="200" fill="#404b62">╰────────────────────────────────────────────────────────────────────────────╯</tspan>
+    <!-- Tool Box 1: bash (Full Width) -->
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="848" height="152" rx="6" fill="#111520" stroke="#384358" stroke-width="1.2"/>
+      
+      <text font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13">
+        <tspan x="14" y="22"><tspan fill="#60a5fa" font-weight="bold">bash </tspan><tspan fill="#f2f5fa">python3 -c &quot;</tspan></tspan>
+        <tspan x="14" y="42" fill="#9aa7bc">import subprocess</tspan>
+        <tspan x="14" y="62" fill="#9aa7bc">code = &apos;&apos;&apos;</tspan>
+        <tspan x="14" y="82" fill="#9aa7bc">fn check(r: rmcp::...</tspan>
+        <tspan x="14" y="112" fill="#52e096">Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.18s</tspan>
+        <tspan x="14" y="134" fill="#717c96">Took 256ms</tspan>
+      </text>
+    </g>
 
-      <!-- Tool 2: edit -->
-      <tspan x="0" y="222" fill="#404b62">╭────────────────────────────────────────────────────────────────────────────╮</tspan>
-      <tspan x="0" y="242"><tspan fill="#404b62">│ </tspan><tspan fill="#c084fc" font-weight="bold">edit </tspan><tspan fill="#f2f5fa">crates/rho-engine/src/mcp/client.rs </tspan><tspan fill="#717c96">(1 edits)                         </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="262"><tspan fill="#404b62">│                                                                            │</tspan></tspan>
-      <tspan x="0" y="282"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 83 │ </tspan><tspan fill="#f87171">- #[derive(Debug, Clone, Serialize, Deserialize)]                    </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="302"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 84 │ </tspan><tspan fill="#f87171">- pub struct McpToolResult {                                         </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="322"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 85 │ </tspan><tspan fill="#f87171">-     #[serde(default)]                                              </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="342"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 86 │ </tspan><tspan fill="#f87171">-     pub content: Vec&lt;McpContent&gt;,                                  </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="362"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 87 │ </tspan><tspan fill="#f87171">-     #[serde(default, rename = &quot;isError&quot;)]                          </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="382"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 88 │ </tspan><tspan fill="#f87171">-     pub is_error: Option&lt;bool&gt;,                                    </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="402"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 89 │ </tspan><tspan fill="#f87171">- }                                                                  </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="422"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 83 │ </tspan><tspan fill="#52e096">+ #[derive(Debug, Clone, Serialize, Deserialize)]                    </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="442"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 84 │ </tspan><tspan fill="#52e096">+ pub struct McpToolResult {                                         </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="462"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 85 │ </tspan><tspan fill="#52e096">+     #[serde(default)]                                              </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="482"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 86 │ </tspan><tspan fill="#52e096">+     pub content: Vec&lt;McpContent&gt;,                                  </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="502"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 87 │ </tspan><tspan fill="#52e096">+     #[serde(default, rename = &quot;isError&quot;)]                          </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="522"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 88 │ </tspan><tspan fill="#52e096">+     pub is_error: Option&lt;bool&gt;,                                    </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="542"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 89 │ </tspan><tspan fill="#52e096">+ }                                                                  </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="562"><tspan fill="#404b62">│ </tspan><tspan fill="#616e88"> 90 │ </tspan><tspan fill="#52e096">+                                                                    </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="582"><tspan fill="#404b62">│ </tspan><tspan fill="#717c96">... (71 more lines)                                                        </tspan><tspan fill="#404b62">│</tspan></tspan>
-      <tspan x="0" y="602" fill="#404b62">╰────────────────────────────────────────────────────────────────────────────╯</tspan>
+    <!-- Tool Box 2: edit (Full Width) -->
+    <g transform="translate(0, 166)">
+      <rect x="0" y="0" width="848" height="320" rx="6" fill="#111520" stroke="#384358" stroke-width="1.2"/>
+      
+      <text font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13">
+        <tspan x="14" y="22"><tspan fill="#c084fc" font-weight="bold">edit </tspan><tspan fill="#f2f5fa">crates/rho-engine/src/mcp/client.rs </tspan><tspan fill="#717c96">(1 edits)</tspan></tspan>
 
-      <!-- Working Line with Spinner -->
-      <tspan x="0" y="635"><tspan fill="#404b62">── </tspan><tspan fill="#38bdf8" font-weight="bold">⠹ </tspan><tspan fill="#9aa7bc">working </tspan><tspan fill="#404b62">─────────────────────────────────────────────────────────────────</tspan></tspan>
+        <tspan x="14" y="48"><tspan fill="#616e88"> 83 │ </tspan><tspan fill="#f87171">- #[derive(Debug, Clone, Serialize, Deserialize)]</tspan></tspan>
+        <tspan x="14" y="68"><tspan fill="#616e88"> 84 │ </tspan><tspan fill="#f87171">- pub struct McpToolResult {</tspan></tspan>
+        <tspan x="14" y="88"><tspan fill="#616e88"> 85 │ </tspan><tspan fill="#f87171">-     #[serde(default)]</tspan></tspan>
+        <tspan x="14" y="108"><tspan fill="#616e88"> 86 │ </tspan><tspan fill="#f87171">-     pub content: Vec&lt;McpContent&gt;,</tspan></tspan>
+        <tspan x="14" y="128"><tspan fill="#616e88"> 87 │ </tspan><tspan fill="#f87171">-     #[serde(default, rename = &quot;isError&quot;)]</tspan></tspan>
+        <tspan x="14" y="148"><tspan fill="#616e88"> 88 │ </tspan><tspan fill="#f87171">-     pub is_error: Option&lt;bool&gt;,</tspan></tspan>
+        <tspan x="14" y="168"><tspan fill="#616e88"> 89 │ </tspan><tspan fill="#f87171">- }</tspan></tspan>
+        <tspan x="14" y="188"><tspan fill="#616e88"> 83 │ </tspan><tspan fill="#52e096">+ #[derive(Debug, Clone, Serialize, Deserialize)]</tspan></tspan>
+        <tspan x="14" y="208"><tspan fill="#616e88"> 84 │ </tspan><tspan fill="#52e096">+ pub struct McpToolResult {</tspan></tspan>
+        <tspan x="14" y="228"><tspan fill="#616e88"> 85 │ </tspan><tspan fill="#52e096">+     #[serde(default)]</tspan></tspan>
+        <tspan x="14" y="248"><tspan fill="#616e88"> 86 │ </tspan><tspan fill="#52e096">+     pub content: Vec&lt;McpContent&gt;,</tspan></tspan>
+        <tspan x="14" y="268"><tspan fill="#616e88"> 87 │ </tspan><tspan fill="#52e096">+     #[serde(default, rename = &quot;isError&quot;)]</tspan></tspan>
+        <tspan x="14" y="288"><tspan fill="#616e88"> 88 │ </tspan><tspan fill="#52e096">+     pub is_error: Option&lt;bool&gt;,</tspan></tspan>
+        <tspan x="14" y="308"><tspan fill="#616e88"> 89 │ </tspan><tspan fill="#52e096">+ }</tspan></tspan>
+      </text>
+    </g>
 
-      <!-- Empty user prompt line -->
-      <tspan x="0" y="655"> </tspan>
+    <!-- Working Line (Full Width) -->
+    <g transform="translate(0, 502)">
+      <line x1="0" y1="0" x2="16" y2="0" stroke="#384358" stroke-width="1.2"/>
+      <text x="22" y="4" font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13">
+        <tspan fill="#38bdf8" font-weight="bold">⠹ </tspan>
+        <tspan fill="#9aa7bc">working</tspan>
+      </text>
+      <line x1="92" y1="0" x2="848" y2="0" stroke="#384358" stroke-width="1.2"/>
+    </g>
 
-      <!-- Bottom Divider -->
-      <tspan x="0" y="675" fill="#404b62">──────────────────────────────────────────────────────────────────────────────</tspan>
+    <!-- User Input: tight gap between top and bottom line -->
+    <rect x="0" y="510" width="8.5" height="16" fill="#f2f5fa"/>
 
-      <!-- Footer Line 1 -->
-      <tspan x="0" y="698"><tspan fill="#717c96">~/src/github.com/casonadams/rho (main)</tspan><tspan fill="#717c96">                     55% 2h57m 41% 3d22h</tspan></tspan>
+    <!-- Bottom Divider (Full Width) -->
+    <line x1="0" y1="534" x2="848" y2="534" stroke="#384358" stroke-width="1.2"/>
 
-      <!-- Footer Line 2 -->
-      <tspan x="0" y="718"><tspan fill="#717c96">↑17M ↓203k R167M </tspan><tspan fill="#52e096">53%/1M </tspan><tspan fill="#717c96">@55t/s</tspan><tspan fill="#8da0bd">             antigravity/gemini-3.8-flash/medium</tspan></tspan>
+    <!-- Status Line (Bottom) -->
+    <text font-family="ui-monospace, Menlo, Monaco, Consolas, monospace" font-size="13">
+      <!-- Line 1 -->
+      <tspan x="0" y="554" fill="#717c96">~/src/github.com/casonadams/rho (main)</tspan>
+      <tspan x="848" y="554" text-anchor="end" fill="#717c96">55% 2h57m 41% 3d22h</tspan>
+
+      <!-- Line 2 -->
+      <tspan x="0" y="574">
+        <tspan fill="#717c96">↑17M ↓203k R167M </tspan>
+        <tspan fill="#52e096">53%/1M </tspan>
+        <tspan fill="#717c96">@55t/s</tspan>
+      </tspan>
+      <tspan x="848" y="574" text-anchor="end" fill="#8da0bd">antigravity/gemini-3.8-flash/medium</tspan>
     </text>
   
   </g>
