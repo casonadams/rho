@@ -111,8 +111,7 @@ async fn handle_turn_event<B: TerminalBackend>(ctx: &mut TurnContext<'_, B>, ev:
         }
         TurnEvent::Input(res) => handle_input_res(ctx, res).await,
         TurnEvent::Ui(Some(ev)) => {
-            let dirty = ctx.loop_ctx.batch.push_event(ctx.loop_ctx.controller, ev)?;
-            ctx.loop_ctx.drain_ui_batch(ctx.resources.ui_events, dirty)?;
+            ctx.loop_ctx.handle_ui_event(ctx.resources.ui_events, ev)?;
             Ok(false)
         }
         TurnEvent::Ui(None) => Ok(false),

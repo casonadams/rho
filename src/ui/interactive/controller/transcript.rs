@@ -166,20 +166,24 @@ impl<B: TerminalBackend> TerminalController<B> {
             Some(TranscriptItem::AssistantText(_) | TranscriptItem::Thinking(_))
         );
         if !rendered.is_empty() && !is_streamed_content {
-            if needs_prefix_newline {
-                let mut combined = String::with_capacity(rendered.len() + 1);
-                combined.push('\n');
-                combined.push_str(&rendered);
-                self.write_output(&combined)?;
-            } else {
-                self.write_output(&rendered)?;
-            }
+            self.write_transcript_card(&rendered, needs_prefix_newline)?;
             Ok(true)
         } else {
             if needs_prefix_newline {
                 self.write_output("\n")?;
             }
             Ok(false)
+        }
+    }
+
+    pub(crate) fn write_transcript_card(&mut self, rendered: &str, needs_prefix_newline: bool) -> io::Result<()> {
+        if needs_prefix_newline {
+            let mut combined = String::with_capacity(rendered.len() + 1);
+            combined.push('\n');
+            combined.push_str(rendered);
+            self.write_output(&combined)
+        } else {
+            self.write_output(rendered)
         }
     }
 

@@ -68,6 +68,15 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         !matches!(self.controller.state().footer().activity, Activity::Idle)
     }
 
+    pub fn handle_ui_event(
+        &mut self,
+        ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+        event: UiEvent,
+    ) -> Result<()> {
+        let dirty = self.batch.push_event(self.controller, event)?;
+        self.drain_ui_batch(ui_events, dirty)
+    }
+
     pub fn drain_ui_batch(
         &mut self,
         ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
