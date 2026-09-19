@@ -2,10 +2,9 @@ use std::sync::Arc;
 use tokio::io::duplex;
 use tokio::sync::{RwLock, mpsc};
 
-use super::handlers::{
-    extract_chat_messages, handle_create_session_cmd, handle_get_tree_cmd, handle_node_info_cmd, handle_state_command,
-    handle_tool_response_cmd, parse_tool_decision,
-};
+use super::handlers::config::{handle_node_info_cmd, handle_state_command};
+use super::handlers::session::{extract_chat_messages, handle_create_session_cmd, handle_get_tree_cmd};
+use super::handlers::turn::{handle_tool_response_cmd, parse_tool_decision};
 use super::types::RpcDaemonContext;
 use crate::auth::AuthStore;
 use crate::config::Config;
