@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.8.1](https://github.com/casonadams/rho/compare/v0.8.0...v0.8.1) (2026-09-19)
+
+
+### Features
+
+* **compaction:** prune transcript tool results and retry on context overflow ([4e39143](https://github.com/casonadams/rho/commit/4e391434fdbe83e232935b7b17e81ad3709c3ecd))
+* **engine:** decouple volatile git status from static system prompt cache prefix ([a45ffe0](https://github.com/casonadams/rho/commit/a45ffe0d5015e29ba439b08d1f5d4ac5c5967393))
+* **engine:** extend historical replay pruning to web, edit, and mcp tools ([20723bd](https://github.com/casonadams/rho/commit/20723bd15e393b532a6c42b83480b857c809e780))
+* **engine:** implement 4-breakpoint prompt caching and deterministic tool sorting ([a9d49b4](https://github.com/casonadams/rho/commit/a9d49b40d36b31fae9965dcf683d2941fa6bf39c))
+* **engine:** prune historical read, search, and write replay payloads ([69a26ab](https://github.com/casonadams/rho/commit/69a26abd7f8b6e2380783a82fa67228649e8914f))
+* **mcp:** implement deferred tool search and dynamic tool activation ([df758b1](https://github.com/casonadams/rho/commit/df758b1ae9d08238b07c959ebd95bce1cd75851c))
+* **metrics:** compute and display prompt cache efficiency and hit ratio ([d7f968d](https://github.com/casonadams/rho/commit/d7f968d3c989de67aa13e76ab33438c0c5055b4a))
+* **repl:** display prompt cache hit ratio in session diagnostics ([244006c](https://github.com/casonadams/rho/commit/244006c3c81c8b1c80f7a7b3744af13a084388cc))
+* **skills:** discover project skills from .agents/skills instead of .rho/skills ([2ad122f](https://github.com/casonadams/rho/commit/2ad122f65b8bd2bdbaa1b7b6e93cc567bd7586bd))
+* **tokens:** memoize message token counting and compact tool call arguments ([4dce985](https://github.com/casonadams/rho/commit/4dce9855c9bcb63c746cad6a9d2948be4df1c49c))
+
+
+### Bug Fixes
+
+* **engine:** disarm spinner instead of clearing on approval start ([048536d](https://github.com/casonadams/rho/commit/048536d9d511bdea582a59b3d97afdb27498e1a8))
+* **repl:** flush UI batch immediately on flushing turn events ([bfd3797](https://github.com/casonadams/rho/commit/bfd3797ffe37fcffef40f076f4e6ef6cb182d8b6))
+* **repl:** prevent input lockups during tool runs and block streaming ([c2098db](https://github.com/casonadams/rho/commit/c2098db09491905f16710a7b33fba6b67c7d3d46))
+* **ui:** wrap long words without exceeding block width or dropping spaces ([711fe1a](https://github.com/casonadams/rho/commit/711fe1abe7620d5601b1144137d15ce800612b39))
+
+
+### Performance Improvements
+
+* **repl:** guard ui channel select loops and offload image processing ([1ab61dd](https://github.com/casonadams/rho/commit/1ab61dddb1caa9dfa5fcd2951f97eb6812c9970e))
+* **tui:** atomicize transcript card write and eliminate multi-pass repaints ([16fa133](https://github.com/casonadams/rho/commit/16fa133af89da48a1b4e4fa260790d756dbd5b97))
+* **ui:** lazily read file at most once across edits in diff cards ([819c6e0](https://github.com/casonadams/rho/commit/819c6e0aeef46e5629a541d6d8b306bdd17e708f))
+* **ui:** pre-warm syntax highlighter on background thread at startup ([ee347eb](https://github.com/casonadams/rho/commit/ee347eb453a1817da3f5d2a4431fcd00d5a178ac))
+
 ## [0.8.0](https://github.com/casonadams/rho/compare/v0.7.5...v0.8.0) (2026-09-18)
 
 
