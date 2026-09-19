@@ -193,7 +193,7 @@ fn multiline_editor_cursor_tracking_within_window() {
 
     let layout = test_window_layout(&editor, 15);
     assert!(layout.height() <= 15 && layout.cursor_row() < layout.height());
-    let stripped = crate::ui::block::ANSI_PATTERN.replace_all(&layout.lines[layout.cursor_row()], "");
+    let stripped = crate::ui::block::strip_ansi(&layout.lines[layout.cursor_row()]);
     assert!(stripped.contains("line_25"));
 }
 

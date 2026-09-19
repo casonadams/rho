@@ -6,8 +6,12 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 pub static ANSI_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*m").expect("valid ANSI escape pattern"));
 
+pub fn strip_ansi(content: &str) -> String {
+    strip_ansi_escapes::strip_str(content)
+}
+
 pub fn visible_width(content: &str) -> usize {
-    let clean = ANSI_PATTERN.replace_all(content, "");
+    let clean = strip_ansi_escapes::strip_str(content);
     UnicodeWidthStr::width(clean.replace('\r', "").as_str())
 }
 

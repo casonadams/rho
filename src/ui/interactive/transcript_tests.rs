@@ -445,7 +445,7 @@ fn consecutive_bordered_tool_items_have_no_empty_lines_between_them() {
         !combined.contains("╯\x1b[39m\n\n"),
         "bordered tools must touch without an empty line between them"
     );
-    let plain = crate::ui::block::ANSI_PATTERN.replace_all(&combined, "");
+    let plain = crate::ui::block::strip_ansi(&combined);
     assert!(
         plain.contains("╯\n╭"),
         "bordered tools should transition directly from bottom to top border"

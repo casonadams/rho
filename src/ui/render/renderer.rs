@@ -421,7 +421,7 @@ mod tests {
     use crate::ui::theme::Theme;
 
     fn strip_ansi(s: &str) -> String {
-        crate::ui::block::ANSI_PATTERN.replace_all(s, "").to_string()
+        crate::ui::block::strip_ansi(s)
     }
 
     #[test]

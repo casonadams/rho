@@ -4762,6 +4762,7 @@ dependencies = [
  "serde",
  "serde_json",
  "similar",
+ "strip-ansi-escapes",
  "syntect",
  "tar",
  "tempfile",

@@ -86,7 +86,7 @@ fn internal_reasoning_paragraphs_preserve_single_blank_line() {
         !output.contains("\n\n\n"),
         "Output contained excess newlines: {output:?}"
     );
-    let clean = crate::ui::block::ANSI_PATTERN.replace_all(&output, "");
+    let clean = crate::ui::block::strip_ansi(&output);
     assert!(clean.contains("Paragraph 1."));
     assert!(clean.contains("Paragraph 2."));
     assert!(output.contains("\n\nAnswer."));
