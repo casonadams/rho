@@ -30,39 +30,16 @@ pub const SNIFF_WINDOW_BYTES: usize = 4100;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
-fn detect_jpeg(bytes: &[u8]) -> Option<SniffedMime> {
-    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) && bytes.get(3) != Some(&0xF7) {
-        Some(SniffedMime::Jpeg)
-    } else {
-        None
-    }
-}
-
-fn detect_png(bytes: &[u8]) -> Option<SniffedMime> {
-    if bytes.starts_with(&PNG_SIGNATURE) && is_png(bytes) && !is_animated_png(bytes) {
-        Some(SniffedMime::Png)
-    } else {
-        None
-    }
-}
-
 pub fn detect_supported_image_mime(bytes: &[u8]) -> Option<SniffedMime> {
-    if let Some(jpeg) = detect_jpeg(bytes) {
-        return Some(jpeg);
+    let format = image::guess_format(bytes).ok()?;
+    match format {
+        ImageFormat::Png if is_png(bytes) && !is_animated_png(bytes) => Some(SniffedMime::Png),
+        ImageFormat::Jpeg if bytes.get(3) != Some(&0xF7) => Some(SniffedMime::Jpeg),
+        ImageFormat::Gif => Some(SniffedMime::Gif),
+        ImageFormat::WebP => Some(SniffedMime::WebP),
+        ImageFormat::Bmp if is_bmp(bytes) => Some(SniffedMime::Bmp),
+        _ => None,
     }
-    if let Some(png) = detect_png(bytes) {
-        return Some(png);
-    }
-    if starts_with_ascii(bytes, 0, b"GIF") {
-        return Some(SniffedMime::Gif);
-    }
-    if starts_with_ascii(bytes, 0, b"RIFF") && starts_with_ascii(bytes, 8, b"WEBP") {
-        return Some(SniffedMime::WebP);
-    }
-    if starts_with_ascii(bytes, 0, b"BM") && is_bmp(bytes) {
-        return Some(SniffedMime::Bmp);
-    }
-    None
 }
 
 /// PNG requires the signature to be followed by a 13-byte IHDR chunk header.

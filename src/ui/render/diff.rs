@@ -86,60 +86,40 @@ fn tokenize(text: &str) -> Vec<&str> {
     tokens
 }
 
-struct LcsTable {
-    stride: usize,
-    data: Vec<usize>,
-}
-
-impl LcsTable {
-    #[inline(always)]
-    fn get(&self, i: usize, j: usize) -> usize {
-        self.data[i * self.stride + j]
-    }
-}
-
-fn build_lcs_table(old_tokens: &[&str], new_tokens: &[&str]) -> LcsTable {
-    let (n, m) = (old_tokens.len(), new_tokens.len());
-    let stride = m + 1;
-    let mut data = vec![0_usize; (n + 1) * stride];
-    for i in 0..n {
-        for j in 0..m {
-            data[(i + 1) * stride + (j + 1)] = if old_tokens[i] == new_tokens[j] {
-                data[i * stride + j] + 1
-            } else {
-                data[(i + 1) * stride + j].max(data[i * stride + (j + 1)])
-            };
+fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
+    let mut diff = Vec::new();
+    for op in similar::capture_diff_slices(similar::Algorithm::Myers, old_tokens, new_tokens) {
+        match op {
+            similar::DiffOp::Equal { old_index, len, .. } => {
+                for token in &old_tokens[old_index..old_index + len] {
+                    diff.push(DiffToken::Same(token));
+                }
+            }
+            similar::DiffOp::Delete { old_index, old_len, .. } => {
+                for token in &old_tokens[old_index..old_index + old_len] {
+                    diff.push(DiffToken::Removed(token));
+                }
+            }
+            similar::DiffOp::Insert { new_index, new_len, .. } => {
+                for token in &new_tokens[new_index..new_index + new_len] {
+                    diff.push(DiffToken::Added(token));
+                }
+            }
+            similar::DiffOp::Replace {
+                old_index,
+                old_len,
+                new_index,
+                new_len,
+            } => {
+                for token in &old_tokens[old_index..old_index + old_len] {
+                    diff.push(DiffToken::Removed(token));
+                }
+                for token in &new_tokens[new_index..new_index + new_len] {
+                    diff.push(DiffToken::Added(token));
+                }
+            }
         }
     }
-    LcsTable { stride, data }
-}
-
-fn backtrack_token_step<'a>(
-    (old_tokens, new_tokens): (&[&'a str], &[&'a str]),
-    table: &LcsTable,
-    (i, j): (&mut usize, &mut usize),
-) -> DiffToken<'a> {
-    if *i > 0 && *j > 0 && old_tokens[*i - 1] == new_tokens[*j - 1] {
-        *i -= 1;
-        *j -= 1;
-        DiffToken::Same(old_tokens[*i])
-    } else if *j > 0 && (*i == 0 || table.get(*i, *j - 1) >= table.get(*i - 1, *j)) {
-        *j -= 1;
-        DiffToken::Added(new_tokens[*j])
-    } else {
-        *i -= 1;
-        DiffToken::Removed(old_tokens[*i])
-    }
-}
-
-fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
-    let table = build_lcs_table(old_tokens, new_tokens);
-    let (mut i, mut j) = (old_tokens.len(), new_tokens.len());
-    let mut diff = Vec::new();
-    while i > 0 || j > 0 {
-        diff.push(backtrack_token_step((old_tokens, new_tokens), &table, (&mut i, &mut j)));
-    }
-    diff.reverse();
     diff
 }
 
