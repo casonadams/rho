@@ -318,6 +318,83 @@ mod compactor {
             .await;
         assert!(summary.contains("Turn Context (split turn)") || summary.contains("Prefix work completed"));
     }
+
+    #[tokio::test]
+    async fn test_llm_compactor_overflow_retries_and_recovers() {
+        let mock = MockCompletionModel::new([
+            MockTurn::error("context_length_exceeded: maximum context length is 128000 tokens"),
+            MockTurn::text("## Goal\nRecovered after oldest round pruned\n\n## Progress\n### Done\n- [x] Succeeded"),
+        ]);
+        let handle = ModelHandle::new(mock.clone());
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let messages = vec![
+            Message::user("Turn 1 user request to be dropped on overflow"),
+            Message::assistant("Turn 1 assistant response"),
+            Message::user("Turn 2 user request that should be kept"),
+            Message::assistant("Turn 2 assistant response"),
+        ];
+
+        let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
+        assert_eq!(
+            summary,
+            "## Goal\nRecovered after oldest round pruned\n\n## Progress\n### Done\n- [x] Succeeded"
+        );
+
+        let requests = mock.requests();
+        assert_eq!(requests.len(), 2);
+        let first_prompt = format!("{:?}", requests[0]);
+        let second_prompt = format!("{:?}", requests[1]);
+        assert!(first_prompt.contains("Turn 1 user request"));
+        assert!(!second_prompt.contains("Turn 1 user request"));
+        assert!(second_prompt.contains("Turn 2 user request"));
+    }
+
+    #[tokio::test]
+    async fn test_llm_compactor_overflow_falls_back_when_all_retries_exhausted() {
+        let mock = MockCompletionModel::new([
+            MockTurn::error("context_length_exceeded"),
+            MockTurn::error("context_length_exceeded"),
+            MockTurn::error("context_length_exceeded"),
+            MockTurn::error("context_length_exceeded"),
+        ]);
+        let handle = ModelHandle::new(mock.clone());
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let messages = vec![
+            Message::user("Turn 1"),
+            Message::assistant("Resp 1"),
+            Message::user("Turn 2"),
+            Message::assistant("Resp 2"),
+            Message::user("Turn 3"),
+            Message::assistant("Resp 3"),
+            Message::user("Turn 4"),
+            Message::assistant("Resp 4"),
+            Message::user("Turn 5"),
+            Message::assistant("Resp 5"),
+        ];
+
+        let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
+        assert!(summary.contains("## Goal\nTurn 1"));
+        assert!(summary.contains("## Progress\n### Done"));
+        assert_eq!(mock.requests().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_llm_compactor_overflow_single_turn_falls_back_without_retrying() {
+        let mock = MockCompletionModel::new([MockTurn::error("context_length_exceeded")]);
+        let handle = ModelHandle::new(mock.clone());
+        let compactor = LlmCompactor::new(Some(handle));
+
+        let messages = vec![
+            Message::user("Only turn user prompt"),
+            Message::assistant("Only turn assistant response"),
+        ];
+
+        let summary = compactor.summarize(&messages, SummarizeOptions::default()).await;
+        assert!(summary.contains("## Goal\nOnly turn user prompt"));
+        assert_eq!(mock.requests().len(), 1);
+    }
 }
 
 mod common {
