@@ -533,8 +533,14 @@ mod tests {
             let lines: Vec<&str> = rendered.lines().collect();
             if lines.len() > 4 {
                 let stripped = strip_ansi(lines[2]);
-                assert!(stripped.contains("│ https://"), "expected single space before url, got: {stripped}");
-                assert!(!stripped.contains("│  https://"), "unexpected leading double space: {stripped}");
+                assert!(
+                    stripped.contains("│ https://"),
+                    "expected single space before url, got: {stripped}"
+                );
+                assert!(
+                    !stripped.contains("│  https://"),
+                    "unexpected leading double space: {stripped}"
+                );
             }
         }
     }
