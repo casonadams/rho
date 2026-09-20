@@ -66,11 +66,11 @@ fn test_paste_event_collapses_in_interactive_state() {
     assert_eq!(controller.state().editor().text(), "[paste #1 +15 lines]");
 }
 
-#[test]
-fn test_paste_clipboard_callable() {
+#[tokio::test]
+async fn test_paste_clipboard_async_callable() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     let renderer = crate::ui::TerminalRenderer::default();
-    super::super::navigation::paste_clipboard(&renderer, &mut controller);
+    super::super::navigation::paste_clipboard_async(&renderer, &mut controller).await;
 }
 
 fn sample_qa_tree() -> rho_harness_core::session::tree::SessionTree {

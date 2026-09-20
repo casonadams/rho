@@ -206,6 +206,21 @@ fn resolved_skills_with_home_respects_explicit_override() {
     assert_eq!(skill.metadata.description, "Custom workflow");
 }
 
+#[tokio::test]
+async fn resolved_skills_with_home_async_matches_sync() {
+    let fixture = fixture();
+    write_skill(
+        &fixture.home_dir.join(".agents/skills"),
+        "async-workflow",
+        "---\nname: async-workflow\ndescription: Async workflow\n---\n# Async\n",
+    );
+
+    let resolved = resolved_skills_with_home_async(Some(&fixture.project_dir), Some(&fixture.home_dir)).await;
+    let skill = resolved.iter().find(|s| s.metadata.name == "async-workflow").unwrap();
+    assert_eq!(skill.origin, SkillOrigin::User);
+    assert_eq!(skill.metadata.description, "Async workflow");
+}
+
 #[test]
 fn disable_model_invocation_parsed_from_frontmatter() {
     let fixture = fixture();

@@ -1,7 +1,9 @@
 use crossterm::event::KeyEvent;
 
 use super::super::batch::LiveBatch;
-use super::super::navigation::{apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard};
+use super::super::navigation::{
+    apply_completion, navigate_history_next, navigate_history_previous, paste_clipboard_async,
+};
 use crate::error::Result;
 use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::interactive::{InputAction, QueueKind, TerminalBackend, TerminalController, UiEffect, map_key};
@@ -125,7 +127,7 @@ async fn view_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, acti
             handle_display_toggle(ctx, action).await;
         }
         InputAction::ClipboardPasteImage => {
-            paste_clipboard(&ctx.session.renderer, ctx.controller);
+            paste_clipboard_async(&ctx.session.renderer, ctx.controller).await;
             ctx.batch.flush(ctx.controller, true)?;
         }
         InputAction::DequeueQueued => {

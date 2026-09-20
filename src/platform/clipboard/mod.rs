@@ -77,6 +77,15 @@ pub fn get_text_or_image_path() -> Option<String> {
     get_text().ok().flatten()
 }
 
+pub async fn get_text_or_image_path_async() -> Option<String> {
+    if let Ok(Some(img)) = get_image_async().await
+        && let Ok(path) = save_image_to_temp_png_async(&img).await
+    {
+        return Some(path.to_string_lossy().into_owned());
+    }
+    tokio::task::spawn_blocking(get_text).await.ok()?.ok()?
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn pipe_to_command(cmd: &mut Command, text: &str) -> bool {
     if let Ok(mut child) = cmd.stdin(Stdio::piped()).spawn() {
@@ -137,17 +146,24 @@ pub async fn get_image_async() -> Result<Option<ClipboardImage>> {
 }
 
 pub fn save_image_to_temp_png(img: &ClipboardImage) -> Result<std::path::PathBuf> {
-    let file_name = format!("rho-clipboard-{}.png", uuid::Uuid::new_v4());
-    let path = std::env::temp_dir().join(file_name);
-    image::save_buffer_with_format(
-        &path,
-        &img.bytes,
-        img.width as u32,
-        img.height as u32,
-        image::ExtendedColorType::Rgba8,
-        image::ImageFormat::Png,
-    )?;
-    Ok(path)
+    let write_fn = || {
+        let file_name = format!("rho-clipboard-{}.png", uuid::Uuid::new_v4());
+        let path = std::env::temp_dir().join(file_name);
+        image::save_buffer_with_format(
+            &path,
+            &img.bytes,
+            img.width as u32,
+            img.height as u32,
+            image::ExtendedColorType::Rgba8,
+            image::ImageFormat::Png,
+        )?;
+        Ok(path)
+    };
+    if tokio::runtime::Handle::try_current().is_ok() {
+        tokio::task::block_in_place(write_fn)
+    } else {
+        write_fn()
+    }
 }
 
 pub async fn save_image_to_temp_png_async(img: &ClipboardImage) -> Result<std::path::PathBuf> {

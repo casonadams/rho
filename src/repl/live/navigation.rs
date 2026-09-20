@@ -26,11 +26,11 @@ pub fn copy_last_message<B: TerminalBackend>(session: &ReplSession, controller: 
     }
 }
 
-pub fn paste_clipboard<B: TerminalBackend>(
+pub async fn paste_clipboard_async<B: TerminalBackend>(
     _renderer: &crate::ui::TerminalRenderer,
     controller: &mut TerminalController<B>,
 ) {
-    if let Some(text) = crate::platform::clipboard::get_text_or_image_path()
+    if let Some(text) = crate::platform::clipboard::get_text_or_image_path_async().await
         && !crate::repl::live::modal::handle_modal_paste(controller, &text)
     {
         controller.state_mut().editor_mut().handle_paste(&text);

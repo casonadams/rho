@@ -10,6 +10,10 @@ pub fn resolved_skills(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     resolved_skills_with_home(project_dir, None)
 }
 
+pub async fn resolved_skills_async(project_dir: Option<&Path>) -> Vec<ResolvedSkill> {
+    resolved_skills_with_home_async(project_dir, None).await
+}
+
 /// Resolve skills with an optional explicit home directory override, falling back to environment.
 pub fn resolved_skills_with_home(project_dir: Option<&Path>, home_dir: Option<&Path>) -> Vec<ResolvedSkill> {
     let env_home = std::env::var("HOME")
@@ -21,6 +25,32 @@ pub fn resolved_skills_with_home(project_dir: Option<&Path>, home_dir: Option<&P
         home_dir: home_dir.or(env_home.as_deref()),
     };
     resolved_skills_for_paths(paths)
+}
+
+pub async fn resolved_skills_with_home_async(
+    project_dir: Option<&Path>,
+    home_dir: Option<&Path>,
+) -> Vec<ResolvedSkill> {
+    let project_owned = project_dir.map(Path::to_path_buf);
+    let home_owned = home_dir.map(Path::to_path_buf);
+    tokio::task::spawn_blocking(move || resolved_skills_with_home(project_owned.as_deref(), home_owned.as_deref()))
+        .await
+        .unwrap_or_default()
+}
+
+pub async fn resolved_skills_for_paths_async(
+    project_dir: Option<PathBuf>,
+    home_dir: Option<PathBuf>,
+) -> Vec<ResolvedSkill> {
+    tokio::task::spawn_blocking(move || {
+        let paths = SkillResolutionPaths {
+            project_dir: project_dir.as_deref(),
+            home_dir: home_dir.as_deref(),
+        };
+        resolved_skills_for_paths(paths)
+    })
+    .await
+    .unwrap_or_default()
 }
 
 /// Resolve skills with an explicit user home directory.

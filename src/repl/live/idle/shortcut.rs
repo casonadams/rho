@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use super::super::batch::LiveBatch;
 use super::super::modal::{open_model_selector, open_session_selector, open_tree_selector};
 use super::super::navigation::{
-    ModelCycleContext, copy_last_message, cycle_model, cycle_thinking_level, paste_clipboard, update_footer,
+    ModelCycleContext, copy_last_message, cycle_model, cycle_thinking_level, paste_clipboard_async, update_footer,
 };
 use crate::engine::AgentEngine;
 use crate::error::Result;
@@ -143,7 +143,7 @@ async fn handle_model_action(
             flush_after(ctx, batch)?;
         }
         InputAction::ClipboardPasteImage => {
-            paste_clipboard(&ctx.session.renderer, ctx.controller);
+            paste_clipboard_async(&ctx.session.renderer, ctx.controller).await;
             flush_after(ctx, batch)?;
         }
         _ => return Ok(false),

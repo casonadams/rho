@@ -58,10 +58,7 @@ pub(super) async fn display_welcome_banner(
     session: &ReplSession,
     engine: &AgentEngine,
 ) -> Vec<crate::skills::ResolvedSkill> {
-    let skills =
-        tokio::task::spawn_blocking(|| crate::skills::resolved_skills(std::env::current_dir().ok().as_deref()))
-            .await
-            .unwrap_or_default();
+    let skills = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref()).await;
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
     let tools = engine.tool_names();
     let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();

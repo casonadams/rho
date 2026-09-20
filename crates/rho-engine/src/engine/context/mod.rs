@@ -36,20 +36,11 @@ pub struct ProjectContext {
 }
 
 async fn resolve_skills(base: &Path, home: Option<&Path>) -> Vec<SkillMetadata> {
-    let base_owned = base.to_path_buf();
-    let home_owned = home.map(Path::to_path_buf);
-    tokio::task::spawn_blocking(move || {
-        let paths = rho_harness_core::skills::SkillResolutionPaths {
-            project_dir: Some(&base_owned),
-            home_dir: home_owned.as_deref(),
-        };
-        rho_harness_core::skills::resolved_skills_for_paths(paths)
-            .into_iter()
-            .map(|skill| skill.metadata)
-            .collect()
-    })
-    .await
-    .unwrap_or_default()
+    rho_harness_core::skills::resolved_skills_for_paths_async(Some(base.to_path_buf()), home.map(Path::to_path_buf))
+        .await
+        .into_iter()
+        .map(|skill| skill.metadata)
+        .collect()
 }
 
 async fn resolve_full_system_prompt(base: &Path, dirs: ContextDirs<'_>) -> String {

@@ -69,7 +69,7 @@ async fn resolve_skill_target(parts: &[&str], has_ui: bool, skills: &[ResolvedSk
 
 pub(crate) async fn handle_skill(ctx: &mut SlashCommandContext<'_>, parts: &[&str]) -> Result<Option<CommandResult>> {
     let cwd = std::env::current_dir().ok();
-    let skills = rho_harness_core::skills::resolved_skills_with_home(cwd.as_deref(), ctx.home_dir);
+    let skills = rho_harness_core::skills::resolved_skills_with_home_async(cwd.as_deref(), ctx.home_dir).await;
     let selected = resolve_skill_target(parts, ctx.renderer.has_interactive_ui(), &skills).await;
 
     match selected.as_deref() {
@@ -99,7 +99,7 @@ async fn try_handle_skill(
     parts: &[&str],
 ) -> Result<Option<CommandResult>> {
     let cwd = std::env::current_dir().ok();
-    let skills = rho_harness_core::skills::resolved_skills_with_home(cwd.as_deref(), ctx.home_dir);
+    let skills = rho_harness_core::skills::resolved_skills_with_home_async(cwd.as_deref(), ctx.home_dir).await;
     let Some(matched) = skills.iter().find(|s| s.metadata.name == skill_name) else {
         return Ok(None);
     };
@@ -114,9 +114,10 @@ async fn try_handle_skill(
     Ok(Some(CommandResult::ExpandedPrompt { text }))
 }
 
-fn try_handle_template(ctx: &SlashCommandContext<'_>, custom: &str, parts: &[&str]) -> Option<CommandResult> {
+async fn try_handle_template(ctx: &SlashCommandContext<'_>, custom: &str, parts: &[&str]) -> Option<CommandResult> {
     let cwd = std::env::current_dir().ok();
-    let templates = rho_harness_core::prompts::discover_prompt_templates(Some(&ctx.config.config_dir), cwd.as_deref());
+    let templates =
+        rho_harness_core::prompts::discover_prompt_templates_async(Some(&ctx.config.config_dir), cwd.as_deref()).await;
     let template = templates.iter().find(|t| t.metadata.name == custom)?;
     Some(CommandResult::ExpandedPrompt {
         text: template.expand(&parts[1..]),
@@ -133,7 +134,7 @@ pub(crate) async fn handle_custom(
     {
         return Ok(Some(res));
     }
-    if let Some(res) = try_handle_template(ctx, custom, parts) {
+    if let Some(res) = try_handle_template(ctx, custom, parts).await {
         return Ok(Some(res));
     }
 

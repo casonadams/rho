@@ -19,3 +19,23 @@ fn test_save_image_to_temp_png() {
     assert_eq!(reader.height(), 2);
     let _ = std::fs::remove_file(path);
 }
+
+#[tokio::test]
+async fn test_save_image_to_temp_png_async() {
+    let dummy = ClipboardImage {
+        width: 2,
+        height: 2,
+        bytes: vec![255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255],
+    };
+    let path = save_image_to_temp_png_async(&dummy).await.unwrap();
+    assert!(path.exists());
+    let reader = image::ImageReader::open(&path).unwrap().decode().unwrap();
+    assert_eq!(reader.width(), 2);
+    assert_eq!(reader.height(), 2);
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn test_clipboard_basic_async() {
+    let _ = get_text_or_image_path_async().await;
+}

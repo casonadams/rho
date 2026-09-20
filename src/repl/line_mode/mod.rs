@@ -24,11 +24,15 @@ use reedline::{
 };
 use shell::{ShellAction, handle_shell_command};
 
-fn build_completion_sources(config: &Config, auth_store: &AuthStore) -> crate::repl::interactive::CompletionSources {
+async fn build_completion_sources_async(
+    config: &Config,
+    auth_store: &AuthStore,
+) -> crate::repl::interactive::CompletionSources {
     let cwd = std::env::current_dir().ok();
-    let skills = crate::skills::resolved_skills(cwd.as_deref());
+    let skills = crate::skills::resolved_skills_async(cwd.as_deref()).await;
     let prompt_templates =
-        rho_harness_core::prompts::discover_prompt_templates(Some(&config.config_dir), cwd.as_deref())
+        rho_harness_core::prompts::discover_prompt_templates_async(Some(&config.config_dir), cwd.as_deref())
+            .await
             .into_iter()
             .map(|t| t.metadata.name)
             .collect();
@@ -51,9 +55,9 @@ fn build_emacs_edit_mode() -> Box<Emacs> {
     Box::new(Emacs::new(keybindings))
 }
 
-pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
+pub async fn build_line_editor_async(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
     let edit_mode = build_emacs_edit_mode();
-    let sources = build_completion_sources(config, auth_store);
+    let sources = build_completion_sources_async(config, auth_store).await;
     let completer = Box::new(RhoCompleter::new(sources));
     let completion_menu = Box::new(ColumnarMenu::default().with_name("completion_menu"));
 
@@ -70,7 +74,7 @@ pub fn build_line_editor(config: &Config, auth_store: &AuthStore) -> Result<Reed
 }
 
 pub async fn print_line_mode_welcome(session: &ReplSession, engine: &AgentEngine) {
-    let skills = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref());
+    let skills = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref()).await;
     let skill_names: Vec<String> = skills.iter().map(|s| s.metadata.name.clone()).collect();
     let tools = engine.tool_names();
     let mcp = session.config.mcp.servers.keys().cloned().collect::<Vec<_>>();
@@ -283,7 +287,7 @@ async fn handle_line_signal(
 
 pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
     let mut engine = init_line_mode(session).await?;
-    let mut line_editor = build_line_editor(&session.config, &session.auth_store)?;
+    let mut line_editor = build_line_editor_async(&session.config, &session.auth_store).await?;
     let mut is_first_prompt = true;
 
     loop {

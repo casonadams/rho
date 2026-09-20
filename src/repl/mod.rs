@@ -63,7 +63,8 @@ impl ReplSession {
         self.config = config;
         self.renderer.theme.apply_ui_config(&self.config.ui);
 
-        let skills: Vec<String> = crate::skills::resolved_skills(std::env::current_dir().ok().as_deref())
+        let skills: Vec<String> = crate::skills::resolved_skills_async(std::env::current_dir().ok().as_deref())
+            .await
             .into_iter()
             .map(|s| s.metadata.name)
             .collect();
