@@ -583,3 +583,62 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
     assert_eq!(ctx.loop_ctx.controller.transcript().len(), 1);
     assert!(ctx.loop_ctx.batch.ui.is_empty());
 }
+
+#[tokio::test]
+async fn test_turn_finish_active_turn_invalidates_and_refreshes_quota() {
+    let mut h = ActiveTurnHarness::new().await;
+    let out = crate::engine::runner::TurnOutput {
+        final_text: String::new(),
+        tool_calls_count: 0,
+        tool_failures_count: 0,
+        requests: 0,
+        usage: None,
+        status: crate::engine::runner::RunStatus::Completed,
+        metrics: rho_engine::engine::metrics::RunMetrics::default(),
+    };
+    let steering = std::sync::Arc::new(crate::repl::coordinator::SharedSteeringQueue::new(
+        h.engine.config.steering_mode,
+    ));
+    let model_switch = std::sync::Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
+    let mut loop_ctx =
+        super::runner::TurnLoop::new(&mut h.session, &h.engine, &mut h.controller, steering, model_switch);
+    super::cancel::finish_active_turn(&mut loop_ctx, &mut h.ui_events, Ok(out)).unwrap();
+    assert_eq!(h.controller.state().footer().activity, Activity::Idle);
+}
+
+#[tokio::test]
+async fn test_turn_quota_periodic_and_updated_events_sync_footer() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, _, engine) = create_harness_engine(temp.path()).await;
+    let mut f = TurnTestFixture::new("text");
+    let steering = std::sync::Arc::new(f.steering.clone());
+    let lp = super::runner::TurnLoop::new(
+        &mut f.session,
+        &engine,
+        &mut f.controller,
+        steering,
+        f.model_switch.clone(),
+    );
+    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
+    let cancellation = crate::engine::runner::CancellationSignal::default();
+    let res = super::event::TurnInputResources {
+        history: &mut f.history,
+        completions: &f.completions,
+        ui_events: &mut ui_events,
+        cancellation: &cancellation,
+    };
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+    let mut ctx = super::TurnContext {
+        loop_ctx: lp,
+        input_reader: &mut input_reader,
+        resources: res,
+    };
+
+    let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaPeriodic).await;
+    assert!(result.is_ok());
+    assert!(!result.unwrap());
+
+    let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaUpdated).await;
+    assert!(result.is_ok());
+    assert!(!result.unwrap());
+}
