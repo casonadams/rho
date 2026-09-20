@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use rho_harness_core::tokens::cut_point::is_user_turn_start;
+use rig::completion::message::MimeType;
 use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
 
 pub const DEFAULT_PRUNE_LINE_THRESHOLD: usize = 15;
@@ -151,7 +152,15 @@ fn collect_tool_calls(messages: &[Message]) -> HashMap<String, ToolCallMeta> {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string(),
-                        _ => String::new(),
+                        _ => call
+                            .function
+                            .arguments
+                            .get("path")
+                            .or_else(|| call.function.arguments.get("target"))
+                            .or_else(|| call.function.arguments.get("url"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                     };
                     map.insert(call.id.to_string(), ToolCallMeta { name, target });
                 }
@@ -195,6 +204,60 @@ fn prune_bash_result(text: &str, meta: Option<&ToolCallMeta>, line_threshold: us
     let details = check_prunable_bash_output(text, line_threshold)?;
     let cmd = meta.map(|m| m.target.as_str()).unwrap_or("bash");
     Some(format_pruned_stub(cmd, &details))
+}
+
+fn extract_mime_from_read_text(text: &str) -> Option<&str> {
+    let start = text.find("Read image file [")? + "Read image file [".len();
+    let end = text[start..].find(']')?;
+    let mime = &text[start..start + end];
+    if mime.is_empty() { None } else { Some(mime) }
+}
+
+fn prune_image_tool_result(
+    tool_name: &str,
+    text: &str,
+    meta: Option<&ToolCallMeta>,
+    image: &rig::completion::message::Image,
+) -> String {
+    let target = meta.map(|m| m.target.as_str()).unwrap_or("");
+    let media_type = image.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+    let mime = if media_type != "unknown" {
+        Some(media_type)
+    } else {
+        extract_mime_from_read_text(text)
+    };
+
+    if tool_name == "read" || tool_name == "read_file" || tool_name.is_empty() {
+        match (target.is_empty(), mime) {
+            (false, Some(m)) => {
+                format!("[Image '{target}' ({m}) read. Image content pruned for historical turn.]")
+            }
+            (false, None) => {
+                format!("[Image '{target}' read. Image content pruned for historical turn.]")
+            }
+            (true, Some(m)) => {
+                format!("[Image ({m}) read. Image content pruned for historical turn.]")
+            }
+            (true, None) => "[Image read. Image content pruned for historical turn.]".to_string(),
+        }
+    } else {
+        match (target.is_empty(), mime) {
+            (false, Some(m)) => {
+                format!(
+                    "[Tool '{tool_name}' for '{target}' returned image ({m}). Image content pruned for historical turn.]"
+                )
+            }
+            (false, None) => {
+                format!("[Tool '{tool_name}' for '{target}' returned image. Image content pruned for historical turn.]")
+            }
+            (true, Some(m)) => {
+                format!("[Tool '{tool_name}' returned image ({m}). Image content pruned for historical turn.]")
+            }
+            (true, None) => {
+                format!("[Tool '{tool_name}' returned image. Image content pruned for historical turn.]")
+            }
+        }
+    }
 }
 
 fn prune_read_result(text: &str, meta: Option<&ToolCallMeta>, line_threshold: usize) -> Option<String> {
@@ -321,7 +384,14 @@ fn prune_tool_result_item(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let stub = if tool_name == "bash" {
+    let image_block = res.content.iter().find_map(|c| match c {
+        ToolResultContent::Image(img) => Some(img),
+        _ => None,
+    });
+
+    let stub = if let Some(img) = image_block {
+        prune_image_tool_result(&tool_name, &text, meta, img)
+    } else if tool_name == "bash" {
         prune_bash_result(&text, meta, line_threshold)?
     } else if tool_name == "read" || tool_name == "read_file" {
         prune_read_result(&text, meta, line_threshold)?
@@ -540,6 +610,36 @@ mod tests {
             provider: None,
             name: "read".to_string(),
             content: vec![ToolResultContent::Text(Text::new(tool_output))],
+        };
+        (
+            Message::Assistant {
+                id: None,
+                content: vec![AssistantContent::ToolCall(call)],
+            },
+            Message::User {
+                content: vec![UserContent::ToolResult(res)],
+            },
+        )
+    }
+
+    fn make_image_read_turn(
+        cid: &str,
+        path: &str,
+        tool_output: &str,
+        media_type: Option<rig::completion::message::ImageMediaType>,
+    ) -> (Message, Message) {
+        let call = ToolCall::new(
+            ToolCallId::new_or_mint(cid),
+            ToolFunction::new("read".to_string(), serde_json::json!({ "path": path })),
+        );
+        let res = rig::message::ToolResult {
+            call: ToolCallId::new_or_mint(cid),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(Text::new(tool_output)),
+                ToolResultContent::image_base64("iVBORw0KGgoAAAANSUhEUgA=", media_type, None),
+            ],
         };
         (
             Message::Assistant {
@@ -1311,5 +1411,140 @@ mod tests {
         let edits = call.function.arguments.get("edits").unwrap().as_array().unwrap();
         assert_eq!(edits[0].get("oldText").unwrap().as_str().unwrap(), "let x = 1;");
         assert_eq!(edits[0].get("newText").unwrap().as_str().unwrap(), "let x = 2;");
+    }
+
+    #[test]
+    fn test_prune_image_tool_result_in_historical_turn() {
+        let (read_call, read_res) = make_image_read_turn(
+            "c1",
+            "screenshot.png",
+            "Read image file [image/png]\n[Image: 800x600]",
+            Some(rig::completion::message::ImageMediaType::PNG),
+        );
+
+        let history = vec![
+            Message::user("Inspect screenshot"),
+            read_call,
+            read_res,
+            Message::assistant("The screenshot shows a login form."),
+            Message::user("Now fix the login form"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+
+        assert_eq!(res.content.len(), 1);
+        let ToolResultContent::Text(text) = &res.content[0] else {
+            panic!("Expected text block")
+        };
+        assert_eq!(
+            text.text,
+            "[Image 'screenshot.png' (image/png) read. Image content pruned for historical turn.]"
+        );
+    }
+
+    #[test]
+    fn test_preserve_image_tool_result_in_volatile_turn() {
+        let (read_call, read_res) = make_image_read_turn(
+            "c1",
+            "screenshot.png",
+            "Read image file [image/png]\n[Image: 800x600]",
+            Some(rig::completion::message::ImageMediaType::PNG),
+        );
+
+        let history = vec![Message::user("Inspect screenshot"), read_call, read_res];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+
+        assert_eq!(res.content.len(), 2);
+        assert!(matches!(res.content[0], ToolResultContent::Text(_)));
+        assert!(matches!(res.content[1], ToolResultContent::Image(_)));
+    }
+
+    #[test]
+    fn test_image_stub_formatting_variants() {
+        let (call1, res1) = make_image_read_turn(
+            "c1",
+            "assets/logo.png",
+            "Read image file [image/png]",
+            Some(rig::completion::message::ImageMediaType::PNG),
+        );
+        let (call2, res2) = make_image_read_turn("c2", "assets/photo.jpg", "Read image file [image/jpeg]", None);
+
+        let custom_call = ToolCall::new(
+            ToolCallId::new_or_mint("c3"),
+            ToolFunction::new("screenshot".to_string(), serde_json::json!({ "target": "window" })),
+        );
+        let custom_res = rig::message::ToolResult {
+            call: ToolCallId::new_or_mint("c3"),
+            provider: None,
+            name: "screenshot".to_string(),
+            content: vec![
+                ToolResultContent::Text(Text::new("Captured screenshot")),
+                ToolResultContent::image_base64(
+                    "iVBORw0KGgoAAAANSUhEUgA=",
+                    Some(rig::completion::message::ImageMediaType::PNG),
+                    None,
+                ),
+            ],
+        };
+        let custom_call_msg = Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(custom_call)],
+        };
+        let custom_res_msg = Message::User {
+            content: vec![UserContent::ToolResult(custom_res)],
+        };
+
+        let history = vec![
+            Message::user("Inspect images"),
+            call1,
+            res1,
+            call2,
+            res2,
+            custom_call_msg,
+            custom_res_msg,
+            Message::assistant("All images inspected"),
+            Message::user("Next step"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+
+        let extract_text = |idx: usize| -> String {
+            let Message::User { content } = &pruned[idx] else {
+                panic!()
+            };
+            let UserContent::ToolResult(res) = &content[0] else {
+                panic!()
+            };
+            match &res.content[0] {
+                ToolResultContent::Text(t) => t.text.clone(),
+                _ => panic!(),
+            }
+        };
+
+        assert_eq!(
+            extract_text(2),
+            "[Image 'assets/logo.png' (image/png) read. Image content pruned for historical turn.]"
+        );
+        assert_eq!(
+            extract_text(4),
+            "[Image 'assets/photo.jpg' (image/jpeg) read. Image content pruned for historical turn.]"
+        );
+        assert_eq!(
+            extract_text(6),
+            "[Tool 'screenshot' for 'window' returned image (image/png). Image content pruned for historical turn.]"
+        );
     }
 }
