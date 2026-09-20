@@ -50,6 +50,23 @@ fn usage_tracker_record_turn_differentiates_totals_from_latest_context() {
 }
 
 #[test]
+fn usage_tracker_update_active_context_does_not_inflate_totals() {
+    let tracker = UsageTracker::default();
+    let initial = make_usage(5_000, 500, None, None);
+    tracker.record(initial);
+
+    let t1 = tracker.totals();
+    assert_eq!((t1.total_input, t1.total_output), (5_000, 500));
+
+    let compacted_context = make_usage(1_500, 0, None, None);
+    tracker.update_active_context(compacted_context);
+
+    let t2 = tracker.totals();
+    assert_eq!((t2.total_input, t2.total_output), (5_000, 500));
+    assert_eq!(tracker.latest(), Some(compacted_context));
+}
+
+#[test]
 fn speed_tracker_computes_rate_and_resets() {
     let mut speed = SpeedTracker::default();
     speed.record_generation(100, 2000);

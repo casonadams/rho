@@ -8,6 +8,8 @@ use rho_harness_core::session::compaction::{
 };
 use rho_harness_core::tokens::is_user_turn_start;
 
+use crate::engine::metrics::StructuralUsage;
+
 pub struct LlmCompactor {
     model: Option<ModelHandle>,
 }
@@ -26,7 +28,7 @@ enum LlmCallError {
     Other,
 }
 
-async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<String, LlmCallError> {
+async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<(String, StructuralUsage), LlmCallError> {
     let agent = rig::agent::AgentBuilder::from_model_handle(model)
         .preamble(SUMMARIZATION_SYSTEM_PROMPT)
         .default_max_turns(1)
@@ -34,7 +36,7 @@ async fn run_agent_completion(model: ModelHandle, prompt: &str) -> Result<String
         .build();
     let runner = crate::engine::runtime::build_runner(&agent, prompt).max_turns(1);
     match tokio::time::timeout(Duration::from_secs(60), runner.run()).await {
-        Ok(Ok(resp)) if !resp.output.trim().is_empty() => Ok(resp.output.trim().to_string()),
+        Ok(Ok(resp)) if !resp.output.trim().is_empty() => Ok((resp.output.trim().to_string(), resp.usage.into())),
         Ok(Ok(_)) => Err(LlmCallError::Other),
         Ok(Err(e)) => {
             let msg = e.to_string();
@@ -102,7 +104,7 @@ impl LlmCompactor {
 
     pub async fn complete(&self, prompt: &str) -> Option<String> {
         let model = self.model.as_ref()?.clone();
-        run_agent_completion(model, prompt).await.ok()
+        run_agent_completion(model, prompt).await.ok().map(|(text, _)| text)
     }
 
     pub async fn extract<T>(&self, prompt: &str) -> Option<T>
@@ -119,18 +121,30 @@ impl LlmCompactor {
     }
 
     pub async fn summarize(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
+        self.summarize_with_usage(messages, options).await.0
+    }
+
+    pub async fn summarize_with_usage(
+        &self,
+        messages: &[Message],
+        options: SummarizeOptions<'_>,
+    ) -> (String, Option<StructuralUsage>) {
         if messages.is_empty() {
-            return options.prior_summary.unwrap_or_default().to_string();
+            return (options.prior_summary.unwrap_or_default().to_string(), None);
         }
 
         if options.is_split_turn {
-            self.summarize_split_turn(messages, options).await
+            self.summarize_split_turn_with_usage(messages, options).await
         } else {
-            self.summarize_full(messages, options).await
+            self.summarize_full_with_usage(messages, options).await
         }
     }
 
-    async fn summarize_full(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
+    async fn summarize_full_with_usage(
+        &self,
+        messages: &[Message],
+        options: SummarizeOptions<'_>,
+    ) -> (String, Option<StructuralUsage>) {
         const MAX_OVERFLOW_RETRIES: usize = 3;
         let mut current_messages = messages.to_vec();
 
@@ -147,7 +161,7 @@ impl LlmCompactor {
 
             let result = if options.structured {
                 match run_agent_extraction::<CompactionSummaryPayload>(model.clone(), &prompt).await {
-                    Ok(payload) => return payload.render_markdown(),
+                    Ok(payload) => return (payload.render_markdown(), None),
                     Err(LlmCallError::ContextOverflow(msg)) => Err(LlmCallError::ContextOverflow(msg)),
                     Err(LlmCallError::Other) => run_agent_completion(model, &prompt).await,
                 }
@@ -156,7 +170,7 @@ impl LlmCompactor {
             };
 
             match result {
-                Ok(summary) => return summary,
+                Ok((summary, usage)) => return (summary, Some(usage)),
                 Err(LlmCallError::ContextOverflow(_)) if attempt < MAX_OVERFLOW_RETRIES => {
                     if let Some(truncated) = truncate_oldest_round(&current_messages) {
                         current_messages = truncated;
@@ -168,10 +182,17 @@ impl LlmCompactor {
             }
         }
 
-        generate_fallback_summary(messages, options.prior_summary, options.custom_instructions)
+        (
+            generate_fallback_summary(messages, options.prior_summary, options.custom_instructions),
+            None,
+        )
     }
 
-    async fn summarize_prefix(&self, prefix: &[Message], instructions: Option<&str>) -> String {
+    async fn summarize_prefix_with_usage(
+        &self,
+        prefix: &[Message],
+        instructions: Option<&str>,
+    ) -> (String, Option<StructuralUsage>) {
         const MAX_OVERFLOW_RETRIES: usize = 3;
         let mut current_messages = prefix.to_vec();
 
@@ -183,7 +204,7 @@ impl LlmCompactor {
             };
 
             match run_agent_completion(model, &prompt).await {
-                Ok(summary) => return summary,
+                Ok((summary, usage)) => return (summary, Some(usage)),
                 Err(LlmCallError::ContextOverflow(_)) if attempt < MAX_OVERFLOW_RETRIES => {
                     if let Some(truncated) = truncate_oldest_round(&current_messages) {
                         current_messages = truncated;
@@ -195,27 +216,44 @@ impl LlmCompactor {
             }
         }
 
-        generate_fallback_summary(prefix, None, instructions)
+        (generate_fallback_summary(prefix, None, instructions), None)
     }
 
-    async fn summarize_head_turn(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
-        let prefix_summary = self.summarize_prefix(messages, options.custom_instructions).await;
-        match options.prior_summary {
+    async fn summarize_head_turn_with_usage(
+        &self,
+        messages: &[Message],
+        options: SummarizeOptions<'_>,
+    ) -> (String, Option<StructuralUsage>) {
+        let (prefix_summary, usage) = self
+            .summarize_prefix_with_usage(messages, options.custom_instructions)
+            .await;
+        let summary = match options.prior_summary {
             Some(prior) => merge_split_turn_summary(prior, &prefix_summary),
             None => prefix_summary,
-        }
+        };
+        (summary, usage)
     }
 
-    async fn summarize_split_turn(&self, messages: &[Message], options: SummarizeOptions<'_>) -> String {
+    async fn summarize_split_turn_with_usage(
+        &self,
+        messages: &[Message],
+        options: SummarizeOptions<'_>,
+    ) -> (String, Option<StructuralUsage>) {
         let split = messages.iter().rposition(is_user_turn_start).unwrap_or(0);
         if split > 0 {
-            let main_summary = self.summarize_full(&messages[..split], options).await;
-            let prefix_summary = self
-                .summarize_prefix(&messages[split..], options.custom_instructions)
+            let (main_summary, usage1) = self.summarize_full_with_usage(&messages[..split], options).await;
+            let (prefix_summary, usage2) = self
+                .summarize_prefix_with_usage(&messages[split..], options.custom_instructions)
                 .await;
-            merge_split_turn_summary(&main_summary, &prefix_summary)
+            let merged_usage = match (usage1, usage2) {
+                (Some(u1), Some(u2)) => Some(u1.merge(&u2)),
+                (Some(u1), None) => Some(u1),
+                (None, Some(u2)) => Some(u2),
+                (None, None) => None,
+            };
+            (merge_split_turn_summary(&main_summary, &prefix_summary), merged_usage)
         } else {
-            self.summarize_head_turn(messages, options).await
+            self.summarize_head_turn_with_usage(messages, options).await
         }
     }
 }

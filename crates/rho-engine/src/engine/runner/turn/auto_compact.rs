@@ -24,8 +24,6 @@ fn estimated_tokens(messages: &[Message], model: &str, context: &ContextTracker)
     context.calculate_context_tokens(messages, None, model).total_tokens
 }
 
-/// Compaction pressure: the more reliable of the provider-reported usage anchor
-/// and a tokenizer estimate over the messages themselves.
 fn trigger_tokens(
     messages: &[Message],
     usage: Option<&StructuralUsage>,
@@ -33,7 +31,20 @@ fn trigger_tokens(
     provider: &str,
     context: &ContextTracker,
 ) -> usize {
-    estimated_tokens(messages, model, context).max(usage.map(|u| usage_anchor_tokens(u, provider)).unwrap_or(0))
+    let anchor_tokens = usage.map(|u| usage_anchor_tokens(u, provider)).unwrap_or(0);
+    if anchor_tokens > 0 {
+        let anchor_idx = messages.iter().rposition(|m| matches!(m, Message::Assistant { .. }));
+        if let Some(idx) = anchor_idx {
+            context
+                .calculate_context_tokens(messages, Some((idx, anchor_tokens)), model)
+                .total_tokens
+        } else {
+            let full_estimate = estimated_tokens(messages, model, context);
+            anchor_tokens.max(full_estimate)
+        }
+    } else {
+        estimated_tokens(messages, model, context)
+    }
 }
 
 fn context_window(model: &str, provider: &str, context: &ContextTracker) -> usize {
@@ -228,17 +239,15 @@ impl AutoCompactHook {
 
         if !tripped {
             let window = context_window(self.model_name(), &self.provider, &self.context);
-            let mut messages = self
-                .context
-                .estimate_messages_tokens(effective_history, self.model_name());
-            messages = messages
-                .saturating_add(self.context.estimate_message_tokens(prompt, self.model_name()))
-                .max(
-                    self.usage
-                        .latest()
-                        .map(|u| usage_anchor_tokens(&u, &self.provider))
-                        .unwrap_or(0),
-                );
+            let prompt_tokens = self.context.estimate_message_tokens(prompt, self.model_name());
+            let messages = trigger_tokens(
+                effective_history,
+                self.usage.latest().as_ref(),
+                self.model_name(),
+                &self.provider,
+                &self.context,
+            )
+            .saturating_add(prompt_tokens);
             if should_compact(messages, window, self.reserve_tokens) {
                 let plan = self.compact_and_plan(effective_history, base_len).await;
                 if let Some(c) = ctx {

@@ -113,6 +113,19 @@ impl UsageTracker {
         self.record_turn(TurnUsage::single(usage), 0);
     }
 
+    pub fn update_active_context(&self, usage: StructuralUsage) {
+        self.clear_in_flight();
+        if let Ok(mut latest) = self.latest.lock() {
+            *latest = usage.has_values().then_some(usage);
+        }
+    }
+
+    pub fn record_compaction_usage(&self, usage: StructuralUsage) {
+        if let Ok(mut totals) = self.totals.lock() {
+            totals.add_usage(&usage);
+        }
+    }
+
     pub fn latest(&self) -> Option<StructuralUsage> {
         if let Ok(in_flight) = self.in_flight.lock()
             && let Some(usage) = in_flight.latest_context

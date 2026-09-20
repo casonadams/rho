@@ -247,8 +247,8 @@ impl SessionCompactor {
         (prior_summary, custom_instructions, is_split_turn): (Option<&str>, Option<&str>, bool),
     ) -> String {
         let compactor = LlmCompactor::new(self.model.clone());
-        compactor
-            .summarize(
+        let (summary, usage) = compactor
+            .summarize_with_usage(
                 msgs,
                 super::llm::SummarizeOptions {
                     prior_summary,
@@ -257,7 +257,13 @@ impl SessionCompactor {
                     structured: false,
                 },
             )
-            .await
+            .await;
+        if let Some(u) = usage
+            && u.has_values()
+        {
+            self.usage.record_compaction_usage(u);
+        }
+        summary
     }
 
     async fn persist_compaction(
@@ -282,7 +288,7 @@ impl SessionCompactor {
             custom_instructions: instructions.map(str::to_string),
         };
         self.session_manager.append_compaction(summary, metadata).await?;
-        self.usage.record(StructuralUsage {
+        self.usage.update_active_context(StructuralUsage {
             input_tokens: tokens_after as u64,
             ..Default::default()
         });

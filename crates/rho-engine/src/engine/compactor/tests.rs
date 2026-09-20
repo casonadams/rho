@@ -545,6 +545,37 @@ mod orchestrator {
     }
 
     #[tokio::test]
+    async fn test_compaction_usage_tracking_preserves_session_totals_and_updates_active_context() {
+        use crate::engine::metrics::StructuralUsage;
+
+        let mock = MockCompletionModel::text("## Summary\nPrior work completed");
+        let engine = test_engine("usage_preservation", Some(mock)).await;
+        let session_id = engine.session_manager.session_id.clone();
+        populate_test_turns(&engine.session_manager, &session_id).await;
+
+        let initial_usage = StructuralUsage {
+            input_tokens: 10_000,
+            output_tokens: 1_000,
+            total_tokens: 11_000,
+            ..Default::default()
+        };
+        engine.usage.record(initial_usage);
+        let totals_before = engine.usage.totals();
+        assert_eq!(totals_before.total_input, 10_000);
+
+        let stats = engine.compact_session(None).await.unwrap();
+        assert!(stats.tokens_after > 0);
+
+        // Active context is updated to tokens_after
+        let latest = engine.usage.latest().expect("latest context updated");
+        assert_eq!(latest.input_tokens, stats.tokens_after as u64);
+
+        // Session total input tokens does not have tokens_after falsely added to it!
+        let totals_after = engine.usage.totals();
+        assert_ne!(totals_after.total_input, 10_000 + stats.tokens_after as u64);
+    }
+
+    #[tokio::test]
     async fn test_compact_session_empty_or_single_node() {
         let engine = test_engine("empty_session", None).await;
         let stats = engine.compact_session(None).await.unwrap();

@@ -69,6 +69,34 @@ impl StructuralUsage {
             Some((cached as f64 / total_prompt as f64) * 100.0)
         }
     }
+
+    pub fn merge(&self, other: &Self) -> Self {
+        Self {
+            input_tokens: self.input_tokens.saturating_add(other.input_tokens),
+            output_tokens: self.output_tokens.saturating_add(other.output_tokens),
+            total_tokens: self.total_tokens.saturating_add(other.total_tokens),
+            cached_input_tokens: match (self.cached_input_tokens, other.cached_input_tokens) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                (None, None) => None,
+            },
+            cache_creation_input_tokens: match (self.cache_creation_input_tokens, other.cache_creation_input_tokens) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                (None, None) => None,
+            },
+            tool_use_prompt_tokens: match (self.tool_use_prompt_tokens, other.tool_use_prompt_tokens) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                (None, None) => None,
+            },
+            reasoning_tokens: match (self.reasoning_tokens, other.reasoning_tokens) {
+                (Some(a), Some(b)) => Some(a.saturating_add(b)),
+                (Some(a), None) | (None, Some(a)) => Some(a),
+                (None, None) => None,
+            },
+        }
+    }
 }
 
 impl From<Usage> for StructuralUsage {

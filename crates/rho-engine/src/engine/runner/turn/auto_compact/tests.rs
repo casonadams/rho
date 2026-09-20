@@ -20,8 +20,10 @@ use rig::test_utils::{MockCompletionModel, MockStreamEvent};
 use rig::tool::{DynamicTool, ToolOutput};
 
 use crate::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
+use crate::engine::metrics::StructuralUsage;
 use crate::engine::runner::TurnRequest;
-use crate::engine::runner::turn::auto_compact::AutoCompactHook;
+use crate::engine::runner::turn::auto_compact::{AutoCompactHook, trigger_tokens};
+use crate::engine::tracking::ContextTracker;
 
 #[derive(Default)]
 struct CapturingPresenter {
@@ -532,4 +534,34 @@ async fn test_auto_compaction_check_with_20_messages_reuses_cached_counts() {
     let hits_after_second = engine.context.token_cache().lock().unwrap().hits();
     assert_eq!(misses_after_second, 20);
     assert_eq!(hits_after_second, 20);
+}
+
+#[test]
+fn test_trigger_tokens_reconciles_anchor_with_trailing_messages() {
+    let context = ContextTracker::default();
+    let model = "gpt-4o";
+    let provider = "openai";
+
+    let history = vec![
+        Message::user("First question"),
+        Message::assistant("First answer"),
+        Message::user("Follow-up question with some detail"),
+    ];
+
+    let anchor = StructuralUsage {
+        input_tokens: 5_000,
+        output_tokens: 500,
+        total_tokens: 5_500,
+        ..Default::default()
+    };
+
+    // With anchor on assistant turn (idx 1), trigger_tokens reconciles anchor
+    // (consumed + output = 5,500) plus trailing user message tokens
+    let reconciled = trigger_tokens(&history, Some(&anchor), model, provider, &context);
+    let trailing_user_tokens = context.estimate_message_tokens(&history[2], model);
+    assert_eq!(reconciled, 5_500 + trailing_user_tokens);
+
+    // Without anchor, returns plain estimate
+    let estimated = trigger_tokens(&history, None, model, provider, &context);
+    assert!(estimated > 0 && estimated < 100);
 }
