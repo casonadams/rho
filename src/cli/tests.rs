@@ -77,3 +77,44 @@ async fn test_handle_command_mcp_lifecycle() {
     .await;
     assert!(res.is_ok());
 }
+
+#[tokio::test]
+async fn test_handle_command_models_with_model_store() {
+    use super::commands::{format_model_entries, handle_command};
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::Commands;
+    use rho_engine::provider::{DiscoveredModel, ModelStore};
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        provider: "gemini".to_string(),
+        model: "gemini-2.5-flash".to_string(),
+        ..Default::default()
+    };
+    let mut store = ModelStore::load(config.config_dir.join("models-store.json"));
+    store
+        .set_models(
+            "gemini",
+            vec![DiscoveredModel {
+                id: "gemini-3.6-flash".to_string(),
+                name: "Gemini 3.6 Flash".to_string(),
+                provider: "gemini".to_string(),
+                description: "1M ctx · live test".to_string(),
+                context_tokens: Some(1_000_000),
+            }],
+        )
+        .unwrap();
+
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+    let res = handle_command(Commands::Models, &config, &mut auth_store).await;
+    assert!(res.is_ok());
+
+    let formatted = format_model_entries(store.get_models("gemini").unwrap(), &config.model);
+    assert_eq!(formatted, vec!["  - gemini-3.6-flash (1M ctx · live test)"]);
+
+    let empty_formatted = format_model_entries(&[], "fallback-model");
+    assert_eq!(empty_formatted, vec!["  - fallback-model"]);
+}

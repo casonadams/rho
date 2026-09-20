@@ -147,4 +147,20 @@ async fn test_discover_fallbacks_when_offline_or_empty_key() {
     let gemini = super::fetch::discover_gemini_models("").await.unwrap();
     assert!(!gemini.is_empty());
     assert_eq!(gemini[0].provider, "gemini");
+    assert!(gemini.iter().any(|m| m.id == "gemini-2.5-flash"));
+}
+
+#[test]
+fn test_gemini_presets_use_active_models() {
+    let models = super::presets::gemini_preset_models();
+    let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"]);
+}
+
+#[test]
+fn test_default_presets_for_local_uses_latest_tag() {
+    let local = default_presets_for("local");
+    assert_eq!(local[0].id, "llama3.2:latest");
+    let ollama = default_presets_for("ollama");
+    assert_eq!(ollama[0].id, "llama3.2:latest");
 }

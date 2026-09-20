@@ -138,10 +138,14 @@ pub fn openai_preset_models() -> Vec<DiscoveredModel> {
 }
 
 const GEMINI_PRESETS: &[(&str, &str, &str, &str)] = &[
-    ("gemini-2.5-pro", "Gemini 2.5 Pro", "gemini", "2M ctx · reasoning"),
     ("gemini-2.5-flash", "Gemini 2.5 Flash", "gemini", "1M ctx · fast"),
-    ("gemini-2.0-flash", "Gemini 2.0 Flash", "gemini", "1M ctx · fast"),
-    ("gemini-1.5-pro", "Gemini 1.5 Pro", "gemini", "2M ctx · reasoning"),
+    ("gemini-2.5-pro", "Gemini 2.5 Pro", "gemini", "2M ctx · reasoning"),
+    (
+        "gemini-2.5-flash-lite",
+        "Gemini 2.5 Flash-Lite",
+        "gemini",
+        "1M ctx · ultra-fast",
+    ),
 ];
 
 pub fn gemini_preset_models() -> Vec<DiscoveredModel> {
@@ -311,7 +315,7 @@ pub fn default_presets_for(provider: &str) -> Vec<DiscoveredModel> {
     match provider {
         "ollama" | "local" => vec![DiscoveredModel {
             context_tokens: Some(131_072),
-            id: "llama3.2".to_string(),
+            id: "llama3.2:latest".to_string(),
             name: "Llama 3.2".to_string(),
             provider: "local".to_string(),
             description: "128k ctx · fast".to_string(),

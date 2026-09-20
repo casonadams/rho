@@ -29,7 +29,7 @@ async fn handle_basic_commands(
             Ok(true)
         }
         Commands::Models => {
-            handle_models(config);
+            handle_models(config, auth_store).await;
             Ok(true)
         }
         _ => Ok(false),
@@ -88,30 +88,23 @@ async fn handle_config(
     Ok(())
 }
 
-fn print_provider_models(provider: ProviderId, config_model: &str) {
-    match provider {
-        ProviderId::Anthropic => {
-            println!("  - claude-3-7-sonnet-20250219\n  - claude-3-5-sonnet-20241022\n  - claude-3-5-haiku-20241022");
-        }
-        ProviderId::OpenAi => println!("  - gpt-6-astra\n  - gpt-4o\n  - gpt-4o-mini\n  - o1\n  - o3-mini"),
-        ProviderId::Gemini => println!("  - gemini-2.0-flash\n  - gemini-1.5-pro\n  - gemini-1.5-flash"),
-        ProviderId::ChatGpt => {
-            for model in rho_engine::provider::discovery::chatgpt_codex_models() {
-                println!("  - {} ({})", model.id, model.description);
-            }
-        }
-        ProviderId::Antigravity => {
-            for model in rho_engine::provider::discovery::antigravity_preset_models() {
-                println!("  - {} ({})", model.id, model.description);
-            }
-        }
-        ProviderId::ClaudeCode => {
-            for model in rho_engine::provider::discovery::claude_preset_models() {
-                println!("  - {} ({})", model.id, model.description);
-            }
-        }
-        ProviderId::DeepSeek => println!("  - deepseek-chat\n  - deepseek-reasoner"),
-        _ => println!("  - {config_model}"),
+pub(crate) fn format_model_entries(
+    models: &[rho_engine::provider::DiscoveredModel],
+    fallback_model: &str,
+) -> Vec<String> {
+    if models.is_empty() {
+        vec![format!("  - {fallback_model}")]
+    } else {
+        models
+            .iter()
+            .map(|m| {
+                if m.description.is_empty() {
+                    format!("  - {}", m.id)
+                } else {
+                    format!("  - {} ({})", m.id, m.description)
+                }
+            })
+            .collect()
     }
 }
 
@@ -136,14 +129,28 @@ async fn handle_index_command(path: Option<String>, force: bool) -> Result<(), B
     Ok(())
 }
 
-fn handle_models(config: &Config) {
-    match ProviderId::from_str(&config.provider) {
-        Ok(provider) => {
-            println!("Models for {provider}:");
-            print_provider_models(provider, &config.model);
+async fn handle_models(config: &Config, auth_store: &AuthStore) {
+    let mut store = rho_engine::provider::ModelStore::load(config.config_dir.join("models-store.json"));
+    let cached = store.get_models(&config.provider).cloned();
+
+    let is_local = config.provider == "local" || config.provider == "ollama";
+    let models = if is_local || cached.is_none() {
+        if let Ok(provider_id) = ProviderId::from_str(&config.provider)
+            && let Ok(discovered) =
+                rho_engine::provider::discovery::discover_provider_models(provider_id, auth_store).await
+            && !discovered.is_empty()
+        {
+            let _ = store.set_models_async(&config.provider, discovered.clone()).await;
+            discovered
+        } else {
+            cached.unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(&config.provider))
         }
-        Err(_) => {
-            println!("Models for {} (custom):\n  - {}", config.provider, config.model);
-        }
+    } else {
+        cached.unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(&config.provider))
+    };
+
+    println!("Models for {}:", config.provider);
+    for line in format_model_entries(&models, &config.model) {
+        println!("{line}");
     }
 }

@@ -6,6 +6,7 @@ pub mod sse;
 pub mod store;
 
 pub use capabilities::supports_tool_result_images;
+pub use discovery::DiscoveredModel;
 pub use extras::provider_request_extras;
 pub use store::ModelStore;
 
