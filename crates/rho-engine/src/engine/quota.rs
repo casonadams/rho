@@ -142,6 +142,11 @@ impl AgentEngine {
         let fallback_key = QuotaKey::new(provider, None::<String>);
         self.quota.invalidate(&fallback_key);
     }
+
+    pub fn force_refresh_quota(&self) {
+        self.invalidate_quota();
+        self.spawn_refresh_quota();
+    }
 }
 
 async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {

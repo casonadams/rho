@@ -46,6 +46,24 @@ impl Default for QuotaTracker {
     }
 }
 
+fn is_entry_fetchable(entry: &QuotaEntry, now: Instant) -> bool {
+    if entry.in_flight
+        && let Some(since) = entry.in_flight_since
+        && now.duration_since(since) < IN_FLIGHT_TIMEOUT
+    {
+        return false;
+    }
+    if let Some(error_until) = entry.error_until
+        && now < error_until
+    {
+        return false;
+    }
+    match entry.fetched_at {
+        Some(fetched_at) => now.duration_since(fetched_at) >= ROUTINE_FETCH_COOLDOWN,
+        None => true,
+    }
+}
+
 impl QuotaTracker {
     pub fn should_fetch(&self, key: &QuotaKey) -> bool {
         let Ok(entries) = self.entries.lock() else {
@@ -54,22 +72,7 @@ impl QuotaTracker {
         let Some(entry) = entries.get(key) else {
             return true;
         };
-        let now = Instant::now();
-        if entry.in_flight
-            && let Some(since) = entry.in_flight_since
-            && now.duration_since(since) < IN_FLIGHT_TIMEOUT
-        {
-            return false;
-        }
-        if let Some(error_until) = entry.error_until
-            && now < error_until
-        {
-            return false;
-        }
-        match entry.fetched_at {
-            Some(fetched_at) => now.duration_since(fetched_at) >= ROUTINE_FETCH_COOLDOWN,
-            None => true,
-        }
+        is_entry_fetchable(entry, Instant::now())
     }
 
     pub fn begin_fetch(&self, key: &QuotaKey) -> bool {
@@ -78,20 +81,7 @@ impl QuotaTracker {
         };
         let now = Instant::now();
         let entry = entries.entry(key.clone()).or_default();
-        if entry.in_flight
-            && let Some(since) = entry.in_flight_since
-            && now.duration_since(since) < IN_FLIGHT_TIMEOUT
-        {
-            return false;
-        }
-        if let Some(error_until) = entry.error_until
-            && now < error_until
-        {
-            return false;
-        }
-        if let Some(fetched_at) = entry.fetched_at
-            && now.duration_since(fetched_at) < ROUTINE_FETCH_COOLDOWN
-        {
+        if !is_entry_fetchable(entry, now) {
             return false;
         }
         entry.in_flight = true;

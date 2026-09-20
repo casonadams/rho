@@ -34,8 +34,7 @@ pub(super) async fn cancel_active_turn<B: TerminalBackend>(
     crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::StatusChanged {
         status: "idle".to_string(),
     });
-    lp.engine.invalidate_quota();
-    lp.engine.spawn_refresh_quota();
+    lp.engine.force_refresh_quota();
     lp.batch.flush(lp.controller, false)
 }
 
@@ -62,8 +61,7 @@ pub(super) fn finish_active_turn<B: TerminalBackend>(
     reconcile_consumed_steering(lp.controller, &lp.steering);
     lp.session.renderer.flush();
     lp.batch.active_turn = false;
-    lp.engine.invalidate_quota();
-    lp.engine.spawn_refresh_quota();
+    lp.engine.force_refresh_quota();
     crate::platform::remote::set_active_steering(None);
     reset_controller_idle(lp.controller);
     sync_turn_footer(lp.controller, lp.engine);

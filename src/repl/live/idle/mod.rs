@@ -60,8 +60,7 @@ async fn next_idle_step(
             if res.is_ok() {
                 IdleSource::Tick(IdleTick::Quota)
             } else {
-                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-                IdleSource::Tick(IdleTick::Quota)
+                std::future::pending().await
             }
         }
         _ = ui.frame.tick() => IdleSource::Tick(IdleTick::Frame),

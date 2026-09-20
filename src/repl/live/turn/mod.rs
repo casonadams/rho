@@ -107,8 +107,7 @@ async fn next_turn_event(
             if res.is_ok() {
                 TurnEvent::QuotaUpdated
             } else {
-                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-                TurnEvent::QuotaUpdated
+                std::future::pending().await
             }
         }
         _ = periodic_quota.tick() => TurnEvent::QuotaPeriodic,
