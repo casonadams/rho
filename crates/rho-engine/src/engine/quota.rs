@@ -132,6 +132,16 @@ impl AgentEngine {
     pub fn quota_version(&self) -> u64 {
         self.quota.version()
     }
+
+    pub fn invalidate_quota(&self) {
+        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
+            return;
+        };
+        let key = QuotaKey::new(provider, Some(&self.config.model));
+        self.quota.invalidate(&key);
+        let fallback_key = QuotaKey::new(provider, None::<String>);
+        self.quota.invalidate(&fallback_key);
+    }
 }
 
 async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {

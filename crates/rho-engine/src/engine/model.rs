@@ -35,6 +35,7 @@ impl AgentEngine {
         self.context = ContextTracker::new(resolve_context_limit(&self.config));
 
         self.agent.write().await.set_model_handle(model_handle);
+        self.invalidate_quota();
         self.spawn_refresh_quota();
         Ok(())
     }

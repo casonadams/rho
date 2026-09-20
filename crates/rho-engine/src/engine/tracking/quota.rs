@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+const ROUTINE_FETCH_COOLDOWN: Duration = Duration::from_secs(30);
+const IN_FLIGHT_TIMEOUT: Duration = Duration::from_secs(30);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QuotaKey {
     pub provider: String,
@@ -54,7 +57,7 @@ impl QuotaTracker {
         let now = Instant::now();
         if entry.in_flight
             && let Some(since) = entry.in_flight_since
-            && now.duration_since(since) < Duration::from_secs(30)
+            && now.duration_since(since) < IN_FLIGHT_TIMEOUT
         {
             return false;
         }
@@ -64,7 +67,7 @@ impl QuotaTracker {
             return false;
         }
         match entry.fetched_at {
-            Some(fetched_at) => now.duration_since(fetched_at) >= Duration::from_secs(300),
+            Some(fetched_at) => now.duration_since(fetched_at) >= ROUTINE_FETCH_COOLDOWN,
             None => true,
         }
     }
@@ -77,7 +80,7 @@ impl QuotaTracker {
         let entry = entries.entry(key.clone()).or_default();
         if entry.in_flight
             && let Some(since) = entry.in_flight_since
-            && now.duration_since(since) < Duration::from_secs(30)
+            && now.duration_since(since) < IN_FLIGHT_TIMEOUT
         {
             return false;
         }
@@ -87,7 +90,7 @@ impl QuotaTracker {
             return false;
         }
         if let Some(fetched_at) = entry.fetched_at
-            && now.duration_since(fetched_at) < Duration::from_secs(300)
+            && now.duration_since(fetched_at) < ROUTINE_FETCH_COOLDOWN
         {
             return false;
         }
@@ -137,6 +140,15 @@ impl QuotaTracker {
 
     pub fn subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
         self.version_tx.subscribe()
+    }
+
+    pub fn invalidate(&self, key: &QuotaKey) {
+        if let Ok(mut entries) = self.entries.lock()
+            && let Some(entry) = entries.get_mut(key)
+        {
+            entry.fetched_at = None;
+            entry.error_until = None;
+        }
     }
 
     pub fn display_for(&self, key: &QuotaKey) -> Option<String> {

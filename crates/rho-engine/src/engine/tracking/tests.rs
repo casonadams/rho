@@ -91,6 +91,14 @@ fn quota_tracker_caching_and_backoff() {
     let tracker_fail = QuotaTracker::default();
     tracker_fail.record_failure(&key);
     assert!(!tracker_fail.should_fetch(&key));
+
+    tracker.invalidate(&key);
+    assert!(tracker.should_fetch(&key));
+    assert!(tracker.begin_fetch(&key));
+    assert!(!tracker.begin_fetch(&key));
+
+    tracker_fail.invalidate(&key);
+    assert!(tracker_fail.should_fetch(&key));
 }
 
 #[test]
