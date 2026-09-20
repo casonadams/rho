@@ -7,6 +7,34 @@ use super::{ContextTokenStats, estimate_message_tokens};
 
 pub const DEFAULT_CACHE_CAPACITY: usize = 2048;
 
+fn hash_document_source_kind(data: &rig::message::DocumentSourceKind, hasher: &mut impl Hasher) {
+    match data {
+        rig::message::DocumentSourceKind::Raw(bytes) => {
+            0u8.hash(hasher);
+            bytes.as_slice().hash(hasher);
+        }
+        rig::message::DocumentSourceKind::Base64(b64) => {
+            1u8.hash(hasher);
+            b64.as_str().hash(hasher);
+        }
+        rig::message::DocumentSourceKind::Url(url) => {
+            2u8.hash(hasher);
+            url.as_str().hash(hasher);
+        }
+        rig::message::DocumentSourceKind::FileId(id) => {
+            3u8.hash(hasher);
+            id.as_str().hash(hasher);
+        }
+        rig::message::DocumentSourceKind::String(s) => {
+            4u8.hash(hasher);
+            s.as_str().hash(hasher);
+        }
+        _ => {
+            255u8.hash(hasher);
+        }
+    }
+}
+
 fn hash_user_content_item(item: &UserContent, hasher: &mut impl Hasher) {
     match item {
         UserContent::Text(t) => {
@@ -18,39 +46,25 @@ fn hash_user_content_item(item: &UserContent, hasher: &mut impl Hasher) {
             r.call.to_string().hash(hasher);
             r.name.hash(hasher);
             for c in &r.content {
-                if let Some(txt) = c.as_text() {
-                    0u8.hash(hasher);
-                    txt.hash(hasher);
+                match c {
+                    rig::message::ToolResultContent::Text(t) => {
+                        0u8.hash(hasher);
+                        t.text.hash(hasher);
+                    }
+                    rig::message::ToolResultContent::Image(img) => {
+                        1u8.hash(hasher);
+                        hash_document_source_kind(&img.data, hasher);
+                    }
+                    rig::message::ToolResultContent::Json { value } => {
+                        2u8.hash(hasher);
+                        value.to_string().hash(hasher);
+                    }
                 }
             }
         }
         UserContent::Image(img) => {
             2u8.hash(hasher);
-            match &img.data {
-                rig::message::DocumentSourceKind::Raw(bytes) => {
-                    0u8.hash(hasher);
-                    bytes.as_slice().hash(hasher);
-                }
-                rig::message::DocumentSourceKind::Base64(b64) => {
-                    1u8.hash(hasher);
-                    b64.as_str().hash(hasher);
-                }
-                rig::message::DocumentSourceKind::Url(url) => {
-                    2u8.hash(hasher);
-                    url.as_str().hash(hasher);
-                }
-                rig::message::DocumentSourceKind::FileId(id) => {
-                    3u8.hash(hasher);
-                    id.as_str().hash(hasher);
-                }
-                rig::message::DocumentSourceKind::String(s) => {
-                    4u8.hash(hasher);
-                    s.as_str().hash(hasher);
-                }
-                _ => {
-                    255u8.hash(hasher);
-                }
-            }
+            hash_document_source_kind(&img.data, hasher);
         }
         _ => {
             255u8.hash(hasher);

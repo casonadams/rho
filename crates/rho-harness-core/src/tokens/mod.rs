@@ -132,12 +132,24 @@ fn estimate_user_content_tokens(item: &UserContent, model: &str) -> usize {
     match item {
         UserContent::Text(text) => estimate_text_tokens(&text.text, model),
         UserContent::Image(_) => ESTIMATED_IMAGE_TOKENS,
-        UserContent::ToolResult(result) => result
-            .content
-            .iter()
-            .filter_map(|c| c.as_text())
-            .map(|t| estimate_text_tokens(t, model))
-            .fold(0usize, |acc, n| acc.saturating_add(n)),
+        UserContent::ToolResult(result) => {
+            let mut total = 0usize;
+            for c in &result.content {
+                match c {
+                    rig::message::ToolResultContent::Text(text) => {
+                        total = total.saturating_add(estimate_text_tokens(&text.text, model));
+                    }
+                    rig::message::ToolResultContent::Image(_) => {
+                        total = total.saturating_add(ESTIMATED_IMAGE_TOKENS);
+                    }
+                    rig::message::ToolResultContent::Json { value } => {
+                        let text = value.to_string();
+                        total = total.saturating_add(estimate_text_tokens(&text, model));
+                    }
+                }
+            }
+            total
+        }
         _ => 0,
     }
 }

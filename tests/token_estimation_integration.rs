@@ -102,3 +102,22 @@ fn test_cut_point_preserves_tool_pairs() {
     let cut = find_token_cut_point(&messages, 10, "gpt-4");
     assert!(cut.cut_index <= 1);
 }
+
+#[test]
+fn test_tool_result_image_token_estimation() {
+    use rho::tokens::{ESTIMATED_IMAGE_TOKENS, estimate_message_tokens};
+
+    let msg = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("c1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(rig::message::Text::new("Read image file")),
+                ToolResultContent::image_base64("data", None, None),
+            ],
+        })],
+    };
+    let tokens = estimate_message_tokens(&msg, "claude-3-7-sonnet");
+    assert!(tokens >= ESTIMATED_IMAGE_TOKENS);
+}

@@ -45,6 +45,40 @@ fn test_estimate_image_tokens() {
 }
 
 #[test]
+fn test_estimate_tool_result_image_tokens() {
+    let unpruned_msg = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("call-1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(rig::message::Text::new("Read image file [image/png]")),
+                ToolResultContent::image_base64("iVBORw0KGgo=", None, None),
+            ],
+        })],
+    };
+    let unpruned_tokens = estimate_message_tokens(&unpruned_msg, "claude-3-7-sonnet");
+    let text_tokens = estimate_text_tokens("Read image file [image/png]", "claude-3-7-sonnet");
+    assert_eq!(
+        unpruned_tokens,
+        text_tokens + ESTIMATED_IMAGE_TOKENS + DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE
+    );
+
+    let pruned_msg = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("call-1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![ToolResultContent::Text(rig::message::Text::new(
+                "[Image 'foo.png' (image/png) read. Image content pruned for historical turn.]",
+            ))],
+        })],
+    };
+    let pruned_tokens = estimate_message_tokens(&pruned_msg, "claude-3-7-sonnet");
+    assert!(unpruned_tokens > pruned_tokens + 1100);
+}
+
+#[test]
 fn test_estimate_message_tokens() {
     let msg = Message::User {
         content: vec![
@@ -304,6 +338,46 @@ fn test_hash_message_image_efficiency() {
     assert_eq!(hash1, hash2);
     assert_ne!(hash1, hash3);
     assert_ne!(hash1, hash4);
+}
+
+#[test]
+fn test_hash_message_tool_result_image() {
+    let msg1 = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("call-1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(rig::message::Text::new("Read image")),
+                ToolResultContent::image_base64("data1", None, None),
+            ],
+        })],
+    };
+    let msg2 = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("call-1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(rig::message::Text::new("Read image")),
+                ToolResultContent::image_base64("data1", None, None),
+            ],
+        })],
+    };
+    let msg3 = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("call-1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(rig::message::Text::new("Read image")),
+                ToolResultContent::image_base64("data2", None, None),
+            ],
+        })],
+    };
+
+    assert_eq!(hash_message(&msg1, "gpt-4o"), hash_message(&msg2, "gpt-4o"));
+    assert_ne!(hash_message(&msg1, "gpt-4o"), hash_message(&msg3, "gpt-4o"));
 }
 
 #[test]
