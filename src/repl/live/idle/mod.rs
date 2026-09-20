@@ -23,22 +23,16 @@ struct IdleUi {
     batch: LiveBatch,
     frame: tokio::time::Interval,
     quota_rx: tokio::sync::watch::Receiver<u64>,
-    periodic_quota: tokio::time::Interval,
 }
-
-const QUOTA_REFRESH_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl IdleUi {
     fn new(engine: &crate::engine::AgentEngine) -> Self {
         let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
         frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut periodic_quota = tokio::time::interval(QUOTA_REFRESH_CHECK_INTERVAL);
-        periodic_quota.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         Self {
             batch: LiveBatch::new(),
             frame,
             quota_rx: engine.quota_subscribe(),
-            periodic_quota,
         }
     }
 }
@@ -71,7 +65,6 @@ async fn next_idle_step(
             }
         }
         _ = ui.frame.tick() => IdleSource::Tick(IdleTick::Frame),
-        _ = ui.periodic_quota.tick() => IdleSource::Tick(IdleTick::Quota),
         Some(event) = ui_events.recv() => IdleSource::Tick(IdleTick::Ui(event)),
     }
 }
@@ -136,9 +129,6 @@ async fn handle_tick<B: TerminalBackend>(
             }
         }
         IdleTick::Quota => {
-            if ctx.engine.should_refresh_quota() {
-                ctx.engine.spawn_refresh_quota();
-            }
             sync_idle_quota(controller, batch, ctx.engine)?;
         }
         IdleTick::Ui(event) => {
