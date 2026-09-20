@@ -66,3 +66,75 @@ async fn force_refresh_missing_refresh_token_fails() {
     let err = store.force_refresh("antigravity").await.unwrap_err();
     assert!(err.to_string().contains("No refresh token") || err.to_string().contains("expired"));
 }
+
+#[test]
+fn loads_auth_file_with_utf8_bom() {
+    let file = NamedTempFile::new().unwrap();
+    let path = file.path();
+    let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"gemini\": \"key-gemini-456\"}";
+    std::fs::write(path, bom_content).unwrap();
+
+    let mut store = AuthStore::load(path).unwrap();
+    assert_eq!(
+        store.get_key_sync("claude").unwrap().as_deref(),
+        Some("token-claude-123")
+    );
+    assert_eq!(store.get_key_sync("gemini").unwrap().as_deref(), Some("key-gemini-456"));
+
+    // Removing gemini should preserve claude, not truncate to empty
+    store.remove_key("gemini").unwrap();
+
+    let reloaded = AuthStore::load(path).unwrap();
+    assert_eq!(
+        reloaded.get_key_sync("claude").unwrap().as_deref(),
+        Some("token-claude-123")
+    );
+    assert_eq!(reloaded.get_key_sync("gemini").unwrap(), None);
+}
+
+#[test]
+fn unparseable_non_empty_auth_file_fails_closed() {
+    let file = NamedTempFile::new().unwrap();
+    let path = file.path();
+    std::fs::write(path, "{ corrupt json ...").unwrap();
+
+    let result = AuthStore::load(path);
+    assert!(result.is_err(), "Loading corrupt auth file must fail closed");
+}
+
+#[tokio::test]
+async fn loads_auth_file_with_utf8_bom_async() {
+    let file = NamedTempFile::new().unwrap();
+    let path = file.path();
+    let bom_content = "\u{FEFF}{\"claude\": \"token-claude-123\", \"gemini\": \"key-gemini-456\"}";
+    std::fs::write(path, bom_content).unwrap();
+
+    let mut store = AuthStore::load_async(path).await.unwrap();
+    assert_eq!(
+        store.get_key("claude").await.unwrap().as_deref(),
+        Some("token-claude-123")
+    );
+    assert_eq!(
+        store.get_key("gemini").await.unwrap().as_deref(),
+        Some("key-gemini-456")
+    );
+
+    store.remove_key_async("gemini").await.unwrap();
+
+    let mut reloaded = AuthStore::load_async(path).await.unwrap();
+    assert_eq!(
+        reloaded.get_key("claude").await.unwrap().as_deref(),
+        Some("token-claude-123")
+    );
+    assert_eq!(reloaded.get_key("gemini").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn unparseable_non_empty_auth_file_fails_closed_async() {
+    let file = NamedTempFile::new().unwrap();
+    let path = file.path();
+    std::fs::write(path, "{ corrupt json ...").unwrap();
+
+    let result = AuthStore::load_async(path).await;
+    assert!(result.is_err(), "Loading corrupt auth file must fail closed");
+}
