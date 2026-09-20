@@ -114,8 +114,8 @@ hide_thinking = false
 # Expand tool output cards by default (default: false)
 tools_expanded = false
 
-# Cursor rendering: "software" (default, reverse-video block) or "hardware" (native terminal cursor)
-cursor = "software"
+# Cursor rendering: "hardware" (default, native terminal cursor) or "software" (reverse-video block)
+cursor = "hardware"
 
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks

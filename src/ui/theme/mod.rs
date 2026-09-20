@@ -24,8 +24,8 @@ pub enum BlockStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorMode {
     #[default]
-    Software,
     Hardware,
+    Software,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -214,7 +214,7 @@ impl Default for Theme {
             bash_success_border: grey,
             bash_error_border: foreground(AnsiColor::Red),
             block_agent_output: false,
-            cursor_mode: CursorMode::Software,
+            cursor_mode: CursorMode::Hardware,
         }
     }
 }

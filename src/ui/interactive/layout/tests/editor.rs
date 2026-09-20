@@ -23,7 +23,7 @@ fn empty_editor_layout(width: usize) -> crate::ui::interactive::layout::Interact
 #[test]
 fn empty_editor_has_one_line_and_fixed_chrome() {
     let layout = empty_editor_layout(8);
-    assert_eq!(layout.editor_lines, ["\x1b[7m \x1b[27m"]);
+    assert_eq!(layout.editor_lines, [""]);
     let actual = (
         layout.top_divider.as_str(),
         layout.footer_lines.len(),
@@ -56,7 +56,7 @@ fn explicit_newlines_grow_the_editor() {
         focused: true,
     });
 
-    assert_eq!(layout.editor_lines, ["one", "two", "\x1b[7m \x1b[27m"]);
+    assert_eq!(layout.editor_lines, ["one", "two", ""]);
     assert_eq!(layout.cursor, CursorPosition { row: 2, column: 0 });
     assert_eq!(layout.height(), 8);
 }
@@ -250,7 +250,7 @@ fn soft_wrap_uses_display_width_for_wide_unicode() {
         focused: true,
     });
 
-    assert_eq!(layout.editor_lines, ["ab界", "c\x1b[7m \x1b[27m"]);
+    assert_eq!(layout.editor_lines, ["ab界", "c"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 1 });
 }
 
@@ -276,7 +276,7 @@ fn cursor_tracks_insertion_position_across_wrapped_lines() {
         focused: true,
     });
 
-    assert_eq!(layout.editor_lines, ["abc", "d\x1b[7me\x1b[27mf"]);
+    assert_eq!(layout.editor_lines, ["abc", "def"]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 1 });
 }
 
@@ -300,7 +300,7 @@ fn full_final_line_adds_a_cursor_line() {
         focused: true,
     });
 
-    assert_eq!(layout.editor_lines, ["界", "\x1b[7m \x1b[27m"]);
+    assert_eq!(layout.editor_lines, ["界", ""]);
     assert_eq!(layout.cursor, CursorPosition { row: 1, column: 0 });
 }
 
@@ -338,6 +338,10 @@ fn software_cursor_rendering_cases() {
 fn unfocused_editor_suppresses_software_cursor() {
     let mut editor = EditorState::default();
     editor.set_text("hello");
+    let software_theme = crate::ui::theme::Theme {
+        cursor_mode: crate::ui::theme::CursorMode::Software,
+        ..Default::default()
+    };
 
     let focused = layout(LayoutInput {
         editor: &editor,
@@ -350,7 +354,7 @@ fn unfocused_editor_suppresses_software_cursor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
-        theme: None,
+        theme: Some(&software_theme),
         focused: true,
     });
     assert!(focused.cursor_visible);
@@ -367,7 +371,7 @@ fn unfocused_editor_suppresses_software_cursor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
-        theme: None,
+        theme: Some(&software_theme),
         focused: false,
     });
     assert!(!unfocused.cursor_visible);

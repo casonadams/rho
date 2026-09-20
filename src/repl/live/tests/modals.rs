@@ -104,10 +104,10 @@ fn settings_selector_modal_toggles_cursor_mode() {
     assert_eq!(
         res,
         super::super::modal::ModalKeyResult::CursorToggled {
-            cursor: "hardware".to_string()
+            cursor: "software".to_string()
         }
     );
-    assert_eq!(controller.cursor_mode(), crate::ui::theme::CursorMode::Hardware);
+    assert_eq!(controller.cursor_mode(), crate::ui::theme::CursorMode::Software);
 }
 
 #[test]

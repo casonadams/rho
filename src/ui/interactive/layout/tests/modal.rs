@@ -812,6 +812,11 @@ fn test_unfocused_modal_suppresses_software_cursor() {
     let ed = EditorState::default();
     let ft = FooterState::default();
 
+    let software_theme = crate::ui::theme::Theme {
+        cursor_mode: crate::ui::theme::CursorMode::Software,
+        ..Default::default()
+    };
+
     let focused = layout(LayoutInput {
         editor: &ed,
         modal: Some(&modal),
@@ -823,7 +828,7 @@ fn test_unfocused_modal_suppresses_software_cursor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
-        theme: None,
+        theme: Some(&software_theme),
         focused: true,
     });
     assert!(focused.cursor_visible);
@@ -840,7 +845,7 @@ fn test_unfocused_modal_suppresses_software_cursor() {
         terminal_width: 80,
         terminal_height: 24,
         spinner_frame: 0,
-        theme: None,
+        theme: Some(&software_theme),
         focused: false,
     });
     assert!(!unfocused.cursor_visible);

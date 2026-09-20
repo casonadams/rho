@@ -3,7 +3,7 @@ use crate::ui::interactive::InteractiveState;
 use crate::ui::interactive::controller::TerminalController;
 
 #[test]
-fn construction_positions_and_hides_the_hardware_cursor() {
+fn construction_positions_and_shows_the_hardware_cursor() {
     let (backend, operations, _) = FakeTerminal::new(10);
 
     let _controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
@@ -14,23 +14,25 @@ fn construction_positions_and_hides_the_hardware_cursor() {
         .rposition(|operation| operation == &Operation::Flush)
         .unwrap();
     assert!(operations[..flush_index].contains(&Operation::Hide));
-    assert!(!operations.contains(&Operation::Show));
+    let show_index = operations.iter().rposition(|op| op == &Operation::Show).unwrap();
+    assert!(show_index < flush_index);
 }
 
 #[test]
-fn hardware_cursor_mode_shows_cursor_on_redraw() {
+fn software_cursor_mode_hides_the_hardware_cursor_on_redraw() {
     let (backend, operations, _) = FakeTerminal::new(10);
     let mut controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
     operations.borrow_mut().clear();
 
     controller
-        .set_cursor_mode(crate::ui::theme::CursorMode::Hardware)
+        .set_cursor_mode(crate::ui::theme::CursorMode::Software)
         .unwrap();
 
     let ops = operations.borrow();
-    let show_index = ops.iter().rposition(|op| op == &Operation::Show).unwrap();
+    let hide_index = ops.iter().rposition(|op| op == &Operation::Hide).unwrap();
     let flush_index = ops.iter().rposition(|op| op == &Operation::Flush).unwrap();
-    assert!(show_index < flush_index);
+    assert!(hide_index < flush_index);
+    assert!(!ops.contains(&Operation::Show));
 }
 
 #[test]

@@ -156,7 +156,7 @@ fn toggle_selected_setting<B: TerminalBackend>(
         7 => {
             let next = controller
                 .toggle_cursor_mode()
-                .unwrap_or(crate::ui::theme::CursorMode::Software);
+                .unwrap_or(crate::ui::theme::CursorMode::Hardware);
             let label = match next {
                 crate::ui::theme::CursorMode::Software => "Software",
                 crate::ui::theme::CursorMode::Hardware => "Hardware",

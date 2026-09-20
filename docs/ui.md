@@ -158,8 +158,8 @@ hide_thinking = false
 # Expand tool output cards by default (default: false)
 tools_expanded = false
 
-# Cursor rendering: "software" (default, reverse-video block) or "hardware" (native terminal cursor)
-cursor = "software"
+# Cursor rendering: "hardware" (default, native terminal cursor) or "software" (reverse-video block)
+cursor = "hardware"
 
 # Border colors (ANSI color names or "#rrggbb" hex; user defaults to "blue", others to "gray")
 user_border = "blue"           # User prompt blocks
@@ -226,20 +226,19 @@ set -g focus-events on
 
 ### Native Hardware Cursor vs. Software Cursor
 
-`rho` defaults to a software reverse-video block cursor (`cursor = "software"`),
-which remains 100% flicker-free even on terminals that do not support Mode 2026
-or in multiplexers without synchronized rendering.
+`rho` defaults to the native hardware cursor (`cursor = "hardware"`). This
+preserves your terminal emulator's native cursor shape (beam `|`, underline `_`,
+or block `█`), custom colors, blink preferences, screen-reader accessibility,
+and IME candidate popup positioning across modern terminals (Alacritty, Kitty,
+Ghostty, WezTerm, iTerm2, and Windows Terminal).
 
-If your terminal emulator and `tmux` have `sync` enabled (or you run directly in
-modern terminals like Alacritty, Kitty, Ghostty, or iTerm2), you can switch to
-the native hardware cursor:
+If you prefer a retro reverse-video block cursor or are running in an
+environment that does not support synchronized updates, you can switch to
+software cursor mode:
 
 ```toml
 [ui]
-cursor = "hardware"
+cursor = "software"
 ```
 
-(or toggle it interactively in `/settings` under **Cursor Style**). Hardware
-cursor mode preserves your terminal emulator's native cursor shape (beam `|`,
-underline `_`, or block `█`), custom blink settings, and IME candidate popup
-positioning.
+(or toggle it interactively in `/settings` under **Cursor Style**).

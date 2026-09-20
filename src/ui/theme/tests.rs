@@ -149,16 +149,16 @@ fn parse_color_handles_names_and_hex() {
 fn apply_ui_config_configures_border_mode_and_colors() {
     let mut theme = Theme::default();
     assert_eq!(theme.block_style, super::BlockStyle::Border);
-    assert_eq!(theme.cursor_mode, super::CursorMode::Software);
+    assert_eq!(theme.cursor_mode, super::CursorMode::Hardware);
 
     let ui_solid = rho_harness_core::config::UiConfig {
         block_style: Some("solid".into()),
-        cursor: Some("hardware".into()),
+        cursor: Some("software".into()),
         ..Default::default()
     };
     theme.apply_ui_config(&ui_solid);
     assert_eq!(theme.block_style, super::BlockStyle::Solid);
-    assert_eq!(theme.cursor_mode, super::CursorMode::Hardware);
+    assert_eq!(theme.cursor_mode, super::CursorMode::Software);
 
     let ui = rho_harness_core::config::UiConfig {
         block_style: Some("border".into()),
