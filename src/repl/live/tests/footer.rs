@@ -136,3 +136,41 @@ async fn switch_model_preserves_or_updates_quota_immediately() {
     update_footer(&mut state, &session, &engine);
     assert_eq!(state.footer().quota, Some("30% 2d19h".to_string()));
 }
+
+#[tokio::test]
+async fn sync_turn_footer_updates_quota_and_detects_changes() {
+    let (engine, _session, _temp) = test_quota_harness().await;
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    assert!(sync_turn_footer(&mut controller, &engine));
+    assert_eq!(controller.state().footer().quota, None);
+    assert!(!sync_turn_footer(&mut controller, &engine));
+
+    let key = rho_engine::engine::tracking::QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    engine.quota().record_success(&key, "75% (1h30m)".to_string());
+
+    assert!(sync_turn_footer(&mut controller, &engine));
+    assert_eq!(controller.state().footer().quota, Some("75% (1h30m)".to_string()));
+    assert!(!sync_turn_footer(&mut controller, &engine));
+}
+
+#[tokio::test]
+async fn sync_idle_quota_updates_footer_when_quota_arrives_in_background() {
+    let (engine, _session, _temp) = test_quota_harness().await;
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let mut batch = crate::repl::live::batch::LiveBatch::new();
+
+    let updated = crate::repl::live::idle::sync_idle_quota(&mut controller, &mut batch, &engine).unwrap();
+    assert!(!updated);
+    assert_eq!(controller.state().footer().quota, None);
+
+    let key = rho_engine::engine::tracking::QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+    engine.quota().record_success(&key, "88% (2h45m)".to_string());
+
+    let updated = crate::repl::live::idle::sync_idle_quota(&mut controller, &mut batch, &engine).unwrap();
+    assert!(updated);
+    assert_eq!(controller.state().footer().quota, Some("88% (2h45m)".to_string()));
+
+    let updated_again = crate::repl::live::idle::sync_idle_quota(&mut controller, &mut batch, &engine).unwrap();
+    assert!(!updated_again);
+}

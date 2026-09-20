@@ -122,6 +122,27 @@ fn quota_tracker_fallback_and_failure_isolation() {
     assert!(!tracker.should_fetch(&ollama_key));
 }
 
+#[tokio::test]
+async fn quota_tracker_begin_fetch_and_notification() {
+    let tracker = QuotaTracker::default();
+    let key = QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+
+    assert!(tracker.should_fetch(&key));
+    assert!(tracker.begin_fetch(&key));
+    assert!(!tracker.should_fetch(&key));
+    assert!(!tracker.begin_fetch(&key));
+
+    let mut rx = tracker.subscribe();
+    assert_eq!(*rx.borrow_and_update(), 0);
+
+    tracker.record_success(&key, "90% (4h)".to_string());
+    assert!(rx.changed().await.is_ok());
+    assert_eq!(*rx.borrow(), 1);
+    assert_eq!(tracker.display_for(&key), Some("90% (4h)".to_string()));
+    assert!(!tracker.should_fetch(&key));
+    assert!(!tracker.begin_fetch(&key));
+}
+
 #[test]
 fn usage_tracker_in_flight_streaming() {
     let tracker = UsageTracker::default();

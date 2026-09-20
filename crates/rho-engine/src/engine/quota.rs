@@ -116,11 +116,27 @@ impl AgentEngine {
     pub fn quota(&self) -> &QuotaTracker {
         &self.quota
     }
+
+    pub fn should_refresh_quota(&self) -> bool {
+        let Some(provider) = canonical_quota_provider(&self.config.provider) else {
+            return false;
+        };
+        let key = QuotaKey::new(provider, Some(&self.config.model));
+        self.quota.should_fetch(&key)
+    }
+
+    pub fn quota_subscribe(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.quota.subscribe()
+    }
+
+    pub fn quota_version(&self) -> u64 {
+        self.quota.version()
+    }
 }
 
 async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {
     let key = QuotaKey::new("ollama-cloud", None::<String>);
-    if !quota.should_fetch(&key) {
+    if !quota.begin_fetch(&key) {
         return;
     }
     let token = auth_store.lock().await.get_key("ollama-cloud").await.ok().flatten();
@@ -152,7 +168,7 @@ async fn do_refresh_antigravity_quota(
     target_model: String,
 ) {
     let key = QuotaKey::new("antigravity", Some(&target_model));
-    if !quota.should_fetch(&key) {
+    if !quota.begin_fetch(&key) {
         return;
     }
     let Some((token, project_id)) = resolve_antigravity_credentials(&auth_store).await else {
@@ -191,7 +207,7 @@ async fn resolve_chatgpt_credentials(auth_store: &tokio::sync::Mutex<AuthStore>)
 
 async fn do_refresh_chatgpt_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>, quota: QuotaTracker) {
     let key = QuotaKey::new("chatgpt", None::<String>);
-    if !quota.should_fetch(&key) {
+    if !quota.begin_fetch(&key) {
         return;
     }
     let Some((token, account_id)) = resolve_chatgpt_credentials(&auth_store).await else {
@@ -222,7 +238,7 @@ async fn do_refresh_claude_quota(
     target_model: String,
 ) {
     let key = QuotaKey::new("claude", Some(&target_model));
-    if !quota.should_fetch(&key) {
+    if !quota.begin_fetch(&key) {
         return;
     }
     let token = auth_store.lock().await.get_key("claude").await.ok().flatten();
@@ -254,7 +270,7 @@ async fn do_refresh_gemini_quota(
     quota: QuotaTracker,
 ) {
     let key = QuotaKey::new("gemini", Some(target_model));
-    if !quota.should_fetch(&key) {
+    if !quota.begin_fetch(&key) {
         return;
     }
     if let Some(display) = crate::gemini::fetch_quota(sessions_dir, current_session_id, &totals, target_model).await {

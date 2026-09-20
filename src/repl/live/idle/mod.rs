@@ -22,21 +22,30 @@ pub(crate) struct LiveIdleContext<'a, 'b> {
 struct IdleUi {
     batch: LiveBatch,
     frame: tokio::time::Interval,
+    quota_rx: tokio::sync::watch::Receiver<u64>,
+    periodic_quota: tokio::time::Interval,
 }
 
+const QUOTA_REFRESH_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl IdleUi {
-    fn new() -> Self {
+    fn new(engine: &crate::engine::AgentEngine) -> Self {
         let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
         frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut periodic_quota = tokio::time::interval(QUOTA_REFRESH_CHECK_INTERVAL);
+        periodic_quota.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         Self {
             batch: LiveBatch::new(),
             frame,
+            quota_rx: engine.quota_subscribe(),
+            periodic_quota,
         }
     }
 }
 
 enum IdleTick {
     Frame,
+    Quota,
     Ui(crate::ui::interactive::UiEvent),
 }
 
@@ -46,15 +55,53 @@ enum IdleSource {
 }
 
 async fn next_idle_step(
-    frame: &mut tokio::time::Interval,
+    ui: &mut IdleUi,
     input: &mut super::TerminalInputReader,
-    ui: &mut UiEventReceiver,
+    ui_events: &mut UiEventReceiver,
 ) -> IdleSource {
     tokio::select! {
         biased;
         event = input.recv() => IdleSource::Input(event),
-        _ = frame.tick() => IdleSource::Tick(IdleTick::Frame),
-        Some(event) = ui.recv() => IdleSource::Tick(IdleTick::Ui(event)),
+        res = ui.quota_rx.changed() => {
+            if res.is_ok() {
+                IdleSource::Tick(IdleTick::Quota)
+            } else {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+                IdleSource::Tick(IdleTick::Quota)
+            }
+        }
+        _ = ui.frame.tick() => IdleSource::Tick(IdleTick::Frame),
+        _ = ui.periodic_quota.tick() => IdleSource::Tick(IdleTick::Quota),
+        Some(event) = ui_events.recv() => IdleSource::Tick(IdleTick::Ui(event)),
+    }
+}
+
+pub(crate) fn sync_idle_quota<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    batch: &mut LiveBatch,
+    engine: &crate::engine::AgentEngine,
+) -> Result<bool> {
+    let quota = engine.quota_display();
+    if controller.state().footer().quota != quota {
+        controller.state_mut().footer_mut().quota = quota.clone();
+        if crate::platform::remote::is_remote_active() {
+            let totals = engine.session_usage_totals();
+            crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::UsageUpdate {
+                input_tokens: Some(totals.total_input),
+                output_tokens: Some(totals.total_output),
+                cache_read_tokens: Some(totals.total_cache_read),
+                cache_write_tokens: Some(totals.total_cache_write),
+                total_cost: None,
+                context_percent: engine.context_percent_f64(),
+                context_window: engine.context_limit(),
+                tokens_per_second: engine.tokens_per_second(),
+                quota,
+            });
+        }
+        batch.flush(controller, true)?;
+        Ok(true)
+    } else {
+        Ok(false)
     }
 }
 
@@ -79,9 +126,20 @@ async fn handle_tick<B: TerminalBackend>(
             if resized {
                 ctx.session.renderer.set_width(controller.width());
             }
-            if !batch.ui.is_empty() || expired || resized {
-                batch.flush(controller, expired || resized)?;
+            let quota = ctx.engine.quota_display();
+            let quota_changed = controller.state().footer().quota != quota;
+            if quota_changed {
+                controller.state_mut().footer_mut().quota = quota;
             }
+            if !batch.ui.is_empty() || expired || resized || quota_changed {
+                batch.flush(controller, expired || resized || quota_changed)?;
+            }
+        }
+        IdleTick::Quota => {
+            if ctx.engine.should_refresh_quota() {
+                ctx.engine.spawn_refresh_quota();
+            }
+            sync_idle_quota(controller, batch, ctx.engine)?;
         }
         IdleTick::Ui(event) => {
             handle_ui_event(controller, batch, event).await?;
@@ -113,9 +171,9 @@ async fn drive_idle_loop<B: TerminalBackend>(
     resources: &mut EditorResources<'_>,
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<Option<QueuedMessage>> {
-    let mut ui = IdleUi::new();
+    let mut ui = IdleUi::new(ctx.engine);
     loop {
-        match next_idle_step(&mut ui.frame, input, ui_events).await {
+        match next_idle_step(&mut ui, input, ui_events).await {
             IdleSource::Tick(tick) => {
                 handle_tick(controller, &mut ui.batch, tick, ctx).await?;
                 if let Some(prompt) = crate::platform::remote::REMOTE_PROMPT_QUEUE.pop() {

@@ -88,6 +88,11 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
         footer.thinking_level = engine.config.thinking_level.clone();
         changed = true;
     }
+    let quota = engine.quota_display();
+    if footer.quota != quota {
+        footer.quota = quota;
+        changed = true;
+    }
     let remote_active = crate::platform::remote::is_remote_active();
     let remote_peers = crate::platform::remote::remote_peer_count();
     if footer.remote_active != remote_active || footer.remote_peers != remote_peers {
