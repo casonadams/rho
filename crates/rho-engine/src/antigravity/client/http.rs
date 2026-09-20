@@ -5,11 +5,11 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-pub const DEFAULT_ENDPOINT: &str = "https://daily-cloudcode-pa.googleapis.com";
+pub const DEFAULT_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";
 pub const ENDPOINT_CANDIDATES: [&str; 3] = [
     DEFAULT_ENDPOINT,
+    "https://daily-cloudcode-pa.googleapis.com",
     "https://daily-cloudcode-pa.sandbox.googleapis.com",
-    "https://cloudcode-pa.googleapis.com",
 ];
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
@@ -110,13 +110,31 @@ pub(super) fn friendly_error(status: Option<u16>, body: &str) -> String {
     let message = parse_error_message(body);
     match status {
         Some(code) => format_status_error(code, &message),
-        None => format!("Antigravity request failed: {message}"),
+        None => {
+            let clean = message.strip_prefix("Antigravity request failed: ").unwrap_or(&message);
+            format!("Antigravity request failed: {clean}")
+        }
     }
+}
+
+pub fn resolve_endpoints(explicit: Option<&str>) -> Vec<String> {
+    if let Some(endpoint) = explicit {
+        return vec![endpoint.to_string()];
+    }
+    for var in ["ANTIGRAVITY_ENDPOINT", "ANTIGRAVITY_BASE_URL"] {
+        if let Ok(val) = std::env::var(var) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                return vec![trimmed.to_string()];
+            }
+        }
+    }
+    ENDPOINT_CANDIDATES.iter().map(|&s| s.to_string()).collect()
 }
 
 /// POST a Cloud Code Assist metadata endpoint, trying endpoint candidates.
 pub(crate) async fn post_metadata(path: &str, token: &str, body: serde_json::Value) -> Option<serde_json::Value> {
-    for endpoint in ENDPOINT_CANDIDATES {
+    for endpoint in resolve_endpoints(None) {
         let response = http_client()
             .post(format!("{endpoint}{path}"))
             .headers(antigravity_headers(token))

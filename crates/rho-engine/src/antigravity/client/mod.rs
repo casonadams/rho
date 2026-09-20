@@ -19,7 +19,7 @@ mod tests;
 
 pub use discovery::{discover_models, is_selectable_runtime_model, load_project_id};
 pub(crate) use http::post_metadata;
-pub use http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, http_client};
+pub use http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, http_client, resolve_endpoints};
 pub use token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 
 /// One (endpoint, project, runtime-model) routing combination for a stream POST.
@@ -90,7 +90,7 @@ async fn try_post_stream_refresh(
     res
 }
 
-fn classify_stream_error(
+pub(super) fn classify_stream_error(
     res: Result<reqwest::Response, (Option<u16>, String)>,
     last: &mut Option<(Option<u16>, String)>,
 ) -> Option<Result<reqwest::Response, (Option<u16>, String)>> {
@@ -99,6 +99,10 @@ fn classify_stream_error(
         Err((Some(429), body)) if body.contains("Individual quota reached") => Some(Err((Some(429), body))),
         Err((Some(status), body)) if [403, 404, 429, 500, 502, 503, 504].contains(&status) => {
             *last = Some((Some(status), body));
+            None
+        }
+        Err((None, body)) => {
+            *last = Some((None, body));
             None
         }
         Err(other) => Some(Err(other)),
@@ -180,7 +184,7 @@ impl AntigravityClient {
             .body(body.to_string())
             .send()
             .await
-            .map_err(|e| (None, format!("Antigravity request failed: {e}")))?;
+            .map_err(|e| (None, e.to_string()))?;
         let status = response.status();
         if status.is_success() {
             return Ok(response);
@@ -189,7 +193,7 @@ impl AntigravityClient {
         Err((Some(status.as_u16()), text))
     }
 
-    async fn try_candidates(
+    pub(super) async fn try_candidates(
         &self,
         (candidates, endpoints): (Vec<String>, &[&str]),
         (token, refreshed, request): (&mut String, &mut bool, &CompletionRequest),
@@ -219,12 +223,10 @@ impl AntigravityClient {
             .await
             .map_err(|e| (None, format!("Failed to acquire Antigravity access token: {e}")))?;
         let candidates = resolve_candidate_models(&self.model, self.effort);
-        let endpoints = self
-            .endpoint
-            .as_deref()
-            .map_or_else(|| ENDPOINT_CANDIDATES.to_vec(), |c| vec![c]);
+        let endpoints = resolve_endpoints(self.endpoint.as_deref());
+        let endpoint_refs: Vec<&str> = endpoints.iter().map(|s| s.as_str()).collect();
         let mut refreshed = false;
-        self.try_candidates((candidates, &endpoints), (&mut token, &mut refreshed, request))
+        self.try_candidates((candidates, &endpoint_refs), (&mut token, &mut refreshed, request))
             .await
     }
 

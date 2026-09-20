@@ -1,6 +1,7 @@
 use super::super::AntigravityClient;
+use super::classify_stream_error;
 use super::discovery::{extract_project_id, is_selectable_runtime_model};
-use super::http::{antigravity_headers, friendly_error};
+use super::http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, friendly_error, resolve_endpoints};
 use crate::auth::TokenProvider;
 use rig::completion::CompletionRequest;
 
@@ -109,6 +110,11 @@ fn friendly_error_formats_server_and_network_error_cases() {
             None,
             "Connection closed",
             "Antigravity request failed: Connection closed",
+        ),
+        (
+            None,
+            "Antigravity request failed: timeout",
+            "Antigravity request failed: timeout",
         ),
     ];
     for (status, body, expected) in cases {
@@ -238,4 +244,87 @@ async fn open_stream_fails_immediately_if_refresh_fails() {
             .with_endpoint(format!("http://{addr}"));
     let err = client.open_stream(&test_completion_request()).await.unwrap_err();
     assert_eq!(err.0, Some(401));
+}
+
+#[test]
+fn classify_stream_error_treats_transport_errors_as_recoverable() {
+    let mut last = None;
+    let res = classify_stream_error(Err((None, "connection reset by peer".into())), &mut last);
+    assert!(res.is_none());
+    assert_eq!(last, Some((None, "connection reset by peer".into())));
+}
+
+#[test]
+fn classify_stream_error_quota_fails_fast() {
+    let mut last = None;
+    let quota_err = (Some(429), r#"{"error":{"message":"Individual quota reached"}}"#.into());
+    let res = classify_stream_error(Err(quota_err.clone()), &mut last);
+    assert!(matches!(res, Some(Err(ref err)) if err == &quota_err));
+    assert!(last.is_none());
+}
+
+#[test]
+fn resolve_endpoints_order_and_overrides() {
+    assert_eq!(DEFAULT_ENDPOINT, "https://cloudcode-pa.googleapis.com");
+    assert_eq!(
+        resolve_endpoints(Some("http://custom:1234")),
+        vec!["http://custom:1234".to_string()]
+    );
+    let defaults = resolve_endpoints(None);
+    assert_eq!(defaults.first().map(String::as_str), Some(DEFAULT_ENDPOINT));
+    assert_eq!(defaults.len(), ENDPOINT_CANDIDATES.len());
+}
+
+#[tokio::test]
+async fn try_candidates_falls_back_on_transport_error() {
+    let dead_addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap()
+    };
+    let dead_url = format!("http://{dead_addr}");
+
+    let r200 = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: 11\r\nConnection: close\r\n\r\ndata: {}\n\n";
+    let live_addr = spawn_two_responses(r200, r200).await;
+    let live_url = format!("http://{live_addr}");
+
+    let client = AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro");
+    let mut token = "token-1".to_string();
+    let mut refreshed = false;
+    let endpoints = [dead_url.as_str(), live_url.as_str()];
+    let req = test_completion_request();
+
+    let res = client
+        .try_candidates(
+            (vec!["gemini-2.5-pro".to_string()], &endpoints),
+            (&mut token, &mut refreshed, &req),
+        )
+        .await;
+    assert!(res.is_ok(), "Candidate loop should survive unreachable first endpoint");
+}
+
+#[tokio::test]
+async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() {
+    let dead_addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap()
+    };
+    let dead_url = format!("http://{dead_addr}");
+
+    let client = AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro");
+    let mut token = "token-1".to_string();
+    let mut refreshed = false;
+    let endpoints = [dead_url.as_str()];
+    let req = test_completion_request();
+
+    let res = client
+        .try_candidates(
+            (vec!["gemini-2.5-pro".to_string()], &endpoints),
+            (&mut token, &mut refreshed, &req),
+        )
+        .await;
+    let err = res.unwrap_err();
+    assert_eq!(err.0, None);
+    let msg = friendly_error(err.0, &err.1);
+    assert!(msg.starts_with("Antigravity request failed: "));
+    assert_eq!(msg.matches("Antigravity request failed:").count(), 1);
 }
