@@ -226,37 +226,20 @@ fn prune_image_tool_result(
     } else {
         extract_mime_from_read_text(text)
     };
+    let mime_suffix = mime.map(|m| format!(" ({m})")).unwrap_or_default();
 
     if tool_name == "read" || tool_name == "read_file" || tool_name.is_empty() {
-        match (target.is_empty(), mime) {
-            (false, Some(m)) => {
-                format!("[Image '{target}' ({m}) read. Image content pruned for historical turn.]")
-            }
-            (false, None) => {
-                format!("[Image '{target}' read. Image content pruned for historical turn.]")
-            }
-            (true, Some(m)) => {
-                format!("[Image ({m}) read. Image content pruned for historical turn.]")
-            }
-            (true, None) => "[Image read. Image content pruned for historical turn.]".to_string(),
+        if target.is_empty() {
+            format!("[Image{mime_suffix} read. Image content pruned for historical turn.]")
+        } else {
+            format!("[Image '{target}'{mime_suffix} read. Image content pruned for historical turn.]")
         }
+    } else if target.is_empty() {
+        format!("[Tool '{tool_name}' returned image{mime_suffix}. Image content pruned for historical turn.]")
     } else {
-        match (target.is_empty(), mime) {
-            (false, Some(m)) => {
-                format!(
-                    "[Tool '{tool_name}' for '{target}' returned image ({m}). Image content pruned for historical turn.]"
-                )
-            }
-            (false, None) => {
-                format!("[Tool '{tool_name}' for '{target}' returned image. Image content pruned for historical turn.]")
-            }
-            (true, Some(m)) => {
-                format!("[Tool '{tool_name}' returned image ({m}). Image content pruned for historical turn.]")
-            }
-            (true, None) => {
-                format!("[Tool '{tool_name}' returned image. Image content pruned for historical turn.]")
-            }
-        }
+        format!(
+            "[Tool '{tool_name}' for '{target}' returned image{mime_suffix}. Image content pruned for historical turn.]"
+        )
     }
 }
 

@@ -565,3 +565,27 @@ fn test_trigger_tokens_reconciles_anchor_with_trailing_messages() {
     let estimated = trigger_tokens(&history, None, model, provider, &context);
     assert!(estimated > 0 && estimated < 100);
 }
+
+#[test]
+fn test_trigger_tokens_without_assistant_message_uses_anchor_max_fallback() {
+    let context = ContextTracker::default();
+    let model = "gpt-4o";
+    let provider = "openai";
+
+    let history = vec![Message::user("First question without any assistant response yet")];
+    let anchor = StructuralUsage {
+        input_tokens: 5_000,
+        output_tokens: 200,
+        total_tokens: 5_200,
+        ..Default::default()
+    };
+
+    let result = trigger_tokens(&history, Some(&anchor), model, provider, &context);
+    let full_estimate = context.calculate_context_tokens(&history, None, model).total_tokens;
+    assert_eq!(result, 5_200usize.max(full_estimate));
+
+    // Also verify when anchor tokens is zero, falls back to full estimate
+    let zero_anchor = StructuralUsage::default();
+    let zero_result = trigger_tokens(&history, Some(&zero_anchor), model, provider, &context);
+    assert_eq!(zero_result, full_estimate);
+}

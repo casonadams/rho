@@ -75,7 +75,7 @@ fn test_estimate_tool_result_image_tokens() {
         })],
     };
     let pruned_tokens = estimate_message_tokens(&pruned_msg, "claude-3-7-sonnet");
-    assert!(unpruned_tokens > pruned_tokens + 1100);
+    assert!(unpruned_tokens >= pruned_tokens + ESTIMATED_IMAGE_TOKENS.saturating_sub(50));
 }
 
 #[test]

@@ -192,5 +192,6 @@ fn test_multi_turn_image_tool_result_pruning_token_reduction() {
         .iter()
         .map(|m| estimate_message_tokens(m, "claude-3-7-sonnet"))
         .sum();
-    assert!(pre_tokens >= post_tokens + 1100);
+    let stub_tokens = estimate_text_tokens(text, "claude-3-7-sonnet");
+    assert!(pre_tokens >= post_tokens + ESTIMATED_IMAGE_TOKENS.saturating_sub(stub_tokens));
 }
