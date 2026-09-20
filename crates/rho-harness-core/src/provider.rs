@@ -134,6 +134,10 @@ impl ProviderId {
             Self::ChatGpt | Self::Copilot | Self::Antigravity | Self::ClaudeCode | Self::Local => None,
         }
     }
+
+    pub fn default_model(self) -> &'static str {
+        default_model_for_provider(self.as_str())
+    }
 }
 
 impl fmt::Display for ProviderId {
@@ -170,6 +174,28 @@ impl FromStr for ProviderId {
 }
 
 pub use inference::infer_provider_for_model;
+
+pub fn default_model_for_provider(provider: &str) -> &'static str {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "anthropic" | "claude" | "claude-code" => "claude-3-7-sonnet-20250219",
+        "chatgpt" => "gpt-5.4",
+        "openai" | "copilot" | "github" => "gpt-4o",
+        "gemini" | "google" => "gemini-2.5-flash",
+        "antigravity" | "google-antigravity" => "gemini-2.5-flash",
+        "groq" => "llama-3.3-70b-versatile",
+        "deepseek" => "deepseek-chat",
+        "mistral" => "mistral-large-latest",
+        "together" => "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "fireworks" => "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        "xai" => "grok-2-latest",
+        "perplexity" => "sonar-pro",
+        "cohere" => "command-r-plus",
+        "openrouter" => "anthropic/claude-3.7-sonnet",
+        "ollama-cloud" => "glm-5.3-flash",
+        "ollama" | "local" | "local-ollama" => "llama3.2:latest",
+        _ => "claude-3-7-sonnet-20250219",
+    }
+}
 
 mod inference;
 #[cfg(test)]

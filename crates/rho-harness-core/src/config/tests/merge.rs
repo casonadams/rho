@@ -170,3 +170,67 @@ fn test_cli_permission_flag_override() {
     merge::apply_cli_overrides(&mut config, Some(&cli));
     assert!(!config.permission.enabled);
 }
+
+#[test]
+fn test_cli_provider_switch_picks_model_from_models_table() {
+    let mut config = Config::default();
+    merge::merge_file(
+        &mut config,
+        FileConfig {
+            model: Some("claude-sonnet-5".to_string()),
+            provider: Some("claude".to_string()),
+            models: std::collections::BTreeMap::from([
+                ("claude".to_string(), "claude-sonnet-5".to_string()),
+                ("gemini".to_string(), "gemini-3.6-flash".to_string()),
+            ]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(config.provider, "claude");
+    assert_eq!(config.model, "claude-sonnet-5");
+
+    let cli = cli::Cli::try_parse_from(["rho", "--provider", "gemini"]).unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+
+    assert_eq!(config.provider, "gemini");
+    assert_eq!(config.model, "gemini-3.6-flash");
+}
+
+#[test]
+fn test_cli_provider_switch_falls_back_to_canonical_default_when_not_in_models_table() {
+    let mut config = Config::default();
+    merge::merge_file(
+        &mut config,
+        FileConfig {
+            model: Some("claude-sonnet-5".to_string()),
+            provider: Some("claude".to_string()),
+            ..Default::default()
+        },
+    );
+
+    let cli = cli::Cli::try_parse_from(["rho", "--provider", "groq"]).unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+
+    assert_eq!(config.provider, "groq");
+    assert_eq!(config.model, "llama-3.3-70b-versatile");
+}
+
+#[test]
+fn test_cli_provider_switch_with_explicit_model_flag_overrides_models_table() {
+    let mut config = Config::default();
+    merge::merge_file(
+        &mut config,
+        FileConfig {
+            model: Some("claude-sonnet-5".to_string()),
+            provider: Some("claude".to_string()),
+            models: std::collections::BTreeMap::from([("gemini".to_string(), "gemini-3.6-flash".to_string())]),
+            ..Default::default()
+        },
+    );
+
+    let cli = cli::Cli::try_parse_from(["rho", "--provider", "gemini", "-m", "gemini-custom"]).unwrap();
+    merge::apply_cli_overrides(&mut config, Some(&cli));
+
+    assert_eq!(config.provider, "gemini");
+    assert_eq!(config.model, "gemini-custom");
+}

@@ -23,7 +23,20 @@ fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
     if let Some(ref p) = file.provider {
         config.provider = p.clone();
         config.default_provider = Some(p.clone());
+        if !model_specified {
+            if let Some(configured) = config.models.get(p) {
+                config.model = configured.clone();
+                config.default_model = Some(configured.clone());
+            } else {
+                let default_m = crate::provider::default_model_for_provider(p);
+                config.model = default_m.to_string();
+                config.default_model = Some(default_m.to_string());
+            }
+        }
     } else {
+        if !model_specified && let Some(configured) = config.models.get(&config.provider) {
+            config.model = configured.clone();
+        }
         merge_provider_fallback(config, model_specified);
     }
     if let Some(ref t) = file.thinking_level {
@@ -136,6 +149,7 @@ fn merge_features(config: &mut Config, file: &FileConfig) {
 }
 
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
+    config.models.extend(file.models.clone());
     merge_model_and_provider(config, &file);
     merge_token_limits(config, &file);
     merge_context_settings(config, &file);

@@ -142,3 +142,32 @@ style = "solid"
     assert_eq!(ui.agent_block_output, Some(true));
     assert_eq!(ui.block_style.as_deref(), Some("solid"));
 }
+
+#[test]
+fn parses_models_table() {
+    let toml_str = r#"
+provider = "claude"
+model = "claude-sonnet-5"
+
+[models]
+claude = "claude-sonnet-5"
+gemini = "gemini-3.6-flash"
+local = "llama3.2-vision:latest"
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(file.models.len(), 3);
+    assert_eq!(file.models.get("claude").map(String::as_str), Some("claude-sonnet-5"));
+    assert_eq!(file.models.get("gemini").map(String::as_str), Some("gemini-3.6-flash"));
+    assert_eq!(
+        file.models.get("local").map(String::as_str),
+        Some("llama3.2-vision:latest")
+    );
+
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert_eq!(config.models.len(), 3);
+    assert_eq!(
+        config.models.get("gemini").map(String::as_str),
+        Some("gemini-3.6-flash")
+    );
+}

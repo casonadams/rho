@@ -43,6 +43,8 @@ pub struct Config {
     #[serde(default)]
     pub default_provider: Option<String>,
     #[serde(default)]
+    pub models: BTreeMap<String, String>,
+    #[serde(default)]
     pub session_retention_days: Option<u32>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
@@ -84,6 +86,7 @@ macro_rules! default_config_literal {
             no_context_files: false,
             default_model: None,
             default_provider: None,
+            models: BTreeMap::new(),
             session_retention_days: Some(5),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
@@ -109,5 +112,6 @@ impl Config {
         self.provider = provider.to_string();
         self.default_model = Some(model.to_string());
         self.default_provider = Some(provider.to_string());
+        self.models.insert(provider.to_string(), model.to_string());
     }
 }

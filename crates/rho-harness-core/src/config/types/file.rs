@@ -43,6 +43,8 @@ pub(crate) struct FileConfig {
     #[serde(default)]
     pub ui: Option<super::UiConfig>,
     #[serde(default)]
+    pub models: BTreeMap<String, String>,
+    #[serde(default)]
     pub semantic_search: Option<bool>,
     #[serde(default)]
     pub features: Option<FeaturesConfig>,

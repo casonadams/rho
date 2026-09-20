@@ -274,19 +274,5 @@ pub fn create_engine_model(
 }
 
 fn default_model_for_provider(provider: &str) -> &'static str {
-    match provider.to_ascii_lowercase().as_str() {
-        "chatgpt" => "gpt-5.4",
-        "openai" | "copilot" => "gpt-4o",
-        "gemini" => "gemini-2.0-flash",
-        "deepseek" => "deepseek-chat",
-        "groq" => "llama-3.3-70b-versatile",
-        "openrouter" => "anthropic/claude-3.7-sonnet",
-        "xai" => "grok-2-latest",
-        "mistral" => "mistral-large-latest",
-        "cohere" => "command-r-plus",
-        "ollama" | "local" => "llama3.2",
-        "ollama-cloud" => "glm-5.3-flash",
-        "antigravity" | "google-antigravity" => "gemini-2.5-flash",
-        _ => "claude-3-7-sonnet-20250219",
-    }
+    rho_harness_core::provider::default_model_for_provider(provider)
 }

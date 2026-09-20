@@ -24,6 +24,7 @@ impl super::Config {
         let mut file_config = read_file_config_async(&path).await?;
         file_config.model = Some(model.to_string());
         file_config.provider = Some(provider.to_string());
+        file_config.models.insert(provider.to_string(), model.to_string());
         write_file_config_async(&path, &file_config).await
     }
 
@@ -114,8 +115,26 @@ impl super::Config {
 
 fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
     match key {
-        ConfigKey::Model => file_config.model = Some(value.to_string()),
-        ConfigKey::Provider => file_config.provider = Some(value.to_string()),
+        ConfigKey::Model => {
+            file_config.model = Some(value.to_string());
+            if let Some(ref p) = file_config.provider {
+                file_config.models.insert(p.clone(), value.to_string());
+            }
+        }
+        ConfigKey::Provider => {
+            let provider_changing = file_config.provider.as_deref().is_some_and(|p| p != value);
+            file_config.provider = Some(value.to_string());
+            if provider_changing {
+                if let Some(model) = file_config.models.get(value) {
+                    file_config.model = Some(model.clone());
+                } else {
+                    let default_m = crate::provider::default_model_for_provider(value);
+                    file_config.model = Some(default_m.to_string());
+                }
+            } else if let Some(ref m) = file_config.model {
+                file_config.models.insert(value.to_string(), m.clone());
+            }
+        }
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
         }

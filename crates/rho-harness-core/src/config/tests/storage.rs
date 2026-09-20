@@ -169,6 +169,10 @@ async fn test_save_default_model_persists_both_fields() {
             Some("saved-provider")
         )
     );
+    assert_eq!(
+        config.models.get("saved-provider").map(String::as_str),
+        Some("saved-model")
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

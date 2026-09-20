@@ -6,7 +6,15 @@ fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
         config.model = m.clone();
     }
     if let Some(ref p) = c.provider {
+        let provider_changed = config.provider != *p;
         config.provider = p.clone();
+        if c.model.is_none() && provider_changed {
+            if let Some(configured) = config.models.get(p) {
+                config.model = configured.clone();
+            } else {
+                config.model = crate::provider::default_model_for_provider(p).to_string();
+            }
+        }
     }
     if let Some(ref t) = c.thinking {
         config.thinking_level = (t != "off").then(|| t.clone());
