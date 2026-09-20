@@ -93,12 +93,31 @@ pub fn calculate_context_tokens(
 }
 
 static CL100K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::cl100k_base().ok());
+static O200K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::o200k_base().ok());
 
-pub fn estimate_text_tokens(text: &str, _model: &str) -> usize {
+fn is_o200k_model(lower: &str) -> bool {
+    if lower.contains("gpt-4o") || lower.contains("gpt-5") || lower.contains("gpt-6") {
+        return true;
+    }
+    lower
+        .split(['/', ':', '_'])
+        .any(|segment| segment.starts_with("o1") || segment.starts_with("o3"))
+}
+
+fn bpe_for_model(model: &str) -> Option<&'static tiktoken_rs::CoreBPE> {
+    let lower = model.to_lowercase();
+    if is_o200k_model(&lower) {
+        O200K_BPE.as_ref().or(CL100K_BPE.as_ref())
+    } else {
+        CL100K_BPE.as_ref().or(O200K_BPE.as_ref())
+    }
+}
+
+pub fn estimate_text_tokens(text: &str, model: &str) -> usize {
     if text.is_empty() {
         return 0;
     }
-    if let Some(bpe) = CL100K_BPE.as_ref() {
+    if let Some(bpe) = bpe_for_model(model) {
         return bpe.encode_with_special_tokens(text).len();
     }
     estimate_char_tokens(text)
@@ -112,6 +131,7 @@ pub fn estimate_char_tokens(text: &str) -> usize {
 fn estimate_user_content_tokens(item: &UserContent, model: &str) -> usize {
     match item {
         UserContent::Text(text) => estimate_text_tokens(&text.text, model),
+        UserContent::Image(_) => ESTIMATED_IMAGE_TOKENS,
         UserContent::ToolResult(result) => result
             .content
             .iter()

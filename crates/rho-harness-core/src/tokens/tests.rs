@@ -14,6 +14,37 @@ fn test_estimate_text_tokens_exact_or_fallback() {
 }
 
 #[test]
+fn test_estimate_text_tokens_model_aware_differentiation() {
+    let sample = "Exploring new frontiers 🚀 in Rust and AI: hello world!";
+    let gpt4_tokens = estimate_text_tokens(sample, "gpt-4");
+    let gpt4o_tokens = estimate_text_tokens(sample, "gpt-4o");
+    let o1_tokens = estimate_text_tokens(sample, "o1-mini");
+    let o3_tokens = estimate_text_tokens(sample, "o3-mini");
+
+    assert!(gpt4_tokens > 0);
+    assert!(gpt4o_tokens > 0);
+    assert_eq!(gpt4o_tokens, o1_tokens);
+    assert_eq!(gpt4o_tokens, o3_tokens);
+    assert_ne!(gpt4_tokens, gpt4o_tokens);
+}
+
+#[test]
+fn test_estimate_image_tokens() {
+    let msg = Message::User {
+        content: vec![
+            UserContent::text("Analyze this image:"),
+            UserContent::image_raw(vec![1, 2, 3, 4], None, None),
+        ],
+    };
+    let tokens = estimate_message_tokens(&msg, "gpt-4o");
+    let text_only_tokens = estimate_text_tokens("Analyze this image:", "gpt-4o");
+    assert_eq!(
+        tokens,
+        text_only_tokens + ESTIMATED_IMAGE_TOKENS + DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE
+    );
+}
+
+#[test]
 fn test_estimate_message_tokens() {
     let msg = Message::User {
         content: vec![

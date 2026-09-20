@@ -10,10 +10,21 @@ fn test_exact_bpe_token_calculation() {
     let text = "fn main() { println!(\"Hello, world!\"); }";
     let gpt4_tokens = estimate_text_tokens(text, "gpt-4");
     let claude_tokens = estimate_text_tokens(text, "claude-3-7-sonnet");
+    let gpt4o_tokens = estimate_text_tokens(text, "gpt-4o");
 
     assert!(gpt4_tokens > 0);
     assert!(claude_tokens > 0);
-    assert_eq!(gpt4_tokens, claude_tokens);
+    assert!(gpt4o_tokens > 0);
+
+    let rich_text = "Exploring new frontiers 🚀 in Rust and AI: hello world!";
+    let gpt4_rich = estimate_text_tokens(rich_text, "gpt-4");
+    let gpt4o_rich = estimate_text_tokens(rich_text, "gpt-4o");
+    let o1_rich = estimate_text_tokens(rich_text, "o1-mini");
+    let o3_rich = estimate_text_tokens(rich_text, "o3-mini");
+
+    assert_eq!(gpt4o_rich, o1_rich);
+    assert_eq!(gpt4o_rich, o3_rich);
+    assert_ne!(gpt4_rich, gpt4o_rich);
 }
 
 #[test]
