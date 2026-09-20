@@ -93,7 +93,7 @@ pub(crate) async fn run_prompt_turn<B: TerminalBackend>(
     )
     .await?;
     session.sync_engine_model(engine).await;
-    engine.refresh_quota().await;
+    engine.spawn_refresh_quota();
     let totals = engine.session_usage_totals();
     crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::UsageUpdate {
         input_tokens: Some(totals.total_input),

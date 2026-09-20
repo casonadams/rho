@@ -89,7 +89,7 @@ async fn run_live_command_tail<B: TerminalBackend>(
             )
             .await?;
             ctx.session.sync_engine_model(ctx.engine).await;
-            ctx.engine.refresh_quota().await;
+            ctx.engine.spawn_refresh_quota();
             Ok(false)
         }
         _ => flush_after_command(&mut io).map(|_| false),

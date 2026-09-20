@@ -153,7 +153,7 @@ async fn init_line_mode(session: &mut ReplSession) -> Result<AgentEngine> {
     .await?;
     apply_cli_session_name(&engine, session.cli.as_ref()).await;
     session.config = engine.config.clone();
-    engine.refresh_quota().await;
+    engine.spawn_refresh_quota();
     print_line_mode_welcome(session, &engine).await;
     Ok(engine)
 }
@@ -212,13 +212,13 @@ async fn execute_user_input(
         crate::engine::runner::TurnRequest::new(&effective),
     )
     .await?;
-    engine.refresh_quota().await;
+    engine.spawn_refresh_quota();
     Ok(())
 }
 
 async fn run_dispatch_turn(text: &str, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<bool> {
     run_agent_turn(engine, &session.renderer, crate::engine::runner::TurnRequest::new(text)).await?;
-    engine.refresh_quota().await;
+    engine.spawn_refresh_quota();
     Ok(true)
 }
 

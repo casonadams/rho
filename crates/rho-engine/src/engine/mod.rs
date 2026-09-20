@@ -81,7 +81,7 @@ impl AgentEngine {
             builder = builder.demotion_hook(Arc::clone(hook));
         }
         let rebuilt = builder.build().await?;
-        rebuilt.refresh_quota().await;
+        rebuilt.spawn_refresh_quota();
         Ok(rebuilt)
     }
 

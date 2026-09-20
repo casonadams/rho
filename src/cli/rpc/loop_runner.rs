@@ -102,7 +102,7 @@ pub(crate) async fn handle_turn_done<W: tokio::io::AsyncWrite + Unpin>(
             .await?;
     }
     let eng = ctx.engine.read().await;
-    eng.refresh_quota().await;
+    eng.spawn_refresh_quota();
     let totals = eng.session_usage_totals();
     let usage_ev = RpcEvent::UsageUpdate {
         input_tokens: Some(totals.total_input),

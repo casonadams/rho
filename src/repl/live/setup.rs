@@ -20,7 +20,7 @@ pub(super) async fn init_live_engine(session: &mut ReplSession) -> Result<AgentE
         let _ = engine.session_manager.set_session_name(name).await;
     }
     session.config = engine.config.clone();
-    engine.refresh_quota().await;
+    engine.spawn_refresh_quota();
     Ok(engine)
 }
 

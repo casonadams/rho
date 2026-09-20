@@ -260,6 +260,47 @@ async fn refresh_quota_non_antigravity_is_noop() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[tokio::test]
+async fn build_engine_offline_with_expired_oauth_token_succeeds_without_blocking() {
+    let (config, dir) = test_config("offline_expired_oauth");
+    let config = Config {
+        provider: "antigravity".to_string(),
+        model: "gemini-2.5-flash".to_string(),
+        ..config
+    };
+
+    let mut auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    auth_store
+        .set_credential(
+            "antigravity",
+            rho_harness_core::auth::StoredCredential::OAuth {
+                access_token: "expired-token".into(),
+                refresh_token: Some("dummy-refresh-token".into()),
+                expires_at_ms: Some(1000),
+                account_id: Some("test-project".into()),
+                account_email: None,
+            },
+        )
+        .unwrap();
+
+    let start = std::time::Instant::now();
+    let engine = builder::AgentEngineBuilder::new(config, auth_store)
+        .base_dir(dir.clone())
+        .build()
+        .await
+        .expect("Engine build must succeed offline without blocking on OAuth refresh");
+
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "Engine build must not block or hang on network when token is expired"
+    );
+
+    engine.spawn_refresh_quota();
+    assert!(!engine.tool_names().is_empty());
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// The offline mock engine proves the no-key path never touches the network.
 #[tokio::test]
 async fn refresh_quota_ollama_cloud_without_key_stays_empty() {

@@ -17,7 +17,11 @@ pub(super) const PROVIDER_NAME: &str = "antigravity";
 
 static HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     crate::install_crypto_provider();
-    reqwest::Client::builder().no_proxy().build().unwrap_or_default()
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap_or_default()
 });
 
 pub fn http_client() -> &'static reqwest::Client {
@@ -120,11 +124,18 @@ pub(crate) async fn post_metadata(path: &str, token: &str, body: serde_json::Val
             .timeout(DISCOVERY_TIMEOUT)
             .send()
             .await;
-        if let Ok(response) = response
-            && response.status().is_success()
-            && let Ok(json) = response.json::<serde_json::Value>().await
-        {
-            return Some(json);
+        match response {
+            Ok(res) => {
+                if res.status().is_success()
+                    && let Ok(json) = res.json::<serde_json::Value>().await
+                {
+                    return Some(json);
+                }
+            }
+            Err(e) if e.is_connect() || e.is_timeout() => {
+                break;
+            }
+            Err(_) => {}
         }
     }
     None

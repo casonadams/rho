@@ -10,7 +10,7 @@ pub(crate) async fn handle_state_command<W: tokio::io::AsyncWrite + Unpin>(
 ) -> Result<()> {
     let eng = ctx.engine.read().await;
     let cfg = ctx.config.read().await;
-    eng.refresh_quota().await;
+    eng.spawn_refresh_quota();
     let totals = eng.session_usage_totals();
     let approvals = ctx.pending_approvals.lock().await;
     let status = if !approvals.is_empty() {

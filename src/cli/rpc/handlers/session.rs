@@ -205,7 +205,7 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let sid = new_eng.session_manager.session_id.clone();
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
             let messages = extract_chat_messages(&raw_msgs);
-            new_eng.refresh_quota().await;
+            new_eng.spawn_refresh_quota();
             let totals = new_eng.session_usage_totals();
             let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
             let payload = serde_json::json!({
@@ -307,7 +307,7 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
             let session_id = new_eng.session_manager.session_id.clone();
             let base_dir = new_eng.base_dir.display().to_string();
             let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
-            new_eng.refresh_quota().await;
+            new_eng.spawn_refresh_quota();
             let totals = new_eng.session_usage_totals();
             let payload = serde_json::json!({
                 "session_id": session_id,

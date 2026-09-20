@@ -179,13 +179,6 @@ impl AgentEngineBuilder {
         Ok(session_manager)
     }
 
-    async fn validate_provider_auth(&mut self) -> Result<()> {
-        if let Ok(provider_id) = ProviderId::from_str(self.config.provider.trim()) {
-            let _ = self.auth_store.get_key(provider_id.as_str()).await?;
-        }
-        Ok(())
-    }
-
     fn resolve_model(&mut self, shared_auth: Arc<tokio::sync::Mutex<AuthStore>>) -> Result<ModelHandle> {
         if let Some(m) = self.model.take() {
             return Ok(m);
@@ -227,7 +220,6 @@ impl AgentEngineBuilder {
     pub async fn build(mut self) -> Result<AgentEngine> {
         let base_dir = self.base_dir.take().map(Ok).unwrap_or_else(std::env::current_dir)?;
         let session_manager = self.resolve_session().await?;
-        self.validate_provider_auth().await?;
         let shared_auth = Arc::new(tokio::sync::Mutex::new(self.auth_store.clone()));
         let model = self.resolve_model(shared_auth.clone())?;
 
