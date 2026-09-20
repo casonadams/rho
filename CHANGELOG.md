@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.3](https://github.com/casonadams/rho/compare/v0.8.2...v0.8.3) (2026-09-20)
+
+
+### Features
+
+* **auth:** support non-tty and key-stdin login for scriptability ([0d25210](https://github.com/casonadams/rho/commit/0d25210729b3b1576ce09224b36b70bbc69d4464))
+* **build:** add windows icon resource and synchronize config docs ([d403179](https://github.com/casonadams/rho/commit/d403179aa0640779f0eca0461a72d77721de249a))
+* **cli:** wire models subcommand to model store and dynamic discovery ([f520128](https://github.com/casonadams/rho/commit/f5201282f6b9bf57ee70c6d383fcf47177215923))
+* **config:** support per-provider models table and switch resolution ([f494a46](https://github.com/casonadams/rho/commit/f494a46d9a66a205561fdc9f7c87c6fb756c3644))
+* **repl:** make skill discovery, line editor init, and clipboard pasting non-blocking ([3aed51a](https://github.com/casonadams/rho/commit/3aed51a81c89d6dcf096c898a4db2956825a7954))
+
+
+### Bug Fixes
+
+* **auth:** strip BOM and fail closed on auth file parse errors ([293a67c](https://github.com/casonadams/rho/commit/293a67c7bc6420e39e16b3927ddbf13a15d208e9))
+
 ## [0.8.2](https://github.com/casonadams/rho/compare/v0.8.1...v0.8.2) (2026-09-20)
 
 
