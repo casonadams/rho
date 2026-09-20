@@ -30,9 +30,27 @@ pub async fn open_url_in_browser_async(url: &str) -> std::io::Result<()> {
 }
 
 pub fn prompt_password(prompt: &str) -> Result<String> {
+    use std::io::IsTerminal;
+    if !std::io::stdin().is_terminal() {
+        return read_key_from_stdin();
+    }
     print!("{prompt}: ");
     std::io::Write::flush(&mut std::io::stdout()).ok();
     rpassword::read_password().map_err(|_| AppError::Cancelled("Input cancelled".to_string()))
+}
+
+pub fn read_key_from_reader<R: std::io::BufRead>(mut reader: R) -> Result<String> {
+    let mut buffer = String::new();
+    reader.read_line(&mut buffer).map_err(|e| AppError::Other(e.into()))?;
+    let key = buffer.trim_end_matches(&['\r', '\n'][..]).to_string();
+    if key.trim().is_empty() {
+        return Err(AppError::Auth("No API key provided on stdin".to_string()));
+    }
+    Ok(key)
+}
+
+pub fn read_key_from_stdin() -> Result<String> {
+    read_key_from_reader(std::io::stdin().lock())
 }
 
 pub fn prompt_text(prompt: &str) -> Result<String> {

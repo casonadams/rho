@@ -62,3 +62,39 @@ fn auth_method_equality() {
     assert_eq!(AuthMethod::ApiKey, AuthMethod::ApiKey);
     assert_ne!(AuthMethod::OAuth, AuthMethod::ApiKey);
 }
+
+#[test]
+fn read_key_from_reader_reads_clean_lines_and_crlf() {
+    let unix_input = b"sk-my-api-key-123\n";
+    let key = super::read_key_from_reader(&unix_input[..]).unwrap();
+    assert_eq!(key, "sk-my-api-key-123");
+
+    let win_input = b"sk-my-api-key-456\r\n";
+    let key = super::read_key_from_reader(&win_input[..]).unwrap();
+    assert_eq!(key, "sk-my-api-key-456");
+}
+
+#[test]
+fn read_key_from_reader_empty_or_whitespace_fails() {
+    let empty_input = b"";
+    let err = super::read_key_from_reader(&empty_input[..]).unwrap_err();
+    assert!(err.to_string().contains("No API key provided on stdin"));
+
+    let whitespace_input = b"   \r\n";
+    let err = super::read_key_from_reader(&whitespace_input[..]).unwrap_err();
+    assert!(err.to_string().contains("No API key provided on stdin"));
+}
+
+#[tokio::test]
+async fn login_provider_key_stdin_without_provider_fails() {
+    let config = Config::default();
+    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
+    let err = super::login_provider(None, true, &config, &mut auth_store)
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("Provider name required when using --key-stdin")
+    );
+}

@@ -199,7 +199,12 @@ pub(crate) async fn handle_auth_command<B: TerminalBackend>(
         CommandResult::Login { provider } => {
             let login_res = io
                 .suspend_for_async(|| {
-                    crate::cli::login_provider(provider.as_deref(), &ctx.session.config, &mut ctx.session.auth_store)
+                    crate::cli::login_provider(
+                        provider.as_deref(),
+                        false,
+                        &ctx.session.config,
+                        &mut ctx.session.auth_store,
+                    )
                 })
                 .await?;
             handle_auth_result(ctx, login_res, "Login");

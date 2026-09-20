@@ -167,7 +167,7 @@ async fn rebuild_engine_on_auth(session: &mut ReplSession, engine: &mut AgentEng
 }
 
 async fn try_login(provider: Option<&str>, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<bool> {
-    let ok = crate::cli::login_provider(provider, &session.config, &mut session.auth_store)
+    let ok = crate::cli::login_provider(provider, false, &session.config, &mut session.auth_store)
         .await
         .is_ok();
     if ok {

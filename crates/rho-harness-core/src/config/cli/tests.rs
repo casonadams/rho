@@ -14,7 +14,21 @@ fn test_cli_parsing_subcommand() {
     assert_eq!(
         cli.command,
         Some(Commands::Login {
-            provider: Some("anthropic".to_string())
+            provider: Some("anthropic".to_string()),
+            key_stdin: false,
+        })
+    );
+}
+
+#[test]
+fn test_cli_parsing_login_key_stdin() {
+    let args = vec!["rho", "login", "gemini", "--key-stdin"];
+    let cli = Cli::try_parse_from(args).unwrap();
+    assert_eq!(
+        cli.command,
+        Some(Commands::Login {
+            provider: Some("gemini".to_string()),
+            key_stdin: true,
         })
     );
 }

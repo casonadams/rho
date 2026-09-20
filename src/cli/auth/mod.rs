@@ -12,7 +12,7 @@ pub use provider::{
     AuthMethod, prompt_auth_method, prompt_select_api_key_provider, prompt_select_auth_method,
     prompt_select_oauth_provider, resolve_provider_name,
 };
-use terminal::prompt_password;
+pub use terminal::{prompt_password, read_key_from_reader, read_key_from_stdin};
 
 use crate::auth::AuthStore;
 use crate::config::Config;
@@ -92,8 +92,13 @@ async fn try_oauth_login(
     }
 }
 
-fn login_api_key(target: &str, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
-    let key = prompt_password(&format!("Enter API key for {target}:"))?;
+fn login_api_key(target: &str, key_stdin: bool, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+    use std::io::IsTerminal;
+    let key = if key_stdin || !std::io::stdin().is_terminal() {
+        read_key_from_stdin()?
+    } else {
+        prompt_password(&format!("Enter API key for {target}:"))?
+    };
     let key = key.trim();
     if key.is_empty() {
         return Err(AppError::Auth("API key cannot be empty".to_string()));
@@ -104,18 +109,30 @@ fn login_api_key(target: &str, config: &Config, auth_store: &mut AuthStore) -> R
     Ok(())
 }
 
-pub async fn login_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {
+pub async fn login_provider(
+    provider: Option<&str>,
+    key_stdin: bool,
+    config: &Config,
+    auth_store: &mut AuthStore,
+) -> Result<()> {
+    if key_stdin && provider.is_none() {
+        return Err(AppError::Auth(
+            "Provider name required when using --key-stdin (e.g. `rho login gemini --key-stdin`)".to_string(),
+        ));
+    }
+
     let (target, method) = resolve_login_target(provider, config)?;
     if target == "local" {
         println!("Local models run offline and do not require credentials.");
         return Ok(());
     }
-    if let Ok(id) = ProviderId::from_str(&target)
+    if !key_stdin
+        && let Ok(id) = ProviderId::from_str(&target)
         && try_oauth_login(id, method, config, auth_store).await?
     {
         return Ok(());
     }
-    login_api_key(&target, config, auth_store)
+    login_api_key(&target, key_stdin, config, auth_store)
 }
 
 pub fn logout_provider(provider: Option<&str>, config: &Config, auth_store: &mut AuthStore) -> Result<()> {

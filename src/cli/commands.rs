@@ -16,8 +16,8 @@ async fn handle_basic_commands(
     (config, auth_store): (&Config, &mut AuthStore),
 ) -> Result<bool, Box<dyn std::error::Error>> {
     match cmd {
-        Commands::Login { provider } => {
-            super::auth::login_provider(provider.as_deref(), config, auth_store).await?;
+        Commands::Login { provider, key_stdin } => {
+            super::auth::login_provider(provider.as_deref(), *key_stdin, config, auth_store).await?;
             Ok(true)
         }
         Commands::Logout { provider } => {

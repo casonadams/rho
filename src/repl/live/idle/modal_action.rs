@@ -175,7 +175,8 @@ async fn handle_login_provider_selected(
     provider: String,
 ) -> Result<bool> {
     ctx.controller.suspend()?;
-    let login_res = crate::cli::login_provider(Some(&provider), &ctx.session.config, &mut ctx.session.auth_store).await;
+    let login_res =
+        crate::cli::login_provider(Some(&provider), false, &ctx.session.config, &mut ctx.session.auth_store).await;
     ctx.controller.resume()?;
     match login_res {
         Ok(()) => {

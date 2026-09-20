@@ -6,6 +6,9 @@ pub enum Commands {
     Login {
         /// Provider name (e.g. anthropic, openai, openrouter, chatgpt, copilot, claude, antigravity)
         provider: Option<String>,
+        /// Read API key from standard input instead of terminal prompt
+        #[arg(long)]
+        key_stdin: bool,
     },
     /// Log out from an AI provider
     Logout {
