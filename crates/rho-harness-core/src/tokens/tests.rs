@@ -280,3 +280,61 @@ fn test_message_token_cache_clear() {
     assert_eq!(cache.hits(), 0);
     assert_eq!(cache.misses(), 0);
 }
+
+#[test]
+fn test_hash_message_image_efficiency() {
+    let msg1 = Message::User {
+        content: vec![UserContent::image_raw(vec![1, 2, 3, 4], None, None)],
+    };
+    let msg2 = Message::User {
+        content: vec![UserContent::image_raw(vec![1, 2, 3, 4], None, None)],
+    };
+    let msg3 = Message::User {
+        content: vec![UserContent::image_raw(vec![1, 2, 3, 5], None, None)],
+    };
+    let msg4 = Message::User {
+        content: vec![UserContent::image_base64("aGVsbG8=", None, None)],
+    };
+
+    let hash1 = hash_message(&msg1, "gpt-4o");
+    let hash2 = hash_message(&msg2, "gpt-4o");
+    let hash3 = hash_message(&msg3, "gpt-4o");
+    let hash4 = hash_message(&msg4, "gpt-4o");
+
+    assert_eq!(hash1, hash2);
+    assert_ne!(hash1, hash3);
+    assert_ne!(hash1, hash4);
+}
+
+#[test]
+fn test_message_token_cache_bounded() {
+    let mut cache = MessageTokenCache::with_capacity(3);
+    assert_eq!(cache.capacity(), 3);
+
+    let m1 = Message::user("message 1");
+    let m2 = Message::user("message 2");
+    let m3 = Message::user("message 3");
+    let m4 = Message::user("message 4");
+
+    cache.get_or_compute(&m1, "gpt-4o");
+    cache.get_or_compute(&m2, "gpt-4o");
+    cache.get_or_compute(&m3, "gpt-4o");
+    assert_eq!(cache.len(), 3);
+
+    // Adding 4th message should evict oldest (m1)
+    cache.get_or_compute(&m4, "gpt-4o");
+    assert_eq!(cache.len(), 3);
+
+    // m2, m3, m4 should be hits
+    let hits_before = cache.hits();
+    cache.get_or_compute(&m2, "gpt-4o");
+    cache.get_or_compute(&m3, "gpt-4o");
+    cache.get_or_compute(&m4, "gpt-4o");
+    assert_eq!(cache.hits(), hits_before + 3);
+
+    // m1 was evicted, so accessing it should miss
+    let misses_before = cache.misses();
+    cache.get_or_compute(&m1, "gpt-4o");
+    assert_eq!(cache.misses(), misses_before + 1);
+    assert_eq!(cache.len(), 3);
+}

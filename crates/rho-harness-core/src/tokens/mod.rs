@@ -10,7 +10,7 @@ mod tests;
 pub use cut_point::{
     find_node_token_cut_point, find_token_cut_point, is_tool_result_message, is_user_turn_start, message_position_at,
 };
-pub use memo::MessageTokenCache;
+pub use memo::{DEFAULT_CACHE_CAPACITY, MessageTokenCache, hash_message};
 
 pub const ESTIMATED_IMAGE_TOKENS: usize = 1200;
 pub const DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE: usize = 4;
