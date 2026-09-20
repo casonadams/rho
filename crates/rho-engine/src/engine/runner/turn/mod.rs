@@ -8,6 +8,7 @@ mod tool_hook;
 mod truncation_hook;
 pub mod types;
 
+pub use prune::{DEFAULT_PRUNE_LINE_THRESHOLD, prune_historical_tool_outputs};
 pub use types::{
     ActiveModelSwitch, CancellationSignal, QUEUED_MESSAGE_BOUNDARY, QueuedMessageBoundary, RunStatus,
     SharedModelSwitch, SteeringQueueProvider, TurnOutput, TurnRequest, UsageDetails,

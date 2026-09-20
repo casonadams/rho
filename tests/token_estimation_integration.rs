@@ -121,3 +121,76 @@ fn test_tool_result_image_token_estimation() {
     let tokens = estimate_message_tokens(&msg, "claude-3-7-sonnet");
     assert!(tokens >= ESTIMATED_IMAGE_TOKENS);
 }
+
+#[test]
+fn test_multi_turn_image_tool_result_pruning_token_reduction() {
+    use rho::engine::runner::{DEFAULT_PRUNE_LINE_THRESHOLD, prune_historical_tool_outputs};
+    use rho::tokens::{ESTIMATED_IMAGE_TOKENS, estimate_message_tokens};
+
+    let turn1_user = Message::user("Inspect this mock screenshot");
+    let turn1_call = Message::Assistant {
+        id: None,
+        content: vec![AssistantContent::ToolCall(ToolCall::new(
+            ToolCallId::new_or_mint("c1"),
+            ToolFunction::new(
+                "read".to_string(),
+                serde_json::json!({ "path": "docs/architecture.png" }),
+            ),
+        ))],
+    };
+    let turn1_result = Message::User {
+        content: vec![UserContent::ToolResult(ToolResult {
+            call: ToolCallId::new_or_mint("c1"),
+            provider: None,
+            name: "read".to_string(),
+            content: vec![
+                ToolResultContent::Text(rig::message::Text::new(
+                    "Read image file [image/png]\n[Image: 1200x800]",
+                )),
+                ToolResultContent::image_base64(
+                    "iVBORw0KGgoAAAANSUhEUg==",
+                    Some(rig::completion::message::ImageMediaType::PNG),
+                    None,
+                ),
+            ],
+        })],
+    };
+    let turn1_assistant =
+        Message::assistant("The diagram shows three main architectural layers: core, engine, and shell.");
+    let turn2_user = Message::user("Now explain the responsibilities of the shell layer");
+
+    let history = vec![turn1_user, turn1_call, turn1_result, turn1_assistant, turn2_user];
+
+    let pre_tokens: usize = history
+        .iter()
+        .map(|m| estimate_message_tokens(m, "claude-3-7-sonnet"))
+        .sum();
+    assert!(pre_tokens > ESTIMATED_IMAGE_TOKENS);
+
+    let pruned_history = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+    assert_eq!(pruned_history.len(), history.len());
+
+    let Message::User {
+        content: pruned_content,
+    } = &pruned_history[2]
+    else {
+        panic!("expected user message with tool result");
+    };
+    assert_eq!(pruned_content.len(), 1);
+    let UserContent::ToolResult(pruned_result) = &pruned_content[0] else {
+        panic!("expected tool result");
+    };
+    assert_eq!(pruned_result.content.len(), 1);
+    assert!(matches!(&pruned_result.content[0], ToolResultContent::Text(_)));
+    let text = pruned_result.content[0].as_text().unwrap();
+    assert_eq!(
+        text,
+        "[Image 'docs/architecture.png' (image/png) read. Image content pruned for historical turn.]"
+    );
+
+    let post_tokens: usize = pruned_history
+        .iter()
+        .map(|m| estimate_message_tokens(m, "claude-3-7-sonnet"))
+        .sum();
+    assert!(pre_tokens >= post_tokens + 1100);
+}
