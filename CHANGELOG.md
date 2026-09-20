@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.8.2](https://github.com/casonadams/rho/compare/v0.8.1...v0.8.2) (2026-09-20)
+
+
+### Features
+
+* **quota:** add cache invalidation and 30-second cooldown to QuotaTracker ([cc898f7](https://github.com/casonadams/rho/commit/cc898f7c0cdaceeafdc62595eca3608f0f0178ee))
+* **quota:** refresh quota on turn completion and periodically during active turns ([736ef09](https://github.com/casonadams/rho/commit/736ef09f8a6125a8c34a36034e36402a02043948))
+* **tokens:** account for image tool results in token estimation and memo hashing ([fa20189](https://github.com/casonadams/rho/commit/fa201892d52631ee627d2d62baf287f251963fa9))
+* **tokens:** add model-aware BPE dispatch and image token accounting ([588a284](https://github.com/casonadams/rho/commit/588a2842f1e3594898cea3f48e04eebe473f9e19))
+* **tokens:** fix compaction accounting, capture summarization cost, and reconcile anchors ([5ef0371](https://github.com/casonadams/rho/commit/5ef037148a1cca7a1f8e2b1d8b1444f11243b96c))
+* **tokens:** optimize message hashing and enforce bounded cache capacity ([ffb12e5](https://github.com/casonadams/rho/commit/ffb12e5ed92c61a2aa1d6132026f01b926a02da0))
+* **tokens:** prune tool result image blocks from historical conversation context ([7f268f4](https://github.com/casonadams/rho/commit/7f268f4227c4c008f1588d578ea13322d375e07f))
+* **ui:** default to native hardware cursor with configurable software fallback ([3381378](https://github.com/casonadams/rho/commit/338137844d5a4c68b8060cba2841fa6a67c6b8db))
+
+
+### Bug Fixes
+
+* **engine:** allow starting session without network connection ([7a09437](https://github.com/casonadams/rho/commit/7a094374db0e3da8a78d11a3fe97a0e7bccf4e1e))
+* **quota:** remove periodic quota polling during idle in REPL and RPC daemon ([bdb4530](https://github.com/casonadams/rho/commit/bdb453062a8fbd1b4c07ed9f9087e4e65c4974a9))
+* **quota:** update quotas in real time during idle and turns ([9664527](https://github.com/casonadams/rho/commit/9664527237db3bc7bbfd751fb46bfca61bfb62e8))
+
 ## [0.8.1](https://github.com/casonadams/rho/compare/v0.8.0...v0.8.1) (2026-09-19)
 
 
