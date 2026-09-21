@@ -396,106 +396,6 @@ fn prune_tool_result_item(
     }))
 }
 
-fn prune_write_call(call: &rig::message::ToolCall, line_threshold: usize) -> Option<rig::message::ToolCall> {
-    let content_str = call.function.arguments.get("content")?.as_str()?;
-    let line_count = content_str.lines().count();
-    let bytes = content_str.len();
-    if line_count <= line_threshold && bytes <= 500 {
-        return None;
-    }
-    let size_str = crate::tools::truncate::format_size(bytes);
-    let stub = format!("[Content written ({line_count} lines, {size_str})]");
-    let mut new_args = call.function.arguments.clone();
-    new_args["content"] = serde_json::Value::String(stub);
-
-    Some(rig::message::ToolCall::new(
-        call.id.clone(),
-        rig::message::ToolFunction::new(call.function.name.clone(), new_args),
-    ))
-}
-
-fn prune_edit_chunk(text: &str, label: &str, line_threshold: usize) -> Option<String> {
-    let lines = text.lines().count();
-    let bytes = text.len();
-    if lines > line_threshold || bytes > 500 {
-        let size_str = crate::tools::truncate::format_size(bytes);
-        Some(format!("[{label} ({lines} lines, {size_str})]"))
-    } else {
-        None
-    }
-}
-
-fn prune_edit_call(call: &rig::message::ToolCall, line_threshold: usize) -> Option<rig::message::ToolCall> {
-    let edits = call.function.arguments.get("edits")?.as_array()?;
-    let mut modified = false;
-    let new_edits: Vec<serde_json::Value> = edits
-        .iter()
-        .map(|edit| {
-            let mut edit_obj = match edit.as_object() {
-                Some(obj) => obj.clone(),
-                None => return edit.clone(),
-            };
-            if let Some(old_str) = edit_obj.get("oldText").and_then(|v| v.as_str())
-                && let Some(stub) = prune_edit_chunk(old_str, "Old text", line_threshold)
-            {
-                modified = true;
-                edit_obj.insert("oldText".to_string(), serde_json::Value::String(stub));
-            }
-            if let Some(new_str) = edit_obj.get("newText").and_then(|v| v.as_str())
-                && let Some(stub) = prune_edit_chunk(new_str, "New text", line_threshold)
-            {
-                modified = true;
-                edit_obj.insert("newText".to_string(), serde_json::Value::String(stub));
-            }
-            serde_json::Value::Object(edit_obj)
-        })
-        .collect();
-
-    if modified {
-        let mut new_args = call.function.arguments.clone();
-        new_args["edits"] = serde_json::Value::Array(new_edits);
-        Some(rig::message::ToolCall::new(
-            call.id.clone(),
-            rig::message::ToolFunction::new(call.function.name.clone(), new_args),
-        ))
-    } else {
-        None
-    }
-}
-
-fn prune_assistant_item(item: &AssistantContent, line_threshold: usize) -> Option<AssistantContent> {
-    let AssistantContent::ToolCall(call) = item else {
-        return None;
-    };
-    let name = call.function.name.to_ascii_lowercase();
-    if name == "write" || name == "write_file" {
-        return prune_write_call(call, line_threshold).map(AssistantContent::ToolCall);
-    }
-    if name == "edit" || name == "edit_file" {
-        return prune_edit_call(call, line_threshold).map(AssistantContent::ToolCall);
-    }
-    None
-}
-
-fn prune_assistant_message_content(
-    content: &[AssistantContent],
-    line_threshold: usize,
-) -> Option<Vec<AssistantContent>> {
-    let mut modified = false;
-    let new_content: Vec<AssistantContent> = content
-        .iter()
-        .map(|item| match prune_assistant_item(item, line_threshold) {
-            Some(pruned) => {
-                modified = true;
-                pruned
-            }
-            None => item.clone(),
-        })
-        .collect();
-
-    if modified { Some(new_content) } else { None }
-}
-
 fn prune_user_message_content(
     content: &[UserContent],
     tool_calls: &HashMap<String, ToolCallMeta>,
@@ -541,13 +441,6 @@ pub fn prune_historical_tool_outputs(
             match msg {
                 Message::User { content } => match prune_user_message_content(content, &tool_calls, line_threshold) {
                     Some(new_content) => Message::User { content: new_content },
-                    None => msg.clone(),
-                },
-                Message::Assistant { id, content } => match prune_assistant_message_content(content, line_threshold) {
-                    Some(new_content) => Message::Assistant {
-                        id: id.clone(),
-                        content: new_content,
-                    },
                     None => msg.clone(),
                 },
                 _ => msg.clone(),
@@ -1017,7 +910,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prior_turn_verbose_write_tool_call_is_pruned() {
+    fn test_prior_turn_write_tool_call_is_never_pruned() {
         let write_body = (1..=30)
             .map(|i| format!("pub fn generated_func_{i}() {{}}"))
             .collect::<Vec<_>>()
@@ -1045,7 +938,7 @@ mod tests {
             panic!()
         };
         let content_val = call.function.arguments.get("content").unwrap().as_str().unwrap();
-        assert!(content_val.contains("[Content written (30 lines,"));
+        assert_eq!(content_val, write_body);
         assert_eq!(
             call.function.arguments.get("path").unwrap().as_str().unwrap(),
             "src/generated.rs"
@@ -1246,7 +1139,7 @@ mod tests {
             panic!()
         };
         let written_val = call.function.arguments.get("content").unwrap().as_str().unwrap();
-        assert!(written_val.contains("[Content written (25 lines,"));
+        assert_eq!(written_val, write_body);
 
         let bash_text = extract_tool_result_first_text(&pruned[10]);
         assert!(bash_text.contains("Command 'cargo test' completed with exit code 0. Output pruned"));
@@ -1335,7 +1228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prior_turn_verbose_edit_tool_call_is_pruned() {
+    fn test_prior_turn_edit_tool_call_is_never_pruned() {
         let old_text = (1..=30).map(|i| format!("old line {i}")).collect::<Vec<_>>().join("\n");
         let new_text = (1..=30).map(|i| format!("new line {i}")).collect::<Vec<_>>().join("\n");
         let (call_msg, res_msg) = make_edit_turn(
@@ -1363,8 +1256,8 @@ mod tests {
         let edits = call.function.arguments.get("edits").unwrap().as_array().unwrap();
         let old_val = edits[0].get("oldText").unwrap().as_str().unwrap();
         let new_val = edits[0].get("newText").unwrap().as_str().unwrap();
-        assert!(old_val.contains("[Old text (30 lines,"));
-        assert!(new_val.contains("[New text (30 lines,"));
+        assert_eq!(old_val, old_text);
+        assert_eq!(new_val, new_text);
     }
 
     #[test]
