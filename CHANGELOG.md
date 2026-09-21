@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0](https://github.com/casonadams/rho/compare/v0.8.3...v0.9.0) (2026-09-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **hooks:** Lifecycle hooks in .rho/hooks/ are no longer discovered. Move lifecycle hooks to .agents/hooks/.
+
+### Features
+
+* **engine:** add transient network error retry across all providers ([f0a3cc5](https://github.com/casonadams/rho/commit/f0a3cc5d6488693f4018e8336f66d9d8b8de2077))
+* **hooks:** resolve lifecycle hooks from .agents/hooks instead of .rho/hooks ([57bce7d](https://github.com/casonadams/rho/commit/57bce7d637e16b07730d636c6f2a50fb97201830))
+
+
+### Bug Fixes
+
+* **engine:** add antigravity transport error failover and production endpoint priority ([f1eb2c7](https://github.com/casonadams/rho/commit/f1eb2c76f328ce6894520026397148cfcdf328bc))
+
 ## [0.8.3](https://github.com/casonadams/rho/compare/v0.8.2...v0.8.3) (2026-09-20)
 
 
