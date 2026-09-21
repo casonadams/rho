@@ -131,6 +131,42 @@ pub fn extract_retry_after(error: &rig::agent::StreamingError) -> Option<std::ti
     Some(std::time::Duration::from_secs(1))
 }
 
+pub fn is_transient_network_error(error: &rig::agent::StreamingError) -> bool {
+    if let Some(status) = streaming_error_provider_status(error) {
+        return matches!(status.as_u16(), 408 | 502 | 503 | 504);
+    }
+    let msg = match error {
+        rig::agent::StreamingError::Completion(err) => err.to_string(),
+        rig::agent::StreamingError::Prompt(err) => err.to_string(),
+    };
+    let lower = msg.to_ascii_lowercase();
+    if lower.contains("individual quota reached")
+        || lower.contains("unauthorized")
+        || lower.contains("invalid api key")
+        || lower.contains("authentication failed")
+    {
+        return false;
+    }
+    const PATTERNS: &[&str] = &[
+        "error sending request",
+        "connection reset",
+        "connection refused",
+        "connection closed",
+        "broken pipe",
+        "timed out",
+        "timeout",
+        "dns error",
+        "failed to lookup address",
+        "stream transport failed",
+        "stream failed",
+        "unexpected eof",
+        "channel closed",
+        "network error",
+        "handshake",
+    ];
+    PATTERNS.iter().any(|&p| lower.contains(p))
+}
+
 pub fn map_streaming_error(error: rig::agent::StreamingError) -> AppError {
     match error {
         rig::agent::StreamingError::Completion(error) => map_completion_error(error),
@@ -249,5 +285,53 @@ mod tests {
             ProviderResponseError::new(StatusCode::BAD_REQUEST, "bad input"),
         ));
         assert_eq!(extract_retry_after(&err_400), None);
+    }
+
+    #[test]
+    fn test_is_transient_network_error() {
+        let status_502 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+            ProviderResponseError::new(StatusCode::BAD_GATEWAY, "bad gateway"),
+        ));
+        assert!(is_transient_network_error(&status_502));
+
+        let status_503 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+            ProviderResponseError::new(StatusCode::SERVICE_UNAVAILABLE, "busy"),
+        ));
+        assert!(is_transient_network_error(&status_503));
+
+        let status_504 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+            ProviderResponseError::new(StatusCode::GATEWAY_TIMEOUT, "gateway timeout"),
+        ));
+        assert!(is_transient_network_error(&status_504));
+
+        let status_400 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+            ProviderResponseError::new(StatusCode::BAD_REQUEST, "invalid input"),
+        ));
+        assert!(!is_transient_network_error(&status_400));
+
+        let status_401 = rig::agent::StreamingError::Completion(CompletionError::ProviderResponse(
+            ProviderResponseError::new(StatusCode::UNAUTHORIZED, "unauthorized"),
+        ));
+        assert!(!is_transient_network_error(&status_401));
+
+        let transport_err = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+            "error sending request for url (https://api.anthropic.com/v1/messages)".to_string(),
+        ));
+        assert!(is_transient_network_error(&transport_err));
+
+        let conn_reset = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+            "connection reset by peer".to_string(),
+        ));
+        assert!(is_transient_network_error(&conn_reset));
+
+        let stream_err = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+            "Claude stream failed: broken pipe".to_string(),
+        ));
+        assert!(is_transient_network_error(&stream_err));
+
+        let quota_err = rig::agent::StreamingError::Completion(CompletionError::ProviderError(
+            "Antigravity request failed: Individual quota reached for gemini-2.5-pro".to_string(),
+        ));
+        assert!(!is_transient_network_error(&quota_err));
     }
 }

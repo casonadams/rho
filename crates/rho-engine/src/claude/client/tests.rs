@@ -226,6 +226,14 @@ fn test_friendly_error_formatting() {
     assert!(friendly_error(Some(401), "").contains("Run 'rho login claude'"));
     assert!(friendly_error(Some(429), r#"{"error":{"message":"over limit"}}"#).contains("over limit"));
     assert!(friendly_error(Some(529), "").contains("overloaded"));
+    assert_eq!(
+        friendly_error(None, "Claude request failed: timeout"),
+        "Claude request failed: timeout"
+    );
+    assert_eq!(
+        friendly_error(None, "connection reset"),
+        "Claude request failed: connection reset"
+    );
 }
 
 struct MockProvider {

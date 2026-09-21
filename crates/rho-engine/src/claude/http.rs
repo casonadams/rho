@@ -77,6 +77,9 @@ pub fn friendly_error(status: Option<u16>, body: &str) -> String {
         Some(400) => format!("Claude request invalid. Backend: {message}"),
         Some(529) => "Anthropic API is overloaded. Wait a bit and retry.".to_string(),
         Some(other) => format!("Claude API error ({other}): {message}"),
-        None => format!("Claude request failed: {message}"),
+        None => {
+            let clean = message.strip_prefix("Claude request failed: ").unwrap_or(&message);
+            format!("Claude request failed: {clean}")
+        }
     }
 }

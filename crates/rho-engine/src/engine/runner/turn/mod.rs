@@ -51,10 +51,12 @@ impl AgentEngine {
         loop_state: &mut TurnLoopState,
     ) -> Result<Option<TurnOutput>> {
         match res {
-            StreamRunResult::RateLimitRetry => Ok(None),
+            StreamRunResult::RateLimitRetry | StreamRunResult::NetworkRetry => Ok(None),
             StreamRunResult::Compacted => self.compacted_turn_output().await.map(Some),
             StreamRunResult::BudgetContinue => self.handle_budget_continue((sink, presenter), loop_state).await,
             StreamRunResult::Complete(state) => {
+                loop_state.rate_limit_retries = 0;
+                loop_state.network_retries = 0;
                 let out = self
                     .finalize_turn_execution(*state, (sink, loop_state.checkpoint.as_deref()))
                     .await?;
@@ -80,6 +82,7 @@ impl AgentEngine {
                     &mut loop_state.checkpoint,
                     &mut loop_state.overflow_recovered,
                     &mut loop_state.rate_limit_retries,
+                    &mut loop_state.network_retries,
                 ),
             )
             .await?;

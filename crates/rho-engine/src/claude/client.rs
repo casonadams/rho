@@ -78,7 +78,7 @@ impl ClaudeClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| (None, format!("Claude request failed: {e}")))?;
+            .map_err(|e| (None, e.to_string()))?;
 
         let status = response.status();
         if status.is_success() {

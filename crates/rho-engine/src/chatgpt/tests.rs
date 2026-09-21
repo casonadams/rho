@@ -85,3 +85,17 @@ fn parse_quota_missing_rate_limit_returns_none() {
 
     assert_eq!(parse_quota(&json, now), None);
 }
+
+#[test]
+fn test_friendly_error_formatting() {
+    use super::client::friendly_error;
+    assert_eq!(
+        friendly_error(None, "ChatGPT request failed: timeout"),
+        "ChatGPT request failed: timeout"
+    );
+    assert_eq!(
+        friendly_error(None, "broken pipe"),
+        "ChatGPT request failed: broken pipe"
+    );
+    assert!(friendly_error(Some(401), "").contains("Run 'rho login chatgpt'"));
+}

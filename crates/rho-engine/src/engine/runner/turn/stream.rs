@@ -14,8 +14,8 @@ use super::streaming_tool::StreamingToolTracker;
 use super::types::TurnOutput;
 use crate::engine::AgentEngine;
 use crate::engine::runner::history::{
-    DisplayEvent, budget_history, checkpoint_messages, display_events, extract_retry_after, map_streaming_error,
-    streaming_error_provider_request_id,
+    DisplayEvent, budget_history, checkpoint_messages, display_events, extract_retry_after, is_transient_network_error,
+    map_streaming_error, streaming_error_provider_request_id,
 };
 use crate::engine::runner::sink::{TerminalApprovalSink, TurnArtifacts};
 use crate::engine::tracking::UsageTracker;
@@ -27,6 +27,7 @@ pub(super) struct TurnStreamState {
     pub(super) reasoning_parts: HashSet<String>,
     pub(super) streaming_tool: StreamingToolTracker,
     pub(super) total_tool_calls: usize,
+    pub(super) content_emitted: bool,
 }
 
 impl TurnStreamState {
@@ -38,6 +39,7 @@ impl TurnStreamState {
             reasoning_parts: HashSet::new(),
             streaming_tool: StreamingToolTracker::default(),
             total_tool_calls: 0,
+            content_emitted: false,
         }
     }
 }
@@ -46,6 +48,7 @@ pub(super) enum StreamRunResult {
     Compacted,
     BudgetContinue,
     RateLimitRetry,
+    NetworkRetry,
     Complete(Box<TurnStreamState>),
 }
 
@@ -53,6 +56,7 @@ enum StreamErrorAction {
     Compacted,
     BudgetContinue,
     RateLimitRetry,
+    NetworkRetry,
 }
 
 fn record_streaming_text(text: &str, _model: &str, usage: &UsageTracker, start: &mut Option<Instant>) {
@@ -154,6 +158,7 @@ impl AgentEngine {
         content: StreamedAssistantContent,
         (sink, state, active_model): (&Arc<TerminalApprovalSink>, &mut TurnStreamState, &str),
     ) {
+        state.content_emitted = true;
         if let StreamedAssistantContent::ToolCallDelta { content, .. } = content {
             sink.flush_reasoning();
             sink.resume_model_spinner();
@@ -264,11 +269,13 @@ impl AgentEngine {
     async fn handle_stream_error(
         &self,
         (error, presenter, sink): (StreamingError, &dyn Presenter, &Arc<TerminalApprovalSink>),
-        (visible_history, checkpoint, overflow_recovered, rate_limit_retries): (
+        (visible_history, checkpoint, overflow_recovered, rate_limit_retries, network_retries, content_emitted): (
             &mut Vec<Message>,
             &mut Option<Vec<Message>>,
             &mut bool,
             &mut usize,
+            &mut usize,
+            bool,
         ),
     ) -> Result<StreamErrorAction> {
         sink.finish_spinner();
@@ -301,17 +308,29 @@ impl AgentEngine {
             sink.resume_model_spinner();
             return Ok(StreamErrorAction::RateLimitRetry);
         }
+        if is_transient_network_error(&error) && !content_emitted && *network_retries < 2 {
+            *network_retries += 1;
+            let secs = *network_retries as u64;
+            presenter.print_notice(&format!(
+                "[Network connection failed; retrying in {secs}s ({}/2)...]",
+                *network_retries
+            ));
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            sink.resume_model_spinner();
+            return Ok(StreamErrorAction::NetworkRetry);
+        }
         self.handle_fatal_stream_error(error).await
     }
 
     pub(super) async fn run_turn_stream(
         &self,
         (runner, sink, presenter): (AgentRunner, &Arc<TerminalApprovalSink>, &dyn Presenter),
-        (active_model, visible_history, checkpoint, overflow_recovered, rate_limit_retries): (
+        (active_model, visible_history, checkpoint, overflow_recovered, rate_limit_retries, network_retries): (
             &str,
             &mut Vec<Message>,
             &mut Option<Vec<Message>>,
             &mut bool,
+            &mut usize,
             &mut usize,
         ),
     ) -> Result<StreamRunResult> {
@@ -324,13 +343,21 @@ impl AgentEngine {
                     let action = self
                         .handle_stream_error(
                             (err, presenter, sink),
-                            (visible_history, checkpoint, overflow_recovered, rate_limit_retries),
+                            (
+                                visible_history,
+                                checkpoint,
+                                overflow_recovered,
+                                rate_limit_retries,
+                                network_retries,
+                                state.content_emitted,
+                            ),
                         )
                         .await?;
                     match action {
                         StreamErrorAction::Compacted => return Ok(StreamRunResult::Compacted),
                         StreamErrorAction::BudgetContinue => return Ok(StreamRunResult::BudgetContinue),
                         StreamErrorAction::RateLimitRetry => return Ok(StreamRunResult::RateLimitRetry),
+                        StreamErrorAction::NetworkRetry => return Ok(StreamRunResult::NetworkRetry),
                     }
                 }
             }
@@ -397,5 +424,172 @@ impl AgentEngine {
             generation_elapsed_ms: elapsed,
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::eval::mock::{MockEngineConfig, mock_engine};
+    use async_trait::async_trait;
+    use rig::completion::CompletionError;
+    use rig::test_utils::MockCompletionModel;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct TestPresenter {
+        notices: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl Presenter for TestPresenter {
+        fn write_output(&self, _text: &str) {}
+        fn print_welcome(&self, _display: &rho_harness_core::presentation::WelcomeDisplay) {}
+        fn print_session_status(&self, _display: &rho_harness_core::presentation::SessionStatus) {}
+        fn print_notice(&self, text: &str) {
+            self.notices.lock().unwrap().push(text.to_string());
+        }
+        fn print_user_block(&self, _input: &str) {}
+        fn print_token(&self, _token: &str) {}
+        fn print_thinking_token(&self, _token: &str) {}
+        fn finish_tool_line(&self, _line: rho_harness_core::presentation::ToolLine) {}
+        fn flush(&self) {}
+        fn has_interactive_ui(&self) -> bool {
+            false
+        }
+        fn start_spinner(&self, _message: &str) -> rho_harness_core::presentation::activity::ActivityToken {
+            rho_harness_core::presentation::activity::ActivityToken::default()
+        }
+        fn start_tool_spinner(
+            &self,
+            _name: &str,
+            _arguments: &serde_json::Value,
+        ) -> rho_harness_core::presentation::activity::ActivityToken {
+            rho_harness_core::presentation::activity::ActivityToken::default()
+        }
+        fn start_tool_run(&self, _name: &str, _arguments: &serde_json::Value) {}
+        fn stream_port(&self) -> rho_harness_core::presentation::ToolStreamPort {
+            rho_harness_core::presentation::ToolStreamPort::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transient_network_error_retries_then_exhausts() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let engine = mock_engine(
+            MockCompletionModel::default(),
+            MockEngineConfig {
+                base_dir: temp_dir.path(),
+                app_config: rho_harness_core::config::Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
+        let sink = engine.create_approval_sink(&presenter);
+        let mut visible_history = Vec::new();
+        let mut checkpoint = None;
+        let mut overflow_recovered = false;
+        let mut rate_limit_retries = 0;
+        let mut network_retries = 0;
+
+        let transient_err = StreamingError::Completion(CompletionError::ProviderError(
+            "error sending request for url (https://cloudcode-pa.googleapis.com)".to_string(),
+        ));
+
+        let action = engine
+            .handle_stream_error(
+                (transient_err, presenter.as_ref(), &sink),
+                (
+                    &mut visible_history,
+                    &mut checkpoint,
+                    &mut overflow_recovered,
+                    &mut rate_limit_retries,
+                    &mut network_retries,
+                    false,
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(action, StreamErrorAction::NetworkRetry));
+        assert_eq!(network_retries, 1);
+
+        let transient_err =
+            StreamingError::Completion(CompletionError::ProviderError("connection reset by peer".to_string()));
+        let action = engine
+            .handle_stream_error(
+                (transient_err, presenter.as_ref(), &sink),
+                (
+                    &mut visible_history,
+                    &mut checkpoint,
+                    &mut overflow_recovered,
+                    &mut rate_limit_retries,
+                    &mut network_retries,
+                    false,
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(action, StreamErrorAction::NetworkRetry));
+        assert_eq!(network_retries, 2);
+
+        let transient_err =
+            StreamingError::Completion(CompletionError::ProviderError("connection reset by peer".to_string()));
+        let result = engine
+            .handle_stream_error(
+                (transient_err, presenter.as_ref(), &sink),
+                (
+                    &mut visible_history,
+                    &mut checkpoint,
+                    &mut overflow_recovered,
+                    &mut rate_limit_retries,
+                    &mut network_retries,
+                    false,
+                ),
+            )
+            .await;
+        assert!(result.is_err());
+        assert_eq!(network_retries, 2);
+    }
+
+    #[tokio::test]
+    async fn test_transient_network_error_not_retried_if_content_already_emitted() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let engine = mock_engine(
+            MockCompletionModel::default(),
+            MockEngineConfig {
+                base_dir: temp_dir.path(),
+                app_config: rho_harness_core::config::Config::default(),
+                session_manager: None,
+                built_in_tools: None,
+            },
+        );
+        let presenter: Arc<dyn Presenter> = Arc::new(TestPresenter::default());
+        let sink = engine.create_approval_sink(&presenter);
+        let mut visible_history = Vec::new();
+        let mut checkpoint = None;
+        let mut overflow_recovered = false;
+        let mut rate_limit_retries = 0;
+        let mut network_retries = 0;
+
+        let transient_err = StreamingError::Completion(CompletionError::ProviderError(
+            "Claude stream failed: broken pipe".to_string(),
+        ));
+
+        let result = engine
+            .handle_stream_error(
+                (transient_err, presenter.as_ref(), &sink),
+                (
+                    &mut visible_history,
+                    &mut checkpoint,
+                    &mut overflow_recovered,
+                    &mut rate_limit_retries,
+                    &mut network_retries,
+                    true,
+                ),
+            )
+            .await;
+        assert!(result.is_err());
+        assert_eq!(network_retries, 0);
     }
 }

@@ -160,7 +160,7 @@ impl ChatGptClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| (None, format!("ChatGPT request failed: {e}")))?;
+            .map_err(|e| (None, e.to_string()))?;
 
         let status = response.status();
         if status.is_success() {
@@ -237,7 +237,10 @@ pub fn friendly_error(status: Option<u16>, body: &str) -> String {
         Some(400) => format!("ChatGPT request invalid. Backend: {message}"),
         Some(503) | Some(502) => "ChatGPT service is temporarily unavailable. Wait a bit and retry.".to_string(),
         Some(other) => format!("ChatGPT API error ({other}): {message}"),
-        None => format!("ChatGPT request failed: {message}"),
+        None => {
+            let clean = message.strip_prefix("ChatGPT request failed: ").unwrap_or(&message);
+            format!("ChatGPT request failed: {clean}")
+        }
     }
 }
 

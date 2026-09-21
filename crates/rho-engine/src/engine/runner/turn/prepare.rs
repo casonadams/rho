@@ -35,6 +35,7 @@ pub(super) struct TurnLoopState {
     pub current_budget: usize,
     pub overflow_recovered: bool,
     pub rate_limit_retries: usize,
+    pub network_retries: usize,
 }
 
 impl AgentEngine {
@@ -57,7 +58,7 @@ impl AgentEngine {
         self.usage.start_turn(Some(est));
     }
 
-    fn create_approval_sink(&self, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
+    pub(super) fn create_approval_sink(&self, presenter: &Arc<dyn Presenter>) -> Arc<TerminalApprovalSink> {
         let model_label = format!("{}:{}", self.config.model, self.context_usage_display());
         TerminalApprovalSink::new(
             presenter,
@@ -122,6 +123,7 @@ impl AgentEngine {
             current_budget: self.config.max_turns,
             overflow_recovered: false,
             rate_limit_retries: 0,
+            network_retries: 0,
         };
         Ok(PreparedTurn {
             preamble,
