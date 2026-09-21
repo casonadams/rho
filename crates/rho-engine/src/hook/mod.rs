@@ -13,7 +13,7 @@ use rig::agent::hook::{
     AgentHook, CompletionCall, CompletionCallAction, HookContext, InvalidToolCallAction, InvalidToolCallContext,
     ToolCall, ToolCallAction, ToolResultAction, ToolResultEvent,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -35,35 +35,13 @@ impl LifecycleHook {
     }
 
     pub fn find_hook(&self, name: &str) -> Option<PathBuf> {
-        let hooks_dir = self.working_dir.join(".rho").join("hooks");
-        if !hooks_dir.is_dir() {
-            return None;
-        }
-
-        let candidates = [
-            hooks_dir.join(name),
-            hooks_dir.join(format!("on_{name}")),
-            hooks_dir.join(name.replace('_', "-")),
-            hooks_dir.join(format!("on-{}", name.replace('_', "-"))),
-        ];
-
-        for candidate in candidates {
-            if candidate.is_file() {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Ok(meta) = candidate.metadata()
-                        && meta.permissions().mode() & 0o111 != 0
-                    {
-                        return Some(candidate);
-                    }
-                }
-                #[cfg(not(unix))]
-                return Some(candidate);
-            }
-        }
-
-        None
+        let user_home = rho_harness_core::config::dirs_fallback();
+        let user_dir = if self.working_dir != user_home {
+            Some(user_home.as_path())
+        } else {
+            None
+        };
+        find_hook_in_paths(name, &self.working_dir, user_dir)
     }
 
     pub async fn notify_turn_start(&self, prompt: &str) {
@@ -215,4 +193,51 @@ impl AgentHook for LifecycleHook {
             _ => None,
         }
     }
+}
+
+pub fn find_hook_in_paths(name: &str, project_dir: &Path, user_dir: Option<&Path>) -> Option<PathBuf> {
+    let project_hooks = project_dir.join(".agents").join("hooks");
+    if let Some(hook) = find_hook_in_dir(&project_hooks, name) {
+        return Some(hook);
+    }
+
+    if let Some(user) = user_dir {
+        let user_hooks = user.join(".agents").join("hooks");
+        if let Some(hook) = find_hook_in_dir(&user_hooks, name) {
+            return Some(hook);
+        }
+    }
+
+    None
+}
+
+fn find_hook_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+    if !dir.is_dir() {
+        return None;
+    }
+
+    let candidates = [
+        dir.join(name),
+        dir.join(format!("on_{name}")),
+        dir.join(name.replace('_', "-")),
+        dir.join(format!("on-{}", name.replace('_', "-"))),
+    ];
+
+    for candidate in candidates {
+        if candidate.is_file() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(meta) = candidate.metadata()
+                    && meta.permissions().mode() & 0o111 != 0
+                {
+                    return Some(candidate);
+                }
+            }
+            #[cfg(not(unix))]
+            return Some(candidate);
+        }
+    }
+
+    None
 }

@@ -115,3 +115,97 @@ async fn test_run_hook_script_execution() {
     assert!(res.is_err());
     assert!(res.unwrap_err().contains("timed out"));
 }
+
+#[test]
+fn test_find_hook_project_agents_directory() {
+    let project = tempfile::tempdir().unwrap();
+    let hooks_dir = project.path().join(".agents").join("hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    let hook_file = hooks_dir.join("on_tool_call");
+    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let found = find_hook_in_paths("tool_call", project.path(), None);
+    assert_eq!(found, Some(hook_file));
+}
+
+#[test]
+fn test_find_hook_user_fallback() {
+    let project = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+
+    let user_hooks = user.path().join(".agents").join("hooks");
+    std::fs::create_dir_all(&user_hooks).unwrap();
+    let hook_file = user_hooks.join("turn_start");
+    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let found = find_hook_in_paths("turn_start", project.path(), Some(user.path()));
+    assert_eq!(found, Some(hook_file));
+}
+
+#[test]
+fn test_find_hook_project_overrides_user() {
+    let project = tempfile::tempdir().unwrap();
+    let user = tempfile::tempdir().unwrap();
+
+    let project_hooks = project.path().join(".agents").join("hooks");
+    std::fs::create_dir_all(&project_hooks).unwrap();
+    let project_hook = project_hooks.join("on_tool_call");
+    std::fs::write(&project_hook, "#!/bin/sh\nexit 0\n").unwrap();
+
+    let user_hooks = user.path().join(".agents").join("hooks");
+    std::fs::create_dir_all(&user_hooks).unwrap();
+    let user_hook = user_hooks.join("on_tool_call");
+    std::fs::write(&user_hook, "#!/bin/sh\nexit 0\n").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&project_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&user_hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let found = find_hook_in_paths("tool_call", project.path(), Some(user.path()));
+    assert_eq!(found, Some(project_hook));
+}
+
+#[test]
+fn test_find_hook_ignores_legacy_rho_directory() {
+    let project = tempfile::tempdir().unwrap();
+    let legacy_hooks = project.path().join(".rho").join("hooks");
+    std::fs::create_dir_all(&legacy_hooks).unwrap();
+    let hook_file = legacy_hooks.join("on_tool_call");
+    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let found = find_hook_in_paths("tool_call", project.path(), None);
+    assert_eq!(found, None);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_find_hook_requires_executable_bit_on_unix() {
+    use std::os::unix::fs::PermissionsExt;
+    let project = tempfile::tempdir().unwrap();
+    let hooks_dir = project.path().join(".agents").join("hooks");
+    std::fs::create_dir_all(&hooks_dir).unwrap();
+    let hook_file = hooks_dir.join("on_tool_call");
+    std::fs::write(&hook_file, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let found = find_hook_in_paths("tool_call", project.path(), None);
+    assert_eq!(found, None);
+}

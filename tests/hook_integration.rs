@@ -17,7 +17,7 @@ fn temp_workspace() -> PathBuf {
 }
 
 fn write_hook_script(workspace: &Path, event_name: &str, body: &str) {
-    let hooks_dir = workspace.join(".rho").join("hooks");
+    let hooks_dir = workspace.join(".agents").join("hooks");
     std::fs::create_dir_all(&hooks_dir).unwrap();
     let hook_file = hooks_dir.join(event_name);
     let script = format!("#!/bin/sh\n{body}\n");
@@ -153,5 +153,52 @@ async fn test_hook_skips_tool() {
     let output = engine.run_turn(TurnRequest::new("read file"), presenter).await.unwrap();
 
     assert_eq!(output.final_text, "handled skip");
+    let _ = std::fs::remove_dir_all(&workspace);
+}
+
+#[tokio::test]
+async fn test_legacy_rho_hook_ignored_by_engine() {
+    let workspace = temp_workspace();
+    let legacy_hooks = workspace.join(".rho").join("hooks");
+    std::fs::create_dir_all(&legacy_hooks).unwrap();
+    let hook_file = legacy_hooks.join("on_tool_call");
+    let script = "#!/bin/sh\necho '{\"action\":\"stop\",\"reason\":\"legacy hook triggered\"}'\n";
+    std::fs::write(&hook_file, script).unwrap();
+    std::fs::set_permissions(&hook_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let target_file = workspace.join("foo.txt");
+    std::fs::write(&target_file, "hello").unwrap();
+
+    let model = MockCompletionModel::from_stream_turns([
+        vec![
+            MockStreamEvent::tool_call("call_1", "read", json!({"path": "foo.txt"})),
+            final_event(rig::completion::Usage::new()),
+        ],
+        vec![
+            MockStreamEvent::text("finished normally"),
+            final_event(rig::completion::Usage::new()),
+        ],
+    ]);
+
+    let config = Config::default();
+    let built_in_tools = rho_engine::tools::build_builtin_tools(&workspace, &config).ok();
+    let engine = mock_engine(
+        model,
+        MockEngineConfig {
+            base_dir: &workspace,
+            app_config: config,
+            session_manager: None,
+            built_in_tools,
+        },
+    );
+
+    let recording = RecordingSink::default();
+    let presenter = Arc::new(StructuredPresenter::new(Arc::new(recording)));
+    let output = engine
+        .run_turn(TurnRequest::new("trigger read"), presenter)
+        .await
+        .unwrap();
+
+    assert_eq!(output.final_text, "finished normally");
     let _ = std::fs::remove_dir_all(&workspace);
 }
