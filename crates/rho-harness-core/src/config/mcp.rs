@@ -166,15 +166,15 @@ pub fn global_mcp_path(config_dir: &Path) -> PathBuf {
 }
 
 pub fn local_mcp_path(workspace_dir: &Path) -> PathBuf {
+    let agents_candidate = workspace_dir.join(".agents").join("mcp.json");
+    if agents_candidate.is_file() {
+        return agents_candidate;
+    }
     let candidate = workspace_dir.join(".mcp.json");
     if candidate.is_file() {
         return candidate;
     }
-    let rho_candidate = workspace_dir.join(".rho").join("mcp.json");
-    if rho_candidate.is_file() {
-        return rho_candidate;
-    }
-    candidate
+    agents_candidate
 }
 
 pub fn load_global_mcp_config(config_dir: &Path) -> Result<Option<McpConfig>> {
@@ -194,17 +194,17 @@ pub fn load_global_mcp_config(config_dir: &Path) -> Result<Option<McpConfig>> {
 }
 
 pub fn load_project_mcp_config(workspace_dir: &Path) -> Result<Option<McpConfig>> {
+    let agents_candidate = workspace_dir.join(".agents").join("mcp.json");
+    if agents_candidate.is_file() {
+        let content = std::fs::read_to_string(&agents_candidate)
+            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", agents_candidate.display())))?;
+        return parse_mcp_json_str(&content).map(Some);
+    }
+
     let candidate = workspace_dir.join(".mcp.json");
     if candidate.is_file() {
         let content = std::fs::read_to_string(&candidate)
             .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", candidate.display())))?;
-        return parse_mcp_json_str(&content).map(Some);
-    }
-
-    let rho_candidate = workspace_dir.join(".rho").join("mcp.json");
-    if rho_candidate.is_file() {
-        let content = std::fs::read_to_string(&rho_candidate)
-            .map_err(|e| AppError::Config(format!("Failed to read {}: {e}", rho_candidate.display())))?;
         return parse_mcp_json_str(&content).map(Some);
     }
 
@@ -383,5 +383,71 @@ mod tests {
     fn test_mcp_config_default_is_enabled() {
         let config = McpConfig::default();
         assert!(config.enabled);
+    }
+
+    #[test]
+    fn test_project_mcp_precedence_agents_over_root() {
+        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
+        let agents_dir = temp_dir.join(".agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+
+        std::fs::write(
+            agents_dir.join("mcp.json"),
+            r#"{"mcpServers": {"agents_srv": {"command": "echo"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            temp_dir.join(".mcp.json"),
+            r#"{"mcpServers": {"root_srv": {"command": "echo"}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(local_mcp_path(&temp_dir), agents_dir.join("mcp.json"));
+        let config = load_project_mcp_config(&temp_dir).unwrap().unwrap();
+        assert!(config.servers.contains_key("agents_srv"));
+        assert!(!config.servers.contains_key("root_srv"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_project_mcp_fallback_to_root() {
+        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        std::fs::write(
+            temp_dir.join(".mcp.json"),
+            r#"{"mcpServers": {"root_srv": {"command": "echo"}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".mcp.json"));
+        let config = load_project_mcp_config(&temp_dir).unwrap().unwrap();
+        assert!(config.servers.contains_key("root_srv"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_project_mcp_ignores_legacy_rho() {
+        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
+        let rho_dir = temp_dir.join(".rho");
+        std::fs::create_dir_all(&rho_dir).unwrap();
+        std::fs::write(
+            rho_dir.join("mcp.json"),
+            r#"{"mcpServers": {"rho_srv": {"command": "echo"}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".agents").join("mcp.json"));
+        let config = load_project_mcp_config(&temp_dir).unwrap();
+        assert!(config.is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_local_mcp_path_defaults_to_agents() {
+        let temp_dir = std::env::temp_dir().join(format!("rho_mcp_test_{}", uuid::Uuid::new_v4()));
+        assert_eq!(local_mcp_path(&temp_dir), temp_dir.join(".agents").join("mcp.json"));
     }
 }
