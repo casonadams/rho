@@ -77,8 +77,17 @@ lowest):
 ```text
 ~/.agents/
 ├── AGENTS.md       # Global instructions & engineering defaults
+├── hooks/          # Global lifecycle hooks (fallback)
 ├── mcp.json        # Global Model Context Protocol tool servers
+├── prompts/        # Global prompt templates
 └── skills/         # Global skills (~/.agents/skills/<name>/SKILL.md)
+
+<project>/.agents/
+├── AGENTS.md       # Project instructions & engineering defaults
+├── hooks/          # Project lifecycle hooks
+├── mcp.json        # Project Model Context Protocol tool servers
+├── prompts/        # Project prompt templates
+└── skills/         # Project skills (.agents/skills/<name>/SKILL.md)
 
 ~/.config/rho/
 ├── auth.json       # Persisted credentials and OAuth tokens
@@ -196,6 +205,44 @@ Invoke skills in the interactive REPL:
 ```
 
 Auto-completion presents matching skills as soon as you type `/skill `.
+
+---
+
+## Prompt Templates (`.agents/prompts/`)
+
+Prompt templates are user-facing slash-command shortcuts and macros.
+
+### Discovery & Precedence
+
+Prompt templates are discovered across:
+
+1. **Project Directory**: `.agents/prompts/` (overrides root `./prompts/` and user templates)
+2. **Project Root**: `./prompts/`
+3. **User Home**: `~/.agents/prompts/` (overrides `~/.config/rho/prompts/`)
+4. **User Config**: `~/.config/rho/prompts/`
+
+### Authoring Prompt Templates
+
+Create a markdown file (e.g. `.agents/prompts/review.md`):
+
+```markdown
+---
+description: "Review a file for safety and test coverage"
+argument-hint: "<file-path>"
+---
+Please review ${1} for potential edge cases, security issues, and test coverage:
+$ARGUMENTS
+```
+
+Supports variable expansion such as `$1`, `$2`, `$ARGUMENTS`, and `${1:-default}`.
+
+### Invoking Templates
+
+Templates are automatically registered as slash commands in the REPL:
+
+```text
+/review src/lib.rs
+```
 
 ---
 

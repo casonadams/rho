@@ -1,5 +1,5 @@
 #!/bin/sh
-# Example hook: place in .rho/hooks/on_tool_call and chmod +x
+# Example hook: place in .agents/hooks/on_tool_call and chmod +x
 read -r EVENT
 
 # Check if the tool is bash and contains dangerous patterns

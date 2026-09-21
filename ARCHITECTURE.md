@@ -52,7 +52,7 @@ Everything needed to run model turns and tools:
   client singleton, rate limiting.
 - `permission/` — bash tokenizer, policy evaluation, interactive prompts.
 - `mcp/` — MCP client/process/transport and tool gateway.
-- `hook/` — lightweight one-shot process hooks (`.rho/hooks/`) for turn and tool lifecycle interception.
+- `hook/` — lightweight one-shot process hooks (`.agents/hooks/`) for turn and tool lifecycle interception.
 
 ### `rho` (CLI shell)
 
@@ -142,9 +142,9 @@ tool call ─▶ PermissionHook (engine/permission/)
   are provider-specific (`antigravity/quota`, `chatgpt`, `ollama`).
 - MCP servers spawn as child processes with JSON-RPC stdio transport
   (`mcp/process.rs`, `mcp/transport.rs`); tools surface through `McpGateway`
-  and are reaped on engine rebuild. Configured via `~/.agents/mcp.json` or `.mcp.json`.
+  and are reaped on engine rebuild. Configured via `~/.agents/mcp.json`, `.agents/mcp.json`, or `.mcp.json`.
 - Lifecycle hooks run as one-shot child processes (`hook/`) triggered by
-  executables in `.rho/hooks/` (e.g. `on_tool_call`, `on_tool_result`),
+  executables in `.agents/hooks/` (e.g. `on_tool_call`, `on_tool_result`),
   communicating via simple JSON on stdin/stdout without daemon overhead.
 
 ## Testing Layout

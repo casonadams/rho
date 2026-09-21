@@ -99,19 +99,19 @@ export const CURATED_EXTENSIONS = [
     type: "hook",
     badge: "Lifecycle Hook",
     category: "Security (Bash)",
-    description: "One-shot shell hook in .rho/hooks/on_tool_call that blocks destructive bash commands (rm -rf, DROP TABLE, git reset --hard) with zero daemon overhead.",
+    description: "One-shot shell hook in .agents/hooks/on_tool_call that blocks destructive bash commands (rm -rf, DROP TABLE, git reset --hard) with zero daemon overhead.",
     author: "casonadams",
     version: "Recipe",
     runtime: "POSIX Shell",
     repoUrl: "https://github.com/casonadams/rho/tree/main/examples/hooks",
     cratesUrl: null,
     snippet: `#!/bin/sh
-# .rho/hooks/on_tool_call
+# .agents/hooks/on_tool_call
 read -r EVENT
 if echo "$EVENT" | grep -Eq 'rm -rf|git reset --hard'; then
   echo '{"action":"stop","reason":"destructive command blocked"}'
 fi`,
-    snippetLabel: ".rho/hooks/on_tool_call",
+    snippetLabel: ".agents/hooks/on_tool_call",
     isOfficial: true
   },
   {
@@ -120,20 +120,20 @@ fi`,
     type: "hook",
     badge: "Lifecycle Hook",
     category: "Auditing (Python)",
-    description: "One-shot Python hook in .rho/hooks/on_tool_result that appends structured tool execution logs and timestamps to an audit file.",
+    description: "One-shot Python hook in .agents/hooks/on_tool_result that appends structured tool execution logs and timestamps to an audit file.",
     author: "casonadams",
     version: "Recipe",
     runtime: "Python 3",
     repoUrl: "https://github.com/casonadams/rho/tree/main/examples/hooks",
     cratesUrl: null,
     snippet: `#!/usr/bin/env python3
-# .rho/hooks/on_tool_result
+# .agents/hooks/on_tool_result
 import sys, json
 data = json.loads(sys.stdin.read() or "{}")
 with open("audit.log", "a") as f:
     f.write(f"{data.get('tool_name')}: {data.get('is_error')}\\n")
 print('{"action":"continue"}')`,
-    snippetLabel: ".rho/hooks/on_tool_result",
+    snippetLabel: ".agents/hooks/on_tool_result",
     isOfficial: true
   }
 ];

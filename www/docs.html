@@ -655,7 +655,7 @@ rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"</code>
 
       <h2 id="hooks">The rho Lifecycle Hooks Subsystem</h2>
       <p>
-        Lifecycle hooks in rho are lightweight, one-shot executable scripts in <strong><code>.rho/hooks/</code></strong>. When events occur, rho pipes event details as single-line JSON to the script's <code>stdin</code> and reads the decision JSON from <code>stdout</code>.
+        Lifecycle hooks in rho are lightweight, one-shot executable scripts in <strong><code>.agents/hooks/</code></strong>. When events occur, rho pipes event details as single-line JSON to the script's <code>stdin</code> and reads the decision JSON from <code>stdout</code>.
       </p>
 
       <h3>Hook Events</h3>
@@ -706,7 +706,7 @@ rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"</code>
       <h3>Example: Blocking Destructive Commands</h3>
       <div class="code-block-wrapper">
         <div class="code-block-header">
-          <span>.rho/hooks/on_tool_call (chmod +x)</span>
+          <span>.agents/hooks/on_tool_call (chmod +x)</span>
           <button class="copy-btn" data-copy="#!/bin/sh
 read -r EVENT
 if echo &quot;$EVENT&quot; | grep -Eq 'rm -rf|git reset --hard'; then

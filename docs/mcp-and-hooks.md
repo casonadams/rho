@@ -5,7 +5,7 @@
 1. **Model Context Protocol (MCP) Servers**: Standard out-of-process tool
    providers that expose external APIs, databases, browser automation, and
    custom tools.
-2. **Lifecycle Hooks**: Lightweight, one-shot process hooks (`.rho/hooks/`) for
+2. **Lifecycle Hooks**: Lightweight, one-shot process hooks (`.agents/hooks/`) for
    security guardrails, request inspection, argument rewriting, and turn
    control.
 
@@ -16,7 +16,7 @@
 MCP servers are configured in standard JSON files:
 
 - **Global**: `~/.agents/mcp.json` (fallback: `~/.config/rho/mcp.json`)
-- **Local / Workspace**: `.mcp.json` (fallback: `.rho/mcp.json`)
+- **Local / Workspace**: `.agents/mcp.json` (fallback: `.mcp.json`)
 
 Local server definitions extend and override global servers on name collisions.
 
@@ -81,7 +81,7 @@ When configured MCP servers expose more tools than the deferral threshold (`defe
 Lifecycle hooks allow developers and security teams to intercept agent turns and
 tool executions without building complex daemon runtimes.
 
-Hooks are executable scripts or binaries placed in `<workspace>/.rho/hooks/`:
+Hooks are executable scripts or binaries placed in `<workspace>/.agents/hooks/` (or user fallback `~/.agents/hooks/`):
 
 | Hook Script            | Trigger Point                                                                              |
 | :--------------------- | :----------------------------------------------------------------------------------------- |

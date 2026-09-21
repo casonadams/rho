@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Example hook: place in .rho/hooks/on_tool_result and chmod +x
+# Example hook: place in .agents/hooks/on_tool_result and chmod +x
 import sys
 import json
 from datetime import datetime

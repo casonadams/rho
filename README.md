@@ -106,9 +106,9 @@ Comprehensive guides are organized in [`docs/`](docs/):
 
 - **[MCP Servers & Lifecycle Hooks](docs/mcp-and-hooks.md)**
   - Full Model Context Protocol (MCP) support: `stdio` and `streamable-http` transports with OAuth 2.1 PKCE authorization.
-  - Ecosystem interoperability with `~/.agents/mcp.json` and workspace `.mcp.json`.
+  - Ecosystem interoperability with `~/.agents/mcp.json`, project `.agents/mcp.json`, and `.mcp.json`.
   - Context budget tool gating (`direct` vs `gateway` vs `auto`), `/mcp` TUI modal, and `rho mcp` management suite.
-  - One-shot lifecycle hooks in `.rho/hooks/` for deterministic policy enforcement, tool gating, argument rewriting, and turn control without background daemons.
+  - One-shot lifecycle hooks in `.agents/hooks/` for deterministic policy enforcement, tool gating, argument rewriting, and turn control without background daemons.
 
 ---
 

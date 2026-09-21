@@ -221,10 +221,10 @@
           <div class="card-icon icon-green">⚡</div>
           <h3 class="card-title">Zero-Daemon Lifecycle Hooks</h3>
           <p class="card-desc">
-            Drop executable scripts into <code>.rho/hooks/</code> (Bash, Python, Node, Rust). Intercept tool calls, rewrite arguments, repair errors, or halt execution without long-lived background daemons.
+            Drop executable scripts into <code>.agents/hooks/</code> (Bash, Python, Node, Rust). Intercept tool calls, rewrite arguments, repair errors, or halt execution without long-lived background daemons.
           </p>
           <div class="card-footer">
-            <span>.rho/hooks/on_tool_call</span>
+            <span>.agents/hooks/on_tool_call</span>
             <span>One-shot JSON stdin/stdout</span>
           </div>
         </div>
@@ -500,10 +500,10 @@ rho serve --workspace ~/repo
           <div class="card-icon icon-blue">🛡</div>
           <h3 class="card-title">Command Guard (Hook)</h3>
           <p class="card-desc">
-            A simple 10-line POSIX shell script in <code>.rho/hooks/on_tool_call</code> that blocks destructive bash commands.
+            A simple 10-line POSIX shell script in <code>.agents/hooks/on_tool_call</code> that blocks destructive bash commands.
           </p>
           <div class="install-bar">
-            <code class="install-cmd">.rho/hooks/on_tool_call</code>
+            <code class="install-cmd">.agents/hooks/on_tool_call</code>
           </div>
         </div>
       </div>

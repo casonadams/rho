@@ -1,12 +1,12 @@
 # rho Lifecycle Hooks
 
-rho lifecycle hooks are simple, one-shot executables placed in `<workspace>/.rho/hooks/`. When agent events occur, rho pipes event details as single-line JSON to the script's `stdin` and reads the decision from `stdout`.
+rho lifecycle hooks are simple, one-shot executables placed in `<workspace>/.agents/hooks/` (or user fallback `~/.agents/hooks/`). When agent events occur, rho pipes event details as single-line JSON to the script's `stdin` and reads the decision from `stdout`.
 
 Hooks run without long-lived background daemons, without network sockets, and without custom SDKs. You can write hooks in Bash, Python, Node, Go, Rust, or any executable format.
 
 ## Hook Events
 
-Place an executable matching the event name in `.rho/hooks/`:
+Place an executable matching the event name in `.agents/hooks/`:
 
 | Event Script | Description |
 | :--- | :--- |
@@ -38,7 +38,7 @@ A hook script exits with status `0` and can output a JSON decision on `stdout`:
 {"action": "ask", "message": "Sensitive file access detected. Allow?"}
 ```
 
-## Example: Bash Command Guard (`.rho/hooks/on_tool_call`)
+## Example: Bash Command Guard (`.agents/hooks/on_tool_call`)
 
 ```sh
 #!/bin/sh
@@ -54,4 +54,4 @@ fi
 # Allow all other calls
 exit 0
 ```
-Remember to make the script executable: `chmod +x .rho/hooks/on_tool_call`.
+Remember to make the script executable: `chmod +x .agents/hooks/on_tool_call`.
