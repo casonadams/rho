@@ -1434,15 +1434,9 @@
       "file": "./crates/rho-engine/src/auth/claude/flow.rs",
       "function": "acquire_auth_code",
       "line": 49,
-      "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 49,
-          "end": 74
-        }
-      ]
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/flow.rs",
@@ -1457,28 +1451,16 @@
       "function": "parse_auth_code_and_state",
       "line": 35,
       "cyclomatic": 4.0,
-      "coverage": 92.3076923076923,
-      "crap": 4.007282658170232,
-      "uncovered": [
-        {
-          "start": 41,
-          "end": 41
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/flow.rs",
       "function": "parse_query_code_state",
       "line": 20,
       "cyclomatic": 6.0,
-      "coverage": 83.33333333333334,
-      "crap": 6.166666666666666,
-      "uncovered": [
-        {
-          "start": 28,
-          "end": 30
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/local.rs",
