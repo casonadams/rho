@@ -63,9 +63,11 @@ rho serve --workspace ~/src/my-project
   matching.
 - **`rg`**: Fast, line-oriented content searching; gitignore-aware, skips binary
   files, and bounds output.
-- **`web_search`**: Search the web and retrieve structured summaries and URLs.
+- **`web_search`**: Search the web and retrieve structured summaries and URLs. Supports selectable search engines (Brave, DuckDuckGo Lite, Yahoo, Firecrawl).
 - **`web_fetch`**: Fetch and extract clean markdown, text, HTML, CSV, or feeds
   from web URLs.
+
+Web tools, search providers, MCP, and permissions can be configured in `config.toml` or interactively toggled via `/settings` under **Tools & Permissions**.
 
 ---
 

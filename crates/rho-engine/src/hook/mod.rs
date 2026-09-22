@@ -4,7 +4,7 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
-pub use runner::{DEFAULT_HOOK_TIMEOUT, run_hook};
+pub use runner::{DEFAULT_HOOK_TIMEOUT, parse_hook_output, run_hook};
 pub use types::{HookAction, HookEvent};
 
 use rho_harness_core::presentation::presenter::Presenter;

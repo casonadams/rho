@@ -61,6 +61,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
         ModalOption::new("Version Banner    ", Some(label_status.to_string())),
         ModalOption::new("Cursor Style      ", Some(cursor_mode.to_string())),
         ModalOption::new("Semantic Search   ", Some(semantic_status.to_string())),
+        ModalOption::new("Tools & Permissions", None::<&str>),
     ];
 
     let modal = ModalState::new("Settings", "", options);
@@ -177,6 +178,7 @@ fn toggle_selected_setting<B: TerminalBackend>(
             update_setting_description(controller, (if next { "On" } else { "Off" }, 8));
             ModalKeyResult::SemanticSearchToggled { enabled: next }
         }
+        9 => ModalKeyResult::OpenToolsMenu,
         _ => ModalKeyResult::Handled,
     }
 }

@@ -89,6 +89,26 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_default_search_engine_async(config_dir: &Path, engine: &str) -> Result<()> {
+        Self::set_file_value_async(config_dir, "tools.web.search.default", engine).await
+    }
+
+    pub async fn save_web_search_enabled_async(config_dir: &Path, enabled: bool) -> Result<()> {
+        Self::set_file_value_async(config_dir, "tools.web.search.enabled", &enabled.to_string()).await
+    }
+
+    pub async fn save_web_fetch_enabled_async(config_dir: &Path, enabled: bool) -> Result<()> {
+        Self::set_file_value_async(config_dir, "tools.web.fetch.enabled", &enabled.to_string()).await
+    }
+
+    pub async fn save_mcp_enabled_async(config_dir: &Path, enabled: bool) -> Result<()> {
+        Self::set_file_value_async(config_dir, "mcp.enabled", &enabled.to_string()).await
+    }
+
+    pub async fn save_permission_enabled_async(config_dir: &Path, enabled: bool) -> Result<()> {
+        Self::set_file_value_async(config_dir, "permission.enabled", &enabled.to_string()).await
+    }
+
     pub fn add_mcp_server(target: &Path, name: &str, server: McpServerConfig) -> Result<()> {
         let path = if target.is_dir() {
             super::mcp::global_mcp_path(target)
@@ -172,6 +192,44 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
     Ok(true)
 }
 
+fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
+    match key {
+        ConfigKey::SearchEngine => {
+            if !crate::config::validate::is_valid_search_engine_name(value) {
+                return Err(AppError::Config(format!(
+                    "Unknown search engine '{value}'. Supported engines: brave, duckduckgo, yahoo, firecrawl"
+                )));
+            }
+            let tools = file_config.tools.get_or_insert_with(Default::default);
+            let web = tools.web.get_or_insert_with(Default::default);
+            let search = web.search.get_or_insert_with(Default::default);
+            search.default = Some(value.to_string());
+        }
+        ConfigKey::WebSearchEnabled => {
+            let tools = file_config.tools.get_or_insert_with(Default::default);
+            let web = tools.web.get_or_insert_with(Default::default);
+            let search = web.search.get_or_insert_with(Default::default);
+            search.enabled = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::WebFetchEnabled => {
+            let tools = file_config.tools.get_or_insert_with(Default::default);
+            let web = tools.web.get_or_insert_with(Default::default);
+            let fetch = web.fetch.get_or_insert_with(Default::default);
+            fetch.enabled = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::McpEnabled => {
+            let mcp = file_config.mcp.get_or_insert_with(Default::default);
+            mcp.enabled = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::PermissionEnabled => {
+            let permission = file_config.permission.get_or_insert_with(Default::default);
+            permission.enabled = parse_bool(key.as_str(), value)?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
 fn apply_limit_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
     match key {
         ConfigKey::MaxOutputTokens => file_config.max_output_tokens = Some(parse_positive(key.as_str(), value)?),
@@ -215,7 +273,7 @@ fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
 
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
     let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
-    if !apply_model_key(file_config, &key, value)? {
+    if !apply_model_key(file_config, &key, value)? && !apply_tool_key(file_config, &key, value)? {
         apply_limit_key(file_config, &key, value)?;
     }
     Ok(())

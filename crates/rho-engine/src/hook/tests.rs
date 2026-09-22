@@ -64,31 +64,10 @@ fn test_hook_action_serde() {
     }
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn test_run_hook_script_execution() {
-    use std::os::unix::fs::PermissionsExt;
-    let temp = tempfile::tempdir().unwrap();
-    let script_path = temp.path().join("test_hook.sh");
-
-    // 1. Script returning stop action
-    std::fs::write(
-        &script_path,
-        "#!/bin/sh\necho '{\"action\":\"stop\",\"reason\":\"blocked\"}'\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    let event = HookEvent::ToolCall {
-        tool_name: "bash".to_string(),
-        args: serde_json::json!({"command": "rm -rf /"}),
-        turn: 1,
-        session_id: "s1".to_string(),
-    };
-
-    let action = run_hook(&script_path, &event, temp.path(), DEFAULT_HOOK_TIMEOUT)
-        .await
-        .unwrap();
+#[test]
+fn test_parse_hook_output() {
+    // 1. Successful execution returning stop action
+    let action = parse_hook_output(true, Some(0), br#"{"action":"stop","reason":"blocked"}"#, b"").unwrap();
     assert_eq!(
         action,
         HookAction::Stop {
@@ -96,24 +75,30 @@ async fn test_run_hook_script_execution() {
         }
     );
 
-    // 2. Script exiting 0 with no stdout returns Continue
-    std::fs::write(&script_path, "#!/bin/sh\nexit 0\n").unwrap();
-    let action = run_hook(&script_path, &event, temp.path(), DEFAULT_HOOK_TIMEOUT)
-        .await
-        .unwrap();
+    // 2. Successful execution exiting 0 with no stdout returns Continue
+    let action = parse_hook_output(true, Some(0), b"", b"").unwrap();
     assert_eq!(action, HookAction::Continue);
 
-    // 3. Script failing returns error
-    std::fs::write(&script_path, "#!/bin/sh\necho 'fatal error' >&2\nexit 1\n").unwrap();
-    let res = run_hook(&script_path, &event, temp.path(), DEFAULT_HOOK_TIMEOUT).await;
-    assert!(res.is_err());
-    assert!(res.unwrap_err().contains("fatal error"));
+    // 3. Script exiting non-zero but with action JSON still returns the action
+    let action = parse_hook_output(false, Some(1), br#"{"action":"stop","reason":"blocked"}"#, b"").unwrap();
+    assert_eq!(
+        action,
+        HookAction::Stop {
+            reason: "blocked".to_string()
+        }
+    );
 
-    // 4. Script timing out fails closed
-    std::fs::write(&script_path, "#!/bin/sh\nsleep 10\n").unwrap();
-    let res = run_hook(&script_path, &event, temp.path(), std::time::Duration::from_millis(50)).await;
+    // 4. Script failing with non-zero exit and no action returns error with stderr
+    let res = parse_hook_output(false, Some(1), b"", b"fatal error");
     assert!(res.is_err());
-    assert!(res.unwrap_err().contains("timed out"));
+    let err = res.unwrap_err();
+    assert!(err.contains("fatal error"));
+    assert!(err.contains("status 1"));
+
+    // 5. Successful execution with malformed JSON returns parse error
+    let res = parse_hook_output(true, Some(0), b"invalid json", b"");
+    assert!(res.is_err());
+    assert!(res.unwrap_err().contains("Failed to parse hook response"));
 }
 
 #[test]

@@ -100,7 +100,7 @@ autocomplete):
 | `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                    |
 | `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                 |
 | `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
-| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles, semantic search). |
+| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, thinking, output toggles, semantic search, and Tools & Permissions). |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                 |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |
@@ -242,3 +242,16 @@ cursor = "software"
 ```
 
 (or toggle it interactively in `/settings` under **Cursor Style**).
+
+---
+
+## Tools & Permissions Modal
+
+Inside `/settings`, selecting **Tools & Permissions** opens an interactive submenu to manage tool availability and search providers:
+
+- **Search Engine**: Displays the current primary search provider (e.g. `brave`, `duckduckgo`). Pressing `Enter` opens the **Select Search Engine** modal listing all supported engines (`brave`, `duckduckgo`, `yahoo`, `firecrawl`) with aligned descriptions, API key requirements, and active checkmarks (`✓`). Selecting an engine updates runtime state and persists to `[tools.web.search] default`.
+- **Web Search**: Interactive `On` / `Off` toggle for the built-in `web_search` tool (`[tools.web.search] enabled`). When disabled, `web_search` is excluded from registration and model prompts.
+- **Web Fetch**: Interactive `On` / `Off` toggle for the built-in `web_fetch` tool (`[tools.web.fetch] enabled`).
+- **MCP**: Interactive `On` / `Off` toggle for the Model Context Protocol subsystem (`[mcp] enabled`).
+- **Permissions**: Interactive `On` / `Off` toggle for runtime mutation guardrails (`[permission] enabled`).
+

@@ -1,4 +1,4 @@
-use super::integrations::{McpConfig, PermissionConfig, ProviderConfig};
+use super::integrations::{McpConfig, PermissionConfig, ProviderConfig, default_true};
 use super::paths::default_config_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -119,10 +119,26 @@ pub struct ToolsConfig {
 pub struct WebToolsConfig {
     #[serde(default)]
     pub search: WebSearchConfig,
+    #[serde(default)]
+    pub fetch: WebFetchConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebFetchConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl Default for WebFetchConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebSearchConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     #[serde(default = "default_search_provider")]
     pub default: String,
     #[serde(default = "default_search_fallback")]
@@ -140,6 +156,7 @@ fn default_search_fallback() -> Vec<String> {
 impl Default for WebSearchConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             default: default_search_provider(),
             fallback: default_search_fallback(),
         }
