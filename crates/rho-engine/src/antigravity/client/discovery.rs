@@ -3,10 +3,19 @@
 
 use super::http::post_metadata;
 
+fn clean_project_id(id: &str) -> Option<String> {
+    let clean = id.strip_prefix("projects/").unwrap_or(id).trim();
+    if clean.is_empty() {
+        None
+    } else {
+        Some(clean.to_string())
+    }
+}
+
 fn extract_from_array(items: &[serde_json::Value]) -> Option<String> {
     for item in items {
-        if let Some(id) = item.as_str() {
-            return Some(id.to_string());
+        if let Some(id) = item.as_str().and_then(clean_project_id) {
+            return Some(id);
         }
         if let Some(found) = extract_project_id(item) {
             return Some(found);
@@ -21,8 +30,17 @@ pub(super) fn extract_project_id(value: &serde_json::Value) -> Option<String> {
         .or_else(|| value.get("projectId"))
         .or_else(|| value.get("backendProjectId"))
         .or_else(|| value.get("cloudaicompanionProject"));
-    if let Some(id) = direct.and_then(|v| v.as_str()) {
-        return Some(id.to_string());
+    if let Some(id) = direct.and_then(|v| v.as_str()).and_then(clean_project_id) {
+        return Some(id);
+    }
+    if let Some(obj) = direct.and_then(|v| v.as_object())
+        && let Some(id) = obj
+            .get("projectId")
+            .or_else(|| obj.get("id"))
+            .and_then(|v| v.as_str())
+            .and_then(clean_project_id)
+    {
+        return Some(id);
     }
     for key in ["projects", "projectIds", "cloudaicompanionProjects"] {
         if let Some(items) = value.get(key).and_then(|v| v.as_array())

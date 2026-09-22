@@ -186,3 +186,151 @@ fn parse_quota_summary_flat_buckets_fallback() {
     let display = parse_quota(&json, "gemini-3.7-flash", now);
     assert_eq!(display, Some("95% 4h23m 89% 3d21h".to_string()));
 }
+
+#[test]
+fn parse_quota_summary_flat_buckets_isolates_gemini_from_unmetered_3p() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+    let json = serde_json::json!({
+        "buckets": [
+            {
+                "bucketId": "gemini-5h",
+                "displayName": "Five Hour Limit",
+                "window": "5h",
+                "remainingFraction": 0.70,
+                "resetTime": "2026-09-03T15:00:00Z"
+            },
+            {
+                "bucketId": "gemini-weekly",
+                "displayName": "Weekly Limit",
+                "window": "weekly",
+                "remainingFraction": 0.85,
+                "resetTime": "2026-09-09T12:00:00Z"
+            },
+            {
+                "bucketId": "3p-5h",
+                "displayName": "Third-Party 5h Limit",
+                "window": "5h",
+                "remainingFraction": 1.0,
+                "resetTime": "2026-09-03T17:00:00Z"
+            }
+        ]
+    });
+
+    let display = parse_quota(&json, "gemini-2.5-pro", now);
+    assert_eq!(display, Some("70% 3h0m 85% 6d0h".to_string()));
+}
+
+#[test]
+fn parse_quota_summary_flat_buckets_isolates_claude_from_gemini() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+    let json = serde_json::json!({
+        "buckets": [
+            {
+                "bucketId": "gemini-5h",
+                "displayName": "Gemini 5h Limit",
+                "window": "5h",
+                "remainingFraction": 1.0,
+                "resetTime": "2026-09-03T17:00:00Z"
+            },
+            {
+                "bucketId": "3p-5h",
+                "displayName": "Claude 5h Limit",
+                "window": "5h",
+                "remainingFraction": 0.60,
+                "resetTime": "2026-09-03T14:30:00Z"
+            },
+            {
+                "bucketId": "3p-weekly",
+                "displayName": "Claude Weekly",
+                "window": "weekly",
+                "remainingFraction": 0.80,
+                "resetTime": "2026-09-08T12:00:00Z"
+            }
+        ]
+    });
+
+    let display = parse_quota(&json, "claude-sonnet-4-6", now);
+    assert_eq!(display, Some("60% 2h30m 80% 5d0h".to_string()));
+}
+
+#[test]
+fn parse_quota_summary_weekly_description_mentioning_5h_is_not_misclassified() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+    let json = serde_json::json!({
+        "buckets": [
+            {
+                "bucketId": "gemini-5h",
+                "displayName": "Five Hour Limit Remaining",
+                "remainingFraction": 0.0,
+                "resetTime": "2026-09-03T12:20:00Z",
+                "description": "You have hit your 5-hour limit, it will refresh in 20 minutes."
+            },
+            {
+                "bucketId": "gemini-weekly",
+                "displayName": "Weekly Limit Remaining",
+                "remainingFraction": 0.50,
+                "resetTime": "2026-09-07T12:00:00Z",
+                "description": "You have hit your 5-hour limit, so the weekly limit does not currently apply."
+            }
+        ]
+    });
+
+    let display = parse_quota(&json, "gemini-2.5-pro", now);
+    assert_eq!(display, Some("0% 20m 50% 4d0h".to_string()));
+}
+
+#[test]
+fn parse_quota_summary_matches_group_by_group_id() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+    let json = serde_json::json!({
+        "groups": [
+            {
+                "groupId": "gemini-models",
+                "buckets": [
+                    { "window": "5h", "remainingFraction": 0.40, "resetTime": "2026-09-03T13:00:00Z" }
+                ]
+            }
+        ]
+    });
+
+    let display = parse_quota(&json, "gemini-2.5-flash", now);
+    assert_eq!(display, Some("40% 1h0m".to_string()));
+}
+
+#[test]
+fn unmetered_summary_detection() {
+    assert!(is_unmetered_summary("100%"));
+    assert!(is_unmetered_summary("100% 100%"));
+    assert!(!is_unmetered_summary(""));
+    assert!(!is_unmetered_summary("100% 4h30m"));
+    assert!(!is_unmetered_summary("85% 3h20m 92% 5d12h"));
+    assert!(!is_unmetered_summary("0% 20m"));
+}
+
+#[test]
+fn parse_quota_unmetered_summary_falls_back_to_active_model_quota() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+    let json = serde_json::json!({
+        "buckets": [
+            {
+                "bucketId": "gemini-5h",
+                "remainingFraction": 1.0
+            },
+            {
+                "bucketId": "gemini-weekly",
+                "remainingFraction": 1.0
+            }
+        ],
+        "models": {
+            "gemini-2.5-pro": {
+                "quotaInfo": {
+                    "remainingFraction": 0.80,
+                    "resetTime": "2026-09-03T14:15:00Z"
+                }
+            }
+        }
+    });
+
+    let display = parse_quota(&json, "gemini-2.5-pro", now);
+    assert_eq!(display, Some("80% 2h15m".to_string()));
+}

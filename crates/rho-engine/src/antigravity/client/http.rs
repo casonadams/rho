@@ -5,10 +5,10 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-pub const DEFAULT_ENDPOINT: &str = "https://cloudcode-pa.googleapis.com";
+pub const DEFAULT_ENDPOINT: &str = "https://daily-cloudcode-pa.googleapis.com";
 pub const ENDPOINT_CANDIDATES: [&str; 3] = [
     DEFAULT_ENDPOINT,
-    "https://daily-cloudcode-pa.googleapis.com",
+    "https://cloudcode-pa.googleapis.com",
     "https://daily-cloudcode-pa.sandbox.googleapis.com",
 ];
 
@@ -134,7 +134,16 @@ pub fn resolve_endpoints(explicit: Option<&str>) -> Vec<String> {
 
 /// POST a Cloud Code Assist metadata endpoint, trying endpoint candidates.
 pub(crate) async fn post_metadata(path: &str, token: &str, body: serde_json::Value) -> Option<serde_json::Value> {
-    for endpoint in resolve_endpoints(None) {
+    post_metadata_candidates(&resolve_endpoints(None), path, token, body).await
+}
+
+pub(crate) async fn post_metadata_candidates(
+    endpoints: &[String],
+    path: &str,
+    token: &str,
+    body: serde_json::Value,
+) -> Option<serde_json::Value> {
+    for endpoint in endpoints {
         let response = http_client()
             .post(format!("{endpoint}{path}"))
             .headers(antigravity_headers(token))
@@ -142,18 +151,11 @@ pub(crate) async fn post_metadata(path: &str, token: &str, body: serde_json::Val
             .timeout(DISCOVERY_TIMEOUT)
             .send()
             .await;
-        match response {
-            Ok(res) => {
-                if res.status().is_success()
-                    && let Ok(json) = res.json::<serde_json::Value>().await
-                {
-                    return Some(json);
-                }
-            }
-            Err(e) if e.is_connect() || e.is_timeout() => {
-                break;
-            }
-            Err(_) => {}
+        if let Ok(res) = response
+            && res.status().is_success()
+            && let Ok(json) = res.json::<serde_json::Value>().await
+        {
+            return Some(json);
         }
     }
     None

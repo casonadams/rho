@@ -19,11 +19,26 @@ pub struct ModelQuota {
 /// Fetch available models or quota summary from Antigravity and extract active quota display.
 pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> Option<String> {
     let body = project_request_body(project_id);
-    if let Some(display) = try_fetch_summary(token, &body, target_model).await {
-        return Some(display);
+    let summary_display = try_fetch_summary(token, &body, target_model).await;
+    if let Some(ref display) = summary_display
+        && !is_unmetered_summary(display)
+    {
+        return Some(display.clone());
     }
-    let response = super::client::post_metadata("/v1internal:fetchAvailableModels", token, body).await?;
-    parse_quota(&response, target_model, Utc::now())
+
+    if let Some(response) = super::client::post_metadata("/v1internal:fetchAvailableModels", token, body).await
+        && let Some(models_display) = parse_models_quota(&response, target_model, Utc::now())
+        && (!is_unmetered_summary(&models_display) || summary_display.is_none())
+    {
+        return Some(models_display);
+    }
+
+    summary_display
+}
+
+pub(crate) fn is_unmetered_summary(display: &str) -> bool {
+    let tokens: Vec<&str> = display.split_whitespace().collect();
+    !tokens.is_empty() && tokens.iter().all(|&t| t == "100%")
 }
 
 fn project_request_body(project_id: &str) -> Value {
@@ -41,10 +56,18 @@ async fn try_fetch_summary(token: &str, body: &Value, target: &str) -> Option<St
 
 /// Parse quota from JSON (either grouped quota summary or per-model catalog) and format status string.
 pub fn parse_quota(value: &Value, target_model: &str, now: DateTime<Utc>) -> Option<String> {
-    if let Some(summary) = parse_quota_summary(value, target_model, now) {
-        return Some(summary);
+    let summary = parse_quota_summary(value, target_model, now);
+    if let Some(ref s) = summary
+        && !is_unmetered_summary(s)
+    {
+        return Some(s.clone());
     }
-    parse_models_quota(value, target_model, now)
+    if let Some(models) = parse_models_quota(value, target_model, now)
+        && (!is_unmetered_summary(&models) || summary.is_none())
+    {
+        return Some(models);
+    }
+    summary
 }
 
 fn extract_model_candidates(models_obj: &serde_json::Map<String, Value>) -> Vec<ModelQuota> {
