@@ -1912,17 +1912,33 @@
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
+      "function": "acquire_openai_code",
+      "line": 102,
+      "cyclomatic": 3.0,
+      "coverage": 0.0,
+      "crap": 12.0,
+      "uncovered": [
+        {
+          "start": 102,
+          "end": 106
+        }
+      ]
+    },
+    {
+      "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
+      "function": "build_openai_auth_url",
+      "line": 78,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
       "function": "build_openai_credential",
       "line": 62,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 62,
-          "end": 76
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
@@ -1941,56 +1957,56 @@
     {
       "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
       "function": "perform_openai_pkce",
-      "line": 101,
-      "cyclomatic": 6.0,
+      "line": 108,
+      "cyclomatic": 4.0,
       "coverage": 0.0,
-      "crap": 42.0,
+      "crap": 20.0,
       "uncovered": [
         {
-          "start": 101,
-          "end": 113
+          "start": 108,
+          "end": 118
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
       "function": "post_refresh_request",
-      "line": 115,
+      "line": 120,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 115,
-          "end": 137
+          "start": 120,
+          "end": 142
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
       "function": "prompt_openai_login",
-      "line": 78,
-      "cyclomatic": 5.0,
+      "line": 86,
+      "cyclomatic": 4.0,
       "coverage": 0.0,
-      "crap": 30.0,
+      "crap": 20.0,
       "uncovered": [
         {
-          "start": 78,
-          "end": 99
+          "start": 86,
+          "end": 100
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/chatgpt.rs",
       "function": "refresh_openai_token",
-      "line": 139,
+      "line": 144,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 139,
-          "end": 145
+          "start": 144,
+          "end": 150
         }
       ]
     },
@@ -1999,14 +2015,8 @@
       "function": "validate_callback",
       "line": 26,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 26,
-          "end": 34
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",

@@ -156,3 +156,85 @@ fn test_openrouter_parse_key_response() {
     let json_invalid = r#"{"error": "invalid_grant"}"#;
     assert!(openrouter::parse_key_response(json_invalid).is_err());
 }
+
+#[test]
+fn test_chatgpt_build_auth_url() {
+    let url = chatgpt::build_openai_auth_url("challenge_abc", "state_123");
+    assert!(url.starts_with("https://auth.openai.com/oauth/authorize"));
+    for fragment in [
+        "client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+        "redirect_uri=http://localhost:1455/auth/callback",
+        "code_challenge=challenge_abc",
+        "state=state_123",
+        "originator=rho",
+    ] {
+        assert!(url.contains(fragment));
+    }
+}
+
+#[test]
+fn test_chatgpt_validate_callback_success() {
+    let callback = crate::auth::loopback::CallbackParams {
+        code: Some("auth_code_xyz".to_string()),
+        state: Some("state_123".to_string()),
+        error: None,
+        error_description: None,
+    };
+    let code = chatgpt::validate_callback(callback).unwrap();
+    assert_eq!(code, "auth_code_xyz");
+}
+
+#[test]
+fn test_chatgpt_validate_callback_error() {
+    let callback = crate::auth::loopback::CallbackParams {
+        code: None,
+        state: None,
+        error: Some("access_denied".to_string()),
+        error_description: Some("User denied access".to_string()),
+    };
+    let err = chatgpt::validate_callback(callback).unwrap_err();
+    assert!(err.to_string().contains("access_denied User denied access"));
+}
+
+#[test]
+fn test_chatgpt_validate_callback_missing_code() {
+    let callback = crate::auth::loopback::CallbackParams {
+        code: None,
+        state: None,
+        error: None,
+        error_description: None,
+    };
+    let err = chatgpt::validate_callback(callback).unwrap_err();
+    assert!(err.to_string().contains("No authorization code received"));
+}
+
+#[test]
+fn test_chatgpt_build_openai_credential() {
+    let payload = serde_json::json!({
+        "https://api.openai.com/auth": {
+            "chatgpt_account_id": "org-chatgpt-123"
+        },
+        "sub": "user_123"
+    });
+    let payload_b64 = URL_SAFE_NO_PAD.encode(payload.to_string());
+    let token = chatgpt::TokenResponse {
+        access_token: format!("header.{payload_b64}.sig"),
+        refresh_token: Some("rt_xyz".to_string()),
+        expires_in: Some(3600),
+    };
+    let cred = chatgpt::build_openai_credential(token);
+    let StoredCredential::OAuth {
+        access_token,
+        refresh_token,
+        expires_at_ms,
+        account_id,
+        ..
+    } = cred
+    else {
+        panic!("expected OAuth credential");
+    };
+    assert_eq!(account_id.as_deref(), Some("org-chatgpt-123"));
+    assert_eq!(access_token, format!("header.{payload_b64}.sig"));
+    assert_eq!(refresh_token.as_deref(), Some("rt_xyz"));
+    assert!(expires_at_ms.is_some());
+}

@@ -17,13 +17,13 @@ const OPENAI_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const OPENAI_SCOPE: &str = "openid profile email offline_access";
 
 #[derive(Debug, Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: Option<i64>,
+pub(crate) struct TokenResponse {
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: Option<String>,
+    pub(crate) expires_in: Option<i64>,
 }
 
-fn validate_callback(callback: CallbackParams) -> Result<String> {
+pub(crate) fn validate_callback(callback: CallbackParams) -> Result<String> {
     if let Some(err) = callback.error {
         let desc = callback.error_description.unwrap_or_default();
         return Err(AppError::Auth(format!("OAuth failed: {err} {desc}")));
@@ -59,7 +59,7 @@ async fn exchange_openai_code(code: &str, verifier: &str) -> Result<TokenRespons
         .map_err(|e| AppError::Auth(format!("Failed to parse token response: {e}")))
 }
 
-fn build_openai_credential(token_data: TokenResponse) -> StoredCredential {
+pub(crate) fn build_openai_credential(token_data: TokenResponse) -> StoredCredential {
     let expires_at_ms = token_data
         .expires_in
         .map(|sec| chrono::Utc::now().timestamp_millis() + sec * 1000);
@@ -75,22 +75,23 @@ fn build_openai_credential(token_data: TokenResponse) -> StoredCredential {
     cred
 }
 
-async fn prompt_openai_login(callbacks: &dyn OAuthLoginCallbacks, challenge: &str) -> Result<LoopbackServer> {
-    let server = match LoopbackServer::bind_port(1455).await {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(AppError::Auth(format!(
-                "Failed to start OAuth callback listener on port 1455: {e}.\n\
-                 Ensure no other process is using port 1455 and try again."
-            )));
-        }
-    };
-    let state = generate_state();
-    let auth_url = format!(
+pub fn build_openai_auth_url(challenge: &str, state: &str) -> String {
+    format!(
         "{OPENAI_AUTH_URL}?response_type=code&client_id={OPENAI_CLIENT_ID}&redirect_uri={OPENAI_REDIRECT_URI}\
          &scope={OPENAI_SCOPE}&code_challenge={challenge}&code_challenge_method=S256&state={state}\
          &id_token_add_organizations=true&codex_cli_simplified_flow=true&originator=rho"
-    );
+    )
+}
+
+async fn prompt_openai_login(callbacks: &dyn OAuthLoginCallbacks, challenge: &str) -> Result<LoopbackServer> {
+    let server = LoopbackServer::bind_port(1455).await.map_err(|e| {
+        AppError::Auth(format!(
+            "Failed to start OAuth callback listener on port 1455: {e}.\n\
+             Ensure no other process is using port 1455 and try again."
+        ))
+    })?;
+    let state = generate_state();
+    let auth_url = build_openai_auth_url(challenge, &state);
     callbacks
         .on_auth_url(&auth_url, Some("A browser window will open. Complete login to finish."))
         .await?;
@@ -98,11 +99,15 @@ async fn prompt_openai_login(callbacks: &dyn OAuthLoginCallbacks, challenge: &st
     Ok(server)
 }
 
+async fn acquire_openai_code(callbacks: &dyn OAuthLoginCallbacks, challenge: &str) -> Result<String> {
+    let server = prompt_openai_login(callbacks, challenge).await?;
+    let callback = server.wait_for_callback(Duration::from_secs(120)).await?;
+    validate_callback(callback)
+}
+
 pub async fn perform_openai_pkce(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
     let pkce = PkceChallenge::generate();
-    let server = prompt_openai_login(callbacks, &pkce.challenge).await?;
-    let callback = server.wait_for_callback(Duration::from_secs(120)).await?;
-    let code = validate_callback(callback)?;
+    let code = acquire_openai_code(callbacks, &pkce.challenge).await?;
 
     callbacks
         .on_progress("Exchanging authorization code for tokens...")
