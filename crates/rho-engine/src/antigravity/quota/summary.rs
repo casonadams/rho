@@ -7,7 +7,7 @@ use super::{combine_windows, format_quota_window};
 
 pub fn parse_quota_summary(value: &Value, target_model: &str, now: DateTime<Utc>) -> Option<String> {
     let buckets = extract_summary_buckets(value, target_model)?;
-    let (five_hour, weekly) = classify_buckets(buckets, now);
+    let (five_hour, weekly) = classify_buckets(buckets, target_model, now);
     combine_windows(five_hour, weekly)
 }
 
@@ -24,27 +24,41 @@ fn extract_summary_buckets<'a>(value: &'a Value, target_model: &str) -> Option<&
     }
 }
 
-fn classify_buckets(buckets: &[Value], now: DateTime<Utc>) -> (Option<String>, Option<String>) {
-    let mut five_hour = None;
-    let mut weekly = None;
-    for bucket in buckets {
-        let Some((formatted, is_week, is_5h)) = inspect_bucket(bucket, now) else {
+fn classify_buckets(buckets: &[Value], target_model: &str, now: DateTime<Utc>) -> (Option<String>, Option<String>) {
+    let matching: Vec<&Value> = buckets
+        .iter()
+        .filter(|b| bucket_matches_target(b, target_model))
+        .collect();
+
+    let candidates: &[&Value] = if matching.is_empty() {
+        &buckets.iter().collect::<Vec<_>>()
+    } else {
+        &matching
+    };
+
+    let mut five_hour: Option<(String, f64)> = None;
+    let mut weekly: Option<(String, f64)> = None;
+
+    for bucket in candidates {
+        let Some((formatted, fraction, is_week, is_5h)) = inspect_bucket(bucket, now) else {
             continue;
         };
         if is_week {
-            weekly = Some(formatted);
-        } else if is_5h {
-            five_hour = Some(formatted);
+            if weekly.as_ref().is_none_or(|(_, prev)| fraction < *prev) {
+                weekly = Some((formatted, fraction));
+            }
+        } else if is_5h && five_hour.as_ref().is_none_or(|(_, prev)| fraction < *prev) {
+            five_hour = Some((formatted, fraction));
         }
     }
-    (five_hour, weekly)
+    (five_hour.map(|(s, _)| s), weekly.map(|(s, _)| s))
 }
 
-fn inspect_bucket(bucket: &Value, now: DateTime<Utc>) -> Option<(String, bool, bool)> {
+fn inspect_bucket(bucket: &Value, now: DateTime<Utc>) -> Option<(String, f64, bool, bool)> {
     let fraction = bucket
         .get("remainingFraction")
         .or_else(|| bucket.get("fraction"))
-        .and_then(|v| v.as_f64())?;
+        .and_then(|v| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok())))?;
     let reset_time = bucket
         .get("resetTime")
         .and_then(|v| v.as_str())
@@ -53,35 +67,92 @@ fn inspect_bucket(bucket: &Value, now: DateTime<Utc>) -> Option<(String, bool, b
     let formatted = format_quota_window(fraction, reset_time, now);
     let is_week = is_weekly_bucket(bucket, reset_time, now);
     let is_5h = is_5h_bucket(bucket, reset_time, now);
-    Some((formatted, is_week, is_5h))
+    Some((formatted, fraction, is_week, is_5h))
+}
+
+fn canonical_target(target: &str) -> &str {
+    let trimmed = target.trim();
+    trimmed.strip_prefix("antigravity/").unwrap_or(trimmed)
+}
+
+fn bucket_structural_text(bucket: &Value) -> String {
+    let mut s = String::new();
+    for key in ["bucketId", "id", "name", "window", "displayName", "label"] {
+        if let Some(v) = bucket.get(key).and_then(|v| v.as_str()) {
+            s.push(' ');
+            s.push_str(v);
+        }
+    }
+    s.to_ascii_lowercase()
+}
+
+fn bucket_matches_target(bucket: &Value, target: &str) -> bool {
+    let text = bucket_structural_text(bucket);
+    let target = canonical_target(target).to_ascii_lowercase();
+
+    let has_family_tag = text.contains("gemini")
+        || text.contains("claude")
+        || text.contains("gpt")
+        || text.contains("3p")
+        || text.contains("third");
+
+    if !has_family_tag {
+        return true;
+    }
+
+    if target.starts_with("gemini") {
+        text.contains("gemini")
+    } else if target.starts_with("claude") {
+        text.contains("claude") || text.contains("3p") || text.contains("third")
+    } else if target.starts_with("gpt") {
+        text.contains("gpt") || text.contains("3p") || text.contains("third") || text.contains("claude")
+    } else {
+        text.contains(&target)
+    }
+}
+
+fn extract_group_text(group: &Value) -> String {
+    let mut s = String::new();
+    for key in ["displayName", "name", "groupId", "id", "description", "label"] {
+        if let Some(v) = group.get(key).and_then(|v| v.as_str()) {
+            s.push(' ');
+            s.push_str(v);
+        }
+    }
+    s.to_ascii_lowercase()
 }
 
 fn group_matches_target(group: &Value, target: &str) -> bool {
-    let name = group
-        .get("displayName")
-        .or_else(|| group.get("name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let group_text = extract_group_text(group);
 
     let buckets_text: String = group
         .get("buckets")
         .and_then(|b| b.as_array())
-        .map(|arr| arr.iter().map(extract_bucket_text).collect::<Vec<_>>().join(" "))
+        .map(|arr| arr.iter().map(bucket_structural_text).collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
 
+    let target = canonical_target(target).to_ascii_lowercase();
+
     if target.starts_with("gemini") {
-        name.contains("gemini") || buckets_text.contains("gemini")
+        group_text.contains("gemini") || buckets_text.contains("gemini")
     } else if target.starts_with("claude") {
-        name.contains("claude")
-            || name.contains("3p")
-            || name.contains("third")
+        group_text.contains("claude")
+            || group_text.contains("3p")
+            || group_text.contains("third")
             || buckets_text.contains("claude")
             || buckets_text.contains("3p")
+            || buckets_text.contains("third")
     } else if target.starts_with("gpt") {
-        name.contains("gpt") || name.contains("claude") || name.contains("3p") || name.contains("other")
+        group_text.contains("gpt")
+            || group_text.contains("claude")
+            || group_text.contains("3p")
+            || group_text.contains("third")
+            || group_text.contains("other")
+            || buckets_text.contains("gpt")
+            || buckets_text.contains("claude")
+            || buckets_text.contains("3p")
     } else {
-        name.contains(target)
+        group_text.contains(&target) || buckets_text.contains(&target)
     }
 }
 
@@ -98,19 +169,8 @@ fn select_group_buckets<'a>(groups: &'a [Value], target_model: &str) -> Option<&
         .find_map(|g| g.get("buckets").and_then(|b| b.as_array()).filter(|b| !b.is_empty()))
 }
 
-fn extract_bucket_text(bucket: &Value) -> String {
-    let mut s = String::new();
-    for key in ["displayName", "window", "bucketId", "description", "label", "name"] {
-        if let Some(v) = bucket.get(key).and_then(|v| v.as_str()) {
-            s.push(' ');
-            s.push_str(v);
-        }
-    }
-    s.to_ascii_lowercase()
-}
-
 fn is_weekly_bucket(bucket: &Value, reset_time: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
-    let text = extract_bucket_text(bucket);
+    let text = bucket_structural_text(bucket);
     if text.contains("week") || text.contains("7d") || text.contains("wk") || text.contains("168h") {
         return true;
     }
@@ -118,7 +178,7 @@ fn is_weekly_bucket(bucket: &Value, reset_time: Option<DateTime<Utc>>, now: Date
 }
 
 fn is_5h_bucket(bucket: &Value, reset_time: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
-    let text = extract_bucket_text(bucket);
+    let text = bucket_structural_text(bucket);
     if text.contains("5h")
         || text.contains("5 hour")
         || text.contains("5hour")
