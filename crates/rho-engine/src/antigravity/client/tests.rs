@@ -1,7 +1,10 @@
 use super::super::AntigravityClient;
 use super::classify_stream_error;
 use super::discovery::{extract_project_id, is_selectable_runtime_model};
-use super::http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, friendly_error, resolve_endpoints};
+use super::http::{
+    DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, friendly_error, post_metadata_candidates,
+    resolve_endpoints,
+};
 use crate::auth::TokenProvider;
 use rig::completion::CompletionRequest;
 
@@ -32,14 +35,28 @@ fn extract_project_id_from_direct_fields() {
     let json3 = serde_json::json!({ "backendProjectId": "proj-3" });
     assert_eq!(extract_project_id(&json3), Some("proj-3".to_string()));
 
-    let json4 = serde_json::json!({ "cloudaicompanionProject": "proj-4" });
+    let json4 = serde_json::json!({ "cloudaicompanionProject": "projects/proj-4" });
     assert_eq!(extract_project_id(&json4), Some("proj-4".to_string()));
+
+    let json5 = serde_json::json!({
+        "cloudaicompanionProject": {
+            "projectId": "projects/proj-5"
+        }
+    });
+    assert_eq!(extract_project_id(&json5), Some("proj-5".to_string()));
+
+    let json6 = serde_json::json!({
+        "cloudaicompanionProject": {
+            "id": "proj-6"
+        }
+    });
+    assert_eq!(extract_project_id(&json6), Some("proj-6".to_string()));
 }
 
 #[test]
 fn extract_project_id_from_nested_arrays() {
     let json_str_array = serde_json::json!({
-        "projects": ["first-proj", "second-proj"]
+        "projects": ["projects/first-proj", "second-proj"]
     });
     assert_eq!(extract_project_id(&json_str_array), Some("first-proj".to_string()));
 
@@ -265,7 +282,7 @@ fn classify_stream_error_quota_fails_fast() {
 
 #[test]
 fn resolve_endpoints_order_and_overrides() {
-    assert_eq!(DEFAULT_ENDPOINT, "https://cloudcode-pa.googleapis.com");
+    assert_eq!(DEFAULT_ENDPOINT, "https://daily-cloudcode-pa.googleapis.com");
     assert_eq!(
         resolve_endpoints(Some("http://custom:1234")),
         vec!["http://custom:1234".to_string()]
@@ -273,6 +290,23 @@ fn resolve_endpoints_order_and_overrides() {
     let defaults = resolve_endpoints(None);
     assert_eq!(defaults.first().map(String::as_str), Some(DEFAULT_ENDPOINT));
     assert_eq!(defaults.len(), ENDPOINT_CANDIDATES.len());
+}
+
+#[tokio::test]
+async fn post_metadata_candidates_falls_back_on_unreachable_endpoint() {
+    let dead_addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap()
+    };
+    let dead_url = format!("http://{dead_addr}");
+
+    let r200 = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 16\r\nConnection: close\r\n\r\n{\"success\":true}";
+    let live_addr = spawn_two_responses(r200, r200).await;
+    let live_url = format!("http://{live_addr}");
+
+    let endpoints = vec![dead_url, live_url];
+    let res = post_metadata_candidates(&endpoints, "/v1internal:test", "token", serde_json::json!({})).await;
+    assert_eq!(res, Some(serde_json::json!({ "success": true })));
 }
 
 #[tokio::test]
