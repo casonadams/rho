@@ -43,69 +43,27 @@ A hook script exits with status `0` and can output a JSON decision on `stdout`:
 {"action": "ask", "message": "Sensitive file access detected. Allow?"}
 ```
 
-## Example: Bash Command Guard (`.agents/hooks/on_tool_call`)
+## Example Hooks
+
+The `examples/hooks/` directory contains ready-to-use hooks:
+
+- **[`rtk-rewrite.py`](rtk-rewrite.py)**: Automatically routes bash commands through [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to filter and compress verbose CLI output (saving 50–90% on context tokens) before passing results to the LLM. Visit [github.com/rtk-ai/rtk](https://github.com/rtk-ai/rtk) for RTK install instructions.
+- **[`guard-bash.sh`](guard-bash.sh)**: Blocks potentially destructive shell commands (such as `rm -rf`) before execution.
+- **[`python-audit.py`](python-audit.py)**: Audits tool calls and parameters to a local log file.
+
+### Installing a Hook
+
+Copy any hook to your project's `.agents/hooks/` directory (or user fallback `~/.agents/hooks/`) matching the target lifecycle event name, and ensure it is executable:
 
 ```sh
-#!/bin/sh
-# Read event JSON from stdin
-read -r EVENT
+# Project-level hook
+mkdir -p .agents/hooks
+cp examples/hooks/rtk-rewrite.py .agents/hooks/on_tool_call
+chmod +x .agents/hooks/on_tool_call
 
-# Block rm -rf commands
-if echo "$EVENT" | grep -q '"rm -rf'; then
-  echo '{"action": "stop", "reason": "rm -rf is blocked by policy"}'
-  exit 0
-fi
-
-# Allow all other calls
-exit 0
+# Or global user hook
+mkdir -p ~/.agents/hooks
+cp examples/hooks/rtk-rewrite.py ~/.agents/hooks/on_tool_call
+chmod +x ~/.agents/hooks/on_tool_call
 ```
 
-Remember to make the script executable: `chmod +x .agents/hooks/on_tool_call`.
-
-## Example: RTK Token Optimization (`.agents/hooks/on_tool_call`)
-
-Automatically routes bash commands through
-[RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk) to filter and compress
-verbose CLI output (saving 50-90% on command output tokens) before passing
-results to the LLM.
-
-For RTK installation instructions and options, visit
-[github.com/rtk-ai/rtk](https://github.com/rtk-ai/rtk).
-
-```python
-#!/usr/bin/env python3
-# Place in .agents/hooks/on_tool_call and chmod +x
-import json
-import subprocess
-import sys
-
-
-def rewrite_command(cmd):
-    if not cmd or cmd.startswith("rtk "):
-        return None
-    res = subprocess.run(["rtk", "rewrite", cmd], capture_output=True, text=True)
-    rewritten = res.stdout.strip()
-    if res.returncode in (0, 3) and rewritten and rewritten != cmd:
-        return rewritten
-    return None
-
-
-def main():
-    try:
-        event = json.load(sys.stdin)
-        if event.get("tool_name") != "bash":
-            return
-
-        args = event.get("args") or {}
-        cmd = args.get("command", "")
-        rewritten = rewrite_command(cmd)
-        if rewritten:
-            args["command"] = rewritten
-            print(json.dumps({"action": "rewrite_args", "args": args}))
-    except Exception:
-        pass
-
-
-if __name__ == "__main__":
-    main()
-```
