@@ -302,6 +302,62 @@ async fn handle_ui_setting_toggled(
     }
 }
 
+async fn handle_tool_setting_toggled(
+    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    res: &ModalKeyResult,
+) -> Result<bool> {
+    match res {
+        ModalKeyResult::WebSearchToggled { enabled } => {
+            let enabled = *enabled;
+            ctx.session.config.tools.web.search.enabled = enabled;
+            ctx.engine.config.tools.web.search.enabled = enabled;
+            let _ = rho_harness_core::config::Config::save_web_search_enabled_async(
+                &ctx.session.config.config_dir,
+                enabled,
+            )
+            .await;
+            let status = if enabled { "enabled" } else { "disabled" };
+            ctx.session.renderer.print_status(&format!("Web search {status}"));
+            Ok(true)
+        }
+        ModalKeyResult::WebFetchToggled { enabled } => {
+            let enabled = *enabled;
+            ctx.session.config.tools.web.fetch.enabled = enabled;
+            ctx.engine.config.tools.web.fetch.enabled = enabled;
+            let _ =
+                rho_harness_core::config::Config::save_web_fetch_enabled_async(&ctx.session.config.config_dir, enabled)
+                    .await;
+            let status = if enabled { "enabled" } else { "disabled" };
+            ctx.session.renderer.print_status(&format!("Web fetch {status}"));
+            Ok(true)
+        }
+        ModalKeyResult::McpToggled { enabled } => {
+            let enabled = *enabled;
+            ctx.session.config.mcp.enabled = enabled;
+            ctx.engine.config.mcp.enabled = enabled;
+            let _ =
+                rho_harness_core::config::Config::save_mcp_enabled_async(&ctx.session.config.config_dir, enabled).await;
+            let status = if enabled { "enabled" } else { "disabled" };
+            ctx.session.renderer.print_status(&format!("MCP {status}"));
+            Ok(true)
+        }
+        ModalKeyResult::PermissionToggled { enabled } => {
+            let enabled = *enabled;
+            ctx.session.config.permission.enabled = enabled;
+            ctx.engine.config.permission.enabled = enabled;
+            let _ = rho_harness_core::config::Config::save_permission_enabled_async(
+                &ctx.session.config.config_dir,
+                enabled,
+            )
+            .await;
+            let status = if enabled { "enabled" } else { "disabled" };
+            ctx.session.renderer.print_status(&format!("Permissions {status}"));
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 async fn dispatch_modal_result(
     res: ModalKeyResult,
     ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
@@ -329,7 +385,40 @@ async fn dispatch_modal_result(
             ctx.controller.redraw()?;
             Ok(true)
         }
-        setting => handle_ui_setting_toggled(ctx, setting).await,
+        ModalKeyResult::OpenToolsMenu => {
+            super::super::modal::open_tools_selector(ctx.session, ctx.controller);
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
+        ModalKeyResult::OpenSearchEngineSelector => {
+            super::super::modal::open_search_engine_selector(ctx.session, ctx.controller);
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
+        ModalKeyResult::SearchEngineSelected { engine } => {
+            ctx.session.config.tools.web.search.default = engine.clone();
+            ctx.engine.config.tools.web.search.default = engine.clone();
+            super::super::modal::update_tools_search_engine(ctx.controller, &engine);
+            let _ = rho_harness_core::config::Config::save_default_search_engine_async(
+                &ctx.session.config.config_dir,
+                &engine,
+            )
+            .await;
+            if ctx.controller.state().active_modal().is_none() {
+                ctx.session
+                    .renderer
+                    .print_status(&format!("Default search engine set to {engine}"));
+            }
+            ctx.controller.redraw()?;
+            Ok(true)
+        }
+        setting => {
+            if handle_tool_setting_toggled(ctx, &setting).await? {
+                Ok(true)
+            } else {
+                handle_ui_setting_toggled(ctx, setting).await
+            }
+        }
     }
 }
 

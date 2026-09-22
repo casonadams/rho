@@ -171,3 +171,48 @@ local = "llama3.2-vision:latest"
         Some("gemini-3.6-flash")
     );
 }
+
+#[test]
+fn parses_tools_web_config_with_enabled_flags() {
+    let toml_str = r#"
+[tools.web.search]
+enabled = false
+default = "duckduckgo"
+fallback = ["yahoo"]
+
+[tools.web.fetch]
+enabled = false
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert!(!config.tools.web.search.enabled);
+    assert_eq!(config.tools.web.search.default, "duckduckgo");
+    assert_eq!(config.tools.web.search.fallback, vec!["yahoo".to_string()]);
+    assert!(!config.tools.web.fetch.enabled);
+}
+
+#[test]
+fn parses_tools_web_config_omitted_defaults_to_true() {
+    let toml_str = "model = \"claude\"\n";
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert!(config.tools.web.search.enabled);
+    assert_eq!(config.tools.web.search.default, "brave");
+    assert!(config.tools.web.fetch.enabled);
+}
+
+#[test]
+fn parses_mcp_config_enabled_in_file() {
+    let toml_str = r#"
+[mcp]
+enabled = false
+deferThreshold = 25
+"#;
+    let file: FileConfig = toml::from_str(toml_str).unwrap();
+    let mut config = Config::default();
+    super::super::merge::merge_file(&mut config, file);
+    assert!(!config.mcp.enabled);
+    assert_eq!(config.mcp.defer_threshold, 25);
+}

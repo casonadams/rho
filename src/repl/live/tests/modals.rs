@@ -93,6 +93,18 @@ fn settings_selector_modal_toggles_block_style() {
 }
 
 #[test]
+fn settings_selector_modal_opens_tools_menu() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::super::modal::open_settings_selector(None, None, false, &mut controller);
+
+    let modal = controller.state_mut().active_modal_mut().unwrap();
+    modal.selected = 9;
+
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    assert_eq!(res, super::super::modal::ModalKeyResult::OpenToolsMenu);
+}
+
+#[test]
 fn settings_selector_modal_toggles_cursor_mode() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     super::super::modal::open_settings_selector(None, None, false, &mut controller);
@@ -1061,4 +1073,31 @@ async fn turn_model_switch_applies_claude_model_and_creates_handle() {
 
     apply_turn_model_switch(input).await.unwrap();
     assert_model_switch_state(&config, &model_switch, "claude-opus-4-6", "claude");
+}
+
+#[test]
+fn search_engine_selector_modal_lifecycle() {
+    let temp = tempfile::tempdir().unwrap();
+    let session = setup_model_selector_session(temp.path().to_path_buf());
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    super::super::modal::open_search_engine_selector(&session, &mut controller);
+    assert_eq!(controller.state().active_modal().unwrap().title, "Select Search Engine");
+
+    let key = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(
+        super::super::modal::handle_modal_key(&mut controller, key, &mut None).unwrap(),
+        super::super::modal::ModalKeyResult::Handled
+    );
+    assert_eq!(controller.state().active_modal().unwrap().selected, 1);
+
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = super::super::modal::handle_modal_key(&mut controller, enter, &mut None).unwrap();
+    assert_eq!(
+        res,
+        super::super::modal::ModalKeyResult::SearchEngineSelected {
+            engine: "duckduckgo".to_string()
+        }
+    );
+    assert!(controller.state().active_modal().is_none());
 }

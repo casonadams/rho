@@ -13,7 +13,8 @@ mod tests;
 
 pub use types::{
     Config, DEFAULT_MAX_TURNS, McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig,
-    ProviderConfig, ToolsConfig, UiConfig, WebSearchConfig, WebToolsConfig, default_config_dir, dirs_fallback,
+    ProviderConfig, ToolsConfig, UiConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig, default_config_dir,
+    dirs_fallback,
 };
 
 use crate::error::{AppError, Result};

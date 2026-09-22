@@ -307,10 +307,20 @@ tool_border = "gray"             # Tool / command cards
 bash_success_border = "gray"     # Successful bash commands
 bash_error_border = "red"        # Failed bash commands
 
-# Web search provider chain
+# Web tools and search provider configuration (persisted automatically via /settings -> Tools & Permissions)
 [tools.web.search]
+enabled = true                  # Enable or disable built-in web_search
 default = "brave"                # "brave", "duckduckgo", "yahoo", or "firecrawl"
-fallback = ["duckduckgo", "yahoo"] # Fallback engines attempted only on failure/empty</code></pre>
+fallback = ["duckduckgo", "yahoo"] # Fallback engines attempted only on failure/empty
+
+[tools.web.fetch]
+enabled = true                  # Enable or disable built-in web_fetch
+
+[mcp]
+enabled = true                  # Enable or disable MCP subsystem
+
+[permission]
+enabled = true                  # Enable or disable mutation guardrails</code></pre>
       </div>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
@@ -419,7 +429,7 @@ fallback = ["duckduckgo", "yahoo"] # Fallback engines attempted only on failure/
             </tr>
             <tr>
               <td><code>/settings</code></td>
-              <td>Open interactive runtime settings modal (block style, framing, thinking, semantic search)</td>
+              <td>Open interactive runtime settings modal (block style, framing, thinking, semantic search, tools &amp; permissions)</td>
             </tr>
             <tr>
               <td><code>/mcp</code></td>

@@ -41,6 +41,8 @@ pub(crate) struct FileConfig {
     #[serde(default)]
     pub permission: Option<PermissionConfig>,
     #[serde(default)]
+    pub mcp: Option<McpConfigFile>,
+    #[serde(default)]
     pub ui: Option<super::UiConfig>,
     #[serde(default)]
     pub models: BTreeMap<String, String>,
@@ -62,14 +64,34 @@ pub struct ToolsConfigFile {
 pub struct WebToolsConfigFile {
     #[serde(default)]
     pub search: Option<WebSearchConfigFile>,
+    #[serde(default)]
+    pub fetch: Option<WebFetchConfigFile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct WebSearchConfigFile {
     #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
     pub default: Option<String>,
     #[serde(default)]
     pub fallback: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct WebFetchConfigFile {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct McpConfigFile {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default, alias = "deferThreshold")]
+    pub defer_threshold: Option<usize>,
+    #[serde(default)]
+    pub servers: BTreeMap<String, super::integrations::McpServerConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

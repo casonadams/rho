@@ -30,6 +30,11 @@ pub(crate) enum ConfigKey {
     Cursor,
     ShowLabel,
     SemanticSearch,
+    SearchEngine,
+    WebSearchEnabled,
+    WebFetchEnabled,
+    McpEnabled,
+    PermissionEnabled,
 }
 
 impl FromStr for ConfigKey {
@@ -67,6 +72,13 @@ impl FromStr for ConfigKey {
             }
             "show_label" => Ok(Self::ShowLabel),
             "semantic_search" | "semantic-search" | "features.semantic_search" => Ok(Self::SemanticSearch),
+            "tools.web.search.default" | "tools.web.search" | "search_engine" | "search_provider" => {
+                Ok(Self::SearchEngine)
+            }
+            "tools.web.search.enabled" | "web_search" => Ok(Self::WebSearchEnabled),
+            "tools.web.fetch.enabled" | "web_fetch" => Ok(Self::WebFetchEnabled),
+            "mcp.enabled" | "mcp" => Ok(Self::McpEnabled),
+            "permission.enabled" | "permission" => Ok(Self::PermissionEnabled),
             _ => Err(format!("unknown configuration key: {value}")),
         }
     }
@@ -103,6 +115,11 @@ impl ConfigKey {
             Self::Cursor => "ui.cursor",
             Self::ShowLabel => "show_label",
             Self::SemanticSearch => "semantic_search",
+            Self::SearchEngine => "tools.web.search.default",
+            Self::WebSearchEnabled => "tools.web.search.enabled",
+            Self::WebFetchEnabled => "tools.web.fetch.enabled",
+            Self::McpEnabled => "mcp.enabled",
+            Self::PermissionEnabled => "permission.enabled",
         }
     }
 }

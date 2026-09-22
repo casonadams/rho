@@ -149,23 +149,38 @@ Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
 
 ---
 
-## Web Search Providers
+## Web Tools, Search Providers & Permissions
 
-Configure deterministic search engine priority and fallback for the built-in `web_search` tool in `~/.config/rho/config.toml` or `.rho/config.toml`:
+Configure built-in web tools, search engines, MCP, and permission guards in `~/.config/rho/config.toml` or `.rho/config.toml` (or interactively via `/settings` under **Tools & Permissions**):
 
 ```toml
 [tools.web.search]
+# Enable or disable the built-in web_search tool (default: true)
+enabled = true
+
 # Primary search engine (default: "brave")
 default = "brave"
 
 # Ordered fallback engines to attempt if prior engines fail or return zero results
 fallback = ["duckduckgo", "yahoo"]
+
+[tools.web.fetch]
+# Enable or disable the built-in web_fetch tool (default: true)
+enabled = true
+
+[mcp]
+# Enable or disable MCP subsystem (default: true)
+enabled = true
+
+[permission]
+# Enable or disable runtime permission guardrails (default: true)
+enabled = true
 ```
 
-Supported engine identifiers:
-- `brave`: Scrapes Brave search results.
-- `duckduckgo` (aliases: `ddg`, `ddg_lite`): Queries DuckDuckGo Lite.
-- `yahoo`: Scrapes Yahoo search results.
+Supported search engine identifiers:
+- `brave`: Scrapes Brave search results (or uses `BRAVE_API_KEY`).
+- `duckduckgo` (aliases: `ddg`, `ddg_lite`): Queries DuckDuckGo Lite (no API key required).
+- `yahoo`: Scrapes Yahoo search results (no API key required).
 - `firecrawl`: Queries Firecrawl search API (requires `FIRECRAWL_API_KEY`).
 
 Searches evaluate engines sequentially in order. Once an engine returns results, search terminates immediately. Subsequent engines in the fallback list are only queried if the earlier engine errors or returns zero results.
@@ -177,6 +192,8 @@ To restrict searches to a single trusted engine and disable all fallbacks/scrape
 default = "brave"
 fallback = []
 ```
+
+When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from LLM dynamic registration and model tool catalogs. Tool toggles and default search engine selection can be changed interactively without leaving the session via `/settings` -> **Tools & Permissions**.
 
 ---
 

@@ -282,3 +282,57 @@ fn test_set_file_value_ui_keys_and_aliases() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn test_set_file_value_tools_and_permissions_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_tools_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "tools.web.search.default", "duckduckgo").unwrap();
+    Config::set_file_value(&dir, "tools.web.search.enabled", "false").unwrap();
+    Config::set_file_value(&dir, "tools.web.fetch.enabled", "false").unwrap();
+    Config::set_file_value(&dir, "mcp.enabled", "false").unwrap();
+    Config::set_file_value(&dir, "permission.enabled", "false").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    let tools = file.tools.expect("tools section present");
+    let web = tools.web.expect("web section present");
+    let search = web.search.expect("search section present");
+    assert_eq!(search.default.as_deref(), Some("duckduckgo"));
+    assert_eq!(search.enabled, Some(false));
+
+    let fetch = web.fetch.expect("fetch section present");
+    assert_eq!(fetch.enabled, Some(false));
+
+    let mcp = file.mcp.expect("mcp section present");
+    assert_eq!(mcp.enabled, Some(false));
+
+    let perm = file.permission.expect("permission section present");
+    assert!(!perm.enabled);
+
+    // Test async helpers
+    Config::save_default_search_engine_async(&dir, "yahoo").await.unwrap();
+    Config::save_web_search_enabled_async(&dir, true).await.unwrap();
+    Config::save_web_fetch_enabled_async(&dir, true).await.unwrap();
+    Config::save_mcp_enabled_async(&dir, true).await.unwrap();
+    Config::save_permission_enabled_async(&dir, true).await.unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    let tools = file.tools.unwrap();
+    let web = tools.web.unwrap();
+    let search = web.search.as_ref().unwrap();
+    assert_eq!(search.default.as_deref(), Some("yahoo"));
+    assert_eq!(search.enabled, Some(true));
+    assert_eq!(web.fetch.unwrap().enabled, Some(true));
+    assert_eq!(file.mcp.unwrap().enabled, Some(true));
+    assert!(file.permission.unwrap().enabled);
+
+    // Test invalid search engine rejected
+    let err = Config::set_file_value(&dir, "tools.web.search.default", "invalid_search_engine");
+    assert!(err.is_err());
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

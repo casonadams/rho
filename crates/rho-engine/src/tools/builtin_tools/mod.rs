@@ -125,49 +125,58 @@ fn make_rg_tool(rg: Arc<RgTool>) -> DynamicTool {
 }
 
 fn build_web_dynamic_tools(config: &Config) -> Result<Vec<DynamicTool>> {
+    let mut tools = Vec::new();
+    if !config.tools.web.search.enabled && !config.tools.web.fetch.enabled {
+        return Ok(tools);
+    }
     let http = HttpClient::new(config.allow_private_network)?;
-    let engines = crate::tools::web::search::resolve_engine_chain(
-        &config.tools.web.search.default,
-        &config.tools.web.search.fallback,
-    )?;
-    let search = WebSearchTool::new(
-        http.clone(),
-        SearchRateLimiter::new(config.search_min_interval_ms),
-        WebSearchConfig {
-            region: config.region.clone(),
-            timeout_sec: config.search_timeout_sec,
-            engines,
-        },
-    );
-    let fetch = WebFetchTool::new(
-        http,
-        FetchCache::new(60, 64),
-        WebFetchConfig {
-            timeout_sec: config.fetch_timeout_sec,
-            max_bytes: config.fetch_max_bytes,
-            pdf_max_bytes: 30 * 1024 * 1024,
-            default_limit: config.fetch_limit,
-        },
-    );
 
-    Ok(vec![
-        dynamic_tool(
+    if config.tools.web.search.enabled {
+        let engines = crate::tools::web::search::resolve_engine_chain(
+            &config.tools.web.search.default,
+            &config.tools.web.search.fallback,
+        )?;
+        let search = WebSearchTool::new(
+            http.clone(),
+            SearchRateLimiter::new(config.search_min_interval_ms),
+            WebSearchConfig {
+                region: config.region.clone(),
+                timeout_sec: config.search_timeout_sec,
+                engines,
+            },
+        );
+        tools.push(dynamic_tool(
             "web_search",
             "Search the web and return structured search results with titles, summaries, and URLs.",
             move |_ctx, args: WebSearchArgs| {
                 let s = search.clone();
                 async move { s.execute(args).await }
             },
-        ),
-        dynamic_tool(
+        ));
+    }
+
+    if config.tools.web.fetch.enabled {
+        let fetch = WebFetchTool::new(
+            http,
+            FetchCache::new(60, 64),
+            WebFetchConfig {
+                timeout_sec: config.fetch_timeout_sec,
+                max_bytes: config.fetch_max_bytes,
+                pdf_max_bytes: 30 * 1024 * 1024,
+                default_limit: config.fetch_limit,
+            },
+        );
+        tools.push(dynamic_tool(
             "web_fetch",
             "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
             move |_ctx, args: WebFetchArgs| {
                 let f = fetch.clone();
                 async move { f.execute(args).await }
             },
-        ),
-    ])
+        ));
+    }
+
+    Ok(tools)
 }
 
 fn build_workspace_tools(base_dir: &Path, config: &Config) -> Vec<DynamicTool> {

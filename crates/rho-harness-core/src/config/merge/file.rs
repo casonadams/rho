@@ -151,14 +151,35 @@ fn merge_features(config: &mut Config, file: &FileConfig) {
 fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
     if let Some(ref tools) = file.tools
         && let Some(ref web) = tools.web
-        && let Some(ref search) = web.search
     {
-        if let Some(ref default) = search.default {
-            config.tools.web.search.default = default.clone();
+        if let Some(ref search) = web.search {
+            if let Some(enabled) = search.enabled {
+                config.tools.web.search.enabled = enabled;
+            }
+            if let Some(ref default) = search.default {
+                config.tools.web.search.default = default.clone();
+            }
+            if let Some(ref fallback) = search.fallback {
+                config.tools.web.search.fallback = fallback.clone();
+            }
         }
-        if let Some(ref fallback) = search.fallback {
-            config.tools.web.search.fallback = fallback.clone();
+        if let Some(ref fetch) = web.fetch
+            && let Some(enabled) = fetch.enabled
+        {
+            config.tools.web.fetch.enabled = enabled;
         }
+    }
+}
+
+fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(ref mcp) = file.mcp {
+        if let Some(enabled) = mcp.enabled {
+            config.mcp.enabled = enabled;
+        }
+        if let Some(threshold) = mcp.defer_threshold {
+            config.mcp.defer_threshold = threshold;
+        }
+        config.mcp.servers.extend(mcp.servers.clone());
     }
 }
 
@@ -173,6 +194,7 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_modes(config, &file);
     merge_retention(config, &file);
     merge_permission_and_providers(config, file.clone());
+    merge_mcp_settings(config, &file);
     merge_ui_settings(config, &file);
     merge_features(config, &file);
     merge_tools_settings(config, &file);
