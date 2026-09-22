@@ -83,28 +83,16 @@
       "function": "load_project_id",
       "line": 83,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 83,
-          "end": 85
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
       "function": "load_project_id_from_endpoints",
       "line": 56,
       "cyclomatic": 2.0,
-      "coverage": 57.14285714285714,
-      "crap": 2.314868804664723,
-      "uncovered": [
-        {
-          "start": 70,
-          "end": 79
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/http.rs",
@@ -357,28 +345,16 @@
       "function": "fetch_quota",
       "line": 46,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 48
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/quota.rs",
       "function": "fetch_quota_from_endpoints",
       "line": 20,
       "cyclomatic": 7.0,
-      "coverage": 90.0,
-      "crap": 7.049,
-      "uncovered": [
-        {
-          "start": 40,
-          "end": 42
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 7.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/quota.rs",
@@ -1489,14 +1465,8 @@
       "function": "detect_credentials_from_paths_async",
       "line": 162,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 162,
-          "end": 169
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/local.rs",
@@ -1515,8 +1485,8 @@
           "end": 189
         },
         {
-          "start": 197,
-          "end": 199
+          "start": 195,
+          "end": 196
         }
       ]
     },
@@ -1661,20 +1631,40 @@
       "function": "read_valid_keychain_credential_async",
       "line": 212,
       "cyclomatic": 3.0,
-      "coverage": 100.0,
-      "crap": 3.0
+      "coverage": 66.66666666666666,
+      "crap": 3.333333333333334,
+      "uncovered": [
+        {
+          "start": 215,
+          "end": 216
+        }
+      ]
+    },
+    {
+      "file": "./crates/rho-engine/src/auth/claude/mod.rs",
+      "function": "confirm_import_local_credentials",
+      "line": 45,
+      "cyclomatic": 6.0,
+      "coverage": 91.66666666666666,
+      "crap": 6.020833333333333,
+      "uncovered": [
+        {
+          "start": 54,
+          "end": 55
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/mod.rs",
       "function": "exchange_and_resolve_profile",
-      "line": 83,
+      "line": 91,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 83,
-          "end": 93
+          "start": 91,
+          "end": 101
         }
       ]
     },
@@ -1695,60 +1685,64 @@
     {
       "file": "./crates/rho-engine/src/auth/claude/mod.rs",
       "function": "perform_login",
-      "line": 95,
+      "line": 103,
       "cyclomatic": 5.0,
-      "coverage": 33.33333333333333,
-      "crap": 12.40740740740741,
+      "coverage": 58.333333333333336,
+      "crap": 6.8084490740740735,
       "uncovered": [
         {
-          "start": 98,
-          "end": 108
+          "start": 105,
+          "end": 105
+        },
+        {
+          "start": 112,
+          "end": 116
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/mod.rs",
       "function": "refresh_credential",
-      "line": 129,
+      "line": 137,
       "cyclomatic": 3.0,
       "coverage": 40.0,
       "crap": 4.944,
       "uncovered": [
         {
-          "start": 131,
-          "end": 133
+          "start": 139,
+          "end": 141
         },
         {
-          "start": 142,
-          "end": 148
+          "start": 150,
+          "end": 156
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/mod.rs",
       "function": "resolve_account_ids",
-      "line": 65,
+      "line": 73,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 65,
-          "end": 81
+          "start": 73,
+          "end": 89
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/claude/mod.rs",
       "function": "resolve_refreshed_ids",
-      "line": 111,
+      "line": 119,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 111,
-          "end": 127
+          "start": 119,
+          "end": 135
         }
       ]
     },
@@ -1756,23 +1750,9 @@
       "file": "./crates/rho-engine/src/auth/claude/mod.rs",
       "function": "try_import_local_credentials",
       "line": 40,
-      "cyclomatic": 6.0,
-      "coverage": 80.95238095238095,
-      "crap": 6.248785228377065,
-      "uncovered": [
-        {
-          "start": 42,
-          "end": 42
-        },
-        {
-          "start": 48,
-          "end": 48
-        },
-        {
-          "start": 61,
-          "end": 62
-        }
-      ]
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/auth/http.rs",
@@ -2047,22 +2027,8 @@
       "function": "parse_poll_payload",
       "line": 48,
       "cyclomatic": 4.0,
-      "coverage": 60.0,
-      "crap": 5.024,
-      "uncovered": [
-        {
-          "start": 48,
-          "end": 48
-        },
-        {
-          "start": 51,
-          "end": 51
-        },
-        {
-          "start": 55,
-          "end": 56
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
@@ -2913,12 +2879,16 @@
       "function": "fetch_quota",
       "line": 28,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "coverage": 77.77777777777779,
+      "crap": 5.27434842249657,
       "uncovered": [
         {
-          "start": 28,
-          "end": 47
+          "start": 38,
+          "end": 38
+        },
+        {
+          "start": 44,
+          "end": 46
         }
       ]
     },
@@ -3269,12 +3239,12 @@
       "function": "fetch_quota",
       "line": 22,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
+      "coverage": 81.25,
+      "crap": 4.10546875,
       "uncovered": [
         {
-          "start": 22,
-          "end": 40
+          "start": 35,
+          "end": 39
         }
       ]
     },
@@ -5995,14 +5965,8 @@
       "function": "AgentEngine::invalidate_quota",
       "line": 136,
       "cyclomatic": 1.0,
-      "coverage": 50.0,
-      "crap": 1.125,
-      "uncovered": [
-        {
-          "start": 140,
-          "end": 143
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
@@ -6033,35 +5997,17 @@
       "function": "AgentEngine::quota_version",
       "line": 132,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 132,
-          "end": 134
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "AgentEngine::refresh_quota",
       "line": 27,
       "cyclomatic": 7.0,
-      "coverage": 57.57575757575758,
-      "crap": 10.741436402593425,
+      "coverage": 96.96969696969697,
+      "crap": 7.0013634972312655,
       "uncovered": [
-        {
-          "start": 36,
-          "end": 41
-        },
-        {
-          "start": 44,
-          "end": 44
-        },
-        {
-          "start": 47,
-          "end": 52
-        },
         {
           "start": 64,
           "end": 64
@@ -6073,29 +6019,35 @@
       "function": "AgentEngine::should_refresh_quota",
       "line": 120,
       "cyclomatic": 1.0,
-      "coverage": 66.66666666666666,
-      "crap": 1.0370370370370372,
-      "uncovered": [
-        {
-          "start": 124,
-          "end": 125
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 32.35294117647059,
-      "crap": 22.16850702218604,
+      "coverage": 67.64705882352942,
+      "crap": 8.65934764909424,
       "uncovered": [
         {
-          "start": 76,
+          "start": 77,
           "end": 78
         },
         {
           "start": 83,
+          "end": 84
+        },
+        {
+          "start": 88,
+          "end": 89
+        },
+        {
+          "start": 94,
+          "end": 95
+        },
+        {
+          "start": 103,
           "end": 106
         }
       ]
@@ -6111,78 +6063,100 @@
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "do_refresh_antigravity_quota",
-      "line": 211,
-      "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
-      "uncovered": [
-        {
-          "start": 211,
-          "end": 240
-        }
-      ]
+      "line": 226,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "do_refresh_chatgpt_quota",
-      "line": 254,
-      "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
-      "uncovered": [
-        {
-          "start": 254,
-          "end": 279
-        }
-      ]
+      "line": 264,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "do_refresh_claude_quota",
-      "line": 281,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
-      "uncovered": [
-        {
-          "start": 281,
-          "end": 309
-        }
-      ]
+      "line": 289,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "do_refresh_gemini_quota",
-      "line": 311,
-      "cyclomatic": 3.0,
-      "coverage": 82.35294117647058,
-      "crap": 3.0494606146957053,
+      "line": 321,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "do_refresh_ollama_quota",
+      "line": 307,
+      "cyclomatic": 2.0,
+      "coverage": 83.33333333333334,
+      "crap": 2.0185185185185186,
       "uncovered": [
         {
-          "start": 320,
-          "end": 320
-        },
-        {
-          "start": 325,
-          "end": 326
+          "start": 317,
+          "end": 318
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
-      "function": "do_refresh_ollama_quota",
-      "line": 152,
+      "function": "fallback_antigravity_project",
+      "line": 173,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "fetch_antigravity_quota_with_retry",
+      "line": 212,
       "cyclomatic": 4.0,
-      "coverage": 69.23076923076923,
-      "crap": 4.466090122894856,
+      "coverage": 76.92307692307693,
+      "crap": 4.196631770596268,
       "uncovered": [
         {
-          "start": 155,
-          "end": 155
+          "start": 219,
+          "end": 219
         },
         {
-          "start": 162,
-          "end": 164
+          "start": 222,
+          "end": 223
+        }
+      ]
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "fetch_chatgpt_quota_with_retry",
+      "line": 251,
+      "cyclomatic": 4.0,
+      "coverage": 91.66666666666666,
+      "crap": 4.0092592592592595,
+      "uncovered": [
+        {
+          "start": 257,
+          "end": 257
+        }
+      ]
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "fetch_claude_quota_with_retry",
+      "line": 277,
+      "cyclomatic": 4.0,
+      "coverage": 90.9090909090909,
+      "crap": 4.012021036814425,
+      "uncovered": [
+        {
+          "start": 283,
+          "end": 283
         }
       ]
     },
@@ -6196,31 +6170,49 @@
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "record_quota_result",
+      "line": 152,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "resolve_antigravity_credentials",
-      "line": 173,
-      "cyclomatic": 10.0,
-      "coverage": 0.0,
-      "crap": 110.0,
+      "line": 190,
+      "cyclomatic": 5.0,
+      "coverage": 81.25,
+      "crap": 5.164794921875,
       "uncovered": [
         {
-          "start": 173,
-          "end": 209
+          "start": 203,
+          "end": 206
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/engine/quota.rs",
       "function": "resolve_chatgpt_credentials",
-      "line": 242,
-      "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 242,
-          "end": 252
-        }
-      ]
+      "line": 243,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "stored_oauth_account_id",
+      "line": 159,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/quota.rs",
+      "function": "update_antigravity_project",
+      "line": 181,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/helpers.rs",
@@ -8183,14 +8175,8 @@
       "function": "QuotaTracker::version",
       "line": 127,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 127,
-          "end": 129
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/engine/tracking/quota.rs",
@@ -8509,8 +8495,8 @@
       "function": "aggregate_gemini_usage",
       "line": 49,
       "cyclomatic": 16.0,
-      "coverage": 86.15384615384616,
-      "crap": 16.6795593991807,
+      "coverage": 87.6923076923077,
+      "crap": 16.477276285844333,
       "uncovered": [
         {
           "start": 77,
@@ -8519,10 +8505,6 @@
         {
           "start": 79,
           "end": 79
-        },
-        {
-          "start": 83,
-          "end": 83
         },
         {
           "start": 88,
@@ -9169,8 +9151,8 @@
       "function": "aggregate_loaded_servers",
       "line": 119,
       "cyclomatic": 11.0,
-      "coverage": 63.793103448275865,
-      "crap": 16.74327053179712,
+      "coverage": 86.20689655172413,
+      "crap": 11.317520193529871,
       "uncovered": [
         {
           "start": 132,
@@ -9179,18 +9161,6 @@
         {
           "start": 142,
           "end": 145
-        },
-        {
-          "start": 157,
-          "end": 157
-        },
-        {
-          "start": 167,
-          "end": 175
-        },
-        {
-          "start": 180,
-          "end": 182
         }
       ]
     },
@@ -9325,8 +9295,14 @@
       "function": "spawn_stderr_reader",
       "line": 48,
       "cyclomatic": 3.0,
-      "coverage": 100.0,
-      "crap": 3.0
+      "coverage": 64.28571428571429,
+      "crap": 3.4099854227405246,
+      "uncovered": [
+        {
+          "start": 54,
+          "end": 58
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/mcp/process.rs",
@@ -9777,22 +9753,22 @@
       "function": "await_mcp_response",
       "line": 71,
       "cyclomatic": 5.0,
-      "coverage": 72.22222222222221,
-      "crap": 5.535836762688615,
-      "uncovered": [
-        {
-          "start": 83,
-          "end": 88
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/transport/stdio.rs",
       "function": "cancel_pending_on_close",
       "line": 38,
       "cyclomatic": 2.0,
-      "coverage": 100.0,
-      "crap": 2.0
+      "coverage": 40.0,
+      "crap": 2.864,
+      "uncovered": [
+        {
+          "start": 41,
+          "end": 46
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/mcp/transport/stdio.rs",
@@ -11101,14 +11077,8 @@
       "function": "parse_universal_action",
       "line": 23,
       "cyclomatic": 3.0,
-      "coverage": 80.0,
-      "crap": 3.072,
-      "uncovered": [
-        {
-          "start": 26,
-          "end": 26
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-engine/src/permission/policy/parse.rs",
@@ -11671,7 +11641,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/antigravity.rs",
       "function": "antigravity_display_name",
-      "line": 95,
+      "line": 97,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -11707,7 +11677,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/antigravity.rs",
       "function": "map_display_token",
-      "line": 87,
+      "line": 89,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11723,7 +11693,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/antigravity.rs",
       "function": "parse_split_version",
-      "line": 81,
+      "line": 83,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12011,7 +11981,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "anthropic_preset_models",
-      "line": 124,
+      "line": 143,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12049,7 +12019,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "claude_preset_models",
-      "line": 249,
+      "line": 275,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12057,14 +12027,14 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "cohere_preset_models",
-      "line": 200,
+      "line": 219,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 200,
-          "end": 202
+          "start": 219,
+          "end": 221
         }
       ]
     },
@@ -12085,21 +12055,21 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "deepseek_preset_models",
-      "line": 160,
+      "line": 179,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 160,
-          "end": 162
+          "start": 179,
+          "end": 181
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "default_presets_for",
-      "line": 311,
+      "line": 337,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -12123,7 +12093,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "gemini_preset_models",
-      "line": 151,
+      "line": 170,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12131,21 +12101,21 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "groq_preset_models",
-      "line": 169,
+      "line": 188,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 169,
-          "end": 171
+          "start": 188,
+          "end": 190
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "known_provider_presets",
-      "line": 292,
+      "line": 318,
       "cyclomatic": 15.0,
       "coverage": 100.0,
       "crap": 15.0
@@ -12161,21 +12131,21 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "mistral_preset_models",
-      "line": 192,
+      "line": 211,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 192,
-          "end": 194
+          "start": 211,
+          "end": 213
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "ollama_cloud_preset_models",
-      "line": 279,
+      "line": 305,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12183,7 +12153,7 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "openai_preset_models",
-      "line": 136,
+      "line": 155,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -12191,28 +12161,28 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "openrouter_preset_models",
-      "line": 188,
+      "line": 207,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 188,
-          "end": 190
+          "start": 207,
+          "end": 209
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "xai_preset_models",
-      "line": 196,
+      "line": 215,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 196,
-          "end": 198
+          "start": 215,
+          "end": 217
         }
       ]
     },
@@ -12431,14 +12401,8 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 70.0,
-      "crap": 4.432,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 52
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -16725,14 +16689,8 @@
       "function": "StoredCredential::is_expired",
       "line": 80,
       "cyclomatic": 4.0,
-      "coverage": 88.88888888888889,
-      "crap": 4.021947873799726,
-      "uncovered": [
-        {
-          "start": 93,
-          "end": 93
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-harness-core/src/auth/mod.rs",
@@ -18501,8 +18459,14 @@
       "function": "to_relative_path",
       "line": 6,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 92.85714285714286,
+      "crap": 6.013119533527696,
+      "uncovered": [
+        {
+          "start": 18,
+          "end": 18
+        }
+      ]
     },
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
@@ -22963,11 +22927,11 @@
       "function": "login_provider",
       "line": 112,
       "cyclomatic": 9.0,
-      "coverage": 47.82608695652174,
-      "crap": 20.503904002630065,
+      "coverage": 69.56521739130434,
+      "crap": 11.28347168570724,
       "uncovered": [
         {
-          "start": 122,
+          "start": 128,
           "end": 135
         }
       ]
@@ -23019,12 +22983,12 @@
       "function": "resolve_login_target",
       "line": 48,
       "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
+      "coverage": 44.44444444444444,
+      "crap": 18.973936899862828,
       "uncovered": [
         {
-          "start": 48,
-          "end": 60
+          "start": 52,
+          "end": 57
         }
       ]
     },
@@ -25641,11 +25605,11 @@
       "function": "drain_pending_input",
       "line": 161,
       "cyclomatic": 6.0,
-      "coverage": 50.0,
-      "crap": 10.5,
+      "coverage": 88.88888888888889,
+      "crap": 6.049382716049383,
       "uncovered": [
         {
-          "start": 168,
+          "start": 176,
           "end": 177
         }
       ]
@@ -25655,8 +25619,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -27203,8 +27173,14 @@
       "function": "finalize_run",
       "line": 19,
       "cyclomatic": 2.0,
-      "coverage": 100.0,
-      "crap": 2.0
+      "coverage": 75.0,
+      "crap": 2.0625,
+      "uncovered": [
+        {
+          "start": 25,
+          "end": 27
+        }
+      ]
     },
     {
       "file": "./src/repl/live/bash_runner/outcome.rs",
@@ -27735,32 +27711,32 @@
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "process_key_event",
-      "line": 255,
+      "line": 257,
       "cyclomatic": 3.0,
       "coverage": 92.85714285714286,
       "crap": 3.003279883381924,
       "uncovered": [
         {
-          "start": 264,
-          "end": 264
+          "start": 266,
+          "end": 266
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "process_raw_input",
-      "line": 270,
+      "line": 272,
       "cyclomatic": 19.0,
       "coverage": 31.428571428571427,
       "crap": 135.39566180758015,
       "uncovered": [
         {
-          "start": 279,
-          "end": 303
+          "start": 281,
+          "end": 305
         },
         {
-          "start": 306,
-          "end": 306
+          "start": 308,
+          "end": 308
         }
       ]
     },
@@ -27783,16 +27759,16 @@
       "function": "try_modal_key",
       "line": 227,
       "cyclomatic": 7.0,
-      "coverage": 84.0,
-      "crap": 7.200704,
+      "coverage": 85.18518518518519,
+      "crap": 7.159325306101712,
       "uncovered": [
         {
-          "start": 242,
-          "end": 243
+          "start": 244,
+          "end": 245
         },
         {
-          "start": 249,
-          "end": 250
+          "start": 251,
+          "end": 252
         }
       ]
     },
@@ -27907,7 +27883,7 @@
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "apply_modal_key_result",
-      "line": 425,
+      "line": 445,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -27915,173 +27891,193 @@
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "dispatch_modal_result",
-      "line": 361,
+      "line": 381,
       "cyclomatic": 23.0,
-      "coverage": 34.0,
-      "crap": 175.08538399999992,
+      "coverage": 36.0,
+      "crap": 161.67417600000002,
       "uncovered": [
         {
-          "start": 367,
-          "end": 367
+          "start": 387,
+          "end": 387
         },
         {
-          "start": 374,
-          "end": 377
+          "start": 394,
+          "end": 397
         },
         {
-          "start": 381,
-          "end": 413
+          "start": 402,
+          "end": 433
         },
         {
-          "start": 417,
-          "end": 417
+          "start": 437,
+          "end": 437
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
+      "function": "execute_suspended_login",
+      "line": 172,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
+    },
+    {
+      "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_help_command_selected",
-      "line": 198,
+      "line": 218,
       "cyclomatic": 10.0,
       "coverage": 0.0,
       "crap": 110.0,
       "uncovered": [
         {
-          "start": 198,
-          "end": 232
+          "start": 218,
+          "end": 252
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_login_provider_selected",
-      "line": 173,
-      "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
+      "line": 207,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/repl/live/idle/modal_action.rs",
+      "function": "handle_login_result",
+      "line": 188,
+      "cyclomatic": 5.0,
+      "coverage": 66.66666666666666,
+      "crap": 5.925925925925927,
       "uncovered": [
         {
-          "start": 173,
-          "end": 196
+          "start": 192,
+          "end": 192
+        },
+        {
+          "start": 199,
+          "end": 202
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_model_selected",
-      "line": 35,
+      "line": 37,
       "cyclomatic": 4.0,
       "coverage": 88.46153846153845,
       "crap": 4.024578971324534,
       "uncovered": [
         {
-          "start": 54,
-          "end": 56
+          "start": 56,
+          "end": 58
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_node_label_updated",
-      "line": 84,
+      "line": 83,
       "cyclomatic": 5.0,
       "coverage": 0.0,
       "crap": 30.0,
       "uncovered": [
         {
-          "start": 84,
-          "end": 102
+          "start": 83,
+          "end": 101
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_node_selected",
-      "line": 63,
+      "line": 65,
       "cyclomatic": 5.0,
       "coverage": 0.0,
       "crap": 30.0,
       "uncovered": [
         {
-          "start": 63,
-          "end": 82
+          "start": 65,
+          "end": 81
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_session_deleted",
-      "line": 161,
+      "line": 160,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 161,
-          "end": 171
+          "start": 160,
+          "end": 170
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_session_selected",
-      "line": 104,
+      "line": 103,
       "cyclomatic": 4.0,
       "coverage": 0.0,
       "crap": 20.0,
       "uncovered": [
         {
-          "start": 104,
-          "end": 123
+          "start": 103,
+          "end": 122
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_thinking_selected",
-      "line": 143,
+      "line": 142,
       "cyclomatic": 3.0,
       "coverage": 82.35294117647058,
       "crap": 3.0494606146957053,
       "uncovered": [
         {
-          "start": 152,
-          "end": 154
+          "start": 151,
+          "end": 153
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_tool_setting_toggled",
-      "line": 305,
+      "line": 325,
       "cyclomatic": 10.0,
       "coverage": 15.217391304347828,
       "crap": 70.94250842442673,
       "uncovered": [
         {
-          "start": 310,
-          "end": 355
+          "start": 330,
+          "end": 375
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "handle_ui_setting_toggled",
-      "line": 234,
+      "line": 254,
       "cyclomatic": 14.0,
       "coverage": 67.27272727272727,
       "crap": 20.870455296769354,
       "uncovered": [
         {
-          "start": 281,
-          "end": 301
+          "start": 301,
+          "end": 321
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "print_model_status",
-      "line": 17,
+      "line": 19,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -28089,14 +28085,14 @@
     {
       "file": "./src/repl/live/idle/modal_action.rs",
       "function": "save_or_print_thinking",
-      "line": 125,
+      "line": 124,
       "cyclomatic": 2.0,
       "coverage": 81.25,
       "crap": 2.0263671875,
       "uncovered": [
         {
-          "start": 138,
-          "end": 140
+          "start": 137,
+          "end": 139
         }
       ]
     },
