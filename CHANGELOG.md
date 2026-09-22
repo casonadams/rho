@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.10.0](https://github.com/casonadams/rho/compare/v0.9.0...v0.10.0) (2026-09-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **prompts:** Prompt templates in .rho/prompts/ are no longer discovered. Move prompt templates to .agents/prompts/ or prompts/.
+* **mcp:** Project MCP configs in .rho/mcp.json are no longer loaded. Move project MCP configs to .agents/mcp.json or .mcp.json.
+
+### Features
+
+* **mcp:** resolve project mcp config from .agents/mcp.json instead of .rho/mcp.json ([f495775](https://github.com/casonadams/rho/commit/f495775de2d0c760958fcc8f5268d0bbf0ed4abb))
+* **permission:** support rtk command wrapper in bash analysis and read-only evaluation ([50a1704](https://github.com/casonadams/rho/commit/50a170445916e71428037832ecd32df9c1802976))
+* **prompts:** resolve prompt templates from .agents/prompts instead of .rho/prompts ([118711a](https://github.com/casonadams/rho/commit/118711a6e8d730ba148cbb6902d83c5ac0cb6a7c))
+
+
+### Bug Fixes
+
+* **engine:** do not prune assistant tool-call arguments during context replay ([de3d7aa](https://github.com/casonadams/rho/commit/de3d7aa97059fef853526bfd651f0db686ace185))
+
 ## [0.9.0](https://github.com/casonadams/rho/compare/v0.8.3...v0.9.0) (2026-09-21)
 
 
