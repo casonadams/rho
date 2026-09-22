@@ -69,6 +69,16 @@ fn extract_project_id_from_nested_arrays() {
 
     let json_empty = serde_json::json!({});
     assert_eq!(extract_project_id(&json_empty), None);
+
+    let json_unmatched = serde_json::json!({
+        "projects": [
+            { "other": "val" },
+            123,
+            "projects/",
+            "   "
+        ]
+    });
+    assert_eq!(extract_project_id(&json_unmatched), None);
 }
 
 #[test]
@@ -361,4 +371,129 @@ async fn try_candidates_returns_clean_error_when_all_endpoints_fail_transport() 
     let msg = friendly_error(err.0, &err.1);
     assert!(msg.starts_with("Antigravity request failed: "));
     assert_eq!(msg.matches("Antigravity request failed:").count(), 1);
+}
+
+#[tokio::test]
+async fn antigravity_completion_aggregates_sse_response() {
+    use rig::completion::CompletionModel;
+    use rig::message::AssistantContent;
+
+    let sse_chunk = concat!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello from Antigravity\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":6,\"totalTokenCount\":18}}}\n\n"
+    );
+    let addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(sse_chunk.as_bytes()).await;
+            }
+        });
+        addr
+    };
+
+    let client =
+        AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
+    let resp = client.completion(test_completion_request()).await.unwrap();
+
+    assert_eq!((resp.usage.input_tokens, resp.usage.output_tokens), (12, 6));
+    assert!(
+        resp.choice
+            .iter()
+            .any(|c| matches!(c, AssistantContent::Text(t) if t.text == "Hello from Antigravity"))
+    );
+}
+
+#[tokio::test]
+async fn antigravity_stream_returns_sse_stream() {
+    use futures::StreamExt;
+    use rig::completion::CompletionModel;
+
+    let sse_chunk = concat!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+        "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Stream chunk\"}]}}]}}\n\n"
+    );
+    let addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(sse_chunk.as_bytes()).await;
+            }
+        });
+        addr
+    };
+
+    let client =
+        AntigravityClient::new("token-1", "test-project", "gemini-2.5-pro").with_endpoint(format!("http://{addr}"));
+    let mut stream = client.stream(test_completion_request()).await.unwrap();
+    let first = stream.next().await;
+    assert!(first.is_some());
+}
+
+#[tokio::test]
+async fn discover_models_fetches_and_filters_catalog() {
+    let mock_body = serde_json::json!({
+        "models": {
+            "gemini-2.5-pro": {},
+            "claude-3-7-sonnet": {},
+            "gpt-oss-1": {},
+            "text-embedding-004": {},
+            "gemini-2.5-image": {}
+        }
+    })
+    .to_string();
+    let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{mock_body}");
+    let addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+        addr
+    };
+
+    let endpoints = vec![format!("http://{addr}")];
+    let models = super::discovery::discover_models_from_endpoints(&endpoints, "test-token", "test-project")
+        .await
+        .unwrap();
+
+    assert_eq!(models, vec!["claude-3-7-sonnet", "gemini-2.5-pro", "gpt-oss-1"]);
+}
+
+#[tokio::test]
+async fn load_project_id_resolves_project() {
+    let mock_body = serde_json::json!({
+        "cloudaicompanionProject": {
+            "projectId": "resolved-project-123"
+        }
+    })
+    .to_string();
+    let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{mock_body}");
+    let addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+        addr
+    };
+
+    let endpoints = vec![format!("http://{addr}")];
+    let proj = super::discovery::load_project_id_from_endpoints(&endpoints, "test-token").await;
+
+    assert_eq!(proj, Some("resolved-project-123".to_string()));
 }

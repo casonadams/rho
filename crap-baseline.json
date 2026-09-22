@@ -7,54 +7,50 @@
       "function": "AntigravityClient::completion",
       "line": 13,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 13,
-          "end": 23
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/completion.rs",
       "function": "AntigravityClient::stream",
       "line": 25,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 25,
-          "end": 33
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
       "function": "clean_project_id",
       "line": 6,
       "cyclomatic": 2.0,
-      "coverage": 83.33333333333334,
-      "crap": 2.0185185185185186,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
+      "function": "discover_models",
+      "line": 121,
+      "cyclomatic": 1.0,
+      "coverage": 0.0,
+      "crap": 2.0,
       "uncovered": [
         {
-          "start": 9,
-          "end": 9
+          "start": 121,
+          "end": 123
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
-      "function": "discover_models",
-      "line": 85,
+      "function": "discover_models_from_endpoints",
+      "line": 95,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "coverage": 95.83333333333334,
+      "crap": 5.001808449074074,
       "uncovered": [
         {
-          "start": 85,
-          "end": 103
+          "start": 114,
+          "end": 114
         }
       ]
     },
@@ -63,14 +59,8 @@
       "function": "extract_from_array",
       "line": 15,
       "cyclomatic": 4.0,
-      "coverage": 80.0,
-      "crap": 4.128,
-      "uncovered": [
-        {
-          "start": 22,
-          "end": 24
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
@@ -83,7 +73,7 @@
     {
       "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
       "function": "is_selectable_runtime_model",
-      "line": 79,
+      "line": 89,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -91,14 +81,28 @@
     {
       "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
       "function": "load_project_id",
-      "line": 56,
-      "cyclomatic": 2.0,
+      "line": 83,
+      "cyclomatic": 1.0,
       "coverage": 0.0,
-      "crap": 6.0,
+      "crap": 2.0,
       "uncovered": [
         {
-          "start": 56,
-          "end": 75
+          "start": 83,
+          "end": 85
+        }
+      ]
+    },
+    {
+      "file": "./crates/rho-engine/src/antigravity/client/discovery.rs",
+      "function": "load_project_id_from_endpoints",
+      "line": 56,
+      "cyclomatic": 2.0,
+      "coverage": 57.14285714285714,
+      "crap": 2.314868804664723,
+      "uncovered": [
+        {
+          "start": 70,
+          "end": 79
         }
       ]
     },
@@ -205,14 +209,8 @@
       "function": "AntigravityClient::feed_stream",
       "line": 233,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
-      "uncovered": [
-        {
-          "start": 233,
-          "end": 251
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/client/mod.rs",
@@ -12491,12 +12489,16 @@
       "function": "next_stream_batch",
       "line": 59,
       "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
+      "coverage": 79.3103448275862,
+      "crap": 6.318832260445283,
       "uncovered": [
         {
-          "start": 59,
-          "end": 91
+          "start": 71,
+          "end": 71
+        },
+        {
+          "start": 82,
+          "end": 90
         }
       ]
     },
@@ -12505,14 +12507,8 @@
       "function": "unfold_sse_stream",
       "line": 94,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 94,
-          "end": 105
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -25745,11 +25741,11 @@
       "function": "drain_pending_input",
       "line": 161,
       "cyclomatic": 6.0,
-      "coverage": 50.0,
-      "crap": 10.5,
+      "coverage": 88.88888888888889,
+      "crap": 6.049382716049383,
       "uncovered": [
         {
-          "start": 168,
+          "start": 176,
           "end": 177
         }
       ]
@@ -25759,8 +25755,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
