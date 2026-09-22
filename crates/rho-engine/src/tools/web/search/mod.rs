@@ -13,7 +13,10 @@ mod tests;
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use crate::tools::web::http::HttpClient;
 use crate::tools::web::rate_limiter::SearchRateLimiter;
-pub use engine::{EngineKind, EngineRequest, MultiEngineParams, search_multi_engine, search_single_engine};
+pub use engine::{
+    EngineKind, EngineRequest, MultiEngineParams, default_engine_chain, resolve_engine_chain, search_multi_engine,
+    search_single_engine,
+};
 pub use format::{FormatResultsParams, format_search_results};
 pub use query::{
     build_search_query_with_filters, matches_domain_filters, matches_site, normalize_domain, normalize_domain_filters,
@@ -34,6 +37,7 @@ pub struct SearchQueryParams<'a> {
 pub struct WebSearchConfig {
     pub region: String,
     pub timeout_sec: u64,
+    pub engines: Vec<EngineKind>,
 }
 
 #[derive(Clone)]
@@ -42,6 +46,7 @@ pub struct WebSearchTool {
     pub rate_limiter: SearchRateLimiter,
     pub region: String,
     pub timeout_sec: u64,
+    pub engines: Vec<EngineKind>,
 }
 
 impl WebSearchTool {
@@ -51,6 +56,11 @@ impl WebSearchTool {
             rate_limiter,
             region: config.region,
             timeout_sec: config.timeout_sec,
+            engines: if config.engines.is_empty() {
+                default_engine_chain()
+            } else {
+                config.engines
+            },
         }
     }
 

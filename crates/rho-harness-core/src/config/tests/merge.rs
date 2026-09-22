@@ -234,3 +234,22 @@ fn test_cli_provider_switch_with_explicit_model_flag_overrides_models_table() {
     assert_eq!(config.provider, "gemini");
     assert_eq!(config.model, "gemini-custom");
 }
+
+#[test]
+fn test_tools_web_search_default_and_merge() {
+    let cfg = Config::default();
+    assert_eq!(cfg.tools.web.search.default, "brave");
+    assert_eq!(cfg.tools.web.search.fallback, vec!["duckduckgo", "yahoo"]);
+
+    let toml_str = r#"
+        [tools.web.search]
+        default = "duckduckgo"
+        fallback = ["yahoo", "firecrawl"]
+    "#;
+    let file_cfg: FileConfig = toml::from_str(toml_str).unwrap();
+    let mut merged = Config::default();
+    merge::merge_file(&mut merged, file_cfg);
+
+    assert_eq!(merged.tools.web.search.default, "duckduckgo");
+    assert_eq!(merged.tools.web.search.fallback, vec!["yahoo", "firecrawl"]);
+}

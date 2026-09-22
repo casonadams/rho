@@ -126,12 +126,17 @@ fn make_rg_tool(rg: Arc<RgTool>) -> DynamicTool {
 
 fn build_web_dynamic_tools(config: &Config) -> Result<Vec<DynamicTool>> {
     let http = HttpClient::new(config.allow_private_network)?;
+    let engines = crate::tools::web::search::resolve_engine_chain(
+        &config.tools.web.search.default,
+        &config.tools.web.search.fallback,
+    )?;
     let search = WebSearchTool::new(
         http.clone(),
         SearchRateLimiter::new(config.search_min_interval_ms),
         WebSearchConfig {
             region: config.region.clone(),
             timeout_sec: config.search_timeout_sec,
+            engines,
         },
     );
     let fetch = WebFetchTool::new(

@@ -27,6 +27,52 @@ impl EngineKind {
     }
 }
 
+impl std::fmt::Display for EngineKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Brave => write!(f, "brave"),
+            Self::DuckDuckGoLite => write!(f, "duckduckgo"),
+            Self::Yahoo => write!(f, "yahoo"),
+            Self::Firecrawl => write!(f, "firecrawl"),
+        }
+    }
+}
+
+impl std::str::FromStr for EngineKind {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "brave" => Ok(Self::Brave),
+            "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" => Ok(Self::DuckDuckGoLite),
+            "yahoo" => Ok(Self::Yahoo),
+            "firecrawl" => Ok(Self::Firecrawl),
+            other => Err(AppError::Config(format!(
+                "Unknown search engine '{other}'. Supported engines: brave, duckduckgo, yahoo, firecrawl"
+            ))),
+        }
+    }
+}
+
+pub fn default_engine_chain() -> Vec<EngineKind> {
+    vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo]
+}
+
+pub fn resolve_engine_chain(default: &str, fallback: &[String]) -> Result<Vec<EngineKind>, AppError> {
+    let mut engines = Vec::new();
+    let default_engine: EngineKind = default.parse()?;
+    engines.push(default_engine);
+
+    for item in fallback {
+        let engine: EngineKind = item.parse()?;
+        if !engines.contains(&engine) {
+            engines.push(engine);
+        }
+    }
+
+    Ok(engines)
+}
+
 pub struct EngineRequest<'a> {
     pub http: &'a HttpClient,
     pub timeout_sec: u64,
@@ -126,4 +172,46 @@ pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchRes
     }
 
     accumulated.into_iter().take(params.limit).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_engine_kind_parsing_and_display() {
+        assert_eq!("brave".parse::<EngineKind>().unwrap(), EngineKind::Brave);
+        assert_eq!("duckduckgo".parse::<EngineKind>().unwrap(), EngineKind::DuckDuckGoLite);
+        assert_eq!("ddg".parse::<EngineKind>().unwrap(), EngineKind::DuckDuckGoLite);
+        assert_eq!("ddg_lite".parse::<EngineKind>().unwrap(), EngineKind::DuckDuckGoLite);
+        assert_eq!("yahoo".parse::<EngineKind>().unwrap(), EngineKind::Yahoo);
+        assert_eq!("firecrawl".parse::<EngineKind>().unwrap(), EngineKind::Firecrawl);
+        assert!("unknown".parse::<EngineKind>().is_err());
+
+        assert_eq!(EngineKind::Brave.to_string(), "brave");
+        assert_eq!(EngineKind::DuckDuckGoLite.to_string(), "duckduckgo");
+        assert_eq!(EngineKind::Yahoo.to_string(), "yahoo");
+        assert_eq!(EngineKind::Firecrawl.to_string(), "firecrawl");
+    }
+
+    #[test]
+    fn test_resolve_engine_chain_deduplication() {
+        let chain = resolve_engine_chain(
+            "brave",
+            &["duckduckgo".to_string(), "brave".to_string(), "yahoo".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            chain,
+            vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo,]
+        );
+    }
+
+    #[test]
+    fn test_default_engine_chain() {
+        assert_eq!(
+            default_engine_chain(),
+            vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo,]
+        );
+    }
 }

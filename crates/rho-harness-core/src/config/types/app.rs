@@ -50,6 +50,8 @@ pub struct Config {
     pub mcp: McpConfig,
     pub permission: PermissionConfig,
     pub ui: super::UiConfig,
+    #[serde(default)]
+    pub tools: ToolsConfig,
     pub config_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub auth_file: PathBuf,
@@ -92,6 +94,7 @@ macro_rules! default_config_literal {
             mcp: McpConfig::default(),
             permission: PermissionConfig::default(),
             ui: $crate::config::UiConfig::default(),
+            tools: $crate::config::ToolsConfig::default(),
             sessions_dir: $base_dir.join("sessions"),
             auth_file: $base_dir.join("auth.json"),
             config_dir: $base_dir,
@@ -103,6 +106,43 @@ impl Default for Config {
     fn default() -> Self {
         let base_dir = default_config_dir();
         default_config_literal!(base_dir)
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolsConfig {
+    #[serde(default)]
+    pub web: WebToolsConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebToolsConfig {
+    #[serde(default)]
+    pub search: WebSearchConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    #[serde(default = "default_search_provider")]
+    pub default: String,
+    #[serde(default = "default_search_fallback")]
+    pub fallback: Vec<String>,
+}
+
+fn default_search_provider() -> String {
+    "brave".to_string()
+}
+
+fn default_search_fallback() -> Vec<String> {
+    vec!["duckduckgo".to_string(), "yahoo".to_string()]
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            default: default_search_provider(),
+            fallback: default_search_fallback(),
+        }
     }
 }
 
