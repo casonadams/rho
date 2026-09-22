@@ -8,3 +8,4 @@ improvements.md
 **/.fastembed_cache/
 .playwright-mcp/
 .pi/
+www/hub/wasm/
