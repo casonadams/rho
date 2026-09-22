@@ -153,6 +153,7 @@ impl WebSearchTool {
             limit: params.limit,
             recency: params.recency,
             domains: params.domains,
+            engines: &self.engines,
         })
         .await
     }
