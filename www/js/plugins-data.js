@@ -135,6 +135,42 @@ with open("audit.log", "a") as f:
 print('{"action":"continue"}')`,
     snippetLabel: ".agents/hooks/on_tool_result",
     isOfficial: true
+  },
+  {
+    id: "hook-rtk-rewrite",
+    name: "RTK Token Optimizer",
+    type: "hook",
+    badge: "Lifecycle Hook",
+    category: "Optimization (Python)",
+    description: "One-shot Python hook in .agents/hooks/on_tool_call that uses RTK to rewrite bash commands, saving 50-90% on command output tokens.",
+    author: "casonadams",
+    version: "Recipe",
+    runtime: "Python 3",
+    repoUrl: "https://github.com/rtk-ai/rtk",
+    cratesUrl: null,
+    snippet: `#!/usr/bin/env python3
+# .agents/hooks/on_tool_call
+import json, subprocess, sys
+
+def rewrite_command(cmd):
+    if not cmd or cmd.startswith("rtk "):
+        return None
+    res = subprocess.run(["rtk", "rewrite", cmd], capture_output=True, text=True)
+    rewritten = res.stdout.strip()
+    return rewritten if res.returncode in (0, 3) and rewritten and rewritten != cmd else None
+
+try:
+    event = json.load(sys.stdin)
+    if event.get("tool_name") == "bash":
+        args = event.get("args") or {}
+        rewritten = rewrite_command(args.get("command", ""))
+        if rewritten:
+            args["command"] = rewritten
+            print(json.dumps({"action": "rewrite_args", "args": args}))
+except Exception:
+    pass`,
+    snippetLabel: ".agents/hooks/on_tool_call",
+    isOfficial: true
   }
 ];
 

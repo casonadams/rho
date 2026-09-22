@@ -118,3 +118,12 @@ A hook outputs one of the following JSON decisions:
   `{"action": "rewrite_result", "result": "sanitized output"}`.
 - **Ask User**: `{"action": "ask", "message": "Allow execution?"}` (triggers
   rho's native TUI modal).
+
+### Example Recipes
+
+Ready-to-use recipes are provided in `examples/hooks/`:
+
+- **[`rtk-rewrite.py`](../examples/hooks/rtk-rewrite.py)**: Intercepts `on_tool_call` to automatically optimize bash commands using [RTK (Rust Token Killer)](https://github.com/rtk-ai/rtk), compressing CLI output before it enters LLM context.
+- **[`guard-bash.sh`](../examples/hooks/guard-bash.sh)**: Blocks destructive shell commands (`rm -rf`, `git reset --hard`) before execution.
+- **[`python-audit.py`](../examples/hooks/python-audit.py)**: Audits tool call events to a local file.
+
