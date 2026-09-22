@@ -356,3 +356,69 @@ fn calculate_max_tokens_adaptive_cases() {
     assert_eq!(calculate_max_tokens(None, Some(10000), false, None), 14096);
     assert_eq!(calculate_max_tokens(Some(5000), Some(6000), false, None), 7024);
 }
+
+#[test]
+fn from_claude_tool_name_mapping() {
+    let cases = [
+        ("mcp__rho__custom_tool", "custom_tool"),
+        ("Read", "read"),
+        ("READ", "read"),
+        ("Write", "write"),
+        ("Edit", "edit"),
+        ("Bash", "bash"),
+        ("Glob", "glob"),
+        ("Grep", "grep"),
+        ("WebFetch", "web_fetch"),
+        ("webfetch", "web_fetch"),
+        ("web_fetch", "web_fetch"),
+        ("WebSearch", "web_search"),
+        ("websearch", "web_search"),
+        ("web_search", "web_search"),
+        ("unknown_tool", "unknown_tool"),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(from_claude_tool_name(input), expected);
+    }
+}
+
+#[test]
+fn convert_tool_choice_variants() {
+    assert_eq!(convert_tool_choice(&ToolChoice::Auto, true), json!({ "type": "auto" }));
+    assert_eq!(convert_tool_choice(&ToolChoice::Auto, false), json!({ "type": "auto" }));
+    assert_eq!(convert_tool_choice(&ToolChoice::None, true), json!({ "type": "none" }));
+    assert_eq!(convert_tool_choice(&ToolChoice::None, false), json!({ "type": "none" }));
+    assert_eq!(
+        convert_tool_choice(&ToolChoice::Required, true),
+        json!({ "type": "any" })
+    );
+    assert_eq!(
+        convert_tool_choice(&ToolChoice::Required, false),
+        json!({ "type": "auto" })
+    );
+    assert_eq!(
+        convert_tool_choice(
+            &ToolChoice::Specific {
+                function_names: vec!["bash".to_string()]
+            },
+            true
+        ),
+        json!({ "type": "tool", "name": "Bash" })
+    );
+    assert_eq!(
+        convert_tool_choice(
+            &ToolChoice::Specific {
+                function_names: vec!["bash".to_string()]
+            },
+            false
+        ),
+        json!({ "type": "auto" })
+    );
+    assert_eq!(
+        convert_tool_choice(&ToolChoice::Specific { function_names: vec![] }, true),
+        json!({ "type": "auto" })
+    );
+    assert_eq!(
+        convert_tool_choice(&ToolChoice::Specific { function_names: vec![] }, false),
+        json!({ "type": "auto" })
+    );
+}

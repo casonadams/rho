@@ -54,28 +54,29 @@ pub fn to_claude_tool_name(name: &str) -> String {
     }
 }
 
+const CANONICAL_TOOLS: [(&str, &str); 10] = [
+    ("read", "read"),
+    ("write", "write"),
+    ("edit", "edit"),
+    ("bash", "bash"),
+    ("glob", "glob"),
+    ("grep", "grep"),
+    ("webfetch", "web_fetch"),
+    ("web_fetch", "web_fetch"),
+    ("websearch", "web_search"),
+    ("web_search", "web_search"),
+];
+
 pub fn from_claude_tool_name(name: &str) -> &str {
     if let Some(rest) = name.strip_prefix("mcp__rho__") {
-        rest
-    } else if name.eq_ignore_ascii_case("read") {
-        "read"
-    } else if name.eq_ignore_ascii_case("write") {
-        "write"
-    } else if name.eq_ignore_ascii_case("edit") {
-        "edit"
-    } else if name.eq_ignore_ascii_case("bash") {
-        "bash"
-    } else if name.eq_ignore_ascii_case("glob") {
-        "glob"
-    } else if name.eq_ignore_ascii_case("grep") {
-        "grep"
-    } else if name.eq_ignore_ascii_case("webfetch") || name.eq_ignore_ascii_case("web_fetch") {
-        "web_fetch"
-    } else if name.eq_ignore_ascii_case("websearch") || name.eq_ignore_ascii_case("web_search") {
-        "web_search"
-    } else {
-        name
+        return rest;
     }
+    for (candidate, canonical) in CANONICAL_TOOLS {
+        if name.eq_ignore_ascii_case(candidate) {
+            return canonical;
+        }
+    }
+    name
 }
 
 fn sanitize_system_prompt(text: &str) -> String {
@@ -418,27 +419,15 @@ fn convert_tools(request: &CompletionRequest) -> Vec<Value> {
         .collect()
 }
 
-fn convert_tool_choice(choice: &ToolChoice, forced_tools_supported: bool) -> Value {
+pub(crate) fn convert_tool_choice(choice: &ToolChoice, forced_tools_supported: bool) -> Value {
     match choice {
         ToolChoice::Auto => json!({ "type": "auto" }),
-        ToolChoice::Required => {
-            if forced_tools_supported {
-                json!({ "type": "any" })
-            } else {
-                json!({ "type": "auto" })
-            }
-        }
-        ToolChoice::Specific { function_names } => {
-            if forced_tools_supported {
-                if let Some(name) = function_names.first() {
-                    json!({ "type": "tool", "name": to_claude_tool_name(name) })
-                } else {
-                    json!({ "type": "auto" })
-                }
-            } else {
-                json!({ "type": "auto" })
-            }
-        }
         ToolChoice::None => json!({ "type": "none" }),
+        ToolChoice::Required if forced_tools_supported => json!({ "type": "any" }),
+        ToolChoice::Specific { function_names } if forced_tools_supported => function_names.first().map_or_else(
+            || json!({ "type": "auto" }),
+            |name| json!({ "type": "tool", "name": to_claude_tool_name(name) }),
+        ),
+        _ => json!({ "type": "auto" }),
     }
 }
