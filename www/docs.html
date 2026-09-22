@@ -305,7 +305,12 @@ user_border = "blue"             # User prompt blocks
 agent_border = "gray"            # Agent / sub-agent blocks
 tool_border = "gray"             # Tool / command cards
 bash_success_border = "gray"     # Successful bash commands
-bash_error_border = "red"        # Failed bash commands</code></pre>
+bash_error_border = "red"        # Failed bash commands
+
+# Web search provider chain
+[tools.web.search]
+default = "brave"                # "brave", "duckduckgo", "yahoo", or "firecrawl"
+fallback = ["duckduckgo", "yahoo"] # Fallback engines attempted only on failure/empty</code></pre>
       </div>
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>

@@ -69,3 +69,27 @@ fn rejects_zero_context_and_compaction_bytes() {
     cfg.compaction_max_bytes = 1;
     assert!(cfg.validate().is_ok());
 }
+
+#[test]
+fn rejects_invalid_search_engines() {
+    let mut cfg = Config::default();
+    cfg.tools.web.search.default = "nonexistent_engine".to_string();
+    assert!(cfg.validate().is_err());
+
+    let mut cfg = Config::default();
+    cfg.tools.web.search.fallback = vec!["brave".to_string(), "unknown_engine".to_string()];
+    assert!(cfg.validate().is_err());
+}
+
+#[test]
+fn accepts_valid_search_engines() {
+    let mut cfg = Config::default();
+    cfg.tools.web.search.default = "brave".to_string();
+    cfg.tools.web.search.fallback = vec![
+        "duckduckgo".to_string(),
+        "ddg_lite".to_string(),
+        "yahoo".to_string(),
+        "firecrawl".to_string(),
+    ];
+    assert!(cfg.validate().is_ok());
+}

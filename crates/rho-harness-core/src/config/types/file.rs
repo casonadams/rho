@@ -48,6 +48,28 @@ pub(crate) struct FileConfig {
     pub semantic_search: Option<bool>,
     #[serde(default)]
     pub features: Option<FeaturesConfig>,
+    #[serde(default)]
+    pub tools: Option<ToolsConfigFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct ToolsConfigFile {
+    #[serde(default)]
+    pub web: Option<WebToolsConfigFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct WebToolsConfigFile {
+    #[serde(default)]
+    pub search: Option<WebSearchConfigFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct WebSearchConfigFile {
+    #[serde(default)]
+    pub default: Option<String>,
+    #[serde(default)]
+    pub fallback: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

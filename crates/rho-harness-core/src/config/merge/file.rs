@@ -148,6 +148,20 @@ fn merge_features(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
+    if let Some(ref tools) = file.tools
+        && let Some(ref web) = tools.web
+        && let Some(ref search) = web.search
+    {
+        if let Some(ref default) = search.default {
+            config.tools.web.search.default = default.clone();
+        }
+        if let Some(ref fallback) = search.fallback {
+            config.tools.web.search.fallback = fallback.clone();
+        }
+    }
+}
+
 pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     config.models.extend(file.models.clone());
     merge_model_and_provider(config, &file);
@@ -161,4 +175,5 @@ pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_permission_and_providers(config, file.clone());
     merge_ui_settings(config, &file);
     merge_features(config, &file);
+    merge_tools_settings(config, &file);
 }

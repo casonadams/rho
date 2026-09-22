@@ -20,6 +20,7 @@ fn add_web_tools(tools: &mut ToolSet, http: HttpClient) {
         WebSearchConfig {
             region: "wt-wt".to_string(),
             timeout_sec: 1,
+            engines: Vec::new(),
         },
     ));
     tools.add_tool(WebFetchTool::new(

@@ -3,7 +3,6 @@ use crate::tools::web::rate_limiter::SearchRateLimiter;
 use crate::tools::web::search::query::{matches_domain_filters, normalize_domain_filters};
 use crate::tools::web::search::result::{SearchResult, deduplicate_results};
 use crate::tools::web::search::{brave, ddg_lite, firecrawl, yahoo};
-use rand::seq::SliceRandom;
 use rho_harness_core::args::WebSearchRecency;
 use rho_harness_core::error::AppError;
 use url::Url;
@@ -27,6 +26,52 @@ impl EngineKind {
     }
 }
 
+impl std::fmt::Display for EngineKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Brave => write!(f, "brave"),
+            Self::DuckDuckGoLite => write!(f, "duckduckgo"),
+            Self::Yahoo => write!(f, "yahoo"),
+            Self::Firecrawl => write!(f, "firecrawl"),
+        }
+    }
+}
+
+impl std::str::FromStr for EngineKind {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "brave" => Ok(Self::Brave),
+            "duckduckgo" | "ddg" | "ddg_lite" | "duckduckgo_lite" | "duckduckgolite" => Ok(Self::DuckDuckGoLite),
+            "yahoo" => Ok(Self::Yahoo),
+            "firecrawl" => Ok(Self::Firecrawl),
+            other => Err(AppError::Config(format!(
+                "Unknown search engine '{other}'. Supported engines: brave, duckduckgo, yahoo, firecrawl"
+            ))),
+        }
+    }
+}
+
+pub fn default_engine_chain() -> Vec<EngineKind> {
+    vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo]
+}
+
+pub fn resolve_engine_chain(default: &str, fallback: &[String]) -> Result<Vec<EngineKind>, AppError> {
+    let mut engines = Vec::new();
+    let default_engine: EngineKind = default.parse()?;
+    engines.push(default_engine);
+
+    for item in fallback {
+        let engine: EngineKind = item.parse()?;
+        if !engines.contains(&engine) {
+            engines.push(engine);
+        }
+    }
+
+    Ok(engines)
+}
+
 pub struct EngineRequest<'a> {
     pub http: &'a HttpClient,
     pub timeout_sec: u64,
@@ -44,6 +89,7 @@ pub struct MultiEngineParams<'a> {
     pub limit: usize,
     pub recency: Option<WebSearchRecency>,
     pub domains: Option<&'a [String]>,
+    pub engines: &'a [EngineKind],
 }
 
 pub async fn search_single_engine(engine: EngineKind, req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
@@ -62,17 +108,6 @@ fn dispatch_engine_call<'a>(
     }
 }
 
-fn shuffled_engines() -> Vec<EngineKind> {
-    let mut list = vec![
-        EngineKind::Brave,
-        EngineKind::DuckDuckGoLite,
-        EngineKind::Yahoo,
-        EngineKind::Firecrawl,
-    ];
-    list.shuffle(&mut rand::rng());
-    list
-}
-
 fn filter_result_by_domains(r: &SearchResult, allowed: &[String], blocked: &[String]) -> bool {
     let Ok(u) = Url::parse(&r.url) else {
         return false;
@@ -83,8 +118,10 @@ fn filter_result_by_domains(r: &SearchResult, allowed: &[String], blocked: &[Str
 
 async fn query_engine_filtered(
     engine: EngineKind,
-    (req, limiter): (&EngineRequest<'_>, &SearchRateLimiter),
-    filters: (&[String], &[String]),
+    req: &EngineRequest<'_>,
+    limiter: &SearchRateLimiter,
+    allowed: &[String],
+    blocked: &[String],
 ) -> Vec<SearchResult> {
     limiter.acquire().await;
     if let Ok(results) = search_single_engine(engine, req).await {
@@ -96,7 +133,7 @@ async fn query_engine_filtered(
                 }
                 r
             })
-            .filter(|r| filter_result_by_domains(r, filters.0, filters.1))
+            .filter(|r| filter_result_by_domains(r, allowed, blocked))
             .collect()
     } else {
         Vec::new()
@@ -104,7 +141,6 @@ async fn query_engine_filtered(
 }
 
 pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchResult> {
-    let engines = shuffled_engines();
     let (allowed, blocked) = normalize_domain_filters(params.domains);
     let req = EngineRequest {
         http: params.http,
@@ -114,16 +150,164 @@ pub async fn search_multi_engine(params: MultiEngineParams<'_>) -> Vec<SearchRes
         recency: params.recency,
     };
 
-    let mut accumulated: Vec<SearchResult> = Vec::new();
-    for engine in engines {
-        let results = query_engine_filtered(engine, (&req, params.rate_limiter), (&allowed, &blocked)).await;
-        accumulated.extend(results);
-        let deduped = deduplicate_results(accumulated);
-        if deduped.len() >= params.limit {
-            return deduped.into_iter().take(params.limit).collect();
+    search_multi_engine_impl(params.engines, params.limit, |engine| {
+        query_engine_filtered(engine, &req, params.rate_limiter, &allowed, &blocked)
+    })
+    .await
+}
+
+async fn search_multi_engine_impl<F, Fut>(engines: &[EngineKind], limit: usize, mut query_fn: F) -> Vec<SearchResult>
+where
+    F: FnMut(EngineKind) -> Fut,
+    Fut: std::future::Future<Output = Vec<SearchResult>>,
+{
+    for &engine in engines {
+        let results = query_fn(engine).await;
+        if !results.is_empty() {
+            let deduped = deduplicate_results(results);
+            return deduped.into_iter().take(limit).collect();
         }
-        accumulated = deduped;
     }
 
-    accumulated.into_iter().take(params.limit).collect()
+    Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_engine_kind_parsing_and_display() {
+        assert_eq!("brave".parse::<EngineKind>().unwrap(), EngineKind::Brave);
+        assert_eq!("duckduckgo".parse::<EngineKind>().unwrap(), EngineKind::DuckDuckGoLite);
+        assert_eq!("ddg".parse::<EngineKind>().unwrap(), EngineKind::DuckDuckGoLite);
+        assert_eq!("ddg_lite".parse::<EngineKind>().unwrap(), EngineKind::DuckDuckGoLite);
+        assert_eq!("yahoo".parse::<EngineKind>().unwrap(), EngineKind::Yahoo);
+        assert_eq!("firecrawl".parse::<EngineKind>().unwrap(), EngineKind::Firecrawl);
+        assert!("unknown".parse::<EngineKind>().is_err());
+
+        assert_eq!(EngineKind::Brave.to_string(), "brave");
+        assert_eq!(EngineKind::DuckDuckGoLite.to_string(), "duckduckgo");
+        assert_eq!(EngineKind::Yahoo.to_string(), "yahoo");
+        assert_eq!(EngineKind::Firecrawl.to_string(), "firecrawl");
+    }
+
+    #[test]
+    fn test_resolve_engine_chain_deduplication() {
+        let chain = resolve_engine_chain(
+            "brave",
+            &["duckduckgo".to_string(), "brave".to_string(), "yahoo".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            chain,
+            vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo,]
+        );
+    }
+
+    #[test]
+    fn test_default_engine_chain() {
+        assert_eq!(
+            default_engine_chain(),
+            vec![EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo,]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_multi_engine_first_engine_succeeds_without_fallback() {
+        let called = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let called_clone = called.clone();
+        let engines = [EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo];
+
+        let results = search_multi_engine_impl(&engines, 5, move |engine| {
+            let called = called_clone.clone();
+            async move {
+                called.lock().unwrap().push(engine);
+                match engine {
+                    EngineKind::Brave => vec![SearchResult::new(
+                        "Brave Result",
+                        "Content",
+                        "https://example.com/brave",
+                    )],
+                    _ => vec![SearchResult::new(
+                        "Other Result",
+                        "Content",
+                        "https://example.com/other",
+                    )],
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Brave Result");
+        assert_eq!(*called.lock().unwrap(), vec![EngineKind::Brave]);
+    }
+
+    #[tokio::test]
+    async fn test_search_multi_engine_fallback_on_first_failure() {
+        let called = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let called_clone = called.clone();
+        let engines = [EngineKind::Brave, EngineKind::DuckDuckGoLite, EngineKind::Yahoo];
+
+        let results = search_multi_engine_impl(&engines, 5, move |engine| {
+            let called = called_clone.clone();
+            async move {
+                called.lock().unwrap().push(engine);
+                match engine {
+                    EngineKind::Brave => Vec::new(),
+                    EngineKind::DuckDuckGoLite => {
+                        vec![SearchResult::new("DDG Result", "Content", "https://example.com/ddg")]
+                    }
+                    _ => vec![SearchResult::new(
+                        "Yahoo Result",
+                        "Content",
+                        "https://example.com/yahoo",
+                    )],
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "DDG Result");
+        assert_eq!(
+            *called.lock().unwrap(),
+            vec![EngineKind::Brave, EngineKind::DuckDuckGoLite]
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_multi_engine_single_engine_no_fallback() {
+        let called = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let called_clone = called.clone();
+        let engines = [EngineKind::Brave];
+
+        let results = search_multi_engine_impl(&engines, 5, move |engine| {
+            let called = called_clone.clone();
+            async move {
+                called.lock().unwrap().push(engine);
+                Vec::new()
+            }
+        })
+        .await;
+
+        assert!(results.is_empty());
+        assert_eq!(*called.lock().unwrap(), vec![EngineKind::Brave]);
+    }
+
+    #[tokio::test]
+    async fn test_search_multi_engine_truncates_to_limit() {
+        let engines = [EngineKind::Brave];
+        let results = search_multi_engine_impl(&engines, 2, |_engine| async move {
+            vec![
+                SearchResult::new("1", "c", "https://example.com/1"),
+                SearchResult::new("2", "c", "https://example.com/2"),
+                SearchResult::new("3", "c", "https://example.com/3"),
+            ]
+        })
+        .await;
+
+        assert_eq!(results.len(), 2);
+    }
 }

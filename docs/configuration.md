@@ -149,6 +149,37 @@ Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.
 
 ---
 
+## Web Search Providers
+
+Configure deterministic search engine priority and fallback for the built-in `web_search` tool in `~/.config/rho/config.toml` or `.rho/config.toml`:
+
+```toml
+[tools.web.search]
+# Primary search engine (default: "brave")
+default = "brave"
+
+# Ordered fallback engines to attempt if prior engines fail or return zero results
+fallback = ["duckduckgo", "yahoo"]
+```
+
+Supported engine identifiers:
+- `brave`: Scrapes Brave search results.
+- `duckduckgo` (aliases: `ddg`, `ddg_lite`): Queries DuckDuckGo Lite.
+- `yahoo`: Scrapes Yahoo search results.
+- `firecrawl`: Queries Firecrawl search API (requires `FIRECRAWL_API_KEY`).
+
+Searches evaluate engines sequentially in order. Once an engine returns results, search terminates immediately. Subsequent engines in the fallback list are only queried if the earlier engine errors or returns zero results.
+
+To restrict searches to a single trusted engine and disable all fallbacks/scrapers:
+
+```toml
+[tools.web.search]
+default = "brave"
+fallback = []
+```
+
+---
+
 ## System Instructions (`AGENTS.md`)
 
 `rho` discovers instructions hierarchically and prepends them into the agent

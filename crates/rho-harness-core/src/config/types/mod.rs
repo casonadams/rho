@@ -5,7 +5,7 @@ mod key;
 mod paths;
 mod ui;
 
-pub use app::{Config, DEFAULT_MAX_TURNS};
+pub use app::{Config, DEFAULT_MAX_TURNS, ToolsConfig, WebSearchConfig, WebToolsConfig};
 pub(crate) use file::FileConfig;
 pub use integrations::{
     McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig, ProviderConfig,
