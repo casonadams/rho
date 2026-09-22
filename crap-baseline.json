@@ -335,8 +335,14 @@
       "function": "combine_windows",
       "line": 171,
       "cyclomatic": 5.0,
-      "coverage": 100.0,
-      "crap": 5.0
+      "coverage": 85.71428571428571,
+      "crap": 5.072886297376093,
+      "uncovered": [
+        {
+          "start": 175,
+          "end": 175
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/antigravity/quota.rs",
@@ -379,14 +385,8 @@
       "function": "format_duration",
       "line": 180,
       "cyclomatic": 4.0,
-      "coverage": 92.85714285714286,
-      "crap": 4.005830903790088,
-      "uncovered": [
-        {
-          "start": 185,
-          "end": 185
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/quota.rs",
@@ -401,14 +401,8 @@
       "function": "is_unmetered_summary",
       "line": 50,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 50,
-          "end": 53
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/quota.rs",
@@ -517,16 +511,10 @@
     {
       "file": "./crates/rho-engine/src/antigravity/quota/summary.rs",
       "function": "group_matches_target",
-      "line": 125,
-      "cyclomatic": 18.0,
-      "coverage": 64.28571428571429,
-      "crap": 32.759475218658885,
-      "uncovered": [
-        {
-          "start": 145,
-          "end": 155
-        }
-      ]
+      "line": 128,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-engine/src/antigravity/quota/summary.rs",
@@ -539,7 +527,7 @@
     {
       "file": "./crates/rho-engine/src/antigravity/quota/summary.rs",
       "function": "is_5h_bucket",
-      "line": 180,
+      "line": 177,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -547,7 +535,7 @@
     {
       "file": "./crates/rho-engine/src/antigravity/quota/summary.rs",
       "function": "is_weekly_bucket",
-      "line": 172,
+      "line": 169,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -563,14 +551,14 @@
     {
       "file": "./crates/rho-engine/src/antigravity/quota/summary.rs",
       "function": "select_group_buckets",
-      "line": 159,
+      "line": 156,
       "cyclomatic": 4.0,
       "coverage": 63.63636363636363,
       "crap": 4.769346356123216,
       "uncovered": [
         {
-          "start": 166,
-          "end": 169
+          "start": 163,
+          "end": 166
         }
       ]
     },
@@ -24651,16 +24639,12 @@
       "function": "get_os_clipboard_text",
       "line": 24,
       "cyclomatic": 4.0,
-      "coverage": 80.0,
-      "crap": 4.128,
+      "coverage": 0.0,
+      "crap": 20.0,
       "uncovered": [
         {
-          "start": 30,
-          "end": 30
-        },
-        {
-          "start": 32,
-          "end": 32
+          "start": 24,
+          "end": 34
         }
       ]
     },
@@ -24689,8 +24673,8 @@
       "crap": 4.175582990397805,
       "uncovered": [
         {
-          "start": 63,
-          "end": 65
+          "start": 66,
+          "end": 68
         }
       ]
     },
@@ -25733,11 +25717,11 @@
       "function": "drain_pending_input",
       "line": 161,
       "cyclomatic": 6.0,
-      "coverage": 88.88888888888889,
-      "crap": 6.049382716049383,
+      "coverage": 50.0,
+      "crap": 10.5,
       "uncovered": [
         {
-          "start": 176,
+          "start": 168,
           "end": 177
         }
       ]
@@ -25747,14 +25731,8 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 95.23809523809523,
-      "crap": 6.003887269193392,
-      "uncovered": [
-        {
-          "start": 72,
-          "end": 72
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -27301,14 +27279,8 @@
       "function": "finalize_run",
       "line": 19,
       "cyclomatic": 2.0,
-      "coverage": 75.0,
-      "crap": 2.0625,
-      "uncovered": [
-        {
-          "start": 25,
-          "end": 27
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/bash_runner/outcome.rs",
@@ -30219,14 +30191,8 @@
       "function": "paste_clipboard_async",
       "line": 29,
       "cyclomatic": 3.0,
-      "coverage": 70.0,
-      "crap": 3.2430000000000003,
-      "uncovered": [
-        {
-          "start": 34,
-          "end": 36
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/navigation.rs",

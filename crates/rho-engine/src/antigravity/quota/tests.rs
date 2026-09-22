@@ -298,6 +298,41 @@ fn parse_quota_summary_matches_group_by_group_id() {
 }
 
 #[test]
+fn parse_quota_summary_matches_gpt_and_custom_target() {
+    let now = Utc::now();
+    let json = serde_json::json!({
+        "groups": [
+            {
+                "groupId": "gemini-models",
+                "buckets": [
+                    { "window": "5h", "remainingFraction": 1.0, "resetTime": (now + Duration::hours(5)).to_rfc3339() }
+                ]
+            },
+            {
+                "groupId": "gpt-other-models",
+                "buckets": [
+                    { "window": "5h", "remainingFraction": 0.65, "resetTime": (now + Duration::hours(5)).to_rfc3339() }
+                ]
+            },
+            {
+                "groupId": "deepseek-coder",
+                "buckets": [
+                    { "window": "5h", "remainingFraction": 0.40, "resetTime": (now + Duration::hours(5)).to_rfc3339() }
+                ]
+            }
+        ]
+    });
+
+    let gpt_display = parse_quota_summary(&json, "gpt-oss-1", now);
+    assert!(gpt_display.is_some());
+    assert!(gpt_display.unwrap().contains("65%"));
+
+    let custom_display = parse_quota_summary(&json, "deepseek-coder", now);
+    assert!(custom_display.is_some());
+    assert!(custom_display.unwrap().contains("40%"));
+}
+
+#[test]
 fn unmetered_summary_detection() {
     assert!(is_unmetered_summary("100%"));
     assert!(is_unmetered_summary("100% 100%"));

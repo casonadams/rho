@@ -122,6 +122,9 @@ fn extract_group_text(group: &Value) -> String {
     s.to_ascii_lowercase()
 }
 
+const CLAUDE_KEYWORDS: &[&str] = &["claude", "3p", "third"];
+const GPT_KEYWORDS: &[&str] = &["gpt", "claude", "3p", "third", "other"];
+
 fn group_matches_target(group: &Value, target: &str) -> bool {
     let group_text = extract_group_text(group);
 
@@ -131,26 +134,20 @@ fn group_matches_target(group: &Value, target: &str) -> bool {
         .map(|arr| arr.iter().map(bucket_structural_text).collect::<Vec<_>>().join(" "))
         .unwrap_or_default();
 
+    let matches_any = |keywords: &[&str]| {
+        keywords
+            .iter()
+            .any(|&kw| group_text.contains(kw) || buckets_text.contains(kw))
+    };
+
     let target = canonical_target(target).to_ascii_lowercase();
 
     if target.starts_with("gemini") {
-        group_text.contains("gemini") || buckets_text.contains("gemini")
+        matches_any(&["gemini"])
     } else if target.starts_with("claude") {
-        group_text.contains("claude")
-            || group_text.contains("3p")
-            || group_text.contains("third")
-            || buckets_text.contains("claude")
-            || buckets_text.contains("3p")
-            || buckets_text.contains("third")
+        matches_any(CLAUDE_KEYWORDS)
     } else if target.starts_with("gpt") {
-        group_text.contains("gpt")
-            || group_text.contains("claude")
-            || group_text.contains("3p")
-            || group_text.contains("third")
-            || group_text.contains("other")
-            || buckets_text.contains("gpt")
-            || buckets_text.contains("claude")
-            || buckets_text.contains("3p")
+        matches_any(GPT_KEYWORDS)
     } else {
         group_text.contains(&target) || buckets_text.contains(&target)
     }
