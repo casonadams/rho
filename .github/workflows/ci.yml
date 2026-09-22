@@ -76,3 +76,37 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --workspace --doc
+
+  coverage-crap:
+    name: Coverage & CRAP Metric
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov & cargo-binstall
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-binstall
+
+      - name: Install cargo-crap
+        run: cargo binstall --no-confirm cargo-crap@0.5.0
+
+      - name: Generate test coverage trace
+        id: coverage
+        run: cargo llvm-cov --workspace --lcov --output-path target/lcov.info
+
+      - name: Emit GitHub PR annotations
+        if: always() && steps.coverage.outcome == 'success'
+        run: cargo crap --path . --lcov target/lcov.info --format github
+
+      - name: Publish CRAP summary to Step Summary
+        if: always() && steps.coverage.outcome == 'success'
+        run: cargo crap --path . --lcov target/lcov.info --baseline crap-baseline.json --format markdown >> $GITHUB_STEP_SUMMARY
+
+      - name: Gate on CRAP regressions
+        run: cargo crap --path . --lcov target/lcov.info --baseline crap-baseline.json --fail-regression

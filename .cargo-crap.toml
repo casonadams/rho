@@ -1,0 +1,13 @@
+threshold = 30.0
+sort = "file"
+missing = "pessimistic"
+epsilon = 1.0
+exclude = [
+    "**/build.rs",
+    "**/tests.rs",
+    "**/tests/**",
+    "**/*_tests.rs",
+]
+allow = [
+    "crates/rho-wasm/**",
+]

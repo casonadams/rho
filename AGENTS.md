@@ -39,6 +39,18 @@
   `cargo:rerun-if-changed` to prevent Cargo from invalidating incremental build
   caches on every invocation.
 
+## Code quality and CRAP score
+
+- The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining
+  cyclomatic complexity with test code coverage. Functions with a CRAP score > 30
+  are considered fragile and defect-prone.
+- When modifying, extending, or fixing bugs in any function flagged with a CRAP
+  score > 30, refactor it to reduce cyclomatic complexity and/or add focused
+  unit tests to lower its score.
+- Never introduce new functions with a CRAP score > 30.
+- Never increase the CRAP score of existing functions. All changes must maintain
+  or improve baseline scores (`make crap`).
+
 ## UX and modal guidelines
 
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
@@ -62,4 +74,4 @@
 
 ## Completion
 
-- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), `make wasm`, and `cargo test --workspace` before finishing.
+- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), `make wasm`, `cargo test --workspace`, and `make crap` before finishing.
