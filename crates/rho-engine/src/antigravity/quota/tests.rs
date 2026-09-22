@@ -334,3 +334,87 @@ fn parse_quota_unmetered_summary_falls_back_to_active_model_quota() {
     let display = parse_quota(&json, "gemini-2.5-pro", now);
     assert_eq!(display, Some("80% 2h15m".to_string()));
 }
+
+#[tokio::test]
+async fn fetch_quota_uses_summary_when_metered() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let reset_time = (Utc::now() + Duration::hours(3)).to_rfc3339();
+    let mock_summary = serde_json::json!({
+        "buckets": [
+            {
+                "bucketId": "gemini-5h",
+                "remainingFraction": 0.85,
+                "resetTime": reset_time
+            }
+        ]
+    })
+    .to_string();
+    let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{mock_summary}");
+    let addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(resp.as_bytes()).await;
+            }
+        });
+        addr
+    };
+
+    let endpoints = vec![format!("http://{addr}")];
+    let quota = fetch_quota_from_endpoints(&endpoints, "token", "test-proj", "gemini-2.5-pro").await;
+    assert!(quota.is_some());
+    assert!(quota.unwrap().contains("85%"));
+}
+
+#[tokio::test]
+async fn fetch_quota_falls_back_to_models_when_summary_empty() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let reset_time = (Utc::now() + Duration::hours(4)).to_rfc3339();
+    let mock_models = serde_json::json!({
+        "models": {
+            "gemini-2.5-pro": {
+                "quotaInfo": {
+                    "remainingFraction": 0.70,
+                    "resetTime": reset_time
+                }
+            }
+        }
+    })
+    .to_string();
+
+    let resp_404 = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let resp_models =
+        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{mock_models}");
+
+    let addr = {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            // First request to retrieveUserQuotaSummary fails with 404
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(resp_404.as_bytes()).await;
+            }
+            // Second request to fetchAvailableModels succeeds
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf).await;
+                let _ = stream.write_all(resp_models.as_bytes()).await;
+            }
+        });
+        addr
+    };
+
+    let endpoints = vec![format!("http://{addr}")];
+    let quota = fetch_quota_from_endpoints(&endpoints, "token", "", "gemini-2.5-pro").await;
+    assert!(quota.is_some());
+    assert!(quota.unwrap().contains("70%"));
+}
