@@ -167,6 +167,13 @@ pub fn is_unsupported_forced_tool_model(model: &str) -> bool {
     lower.contains("opus-5-5") || lower.contains("opus-5.5") || lower.contains("fable") || lower.contains("mythos")
 }
 
+fn adaptive_max_tokens(effort: Option<&str>) -> u64 {
+    match effort {
+        Some("xhigh" | "max") => 32768,
+        _ => 16384,
+    }
+}
+
 fn calculate_max_tokens(
     max_tokens: Option<u64>,
     thinking_budget: Option<u64>,
@@ -174,23 +181,12 @@ fn calculate_max_tokens(
     effort: Option<&str>,
 ) -> u64 {
     if let Some(max) = max_tokens {
-        return match thinking_budget {
-            Some(budget) => max.max(budget + 1024),
-            None => max,
-        };
+        return thinking_budget.map_or(max, |b| max.max(b + 1024));
     }
     if is_adaptive {
-        match effort {
-            Some("xhigh") | Some("max") => 32768,
-            Some("high") => 16384,
-            _ => 16384,
-        }
-    } else {
-        match thinking_budget {
-            Some(budget) => (budget + 4096).max(8192),
-            None => 8192,
-        }
+        return adaptive_max_tokens(effort);
     }
+    thinking_budget.map_or(8192, |b| (b + 4096).max(8192))
 }
 
 fn attach_adaptive_thinking(body: &mut Value, model: &str, thinking_level: Option<&str>, temp: Option<f64>) {

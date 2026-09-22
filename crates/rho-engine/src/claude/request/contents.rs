@@ -68,11 +68,18 @@ fn image_json(image: &rig::message::Image) -> Option<Value> {
         rig::message::DocumentSourceKind::Raw(bytes) => base64::engine::general_purpose::STANDARD.encode(bytes),
         _ => return None,
     };
+    let media_type = match image.media_type.as_ref() {
+        Some(rig::message::ImageMediaType::JPEG) => "image/jpeg",
+        Some(rig::message::ImageMediaType::PNG) => "image/png",
+        Some(rig::message::ImageMediaType::GIF) => "image/gif",
+        Some(rig::message::ImageMediaType::WEBP) => "image/webp",
+        _ => "image/png",
+    };
     Some(json!({
         "type": "image",
         "source": {
             "type": "base64",
-            "media_type": image.media_type.as_ref().map(image_mime).unwrap_or("image/png"),
+            "media_type": media_type,
             "data": data,
         }
     }))
@@ -109,15 +116,5 @@ fn convert_assistant_content(item: &AssistantContent) -> Option<Value> {
             "input": call.function.arguments,
         })),
         _ => None,
-    }
-}
-
-fn image_mime(media: &rig::message::ImageMediaType) -> &'static str {
-    match media {
-        rig::message::ImageMediaType::JPEG => "image/jpeg",
-        rig::message::ImageMediaType::PNG => "image/png",
-        rig::message::ImageMediaType::GIF => "image/gif",
-        rig::message::ImageMediaType::WEBP => "image/webp",
-        _ => "image/png",
     }
 }

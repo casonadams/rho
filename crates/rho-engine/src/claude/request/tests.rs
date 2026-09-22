@@ -188,3 +188,171 @@ fn empty_system_blocks_assigns_breakpoints_without_exceeding_four() {
     assert_eq!(body["messages"][1]["content"][0]["cache_control"]["type"], "ephemeral");
     assert_eq!(body["messages"][2]["content"][0]["cache_control"]["type"], "ephemeral");
 }
+
+#[test]
+fn convert_messages_converts_user_and_assistant_images() {
+    use rig::message::{DocumentSourceKind, Image, ImageMediaType};
+
+    let user_msg = Message::User {
+        content: vec![
+            UserContent::Text(Text::new("Look:")),
+            UserContent::Image(Image {
+                data: DocumentSourceKind::Base64("b64jpeg".to_string()),
+                media_type: Some(ImageMediaType::JPEG),
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(Image {
+                data: DocumentSourceKind::Raw(b"rawpng".to_vec()),
+                media_type: Some(ImageMediaType::PNG),
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(Image {
+                data: DocumentSourceKind::Base64("b64gif".to_string()),
+                media_type: Some(ImageMediaType::GIF),
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(Image {
+                data: DocumentSourceKind::Base64("b64webp".to_string()),
+                media_type: Some(ImageMediaType::WEBP),
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(Image {
+                data: DocumentSourceKind::Base64("b64fallback".to_string()),
+                media_type: None,
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(Image {
+                data: DocumentSourceKind::Url("https://example.com/img.png".to_string()),
+                media_type: Some(ImageMediaType::PNG),
+                detail: None,
+                additional_params: None,
+            }),
+        ],
+    };
+
+    let req = CompletionRequest {
+        model: None,
+        preamble: None,
+        chat_history: vec![user_msg],
+        documents: Vec::new(),
+        tools: Vec::new(),
+        temperature: None,
+        max_tokens: None,
+        tool_choice: None,
+        additional_params: None,
+        output_schema: None,
+        record_telemetry_content: false,
+    };
+
+    let messages = contents::convert_messages(&req);
+    assert_eq!(messages.len(), 1);
+    let parts = messages[0]["content"].as_array().unwrap();
+    assert_eq!(parts.len(), 6);
+    assert_eq!(parts[0]["type"], "text");
+    assert_eq!(parts[1]["source"]["media_type"], "image/jpeg");
+    assert_eq!(parts[1]["source"]["data"], "b64jpeg");
+    assert_eq!(parts[2]["source"]["media_type"], "image/png");
+    assert_eq!(parts[3]["source"]["media_type"], "image/gif");
+    assert_eq!(parts[4]["source"]["media_type"], "image/webp");
+    assert_eq!(parts[5]["source"]["media_type"], "image/png");
+}
+
+#[test]
+fn convert_messages_handles_reasoning_and_assistant_first() {
+    let req = CompletionRequest {
+        model: None,
+        preamble: None,
+        chat_history: vec![
+            Message::System {
+                content: "ignore me".to_string(),
+            },
+            Message::Assistant {
+                content: vec![
+                    AssistantContent::Reasoning(rig::message::Reasoning {
+                        id: None,
+                        content: vec![rig::message::ReasoningContent::Text {
+                            text: "let me think".to_string(),
+                            signature: Some("sig_123".to_string()),
+                        }],
+                    }),
+                    AssistantContent::Reasoning(rig::message::Reasoning {
+                        id: None,
+                        content: vec![rig::message::ReasoningContent::Text {
+                            text: "unsigned thought".to_string(),
+                            signature: None,
+                        }],
+                    }),
+                    AssistantContent::Text(Text::new("done")),
+                ],
+                id: None,
+            },
+        ],
+        documents: Vec::new(),
+        tools: Vec::new(),
+        temperature: None,
+        max_tokens: None,
+        tool_choice: None,
+        additional_params: None,
+        output_schema: None,
+        record_telemetry_content: false,
+    };
+
+    let messages = contents::convert_messages(&req);
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[0]["content"][0]["text"], "Hello");
+    assert_eq!(messages[1]["role"], "assistant");
+    let assistant_parts = messages[1]["content"].as_array().unwrap();
+    assert_eq!(assistant_parts.len(), 2);
+    assert_eq!(assistant_parts[0]["type"], "thinking");
+    assert_eq!(assistant_parts[0]["signature"], "sig_123");
+    assert_eq!(assistant_parts[1]["type"], "text");
+}
+
+#[test]
+fn convert_messages_handles_tool_results() {
+    let req = CompletionRequest {
+        model: None,
+        preamble: None,
+        chat_history: vec![Message::User {
+            content: vec![UserContent::ToolResult(ToolResult {
+                call: ToolCallId::new("call_json").unwrap(),
+                provider: None,
+                name: "bash".into(),
+                content: vec![
+                    ToolResultContent::Json {
+                        value: json!("result text"),
+                    },
+                    ToolResultContent::Text(Text::new("extra")),
+                ],
+            })],
+        }],
+        documents: Vec::new(),
+        tools: Vec::new(),
+        temperature: None,
+        max_tokens: None,
+        tool_choice: None,
+        additional_params: None,
+        output_schema: None,
+        record_telemetry_content: false,
+    };
+
+    let messages = contents::convert_messages(&req);
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["content"][0]["type"], "tool_result");
+    assert_eq!(messages[0]["content"][0]["content"], "result text\nextra");
+}
+
+#[test]
+fn calculate_max_tokens_adaptive_cases() {
+    assert_eq!(calculate_max_tokens(None, None, true, Some("max")), 32768);
+    assert_eq!(calculate_max_tokens(None, None, true, Some("xhigh")), 32768);
+    assert_eq!(calculate_max_tokens(None, None, true, Some("low")), 16384);
+    assert_eq!(calculate_max_tokens(None, Some(10000), false, None), 14096);
+    assert_eq!(calculate_max_tokens(Some(5000), Some(6000), false, None), 7024);
+}

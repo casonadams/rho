@@ -299,3 +299,13 @@ fn mcp_direct_tool_permission_evaluation() {
     };
     assert!(matches!(decide_tool_call(&policy, deny_req), Decision::Deny(_)));
 }
+
+#[test]
+fn test_parse_universal_permission_action() {
+    let scope_allow = parse_scope_from_str("[permission]\n\"*\" = \"allow\"\n").unwrap();
+    assert_eq!(scope_allow.universal, Some(crate::permission::PermissionState::Allow));
+    let scope_deny = parse_scope_from_str("[permission]\n\"*\" = \"deny\"\n").unwrap();
+    assert_eq!(scope_deny.universal, Some(crate::permission::PermissionState::Deny));
+    let scope_obj = parse_scope_from_str("[permission]\n\"*\" = { action = \"deny\" }\n").unwrap();
+    assert_eq!(scope_obj.universal, None);
+}

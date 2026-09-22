@@ -68,7 +68,7 @@ async fn write_stdin_line(stdin: &tokio::sync::Mutex<ChildStdin>, json: String) 
         .map_err(|e| AppError::Mcp(format!("Failed to flush MCP stdin: {e}")))
 }
 
-async fn await_mcp_response(
+pub(crate) async fn await_mcp_response(
     rx: oneshot::Receiver<std::result::Result<Value, JsonRpcError>>,
     (pending, id): (&Mutex<BTreeMap<i64, ResponseTx>>, i64),
     method: &str,

@@ -159,3 +159,44 @@ async fn test_perform_login_accept_local_credentials() {
         assert!(matches!(cred, StoredCredential::OAuth { .. }));
     }
 }
+
+#[tokio::test]
+async fn test_perform_login_no_local_credentials_fails_on_empty_code() {
+    let callbacks = MockCallbacks {
+        prompt_response: "   ".to_string(),
+        select_response: None,
+    };
+    let result = perform_login(&callbacks).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_confirm_import_local_credentials_cases() {
+    use crate::auth::claude::confirm_import_local_credentials;
+
+    let callbacks_none = MockCallbacks {
+        prompt_response: String::new(),
+        select_response: None,
+    };
+    let res = confirm_import_local_credentials(None, &callbacks_none).await.unwrap();
+    assert!(res.is_none());
+
+    let cred = StoredCredential::oauth("tok".to_string(), None, None);
+    let callbacks_import = MockCallbacks {
+        prompt_response: String::new(),
+        select_response: Some("import".to_string()),
+    };
+    let res = confirm_import_local_credentials(Some(cred.clone()), &callbacks_import)
+        .await
+        .unwrap();
+    assert_eq!(res.unwrap().raw_secret(), "tok");
+
+    let callbacks_browser = MockCallbacks {
+        prompt_response: String::new(),
+        select_response: Some("browser".to_string()),
+    };
+    let res = confirm_import_local_credentials(Some(cred), &callbacks_browser)
+        .await
+        .unwrap();
+    assert!(res.is_none());
+}
