@@ -85,7 +85,33 @@ fn is_single_read_only_command(cmd: &str) -> bool {
     if lower.contains("-delete") || lower.contains("-exec") {
         return false;
     }
-    let tokens: Vec<&str> = cmd.split_whitespace().collect();
+    let mut tokens: Vec<&str> = cmd.split_whitespace().collect();
+    while tokens.len() >= 2 {
+        let first = tokens[0]
+            .split('/')
+            .next_back()
+            .unwrap_or(tokens[0])
+            .to_ascii_lowercase();
+        if first == "rtk" && !tokens[1].starts_with('-') {
+            if matches!(tokens[1], "gain" | "stats" | "hook" | "hook-audit" | "init" | "recall") {
+                break;
+            }
+            if tokens[1] == "read" {
+                tokens[1] = "cat";
+            }
+            tokens.remove(0);
+            continue;
+        }
+        if matches!(
+            first.as_str(),
+            "time" | "nice" | "nohup" | "command" | "builtin" | "noglob"
+        ) && !tokens[1].starts_with('-')
+        {
+            tokens.remove(0);
+            continue;
+        }
+        break;
+    }
     let Some(first) = tokens.first() else {
         return true;
     };
@@ -94,4 +120,5 @@ fn is_single_read_only_command(cmd: &str) -> bool {
         || is_runtime_version_command(&exe, &tokens)
         || is_package_manager_read_only(&exe, &tokens)
         || (exe == "git" && is_git_read_only(&tokens))
+        || (exe == "rtk" && (tokens.len() == 1 || matches!(tokens.get(1), Some(&"gain" | &"stats"))))
 }

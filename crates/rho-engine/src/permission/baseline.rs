@@ -69,6 +69,8 @@ pub const BASELINE_BASH_ALLOW: &[&str] = &[
     "date*",
     "cal*",
     "echo *",
+    "rtk gain*",
+    "rtk stats*",
     "* --version",
     "* -v",
     "* --help",

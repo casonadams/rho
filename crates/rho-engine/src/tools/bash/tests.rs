@@ -21,6 +21,12 @@ fn test_is_read_only_command_positive() {
         "node -v",
         "npm test",
         "go version",
+        "rtk git status",
+        "rtk git diff",
+        "rtk cargo check",
+        "rtk read Cargo.toml",
+        "rtk gain",
+        "rtk stats",
     ];
     for cmd in read_only {
         assert!(is_read_only_command(cmd), "expected {cmd} to be read-only");
@@ -41,6 +47,10 @@ fn test_is_read_only_command_mutating() {
         "npm publish",
         "python script.py",
         "git remote add origin https://...",
+        "rtk git commit -m 'test'",
+        "rtk git push",
+        "rtk npm install",
+        "rtk cargo run",
     ];
     for cmd in mutating {
         assert!(!is_read_only_command(cmd), "expected {cmd} to not be read-only");

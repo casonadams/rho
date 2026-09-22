@@ -36,6 +36,16 @@ fn bash_analyzer_env_and_timeout() {
 
     let analysis = analyze_bash_command("time timeout 10s cargo test");
     assert_eq!(analysis.commands, vec!["cargo test"]);
+
+    let analysis = analyze_bash_command("rtk git status");
+    assert_eq!(analysis.commands, vec!["git status"]);
+
+    let analysis = analyze_bash_command("rtk read src/main.rs");
+    assert_eq!(analysis.commands, vec!["cat src/main.rs"]);
+    assert_eq!(analysis.path_tokens, vec!["src/main.rs"]);
+
+    let analysis = analyze_bash_command("rtk gain");
+    assert_eq!(analysis.commands, vec!["rtk gain"]);
 }
 
 #[test]

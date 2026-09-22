@@ -80,6 +80,20 @@ fn is_assignment(raw: &str) -> bool {
 pub(crate) fn strip_wrappers(words: &mut Vec<Token>) {
     while words.len() >= 2 && words[0].kind == TokenKind::Word {
         let first = &words[0].text;
+        if first == "rtk" && !words[1].raw.starts_with('-') {
+            if matches!(
+                words[1].text.as_str(),
+                "gain" | "stats" | "hook" | "hook-audit" | "init" | "recall"
+            ) {
+                break;
+            }
+            if words[1].text == "read" {
+                words[1].text = "cat".to_string();
+                words[1].raw = "cat".to_string();
+            }
+            words.remove(0);
+            continue;
+        }
         if WRAPPERS.contains(&first.as_str()) && !words[1].raw.starts_with('-') {
             words.remove(0);
             continue;

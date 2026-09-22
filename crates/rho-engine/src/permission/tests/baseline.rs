@@ -26,9 +26,19 @@ fn baseline_bash_allowed() {
         "node --version",
         "cargo -v",
         "python --help",
+        "rtk git status",
+        "rtk diff HEAD",
+        "rtk read Cargo.toml",
+        "rtk gain",
+        "rtk stats",
     ];
     for cmd in bash_cmds {
         assert!(is_baseline_bash(cmd));
     }
-    assert!(!is_baseline_bash("rm -rf /") && !is_baseline_bash("git push origin main"));
+    assert!(
+        !is_baseline_bash("rm -rf /")
+            && !is_baseline_bash("git push origin main")
+            && !is_baseline_bash("rtk git push origin main")
+            && !is_baseline_bash("rtk rm -rf /")
+    );
 }

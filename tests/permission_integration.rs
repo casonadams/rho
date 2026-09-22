@@ -53,8 +53,39 @@ fn make_perm_model(cmd: &str, final_text: &'static str) -> MockCompletionModel {
     ])
 }
 
+struct EnvGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    prev: Option<std::ffi::OsString>,
+    dir: PathBuf,
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(ref p) = self.prev {
+                std::env::set_var("RHO_HOME", p);
+            } else {
+                std::env::remove_var("RHO_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn isolate_perm_env() -> EnvGuard {
+    let lock = crate::ENV_LOCK.lock().unwrap();
+    let prev = std::env::var_os("RHO_HOME");
+    let dir = std::env::temp_dir().join(format!("rho_perm_test_{}", uuid::Uuid::new_v4()));
+    let _ = std::fs::create_dir_all(&dir);
+    unsafe {
+        std::env::set_var("RHO_HOME", &dir);
+    }
+    EnvGuard { _lock: lock, prev, dir }
+}
+
 #[tokio::test]
 async fn test_permission_headless_fails_closed() {
+    let _env = isolate_perm_env();
     let workspace = temp_workspace();
     let model = make_perm_model("touch forbidden.txt", "saw denial");
     let config = Config {
@@ -104,6 +135,7 @@ async fn test_permission_disabled_allows_execution() {
 
 #[tokio::test]
 async fn test_permission_multiline_bash_command_fails_closed_in_headless() {
+    let _env = isolate_perm_env();
     let workspace = temp_workspace();
     let multiline_cmd = "for i in {1..5}; do\n  echo $i\ndone";
     let model = make_perm_model(multiline_cmd, "saw headless denial");
