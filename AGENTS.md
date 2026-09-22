@@ -57,7 +57,7 @@
 ## Documentation, website, and WASM synchronization
 
 - When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
-- When modifying RPC protocols, event schemas, remote server capabilities, or Web UI features, rebuild the WebAssembly artifacts with `make wasm` to ensure `crates/rho-wasm` and `www/hub/wasm/` remain in lockstep with the native engine and TUI.
+- When modifying RPC protocols, event schemas, remote server capabilities, or Web UI features, verify WebAssembly compilation (`make wasm` or `cargo check -p rho-wasm --target wasm32-unknown-unknown`). WebAssembly distribution artifacts in `www/hub/wasm/` are gitignored and generated automatically during CI deployment.
 - Maintain bidirectional UI parity: features, prompts, tool outputs, and interactive approvals visible in the raw-mode TUI must also stream, render, and resolve cleanly in the Web Hub dashboard.
 
 ## Completion
