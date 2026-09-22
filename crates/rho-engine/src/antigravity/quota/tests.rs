@@ -296,3 +296,41 @@ fn parse_quota_summary_matches_group_by_group_id() {
     let display = parse_quota(&json, "gemini-2.5-flash", now);
     assert_eq!(display, Some("40% 1h0m".to_string()));
 }
+
+#[test]
+fn unmetered_summary_detection() {
+    assert!(is_unmetered_summary("100%"));
+    assert!(is_unmetered_summary("100% 100%"));
+    assert!(!is_unmetered_summary(""));
+    assert!(!is_unmetered_summary("100% 4h30m"));
+    assert!(!is_unmetered_summary("85% 3h20m 92% 5d12h"));
+    assert!(!is_unmetered_summary("0% 20m"));
+}
+
+#[test]
+fn parse_quota_unmetered_summary_falls_back_to_active_model_quota() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 3, 12, 0, 0).unwrap();
+    let json = serde_json::json!({
+        "buckets": [
+            {
+                "bucketId": "gemini-5h",
+                "remainingFraction": 1.0
+            },
+            {
+                "bucketId": "gemini-weekly",
+                "remainingFraction": 1.0
+            }
+        ],
+        "models": {
+            "gemini-2.5-pro": {
+                "quotaInfo": {
+                    "remainingFraction": 0.80,
+                    "resetTime": "2026-09-03T14:15:00Z"
+                }
+            }
+        }
+    });
+
+    let display = parse_quota(&json, "gemini-2.5-pro", now);
+    assert_eq!(display, Some("80% 2h15m".to_string()));
+}

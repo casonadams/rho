@@ -165,16 +165,47 @@ async fn do_refresh_ollama_quota(auth_store: Arc<tokio::sync::Mutex<AuthStore>>,
     }
 }
 
+fn is_synthetic_project_id(id: &str) -> bool {
+    let trimmed = id.trim();
+    trimmed.is_empty() || uuid::Uuid::parse_str(trimmed).is_ok()
+}
+
 async fn resolve_antigravity_credentials(auth_store: &tokio::sync::Mutex<AuthStore>) -> Option<(String, String)> {
-    let mut store = auth_store.lock().await;
-    let token = store.get_key("antigravity").await.ok().flatten()?;
-    let project_id = match store.get_credential("antigravity") {
-        Some(StoredCredential::OAuth {
-            account_id: Some(id), ..
-        }) => id.clone(),
-        _ => crate::auth::antigravity::stable_project_id("antigravity-default"),
+    let (token, current_id) = {
+        let mut store = auth_store.lock().await;
+        let token = store.get_key("antigravity").await.ok().flatten()?;
+        let current_id = match store.get_credential("antigravity") {
+            Some(StoredCredential::OAuth {
+                account_id: Some(id), ..
+            }) => id.clone(),
+            _ => String::new(),
+        };
+        (token, current_id)
     };
-    Some((token, project_id))
+
+    if !is_synthetic_project_id(&current_id) {
+        return Some((token, current_id));
+    }
+
+    if let Some(discovered) = crate::antigravity::client::load_project_id(&token).await
+        && !is_synthetic_project_id(&discovered)
+    {
+        let mut store = auth_store.lock().await;
+        if let Some(mut cred) = store.get_credential("antigravity").cloned() {
+            if let StoredCredential::OAuth { ref mut account_id, .. } = cred {
+                *account_id = Some(discovered.clone());
+            }
+            let _ = store.set_credential("antigravity", cred);
+        }
+        return Some((token, discovered));
+    }
+
+    let fallback = if current_id.is_empty() {
+        crate::auth::antigravity::stable_project_id("antigravity-default")
+    } else {
+        current_id
+    };
+    Some((token, fallback))
 }
 
 async fn do_refresh_antigravity_quota(
@@ -292,5 +323,20 @@ async fn do_refresh_gemini_quota(
         quota.record_success(&key, display);
     } else {
         quota.record_failure(&key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn synthetic_project_id_detection() {
+        assert!(is_synthetic_project_id(""));
+        assert!(is_synthetic_project_id("   "));
+        let uuid_id = crate::auth::antigravity::stable_project_id("user@example.com");
+        assert!(is_synthetic_project_id(&uuid_id));
+        assert!(!is_synthetic_project_id("earnest-shoreline-k4tm7"));
+        assert!(!is_synthetic_project_id("my-gcp-project-123"));
     }
 }
