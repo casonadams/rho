@@ -6507,14 +6507,8 @@
       "function": "TerminalApprovalSink::tool_chunk",
       "line": 281,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 281,
-          "end": 283
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/sink/approval.rs",
@@ -7416,22 +7410,40 @@
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
+      "function": "StreamingToolTracker::extract_target_path",
+      "line": 51,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
       "function": "StreamingToolTracker::handle_delta",
       "line": 17,
-      "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
-      "uncovered": [
-        {
-          "start": 17,
-          "end": 42
-        }
-      ]
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
+      "function": "StreamingToolTracker::maybe_start_path",
+      "line": 32,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
+      "function": "StreamingToolTracker::maybe_stream_content",
+      "line": 42,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
       "function": "StreamingToolTracker::reset",
-      "line": 44,
+      "line": 56,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -7439,56 +7451,42 @@
     {
       "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
       "function": "append_escaped_char",
-      "line": 103,
-      "cyclomatic": 10.0,
-      "coverage": 40.0,
-      "crap": 31.6,
-      "uncovered": [
-        {
-          "start": 106,
-          "end": 109
-        },
-        {
-          "start": 111,
-          "end": 111
-        },
-        {
-          "start": 113,
-          "end": 116
-        }
-      ]
+      "line": 111,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
+      "function": "decode_json_string_content",
+      "line": 81,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
       "function": "extract_json_streaming_content",
-      "line": 75,
-      "cyclomatic": 9.0,
-      "coverage": 90.9090909090909,
-      "crap": 9.060856498873028,
-      "uncovered": [
-        {
-          "start": 82,
-          "end": 82
-        },
-        {
-          "start": 93,
-          "end": 93
-        }
-      ]
+      "line": 66,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
       "function": "extract_json_string_field",
-      "line": 49,
-      "cyclomatic": 9.0,
-      "coverage": 95.23809523809523,
-      "crap": 9.008746355685131,
-      "uncovered": [
-        {
-          "start": 56,
-          "end": 56
-        }
-      ]
+      "line": 61,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/engine/runner/turn/streaming_tool.rs",
+      "function": "parse_json_string_value",
+      "line": 70,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./crates/rho-engine/src/engine/runner/turn/tool_hook.rs",
