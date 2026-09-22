@@ -4,18 +4,20 @@ use super::super::navigation::{hydrate_session_transcript, update_footer};
 use crate::engine::AgentEngine;
 use crate::error::Result;
 use crate::repl::ReplSession;
+use crate::repl::input_reader::TerminalInputReader;
 use crate::repl::interactive::InteractiveHistory;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
-pub(crate) struct ModalActionContext<'a, 'b, 'c, B: TerminalBackend> {
+pub(crate) struct ModalActionContext<'a, B: TerminalBackend> {
     pub controller: &'a mut TerminalController<B>,
     pub history: &'a mut InteractiveHistory,
-    pub session: &'b mut ReplSession,
-    pub engine: &'c mut AgentEngine,
+    pub session: &'a mut ReplSession,
+    pub engine: &'a mut AgentEngine,
+    pub input: &'a mut TerminalInputReader,
 }
 
 fn print_model_status(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     model: &str,
     provider: &str,
     save_as_default: bool,
@@ -33,7 +35,7 @@ fn print_model_status(
 }
 
 async fn handle_model_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     model: String,
     provider: String,
     save_as_default: bool,
@@ -60,10 +62,7 @@ async fn handle_model_selected(
     Ok(true)
 }
 
-async fn handle_node_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    node_id: String,
-) -> Result<bool> {
+async fn handle_node_selected(ctx: &mut ModalActionContext<'_, impl TerminalBackend>, node_id: String) -> Result<bool> {
     match ctx.engine.session_manager.switch_branch(Some(node_id.clone())).await {
         Ok(_) => {
             if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
@@ -82,7 +81,7 @@ async fn handle_node_selected(
 }
 
 async fn handle_node_label_updated(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     node_id: String,
     label: String,
 ) -> Result<bool> {
@@ -102,7 +101,7 @@ async fn handle_node_label_updated(
 }
 
 async fn handle_session_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     session_id: String,
 ) -> Result<bool> {
     *ctx.engine = crate::platform::agent_engine(
@@ -123,7 +122,7 @@ async fn handle_session_selected(
 }
 
 async fn save_or_print_thinking(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     level: Option<&str>,
     save_as_default: bool,
 ) {
@@ -141,7 +140,7 @@ async fn save_or_print_thinking(
 }
 
 async fn handle_thinking_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     level: Option<String>,
     save_as_default: bool,
 ) -> Result<bool> {
@@ -159,7 +158,7 @@ async fn handle_thinking_selected(
 }
 
 async fn handle_session_deleted(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     session_id: String,
 ) -> Result<bool> {
     let _ = rho_harness_core::session::delete_session_async(&ctx.session.config.sessions_dir, &session_id).await;
@@ -170,14 +169,26 @@ async fn handle_session_deleted(
     Ok(true)
 }
 
-async fn handle_login_provider_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
-    provider: String,
-) -> Result<bool> {
+async fn execute_suspended_login<B: TerminalBackend>(
+    ctx: &mut ModalActionContext<'_, B>,
+    provider: &str,
+) -> Result<crate::error::Result<()>> {
+    let mut paused = ctx.input.pause()?;
+    paused.drain();
     ctx.controller.suspend()?;
-    let login_res =
-        crate::cli::login_provider(Some(&provider), false, &ctx.session.config, &mut ctx.session.auth_store).await;
-    ctx.controller.resume()?;
+    let res = crate::cli::login_provider(Some(provider), false, &ctx.session.config, &mut ctx.session.auth_store).await;
+    let c_res = ctx.controller.resume();
+    let i_res = paused.resume();
+    ctx.input.drain();
+    c_res?;
+    i_res?;
+    Ok(res)
+}
+
+async fn handle_login_result<B: TerminalBackend>(
+    ctx: &mut ModalActionContext<'_, B>,
+    login_res: crate::error::Result<()>,
+) -> Result<()> {
     match login_res {
         Ok(()) => {
             *ctx.engine = ctx
@@ -190,13 +201,22 @@ async fn handle_login_provider_selected(
             ctx.session.renderer.print_notice(&format!("  Login failed: {err}\n"));
         }
     }
+    Ok(())
+}
+
+async fn handle_login_provider_selected(
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
+    provider: String,
+) -> Result<bool> {
+    let login_res = execute_suspended_login(ctx, &provider).await?;
+    handle_login_result(ctx, login_res).await?;
     update_footer(ctx.controller.state_mut(), ctx.session, ctx.engine);
     ctx.controller.redraw()?;
     Ok(true)
 }
 
 async fn handle_help_command_selected(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     command: &str,
 ) -> Result<bool> {
     match command {
@@ -232,7 +252,7 @@ async fn handle_help_command_selected(
 }
 
 async fn handle_ui_setting_toggled(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     res: ModalKeyResult,
 ) -> Result<bool> {
     match res {
@@ -303,7 +323,7 @@ async fn handle_ui_setting_toggled(
 }
 
 async fn handle_tool_setting_toggled(
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     res: &ModalKeyResult,
 ) -> Result<bool> {
     match res {
@@ -360,7 +380,7 @@ async fn handle_tool_setting_toggled(
 
 async fn dispatch_modal_result(
     res: ModalKeyResult,
-    ctx: &mut ModalActionContext<'_, '_, '_, impl TerminalBackend>,
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     batch: &mut LiveBatch,
 ) -> Result<bool> {
     match res {
@@ -424,7 +444,7 @@ async fn dispatch_modal_result(
 
 pub(crate) async fn apply_modal_key_result<B: TerminalBackend>(
     res: ModalKeyResult,
-    mut ctx: ModalActionContext<'_, '_, '_, B>,
+    mut ctx: ModalActionContext<'_, B>,
     batch: &mut LiveBatch,
 ) -> Result<bool> {
     dispatch_modal_result(res, &mut ctx, batch).await

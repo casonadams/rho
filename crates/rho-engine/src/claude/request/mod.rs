@@ -101,7 +101,8 @@ pub fn normalize_model_alias(model: &str) -> &str {
         "haiku" | "claude-haiku-4-5" => "claude-haiku-4-5",
         "sonnet-5" | "claude-sonnet-5" => "claude-sonnet-5",
         "opus-5" | "claude-opus-5" => "claude-opus-5",
-        "fable" | "claude-fable" | "claude-fable-5" | "claude-fable-5.1" => "claude-fable-5.1",
+        "opus-5-5" | "opus-5.5" | "claude-opus-5.5" | "claude-opus-5-5" => "claude-opus-5-5",
+        "fable" | "claude-fable" | "claude-fable-5" | "claude-fable-5.1" | "claude-fable-5-1" => "claude-fable-5-1",
         other => other,
     }
 }
@@ -116,28 +117,131 @@ pub fn resolve_thinking_budget(level: Option<&str>) -> Option<u64> {
     }
 }
 
-fn calculate_max_tokens(max_tokens: Option<u64>, thinking_budget: Option<u64>) -> u64 {
-    match (max_tokens, thinking_budget) {
-        (Some(max), Some(budget)) => max.max(budget + 1024),
-        (None, Some(budget)) => (budget + 4096).max(8192),
-        (Some(max), None) => max,
-        (None, None) => 8192,
+pub fn resolve_effort(level: Option<&str>) -> Option<&'static str> {
+    match level.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "minimal" | "low" => Some("low"),
+        "medium" => Some("medium"),
+        "high" => Some("high"),
+        "xhigh" => Some("xhigh"),
+        "max" => Some("max"),
+        _ => None,
     }
 }
 
-fn attach_thinking_or_temp(body: &mut Value, budget: Option<u64>, temp: Option<f64>) {
-    if let Some(b) = budget {
+pub fn is_adaptive_model(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains("fable") || lower.contains("mythos") {
+        return true;
+    }
+    let tokens: Vec<&str> = lower.split('-').collect();
+    for (idx, token) in tokens.iter().enumerate() {
+        if let Ok(major) = token.parse::<u32>() {
+            let minor = tokens.get(idx + 1).and_then(|t| t.parse::<u32>().ok()).unwrap_or(0);
+            return major > 4 || (major == 4 && minor >= 6);
+        }
+    }
+    false
+}
+
+pub fn is_always_on_thinking_model(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    lower.contains("opus-5-5") || lower.contains("opus-5.5") || lower.contains("fable") || lower.contains("mythos")
+}
+
+pub fn is_thinking_on_by_default(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains("fable") || lower.contains("mythos") {
+        return true;
+    }
+    let tokens: Vec<&str> = lower.split('-').collect();
+    for token in tokens {
+        if let Ok(major) = token.parse::<u32>() {
+            return major >= 5;
+        }
+    }
+    false
+}
+
+pub fn is_unsupported_forced_tool_model(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    lower.contains("opus-5-5") || lower.contains("opus-5.5") || lower.contains("fable") || lower.contains("mythos")
+}
+
+fn calculate_max_tokens(
+    max_tokens: Option<u64>,
+    thinking_budget: Option<u64>,
+    is_adaptive: bool,
+    effort: Option<&str>,
+) -> u64 {
+    if let Some(max) = max_tokens {
+        return match thinking_budget {
+            Some(budget) => max.max(budget + 1024),
+            None => max,
+        };
+    }
+    if is_adaptive {
+        match effort {
+            Some("xhigh") | Some("max") => 32768,
+            Some("high") => 16384,
+            _ => 16384,
+        }
+    } else {
+        match thinking_budget {
+            Some(budget) => (budget + 4096).max(8192),
+            None => 8192,
+        }
+    }
+}
+
+fn attach_adaptive_thinking(body: &mut Value, model: &str, thinking_level: Option<&str>, temp: Option<f64>) {
+    let is_off = thinking_level
+        .map(|lvl| lvl.trim().eq_ignore_ascii_case("off"))
+        .unwrap_or(false);
+    if is_off {
+        if is_always_on_thinking_model(model) {
+            body["output_config"] = json!({ "effort": "low" });
+        } else {
+            body["thinking"] = json!({ "type": "disabled" });
+            if let Some(temperature) = temp {
+                body["temperature"] = json!(temperature);
+            }
+        }
+    } else if thinking_level.is_some() || is_thinking_on_by_default(model) {
+        body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
+        let default_effort =
+            if is_always_on_thinking_model(model) && (model.contains("opus-5-5") || model.contains("opus-5.5")) {
+                "medium"
+            } else {
+                "high"
+            };
+        let effort = resolve_effort(thinking_level).unwrap_or(default_effort);
+        body["output_config"] = json!({ "effort": effort });
+    } else if let Some(temperature) = temp {
+        body["temperature"] = json!(temperature);
+    }
+}
+
+fn attach_thinking_or_temp(
+    body: &mut Value,
+    model: &str,
+    thinking_level: Option<&str>,
+    budget: Option<u64>,
+    temp: Option<f64>,
+) {
+    if is_adaptive_model(model) {
+        attach_adaptive_thinking(body, model, thinking_level, temp);
+    } else if let Some(b) = budget {
         body["thinking"] = json!({ "type": "enabled", "budget_tokens": b });
     } else if let Some(temperature) = temp {
         body["temperature"] = json!(temperature);
     }
 }
 
-fn attach_tools_and_choice(body: &mut Value, request: &CompletionRequest) {
+fn attach_tools_and_choice(body: &mut Value, request: &CompletionRequest, model: &str) {
     if !request.tools.is_empty() {
         body["tools"] = json!(convert_tools(request));
         if let Some(ref choice) = request.tool_choice {
-            body["tool_choice"] = convert_tool_choice(choice);
+            body["tool_choice"] = convert_tool_choice(choice, !is_unsupported_forced_tool_model(model));
         }
     }
 }
@@ -149,7 +253,9 @@ pub fn build_request_body(
 ) -> Result<Value, CompletionError> {
     let normalized_model = normalize_model_alias(model);
     let thinking_budget = resolve_thinking_budget(thinking_level);
-    let max_tokens = calculate_max_tokens(request.max_tokens, thinking_budget);
+    let adaptive = is_adaptive_model(normalized_model);
+    let effort = resolve_effort(thinking_level);
+    let max_tokens = calculate_max_tokens(request.max_tokens, thinking_budget, adaptive, effort);
 
     let mut body = json!({
         "model": normalized_model,
@@ -158,7 +264,13 @@ pub fn build_request_body(
         "stream": true,
     });
 
-    attach_thinking_or_temp(&mut body, thinking_budget, request.temperature);
+    attach_thinking_or_temp(
+        &mut body,
+        normalized_model,
+        thinking_level,
+        thinking_budget,
+        request.temperature,
+    );
     let mut system_blocks = vec![json!({
         "type": "text",
         "text": "You are Claude Code, Anthropic's official CLI for Claude.",
@@ -174,7 +286,7 @@ pub fn build_request_body(
         last_block["cache_control"] = json!({ "type": "ephemeral" });
     }
     body["system"] = json!(system_blocks);
-    attach_tools_and_choice(&mut body, request);
+    attach_tools_and_choice(&mut body, request, normalized_model);
     mark_cache_breakpoints(&mut body);
     Ok(body)
 }
@@ -310,13 +422,23 @@ fn convert_tools(request: &CompletionRequest) -> Vec<Value> {
         .collect()
 }
 
-fn convert_tool_choice(choice: &ToolChoice) -> Value {
+fn convert_tool_choice(choice: &ToolChoice, forced_tools_supported: bool) -> Value {
     match choice {
         ToolChoice::Auto => json!({ "type": "auto" }),
-        ToolChoice::Required => json!({ "type": "any" }),
+        ToolChoice::Required => {
+            if forced_tools_supported {
+                json!({ "type": "any" })
+            } else {
+                json!({ "type": "auto" })
+            }
+        }
         ToolChoice::Specific { function_names } => {
-            if let Some(name) = function_names.first() {
-                json!({ "type": "tool", "name": to_claude_tool_name(name) })
+            if forced_tools_supported {
+                if let Some(name) = function_names.first() {
+                    json!({ "type": "tool", "name": to_claude_tool_name(name) })
+                } else {
+                    json!({ "type": "auto" })
+                }
             } else {
                 json!({ "type": "auto" })
             }

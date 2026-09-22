@@ -102,6 +102,25 @@ pub fn copilot_models() -> Vec<DiscoveredModel> {
 
 const ANTHROPIC_PRESETS: &[(&str, &str, &str, &str)] = &[
     (
+        "claude-opus-5-5",
+        "Claude Opus 5.5",
+        "anthropic",
+        "1M ctx · long-running agentic coding",
+    ),
+    (
+        "claude-fable-5-1",
+        "Claude Fable 5.1",
+        "anthropic",
+        "1M ctx · reasoning & agents",
+    ),
+    (
+        "claude-sonnet-5",
+        "Claude Sonnet 5",
+        "anthropic",
+        "1M ctx · frontier intelligence",
+    ),
+    ("claude-opus-5", "Claude Opus 5", "anthropic", "1M ctx · complex coding"),
+    (
         "claude-3-7-sonnet-20250219",
         "Claude 3.7 Sonnet",
         "anthropic",
@@ -235,6 +254,13 @@ const CLAUDE_PRESETS: &[(&str, &str, &str, &str, usize)] = &[
         "Claude Opus 5",
         "claude",
         "1M ctx · complex coding",
+        1_000_000,
+    ),
+    (
+        "claude-opus-5-5",
+        "Claude Opus 5.5",
+        "claude",
+        "1M ctx · long-running agentic coding",
         1_000_000,
     ),
     (

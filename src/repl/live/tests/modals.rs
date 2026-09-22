@@ -419,11 +419,13 @@ async fn model_selector_selection_applies_model_switch_without_rebuild() {
             && controller.state().active_modal().is_none()
     );
 
+    let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
     let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
         controller: &mut controller,
         history: &mut history,
         session: &mut session,
         engine: &mut engine,
+        input: &mut input,
     };
     assert!(
         crate::repl::live::idle::modal_action::apply_modal_key_result(modal_res, ctx, &mut batch)
@@ -474,12 +476,14 @@ async fn settings_modal_actions_persist_to_disk() {
         },
     ];
 
+    let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
     for action in actions {
         let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
             controller: &mut controller,
             history: &mut history,
             session: &mut session,
             engine: &mut engine,
+            input: &mut input,
         };
         assert!(
             crate::repl::live::idle::modal_action::apply_modal_key_result(action, ctx, &mut batch)
@@ -731,6 +735,30 @@ fn login_selector_cancels_on_esc() {
     let res = send_modal_key(&mut controller, KeyCode::Esc);
     assert_eq!(res, ModalKeyResult::Handled);
     assert!(controller.state().active_modal().is_none());
+}
+
+#[tokio::test]
+async fn login_provider_selected_dispatches_with_input_pause_and_resume() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_model_switch_env(temp.path()).await;
+    let (mut controller, mut history, mut batch) = modal_test_env(temp.path());
+    let mut input = crate::repl::input_reader::TerminalInputReader::spawn_dummy();
+
+    let ctx = crate::repl::live::idle::modal_action::ModalActionContext {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+    };
+
+    let action = ModalKeyResult::LoginProviderSelected {
+        provider: "local".to_string(),
+    };
+    let handled = crate::repl::live::idle::modal_action::apply_modal_key_result(action, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(handled);
 }
 
 // =========================================================================

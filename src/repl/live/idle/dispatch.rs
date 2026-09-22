@@ -229,6 +229,7 @@ async fn try_modal_key<B: TerminalBackend>(
     key: KeyEvent,
     batch: &mut LiveBatch,
     resources: &mut EditorResources<'_>,
+    input: &mut crate::repl::input_reader::TerminalInputReader,
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<KeyPhase> {
     let modal_res = handle_modal_key(controller, key, &mut batch.modal)?;
@@ -237,6 +238,7 @@ async fn try_modal_key<B: TerminalBackend>(
         history: resources.history,
         session: ctx.session,
         engine: ctx.engine,
+        input,
     };
     if apply_modal_key_result(modal_res, modal, batch).await? {
         batch.flush(controller, true)?;
@@ -260,7 +262,7 @@ async fn process_key_event<B: TerminalBackend>(
     input: &mut crate::repl::input_reader::TerminalInputReader,
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<IdleInputResult> {
-    if let KeyPhase::Handled = try_modal_key(controller, key, batch, resources, ctx).await? {
+    if let KeyPhase::Handled = try_modal_key(controller, key, batch, resources, input, ctx).await? {
         return Ok(IdleInputResult::None);
     }
     let action = map_key(key);

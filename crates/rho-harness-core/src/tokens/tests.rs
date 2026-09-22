@@ -162,7 +162,9 @@ fn test_context_window_size() {
     let cases = [
         ("claude-sonnet-4-6", 1_000_000),
         ("claude-opus-4-6", 1_000_000),
+        ("claude-opus-5-5", 1_000_000),
         ("claude-fable-5.1", 1_000_000),
+        ("claude-fable-5-1", 1_000_000),
         ("claude-haiku-4-5", 200_000),
         ("gemini-2.5-pro", 2_000_000),
         ("gemini-2.5-flash", 1_000_000),
