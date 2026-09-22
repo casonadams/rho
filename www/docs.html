@@ -727,6 +727,11 @@ if echo "$EVENT" | grep -Eq 'rm -rf|git reset --hard'; then
 fi</code></pre>
       </div>
 
+      <h3>Example: RTK Token Optimization</h3>
+      <p>
+        Use <a href="https://github.com/rtk-ai/rtk" target="_blank" rel="noopener">RTK (Rust Token Killer)</a> to automatically filter and compress verbose CLI output (saving 50&ndash;90% on context tokens). See <a href="https://github.com/casonadams/rho/blob/main/examples/hooks/rtk-rewrite.py" target="_blank" rel="noopener"><code>examples/hooks/rtk-rewrite.py</code></a> for the ready-to-use Python recipe.
+      </p>
+
       <h2 id="mcp">Configuring Model Context Protocol (MCP) Servers</h2>
       <p>
         MCP servers are tool providers configured via standard JSON in <code>~/.agents/mcp.json</code> (global) or <code>.mcp.json</code> (local workspace root). <code>rho</code> supports both local <code>stdio</code> child processes and remote <code>streamable-http</code> (with OAuth 2.1 authentication and SSE streaming). All exposed tools are automatically namespaced:
