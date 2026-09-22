@@ -238,3 +238,111 @@ fn test_chatgpt_build_openai_credential() {
     assert_eq!(refresh_token.as_deref(), Some("rt_xyz"));
     assert!(expires_at_ms.is_some());
 }
+
+async fn spawn_mock_http_response(status_line: &str, body: &str) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let status = status_line.to_string();
+    let body = body.to_string();
+    let handle = tokio::spawn(async move {
+        if let Ok((mut socket, _)) = listener.accept().await {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buf = [0u8; 1024];
+            let _ = socket.read(&mut buf).await;
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.flush().await;
+        }
+    });
+    (format!("http://{addr}"), handle)
+}
+
+#[test]
+fn test_copilot_parse_poll_payload() {
+    let val_success = serde_json::json!({"access_token": "ghu_abc123"});
+    assert_eq!(
+        copilot::parse_poll_payload(&val_success).unwrap().unwrap(),
+        "ghu_abc123"
+    );
+
+    let val_pending = serde_json::json!({"error": "authorization_pending"});
+    assert!(copilot::parse_poll_payload(&val_pending).is_none());
+
+    let val_error = serde_json::json!({"error": "expired_token"});
+    let err = copilot::parse_poll_payload(&val_error).unwrap().unwrap_err();
+    assert!(err.to_string().contains("expired_token"));
+
+    let val_empty = serde_json::json!({});
+    assert!(copilot::parse_poll_payload(&val_empty).is_none());
+}
+
+#[test]
+fn test_copilot_build_credential_and_form() {
+    let cred = copilot::build_copilot_credential("ghu_token".to_string(), "gho_token".to_string(), 1234);
+    let StoredCredential::OAuth {
+        access_token,
+        refresh_token,
+        expires_at_ms,
+        ..
+    } = cred
+    else {
+        panic!("expected OAuth credential");
+    };
+    assert_eq!(access_token, "ghu_token");
+    assert_eq!(refresh_token.as_deref(), Some("gho_token"));
+    assert_eq!(expires_at_ms, Some(1234 * 1000));
+
+    let form = copilot::build_device_token_form("device_code_xyz");
+    assert_eq!(form[0], ("client_id", "Iv1.b507a08c87ecfe81"));
+    assert_eq!(form[1], ("device_code", "device_code_xyz"));
+    assert_eq!(form[2], ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"));
+}
+
+#[tokio::test]
+async fn test_copilot_check_poll_response_success() {
+    let (url, _handle) = spawn_mock_http_response("200 OK", r#"{"access_token": "ghu_test_token"}"#).await;
+    let client = http_client();
+    let resp = client.get(&url).send().await.unwrap();
+    let result = copilot::check_poll_response(resp).await;
+    assert_eq!(result.unwrap().unwrap(), "ghu_test_token");
+}
+
+#[tokio::test]
+async fn test_copilot_check_poll_response_non_success() {
+    let (url, _handle) = spawn_mock_http_response("400 Bad Request", r#"{"error": "bad_request"}"#).await;
+    let client = http_client();
+    let resp = client.get(&url).send().await.unwrap();
+    let result = copilot::check_poll_response(resp).await;
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_copilot_check_poll_response_pending() {
+    let (url, _handle) = spawn_mock_http_response("200 OK", r#"{"error": "authorization_pending"}"#).await;
+    let client = http_client();
+    let resp = client.get(&url).send().await.unwrap();
+    let result = copilot::check_poll_response(resp).await;
+    assert!(result.is_none());
+}
+
+#[tokio::test]
+async fn test_copilot_check_poll_response_error() {
+    let (url, _handle) = spawn_mock_http_response("200 OK", r#"{"error": "slow_down"}"#).await;
+    let client = http_client();
+    let resp = client.get(&url).send().await.unwrap();
+    let result = copilot::check_poll_response(resp).await;
+    let err = result.unwrap().unwrap_err();
+    assert!(err.to_string().contains("slow_down"));
+}
+
+#[tokio::test]
+async fn test_copilot_check_poll_response_invalid_json() {
+    let (url, _handle) = spawn_mock_http_response("200 OK", "not json at all").await;
+    let client = http_client();
+    let resp = client.get(&url).send().await.unwrap();
+    let result = copilot::check_poll_response(resp).await;
+    assert!(result.is_none());
+}

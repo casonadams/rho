@@ -2020,57 +2020,89 @@
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
+      "function": "build_copilot_credential",
+      "line": 119,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
+      "function": "build_device_token_form",
+      "line": 67,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
       "function": "check_poll_response",
+      "line": 59,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
+      "function": "parse_poll_payload",
       "line": 48,
-      "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
+      "cyclomatic": 4.0,
+      "coverage": 60.0,
+      "crap": 5.024,
       "uncovered": [
         {
           "start": 48,
-          "end": 62
+          "end": 48
+        },
+        {
+          "start": 51,
+          "end": 51
+        },
+        {
+          "start": 55,
+          "end": 56
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
       "function": "perform_copilot_device_flow",
-      "line": 111,
+      "line": 123,
       "cyclomatic": 5.0,
       "coverage": 0.0,
       "crap": 30.0,
       "uncovered": [
         {
-          "start": 111,
-          "end": 135
+          "start": 123,
+          "end": 148
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
       "function": "poll_device_token",
-      "line": 64,
+      "line": 75,
       "cyclomatic": 5.0,
       "coverage": 0.0,
       "crap": 30.0,
       "uncovered": [
         {
-          "start": 64,
-          "end": 93
+          "start": 75,
+          "end": 101
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
       "function": "refresh_copilot_token",
-      "line": 137,
+      "line": 150,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 137,
-          "end": 145
+          "start": 150,
+          "end": 158
         }
       ]
     },
@@ -2091,14 +2123,14 @@
     {
       "file": "./crates/rho-engine/src/auth/oauth/copilot.rs",
       "function": "retrieve_copilot_token",
-      "line": 95,
+      "line": 103,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 95,
-          "end": 109
+          "start": 103,
+          "end": 117
         }
       ]
     },
