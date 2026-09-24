@@ -9023,16 +9023,10 @@
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "McpGateway::call",
-      "line": 116,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
-      "uncovered": [
-        {
-          "start": 116,
-          "end": 143
-        }
-      ]
+      "line": 129,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
@@ -9047,14 +9041,8 @@
       "function": "McpGateway::into_dynamic_tools",
       "line": 145,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 145,
-          "end": 151
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
@@ -9063,6 +9051,14 @@
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
+      "function": "McpGateway::resolve_target",
+      "line": 116,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
@@ -9077,112 +9073,80 @@
       "function": "McpGateway::status",
       "line": 68,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 68,
-          "end": 81
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "build_mcp_gateway_tool",
-      "line": 222,
+      "line": 235,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 222,
-          "end": 236
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "build_mcp_script_tool",
-      "line": 254,
+      "line": 267,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 254,
-          "end": 271
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "execute_gateway_parsed_call",
-      "line": 209,
-      "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
-      "uncovered": [
-        {
-          "start": 209,
-          "end": 220
-        }
-      ]
+      "line": 225,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "execute_mcp_batch",
-      "line": 238,
+      "line": 251,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 238,
-          "end": 252
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "execute_named_tool_call",
-      "line": 194,
+      "line": 210,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 194,
-          "end": 207
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
+      "function": "format_described_tool",
+      "line": 203,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
+      "function": "format_tool_result",
+      "line": 194,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "mcp_gateway_schema",
       "line": 154,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 154,
-          "end": 170
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/gateway/mod.rs",
       "function": "mcp_script_schema",
       "line": 172,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 172,
-          "end": 192
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/manager.rs",
