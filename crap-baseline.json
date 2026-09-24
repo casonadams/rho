@@ -26765,14 +26765,8 @@
       "function": "finalize_run",
       "line": 19,
       "cyclomatic": 2.0,
-      "coverage": 75.0,
-      "crap": 2.0625,
-      "uncovered": [
-        {
-          "start": 25,
-          "end": 27
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/bash_runner/outcome.rs",
@@ -26847,16 +26841,18 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashRun::apply_ui_toggle",
-      "line": 55,
+      "line": 107,
       "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 55,
-          "end": 71
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
+    },
+    {
+      "file": "./src/repl/live/bash_runner/stream.rs",
+      "function": "BashRun::dispatch_event",
+      "line": 75,
+      "cyclomatic": 9.0,
+      "coverage": 100.0,
+      "crap": 9.0
     },
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
@@ -26869,7 +26865,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashRun::emit_result",
-      "line": 98,
+      "line": 148,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -26877,49 +26873,81 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashRun::handle_chunk",
-      "line": 73,
+      "line": 125,
       "cyclomatic": 4.0,
       "coverage": 91.66666666666666,
       "crap": 4.0092592592592595,
       "uncovered": [
         {
-          "start": 81,
-          "end": 81
+          "start": 133,
+          "end": 133
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/bash_runner/stream.rs",
+      "function": "BashRun::handle_focus_gained",
+      "line": 57,
+      "cyclomatic": 5.0,
+      "coverage": 88.88888888888889,
+      "crap": 5.034293552812072,
+      "uncovered": [
+        {
+          "start": 63,
+          "end": 63
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/bash_runner/stream.rs",
+      "function": "BashRun::handle_focus_lost",
+      "line": 67,
+      "cyclomatic": 3.0,
+      "coverage": 85.71428571428571,
+      "crap": 3.0262390670553936,
+      "uncovered": [
+        {
+          "start": 71,
+          "end": 71
         }
       ]
     },
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashRun::handle_frame_tick",
-      "line": 86,
-      "cyclomatic": 7.0,
-      "coverage": 90.9090909090909,
-      "crap": 7.036814425244177,
-      "uncovered": [
-        {
-          "start": 90,
-          "end": 90
-        }
-      ]
+      "line": 138,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashRun::handle_input_action",
-      "line": 44,
+      "line": 96,
       "cyclomatic": 4.0,
-      "coverage": 90.0,
-      "crap": 4.016,
-      "uncovered": [
-        {
-          "start": 50,
-          "end": 50
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/repl/live/bash_runner/stream.rs",
+      "function": "BashRun::handle_resize",
+      "line": 50,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/repl/live/bash_runner/stream.rs",
+      "function": "BashRun::sync_renderer_width",
+      "line": 44,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashStreamState::finish",
-      "line": 156,
+      "line": 206,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -26927,29 +26955,21 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashStreamState::handle_key_event",
-      "line": 184,
-      "cyclomatic": 19.0,
-      "coverage": 22.58064516129032,
-      "crap": 186.51582692759558,
+      "line": 234,
+      "cyclomatic": 2.0,
+      "coverage": 80.0,
+      "crap": 2.032,
       "uncovered": [
         {
-          "start": 186,
-          "end": 186
-        },
-        {
-          "start": 190,
-          "end": 215
-        },
-        {
-          "start": 220,
-          "end": 220
+          "start": 236,
+          "end": 236
         }
       ]
     },
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashStreamState::handle_step",
-      "line": 166,
+      "line": 216,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -26957,7 +26977,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashStreamState::outcome",
-      "line": 148,
+      "line": 198,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -26965,7 +26985,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashStreamState::select_next",
-      "line": 224,
+      "line": 241,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -26973,7 +26993,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "BashStreamState::stream_until_exit",
-      "line": 232,
+      "line": 249,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
@@ -26981,7 +27001,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "build_stream_state",
-      "line": 270,
+      "line": 287,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -26989,7 +27009,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "exit_code_of",
-      "line": 132,
+      "line": 182,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -26997,21 +27017,21 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "run_user_bash",
-      "line": 296,
+      "line": 313,
       "cyclomatic": 5.0,
       "coverage": 95.65217391304348,
       "crap": 5.00205473822635,
       "uncovered": [
         {
-          "start": 315,
-          "end": 315
+          "start": 332,
+          "end": 332
         }
       ]
     },
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "select_frame_exit",
-      "line": 124,
+      "line": 174,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -27019,7 +27039,7 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "select_input_chunk",
-      "line": 113,
+      "line": 163,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -27027,14 +27047,14 @@
     {
       "file": "./src/repl/live/bash_runner/stream.rs",
       "function": "spawn_failure",
-      "line": 242,
+      "line": 259,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 242,
-          "end": 268
+          "start": 259,
+          "end": 285
         }
       ]
     },
@@ -27061,16 +27081,12 @@
       "function": "LiveBatch::apply_tool_updates",
       "line": 100,
       "cyclomatic": 10.0,
-      "coverage": 84.61538461538461,
-      "crap": 10.364132908511607,
+      "coverage": 92.3076923076923,
+      "crap": 10.04551661356395,
       "uncovered": [
         {
           "start": 119,
           "end": 120
-        },
-        {
-          "start": 122,
-          "end": 123
         }
       ]
     },
@@ -32927,8 +32943,8 @@
       "function": "map_app_action",
       "line": 37,
       "cyclomatic": 21.0,
-      "coverage": 65.21739130434783,
-      "crap": 39.55773814416043,
+      "coverage": 69.56521739130434,
+      "crap": 33.432234733294976,
       "uncovered": [
         {
           "start": 39,
@@ -32941,10 +32957,6 @@
         {
           "start": 47,
           "end": 47
-        },
-        {
-          "start": 50,
-          "end": 50
         },
         {
           "start": 54,
