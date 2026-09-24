@@ -8780,17 +8780,51 @@
     },
     {
       "file": "./crates/rho-engine/src/mcp/auth/flow.rs",
+      "function": "build_mcp_auth_url",
+      "line": 20,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/flow.rs",
+      "function": "build_mcp_credential",
+      "line": 92,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/flow.rs",
+      "function": "build_mcp_token_form",
+      "line": 55,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/flow.rs",
+      "function": "exchange_mcp_code",
+      "line": 70,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/flow.rs",
       "function": "execute_mcp_pkce_flow",
-      "line": 21,
-      "cyclomatic": 13.0,
-      "coverage": 0.0,
-      "crap": 182.0,
-      "uncovered": [
-        {
-          "start": 21,
-          "end": 110
-        }
-      ]
+      "line": 97,
+      "cyclomatic": 8.0,
+      "coverage": 100.0,
+      "crap": 8.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/flow.rs",
+      "function": "validate_mcp_callback",
+      "line": 39,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
@@ -9583,14 +9617,8 @@
       "function": "HttpTransport::build_request_headers",
       "line": 58,
       "cyclomatic": 5.0,
-      "coverage": 88.0,
-      "crap": 5.0432,
-      "uncovered": [
-        {
-          "start": 83,
-          "end": 85
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/transport/http.rs",
@@ -9605,14 +9633,8 @@
       "function": "HttpTransport::kind",
       "line": 50,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 50,
-          "end": 52
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/transport/http.rs",
@@ -9663,31 +9685,17 @@
       "function": "HttpTransport::record_session_id",
       "line": 91,
       "cyclomatic": 3.0,
-      "coverage": 50.0,
-      "crap": 4.125,
-      "uncovered": [
-        {
-          "start": 93,
-          "end": 96
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/transport/http.rs",
       "function": "HttpTransport::request",
       "line": 137,
       "cyclomatic": 9.0,
-      "coverage": 72.41379310344827,
-      "crap": 10.700438722374843,
+      "coverage": 87.93103448275862,
+      "crap": 9.142395137151995,
       "uncovered": [
-        {
-          "start": 165,
-          "end": 169
-        },
-        {
-          "start": 186,
-          "end": 189
-        },
         {
           "start": 198,
           "end": 204
@@ -9699,14 +9707,8 @@
       "function": "HttpTransport::url",
       "line": 46,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 48
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/transport/stdio.rs",

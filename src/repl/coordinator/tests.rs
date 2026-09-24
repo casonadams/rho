@@ -66,3 +66,23 @@ pub(super) fn fake_runner() -> (FakeRunner, PermitSender, StartedReceiver, Timel
 mod cancellation;
 mod queue;
 mod steering;
+
+#[test]
+fn test_drain_pending_input_all_variants() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut queued = std::collections::VecDeque::new();
+    let mut deferred = Vec::new();
+
+    tx.send(CoordinatorInput::Prompt(prompt("hello", QueueKind::FollowUp)))
+        .unwrap();
+    tx.send(CoordinatorInput::Prompt(prompt("/help", QueueKind::FollowUp)))
+        .unwrap();
+    tx.send(CoordinatorInput::Command("/reload".to_string())).unwrap();
+    tx.send(CoordinatorInput::Cancel).unwrap();
+
+    let cancelled = super::drain_pending_input(&mut rx, &mut queued, &mut deferred);
+    assert!(cancelled);
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].text, "hello");
+    assert_eq!(deferred, vec!["/help", "/reload"]);
+}

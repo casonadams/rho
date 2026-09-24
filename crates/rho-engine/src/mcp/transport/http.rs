@@ -279,4 +279,98 @@ mod tests {
         let res = transport.request("ping", None).await.unwrap();
         assert_eq!(res, serde_json::json!({ "status": "streaming_ok" }));
     }
+
+    #[tokio::test]
+    async fn test_http_transport_accessors() {
+        let transport = HttpTransport::new(
+            "http://example.com/mcp",
+            McpTransportKind::StreamableHttp,
+            BTreeMap::new(),
+            None,
+        );
+        assert_eq!(transport.kind(), McpTransportKind::StreamableHttp);
+        assert_eq!(transport.url(), "http://example.com/mcp");
+    }
+
+    #[tokio::test]
+    async fn test_http_transport_headers_and_session() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/mcp");
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 1024];
+            let n = socket.read(&mut buf).await.unwrap();
+            let req_str = String::from_utf8_lossy(&buf[..n]);
+            assert!(req_str.contains("x-custom-key: custom-val"));
+
+            let resp_body = r#"{"jsonrpc":"2.0","id":1,"result":true}"#;
+            let http_resp = format!(
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nMcp-Session-Id: session-xyz\r\nContent-Length: {}\r\n\r\n{}",
+                resp_body.len(),
+                resp_body
+            );
+            socket.write_all(http_resp.as_bytes()).await.unwrap();
+
+            let (mut socket2, _) = listener.accept().await.unwrap();
+            let n2 = socket2.read(&mut buf).await.unwrap();
+            let req_str2 = String::from_utf8_lossy(&buf[..n2]);
+            assert!(req_str2.contains("mcp-session-id: session-xyz"));
+            socket2.write_all(http_resp.as_bytes()).await.unwrap();
+        });
+
+        let mut headers = BTreeMap::new();
+        headers.insert("X-Custom-Key".to_string(), "custom-val".to_string());
+        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, headers, None);
+        let res1 = transport.request("init", None).await.unwrap();
+        assert_eq!(res1, serde_json::json!(true));
+        let res2 = transport.request("next", None).await.unwrap();
+        assert_eq!(res2, serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn test_http_transport_error_status_and_auth() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let url = format!("http://{addr}/mcp");
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 1024];
+            let _ = socket.read(&mut buf).await.unwrap();
+            let http_resp = "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nWWW-Authenticate: Bearer error=\"invalid_token\"\r\nContent-Length: 0\r\n\r\n";
+            socket.write_all(http_resp.as_bytes()).await.unwrap();
+
+            let (mut socket2, _) = listener.accept().await.unwrap();
+            let _ = socket2.read(&mut buf).await.unwrap();
+            let err_body = "server crashed";
+            let http_resp2 = format!(
+                "HTTP/1.1 500 Internal Server Error\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
+                err_body.len(),
+                err_body
+            );
+            socket2.write_all(http_resp2.as_bytes()).await.unwrap();
+
+            let (mut socket3, _) = listener.accept().await.unwrap();
+            let _ = socket3.read(&mut buf).await.unwrap();
+            let rpc_err = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"Bad request"}}"#;
+            let http_resp3 = format!(
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                rpc_err.len(),
+                rpc_err
+            );
+            socket3.write_all(http_resp3.as_bytes()).await.unwrap();
+        });
+
+        let transport = HttpTransport::new(url, McpTransportKind::StreamableHttp, BTreeMap::new(), None);
+        let auth_err = transport.request("ping", None).await.unwrap_err();
+        assert!(auth_err.to_string().contains("Unauthorized"));
+
+        let server_err = transport.request("ping", None).await.unwrap_err();
+        assert!(server_err.to_string().contains("HTTP error 500"));
+
+        let rpc_err = transport.request("ping", None).await.unwrap_err();
+        assert!(rpc_err.to_string().contains("MCP error from ping"));
+    }
 }
