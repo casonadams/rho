@@ -23215,63 +23215,141 @@
     {
       "file": "./src/cli/mcp.rs",
       "function": "add_server",
-      "line": 146,
+      "line": 183,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "build_mcp_transport",
+      "line": 77,
       "cyclomatic": 4.0,
-      "coverage": 57.14285714285714,
-      "crap": 5.259475218658892,
-      "uncovered": [
-        {
-          "start": 149,
-          "end": 154
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "build_server_config",
+      "line": 170,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "format_server_mode",
+      "line": 47,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "format_server_transport",
+      "line": 39,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/cli/mcp.rs",
       "function": "handle_mcp",
       "line": 10,
       "cyclomatic": 6.0,
-      "coverage": 84.61538461538461,
-      "crap": 6.131087847064179,
-      "uncovered": [
-        {
-          "start": 20,
-          "end": 21
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/cli/mcp.rs",
       "function": "list_servers",
       "line": 27,
-      "cyclomatic": 13.0,
-      "coverage": 18.75,
-      "crap": 103.647705078125,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "login_server",
+      "line": 152,
+      "cyclomatic": 2.0,
+      "coverage": 60.0,
+      "crap": 2.2560000000000002,
       "uncovered": [
         {
-          "start": 32,
-          "end": 61
+          "start": 162,
+          "end": 167
         }
       ]
     },
     {
       "file": "./src/cli/mcp.rs",
-      "function": "login_server",
-      "line": 128,
-      "cyclomatic": 2.0,
+      "function": "print_server_entry",
+      "line": 55,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "probe_client_features",
+      "line": 89,
+      "cyclomatic": 1.0,
       "coverage": 0.0,
-      "crap": 6.0,
+      "crap": 2.0,
       "uncovered": [
         {
-          "start": 128,
-          "end": 144
+          "start": 89,
+          "end": 93
+        }
+      ]
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "probe_prompts",
+      "line": 119,
+      "cyclomatic": 4.0,
+      "coverage": 0.0,
+      "crap": 20.0,
+      "uncovered": [
+        {
+          "start": 119,
+          "end": 129
+        }
+      ]
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "probe_resources",
+      "line": 108,
+      "cyclomatic": 4.0,
+      "coverage": 0.0,
+      "crap": 20.0,
+      "uncovered": [
+        {
+          "start": 108,
+          "end": 117
+        }
+      ]
+    },
+    {
+      "file": "./src/cli/mcp.rs",
+      "function": "probe_tools",
+      "line": 95,
+      "cyclomatic": 4.0,
+      "coverage": 0.0,
+      "crap": 20.0,
+      "uncovered": [
+        {
+          "start": 95,
+          "end": 106
         }
       ]
     },
     {
       "file": "./src/cli/mcp.rs",
       "function": "remove_server",
-      "line": 164,
+      "line": 190,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -23279,14 +23357,14 @@
     {
       "file": "./src/cli/mcp.rs",
       "function": "test_server",
-      "line": 65,
-      "cyclomatic": 15.0,
-      "coverage": 0.0,
-      "crap": 240.0,
+      "line": 131,
+      "cyclomatic": 4.0,
+      "coverage": 29.411764705882355,
+      "crap": 9.627518827600243,
       "uncovered": [
         {
-          "start": 65,
-          "end": 126
+          "start": 137,
+          "end": 149
         }
       ]
     },
