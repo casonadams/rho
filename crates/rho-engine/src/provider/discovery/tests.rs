@@ -110,6 +110,23 @@ fn chatgpt_codex_presets_include_gpt_6_astra() {
 }
 
 #[test]
+fn chatgpt_codex_presets_include_gpt_6_reasoning_family() {
+    let models = chatgpt_codex_models();
+    let expected = [
+        ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
+        ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
+        ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
+    ];
+    for (id, name, desc) in expected {
+        let matched = models.iter().find(|m| m.id == id);
+        assert_eq!(
+            matched.map(|m| (m.name.as_str(), m.provider.as_str(), m.description.as_str())),
+            Some((name, "chatgpt", desc))
+        );
+    }
+}
+
+#[test]
 fn openai_presets_include_gpt_6_astra() {
     let astra = openai_preset_models()
         .into_iter()
@@ -122,6 +139,23 @@ fn openai_presets_include_gpt_6_astra() {
             "1.05M ctx · deep reasoning".into(),
         ))
     );
+}
+
+#[test]
+fn openai_presets_include_gpt_6_reasoning_family() {
+    let models = openai_preset_models();
+    let expected = [
+        ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
+        ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
+        ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
+    ];
+    for (id, name, desc) in expected {
+        let matched = models.iter().find(|m| m.id == id);
+        assert_eq!(
+            matched.map(|m| (m.name.as_str(), m.provider.as_str(), m.description.as_str())),
+            Some((name, "openai", desc))
+        );
+    }
 }
 
 #[test]

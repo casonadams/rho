@@ -62,6 +62,9 @@ pub fn antigravity_preset_models() -> Vec<DiscoveredModel> {
 
 const CHATGPT_CODEX_PRESETS: &[(&str, &str, &str, &str)] = &[
     ("gpt-6-astra", "GPT-6 Astra", "chatgpt", "372k ctx · deep reasoning"),
+    ("gpt-6-sol", "GPT-6 Sol", "chatgpt", "372k ctx · deep reasoning"),
+    ("gpt-6-terra", "GPT-6 Terra", "chatgpt", "372k ctx · balanced reasoning"),
+    ("gpt-6-luna", "GPT-6 Luna", "chatgpt", "372k ctx · fast reasoning"),
     ("gpt-5.4", "GPT-5.4", "chatgpt", "272k ctx · reasoning"),
     ("gpt-5.4-pro", "GPT-5.4 Pro", "chatgpt", "272k ctx · deep reasoning"),
     ("gpt-5.3-codex", "GPT-5.3 Codex", "chatgpt", "128k ctx · coding"),
@@ -146,6 +149,9 @@ pub fn anthropic_preset_models() -> Vec<DiscoveredModel> {
 
 const OPENAI_PRESETS: &[(&str, &str, &str, &str)] = &[
     ("gpt-6-astra", "GPT-6 Astra", "openai", "1.05M ctx · deep reasoning"),
+    ("gpt-6-sol", "GPT-6 Sol", "openai", "372k ctx · deep reasoning"),
+    ("gpt-6-terra", "GPT-6 Terra", "openai", "372k ctx · balanced reasoning"),
+    ("gpt-6-luna", "GPT-6 Luna", "openai", "372k ctx · fast reasoning"),
     ("gpt-4o", "GPT-4o", "openai", "128k ctx · multimodal"),
     ("gpt-4o-mini", "GPT-4o mini", "openai", "128k ctx · fast"),
     ("o1", "o1", "openai", "200k ctx · deep reasoning"),
