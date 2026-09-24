@@ -3,7 +3,6 @@ import initWasm, {
   encode_rpc_request,
   parse_rpc_frame,
   process_stream_content,
-  IrohPeer,
 } from '../wasm/rho_wasm.js?v=4';
 
 let wasmReady = false;
@@ -19,7 +18,6 @@ export class RhoPeerClient {
   constructor(ticket) {
     this.ticket = ticket;
     this.parsedTicket = null;
-    this.irohPeer = null;
     this.socket = null;
     this.transport = null;
     this.eventListeners = [];
@@ -53,32 +51,6 @@ export class RhoPeerClient {
 
   async connect() {
     this.status = 'connecting';
-
-    if (typeof IrohPeer !== 'undefined' && this.ticket) {
-      try {
-        const connectPromise = IrohPeer.connect(
-          this.ticket,
-          (line) => this.handleRawMessage(line),
-          () => {
-            this.status = 'disconnected';
-            for (const [, resolve] of this.responseHandlers) {
-              resolve({ type: 'response', success: false, error: 'Connection closed' });
-            }
-            this.responseHandlers.clear();
-          }
-        );
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Iroh connection timed out')), 12000)
-        );
-        this.irohPeer = await Promise.race([connectPromise, timeoutPromise]);
-        this.transport = 'iroh';
-        this.status = 'online';
-        return;
-      } catch (err) {
-        console.warn('Iroh P2P connection failed, attempting WebSocket fallback:', err);
-      }
-    }
-
     return this.connectWebSocket();
   }
 
@@ -149,14 +121,7 @@ export class RhoPeerClient {
 
     return new Promise((resolve, reject) => {
       this.responseHandlers.set(id, resolve);
-      if (this.irohPeer) {
-        try {
-          this.irohPeer.send(json + '\n');
-        } catch (e) {
-          this.responseHandlers.delete(id);
-          reject(e);
-        }
-      } else if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.socket.send(json + '\n');
       } else {
         this.responseHandlers.delete(id);
@@ -166,12 +131,6 @@ export class RhoPeerClient {
   }
 
   disconnect() {
-    if (this.irohPeer) {
-      try {
-        this.irohPeer.close();
-      } catch (_) {}
-      this.irohPeer = null;
-    }
     if (this.socket) {
       try {
         this.socket.close();

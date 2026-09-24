@@ -19,7 +19,3 @@ serde_json = { workspace = true }
 serde-wasm-bindgen = "0.6"
 base64 = { workspace = true }
 console_error_panic_hook = "0.1"
-futures = { workspace = true }
-getrandom = { version = "0.2", features = ["js"] }
-iroh = { version = "1.2.0", default-features = false, features = ["tls-ring"] }
-wasm-bindgen-futures = "0.4"
