@@ -17421,28 +17421,26 @@
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "apply_config_key",
-      "line": 274,
+      "line": 288,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
     },
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
+      "function": "apply_fetch_search_key",
+      "line": 265,
+      "cyclomatic": 14.0,
+      "coverage": 100.0,
+      "crap": 14.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "apply_limit_key",
       "line": 233,
       "cyclomatic": 17.0,
-      "coverage": 41.66666666666667,
-      "crap": 74.36516203703701,
-      "uncovered": [
-        {
-          "start": 235,
-          "end": 235
-        },
-        {
-          "start": 237,
-          "end": 244
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 17.0
     },
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
@@ -17474,15 +17472,9 @@
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "apply_net_key",
       "line": 249,
-      "cyclomatic": 18.0,
-      "coverage": 0.0,
-      "crap": 342.0,
-      "uncovered": [
-        {
-          "start": 249,
-          "end": 264
-        }
-      ]
+      "cyclomatic": 8.0,
+      "coverage": 100.0,
+      "crap": 8.0
     },
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
@@ -17495,21 +17487,21 @@
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "atomic_replace_async",
-      "line": 316,
+      "line": 330,
       "cyclomatic": 2.0,
       "coverage": 71.42857142857143,
       "crap": 2.0932944606413995,
       "uncovered": [
         {
-          "start": 318,
-          "end": 319
+          "start": 332,
+          "end": 333
         }
       ]
     },
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "parse_bool",
-      "line": 335,
+      "line": 349,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -17517,7 +17509,7 @@
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "parse_positive",
-      "line": 341,
+      "line": 355,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -17525,21 +17517,15 @@
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "parse_retention",
-      "line": 266,
+      "line": 280,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 266,
-          "end": 272
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "read_file_config",
-      "line": 282,
+      "line": 296,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -17547,7 +17533,7 @@
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "read_file_config_async",
-      "line": 291,
+      "line": 305,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -17555,32 +17541,32 @@
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "write_file_config",
-      "line": 301,
+      "line": 315,
       "cyclomatic": 6.0,
       "coverage": 78.57142857142857,
       "crap": 6.354227405247814,
       "uncovered": [
         {
-          "start": 304,
-          "end": 304
+          "start": 318,
+          "end": 318
         },
         {
-          "start": 310,
-          "end": 311
+          "start": 324,
+          "end": 325
         }
       ]
     },
     {
       "file": "./crates/rho-harness-core/src/config/storage.rs",
       "function": "write_file_config_async",
-      "line": 324,
+      "line": 338,
       "cyclomatic": 5.0,
       "coverage": 90.0,
       "crap": 5.025,
       "uncovered": [
         {
-          "start": 327,
-          "end": 327
+          "start": 341,
+          "end": 341
         }
       ]
     },

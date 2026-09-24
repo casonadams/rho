@@ -247,20 +247,34 @@ fn apply_limit_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
 }
 
 fn apply_net_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<()> {
+    if apply_fetch_search_key(file_config, key, value)? {
+        return Ok(());
+    }
+    match key {
+        ConfigKey::AllowPrivateNetwork => {
+            file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::SessionRetentionDays => {
+            file_config.session_retention_days = parse_retention(key.as_str(), value)?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn apply_fetch_search_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
     match key {
         ConfigKey::SearchMinIntervalMs => {
-            file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?)
+            file_config.search_min_interval_ms = Some(parse_positive(key.as_str(), value)?);
         }
         ConfigKey::SearchTimeoutSec => file_config.search_timeout_sec = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::FetchTimeoutSec => file_config.fetch_timeout_sec = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::FetchLimit => file_config.fetch_limit = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::FetchMaxBytes => file_config.fetch_max_bytes = Some(parse_positive(key.as_str(), value)?),
         ConfigKey::OutputMaxBytes => file_config.output_max_bytes = Some(parse_positive(key.as_str(), value)?),
-        ConfigKey::AllowPrivateNetwork => file_config.allow_private_network = Some(parse_bool(key.as_str(), value)?),
-        ConfigKey::SessionRetentionDays => file_config.session_retention_days = parse_retention(key.as_str(), value)?,
-        _ => {}
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
 fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
@@ -349,4 +363,15 @@ where
         return Err(AppError::Config(format!("{key} must be a positive integer")));
     }
     Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn apply_net_key_fallback_for_non_net_key() {
+        let mut file_config = FileConfig::default();
+        assert!(apply_net_key(&mut file_config, &ConfigKey::Model, "test").is_ok());
+    }
 }

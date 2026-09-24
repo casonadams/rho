@@ -336,3 +336,69 @@ async fn test_set_file_value_tools_and_permissions_keys() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn test_set_file_value_limits_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_limits_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "max_output_tokens", "4096").unwrap();
+    Config::set_file_value(&dir, "max_turns", "50").unwrap();
+    Config::set_file_value(&dir, "context_limit", "128000").unwrap();
+    Config::set_file_value(&dir, "context_window_messages", "20").unwrap();
+    Config::set_file_value(&dir, "compaction_max_bytes", "65536").unwrap();
+    Config::set_file_value(&dir, "reserve_tokens", "2000").unwrap();
+    Config::set_file_value(&dir, "keep_recent_tokens", "1000").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    assert_eq!(file.max_output_tokens, Some(4096));
+    assert_eq!(file.max_turns, Some(50));
+    assert_eq!(file.context_limit, Some(128000));
+    assert_eq!(file.context_window_messages, Some(20));
+    assert_eq!(file.compaction_max_bytes, Some(65536));
+    assert_eq!(file.reserve_tokens, Some(2000));
+    assert_eq!(file.keep_recent_tokens, Some(1000));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_set_file_value_network_and_retention_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_net_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "search_min_interval_ms", "500").unwrap();
+    Config::set_file_value(&dir, "search_timeout_sec", "15").unwrap();
+    Config::set_file_value(&dir, "fetch_timeout_sec", "20").unwrap();
+    Config::set_file_value(&dir, "fetch_limit", "10").unwrap();
+    Config::set_file_value(&dir, "fetch_max_bytes", "1048576").unwrap();
+    Config::set_file_value(&dir, "output_max_bytes", "524288").unwrap();
+    Config::set_file_value(&dir, "allow_private_network", "true").unwrap();
+    Config::set_file_value(&dir, "session_retention_days", "14").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    assert_eq!(file.search_min_interval_ms, Some(500));
+    assert_eq!(file.search_timeout_sec, Some(15));
+    assert_eq!(file.fetch_timeout_sec, Some(20));
+    assert_eq!(file.fetch_limit, Some(10));
+    assert_eq!(file.fetch_max_bytes, Some(1048576));
+    assert_eq!(file.output_max_bytes, Some(524288));
+    assert_eq!(file.allow_private_network, Some(true));
+    assert_eq!(file.session_retention_days, Some(14));
+
+    Config::set_file_value(&dir, "session_retention_days", "off").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.session_retention_days, Some(0));
+
+    Config::set_file_value(&dir, "session_retention_days", "0").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.session_retention_days, Some(0));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
