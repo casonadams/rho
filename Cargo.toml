@@ -50,10 +50,9 @@ flate2 = "1.0"
 tar = "0.4"
 toml = "1.1"
 toml_edit = "0.25"
-iroh = "1.2.0"
 base64 = "0.22"
 qrcode = { version = "0.14", default-features = false }
-tokio-websockets = { version = "0.13", default-features = false, features = ["server"] }
+tokio-websockets = { version = "0.13", default-features = false, features = ["server", "sha1_smol"] }
 
 [package]
 name = "rho"
@@ -116,7 +115,6 @@ serde.workspace = true
 serde_json.workspace = true
 
 # CLI & REPL
-iroh.workspace = true
 base64.workspace = true
 qrcode.workspace = true
 tokio-websockets = { workspace = true }
@@ -154,6 +152,7 @@ libc = "0.2"
 winres = "0.1"
 
 [dev-dependencies]
+tokio-websockets = { workspace = true, features = ["client", "sha1_smol", "fastrand"] }
 rig.workspace = true
 reqwest.workspace = true
 tempfile = "3.17"

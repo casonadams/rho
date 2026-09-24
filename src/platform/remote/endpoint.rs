@@ -1,55 +1,56 @@
 use anyhow::{Context, Result};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use iroh::{Endpoint, SecretKey, endpoint::presets};
+use serde::{Deserialize, Serialize};
 
-pub const RHO_ALPN: &[u8] = b"/rho/rpc/v1";
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EndpointTicket {
+    #[serde(alias = "id")]
+    pub node_id: String,
+    #[serde(default)]
+    pub ws_port: Option<u16>,
+    #[serde(default)]
+    pub addrs: Vec<String>,
+}
 
 pub struct RhoEndpoint {
-    endpoint: Endpoint,
+    node_id: String,
+    ws_port: Option<u16>,
+    addrs: Vec<String>,
 }
 
 impl RhoEndpoint {
-    pub async fn bind(secret: SecretKey, port: Option<u16>) -> Result<Self> {
-        let mut builder = Endpoint::builder(presets::N0);
-        builder = builder.secret_key(secret);
-        builder = builder.alpns(vec![RHO_ALPN.to_vec()]);
-        if let Some(p) = port {
-            builder = builder.bind_addr(std::net::SocketAddr::from(([0, 0, 0, 0], p)))?;
+    pub fn new(node_id: String, ws_port: Option<u16>) -> Self {
+        let mut addrs = vec!["127.0.0.1".to_string()];
+        if let Some(port) = ws_port {
+            addrs = vec![format!("127.0.0.1:{port}")];
         }
-        let endpoint = builder.bind().await?;
-        Ok(Self { endpoint })
+        Self {
+            node_id,
+            ws_port,
+            addrs,
+        }
     }
 
-    pub async fn wait_online(&self, timeout: std::time::Duration) -> bool {
-        tokio::time::timeout(timeout, self.endpoint.online()).await.is_ok()
+    pub fn id(&self) -> &str {
+        &self.node_id
     }
 
-    pub fn endpoint(&self) -> &Endpoint {
-        &self.endpoint
-    }
-
-    pub fn id(&self) -> String {
-        self.endpoint.id().to_string()
+    pub fn ws_port(&self) -> Option<u16> {
+        self.ws_port
     }
 
     pub fn ticket(&self) -> Result<String> {
-        self.ticket_with_ws(None)
+        self.ticket_with_ws(self.ws_port)
     }
 
     pub fn ticket_with_ws(&self, ws_port: Option<u16>) -> Result<String> {
-        let mut addr = self.endpoint.addr();
-        let port = addr.ip_addrs().next().map(|s| s.port()).unwrap_or(0);
-        if port > 0 {
-            addr = addr.with_ip_addr(std::net::SocketAddr::from(([127, 0, 0, 1], port)));
-        }
-        let mut val = serde_json::to_value(&addr).context("failed to serialize endpoint addr")?;
-        if let Some(wp) = ws_port
-            && let serde_json::Value::Object(ref mut map) = val
-        {
-            map.insert("ws_port".to_string(), serde_json::json!(wp));
-        }
-        let json = serde_json::to_vec(&val)?;
+        let ticket = EndpointTicket {
+            node_id: self.node_id.clone(),
+            ws_port: ws_port.or(self.ws_port),
+            addrs: self.addrs.clone(),
+        };
+        let json = serde_json::to_vec(&ticket)?;
         let b64 = URL_SAFE_NO_PAD.encode(json);
         Ok(format!("rho_{b64}"))
     }
@@ -67,11 +68,11 @@ impl RhoEndpoint {
         raw.strip_prefix("rho_").unwrap_or(raw)
     }
 
-    pub fn parse_ticket(ticket_str: &str) -> Result<iroh::EndpointAddr> {
+    pub fn parse_ticket(ticket_str: &str) -> Result<EndpointTicket> {
         let raw = Self::extract_ticket_b64(ticket_str);
         let bytes = URL_SAFE_NO_PAD.decode(raw).context("invalid base64 ticket")?;
-        let addr = serde_json::from_slice(&bytes).context("invalid endpoint addr json")?;
-        Ok(addr)
+        let ticket = serde_json::from_slice(&bytes).context("invalid endpoint ticket json")?;
+        Ok(ticket)
     }
 
     pub fn pairing_url(ticket: &str) -> String {
@@ -107,24 +108,15 @@ mod tests {
         assert!(qr.contains('█') || qr.contains('▀') || qr.contains('▄'));
     }
 
-    #[tokio::test]
-    async fn test_endpoint_online_has_relay() {
-        let secret = SecretKey::generate();
-        let ep = RhoEndpoint::bind(secret, None).await.unwrap();
-        let _ = ep.wait_online(std::time::Duration::from_secs(5)).await;
-        let addr = ep.endpoint().addr();
-        assert!(!addr.ip_addrs().collect::<Vec<_>>().is_empty() || addr.relay_urls().next().is_some());
-    }
-
-    #[tokio::test]
-    async fn test_endpoint_ticket_roundtrip() {
-        let secret = SecretKey::generate();
-        let endpoint = RhoEndpoint::bind(secret, None).await.unwrap();
+    #[test]
+    fn test_endpoint_ticket_roundtrip() {
+        let endpoint = RhoEndpoint::new("node-test-123".to_string(), Some(50051));
         let ticket = endpoint.ticket().unwrap();
         assert!(ticket.starts_with("rho_"));
 
         let parsed = RhoEndpoint::parse_ticket(&ticket).unwrap();
-        assert_eq!(parsed.id, endpoint.endpoint().id());
+        assert_eq!(parsed.node_id, endpoint.id());
+        assert_eq!(parsed.ws_port, Some(50051));
 
         let url_no_sess = RhoEndpoint::pairing_url(&ticket);
         assert!(!url_no_sess.contains("&session="));
@@ -133,9 +125,19 @@ mod tests {
         assert!(url_sess.contains("&session=sess-123"));
 
         let parsed_from_url = RhoEndpoint::parse_ticket(&url_sess).unwrap();
-        assert_eq!(parsed_from_url.id, endpoint.endpoint().id());
+        assert_eq!(parsed_from_url.node_id, endpoint.id());
 
         let parsed_from_url_no_sess = RhoEndpoint::parse_ticket(&url_no_sess).unwrap();
-        assert_eq!(parsed_from_url_no_sess.id, endpoint.endpoint().id());
+        assert_eq!(parsed_from_url_no_sess.node_id, endpoint.id());
+    }
+
+    #[test]
+    fn test_endpoint_ticket_legacy_id_alias() {
+        let legacy_json = r#"{"id":"legacy-node-id","ws_port":50052,"addrs":["127.0.0.1:50052"]}"#;
+        let b64 = URL_SAFE_NO_PAD.encode(legacy_json.as_bytes());
+        let ticket = format!("rho_{b64}");
+        let parsed = RhoEndpoint::parse_ticket(&ticket).unwrap();
+        assert_eq!(parsed.node_id, "legacy-node-id");
+        assert_eq!(parsed.ws_port, Some(50052));
     }
 }

@@ -24980,24 +24980,6 @@
     },
     {
       "file": "./src/platform/remote/server.rs",
-      "function": "RemoteServer::run_iroh_loop",
-      "line": 60,
-      "cyclomatic": 5.0,
-      "coverage": 73.68421052631578,
-      "crap": 5.455605773436361,
-      "uncovered": [
-        {
-          "start": 64,
-          "end": 64
-        },
-        {
-          "start": 79,
-          "end": 84
-        }
-      ]
-    },
-    {
-      "file": "./src/platform/remote/server.rs",
       "function": "RemoteServer::run_ws_loop",
       "line": 86,
       "cyclomatic": 2.0,

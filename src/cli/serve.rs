@@ -33,9 +33,8 @@ pub async fn handle_serve(
     let secret = load_or_generate_secret_key(&key_path)?;
 
     let (ws_listener, ws_port) = crate::platform::remote::server::bind_ws_listener(port).await?;
-    let endpoint = RhoEndpoint::bind(secret, port).await?;
-    let _ = endpoint.wait_online(std::time::Duration::from_secs(5)).await;
-    let ticket = endpoint.ticket_with_ws(Some(ws_port))?;
+    let endpoint = RhoEndpoint::new(secret.node_id(), Some(ws_port));
+    let ticket = endpoint.ticket()?;
     let pairing_url = RhoEndpoint::pairing_url(&ticket);
     let qr = RhoEndpoint::render_qr(&pairing_url)?;
 
@@ -58,8 +57,7 @@ pub async fn handle_serve(
     println!("Listening for peer connections... (Press Ctrl+C to exit)");
 
     let engine = agent_engine_in_dir(cfg.clone(), auth_store.clone(), base_dir, None).await?;
-    let server =
-        RemoteServer::new(endpoint.endpoint().clone(), cfg, auth_store.clone(), engine).with_ws_listener(ws_listener);
+    let server = RemoteServer::new(ws_listener, cfg, auth_store.clone(), engine);
 
     server.run_accept_loop().await?;
     Ok(())
