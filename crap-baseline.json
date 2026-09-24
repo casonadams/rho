@@ -27263,70 +27263,72 @@
     {
       "file": "./src/repl/live/idle/mod.rs",
       "function": "drive_idle_loop",
-      "line": 142,
+      "line": 151,
       "cyclomatic": 10.0,
       "coverage": 75.0,
       "crap": 11.5625,
       "uncovered": [
         {
-          "start": 152,
-          "end": 152
+          "start": 161,
+          "end": 161
         },
         {
-          "start": 155,
-          "end": 156
+          "start": 164,
+          "end": 165
         },
         {
-          "start": 160,
-          "end": 160
+          "start": 169,
+          "end": 169
         },
         {
-          "start": 162,
-          "end": 162
+          "start": 171,
+          "end": 171
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/idle/mod.rs",
+      "function": "handle_frame_tick",
+      "line": 94,
+      "cyclomatic": 9.0,
+      "coverage": 95.45454545454545,
+      "crap": 9.007607062359128,
+      "uncovered": [
+        {
+          "start": 113,
+          "end": 113
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/mod.rs",
       "function": "handle_input_source",
-      "line": 126,
+      "line": 135,
       "cyclomatic": 3.0,
       "coverage": 85.71428571428571,
       "crap": 3.0262390670553936,
       "uncovered": [
         {
-          "start": 135,
-          "end": 136
+          "start": 144,
+          "end": 145
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/mod.rs",
       "function": "handle_tick",
-      "line": 94,
-      "cyclomatic": 16.0,
-      "coverage": 0.0,
-      "crap": 272.0,
-      "uncovered": [
-        {
-          "start": 94,
-          "end": 124
-        }
-      ]
+      "line": 117,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
     },
     {
       "file": "./src/repl/live/idle/mod.rs",
       "function": "handle_ui_event",
       "line": 86,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 86,
-          "end": 92
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/repl/live/idle/mod.rs",
@@ -27339,7 +27341,7 @@
     {
       "file": "./src/repl/live/idle/mod.rs",
       "function": "read_idle_input",
-      "line": 169,
+      "line": 178,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0

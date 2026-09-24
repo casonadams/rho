@@ -1,4 +1,4 @@
-mod controller;
+pub(crate) mod controller;
 mod events;
 pub mod footer;
 mod input;

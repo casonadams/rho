@@ -91,6 +91,29 @@ async fn handle_ui_event<B: TerminalBackend>(
     batch.enqueue(controller, event)
 }
 
+fn handle_frame_tick<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    batch: &mut LiveBatch,
+    session: &mut ReplSession,
+    engine: &crate::engine::AgentEngine,
+) -> Result<()> {
+    let expired = controller.check_system_message_expiration();
+    let resized = controller.refresh_size()?;
+    if resized {
+        session.renderer.set_width(controller.width());
+    }
+    let quota = engine.quota_display();
+    let quota_changed = controller.state().footer().quota != quota;
+    if quota_changed {
+        controller.state_mut().footer_mut().quota = quota;
+    }
+    let should_redraw = expired || resized || quota_changed;
+    if !batch.ui.is_empty() || should_redraw {
+        batch.flush(controller, should_redraw)?;
+    }
+    Ok(())
+}
+
 async fn handle_tick<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     batch: &mut LiveBatch,
@@ -98,21 +121,7 @@ async fn handle_tick<B: TerminalBackend>(
     ctx: &mut LiveIdleContext<'_, '_>,
 ) -> Result<()> {
     match tick {
-        IdleTick::Frame => {
-            let expired = controller.check_system_message_expiration();
-            let resized = controller.refresh_size()?;
-            if resized {
-                ctx.session.renderer.set_width(controller.width());
-            }
-            let quota = ctx.engine.quota_display();
-            let quota_changed = controller.state().footer().quota != quota;
-            if quota_changed {
-                controller.state_mut().footer_mut().quota = quota;
-            }
-            if !batch.ui.is_empty() || expired || resized || quota_changed {
-                batch.flush(controller, expired || resized || quota_changed)?;
-            }
-        }
+        IdleTick::Frame => handle_frame_tick(controller, batch, ctx.session, ctx.engine)?,
         IdleTick::Quota => {
             sync_idle_quota(controller, batch, ctx.engine)?;
         }
@@ -183,4 +192,100 @@ pub(crate) async fn read_idle_input<B: TerminalBackend>(ctx: IdleContext<'_, '_,
         last_escape_time: &mut last_escape_time,
     };
     drive_idle_loop(controller, ui_events, input, &mut resources, &mut idle_ctx).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::engine::builder::AgentEngineBuilder;
+    use crate::ui::interactive::InteractiveState;
+    use crate::ui::interactive::UiEvent;
+    use crate::ui::interactive::controller::tests::fake::FakeTerminal;
+
+    async fn test_harness() -> (
+        TerminalController<FakeTerminal>,
+        crate::ui::interactive::controller::tests::fake::SharedWidth,
+        LiveBatch,
+        crate::repl::ReplSession,
+        crate::engine::AgentEngine,
+        tempfile::TempDir,
+    ) {
+        let temp = tempfile::tempdir().unwrap();
+        let config = Config {
+            provider: "antigravity".to_string(),
+            model: "gemini-2.5-pro".to_string(),
+            sessions_dir: temp.path().join("sessions"),
+            ..Default::default()
+        };
+        let auth_store = AuthStore::default();
+        let engine = AgentEngineBuilder::new(config.clone(), auth_store.clone())
+            .build()
+            .await
+            .unwrap();
+        let session = crate::repl::ReplSession::new(config, auth_store, None);
+        let (backend, _, shared_width) = FakeTerminal::new(80);
+        let controller = TerminalController::new(backend, InteractiveState::default()).unwrap();
+        let batch = LiveBatch::new();
+        (controller, shared_width, batch, session, engine, temp)
+    }
+
+    #[tokio::test]
+    async fn test_handle_tick_frame_and_quota() {
+        let (mut controller, shared_width, mut batch, mut session, mut engine, _temp) = test_harness().await;
+        let mut last_escape_time = None;
+        let mut ctx = LiveIdleContext {
+            session: &mut session,
+            engine: &mut engine,
+            last_escape_time: &mut last_escape_time,
+        };
+
+        // Frame tick with resize
+        shared_width.set(100);
+        handle_tick(&mut controller, &mut batch, IdleTick::Frame, &mut ctx)
+            .await
+            .unwrap();
+        assert_eq!(controller.width(), 100);
+
+        let ag_key = rho_engine::engine::tracking::QuotaKey::new("antigravity", Some("gemini-2.5-pro"));
+        ctx.engine.quota().record_success(&ag_key, "75%".to_string());
+        handle_tick(&mut controller, &mut batch, IdleTick::Quota, &mut ctx)
+            .await
+            .unwrap();
+        assert_eq!(controller.state().footer().quota, Some("75%".to_string()));
+
+        ctx.engine.quota().record_success(&ag_key, "50%".to_string());
+        handle_tick(&mut controller, &mut batch, IdleTick::Frame, &mut ctx)
+            .await
+            .unwrap();
+        assert_eq!(controller.state().footer().quota, Some("50%".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_handle_tick_ui_event() {
+        let (mut controller, _shared_width, mut batch, mut session, mut engine, _temp) = test_harness().await;
+        let mut last_escape_time = None;
+        let mut ctx = LiveIdleContext {
+            session: &mut session,
+            engine: &mut engine,
+            last_escape_time: &mut last_escape_time,
+        };
+
+        handle_tick(
+            &mut controller,
+            &mut batch,
+            IdleTick::Ui(UiEvent::RunningTool(Some("bash".to_string()))),
+            &mut ctx,
+        )
+        .await
+        .unwrap();
+
+        assert!(!batch.ui.is_empty());
+
+        handle_tick(&mut controller, &mut batch, IdleTick::Frame, &mut ctx)
+            .await
+            .unwrap();
+        assert!(batch.ui.is_empty());
+    }
 }
