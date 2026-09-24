@@ -90,25 +90,19 @@ async fn handle_session_new(ctx: &mut IdleShortcutContext<'_, '_, '_, impl Termi
     Ok(())
 }
 
-async fn toggle_output_or_thinking(
-    ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>,
-    action: &InputAction,
-) -> Result<()> {
-    match action {
-        InputAction::ToggleExpandTools => {
-            let expanded = !ctx.controller.tools_expanded();
-            let state = if expanded { "expanded" } else { "collapsed" };
-            ctx.controller.set_system_message(format!("Tool output: {state}"));
-            ctx.controller.set_tools_expanded(expanded)?;
-        }
-        InputAction::ThinkingToggle => {
-            let hidden = !ctx.controller.hide_thinking();
-            let state = if hidden { "hidden" } else { "visible" };
-            ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
-            ctx.controller.set_hide_thinking(hidden)?;
-        }
-        _ => {}
-    }
+fn toggle_tools(controller: &mut TerminalController<impl TerminalBackend>) -> Result<()> {
+    let expanded = !controller.tools_expanded();
+    let state = if expanded { "expanded" } else { "collapsed" };
+    controller.set_system_message(format!("Tool output: {state}"));
+    controller.set_tools_expanded(expanded)?;
+    Ok(())
+}
+
+fn toggle_thinking(controller: &mut TerminalController<impl TerminalBackend>) -> Result<()> {
+    let hidden = !controller.hide_thinking();
+    let state = if hidden { "hidden" } else { "visible" };
+    controller.set_system_message(format!("Thinking blocks: {state}"));
+    controller.set_hide_thinking(hidden)?;
     Ok(())
 }
 
@@ -126,7 +120,7 @@ fn flush_after(ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>, 
     batch.flush(ctx.controller, true)
 }
 
-async fn handle_model_action(
+async fn handle_model_cycle_action(
     ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>,
     action: &InputAction,
     batch: &mut LiveBatch,
@@ -134,6 +128,17 @@ async fn handle_model_action(
     match action {
         InputAction::ModelCycleForward => cycle_model_by(ctx, 1, batch).await?,
         InputAction::ModelCycleBackward => cycle_model_by(ctx, -1, batch).await?,
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+async fn handle_auxiliary_action(
+    ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>,
+    action: &InputAction,
+    batch: &mut LiveBatch,
+) -> Result<bool> {
+    match action {
         InputAction::ThinkingCycle => {
             cycle_thinking_level(ctx.session, ctx.engine, ctx.controller).await;
             flush_after(ctx, batch)?;
@@ -151,48 +156,51 @@ async fn handle_model_action(
     Ok(true)
 }
 
-async fn dispatch_shortcut(
+async fn handle_session_action(
     ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>,
     action: &InputAction,
-    batch: &mut LiveBatch,
-) -> Result<()> {
+) -> Result<bool> {
     match action {
-        InputAction::Clear => {
-            handle_clear_or_cancel(ctx, false).await?;
-        }
-        InputAction::Cancel => {
-            handle_clear_or_cancel(ctx, true).await?;
-        }
-        InputAction::ToggleExpandTools | InputAction::ThinkingToggle => {
-            toggle_output_or_thinking(ctx, action).await?;
-        }
+        InputAction::SessionTree => handle_session_tree(ctx).await?,
+        InputAction::SessionNew => handle_session_new(ctx).await?,
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn handle_ui_toggle_or_selector(
+    ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>,
+    action: &InputAction,
+) -> Result<bool> {
+    match action {
+        InputAction::ToggleExpandTools => toggle_tools(ctx.controller)?,
+        InputAction::ThinkingToggle => toggle_thinking(ctx.controller)?,
         InputAction::ModelSelect => open_selector(ctx, true)?,
         InputAction::SessionResume => open_selector(ctx, false)?,
         InputAction::Suspend => {
             crate::platform::suspend::suspend_process();
             ctx.controller.redraw()?;
         }
-        other => {
-            handle_session_or_model_action(ctx, other, batch).await?;
-        }
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
-async fn handle_session_or_model_action(
+async fn dispatch_shortcut(
     ctx: &mut IdleShortcutContext<'_, '_, '_, impl TerminalBackend>,
     action: &InputAction,
     batch: &mut LiveBatch,
 ) -> Result<()> {
     match action {
-        InputAction::SessionTree => {
-            handle_session_tree(ctx).await?;
-        }
-        InputAction::SessionNew => {
-            handle_session_new(ctx).await?;
-        }
+        InputAction::Clear => handle_clear_or_cancel(ctx, false).await?,
+        InputAction::Cancel => handle_clear_or_cancel(ctx, true).await?,
         other => {
-            handle_model_action(ctx, other, batch).await?;
+            if !handle_ui_toggle_or_selector(ctx, other)?
+                && !handle_session_action(ctx, other).await?
+                && !handle_model_cycle_action(ctx, other, batch).await?
+            {
+                handle_auxiliary_action(ctx, other, batch).await?;
+            }
         }
     }
     Ok(())

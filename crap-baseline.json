@@ -21423,12 +21423,16 @@
       "function": "extract_root_preview",
       "line": 128,
       "cyclomatic": 1.0,
-      "coverage": 50.0,
-      "crap": 1.125,
+      "coverage": 87.5,
+      "crap": 1.001953125,
       "uncovered": [
         {
-          "start": 134,
-          "end": 141
+          "start": 137,
+          "end": 137
+        },
+        {
+          "start": 139,
+          "end": 139
         }
       ]
     },
@@ -21529,14 +21533,8 @@
       "function": "truncate_preview_text",
       "line": 145,
       "cyclomatic": 2.0,
-      "coverage": 80.0,
-      "crap": 2.032,
-      "uncovered": [
-        {
-          "start": 147,
-          "end": 147
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/tree.rs",
@@ -25217,8 +25215,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -26765,8 +26769,14 @@
       "function": "finalize_run",
       "line": 19,
       "cyclomatic": 2.0,
-      "coverage": 100.0,
-      "crap": 2.0
+      "coverage": 75.0,
+      "crap": 2.0625,
+      "uncovered": [
+        {
+          "start": 25,
+          "end": 27
+        }
+      ]
     },
     {
       "file": "./src/repl/live/bash_runner/outcome.rs",
@@ -27723,42 +27733,32 @@
       "function": "cycle_model_by",
       "line": 20,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 20,
-          "end": 32
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
       "function": "dispatch_shortcut",
-      "line": 154,
-      "cyclomatic": 15.0,
-      "coverage": 58.82352941176471,
-      "crap": 30.70832485243232,
-      "uncovered": [
-        {
-          "start": 167,
-          "end": 176
-        }
-      ]
+      "line": 189,
+      "cyclomatic": 13.0,
+      "coverage": 100.0,
+      "crap": 13.0
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
       "function": "flush_after",
-      "line": 125,
+      "line": 119,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 125,
-          "end": 127
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/repl/live/idle/shortcut.rs",
+      "function": "handle_auxiliary_action",
+      "line": 136,
+      "cyclomatic": 8.0,
+      "coverage": 100.0,
+      "crap": 8.0
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
@@ -27776,67 +27776,63 @@
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
-      "function": "handle_model_action",
-      "line": 129,
-      "cyclomatic": 12.0,
-      "coverage": 0.0,
-      "crap": 156.0,
-      "uncovered": [
-        {
-          "start": 129,
-          "end": 152
-        }
-      ]
+      "function": "handle_model_cycle_action",
+      "line": 123,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
+    },
+    {
+      "file": "./src/repl/live/idle/shortcut.rs",
+      "function": "handle_session_action",
+      "line": 159,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
       "function": "handle_session_new",
       "line": 83,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 83,
-          "end": 91
-        }
-      ]
-    },
-    {
-      "file": "./src/repl/live/idle/shortcut.rs",
-      "function": "handle_session_or_model_action",
-      "line": 182,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
-      "uncovered": [
-        {
-          "start": 182,
-          "end": 199
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
       "function": "handle_session_tree",
       "line": 75,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 85.71428571428571,
+      "crap": 3.0262390670553936,
       "uncovered": [
         {
-          "start": 75,
-          "end": 81
+          "start": 79,
+          "end": 79
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
       "function": "handle_shortcut_action",
-      "line": 201,
+      "line": 209,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
+    },
+    {
+      "file": "./src/repl/live/idle/shortcut.rs",
+      "function": "handle_ui_toggle_or_selector",
+      "line": 171,
+      "cyclomatic": 12.0,
+      "coverage": 85.71428571428571,
+      "crap": 12.419825072886297,
+      "uncovered": [
+        {
+          "start": 181,
+          "end": 182
+        }
+      ]
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
@@ -27849,30 +27845,26 @@
     {
       "file": "./src/repl/live/idle/shortcut.rs",
       "function": "open_selector",
-      "line": 115,
+      "line": 109,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 115,
-          "end": 123
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/idle/shortcut.rs",
-      "function": "toggle_output_or_thinking",
+      "function": "toggle_thinking",
+      "line": 101,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/repl/live/idle/shortcut.rs",
+      "function": "toggle_tools",
       "line": 93,
-      "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
-      "uncovered": [
-        {
-          "start": 93,
-          "end": 113
-        }
-      ]
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/message/commands.rs",
@@ -29589,12 +29581,16 @@
       "function": "copy_last_message",
       "line": 12,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 80.0,
+      "crap": 3.072,
       "uncovered": [
         {
-          "start": 12,
-          "end": 27
+          "start": 15,
+          "end": 15
+        },
+        {
+          "start": 22,
+          "end": 23
         }
       ]
     },
@@ -29603,12 +29599,12 @@
       "function": "cycle_model",
       "line": 116,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 95.65217391304348,
+      "crap": 3.000739705761486,
       "uncovered": [
         {
-          "start": 116,
-          "end": 140
+          "start": 119,
+          "end": 119
         }
       ]
     },
@@ -29617,12 +29613,12 @@
       "function": "cycle_thinking_level",
       "line": 67,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 96.29629629629629,
+      "crap": 3.0004572473708278,
       "uncovered": [
         {
-          "start": 67,
-          "end": 98
+          "start": 81,
+          "end": 81
         }
       ]
     },
@@ -29681,12 +29677,12 @@
       "function": "next_model_index",
       "line": 106,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 85.71428571428571,
+      "crap": 3.0262390670553936,
       "uncovered": [
         {
-          "start": 106,
-          "end": 114
+          "start": 112,
+          "end": 112
         }
       ]
     },
@@ -32173,14 +32169,8 @@
       "function": "TerminalController::clear_transcript",
       "line": 18,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 18,
-          "end": 21
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/ui/interactive/controller/transcript.rs",
