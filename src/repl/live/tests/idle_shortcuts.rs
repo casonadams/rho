@@ -138,3 +138,43 @@ fn test_modal_tree_input_ctrl_c_clears_input_text() {
     assert_eq!(modal.input.text(), "");
     assert!(matches!(modal.mode, ModalMode::Input { .. }));
 }
+
+#[tokio::test]
+async fn test_resume_session_does_not_deadlock_idle_step() {
+    let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
+    let temp_dir = std::env::temp_dir().join(format!("test_resume_deadlock_{}", uuid::Uuid::new_v4()));
+    session.config.sessions_dir = temp_dir.clone();
+    let mgr = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    let session_id = mgr.session_id.clone();
+
+    let mut history =
+        crate::repl::interactive::InteractiveHistory::with_file(100, temp_dir.join("history.txt")).unwrap();
+    let mut input =
+        crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![crossterm::event::Event::Key(
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        )]);
+    let mut batch = LiveBatch::new();
+
+    let modal_ctx = crate::repl::live::idle::modal_action::ModalActionContext {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+    };
+
+    let result = crate::repl::live::idle::modal_action::apply_modal_key_result(
+        crate::repl::live::modal::ModalKeyResult::SessionSelected { session_id },
+        modal_ctx,
+        &mut batch,
+    )
+    .await
+    .unwrap();
+    assert!(result);
+
+    // Verify input is still readable and next event is processed without hanging
+    let event = input.recv().await;
+    assert!(event.is_some());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

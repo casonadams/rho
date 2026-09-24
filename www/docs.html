@@ -115,7 +115,6 @@
         <div class="docs-nav-title">Integration &amp; Runtime</div>
         <ul class="docs-nav-list">
           <li class="docs-nav-item"><a href="#rpc-mode">Headless &amp; IDE RPC Mode</a></li>
-          <li class="docs-nav-item"><a href="#fleet-remote">Fleet Hub &amp; P2P Remote</a></li>
           <li class="docs-nav-item"><a href="#compaction">Context Compaction</a></li>
           <li class="docs-nav-item"><a href="#mcp">MCP Configuration</a></li>
           <li class="docs-nav-item"><a href="#hooks">Lifecycle Hooks</a></li>
@@ -199,9 +198,6 @@ rho -c
 
 # Interactively browse and select from previous sessions to resume
 rho -r
-
-# Start a headless remote agent daemon over Iroh P2P and WebSocket
-rho serve --workspace ~/src/backend-api
 
 # Resume a specific session by ID (including budget checkpoint)
 rho --resume &lt;SESSION_ID&gt;
@@ -440,10 +436,6 @@ enabled = true                  # Enable or disable mutation guardrails</code></
               <td>Manually trigger context compaction with an optional focus directive (e.g. <code>/compact "focus on tests"</code>)</td>
             </tr>
             <tr>
-              <td><code>/remote</code></td>
-              <td>Open the Iroh P2P peer pairing modal to steer and monitor from mobile/web hub</td>
-            </tr>
-            <tr>
               <td><code>/tokens</code></td>
               <td>Display live context window usage, turn counts, and token telemetry</td>
             </tr>
@@ -599,61 +591,6 @@ enabled = true                  # Enable or disable mutation guardrails</code></
         </div>
         <pre><code>{"type":"tool_response","approval_id":"appr-b618","decision":"allow"}</code></pre>
       </div>
-
-      <h2 id="fleet-remote">Fleet Hub &amp; P2P Remote Control</h2>
-      <p>
-        <code>rho</code> features zero-cloud peer-to-peer remote access powered by <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh</a>. You can run headless agent daemons across multiple machines, or pair an active interactive terminal session to steer and monitor from any mobile device, tablet, or web browser:
-      </p>
-
-      <div class="doc-callout doc-callout-warning">
-        <strong>Platform Note:</strong> The Fleet Hub Web dashboard is optimized for desktop modern browsers (Chrome, Edge, Brave, Firefox, Safari). In-browser WebAssembly P2P network capabilities are experimental on mobile devices.
-      </div>
-
-      <h3>1. Run a Headless Node (<code>rho serve</code>)</h3>
-      <p>
-        Start a background agent daemon in any project repository:
-      </p>
-
-      <div class="code-block-wrapper">
-        <div class="code-block-header">
-          <span>Starting a Remote Node</span>
-          <button class="copy-btn" data-copy="rho serve --workspace ~/src/my-project">Copy</button>
-        </div>
-        <pre><code># Serve the current directory over Iroh P2P and WebSocket
-rho serve
-
-# Or specify a workspace directory, custom port, and friendly label
-rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"</code></pre>
-      </div>
-
-      <p>
-        The node generates an end-to-end encrypted ticket (<code>rho_...</code>), a pairing URL, and an in-terminal QR code for instant mobile camera pairing.
-      </p>
-
-      <h3>2. In-Session Terminal Sharing (<code>/remote</code>)</h3>
-      <p>
-        While working in an active interactive TUI session, type <code>/remote</code> to display the pairing modal. The horizontal top divider above the prompt editor reflects remote state:
-      </p>
-
-      <ul>
-        <li><code>── remote ─────────────────────────</code>: Remote listening active, 0 peers connected.</li>
-        <li><code>── remote (1) ─────────────────────</code>: Connected to a web dashboard peer.</li>
-        <li><code>── ⠋ working • remote (1) ──────────</code>: Live turn executing with remote mirror active.</li>
-      </ul>
-
-      <h3>3. Bidirectional Sync &amp; Steering</h3>
-      <p>
-        The Web Hub (<a href="hub/">www/hub/</a>) runs 100% in the browser using WebAssembly. Key capabilities:
-      </p>
-
-      <ul>
-        <li><strong>Live Prompt Mirroring</strong>: Prompts typed in either the terminal or the web dashboard appear on both screens instantly.</li>
-        <li><strong>Active Steering</strong>: When the agent is busy, the web prompt button morphs into <strong style="color: var(--accent-amber);">Steer ↗</strong>, injecting redirection instructions into the running agent at tool boundaries.</li>
-        <li><strong>Synchronized Permission Approvals</strong>: When tools request execution approval, cards appear on both the TUI modal and the web UI. Approving or denying on either screen immediately unblocks execution.</li>
-        <li><strong>Session DAG Navigation</strong>: Browse past turns, switch branches, or create new sessions from the sidebar.</li>
-      </ul>
-
-      <img src="assets/hub.svg" alt="rho fleet hub P2P remote control dashboard" class="doc-screenshot" width="960" height="620">
 
       <h2 id="compaction">Dynamic Context Compaction &amp; Token Budgeting</h2>
       <p>
@@ -843,7 +780,6 @@ rho mcp add db "https://mcp.db.example.com/mcp"
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev (π)</a>
             <a href="https://github.com/0xPlaygrounds/rig" target="_blank" rel="noopener">Rig (LLM Engine)</a>
-            <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh (P2P Mesh)</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>

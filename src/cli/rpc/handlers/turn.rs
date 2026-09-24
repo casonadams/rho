@@ -28,12 +28,6 @@ pub(crate) async fn handle_steer_command<W: tokio::io::AsyncWrite + Unpin>(
     (message, req_id): (String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
-    if let Some(steering) = crate::platform::remote::get_active_steering() {
-        steering.enqueue(message.clone());
-        crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TextChunk {
-            content: format!("\n[Steering from remote]: {message}\n"),
-        });
-    }
     ctx.steering.enqueue(message);
     ctx.writer
         .write_message(&RpcResponse::success(req_id, "steer", None))
@@ -83,13 +77,6 @@ pub(crate) async fn handle_tool_response_cmd<W: tokio::io::AsyncWrite + Unpin>(
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
     let resp = parse_tool_decision(&decision);
-    if let Some(sender) = crate::platform::remote::ACTIVE_APPROVALS
-        .lock()
-        .unwrap()
-        .remove(&approval_id)
-    {
-        let _ = sender.send(resp.clone());
-    }
     let mut approvals = ctx.pending_approvals.lock().await;
     if let Some(sender) = approvals.remove(&approval_id) {
         let _ = sender.send(resp);
@@ -103,29 +90,6 @@ pub(crate) async fn handle_prompt_cmd<W: tokio::io::AsyncWrite + Unpin>(
     (message, req_id): (String, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
-    if crate::platform::remote::is_repl_active() {
-        if let Some(steering) = crate::platform::remote::get_active_steering() {
-            steering.enqueue(message.clone());
-            crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::TextChunk {
-                content: format!("\n[Steering from remote]: {message}\n"),
-            });
-            ctx.writer
-                .write_message(&RpcResponse::success(
-                    req_id,
-                    "prompt",
-                    Some(serde_json::json!({ "steered": true })),
-                ))
-                .await?;
-            return Ok(());
-        }
-
-        crate::platform::remote::REMOTE_PROMPT_QUEUE.push(message);
-        ctx.writer
-            .write_message(&RpcResponse::success(req_id, "prompt", None))
-            .await?;
-        return Ok(());
-    }
-
     if ctx.active_turn.is_some() {
         ctx.writer
             .write_message(&RpcResponse::failure(

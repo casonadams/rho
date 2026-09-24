@@ -12,8 +12,7 @@ use crossterm::event::KeyEvent;
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
     open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
-    open_remote_modal, open_search_engine_selector, open_session_selector, open_tools_selector,
-    update_tools_search_engine,
+    open_search_engine_selector, open_session_selector, open_tools_selector, update_tools_search_engine,
 };
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -321,7 +320,6 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Tools & Permissions" => selectors::handle_tools_key(controller, key),
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
         "Login Provider" => selectors::handle_login_key(controller, key),
-        "Remote Access" => selectors::handle_remote_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

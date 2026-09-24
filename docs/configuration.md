@@ -294,10 +294,10 @@ Templates are automatically registered as slash commands in the REPL:
 
 ---
 
-## Remote Daemon & P2P Access (`rho serve` and `/remote`)
+## Remote Daemon & Web Hub Access (`rho serve` and `/remote`)
 
 `rho` can run headless as a persistent background daemon (e.g. via `systemd` or
-`launchd`) using [Iroh](https://iroh.computer) peer-to-peer transport:
+`launchd`) using WebSocket transport:
 
 ```bash
 # Start background node for a repository

@@ -635,16 +635,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "console_error_panic_hook"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
-dependencies = [
- "cfg-if",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "convert_case"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3197,12 +3187,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qrcode"
-version = "0.14.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
-
-[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3546,13 +3530,11 @@ dependencies = [
  "futures",
  "futures-util",
  "fuzzy-matcher",
- "http",
  "image",
  "indicatif 0.18.6",
  "libc",
  "merman",
  "pulldown-cmark",
- "qrcode",
  "reedline",
  "regex",
  "reqwest",
@@ -3573,7 +3555,6 @@ dependencies = [
  "terminal-colorsaurus",
  "thiserror 2.0.20",
  "tokio",
- "tokio-websockets",
  "toml 1.1.6+spec-1.1.0",
  "unicode-width",
  "uuid",
@@ -3647,20 +3628,6 @@ dependencies = [
  "toml 1.1.6+spec-1.1.0",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "rho-wasm"
-version = "0.10.0"
-dependencies = [
- "base64 0.22.1",
- "console_error_panic_hook",
- "js-sys",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]
@@ -4096,17 +4063,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-wasm-bindgen"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4182,12 +4138,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sha1_smol"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
-
-[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4249,12 +4199,6 @@ checksum = "95890f873bec569a0362c235787f3aca6e1e887302ba4840839bcc6459c42da6"
 dependencies = [
  "quote",
 ]
-
-[[package]]
-name = "simdutf8"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "similar"
@@ -4777,25 +4721,6 @@ dependencies = [
  "libc",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-websockets"
-version = "0.13.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d52efb639344a7c6adb8e62c6f3d2c19c001ff1b79a5041ba1c6ed42e19c6aa5"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "fastrand",
- "futures-core",
- "futures-sink",
- "http",
- "httparse",
- "sha1_smol",
- "simdutf8",
- "tokio",
- "tokio-util",
 ]
 
 [[package]]

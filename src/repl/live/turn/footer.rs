@@ -93,25 +93,5 @@ pub(crate) fn sync_turn_footer<B: TerminalBackend>(
         footer.quota = quota;
         changed = true;
     }
-    let remote_active = crate::platform::remote::is_remote_active();
-    let remote_peers = crate::platform::remote::remote_peer_count();
-    if footer.remote_active != remote_active || footer.remote_peers != remote_peers {
-        footer.remote_active = remote_active;
-        footer.remote_peers = remote_peers;
-        changed = true;
-    }
-    if changed && remote_active {
-        crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::UsageUpdate {
-            input_tokens: Some(totals.total_input),
-            output_tokens: Some(totals.total_output),
-            cache_read_tokens: Some(totals.total_cache_read),
-            cache_write_tokens: Some(totals.total_cache_write),
-            total_cost: None,
-            context_percent,
-            context_window: engine.context_limit(),
-            tokens_per_second,
-            quota: engine.quota_display(),
-        });
-    }
     changed
 }

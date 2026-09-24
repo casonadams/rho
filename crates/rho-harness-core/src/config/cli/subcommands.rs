@@ -39,18 +39,6 @@ pub enum Commands {
         #[arg(long, short)]
         force: bool,
     },
-    /// Serve as an autonomous remote agent node over Iroh P2P
-    Serve {
-        /// Workspace directory to serve (defaults to current working directory)
-        #[arg(long)]
-        workspace: Option<String>,
-        /// Bind port for direct P2P transport
-        #[arg(long)]
-        port: Option<u16>,
-        /// Friendly node name
-        #[arg(long)]
-        name: Option<String>,
-    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

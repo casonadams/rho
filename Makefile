@@ -58,22 +58,8 @@ run: ## Run the rho CLI
 	$(CARGO) run --
 
 .PHONY: wasm
-wasm: ## Build rho-wasm and generate JS bindings into www/hub/wasm
-	@if [ -d "/opt/homebrew/opt/llvm/bin" ]; then \
-		CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang \
-		AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar \
-		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
-	else \
-		$(CARGO) build -p rho-wasm --target wasm32-unknown-unknown --release; \
-	fi
-	@WASM="target/wasm32-unknown-unknown/release/rho_wasm.wasm"; \
-	HASH_FILE="target/wasm32-unknown-unknown/release/.bindgen-hash"; \
-	HASH_CMD=$$(command -v sha256sum 2>/dev/null || echo "shasum -a 256"); \
-	CURRENT_HASH=$$($$HASH_CMD "$$WASM" | cut -d ' ' -f 1); \
-	if [ ! -f "$$HASH_FILE" ] || [ "$$(cat "$$HASH_FILE" 2>/dev/null)" != "$$CURRENT_HASH" ] || [ ! -f "www/hub/wasm/rho_wasm.js" ]; then \
-		wasm-bindgen "$$WASM" --out-dir www/hub/wasm --target web && \
-		echo "$$CURRENT_HASH" > "$$HASH_FILE"; \
-	fi
+wasm: ## No-op (rho-wasm removed)
+	@true
 
 .PHONY: clean
 clean: ## Clean cargo build artifacts

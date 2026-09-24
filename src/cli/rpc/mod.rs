@@ -32,7 +32,6 @@ where
     let mut reader = JsonLinesReader::new(BufReader::new(reader_stream));
     let mut writer = JsonLinesWriter::new(writer_stream);
     let (event_tx, mut event_rx) = mpsc::unbounded_channel::<RpcEvent>();
-    crate::platform::remote::PEER_REGISTRY.register(event_tx.clone());
     let rpc_presenter = RpcPresenter::new(event_tx.clone());
     let pending_approvals = rpc_presenter.pending_approvals();
     let presenter: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(rpc_presenter);
@@ -65,17 +64,18 @@ where
         pending_approvals,
         steering,
         active_turn: &mut active_turn,
-        event_tx,
+        event_tx: event_tx.clone(),
         auth_bridge: rho_harness_core::rpc::RpcAuthBridge::new(),
     };
 
     let engine_for_quota = Arc::clone(&ctx.engine);
+    let quota_tx = event_tx.clone();
     let mut quota_rx = ctx.engine.read().await.quota_subscribe();
     let quota_task = tokio::spawn(async move {
         while quota_rx.changed().await.is_ok() {
             let eng = engine_for_quota.read().await;
             let totals = eng.session_usage_totals();
-            crate::platform::remote::PEER_REGISTRY.broadcast(&RpcEvent::UsageUpdate {
+            let _ = quota_tx.send(RpcEvent::UsageUpdate {
                 input_tokens: Some(totals.total_input),
                 output_tokens: Some(totals.total_output),
                 cache_read_tokens: Some(totals.total_cache_read),

@@ -35,7 +35,6 @@ pub enum CommandResult {
     OpenHelpSelector,
     OpenLoginSelector,
     OpenMcpSelector,
-    OpenRemoteModal,
     ThinkingChanged {
         level: Option<String>,
     },

@@ -48,9 +48,6 @@ pub async fn handle_command(
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config, auth_store).await?,
         Commands::Update => handle_update_command(config).await?,
         Commands::Index { path, force } => handle_index_command(path, force).await?,
-        Commands::Serve { workspace, port, name } => {
-            super::serve::handle_serve(workspace, port, name, config, auth_store).await?
-        }
         _ => {}
     }
     Ok(())

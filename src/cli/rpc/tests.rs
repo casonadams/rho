@@ -247,3 +247,52 @@ fn test_extract_chat_messages_preserves_tools() {
     assert_eq!(extracted[3]["role"], "assistant");
     assert_eq!(extracted[3]["content"], "Check passed cleanly.");
 }
+
+#[tokio::test]
+async fn test_run_rpc_session_over_stream_roundtrip() {
+    let (client_io, server_io) = duplex(65536);
+    let (server_read, server_write) = tokio::io::split(server_io);
+    let (client_read, client_write) = tokio::io::split(client_io);
+
+    let temp_dir = std::env::temp_dir().join(format!("rpc_stream_test_{}", uuid::Uuid::new_v4()));
+    let config = Config {
+        sessions_dir: temp_dir.join("sessions"),
+        auth_file: temp_dir.join("auth.json"),
+        ..Config::default()
+    };
+    let auth_store = AuthStore::load(&config.auth_file).unwrap_or_default();
+    let engine = crate::platform::agent_engine(config.clone(), auth_store.clone(), None)
+        .await
+        .unwrap();
+    let engine_lock = Arc::new(RwLock::new(engine));
+    let config_lock = Arc::new(RwLock::new(config));
+    let auth_store_lock = Arc::new(RwLock::new(auth_store));
+
+    let handle = tokio::spawn(async move {
+        let _ =
+            super::run_rpc_session_over_stream(server_read, server_write, engine_lock, config_lock, auth_store_lock)
+                .await;
+    });
+
+    let mut writer = JsonLinesWriter::new(client_write);
+    let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(client_read));
+
+    let first = reader.read_message::<RpcEvent>().await.unwrap().unwrap();
+    assert!(matches!(first, RpcEvent::SessionStart { .. }));
+
+    let req = rho_harness_core::rpc::protocol::RpcRequest {
+        id: Some("req-node".to_string()),
+        command: rho_harness_core::rpc::protocol::RpcCommand::GetNodeInfo,
+    };
+    writer.write_message(&req).await.unwrap();
+
+    let resp = reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert_eq!(resp.id, Some("req-node".to_string()));
+    assert_eq!(resp.command, "get_node_info");
+    assert!(resp.success);
+
+    drop(writer);
+    drop(reader);
+    let _ = handle.await;
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

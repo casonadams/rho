@@ -41,7 +41,6 @@ pub const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("logout", "Remove stored provider authentication <provider>"),
     ("reload", "Reload config, skills, prompt templates, and MCP tools"),
     ("export", "Export session (HTML default, or specify path: .html/.md)"),
-    ("remote", "Pair session with web dashboard via Iroh P2P"),
     ("exit", "Exit rho"),
     ("quit", "Exit rho"),
 ];

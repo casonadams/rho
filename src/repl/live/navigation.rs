@@ -62,8 +62,6 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.tokens_per_second = engine.tokens_per_second();
     footer.context = Some(engine.context_remaining_display());
     footer.show_label = session.config.show_label;
-    footer.remote_active = crate::platform::remote::is_remote_active();
-    footer.remote_peers = crate::platform::remote::remote_peer_count();
 }
 
 pub async fn cycle_thinking_level<B: TerminalBackend>(

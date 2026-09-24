@@ -20,22 +20,6 @@ pub(crate) async fn handle_selector_command(
         CommandResult::OpenHelpSelector => crate::repl::live::modal::open_help_selector(io_controller),
         CommandResult::OpenLoginSelector => crate::repl::live::modal::open_login_selector(ctx.session, io_controller),
         CommandResult::OpenMcpSelector => crate::repl::live::modal::open_mcp_selector(ctx.session, io_controller),
-        CommandResult::OpenRemoteModal => {
-            match crate::platform::remote::ensure_remote_server(
-                ctx.session.config.clone(),
-                ctx.session.auth_store.clone(),
-                Some(&ctx.engine.session_manager.session_id),
-            )
-            .await
-            {
-                Ok(url) => crate::repl::live::modal::open_remote_modal(io_controller, &url),
-                Err(e) => {
-                    ctx.session
-                        .renderer
-                        .print_notice(&format!("\nWarning: Could not start remote access: {e}\n"));
-                }
-            }
-        }
         _ => {}
     }
     io_controller.redraw()?;
@@ -160,8 +144,7 @@ pub(crate) async fn handle_engine_command<B: TerminalBackend>(
         | CommandResult::OpenSettingsSelector
         | CommandResult::OpenHelpSelector
         | CommandResult::OpenLoginSelector
-        | CommandResult::OpenMcpSelector
-        | CommandResult::OpenRemoteModal => {
+        | CommandResult::OpenMcpSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
         CommandResult::ClearContext => clear_engine_context(ctx).await?,

@@ -43,6 +43,7 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
         Some(session_id),
     )
     .await?;
+    ctx.session.sync_engine_model(ctx.engine).await;
     if let Ok(tree) = ctx.engine.session_manager.load_tree().await {
         let _ = crate::repl::live::navigation::hydrate_session_transcript(io.controller, &tree, io.history);
     }

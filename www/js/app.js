@@ -41,11 +41,6 @@ function initGallery() {
       src: "assets/modal-login.svg",
       alt: "rho login provider selector for OAuth and API keys",
       caption: "Interactive provider login (<code>rho login</code>) supporting OAuth PKCE for Google Antigravity, ChatGPT, Claude, and Copilot."
-    },
-    hub: {
-      src: "assets/hub.svg",
-      alt: "rho fleet hub zero-cloud P2P remote control dashboard",
-      caption: "Fleet Hub (<a href=\"hub/\"><code>hub/</code></a>): Zero-cloud P2P mesh powered by Iroh for remote node control, live turn streaming, and mid-turn steering."
     }
   };
 

@@ -48,6 +48,12 @@ enum IdleSource {
     Input(Option<std::io::Result<Event>>),
 }
 
+async fn wait_quota(rx: &mut tokio::sync::watch::Receiver<u64>) {
+    if rx.changed().await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
 async fn next_idle_step(
     ui: &mut IdleUi,
     input: &mut super::TerminalInputReader,
@@ -56,13 +62,7 @@ async fn next_idle_step(
     tokio::select! {
         biased;
         event = input.recv() => IdleSource::Input(event),
-        res = ui.quota_rx.changed() => {
-            if res.is_ok() {
-                IdleSource::Tick(IdleTick::Quota)
-            } else {
-                std::future::pending().await
-            }
-        }
+        _ = wait_quota(&mut ui.quota_rx) => IdleSource::Tick(IdleTick::Quota),
         _ = ui.frame.tick() => IdleSource::Tick(IdleTick::Frame),
         Some(event) = ui_events.recv() => IdleSource::Tick(IdleTick::Ui(event)),
     }
@@ -75,21 +75,7 @@ pub(crate) fn sync_idle_quota<B: TerminalBackend>(
 ) -> Result<bool> {
     let quota = engine.quota_display();
     if controller.state().footer().quota != quota {
-        controller.state_mut().footer_mut().quota = quota.clone();
-        if crate::platform::remote::is_remote_active() {
-            let totals = engine.session_usage_totals();
-            crate::platform::remote::PEER_REGISTRY.broadcast(&rho_harness_core::rpc::protocol::RpcEvent::UsageUpdate {
-                input_tokens: Some(totals.total_input),
-                output_tokens: Some(totals.total_output),
-                cache_read_tokens: Some(totals.total_cache_read),
-                cache_write_tokens: Some(totals.total_cache_write),
-                total_cost: None,
-                context_percent: engine.context_percent_f64(),
-                context_window: engine.context_limit(),
-                tokens_per_second: engine.tokens_per_second(),
-                quota,
-            });
-        }
+        controller.state_mut().footer_mut().quota = quota;
         batch.flush(controller, true)?;
         Ok(true)
     } else {
@@ -162,15 +148,12 @@ async fn drive_idle_loop<B: TerminalBackend>(
 ) -> Result<Option<QueuedMessage>> {
     let mut ui = IdleUi::new(ctx.engine);
     loop {
+        if ui.quota_rx.has_changed().is_err() {
+            ui.quota_rx = ctx.engine.quota_subscribe();
+        }
         match next_idle_step(&mut ui, input, ui_events).await {
             IdleSource::Tick(tick) => {
                 handle_tick(controller, &mut ui.batch, tick, ctx).await?;
-                if let Some(prompt) = crate::platform::remote::REMOTE_PROMPT_QUEUE.pop() {
-                    return Ok(Some(QueuedMessage {
-                        text: prompt,
-                        kind: crate::ui::interactive::QueueKind::FollowUp,
-                    }));
-                }
             }
             IdleSource::Input(event) => {
                 match handle_input_source(controller, event, &mut ui.batch, resources, input, ctx).await? {
