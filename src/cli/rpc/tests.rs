@@ -248,13 +248,29 @@ fn test_extract_chat_messages_preserves_tools() {
     assert_eq!(extracted[3]["content"], "Check passed cleanly.");
 }
 
-#[tokio::test]
-async fn test_run_rpc_session_over_stream_roundtrip() {
-    let (client_io, server_io) = duplex(65536);
-    let (server_read, server_write) = tokio::io::split(server_io);
-    let (client_read, client_write) = tokio::io::split(client_io);
+async fn send_and_expect_success<R: tokio::io::AsyncBufRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    writer: &mut JsonLinesWriter<W>,
+    reader: &mut JsonLinesReader<R>,
+    id: &str,
+    cmd: rho_harness_core::rpc::protocol::RpcCommand,
+    expected_command: &str,
+) {
+    let req = rho_harness_core::rpc::protocol::RpcRequest {
+        id: Some(id.to_string()),
+        command: cmd,
+    };
+    writer.write_message(&req).await.unwrap();
+    let resp = reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert_eq!(resp.id, Some(id.to_string()));
+    assert_eq!(resp.command, expected_command);
+    assert!(resp.success);
+}
 
-    let temp_dir = std::env::temp_dir().join(format!("rpc_stream_test_{}", uuid::Uuid::new_v4()));
+async fn setup_rpc_test_server(
+    server_read: tokio::io::ReadHalf<tokio::io::DuplexStream>,
+    server_write: tokio::io::WriteHalf<tokio::io::DuplexStream>,
+    temp_dir: &std::path::Path,
+) -> tokio::task::JoinHandle<crate::error::Result<()>> {
     let config = Config {
         sessions_dir: temp_dir.join("sessions"),
         auth_file: temp_dir.join("auth.json"),
@@ -268,11 +284,19 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     let config_lock = Arc::new(RwLock::new(config));
     let auth_store_lock = Arc::new(RwLock::new(auth_store));
 
-    let handle = tokio::spawn(async move {
-        let _ =
-            super::run_rpc_session_over_stream(server_read, server_write, engine_lock, config_lock, auth_store_lock)
-                .await;
-    });
+    tokio::spawn(async move {
+        super::run_rpc_session_over_stream(server_read, server_write, engine_lock, config_lock, auth_store_lock).await
+    })
+}
+
+#[tokio::test]
+async fn test_run_rpc_session_over_stream_roundtrip() {
+    let (client_io, server_io) = duplex(65536);
+    let (server_read, server_write) = tokio::io::split(server_io);
+    let (client_read, client_write) = tokio::io::split(client_io);
+
+    let temp_dir = std::env::temp_dir().join(format!("rpc_stream_test_{}", uuid::Uuid::new_v4()));
+    let handle = setup_rpc_test_server(server_read, server_write, &temp_dir).await;
 
     let mut writer = JsonLinesWriter::new(client_write);
     let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(client_read));
@@ -280,16 +304,72 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     let first = reader.read_message::<RpcEvent>().await.unwrap().unwrap();
     assert!(matches!(first, RpcEvent::SessionStart { .. }));
 
-    let req = rho_harness_core::rpc::protocol::RpcRequest {
-        id: Some("req-node".to_string()),
-        command: rho_harness_core::rpc::protocol::RpcCommand::GetNodeInfo,
-    };
-    writer.write_message(&req).await.unwrap();
+    send_and_expect_success(
+        &mut writer,
+        &mut reader,
+        "req-node",
+        rho_harness_core::rpc::protocol::RpcCommand::GetNodeInfo,
+        "get_node_info",
+    )
+    .await;
 
-    let resp = reader.read_message::<RpcResponse>().await.unwrap().unwrap();
-    assert_eq!(resp.id, Some("req-node".to_string()));
-    assert_eq!(resp.command, "get_node_info");
-    assert!(resp.success);
+    send_and_expect_success(
+        &mut writer,
+        &mut reader,
+        "req-state",
+        rho_harness_core::rpc::protocol::RpcCommand::GetState,
+        "get_state",
+    )
+    .await;
+
+    let req3 = rho_harness_core::rpc::protocol::RpcRequest {
+        id: Some("req-abort".to_string()),
+        command: rho_harness_core::rpc::protocol::RpcCommand::Abort,
+    };
+    writer.write_message(&req3).await.unwrap();
+    let ev_abort = reader.read_message::<RpcEvent>().await.unwrap().unwrap();
+    assert!(matches!(ev_abort, RpcEvent::StatusChanged { .. }));
+    let resp3 = reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert_eq!(resp3.command, "abort");
+    assert!(resp3.success);
+
+    send_and_expect_success(
+        &mut writer,
+        &mut reader,
+        "req-steer",
+        rho_harness_core::rpc::protocol::RpcCommand::Steer {
+            message: "steer msg".into(),
+        },
+        "steer",
+    )
+    .await;
+
+    send_and_expect_success(
+        &mut writer,
+        &mut reader,
+        "req-tree",
+        rho_harness_core::rpc::protocol::RpcCommand::GetTree,
+        "get_tree",
+    )
+    .await;
+
+    send_and_expect_success(
+        &mut writer,
+        &mut reader,
+        "req-list",
+        rho_harness_core::rpc::protocol::RpcCommand::ListSessions,
+        "list_sessions",
+    )
+    .await;
+
+    send_and_expect_success(
+        &mut writer,
+        &mut reader,
+        "req-exit",
+        rho_harness_core::rpc::protocol::RpcCommand::Exit,
+        "exit",
+    )
+    .await;
 
     drop(writer);
     drop(reader);

@@ -23507,12 +23507,12 @@
       "function": "handle_remote_auth_cmd",
       "line": 101,
       "cyclomatic": 12.0,
-      "coverage": 31.03448275862069,
-      "crap": 59.234408954856704,
+      "coverage": 34.48275862068966,
+      "crap": 52.49760137767026,
       "uncovered": [
         {
           "start": 111,
-          "end": 136
+          "end": 134
         }
       ]
     },
@@ -23749,12 +23749,16 @@
       "function": "handle_session_lifecycle_cmd",
       "line": 38,
       "cyclomatic": 13.0,
-      "coverage": 0.0,
-      "crap": 182.0,
+      "coverage": 50.0,
+      "crap": 34.125,
       "uncovered": [
         {
-          "start": 38,
-          "end": 86
+          "start": 48,
+          "end": 70
+        },
+        {
+          "start": 84,
+          "end": 84
         }
       ]
     },
@@ -23763,12 +23767,12 @@
       "function": "handle_abort_cmd",
       "line": 37,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 94.73684210526315,
+      "crap": 3.0013121446274966,
       "uncovered": [
         {
-          "start": 37,
-          "end": 55
+          "start": 42,
+          "end": 42
         }
       ]
     },
@@ -23805,14 +23809,8 @@
       "function": "handle_steer_command",
       "line": 27,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 27,
-          "end": 35
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/cli/rpc/handlers/turn.rs",
@@ -23839,81 +23837,117 @@
     {
       "file": "./src/cli/rpc/loop_runner.rs",
       "function": "dispatch_rpc",
-      "line": 13,
-      "cyclomatic": 22.0,
-      "coverage": 25.925925925925924,
-      "crap": 218.71797998272615,
+      "line": 56,
+      "cyclomatic": 11.0,
+      "coverage": 75.0,
+      "crap": 12.890625,
       "uncovered": [
         {
-          "start": 17,
-          "end": 31
+          "start": 66,
+          "end": 66
         },
         {
-          "start": 35,
-          "end": 46
+          "start": 69,
+          "end": 71
+        }
+      ]
+    },
+    {
+      "file": "./src/cli/rpc/loop_runner.rs",
+      "function": "handle_exit_cmd",
+      "line": 43,
+      "cyclomatic": 3.0,
+      "coverage": 91.66666666666666,
+      "crap": 3.0052083333333335,
+      "uncovered": [
+        {
+          "start": 48,
+          "end": 48
         }
       ]
     },
     {
       "file": "./src/cli/rpc/loop_runner.rs",
       "function": "handle_next_rpc_item",
-      "line": 122,
+      "line": 144,
       "cyclomatic": 8.0,
-      "coverage": 68.18181818181817,
-      "crap": 10.06160781367393,
+      "coverage": 63.63636363636363,
+      "crap": 11.077385424492864,
       "uncovered": [
         {
-          "start": 132,
-          "end": 139
+          "start": 154,
+          "end": 161
+        },
+        {
+          "start": 165,
+          "end": 165
         }
       ]
     },
     {
       "file": "./src/cli/rpc/loop_runner.rs",
       "function": "handle_read_request",
-      "line": 52,
+      "line": 74,
       "cyclomatic": 4.0,
       "coverage": 58.333333333333336,
       "crap": 5.1574074074074066,
       "uncovered": [
         {
-          "start": 58,
-          "end": 62
+          "start": 80,
+          "end": 84
+        }
+      ]
+    },
+    {
+      "file": "./src/cli/rpc/loop_runner.rs",
+      "function": "handle_turn_control_cmd",
+      "line": 13,
+      "cyclomatic": 12.0,
+      "coverage": 71.42857142857143,
+      "crap": 15.358600583090379,
+      "uncovered": [
+        {
+          "start": 19,
+          "end": 21
+        },
+        {
+          "start": 31,
+          "end": 33
         }
       ]
     },
     {
       "file": "./src/cli/rpc/loop_runner.rs",
       "function": "handle_turn_done",
-      "line": 86,
+      "line": 108,
       "cyclomatic": 5.0,
       "coverage": 0.0,
       "crap": 30.0,
       "uncovered": [
         {
-          "start": 86,
-          "end": 120
+          "start": 108,
+          "end": 142
         }
       ]
     },
     {
       "file": "./src/cli/rpc/loop_runner.rs",
       "function": "poll_next_rpc",
-      "line": 67,
+      "line": 89,
       "cyclomatic": 2.0,
       "coverage": 71.42857142857143,
       "crap": 2.0932944606413995,
       "uncovered": [
         {
-          "start": 73,
-          "end": 76
+          "start": 95,
+          "end": 98
         }
       ]
     },
     {
       "file": "./src/cli/rpc/loop_runner.rs",
       "function": "run_rpc_loop",
-      "line": 150,
+      "line": 172,
       "cyclomatic": 4.0,
       "coverage": 100.0,
       "crap": 4.0
