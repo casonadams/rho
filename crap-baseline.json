@@ -8828,53 +8828,59 @@
     },
     {
       "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
+      "function": "discover_mcp_auth_metadata",
+      "line": 106,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
       "function": "get_valid_mcp_token",
-      "line": 137,
+      "line": 158,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 137,
-          "end": 140
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
       "function": "login_mcp_server",
-      "line": 78,
-      "cyclomatic": 9.0,
-      "coverage": 0.0,
-      "crap": 90.0,
-      "uncovered": [
-        {
-          "start": 78,
-          "end": 135
-        }
-      ]
+      "line": 130,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
+      "function": "probe_mcp_server",
+      "line": 91,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
       "function": "refresh_mcp_token",
       "line": 18,
       "cyclomatic": 4.0,
-      "coverage": 90.0,
-      "crap": 4.016,
-      "uncovered": [
-        {
-          "start": 24,
-          "end": 24
-        },
-        {
-          "start": 28,
-          "end": 28
-        },
-        {
-          "start": 45,
-          "end": 46
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
+      "function": "resolve_probe_target",
+      "line": 78,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-engine/src/mcp/auth/mod.rs",
+      "function": "store_mcp_credential",
+      "line": 119,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-engine/src/mcp/client.rs",
