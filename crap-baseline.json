@@ -34060,15 +34060,39 @@
     },
     {
       "file": "./src/ui/interactive/session_picker.rs",
-      "function": "key_loop",
+      "function": "handle_key_event",
+      "line": 87,
+      "cyclomatic": 9.0,
+      "coverage": 100.0,
+      "crap": 9.0
+    },
+    {
+      "file": "./src/ui/interactive/session_picker.rs",
+      "function": "handle_picker_event",
+      "line": 116,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
+    },
+    {
+      "file": "./src/ui/interactive/session_picker.rs",
+      "function": "handle_resize",
       "line": 82,
-      "cyclomatic": 17.0,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/ui/interactive/session_picker.rs",
+      "function": "key_loop",
+      "line": 145,
+      "cyclomatic": 1.0,
       "coverage": 0.0,
-      "crap": 306.0,
+      "crap": 2.0,
       "uncovered": [
         {
-          "start": 82,
-          "end": 113
+          "start": 145,
+          "end": 147
         }
       ]
     },
@@ -34077,18 +34101,8 @@
       "function": "picker_action",
       "line": 43,
       "cyclomatic": 10.0,
-      "coverage": 85.18518518518519,
-      "crap": 10.325153685921862,
-      "uncovered": [
-        {
-          "start": 44,
-          "end": 44
-        },
-        {
-          "start": 49,
-          "end": 51
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 10.0
     },
     {
       "file": "./src/ui/interactive/session_picker.rs",
@@ -34103,6 +34117,14 @@
           "end": 21
         }
       ]
+    },
+    {
+      "file": "./src/ui/interactive/session_picker.rs",
+      "function": "run_event_loop",
+      "line": 130,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./src/ui/interactive/session_picker.rs",

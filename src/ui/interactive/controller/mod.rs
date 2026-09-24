@@ -3,7 +3,7 @@ pub mod backend;
 pub mod cache;
 pub mod paint;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod tools;
 pub mod transcript;
 
