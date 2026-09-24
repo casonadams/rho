@@ -41,73 +41,107 @@ impl FromStr for ConfigKey {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "model" | "default_model" => Ok(Self::Model),
-            "provider" | "default_provider" => Ok(Self::Provider),
-            "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Ok(Self::ThinkingLevel),
-            "max_output_tokens" => Ok(Self::MaxOutputTokens),
-            "max_turns" => Ok(Self::MaxTurns),
-            "context_limit" => Ok(Self::ContextLimit),
-            "context_window_messages" => Ok(Self::ContextWindowMessages),
-            "compaction_max_bytes" => Ok(Self::CompactionMaxBytes),
-            "search_min_interval_ms" => Ok(Self::SearchMinIntervalMs),
-            "search_timeout_sec" => Ok(Self::SearchTimeoutSec),
-            "fetch_timeout_sec" => Ok(Self::FetchTimeoutSec),
-            "fetch_limit" => Ok(Self::FetchLimit),
-            "fetch_max_bytes" => Ok(Self::FetchMaxBytes),
-            "output_max_bytes" => Ok(Self::OutputMaxBytes),
-            "allow_private_network" => Ok(Self::AllowPrivateNetwork),
-            "region" => Ok(Self::Region),
-            "steering_mode" => Ok(Self::SteeringMode),
-            "follow_up_mode" => Ok(Self::FollowUpMode),
-            "reserve_tokens" => Ok(Self::ReserveTokens),
-            "keep_recent_tokens" => Ok(Self::KeepRecentTokens),
-            "session_retention_days" | "retention_days" => Ok(Self::SessionRetentionDays),
-            "block_style" | "ui.block_style" => Ok(Self::BlockStyle),
-            "agent_block_output" | "ui.agent_block_output" | "agent_box" | "ui.agent_box" => Ok(Self::AgentBlockOutput),
-            "hide_thinking" | "ui.hide_thinking" | "thinking_hidden" | "ui.thinking_hidden" => Ok(Self::HideThinking),
-            "tools_expanded" | "ui.tools_expanded" | "expand_tools" | "ui.expand_tools" => Ok(Self::ToolsExpanded),
-            "cursor" | "ui.cursor" | "cursor_style" | "ui.cursor_style" | "cursor_mode" | "ui.cursor_mode" => {
-                Ok(Self::Cursor)
-            }
-            "show_label" => Ok(Self::ShowLabel),
-            "semantic_search" | "semantic-search" | "features.semantic_search" => Ok(Self::SemanticSearch),
-            "tools.web.search.default" | "tools.web.search" | "search_engine" | "search_provider" => {
-                Ok(Self::SearchEngine)
-            }
-            "tools.web.search.enabled" | "web_search" => Ok(Self::WebSearchEnabled),
-            "tools.web.fetch.enabled" | "web_fetch" => Ok(Self::WebFetchEnabled),
-            "mcp.enabled" | "mcp" => Ok(Self::McpEnabled),
-            "permission.enabled" | "permission" => Ok(Self::PermissionEnabled),
-            _ => Err(format!("unknown configuration key: {value}")),
+        if let Some(key) = parse_runtime_key(value) {
+            return Ok(key);
         }
+        if let Some(key) = parse_feature_key(value) {
+            return Ok(key);
+        }
+        Err(format!("unknown configuration key: {value}"))
+    }
+}
+
+fn parse_runtime_key(value: &str) -> Option<ConfigKey> {
+    match value {
+        "model" | "default_model" => Some(ConfigKey::Model),
+        "provider" | "default_provider" => Some(ConfigKey::Provider),
+        "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Some(ConfigKey::ThinkingLevel),
+        "max_output_tokens" => Some(ConfigKey::MaxOutputTokens),
+        "max_turns" => Some(ConfigKey::MaxTurns),
+        "context_limit" => Some(ConfigKey::ContextLimit),
+        "context_window_messages" => Some(ConfigKey::ContextWindowMessages),
+        "compaction_max_bytes" => Some(ConfigKey::CompactionMaxBytes),
+        "search_min_interval_ms" => Some(ConfigKey::SearchMinIntervalMs),
+        "search_timeout_sec" => Some(ConfigKey::SearchTimeoutSec),
+        "fetch_timeout_sec" => Some(ConfigKey::FetchTimeoutSec),
+        "fetch_limit" => Some(ConfigKey::FetchLimit),
+        "fetch_max_bytes" => Some(ConfigKey::FetchMaxBytes),
+        "output_max_bytes" => Some(ConfigKey::OutputMaxBytes),
+        "allow_private_network" => Some(ConfigKey::AllowPrivateNetwork),
+        "region" => Some(ConfigKey::Region),
+        "steering_mode" => Some(ConfigKey::SteeringMode),
+        "follow_up_mode" => Some(ConfigKey::FollowUpMode),
+        "reserve_tokens" => Some(ConfigKey::ReserveTokens),
+        "keep_recent_tokens" => Some(ConfigKey::KeepRecentTokens),
+        "session_retention_days" | "retention_days" => Some(ConfigKey::SessionRetentionDays),
+        _ => None,
+    }
+}
+
+fn parse_feature_key(value: &str) -> Option<ConfigKey> {
+    match value {
+        "block_style" | "ui.block_style" => Some(ConfigKey::BlockStyle),
+        "agent_block_output" | "ui.agent_block_output" | "agent_box" | "ui.agent_box" => {
+            Some(ConfigKey::AgentBlockOutput)
+        }
+        "hide_thinking" | "ui.hide_thinking" | "thinking_hidden" | "ui.thinking_hidden" => {
+            Some(ConfigKey::HideThinking)
+        }
+        "tools_expanded" | "ui.tools_expanded" | "expand_tools" | "ui.expand_tools" => Some(ConfigKey::ToolsExpanded),
+        "cursor" | "ui.cursor" | "cursor_style" | "ui.cursor_style" | "cursor_mode" | "ui.cursor_mode" => {
+            Some(ConfigKey::Cursor)
+        }
+        "show_label" => Some(ConfigKey::ShowLabel),
+        "semantic_search" | "semantic-search" | "features.semantic_search" => Some(ConfigKey::SemanticSearch),
+        "tools.web.search.default" | "tools.web.search" | "search_engine" | "search_provider" => {
+            Some(ConfigKey::SearchEngine)
+        }
+        "tools.web.search.enabled" | "web_search" => Some(ConfigKey::WebSearchEnabled),
+        "tools.web.fetch.enabled" | "web_fetch" => Some(ConfigKey::WebFetchEnabled),
+        "mcp.enabled" | "mcp" => Some(ConfigKey::McpEnabled),
+        "permission.enabled" | "permission" => Some(ConfigKey::PermissionEnabled),
+        _ => None,
     }
 }
 
 impl ConfigKey {
     pub(crate) const fn as_str(self) -> &'static str {
+        if let Some(name) = self.runtime_key_name() {
+            name
+        } else {
+            self.feature_key_name()
+        }
+    }
+
+    const fn runtime_key_name(self) -> Option<&'static str> {
         match self {
-            Self::Model => "model",
-            Self::Provider => "provider",
-            Self::MaxOutputTokens => "max_output_tokens",
-            Self::MaxTurns => "max_turns",
-            Self::ContextLimit => "context_limit",
-            Self::ContextWindowMessages => "context_window_messages",
-            Self::CompactionMaxBytes => "compaction_max_bytes",
-            Self::SearchMinIntervalMs => "search_min_interval_ms",
-            Self::SearchTimeoutSec => "search_timeout_sec",
-            Self::FetchTimeoutSec => "fetch_timeout_sec",
-            Self::FetchLimit => "fetch_limit",
-            Self::FetchMaxBytes => "fetch_max_bytes",
-            Self::OutputMaxBytes => "output_max_bytes",
-            Self::AllowPrivateNetwork => "allow_private_network",
-            Self::Region => "region",
-            Self::SteeringMode => "steering_mode",
-            Self::FollowUpMode => "follow_up_mode",
-            Self::ReserveTokens => "reserve_tokens",
-            Self::KeepRecentTokens => "keep_recent_tokens",
-            Self::ThinkingLevel => "thinking_level",
-            Self::SessionRetentionDays => "session_retention_days",
+            Self::Model => Some("model"),
+            Self::Provider => Some("provider"),
+            Self::MaxOutputTokens => Some("max_output_tokens"),
+            Self::MaxTurns => Some("max_turns"),
+            Self::ContextLimit => Some("context_limit"),
+            Self::ContextWindowMessages => Some("context_window_messages"),
+            Self::CompactionMaxBytes => Some("compaction_max_bytes"),
+            Self::SearchMinIntervalMs => Some("search_min_interval_ms"),
+            Self::SearchTimeoutSec => Some("search_timeout_sec"),
+            Self::FetchTimeoutSec => Some("fetch_timeout_sec"),
+            Self::FetchLimit => Some("fetch_limit"),
+            Self::FetchMaxBytes => Some("fetch_max_bytes"),
+            Self::OutputMaxBytes => Some("output_max_bytes"),
+            Self::AllowPrivateNetwork => Some("allow_private_network"),
+            Self::Region => Some("region"),
+            Self::SteeringMode => Some("steering_mode"),
+            Self::FollowUpMode => Some("follow_up_mode"),
+            Self::ReserveTokens => Some("reserve_tokens"),
+            Self::KeepRecentTokens => Some("keep_recent_tokens"),
+            Self::ThinkingLevel => Some("thinking_level"),
+            Self::SessionRetentionDays => Some("session_retention_days"),
+            _ => None,
+        }
+    }
+
+    const fn feature_key_name(self) -> &'static str {
+        match self {
             Self::BlockStyle => "ui.block_style",
             Self::AgentBlockOutput => "ui.agent_block_output",
             Self::HideThinking => "ui.hide_thinking",
@@ -120,6 +154,101 @@ impl ConfigKey {
             Self::WebFetchEnabled => "tools.web.fetch.enabled",
             Self::McpEnabled => "mcp.enabled",
             Self::PermissionEnabled => "permission.enabled",
+            _ => "",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL_KEYS: [ConfigKey; 33] = [
+        ConfigKey::Model,
+        ConfigKey::Provider,
+        ConfigKey::MaxOutputTokens,
+        ConfigKey::MaxTurns,
+        ConfigKey::ContextLimit,
+        ConfigKey::ContextWindowMessages,
+        ConfigKey::CompactionMaxBytes,
+        ConfigKey::SearchMinIntervalMs,
+        ConfigKey::SearchTimeoutSec,
+        ConfigKey::FetchTimeoutSec,
+        ConfigKey::FetchLimit,
+        ConfigKey::FetchMaxBytes,
+        ConfigKey::OutputMaxBytes,
+        ConfigKey::AllowPrivateNetwork,
+        ConfigKey::Region,
+        ConfigKey::SteeringMode,
+        ConfigKey::FollowUpMode,
+        ConfigKey::ReserveTokens,
+        ConfigKey::KeepRecentTokens,
+        ConfigKey::ThinkingLevel,
+        ConfigKey::SessionRetentionDays,
+        ConfigKey::BlockStyle,
+        ConfigKey::AgentBlockOutput,
+        ConfigKey::HideThinking,
+        ConfigKey::ToolsExpanded,
+        ConfigKey::Cursor,
+        ConfigKey::ShowLabel,
+        ConfigKey::SemanticSearch,
+        ConfigKey::SearchEngine,
+        ConfigKey::WebSearchEnabled,
+        ConfigKey::WebFetchEnabled,
+        ConfigKey::McpEnabled,
+        ConfigKey::PermissionEnabled,
+    ];
+
+    #[test]
+    fn all_keys_roundtrip_through_str() {
+        for key in ALL_KEYS {
+            let s = key.as_str();
+            assert!(!s.is_empty());
+            assert_eq!(ConfigKey::from_str(s), Ok(key));
+        }
+    }
+
+    #[test]
+    fn key_aliases_parse_correctly() {
+        let aliases = [
+            ("default_model", ConfigKey::Model),
+            ("default_provider", ConfigKey::Provider),
+            ("thinking", ConfigKey::ThinkingLevel),
+            ("default_thinking", ConfigKey::ThinkingLevel),
+            ("default_thinking_level", ConfigKey::ThinkingLevel),
+            ("retention_days", ConfigKey::SessionRetentionDays),
+            ("agent_box", ConfigKey::AgentBlockOutput),
+            ("ui.agent_box", ConfigKey::AgentBlockOutput),
+            ("thinking_hidden", ConfigKey::HideThinking),
+            ("ui.thinking_hidden", ConfigKey::HideThinking),
+            ("expand_tools", ConfigKey::ToolsExpanded),
+            ("ui.expand_tools", ConfigKey::ToolsExpanded),
+            ("cursor_style", ConfigKey::Cursor),
+            ("ui.cursor_style", ConfigKey::Cursor),
+            ("cursor_mode", ConfigKey::Cursor),
+            ("ui.cursor_mode", ConfigKey::Cursor),
+            ("semantic-search", ConfigKey::SemanticSearch),
+            ("features.semantic_search", ConfigKey::SemanticSearch),
+            ("tools.web.search", ConfigKey::SearchEngine),
+            ("search_engine", ConfigKey::SearchEngine),
+            ("search_provider", ConfigKey::SearchEngine),
+            ("web_search", ConfigKey::WebSearchEnabled),
+            ("web_fetch", ConfigKey::WebFetchEnabled),
+            ("mcp", ConfigKey::McpEnabled),
+            ("permission", ConfigKey::PermissionEnabled),
+        ];
+        for (alias, expected) in aliases {
+            assert_eq!(ConfigKey::from_str(alias), Ok(expected));
+        }
+    }
+
+    #[test]
+    fn unknown_key_fails() {
+        assert!(ConfigKey::from_str("completely_unknown_setting").is_err());
+    }
+
+    #[test]
+    fn feature_key_name_fallback_for_runtime_keys() {
+        assert_eq!(ConfigKey::Model.feature_key_name(), "");
     }
 }

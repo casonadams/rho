@@ -17697,36 +17697,50 @@
     {
       "file": "./crates/rho-harness-core/src/config/types/key.rs",
       "function": "ConfigKey::as_str",
-      "line": 88,
-      "cyclomatic": 34.0,
-      "coverage": 33.33333333333333,
-      "crap": 376.51851851851865,
-      "uncovered": [
-        {
-          "start": 90,
-          "end": 92
-        },
-        {
-          "start": 94,
-          "end": 111
-        },
-        {
-          "start": 115,
-          "end": 115
-        },
-        {
-          "start": 117,
-          "end": 118
-        }
-      ]
+      "line": 108,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/config/types/key.rs",
+      "function": "ConfigKey::feature_key_name",
+      "line": 143,
+      "cyclomatic": 14.0,
+      "coverage": 100.0,
+      "crap": 14.0
     },
     {
       "file": "./crates/rho-harness-core/src/config/types/key.rs",
       "function": "ConfigKey::from_str",
       "line": 43,
-      "cyclomatic": 35.0,
+      "cyclomatic": 3.0,
       "coverage": 100.0,
-      "crap": 35.0
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/config/types/key.rs",
+      "function": "ConfigKey::runtime_key_name",
+      "line": 116,
+      "cyclomatic": 23.0,
+      "coverage": 100.0,
+      "crap": 23.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/config/types/key.rs",
+      "function": "parse_feature_key",
+      "line": 81,
+      "cyclomatic": 14.0,
+      "coverage": 100.0,
+      "crap": 14.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/config/types/key.rs",
+      "function": "parse_runtime_key",
+      "line": 54,
+      "cyclomatic": 23.0,
+      "coverage": 100.0,
+      "crap": 23.0
     },
     {
       "file": "./crates/rho-harness-core/src/config/types/paths.rs",
