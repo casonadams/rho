@@ -480,3 +480,53 @@ fn running_tool_preserves_ansi_escapes_across_chunk_boundaries() {
     tool.append_chunk("0mwith fill\x1b[0m done\n");
     assert_eq!(tool.output, "compiling \x1b[40mwith fill\x1b[0m done\n");
 }
+
+#[test]
+fn activity_label_maps_variants() {
+    assert_eq!(Activity::Idle.label(), "idle");
+    assert_eq!(Activity::Thinking.label(), "thinking");
+    assert_eq!(Activity::Compacting.label(), "compacting");
+    assert_eq!(Activity::Working.label(), "working");
+}
+
+#[test]
+fn footer_state_equality_and_inequality() {
+    let base = FooterState {
+        activity: Activity::Idle,
+        running_tool: Some("bash".into()),
+        provider: "anthropic".into(),
+        model: "claude".into(),
+        thinking_level: Some("high".into()),
+        cwd: Some("/tmp".into()),
+        git_branch: Some("main".into()),
+        session_name: Some("test".into()),
+        quota: Some("100%".into()),
+        context_percent: Some(0.5),
+        context_window: 200_000,
+        total_input_tokens: 1000,
+        total_output_tokens: 200,
+        total_cache_read_tokens: 50,
+        total_cache_write_tokens: 25,
+        total_cost: Some(0.015),
+        tokens_per_second: Some(45.2),
+        extra_status: Some("ready".into()),
+        hidden_status_count: 2,
+        context: Some("ctx".into()),
+        show_label: true,
+        remote_active: true,
+        remote_peers: 3,
+    };
+    assert_eq!(base, base.clone());
+
+    let mut diff_id = base.clone();
+    diff_id.model = "gpt-4o".into();
+    assert_ne!(base, diff_id);
+
+    let mut diff_metrics = base.clone();
+    diff_metrics.total_cost = Some(0.02);
+    assert_ne!(base, diff_metrics);
+
+    let mut diff_ui = base.clone();
+    diff_ui.remote_peers = 4;
+    assert_ne!(base, diff_ui);
+}

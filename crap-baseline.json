@@ -35271,28 +35271,40 @@
       "function": "Activity::label",
       "line": 26,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
-      "uncovered": [
-        {
-          "start": 26,
-          "end": 33
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./src/ui/interactive/state/types.rs",
       "function": "FooterState::eq",
-      "line": 64,
-      "cyclomatic": 23.0,
-      "coverage": 0.0,
-      "crap": 552.0,
-      "uncovered": [
-        {
-          "start": 64,
-          "end": 88
-        }
-      ]
+      "line": 129,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/ui/interactive/state/types.rs",
+      "function": "FooterState::identity_key",
+      "line": 89,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/ui/interactive/state/types.rs",
+      "function": "FooterState::metrics_key",
+      "line": 102,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/ui/interactive/state/types.rs",
+      "function": "FooterState::ui_key",
+      "line": 116,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/ui/interactive/transcript.rs",
