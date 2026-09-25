@@ -12263,14 +12263,8 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 70.0,
-      "crap": 4.432,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 52
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -37182,36 +37176,38 @@
     },
     {
       "file": "./src/ui/render/notices.rs",
+      "function": "TerminalRenderer::emit_notice_output",
+      "line": 92,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_block",
-      "line": 69,
-      "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 69,
-          "end": 96
-        }
-      ]
+      "line": 107,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_cache_miss_notice",
-      "line": 127,
+      "line": 137,
       "cyclomatic": 2.0,
       "coverage": 92.85714285714286,
       "crap": 2.001457725947522,
       "uncovered": [
         {
-          "start": 138,
-          "end": 138
+          "start": 148,
+          "end": 148
         }
       ]
     },
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_compaction_cost_notice",
-      "line": 116,
+      "line": 126,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -37219,23 +37215,23 @@
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_notice",
-      "line": 98,
-      "cyclomatic": 2.0,
+      "line": 112,
+      "cyclomatic": 1.0,
       "coverage": 100.0,
-      "crap": 2.0
+      "crap": 1.0
     },
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_session_status",
-      "line": 58,
-      "cyclomatic": 2.0,
+      "line": 100,
+      "cyclomatic": 1.0,
       "coverage": 100.0,
-      "crap": 2.0
+      "crap": 1.0
     },
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_status",
-      "line": 106,
+      "line": 116,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -37243,44 +37239,68 @@
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_user_block",
-      "line": 144,
+      "line": 154,
       "cyclomatic": 2.0,
       "coverage": 87.5,
       "crap": 2.0078125,
       "uncovered": [
         {
-          "start": 146,
-          "end": 146
+          "start": 156,
+          "end": 156
         }
       ]
     },
     {
       "file": "./src/ui/render/notices.rs",
       "function": "TerminalRenderer::print_welcome",
-      "line": 33,
+      "line": 67,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 33,
-          "end": 56
+          "start": 67,
+          "end": 90
         }
       ]
+    },
+    {
+      "file": "./src/ui/render/notices.rs",
+      "function": "format_block_title",
+      "line": 32,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/ui/render/notices.rs",
+      "function": "render_block_content",
+      "line": 58,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/ui/render/notices.rs",
       "function": "resolve_block_bg",
       "line": 15,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
+      "coverage": 75.0,
+      "crap": 4.25,
       "uncovered": [
         {
-          "start": 15,
-          "end": 30
+          "start": 23,
+          "end": 25
         }
       ]
+    },
+    {
+      "file": "./src/ui/render/notices.rs",
+      "function": "resolve_block_format",
+      "line": 41,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/ui/render/presenter.rs",

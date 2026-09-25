@@ -15,7 +15,7 @@ use rho_harness_core::presentation::summary::{
     ReadClassification, classify_read_path, clean_command_paths, format_tool_args_summary, read_summary_parts,
     to_relative_path,
 };
-use rho_harness_core::presentation::{SessionStatus, ToolLine};
+use rho_harness_core::presentation::{BlockDisplay, SessionStatus, ToolLine};
 
 fn assert_contains_all(s: &str, items: &[&str]) {
     for item in items {
@@ -598,6 +598,81 @@ fn print_compaction_and_cache_miss_notices() {
     assert_eq!(items.len(), 2);
     assert!(items[0].contains("Compaction: 154k tokens billed (~$0.46)"));
     assert!(items[1].contains("Cache miss after 5m idle: 45k tokens re-billed (~$0.14)"));
+}
+
+#[test]
+fn print_block_emits_transcript_notice() {
+    let (ui, mut events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+
+    renderer.print_block(&BlockDisplay {
+        title: "Important Notice".to_string(),
+        content: "Detailed content goes here.".to_string(),
+        style: "info".to_string(),
+    });
+    renderer.print_block(&BlockDisplay {
+        title: "".to_string(),
+        content: "Warning without title.".to_string(),
+        style: "warning".to_string(),
+    });
+
+    let items = std::iter::from_fn(|| events.try_recv().ok())
+        .filter_map(|event| match event {
+            UiEvent::Transcript(TranscriptItem::Notice(text)) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(items.len(), 2);
+    assert!(items[0].contains("Important Notice"));
+    assert!(items[0].contains("Detailed content goes here."));
+    assert!(items[1].contains("Warning without title."));
+}
+
+#[test]
+fn render_block_content_styles_and_modes() {
+    use crate::ui::render::notices::render_block_content;
+    use crate::ui::theme::BlockStyle;
+
+    let mut theme = Theme {
+        block_style: BlockStyle::Border,
+        ..Default::default()
+    };
+
+    let info_block = BlockDisplay {
+        title: "Info Title".to_string(),
+        content: "Info body".to_string(),
+        style: "info".to_string(),
+    };
+    let rendered_border_info = render_block_content(&theme, &info_block);
+    assert!(rendered_border_info.contains("Info Title"));
+    assert!(rendered_border_info.contains("Info body"));
+
+    let warn_block = BlockDisplay {
+        title: "".to_string(),
+        content: "Warn body".to_string(),
+        style: "warning".to_string(),
+    };
+    let rendered_border_warn = render_block_content(&theme, &warn_block);
+    assert!(rendered_border_warn.contains("Warn body"));
+
+    theme.block_style = BlockStyle::Solid;
+    let rendered_solid_info = render_block_content(&theme, &info_block);
+    assert!(rendered_solid_info.contains("Info Title"));
+    assert!(rendered_solid_info.contains("Info body"));
+
+    let rendered_solid_warn = render_block_content(&theme, &warn_block);
+    assert!(rendered_solid_warn.contains("Warn body"));
+}
+
+#[test]
+fn print_block_without_ui_writes_output() {
+    let renderer = TerminalRenderer::default();
+    renderer.print_block(&BlockDisplay {
+        title: "Direct".to_string(),
+        content: "Console output".to_string(),
+        style: "info".to_string(),
+    });
 }
 
 #[test]
