@@ -554,3 +554,114 @@ async fn test_handle_remote_auth_cmd_keys_and_session() {
 
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[tokio::test]
+async fn test_handle_session_lifecycle_cmd_variants() {
+    use super::handlers::handle_session_lifecycle_cmd;
+    use rho_harness_core::rpc::protocol::RpcCommand;
+
+    let (client_io, server_io) = duplex(4096);
+    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
+    let mut writer = JsonLinesWriter::new(server_io);
+    let temp_dir = std::env::temp_dir().join(format!("rpc_lifecycle_test_{}", uuid::Uuid::new_v4()));
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+
+    let res = handle_session_lifecycle_cmd(&RpcCommand::GetTree, Some("req-tree".to_string()), &mut ctx).await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "get_tree");
+
+    let res = handle_session_lifecycle_cmd(
+        &RpcCommand::SetNodeLabel {
+            node_id: "root-1".to_string(),
+            label: Some("test label".to_string()),
+        },
+        Some("req-label".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "set_node_label");
+
+    let res = handle_session_lifecycle_cmd(
+        &RpcCommand::SwitchBranch {
+            node_id: "nonexistent-node-xyz".to_string(),
+        },
+        Some("req-switch".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "switch_branch");
+
+    let res = handle_session_lifecycle_cmd(&RpcCommand::ListSessions, Some("req-list".to_string()), &mut ctx).await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "list_sessions");
+
+    let res = handle_session_lifecycle_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
+    assert!(!res.unwrap());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_handle_resume_or_fork_cmd_variants() {
+    use super::handlers::handle_resume_or_fork_cmd;
+    use rho_harness_core::rpc::protocol::RpcCommand;
+
+    let (client_io, server_io) = duplex(4096);
+    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
+    let mut writer = JsonLinesWriter::new(server_io);
+    let temp_dir = std::env::temp_dir().join(format!("rpc_fork_test_{}", uuid::Uuid::new_v4()));
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+
+    let res = handle_resume_or_fork_cmd(
+        &RpcCommand::ForkSession { node_id: None },
+        Some("req-fork".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "fork_session");
+    let forked_sid = resp.data.unwrap()["session_id"].as_str().unwrap().to_string();
+
+    let res = handle_resume_or_fork_cmd(
+        &RpcCommand::ResumeSession { session_id: forked_sid },
+        Some("req-resume".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "resume_session");
+
+    let res = handle_resume_or_fork_cmd(
+        &RpcCommand::ResumeSession {
+            session_id: "nonexistent-session-id-12345".to_string(),
+        },
+        Some("req-resume-fail".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(!resp.success);
+    assert_eq!(resp.command, "resume_session");
+
+    let res = handle_resume_or_fork_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
+    assert!(!res.unwrap());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}

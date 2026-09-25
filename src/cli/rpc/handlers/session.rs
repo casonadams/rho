@@ -35,6 +35,54 @@ pub(crate) async fn handle_get_tree_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
 }
 
+async fn handle_switch_branch_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    node_id: &str,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let eng = ctx.engine.read().await;
+    match eng.session_manager.switch_branch(Some(node_id.to_string())).await {
+        Ok(_) => {
+            ctx.writer
+                .write_message(&RpcResponse::success(req_id, "switch_branch", None))
+                .await
+        }
+        Err(e) => {
+            ctx.writer
+                .write_message(&RpcResponse::failure(req_id, "switch_branch", &e.to_string()))
+                .await
+        }
+    }
+}
+
+async fn handle_set_node_label_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    node_id: &str,
+    label: Option<String>,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let eng = ctx.engine.read().await;
+    let _ = eng.session_manager.set_node_label(node_id, label).await;
+    ctx.writer
+        .write_message(&RpcResponse::success(req_id, "set_node_label", None))
+        .await
+}
+
+async fn handle_list_sessions_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<()> {
+    let cfg = ctx.config.read().await;
+    let summaries = rho_harness_core::session::list_session_summaries(&cfg.sessions_dir).unwrap_or_default();
+    ctx.writer
+        .write_message(&RpcResponse::success(
+            req_id,
+            "list_sessions",
+            Some(serde_json::to_value(summaries).unwrap_or_default()),
+        ))
+        .await
+}
+
 pub(crate) async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpin>(
     cmd: &RpcCommand,
     req_id: Option<String>,
@@ -46,43 +94,50 @@ pub(crate) async fn handle_session_lifecycle_cmd<W: tokio::io::AsyncWrite + Unpi
             Ok(true)
         }
         RpcCommand::SwitchBranch { node_id } => {
-            let eng = ctx.engine.read().await;
-            match eng.session_manager.switch_branch(Some(node_id.clone())).await {
-                Ok(_) => {
-                    ctx.writer
-                        .write_message(&RpcResponse::success(req_id, "switch_branch", None))
-                        .await?;
-                }
-                Err(e) => {
-                    ctx.writer
-                        .write_message(&RpcResponse::failure(req_id, "switch_branch", &e.to_string()))
-                        .await?;
-                }
-            }
+            handle_switch_branch_cmd(node_id, req_id, ctx).await?;
             Ok(true)
         }
         RpcCommand::SetNodeLabel { node_id, label } => {
-            let eng = ctx.engine.read().await;
-            let _ = eng.session_manager.set_node_label(node_id, label.clone()).await;
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "set_node_label", None))
-                .await?;
+            handle_set_node_label_cmd(node_id, label.clone(), req_id, ctx).await?;
             Ok(true)
         }
         RpcCommand::ListSessions => {
-            let cfg = ctx.config.read().await;
-            let summaries = rho_harness_core::session::list_session_summaries(&cfg.sessions_dir).unwrap_or_default();
-            ctx.writer
-                .write_message(&RpcResponse::success(
-                    req_id,
-                    "list_sessions",
-                    Some(serde_json::to_value(summaries).unwrap_or_default()),
-                ))
-                .await?;
+            handle_list_sessions_cmd(req_id, ctx).await?;
             Ok(true)
         }
         _ => Ok(false),
     }
+}
+
+fn build_engine_session_payload(
+    eng: &crate::engine::AgentEngine,
+    messages: Option<Vec<serde_json::Value>>,
+) -> serde_json::Value {
+    let totals = eng.session_usage_totals();
+    let base_dir = eng.base_dir.display().to_string();
+    let active_branch = crate::ui::interactive::footer::path::get_git_branch(&eng.base_dir);
+    let mut payload = serde_json::json!({
+        "session_id": eng.session_manager.session_id,
+        "workspace": base_dir,
+        "active_workspace": base_dir,
+        "active_branch": active_branch,
+        "model": eng.config.model,
+        "provider": eng.config.provider,
+        "thinking_level": eng.config.thinking_level,
+        "quota": eng.quota_display(),
+        "total_input_tokens": totals.total_input,
+        "total_output_tokens": totals.total_output,
+        "total_cache_read_tokens": totals.total_cache_read,
+        "total_cache_write_tokens": totals.total_cache_write,
+        "total_cost": serde_json::Value::Null,
+        "context_percent": eng.context_percent_f64(),
+        "context_window": eng.context_limit().unwrap_or(0),
+        "tokens_per_second": eng.tokens_per_second(),
+    });
+    if let Some(msgs) = messages {
+        payload["messages"] = serde_json::Value::Array(msgs);
+    }
+    payload
 }
 
 pub(crate) fn extract_user_chat_messages(
@@ -202,30 +257,10 @@ pub(crate) async fn handle_resume_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let base_dir = ctx.engine.read().await.base_dir.clone();
     match crate::platform::agent_engine_in_dir(cfg, auth, base_dir, Some(session_id)).await {
         Ok(new_eng) => {
-            let sid = new_eng.session_manager.session_id.clone();
             let raw_msgs = new_eng.session_manager.load_messages().await.unwrap_or_default();
             let messages = extract_chat_messages(&raw_msgs);
             new_eng.spawn_refresh_quota();
-            let totals = new_eng.session_usage_totals();
-            let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
-            let payload = serde_json::json!({
-                "session_id": sid,
-                "model": new_eng.config.model,
-                "provider": new_eng.config.provider,
-                "thinking_level": new_eng.config.thinking_level,
-                "messages": messages,
-                "active_workspace": new_eng.base_dir.display().to_string(),
-                "active_branch": active_branch,
-                "quota": new_eng.quota_display(),
-                "total_input_tokens": totals.total_input,
-                "total_output_tokens": totals.total_output,
-                "total_cache_read_tokens": totals.total_cache_read,
-                "total_cache_write_tokens": totals.total_cache_write,
-                "total_cost": serde_json::Value::Null,
-                "context_percent": new_eng.context_percent_f64(),
-                "context_window": new_eng.context_limit().unwrap_or(0),
-                "tokens_per_second": new_eng.tokens_per_second(),
-            });
+            let payload = build_engine_session_payload(&new_eng, Some(messages));
             *ctx.engine.write().await = new_eng;
             ctx.writer
                 .write_message(&RpcResponse::success(req_id, "resume_session", Some(payload)))
@@ -304,26 +339,8 @@ pub(crate) async fn handle_create_session_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let auth = ctx.auth_store.read().await.clone();
     match crate::platform::agent_engine_in_dir(cfg.clone(), auth, target_dir, None).await {
         Ok(new_eng) => {
-            let session_id = new_eng.session_manager.session_id.clone();
-            let base_dir = new_eng.base_dir.display().to_string();
-            let active_branch = crate::ui::interactive::footer::path::get_git_branch(&new_eng.base_dir);
             new_eng.spawn_refresh_quota();
-            let totals = new_eng.session_usage_totals();
-            let payload = serde_json::json!({
-                "session_id": session_id,
-                "workspace": base_dir,
-                "active_workspace": base_dir,
-                "active_branch": active_branch,
-                "quota": new_eng.quota_display(),
-                "total_input_tokens": totals.total_input,
-                "total_output_tokens": totals.total_output,
-                "total_cache_read_tokens": totals.total_cache_read,
-                "total_cache_write_tokens": totals.total_cache_write,
-                "total_cost": serde_json::Value::Null,
-                "context_percent": new_eng.context_percent_f64(),
-                "context_window": new_eng.context_limit().unwrap_or(0),
-                "tokens_per_second": new_eng.tokens_per_second(),
-            });
+            let payload = build_engine_session_payload(&new_eng, None);
             *ctx.engine.write().await = new_eng;
             *ctx.config.write().await = cfg;
             ctx.writer

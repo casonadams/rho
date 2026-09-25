@@ -11307,11 +11307,11 @@
       "function": "wait_group_dead",
       "line": 97,
       "cyclomatic": 3.0,
-      "coverage": 66.66666666666666,
-      "crap": 3.333333333333334,
+      "coverage": 88.88888888888889,
+      "crap": 3.0123456790123457,
       "uncovered": [
         {
-          "start": 102,
+          "start": 105,
           "end": 105
         }
       ]
@@ -20523,11 +20523,11 @@
       "function": "load_file_async",
       "line": 97,
       "cyclomatic": 4.0,
-      "coverage": 62.5,
-      "crap": 4.84375,
+      "coverage": 87.5,
+      "crap": 4.03125,
       "uncovered": [
         {
-          "start": 100,
+          "start": 103,
           "end": 103
         }
       ]
@@ -20623,14 +20623,8 @@
       "function": "set_private_file_permissions_async",
       "line": 34,
       "cyclomatic": 3.0,
-      "coverage": 83.33333333333334,
-      "crap": 3.0416666666666665,
-      "uncovered": [
-        {
-          "start": 40,
-          "end": 40
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/fs.rs",
@@ -23508,87 +23502,95 @@
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
+      "function": "build_engine_session_payload",
+      "line": 112,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/cli/rpc/handlers/session.rs",
       "function": "extract_assistant_chat_messages",
-      "line": 137,
+      "line": 192,
       "cyclomatic": 8.0,
       "coverage": 93.93939393939394,
       "crap": 8.014247154743023,
       "uncovered": [
         {
-          "start": 147,
-          "end": 147
+          "start": 202,
+          "end": 202
         },
         {
-          "start": 166,
-          "end": 166
+          "start": 221,
+          "end": 221
         }
       ]
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
       "function": "extract_chat_messages",
-      "line": 177,
+      "line": 232,
       "cyclomatic": 5.0,
       "coverage": 92.85714285714286,
       "crap": 5.009110787172012,
       "uncovered": [
         {
-          "start": 189,
-          "end": 189
+          "start": 244,
+          "end": 244
         }
       ]
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
       "function": "extract_user_chat_messages",
-      "line": 88,
+      "line": 143,
       "cyclomatic": 8.0,
       "coverage": 92.3076923076923,
       "crap": 8.029130632680928,
       "uncovered": [
         {
-          "start": 98,
-          "end": 98
+          "start": 153,
+          "end": 153
         },
         {
-          "start": 116,
-          "end": 116
+          "start": 171,
+          "end": 171
         },
         {
-          "start": 126,
-          "end": 126
+          "start": 181,
+          "end": 181
         }
       ]
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
       "function": "handle_create_session_cmd",
-      "line": 284,
+      "line": 319,
       "cyclomatic": 9.0,
-      "coverage": 87.5,
-      "crap": 9.158203125,
+      "coverage": 80.64516129032258,
+      "crap": 9.587291463864926,
       "uncovered": [
         {
-          "start": 296,
-          "end": 297
+          "start": 331,
+          "end": 332
         },
         {
-          "start": 333,
-          "end": 336
+          "start": 350,
+          "end": 353
         }
       ]
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
       "function": "handle_fork_session_cmd",
-      "line": 243,
+      "line": 278,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "coverage": 78.94736842105263,
+      "crap": 5.233270155999417,
       "uncovered": [
         {
-          "start": 243,
-          "end": 264
+          "start": 292,
+          "end": 295
         }
       ]
     },
@@ -23612,47 +23614,55 @@
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
+      "function": "handle_list_sessions_cmd",
+      "line": 71,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/cli/rpc/handlers/session.rs",
       "function": "handle_resume_or_fork_cmd",
-      "line": 266,
+      "line": 301,
       "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 266,
-          "end": 282
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
       "function": "handle_resume_session_cmd",
-      "line": 195,
+      "line": 250,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
-      "uncovered": [
-        {
-          "start": 195,
-          "end": 241
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./src/cli/rpc/handlers/session.rs",
       "function": "handle_session_lifecycle_cmd",
+      "line": 86,
+      "cyclomatic": 10.0,
+      "coverage": 100.0,
+      "crap": 10.0
+    },
+    {
+      "file": "./src/cli/rpc/handlers/session.rs",
+      "function": "handle_set_node_label_cmd",
+      "line": 58,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/cli/rpc/handlers/session.rs",
+      "function": "handle_switch_branch_cmd",
       "line": 38,
-      "cyclomatic": 13.0,
-      "coverage": 50.0,
-      "crap": 34.125,
+      "cyclomatic": 3.0,
+      "coverage": 73.33333333333333,
+      "crap": 3.1706666666666665,
       "uncovered": [
         {
-          "start": 48,
-          "end": 70
-        },
-        {
-          "start": 84,
-          "end": 84
+          "start": 50,
+          "end": 53
         }
       ]
     },
@@ -25127,14 +25137,8 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 95.23809523809523,
-      "crap": 6.003887269193392,
-      "uncovered": [
-        {
-          "start": 72,
-          "end": 72
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
