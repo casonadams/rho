@@ -274,6 +274,81 @@ async fn test_process_raw_input_typing_and_submit() {
 }
 
 #[tokio::test]
+async fn test_process_raw_input_shift_enter_inserts_newline() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, completions, mut batch, mut session, mut engine, mut input, mut last_escape_time) =
+        setup_idle_dispatch_harness(temp.path()).await;
+
+    let mut resources = EditorResources {
+        history: &mut history,
+        completions: &completions,
+    };
+    let mut ctx = LiveIdleContext {
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+
+    let key_a = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+    let _ = process_raw_input(
+        &mut controller,
+        Event::Key(key_a),
+        &mut batch,
+        &mut resources,
+        &mut input,
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    let key_shift_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+    let res = process_raw_input(
+        &mut controller,
+        Event::Key(key_shift_enter),
+        &mut batch,
+        &mut resources,
+        &mut input,
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    assert!(matches!(res, IdleInputResult::None));
+    assert_eq!(controller.state().editor().text(), "a\n");
+
+    let key_b = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE);
+    let _ = process_raw_input(
+        &mut controller,
+        Event::Key(key_b),
+        &mut batch,
+        &mut resources,
+        &mut input,
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(controller.state().editor().text(), "a\nb");
+
+    let key_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    let res = process_raw_input(
+        &mut controller,
+        Event::Key(key_enter),
+        &mut batch,
+        &mut resources,
+        &mut input,
+        &mut ctx,
+    )
+    .await
+    .unwrap();
+
+    match res {
+        IdleInputResult::Message(msg) => assert_eq!(msg.text, "a\nb"),
+        _ => panic!("Expected message queued result"),
+    }
+}
+
+#[tokio::test]
 async fn test_process_raw_input_ctrl_d_exit() {
     let temp = tempfile::tempdir().unwrap();
     let (mut controller, mut history, completions, mut batch, mut session, mut engine, mut input, mut last_escape_time) =

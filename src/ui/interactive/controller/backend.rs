@@ -1,6 +1,9 @@
 use crossterm::{
     cursor::{Hide, MoveDown, MoveToColumn, MoveUp, Show},
-    event::{DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange},
+    event::{
+        DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute, queue,
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode, size},
 };
@@ -37,9 +40,19 @@ impl TerminalBackend for CrosstermBackend {
     fn set_raw_mode(&mut self, enabled: bool) -> io::Result<()> {
         if enabled {
             enable_raw_mode()?;
-            execute!(self.stdout, EnableBracketedPaste, EnableFocusChange)?;
+            execute!(
+                self.stdout,
+                EnableBracketedPaste,
+                EnableFocusChange,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES),
+            )?;
         } else {
-            let _ = execute!(self.stdout, DisableFocusChange, DisableBracketedPaste);
+            let _ = execute!(
+                self.stdout,
+                PopKeyboardEnhancementFlags,
+                DisableFocusChange,
+                DisableBracketedPaste,
+            );
             disable_raw_mode()?;
         }
         Ok(())

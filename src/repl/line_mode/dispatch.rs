@@ -19,24 +19,35 @@ pub async fn show_tree(session: &ReplSession, engine: &AgentEngine) -> Result<()
     Ok(())
 }
 
-async fn maybe_summarize_abandoned(
-    abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
-    engine: &AgentEngine,
-    has_ui: bool,
-) -> Option<String> {
-    let has_assistant = abandoned
+pub(crate) fn has_assistant_turn(abandoned: &[&rho_harness_core::session::tree::TreeNodeData]) -> bool {
+    abandoned
         .iter()
-        .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn);
-    if !has_assistant || !has_ui {
-        return None;
-    }
+        .any(|n| n.kind == rho_harness_core::session::TreeNodeKind::AssistantTurn)
+}
+
+pub(crate) fn should_summarize_branch(input: &str) -> bool {
+    let trimmed = input.trim().to_lowercase();
+    trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
+}
+
+fn prompt_abandoned_summary_confirmation() -> Option<bool> {
     use std::io::Write;
     print!("Summarize discoveries from abandoned branch before switching? [Y/n]: ");
     std::io::stdout().flush().ok()?;
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).ok()?;
-    let trimmed = input.trim().to_lowercase();
-    if !trimmed.is_empty() && trimmed != "y" && trimmed != "yes" {
+    Some(should_summarize_branch(&input))
+}
+
+pub(crate) async fn maybe_summarize_abandoned(
+    abandoned: &[&rho_harness_core::session::tree::TreeNodeData],
+    engine: &AgentEngine,
+    has_ui: bool,
+) -> Option<String> {
+    if !has_ui || !has_assistant_turn(abandoned) {
+        return None;
+    }
+    if !prompt_abandoned_summary_confirmation().unwrap_or(false) {
         return None;
     }
     let messages: Vec<_> = abandoned.iter().flat_map(|n| n.messages.clone()).collect();
@@ -77,7 +88,7 @@ async fn load_branch_context(engine: &AgentEngine) -> Result<(String, rho_harnes
     Ok((old_leaf, tree))
 }
 
-async fn fork_session(session: &ReplSession, engine: &AgentEngine, id: Option<&str>) -> Result<()> {
+pub(crate) async fn fork_session(session: &ReplSession, engine: &AgentEngine, id: Option<&str>) -> Result<()> {
     let forked = engine
         .session_manager
         .fork_session(&session.config.sessions_dir, id)
@@ -88,7 +99,7 @@ async fn fork_session(session: &ReplSession, engine: &AgentEngine, id: Option<&s
     Ok(())
 }
 
-async fn clone_session(session: &ReplSession, engine: &AgentEngine) -> Result<()> {
+pub(crate) async fn clone_session(session: &ReplSession, engine: &AgentEngine) -> Result<()> {
     let cloned = engine
         .session_manager
         .clone_session(&session.config.sessions_dir)
@@ -99,7 +110,7 @@ async fn clone_session(session: &ReplSession, engine: &AgentEngine) -> Result<()
     Ok(())
 }
 
-async fn handle_session_branching_result(
+pub(crate) async fn handle_session_branching_result(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
@@ -118,7 +129,7 @@ async fn handle_session_branching_result(
     Ok(true)
 }
 
-fn show_session_summaries(session: &ReplSession) -> Result<()> {
+pub(crate) fn show_session_summaries(session: &ReplSession) -> Result<()> {
     for s in rho_harness_core::session::list_session_summaries(&session.config.sessions_dir)? {
         session
             .renderer
@@ -127,46 +138,70 @@ fn show_session_summaries(session: &ReplSession) -> Result<()> {
     Ok(())
 }
 
-async fn handle_session_manage_result(
+pub(crate) async fn resume_session(
+    session_id: &str,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) -> Result<()> {
+    let next_config = session.config.clone();
+    *engine = crate::platform::agent_engine(next_config, session.auth_store.clone(), Some(session_id)).await?;
+    session.config = engine.config.clone();
+    session.resume_id = Some(session_id.to_string());
+    session.renderer.print_status(&format!("Resumed session: {session_id}"));
+    Ok(())
+}
+
+pub(crate) async fn name_session(name: &str, session: &ReplSession, engine: &AgentEngine) -> Result<()> {
+    engine.session_manager.set_session_name(name).await?;
+    session.renderer.print_status(&format!("Session name: {name}"));
+    Ok(())
+}
+
+pub(crate) async fn rewind_session(turn: usize, session: &ReplSession, engine: &AgentEngine) {
+    match engine.session_manager.rewind_to_turn(turn).await {
+        Ok(count) => session
+            .renderer
+            .print_status(&format!("Rewound to turn {turn} ({count} messages in context)")),
+        Err(e) => session.renderer.print_status(&format!("Rewind failed: {e}")),
+    }
+}
+
+pub(crate) async fn handle_session_manage_result(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
 ) -> Result<bool> {
     match cmd_res {
         CommandResult::ResumeSession { session_id } => {
-            let next_config = session.config.clone();
-            *engine = crate::platform::agent_engine(next_config, session.auth_store.clone(), Some(session_id)).await?;
-            session.config = engine.config.clone();
-            session.resume_id = Some(session_id.clone());
-            session.renderer.print_status(&format!("Resumed session: {session_id}"));
+            resume_session(session_id, session, engine).await?;
         }
         CommandResult::OpenSessionSelector => {
             show_session_summaries(session)?;
         }
         CommandResult::NameSession { name } => {
-            engine.session_manager.set_session_name(name).await?;
-            session.renderer.print_status(&format!("Session name: {name}"));
+            name_session(name, session, engine).await?;
         }
-        CommandResult::Rewind { turn } => match engine.session_manager.rewind_to_turn(*turn).await {
-            Ok(count) => session
-                .renderer
-                .print_status(&format!("Rewound to turn {turn} ({count} messages in context)")),
-            Err(e) => session.renderer.print_status(&format!("Rewind failed: {e}")),
-        },
+        CommandResult::Rewind { turn } => {
+            rewind_session(*turn, session, engine).await;
+        }
         _ => return Ok(false),
     }
     Ok(true)
 }
 
-async fn rebuild_engine_on_auth(session: &mut ReplSession, engine: &mut AgentEngine) -> Result<()> {
-    let next_config = session.config.clone();
-    *engine =
-        crate::platform::agent_engine(next_config, session.auth_store.clone(), session.resume_id.as_deref()).await?;
+pub(crate) async fn rebuild_engine_on_auth(session: &mut ReplSession, engine: &mut AgentEngine) -> Result<()> {
+    *engine = engine
+        .rebuild(session.config.clone(), session.auth_store.clone())
+        .await?;
     session.config = engine.config.clone();
     Ok(())
 }
 
-async fn try_login(provider: Option<&str>, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<bool> {
+pub(crate) async fn try_login(
+    provider: Option<&str>,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) -> Result<bool> {
     let ok = crate::cli::login_provider(provider, false, &session.config, &mut session.auth_store)
         .await
         .is_ok();
@@ -176,7 +211,11 @@ async fn try_login(provider: Option<&str>, session: &mut ReplSession, engine: &m
     Ok(ok)
 }
 
-async fn try_logout(provider: Option<&str>, session: &mut ReplSession, engine: &mut AgentEngine) -> Result<bool> {
+pub(crate) async fn try_logout(
+    provider: Option<&str>,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) -> Result<bool> {
     let ok = crate::cli::logout_provider(provider, &session.config, &mut session.auth_store).is_ok();
     if ok {
         rebuild_engine_on_auth(session, engine).await?;
@@ -184,7 +223,7 @@ async fn try_logout(provider: Option<&str>, session: &mut ReplSession, engine: &
     Ok(ok)
 }
 
-async fn try_login_action(
+pub(crate) async fn try_login_action(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
@@ -196,7 +235,7 @@ async fn try_login_action(
     }
 }
 
-async fn handle_auth_actions(
+pub(crate) async fn handle_auth_actions(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
@@ -214,7 +253,7 @@ async fn handle_auth_actions(
     }
 }
 
-async fn handle_model_change(
+pub(crate) async fn handle_model_change(
     new_model: &str,
     new_provider: Option<&str>,
     session: &mut ReplSession,
@@ -228,7 +267,7 @@ async fn handle_model_change(
     let _ = engine.switch_model(new_model, prov).await;
 }
 
-async fn handle_config_auth_result(
+pub(crate) async fn handle_config_auth_result(
     cmd_res: &CommandResult,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
@@ -281,7 +320,11 @@ fn handle_expanded_prompt(session: &ReplSession, text: String) -> DispatchOutcom
     DispatchOutcome::RunTurn(text)
 }
 
-async fn handle_command_group(cmd_res: &CommandResult, session: &mut ReplSession, engine: &mut AgentEngine) -> bool {
+pub(crate) async fn handle_command_group(
+    cmd_res: &CommandResult,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) -> bool {
     handle_session_branching_result(cmd_res, session, engine)
         .await
         .unwrap_or(false)
@@ -293,7 +336,7 @@ async fn handle_command_group(cmd_res: &CommandResult, session: &mut ReplSession
             .unwrap_or(false)
 }
 
-async fn handle_terminal_result(
+pub(crate) async fn handle_terminal_result(
     cmd_res: CommandResult,
     session: &ReplSession,
     engine: &AgentEngine,

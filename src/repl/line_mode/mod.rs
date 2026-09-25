@@ -45,14 +45,28 @@ async fn build_completion_sources_async(
         .with_custom_providers(custom_providers)
 }
 
-fn build_emacs_edit_mode() -> Box<Emacs> {
+pub(crate) fn build_emacs_keybindings() -> reedline::Keybindings {
     let mut keybindings = default_emacs_keybindings();
     keybindings.add_binding(
         KeyModifiers::ALT,
         KeyCode::Enter,
         ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
     );
-    Box::new(Emacs::new(keybindings))
+    keybindings.add_binding(
+        KeyModifiers::SHIFT,
+        KeyCode::Enter,
+        ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::CONTROL,
+        KeyCode::Enter,
+        ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
+    );
+    keybindings
+}
+
+fn build_emacs_edit_mode() -> Box<Emacs> {
+    Box::new(Emacs::new(build_emacs_keybindings()))
 }
 
 pub async fn build_line_editor_async(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {

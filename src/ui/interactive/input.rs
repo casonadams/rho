@@ -105,6 +105,10 @@ pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> Input
         return InputAction::Ignore;
     }
 
+    if event.code == KeyCode::Char('\n') {
+        return InputAction::Edit(UiAction::InsertNewline);
+    }
+
     if let Some(action) = bindings.get_action(&event) {
         return map_bound_action(action);
     }
@@ -157,6 +161,14 @@ mod tests {
     fn raw_ctrl_j_inserts_a_newline() {
         assert_eq!(
             map_key(key(KeyCode::Char('j'), KeyModifiers::CONTROL)),
+            InputAction::Edit(UiAction::InsertNewline)
+        );
+    }
+
+    #[test]
+    fn raw_newline_char_inserts_a_newline() {
+        assert_eq!(
+            map_key(key(KeyCode::Char('\n'), KeyModifiers::NONE)),
             InputAction::Edit(UiAction::InsertNewline)
         );
     }
