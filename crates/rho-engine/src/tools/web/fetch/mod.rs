@@ -105,7 +105,38 @@ impl WebFetchTool {
         }
     }
 
+    async fn try_specialized_extract(
+        &self,
+        url_str: &str,
+        format_override: Option<&str>,
+    ) -> Option<Result<(String, String), AppError>> {
+        if format_override == Some("html") {
+            return None;
+        }
+
+        if let Some(github_url) = extract::parse_github_url(url_str) {
+            match extract::extract_github(&self.http, &github_url, self.timeout_sec).await {
+                Ok(text) => return Some(Ok((text, url_str.to_string()))),
+                Err(err) if err.to_string().contains("rate limit") => return Some(Err(err)),
+                Err(_) => {}
+            }
+        }
+
+        if let Some(youtube_url) = extract::parse_youtube_url(url_str)
+            && let Ok(text) = extract::extract_youtube(&self.http, &youtube_url, self.timeout_sec).await
+        {
+            let final_url = format!("https://www.youtube.com/watch?v={}", youtube_url.video_id);
+            return Some(Ok((text, final_url)));
+        }
+
+        None
+    }
+
     async fn fetch_and_extract(&self, url_str: &str, options: FetchOptions<'_>) -> Result<(String, String), AppError> {
+        if let Some(result) = self.try_specialized_extract(url_str, options.format_override).await {
+            return result;
+        }
+
         let resp = self.http.get_bytes(self.make_http_request(url_str)).await?;
 
         if encoding::is_pdf(&resp.body, &resp.content_type) || options.format_override == Some("pdf") {

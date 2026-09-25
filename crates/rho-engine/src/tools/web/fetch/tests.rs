@@ -122,3 +122,31 @@ async fn test_web_fetch_rejects_credentials_with_explanation() {
     assert!(res.is_error);
     assert!(res.content.contains("credentials"));
 }
+
+#[tokio::test]
+async fn test_web_fetch_html_override_skips_interception() {
+    let http = HttpClient::new(true).unwrap();
+    let cache = FetchCache::new(60, 4);
+    let tool = WebFetchTool::new(
+        http,
+        cache,
+        WebFetchConfig {
+            timeout_sec: 1,
+            max_bytes: 1024,
+            pdf_max_bytes: 1024,
+            default_limit: 20,
+        },
+    );
+    let opt_gh = tool
+        .try_specialized_extract("https://github.com/casonadams/rho/issues/38", Some("html"))
+        .await;
+    assert!(opt_gh.is_none());
+
+    let opt_yt = tool
+        .try_specialized_extract("https://www.youtube.com/watch?v=dQw4w9WgXcQ", Some("html"))
+        .await;
+    assert!(opt_yt.is_none());
+
+    let opt_other = tool.try_specialized_extract("https://example.com/page", None).await;
+    assert!(opt_other.is_none());
+}
