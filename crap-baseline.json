@@ -12263,14 +12263,8 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 70.0,
-      "crap": 4.432,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 52
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -25123,8 +25117,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -28645,14 +28645,8 @@
       "function": "clear_filter_or_cancel",
       "line": 99,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 99,
-          "end": 116
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
@@ -28692,6 +28686,14 @@
     },
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
+      "function": "handle_action_key",
+      "line": 239,
+      "cyclomatic": 9.0,
+      "coverage": 100.0,
+      "crap": 9.0
+    },
+    {
+      "file": "./src/repl/live/modal/interaction/select_mode.rs",
       "function": "handle_arrow_key",
       "line": 128,
       "cyclomatic": 10.0,
@@ -28717,14 +28719,8 @@
       "function": "handle_backspace",
       "line": 118,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 118,
-          "end": 126
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
@@ -28739,6 +28735,32 @@
           "end": 96
         }
       ]
+    },
+    {
+      "file": "./src/repl/live/modal/interaction/select_mode.rs",
+      "function": "handle_fallback_input",
+      "line": 223,
+      "cyclomatic": 6.0,
+      "coverage": 63.63636363636363,
+      "crap": 7.7310293012772355,
+      "uncovered": [
+        {
+          "start": 226,
+          "end": 228
+        },
+        {
+          "start": 235,
+          "end": 235
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/modal/interaction/select_mode.rs",
+      "function": "handle_navigation_key",
+      "line": 201,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
@@ -28757,34 +28779,18 @@
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
       "function": "handle_select_mode_key",
-      "line": 201,
-      "cyclomatic": 19.0,
-      "coverage": 58.82352941176471,
-      "crap": 44.20313454101364,
-      "uncovered": [
-        {
-          "start": 217,
-          "end": 222
-        },
-        {
-          "start": 224,
-          "end": 235
-        }
-      ]
+      "line": 261,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
       "function": "insert_modal_character",
       "line": 76,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 76,
-          "end": 86
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/modal/interaction/select_mode.rs",
@@ -28867,12 +28873,16 @@
       "function": "prompt_label_for",
       "line": 21,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "coverage": 75.0,
+      "crap": 5.390625,
       "uncovered": [
         {
-          "start": 21,
-          "end": 31
+          "start": 25,
+          "end": 25
+        },
+        {
+          "start": 29,
+          "end": 29
         }
       ]
     },
