@@ -12263,14 +12263,8 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 70.0,
-      "crap": 4.432,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 52
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -30029,7 +30023,7 @@
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "handle_clear",
-      "line": 90,
+      "line": 94,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -30037,30 +30031,24 @@
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "handle_dequeue",
-      "line": 80,
+      "line": 84,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 80,
-          "end": 88
+          "start": 84,
+          "end": 92
         }
       ]
     },
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "handle_display_toggle",
-      "line": 62,
-      "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 62,
-          "end": 78
-        }
-      ]
+      "line": 76,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/repl/live/turn/input.rs",
@@ -30073,7 +30061,7 @@
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "handle_turn_action",
-      "line": 97,
+      "line": 101,
       "cyclomatic": 6.0,
       "coverage": 100.0,
       "crap": 6.0
@@ -30081,7 +30069,7 @@
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "handle_turn_key",
-      "line": 159,
+      "line": 163,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -30089,32 +30077,32 @@
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "history_or_completion",
-      "line": 144,
+      "line": 148,
       "cyclomatic": 7.0,
       "coverage": 53.84615384615385,
       "crap": 11.81747837960856,
       "uncovered": [
         {
-          "start": 149,
-          "end": 151
+          "start": 153,
+          "end": 155
         },
         {
-          "start": 153,
-          "end": 156
+          "start": 157,
+          "end": 160
         }
       ]
     },
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "model_action",
-      "line": 113,
+      "line": 117,
       "cyclomatic": 10.0,
       "coverage": 77.77777777777779,
       "crap": 11.09739368998628,
       "uncovered": [
         {
-          "start": 117,
-          "end": 118
+          "start": 121,
+          "end": 122
         }
       ]
     },
@@ -30137,28 +30125,44 @@
     {
       "file": "./src/repl/live/turn/input.rs",
       "function": "reconcile_consumed_steering",
-      "line": 167,
+      "line": 171,
       "cyclomatic": 2.0,
       "coverage": 61.53846153846154,
       "crap": 2.2275830678197543,
       "uncovered": [
         {
-          "start": 174,
-          "end": 178
+          "start": 178,
+          "end": 182
         }
       ]
     },
     {
       "file": "./src/repl/live/turn/input.rs",
+      "function": "toggle_hide_thinking",
+      "line": 69,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/repl/live/turn/input.rs",
+      "function": "toggle_tools_expanded",
+      "line": 62,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/repl/live/turn/input.rs",
       "function": "view_action",
-      "line": 124,
+      "line": 128,
       "cyclomatic": 9.0,
-      "coverage": 60.0,
-      "crap": 14.184000000000001,
+      "coverage": 75.0,
+      "crap": 10.265625,
       "uncovered": [
         {
-          "start": 127,
-          "end": 134
+          "start": 134,
+          "end": 138
         }
       ]
     },

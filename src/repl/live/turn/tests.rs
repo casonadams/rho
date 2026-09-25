@@ -265,6 +265,40 @@ async fn test_turn_input_cycle_model_shortcut() {
     assert!(matches!(result, TurnKeyResult::Handled));
 }
 
+#[tokio::test]
+async fn test_turn_input_display_toggles() {
+    let mut f = TurnTestFixture::new("");
+    let mut ctx = f.context();
+
+    assert!(!ctx.controller.tools_expanded());
+    let result = handle_turn_key(key_event(KeyCode::Char('o'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(ctx.controller.tools_expanded());
+
+    let result = handle_turn_key(key_event(KeyCode::Char('o'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(!ctx.controller.tools_expanded());
+
+    assert!(!ctx.controller.hide_thinking());
+    let result = handle_turn_key(key_event(KeyCode::Char('t'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(ctx.controller.hide_thinking());
+
+    let result = handle_turn_key(key_event(KeyCode::Char('t'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(!ctx.controller.hide_thinking());
+
+    super::input::handle_display_toggle(ctx.controller, &crate::ui::interactive::InputAction::Clear);
+}
+
 struct ActiveTurnHarness {
     _temp: tempfile::TempDir,
     session: crate::repl::ReplSession,
