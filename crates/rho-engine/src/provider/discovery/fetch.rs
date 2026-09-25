@@ -82,7 +82,7 @@ pub(crate) async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
         }
     }
 
-    Ok(Vec::new())
+    Ok(default_presets_for("local"))
 }
 
 pub(crate) async fn discover_ollama_cloud_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
@@ -110,6 +110,16 @@ pub(crate) fn parse_num_ctx(parameters: &str) -> Option<usize> {
     None
 }
 
+pub(crate) fn parse_ollama_show_response(body: &serde_json::Value) -> Option<usize> {
+    if let Some(params) = body.get("parameters").and_then(|p| p.as_str())
+        && let Some(num_ctx) = parse_num_ctx(params)
+    {
+        return Some(num_ctx);
+    }
+    let model_info = body.get("model_info")?.as_object()?;
+    ollama_context_from_info(model_info)
+}
+
 async fn ollama_context_length(host: &str, model: &str) -> Option<usize> {
     let endpoint = format!("{}/api/show", host.trim_end_matches('/'));
     let resp = SHARED_HTTP_CLIENT
@@ -122,13 +132,7 @@ async fn ollama_context_length(host: &str, model: &str) -> Option<usize> {
         return None;
     }
     let body: serde_json::Value = resp.json().await.ok()?;
-    if let Some(params) = body.get("parameters").and_then(|p| p.as_str())
-        && let Some(num_ctx) = parse_num_ctx(params)
-    {
-        return Some(num_ctx);
-    }
-    let model_info = body.get("model_info")?.as_object()?;
-    ollama_context_from_info(model_info)
+    parse_ollama_show_response(&body)
 }
 
 async fn enrich_ollama_models(host: &str, models: &mut [DiscoveredModel]) {

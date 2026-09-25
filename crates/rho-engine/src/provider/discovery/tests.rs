@@ -110,6 +110,23 @@ fn chatgpt_codex_presets_include_gpt_6_astra() {
 }
 
 #[test]
+fn chatgpt_codex_presets_include_gpt_6_reasoning_family() {
+    let models = chatgpt_codex_models();
+    let expected = [
+        ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
+        ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
+        ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
+    ];
+    for (id, name, desc) in expected {
+        let matched = models.iter().find(|m| m.id == id);
+        assert_eq!(
+            matched.map(|m| (m.name.as_str(), m.provider.as_str(), m.description.as_str())),
+            Some((name, "chatgpt", desc))
+        );
+    }
+}
+
+#[test]
 fn openai_presets_include_gpt_6_astra() {
     let astra = openai_preset_models()
         .into_iter()
@@ -122,6 +139,23 @@ fn openai_presets_include_gpt_6_astra() {
             "1.05M ctx · deep reasoning".into(),
         ))
     );
+}
+
+#[test]
+fn openai_presets_include_gpt_6_reasoning_family() {
+    let models = openai_preset_models();
+    let expected = [
+        ("gpt-6-sol", "GPT-6 Sol", "372k ctx · deep reasoning"),
+        ("gpt-6-terra", "GPT-6 Terra", "372k ctx · balanced reasoning"),
+        ("gpt-6-luna", "GPT-6 Luna", "372k ctx · fast reasoning"),
+    ];
+    for (id, name, desc) in expected {
+        let matched = models.iter().find(|m| m.id == id);
+        assert_eq!(
+            matched.map(|m| (m.name.as_str(), m.provider.as_str(), m.description.as_str())),
+            Some((name, "openai", desc))
+        );
+    }
 }
 
 #[test]
@@ -163,4 +197,74 @@ fn test_default_presets_for_local_uses_latest_tag() {
     assert_eq!(local[0].id, "llama3.2:latest");
     let ollama = default_presets_for("ollama");
     assert_eq!(ollama[0].id, "llama3.2:latest");
+}
+
+#[test]
+fn test_openai_compatible_endpoint_mappings() {
+    use super::openai_compatible_endpoint;
+    use rho_harness_core::provider::ProviderId;
+
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::OpenAi),
+        Some(("openai", "https://api.openai.com/v1"))
+    );
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::OpenRouter),
+        Some(("openrouter", "https://openrouter.ai/api/v1"))
+    );
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::Groq),
+        Some(("groq", "https://api.groq.com/openai/v1"))
+    );
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::DeepSeek),
+        Some(("deepseek", "https://api.deepseek.com"))
+    );
+    assert_eq!(openai_compatible_endpoint(ProviderId::Anthropic), None);
+    assert_eq!(openai_compatible_endpoint(ProviderId::ChatGpt), None);
+}
+
+#[test]
+fn test_preset_provider_models_mappings() {
+    use super::preset_provider_models;
+    use rho_harness_core::provider::ProviderId;
+
+    assert!(preset_provider_models(ProviderId::ChatGpt).is_some());
+    assert!(preset_provider_models(ProviderId::ClaudeCode).is_some());
+    assert!(preset_provider_models(ProviderId::Copilot).is_some());
+    assert!(preset_provider_models(ProviderId::OpenAi).is_none());
+}
+
+#[tokio::test]
+async fn test_discover_provider_models_presets_and_fallbacks() {
+    use super::discover_provider_models;
+    use crate::auth::AuthStore;
+    use rho_harness_core::provider::ProviderId;
+
+    let auth_store = AuthStore::default();
+
+    for provider in ProviderId::ALL {
+        let models = discover_provider_models(provider, &auth_store).await.unwrap();
+        assert!(!models.is_empty(), "expected models for provider {provider:?}");
+    }
+}
+
+#[test]
+fn test_parse_ollama_show_response() {
+    use super::fetch::parse_ollama_show_response;
+
+    let with_params = serde_json::json!({
+        "parameters": "num_ctx 16384\ntemperature 0.7"
+    });
+    assert_eq!(parse_ollama_show_response(&with_params), Some(16384));
+
+    let with_model_info = serde_json::json!({
+        "model_info": {
+            "llama.context_length": 8192
+        }
+    });
+    assert_eq!(parse_ollama_show_response(&with_model_info), Some(8192));
+
+    let empty = serde_json::json!({});
+    assert_eq!(parse_ollama_show_response(&empty), None);
 }

@@ -1,4 +1,4 @@
-use super::client::{McpClient, McpToolDefinition};
+use super::client::{McpClient, McpToolDefinition, McpToolResult};
 use rig::tool::{DynamicTool, ToolOutput};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -113,16 +113,21 @@ impl McpGateway {
         })
     }
 
+    pub fn resolve_target(&self, call: &McpSingleCall) -> Result<(String, String), String> {
+        if let Some(s) = &call.server {
+            return Ok((s.clone(), call.tool.clone()));
+        }
+        if let Some((s, def)) = self.tools.get(&call.tool) {
+            return Ok((s.clone(), def.name.clone()));
+        }
+        if let Some((s, rest)) = call.tool.split_once('_') {
+            return Ok((s.to_string(), rest.to_string()));
+        }
+        Err(format!("Unknown tool: {}", call.tool))
+    }
+
     pub async fn call(&self, call: McpSingleCall) -> Result<String, String> {
-        let (server_name, original_tool) = if let Some(s) = call.server {
-            (s, call.tool)
-        } else if let Some((s, def)) = self.tools.get(&call.tool) {
-            (s.clone(), def.name.clone())
-        } else if let Some((s, rest)) = call.tool.split_once('_') {
-            (s.to_string(), rest.to_string())
-        } else {
-            return Err(format!("Unknown tool: {}", call.tool));
-        };
+        let (server_name, original_tool) = self.resolve_target(&call)?;
 
         let client = self
             .clients
@@ -134,12 +139,7 @@ impl McpGateway {
             .await
             .map_err(|e| format!("MCP Call failed: {e}"))?;
 
-        let text = result.as_text_truncated(self.max_output_bytes);
-        if result.is_error.unwrap_or(false) {
-            Ok(format!("[Error] {text}"))
-        } else {
-            Ok(text)
-        }
+        Ok(format_tool_result(result, self.max_output_bytes))
     }
 
     pub fn into_dynamic_tools(self) -> (DynamicTool, DynamicTool) {
@@ -191,6 +191,22 @@ fn mcp_script_schema() -> Value {
     })
 }
 
+fn format_tool_result(result: McpToolResult, max_bytes: usize) -> String {
+    let text = result.as_text_truncated(max_bytes);
+    if result.is_error.unwrap_or(false) {
+        format!("[Error] {text}")
+    } else {
+        text
+    }
+}
+
+fn format_described_tool(gw: &McpGateway, tool_name: &str) -> String {
+    match gw.describe(tool_name) {
+        Some(info) => serde_json::to_string_pretty(&info).unwrap_or_default(),
+        None => format!("Tool '{tool_name}' not found"),
+    }
+}
+
 async fn execute_named_tool_call(gw: &McpGateway, parsed: McpGatewayArgs) -> String {
     let Some(tool) = parsed.tool else {
         return serde_json::to_string_pretty(&gw.status()).unwrap_or_default();
@@ -208,10 +224,7 @@ async fn execute_named_tool_call(gw: &McpGateway, parsed: McpGatewayArgs) -> Str
 
 async fn execute_gateway_parsed_call(gw: &McpGateway, parsed: McpGatewayArgs) -> String {
     if let Some(desc) = parsed.describe {
-        return match gw.describe(&desc) {
-            Some(info) => serde_json::to_string_pretty(&info).unwrap_or_default(),
-            None => format!("Tool '{desc}' not found"),
-        };
+        return format_described_tool(gw, &desc);
     }
     if let Some(query) = parsed.search {
         return serde_json::to_string_pretty(&gw.search(&query)).unwrap_or_default();

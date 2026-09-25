@@ -1,6 +1,6 @@
 # rho
 
-`rho` is a fast, clean, local, private, and secure coding agent CLI built in Rust on [Rig](https://github.com/0xPlaygrounds/rig) and [Iroh](https://iroh.computer).
+`rho` is a fast, clean, local, private, and secure coding agent CLI built in Rust on [Rig](https://github.com/0xPlaygrounds/rig).
 
 ---
 
@@ -30,7 +30,7 @@ rho --resume <SESSION_ID>
 # Or browse recent sessions interactively
 rho --resume-picker
 
-# Run headless daemon over Iroh P2P
+# Run headless remote daemon
 rho serve --workspace ~/src/my-project
 
 # Share active terminal session to web dashboard
@@ -41,10 +41,10 @@ rho serve --workspace ~/src/my-project
 
 ## Fleet Hub & Remote Access
 
-`rho` includes zero-cloud peer-to-peer remote access powered by [Iroh](https://iroh.computer).
+`rho` includes zero-cloud remote access powered by direct WebSocket RPC.
 - **`rho serve`**: Run an autonomous agent node on any server or devbox. Outputs an encrypted node ticket and terminal QR code.
 - **`/remote`**: In an active terminal session, opens an in-TUI pairing modal to monitor and steer from a mobile or web browser.
-- **Web Hub**: Statically hosted at `https://casonadams.github.io/rho/hub/` (zero hosted backend servers, 100% client-side WebAssembly). Direct end-to-end encrypted control across all your machines with live tool streaming, interactive approvals, real-time token tracking, and provider quota status.
+- **Web Hub**: Statically hosted at `https://casonadams.github.io/rho/hub/` (zero hosted backend servers, 100% client-side WebAssembly). Direct control across your machines with live tool streaming, interactive approvals, real-time token tracking, and provider quota status.
 
 ---
 
@@ -141,4 +141,3 @@ cargo fmt --all -- --check
 
 - Special thanks to [pi.dev](https://pi.dev) for inspiring aspects of rho's design and ergonomics.
 - Built on [Rig](https://github.com/0xPlaygrounds/rig) for modular, performant LLM application pipelines in Rust.
-- Powered by [Iroh](https://iroh.computer) by [n0](https://n0.computer) for dial-by-public-key, peer-to-peer QUIC transport and zero-server distributed fleet orchestration.

@@ -38,7 +38,15 @@ fn make_oauth_cred(
 }
 
 async fn try_import_local_credentials(callbacks: &dyn OAuthLoginCallbacks) -> Result<Option<StoredCredential>> {
-    let Some(local_cred) = detect_local_claude_credentials_async().await else {
+    let local_cred = detect_local_claude_credentials_async().await;
+    confirm_import_local_credentials(local_cred, callbacks).await
+}
+
+pub(crate) async fn confirm_import_local_credentials(
+    local_cred: Option<StoredCredential>,
+    callbacks: &dyn OAuthLoginCallbacks,
+) -> Result<Option<StoredCredential>> {
+    let Some(local_cred) = local_cred else {
         return Ok(None);
     };
     let email = match &local_cred {

@@ -41,6 +41,58 @@ impl<B: TerminalBackend> BashRun<'_, B> {
         self.batch.flush(self.controller, spinner)
     }
 
+    fn sync_renderer_width(&mut self, resized: bool) {
+        if resized {
+            self.renderer.set_width(self.controller.width());
+        }
+    }
+
+    fn handle_resize(&mut self, cols: u16, rows: u16) -> Result<()> {
+        let resized =
+            self.controller.resize_to(usize::from(cols), usize::from(rows))? || self.controller.refresh_size()?;
+        self.sync_renderer_width(resized);
+        self.drain_and_flush(true)
+    }
+
+    fn handle_focus_gained(&mut self) -> Result<()> {
+        let resized = self.controller.refresh_size()?;
+        self.sync_renderer_width(resized);
+        if !self.controller.focused() || resized {
+            self.controller.set_focused(true);
+            self.drain_and_flush(true)?;
+        }
+        Ok(())
+    }
+
+    fn handle_focus_lost(&mut self) -> Result<()> {
+        if self.controller.focused() {
+            self.controller.set_focused(false);
+            self.drain_and_flush(true)?;
+        }
+        Ok(())
+    }
+
+    async fn dispatch_event(&mut self, event: Event, running: &mut StreamingCommand) -> Result<bool> {
+        match event {
+            Event::Resize(cols, rows) => {
+                self.handle_resize(cols, rows)?;
+                Ok(false)
+            }
+            Event::FocusGained => {
+                self.handle_focus_gained()?;
+                Ok(false)
+            }
+            Event::FocusLost => {
+                self.handle_focus_lost()?;
+                Ok(false)
+            }
+            Event::Key(key) if key.kind != crossterm::event::KeyEventKind::Release => {
+                self.handle_input_action(map_key(key), running).await
+            }
+            _ => Ok(false),
+        }
+    }
+
     async fn handle_input_action(&mut self, action: InputAction, running: &mut StreamingCommand) -> Result<bool> {
         if action == InputAction::Cancel {
             running.cancel().await;
@@ -53,20 +105,20 @@ impl<B: TerminalBackend> BashRun<'_, B> {
     }
 
     fn apply_ui_toggle(&mut self, action: InputAction) -> Result<()> {
-        let (label, expanded) = if action == InputAction::ToggleExpandTools {
-            let expanded = !self.controller.tools_expanded();
-            ("Tool output", expanded)
-        } else {
-            let hidden = !self.controller.hide_thinking();
-            ("Thinking blocks", !hidden)
+        let (label, expanded) = match action {
+            InputAction::ToggleExpandTools => {
+                let expanded = !self.controller.tools_expanded();
+                self.controller.set_tools_expanded(expanded)?;
+                ("Tool output", expanded)
+            }
+            _ => {
+                let expanded = self.controller.hide_thinking();
+                self.controller.set_hide_thinking(!expanded)?;
+                ("Thinking blocks", expanded)
+            }
         };
         let state = if expanded { "expanded" } else { "collapsed" };
         self.controller.set_system_message(format!("{label}: {state}"));
-        if action == InputAction::ToggleExpandTools {
-            self.controller.set_tools_expanded(expanded)?;
-        } else {
-            self.controller.set_hide_thinking(!expanded)?;
-        }
         Ok(())
     }
 
@@ -86,9 +138,7 @@ impl<B: TerminalBackend> BashRun<'_, B> {
     fn handle_frame_tick(&mut self, stream: &mut StreamBuffers) -> Result<()> {
         let expired = self.controller.check_system_message_expiration();
         let resized = self.controller.refresh_size()?;
-        if resized {
-            self.renderer.set_width(self.controller.width());
-        }
+        self.sync_renderer_width(resized);
         if stream.progress.on_tick(self.controller) || expired || resized {
             self.drain_and_flush(true)?;
         }
@@ -185,40 +235,7 @@ impl<B: TerminalBackend> BashStreamState<'_, '_, B> {
         let Some(event_res) = event else {
             return Err(anyhow::anyhow!("Terminal input reader stopped").into());
         };
-        let event = event_res?;
-        match event {
-            Event::Resize(cols, rows) => {
-                let resized = self.run.controller.resize_to(usize::from(cols), usize::from(rows))?
-                    || self.run.controller.refresh_size()?;
-                if resized {
-                    self.run.renderer.set_width(self.run.controller.width());
-                }
-                self.run.drain_and_flush(true)?;
-                Ok(false)
-            }
-            Event::FocusGained => {
-                let resized = self.run.controller.refresh_size()?;
-                if resized {
-                    self.run.renderer.set_width(self.run.controller.width());
-                }
-                if !self.run.controller.focused() || resized {
-                    self.run.controller.set_focused(true);
-                    self.run.drain_and_flush(true)?;
-                }
-                Ok(false)
-            }
-            Event::FocusLost => {
-                if self.run.controller.focused() {
-                    self.run.controller.set_focused(false);
-                    self.run.drain_and_flush(true)?;
-                }
-                Ok(false)
-            }
-            Event::Key(key) if key.kind != crossterm::event::KeyEventKind::Release => {
-                self.run.handle_input_action(map_key(key), &mut self.running).await
-            }
-            _ => Ok(false),
-        }
+        self.run.dispatch_event(event_res?, &mut self.running).await
     }
 
     async fn select_next(&mut self) -> StreamStep {

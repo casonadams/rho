@@ -17,16 +17,22 @@ pub struct ModelQuota {
 }
 
 /// Fetch available models or quota summary from Antigravity and extract active quota display.
-pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> Option<String> {
+pub async fn fetch_quota_from_endpoints(
+    endpoints: &[String],
+    token: &str,
+    project_id: &str,
+    target_model: &str,
+) -> Option<String> {
     let body = project_request_body(project_id);
-    let summary_display = try_fetch_summary(token, &body, target_model).await;
+    let summary_display = try_fetch_summary_from_endpoints(endpoints, token, &body, target_model).await;
     if let Some(ref display) = summary_display
         && !is_unmetered_summary(display)
     {
         return Some(display.clone());
     }
 
-    if let Some(response) = super::client::post_metadata("/v1internal:fetchAvailableModels", token, body).await
+    if let Some(response) =
+        super::client::post_metadata_candidates(endpoints, "/v1internal:fetchAvailableModels", token, body).await
         && let Some(models_display) = parse_models_quota(&response, target_model, Utc::now())
         && (!is_unmetered_summary(&models_display) || summary_display.is_none())
     {
@@ -34,6 +40,11 @@ pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> O
     }
 
     summary_display
+}
+
+/// Fetch available models or quota summary from Antigravity using configured endpoints.
+pub async fn fetch_quota(token: &str, project_id: &str, target_model: &str) -> Option<String> {
+    fetch_quota_from_endpoints(&super::client::resolve_endpoints(None), token, project_id, target_model).await
 }
 
 pub(crate) fn is_unmetered_summary(display: &str) -> bool {
@@ -49,8 +60,15 @@ fn project_request_body(project_id: &str) -> Value {
     }
 }
 
-async fn try_fetch_summary(token: &str, body: &Value, target: &str) -> Option<String> {
-    let summary = super::client::post_metadata("/v1internal:retrieveUserQuotaSummary", token, body.clone()).await?;
+async fn try_fetch_summary_from_endpoints(
+    endpoints: &[String],
+    token: &str,
+    body: &Value,
+    target: &str,
+) -> Option<String> {
+    let summary =
+        super::client::post_metadata_candidates(endpoints, "/v1internal:retrieveUserQuotaSummary", token, body.clone())
+            .await?;
     parse_quota_summary(&summary, target, Utc::now())
 }
 

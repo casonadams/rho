@@ -59,20 +59,24 @@ async fn handle_edit_action<B: TerminalBackend>(
     Ok(TurnKeyResult::Handled)
 }
 
-async fn handle_display_toggle<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) {
+fn toggle_tools_expanded<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    let expanded = !controller.tools_expanded();
+    let state = if expanded { "expanded" } else { "collapsed" };
+    controller.set_system_message(format!("Tool output: {state}"));
+    let _ = controller.set_tools_expanded(expanded);
+}
+
+fn toggle_hide_thinking<B: TerminalBackend>(controller: &mut TerminalController<B>) {
+    let hide = !controller.hide_thinking();
+    let state = if hide { "hidden" } else { "visible" };
+    controller.set_system_message(format!("Thinking blocks: {state}"));
+    let _ = controller.set_hide_thinking(hide);
+}
+
+pub(super) fn handle_display_toggle<B: TerminalBackend>(controller: &mut TerminalController<B>, action: &InputAction) {
     match action {
-        InputAction::ToggleExpandTools => {
-            let expanded = !ctx.controller.tools_expanded();
-            let state = if expanded { "expanded" } else { "collapsed" };
-            ctx.controller.set_system_message(format!("Tool output: {state}"));
-            let _ = ctx.controller.set_tools_expanded(expanded);
-        }
-        InputAction::ThinkingToggle => {
-            let hide = !ctx.controller.hide_thinking();
-            let state = if hide { "hidden" } else { "visible" };
-            ctx.controller.set_system_message(format!("Thinking blocks: {state}"));
-            let _ = ctx.controller.set_hide_thinking(hide);
-        }
+        InputAction::ToggleExpandTools => toggle_tools_expanded(controller),
+        InputAction::ThinkingToggle => toggle_hide_thinking(controller),
         _ => {}
     }
 }
@@ -124,7 +128,7 @@ async fn model_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, act
 async fn view_action<B: TerminalBackend>(ctx: &mut TurnInputContext<'_, B>, action: &InputAction) -> Result<bool> {
     match action {
         InputAction::ToggleExpandTools | InputAction::ThinkingToggle => {
-            handle_display_toggle(ctx, action).await;
+            handle_display_toggle(ctx.controller, action);
         }
         InputAction::ClipboardPasteImage => {
             paste_clipboard_async(&ctx.session.renderer, ctx.controller).await;

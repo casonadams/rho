@@ -41,6 +41,14 @@ fn test_model_alias_normalization() {
         ("claude-sonnet-5", "claude-sonnet-5"),
         ("opus-5", "claude-opus-5"),
         ("claude-opus-5", "claude-opus-5"),
+        ("opus-5-5", "claude-opus-5-5"),
+        ("opus-5.5", "claude-opus-5-5"),
+        ("claude-opus-5-5", "claude-opus-5-5"),
+        ("claude-opus-5.5", "claude-opus-5-5"),
+        ("fable", "claude-fable-5-1"),
+        ("claude-fable-5", "claude-fable-5-1"),
+        ("claude-fable-5.1", "claude-fable-5-1"),
+        ("claude-fable-5-1", "claude-fable-5-1"),
         ("claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219"),
     ];
     for (alias, expected) in cases {
@@ -218,7 +226,7 @@ fn test_claude_headers_contains_required_fields() {
         "true"
     );
     assert_eq!(headers.get("x-app").unwrap(), "cli");
-    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.251");
+    assert_eq!(headers.get("user-agent").unwrap(), "claude-cli/2.1.280");
 }
 
 #[test]
@@ -366,4 +374,83 @@ async fn test_claude_system_prompt_remains_invariant_across_git_status_updates()
     assert_eq!(body2["system"][1]["cache_control"]["type"], "ephemeral");
 
     let _ = tokio::fs::remove_dir_all(temp).await;
+}
+
+#[test]
+fn test_opus_5_5_adaptive_thinking_defaults_to_medium() {
+    let req = sample_request();
+    let body = build_request_body("claude-opus-5-5", None, &req).unwrap();
+
+    assert_eq!(body["model"], "claude-opus-5-5");
+    assert_eq!(body["thinking"]["type"], "adaptive");
+    assert_eq!(body["thinking"]["display"], "summarized");
+    assert_eq!(body["output_config"]["effort"], "medium");
+    assert!(body.get("temperature").is_none());
+}
+
+#[test]
+fn test_opus_5_5_adaptive_thinking_with_custom_effort() {
+    let req = sample_request();
+    let body = build_request_body("claude-opus-5-5", Some("high"), &req).unwrap();
+
+    assert_eq!(body["model"], "claude-opus-5-5");
+    assert_eq!(body["thinking"]["type"], "adaptive");
+    assert_eq!(body["thinking"]["display"], "summarized");
+    assert_eq!(body["output_config"]["effort"], "high");
+    assert!(body.get("temperature").is_none());
+}
+
+#[test]
+fn test_opus_5_5_thinking_off_uses_low_effort_without_disabled_type() {
+    let req = sample_request();
+    let body = build_request_body("claude-opus-5-5", Some("off"), &req).unwrap();
+
+    assert_eq!(body["model"], "claude-opus-5-5");
+    assert!(body.get("thinking").is_none());
+    assert_eq!(body["output_config"]["effort"], "low");
+}
+
+#[test]
+fn test_sonnet_5_thinking_off_attaches_disabled_type() {
+    let req = sample_request();
+    let body = build_request_body("claude-sonnet-5", Some("off"), &req).unwrap();
+
+    assert_eq!(body["model"], "claude-sonnet-5");
+    assert_eq!(body["thinking"]["type"], "disabled");
+    assert_eq!(body["temperature"], 0.7);
+}
+
+#[test]
+fn test_opus_5_5_tool_choice_falls_back_to_auto() {
+    use rig::completion::ToolDefinition;
+    use rig::message::ToolChoice;
+
+    let mut req = sample_request();
+    req.tools = vec![ToolDefinition {
+        name: "bash".to_string(),
+        description: "Run command".to_string(),
+        parameters: serde_json::json!({ "type": "object" }),
+    }];
+
+    req.tool_choice = Some(ToolChoice::Required);
+    let body_required = build_request_body("claude-opus-5-5", None, &req).unwrap();
+    assert_eq!(body_required["tool_choice"]["type"], "auto");
+
+    req.tool_choice = Some(ToolChoice::Specific {
+        function_names: vec!["bash".to_string()],
+    });
+    let body_specific = build_request_body("claude-opus-5-5", None, &req).unwrap();
+    assert_eq!(body_specific["tool_choice"]["type"], "auto");
+
+    // On standard models that allow forced tools, Required -> any and Specific -> tool
+    req.tool_choice = Some(ToolChoice::Required);
+    let body_sonnet = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    assert_eq!(body_sonnet["tool_choice"]["type"], "any");
+
+    req.tool_choice = Some(ToolChoice::Specific {
+        function_names: vec!["bash".to_string()],
+    });
+    let body_sonnet_spec = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    assert_eq!(body_sonnet_spec["tool_choice"]["type"], "tool");
+    assert_eq!(body_sonnet_spec["tool_choice"]["name"], "Bash");
 }

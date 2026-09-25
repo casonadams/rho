@@ -265,6 +265,40 @@ async fn test_turn_input_cycle_model_shortcut() {
     assert!(matches!(result, TurnKeyResult::Handled));
 }
 
+#[tokio::test]
+async fn test_turn_input_display_toggles() {
+    let mut f = TurnTestFixture::new("");
+    let mut ctx = f.context();
+
+    assert!(!ctx.controller.tools_expanded());
+    let result = handle_turn_key(key_event(KeyCode::Char('o'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(ctx.controller.tools_expanded());
+
+    let result = handle_turn_key(key_event(KeyCode::Char('o'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(!ctx.controller.tools_expanded());
+
+    assert!(!ctx.controller.hide_thinking());
+    let result = handle_turn_key(key_event(KeyCode::Char('t'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(ctx.controller.hide_thinking());
+
+    let result = handle_turn_key(key_event(KeyCode::Char('t'), KeyModifiers::CONTROL), &mut ctx)
+        .await
+        .unwrap();
+    assert!(matches!(result, TurnKeyResult::Handled));
+    assert!(!ctx.controller.hide_thinking());
+
+    super::input::handle_display_toggle(ctx.controller, &crate::ui::interactive::InputAction::Clear);
+}
+
 struct ActiveTurnHarness {
     _temp: tempfile::TempDir,
     session: crate::repl::ReplSession,
@@ -536,6 +570,70 @@ async fn test_turn_idle_activity_event_during_active_turn_does_not_hide_working_
     let unfocused_layout = lp.controller.rendered().unwrap();
     assert!(unfocused_layout.working_line.contains("working"));
     assert!(!unfocused_layout.cursor_visible);
+}
+
+#[tokio::test]
+async fn test_turn_resize_and_editor_paste_events() {
+    let temp = tempfile::tempdir().unwrap();
+    let (_, _, engine) = create_harness_engine(temp.path()).await;
+    let mut f = TurnTestFixture::new("initial text");
+    let steering = std::sync::Arc::new(f.steering.clone());
+    let mut lp = super::runner::TurnLoop::new(
+        &mut f.session,
+        &engine,
+        &mut f.controller,
+        steering,
+        f.model_switch.clone(),
+    );
+    let (_tx, mut ui_events) = tokio::sync::mpsc::unbounded_channel();
+    let cancellation = crate::engine::runner::CancellationSignal::default();
+    let mut res = super::event::TurnInputResources {
+        history: &mut f.history,
+        completions: &f.completions,
+        ui_events: &mut ui_events,
+        cancellation: &cancellation,
+    };
+
+    let handled = super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::Resize(100, 30))
+        .await
+        .unwrap();
+    assert!(!handled);
+    assert_eq!(lp.controller.width(), 100);
+
+    let handled = super::event::dispatch_turn_input(
+        &mut lp,
+        &mut res,
+        crossterm::event::Event::Paste(" appended".to_string()),
+    )
+    .await
+    .unwrap();
+    assert!(!handled);
+    assert_eq!(lp.controller.state().editor().text(), "initial text appended");
+
+    lp.controller.state_mut().footer_mut().activity = Activity::Idle;
+    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
+        .await
+        .unwrap();
+    assert!(!lp.controller.focused());
+    assert_eq!(lp.controller.state().footer().activity, Activity::Working);
+
+    super::event::dispatch_turn_input(&mut lp, &mut res, crossterm::event::Event::FocusLost)
+        .await
+        .unwrap();
+
+    let handled = super::event::dispatch_turn_input(
+        &mut lp,
+        &mut res,
+        crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column: 0,
+            row: 0,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        }),
+    )
+    .await
+    .unwrap();
+    assert!(!handled);
 }
 
 #[tokio::test]

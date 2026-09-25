@@ -36,7 +36,6 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-          target: wasm32-unknown-unknown
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -46,14 +45,6 @@ jobs:
 
       - name: Run clippy (tests)
         run: cargo clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -D warnings
-
-      - name: Install wasm-bindgen-cli
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen-cli@0.2.128
-
-      - name: Check WebAssembly build
-        run: make wasm
 
   test:
     name: Test
@@ -76,3 +67,40 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --workspace --doc
+
+  coverage-crap:
+    name: Coverage & CRAP Metric
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.action != 'edited'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov & cargo-binstall
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov,cargo-binstall
+
+      - name: Install cargo-crap
+        run: |
+          cargo binstall --no-confirm --force cargo-crap@0.5.0
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo crap --version
+      - name: Generate test coverage trace
+        id: coverage
+        run: make coverage
+
+      - name: Emit GitHub PR annotations
+        if: always() && steps.coverage.outcome == 'success'
+        run: cargo crap --path . --lcov target/lcov.info --format github
+
+      - name: Publish CRAP summary to Step Summary
+        if: always() && steps.coverage.outcome == 'success'
+        run: cargo crap --path . --lcov target/lcov.info --threshold 30 --format markdown >> $GITHUB_STEP_SUMMARY
+
+      - name: Gate on CRAP threshold
+        run: make crap

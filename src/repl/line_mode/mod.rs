@@ -45,14 +45,28 @@ async fn build_completion_sources_async(
         .with_custom_providers(custom_providers)
 }
 
-fn build_emacs_edit_mode() -> Box<Emacs> {
+pub(crate) fn build_emacs_keybindings() -> reedline::Keybindings {
     let mut keybindings = default_emacs_keybindings();
     keybindings.add_binding(
         KeyModifiers::ALT,
         KeyCode::Enter,
         ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
     );
-    Box::new(Emacs::new(keybindings))
+    keybindings.add_binding(
+        KeyModifiers::SHIFT,
+        KeyCode::Enter,
+        ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::CONTROL,
+        KeyCode::Enter,
+        ReedlineEvent::Edit(vec![reedline::EditCommand::InsertNewline]),
+    );
+    keybindings
+}
+
+fn build_emacs_edit_mode() -> Box<Emacs> {
+    Box::new(Emacs::new(build_emacs_keybindings()))
 }
 
 pub async fn build_line_editor_async(config: &Config, auth_store: &AuthStore) -> Result<Reedline> {
@@ -194,16 +208,22 @@ async fn handle_line_slash_command(
     handle_command_result(cmd_res, session, engine).await.map(Some)
 }
 
+async fn resolve_user_prompt(input: &str, renderer: &TerminalRenderer) -> Option<String> {
+    match handle_shell_command(input, renderer).await {
+        ShellAction::Handled => None,
+        ShellAction::Prompt(p) => Some(p),
+        ShellAction::Passthrough => Some(input.to_string()),
+    }
+}
+
 async fn execute_user_input(
     input: &str,
     session: &ReplSession,
     engine: &mut AgentEngine,
     stdin_is_tty: bool,
 ) -> Result<()> {
-    let effective = match handle_shell_command(input, &session.renderer).await {
-        ShellAction::Handled => return Ok(()),
-        ShellAction::Prompt(p) => p,
-        ShellAction::Passthrough => input.to_string(),
+    let Some(effective) = resolve_user_prompt(input, &session.renderer).await else {
+        return Ok(());
     };
     if stdin_is_tty {
         clear_submitted_input(input);
@@ -226,6 +246,18 @@ async fn run_dispatch_turn(text: &str, session: &mut ReplSession, engine: &mut A
     Ok(true)
 }
 
+async fn apply_dispatch_outcome(
+    outcome: DispatchOutcome,
+    session: &mut ReplSession,
+    engine: &mut AgentEngine,
+) -> Result<bool> {
+    match outcome {
+        DispatchOutcome::Continue => Ok(true),
+        DispatchOutcome::Break => Ok(false),
+        DispatchOutcome::RunTurn(text) => run_dispatch_turn(&text, session, engine).await,
+    }
+}
+
 async fn process_line_input(
     buffer: &str,
     session: &mut ReplSession,
@@ -237,11 +269,7 @@ async fn process_line_input(
         return Ok(true);
     }
     if let Some(outcome) = handle_line_slash_command(input, session, engine).await? {
-        return match outcome {
-            DispatchOutcome::Continue => Ok(true),
-            DispatchOutcome::Break => Ok(false),
-            DispatchOutcome::RunTurn(text) => run_dispatch_turn(&text, session, engine).await,
-        };
+        return apply_dispatch_outcome(outcome, session, engine).await;
     }
     execute_user_input(input, session, engine, stdin_is_tty).await?;
     Ok(true)
@@ -261,50 +289,72 @@ fn render_line_mode_prompt(session: &ReplSession, engine: &AgentEngine) {
     });
 }
 
+fn handle_line_control_signal(sig: &Signal, renderer: &TerminalRenderer) -> Option<bool> {
+    match sig {
+        Signal::CtrlC => {
+            renderer.write_output("\nCanceled input.\n");
+            Some(true)
+        }
+        Signal::CtrlD => {
+            renderer.write_output("\nBye.\n");
+            Some(false)
+        }
+        Signal::Success(_) => None,
+        _ => Some(true),
+    }
+}
+
 async fn handle_line_signal(
     sig: std::io::Result<Signal>,
     session: &mut ReplSession,
     engine: &mut AgentEngine,
     stdin_is_tty: bool,
 ) -> Result<bool> {
-    match sig {
-        Ok(Signal::Success(buffer)) => process_line_input(&buffer, session, engine, stdin_is_tty).await,
-        Ok(Signal::CtrlC) => {
-            session.renderer.write_output("\nCanceled input.\n");
-            Ok(true)
-        }
-        Ok(Signal::CtrlD) => {
-            session.renderer.write_output("\nBye.\n");
-            Ok(false)
-        }
-        Ok(_) => Ok(true),
+    let signal = match sig {
+        Ok(s) => s,
         Err(err) => {
             session.renderer.write_output(&format!("Input error: {err}\n"));
-            Ok(false)
+            return Ok(false);
         }
+    };
+    if let Some(keep_running) = handle_line_control_signal(&signal, &session.renderer) {
+        return Ok(keep_running);
     }
+    if let Signal::Success(buffer) = signal {
+        return process_line_input(&buffer, session, engine, stdin_is_tty).await;
+    }
+    Ok(true)
 }
 
-pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
-    let mut engine = init_line_mode(session).await?;
-    let mut line_editor = build_line_editor_async(&session.config, &session.auth_store).await?;
-    let mut is_first_prompt = true;
+fn step_line_prompt(session: &ReplSession, engine: &AgentEngine, is_first: &mut bool) {
+    if *is_first {
+        *is_first = false;
+    } else {
+        session.renderer.write_output("\n");
+    }
+    render_line_mode_prompt(session, engine);
+}
 
+async fn run_line_event_loop(
+    mut line_editor: Reedline,
+    session: &mut ReplSession,
+    mut engine: AgentEngine,
+    stdin_is_tty: bool,
+) -> Result<()> {
+    let mut is_first = true;
     loop {
-        if is_first_prompt {
-            is_first_prompt = false;
-        } else {
-            session.renderer.write_output("\n");
-        }
-        render_line_mode_prompt(session, &engine);
-
+        step_line_prompt(session, &engine, &mut is_first);
         let (next_editor, sig) = read_next_line(line_editor).await?;
         line_editor = next_editor;
-
         if !handle_line_signal(sig, session, &mut engine, stdin_is_tty).await? {
             break;
         }
     }
-
     Ok(())
+}
+
+pub async fn run_line_mode(session: &mut ReplSession, stdin_is_tty: bool) -> Result<()> {
+    let engine = init_line_mode(session).await?;
+    let line_editor = build_line_editor_async(&session.config, &session.auth_store).await?;
+    run_line_event_loop(line_editor, session, engine, stdin_is_tty).await
 }

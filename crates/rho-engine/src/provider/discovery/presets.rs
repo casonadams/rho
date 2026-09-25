@@ -62,6 +62,9 @@ pub fn antigravity_preset_models() -> Vec<DiscoveredModel> {
 
 const CHATGPT_CODEX_PRESETS: &[(&str, &str, &str, &str)] = &[
     ("gpt-6-astra", "GPT-6 Astra", "chatgpt", "372k ctx · deep reasoning"),
+    ("gpt-6-sol", "GPT-6 Sol", "chatgpt", "372k ctx · deep reasoning"),
+    ("gpt-6-terra", "GPT-6 Terra", "chatgpt", "372k ctx · balanced reasoning"),
+    ("gpt-6-luna", "GPT-6 Luna", "chatgpt", "372k ctx · fast reasoning"),
     ("gpt-5.4", "GPT-5.4", "chatgpt", "272k ctx · reasoning"),
     ("gpt-5.4-pro", "GPT-5.4 Pro", "chatgpt", "272k ctx · deep reasoning"),
     ("gpt-5.3-codex", "GPT-5.3 Codex", "chatgpt", "128k ctx · coding"),
@@ -102,6 +105,25 @@ pub fn copilot_models() -> Vec<DiscoveredModel> {
 
 const ANTHROPIC_PRESETS: &[(&str, &str, &str, &str)] = &[
     (
+        "claude-opus-5-5",
+        "Claude Opus 5.5",
+        "anthropic",
+        "1M ctx · long-running agentic coding",
+    ),
+    (
+        "claude-fable-5-1",
+        "Claude Fable 5.1",
+        "anthropic",
+        "1M ctx · reasoning & agents",
+    ),
+    (
+        "claude-sonnet-5",
+        "Claude Sonnet 5",
+        "anthropic",
+        "1M ctx · frontier intelligence",
+    ),
+    ("claude-opus-5", "Claude Opus 5", "anthropic", "1M ctx · complex coding"),
+    (
         "claude-3-7-sonnet-20250219",
         "Claude 3.7 Sonnet",
         "anthropic",
@@ -127,6 +149,9 @@ pub fn anthropic_preset_models() -> Vec<DiscoveredModel> {
 
 const OPENAI_PRESETS: &[(&str, &str, &str, &str)] = &[
     ("gpt-6-astra", "GPT-6 Astra", "openai", "1.05M ctx · deep reasoning"),
+    ("gpt-6-sol", "GPT-6 Sol", "openai", "372k ctx · deep reasoning"),
+    ("gpt-6-terra", "GPT-6 Terra", "openai", "372k ctx · balanced reasoning"),
+    ("gpt-6-luna", "GPT-6 Luna", "openai", "372k ctx · fast reasoning"),
     ("gpt-4o", "GPT-4o", "openai", "128k ctx · multimodal"),
     ("gpt-4o-mini", "GPT-4o mini", "openai", "128k ctx · fast"),
     ("o1", "o1", "openai", "200k ctx · deep reasoning"),
@@ -235,6 +260,13 @@ const CLAUDE_PRESETS: &[(&str, &str, &str, &str, usize)] = &[
         "Claude Opus 5",
         "claude",
         "1M ctx · complex coding",
+        1_000_000,
+    ),
+    (
+        "claude-opus-5-5",
+        "Claude Opus 5.5",
+        "claude",
+        "1M ctx · long-running agentic coding",
         1_000_000,
     ),
     (

@@ -85,6 +85,7 @@ fn is_newline_key(key: &KeyEvent) -> bool {
                 | crossterm::event::KeyModifiers::CONTROL,
         ))
         || (key.code == KeyCode::Char('j') && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL))
+        || key.code == KeyCode::Char('\n')
 }
 
 pub(crate) fn handle_input_mode_key<B: TerminalBackend>(
@@ -103,4 +104,27 @@ pub(crate) fn handle_input_mode_key<B: TerminalBackend>(
     }
     controller.redraw()?;
     Ok(ModalKeyResult::Handled)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyModifiers;
+
+    #[test]
+    fn test_is_newline_key() {
+        let shift_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT);
+        let ctrl_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL);
+        let alt_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT);
+        let ctrl_j = KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL);
+        let raw_lf = KeyEvent::new(KeyCode::Char('\n'), KeyModifiers::NONE);
+        let plain_enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+
+        assert!(is_newline_key(&shift_enter));
+        assert!(is_newline_key(&ctrl_enter));
+        assert!(is_newline_key(&alt_enter));
+        assert!(is_newline_key(&ctrl_j));
+        assert!(is_newline_key(&raw_lf));
+        assert!(!is_newline_key(&plain_enter));
+    }
 }

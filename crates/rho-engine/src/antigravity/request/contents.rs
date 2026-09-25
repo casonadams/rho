@@ -69,23 +69,6 @@ pub fn part_text(text: impl Into<String>) -> Part {
     }
 }
 
-pub fn part_image(data: &str, media_type: Option<&str>) -> Option<Part> {
-    let (mime, data) = match data.strip_prefix("data:") {
-        Some(rest) => match rest.split_once(";base64,") {
-            Some((m, d)) => (m.to_string(), d.to_string()),
-            None => return None,
-        },
-        None => (media_type.unwrap_or("image/png").to_string(), data.to_string()),
-    };
-    if data.is_empty() {
-        return None;
-    }
-    Some(Part {
-        inline_data: Some(InlineData { mime_type: mime, data }),
-        ..Part::default()
-    })
-}
-
 pub fn append_turn(contents: &mut Vec<Content>, role: &str, parts: Vec<Part>) {
     if parts.is_empty() {
         return;
@@ -139,17 +122,18 @@ pub fn image_mime_type(media_type: Option<&rig::message::ImageMediaType>) -> &'s
 
 pub fn tool_result_inline_data(image: &rig::message::Image) -> Option<InlineData> {
     let data = image_data(&image.data)?;
-    let (mime, data) = match data.strip_prefix("data:") {
-        Some(rest) => match rest.split_once(";base64,") {
-            Some((m, d)) => (m.to_string(), d.to_string()),
-            None => return None,
-        },
-        None => (image_mime_type(image.media_type.as_ref()).to_string(), data),
+    let (mime, data) = if let Some(rest) = data.strip_prefix("data:") {
+        rest.split_once(";base64,")?
+    } else {
+        (image_mime_type(image.media_type.as_ref()), data.as_str())
     };
     if data.is_empty() {
         return None;
     }
-    Some(InlineData { mime_type: mime, data })
+    Some(InlineData {
+        mime_type: mime.to_string(),
+        data: data.to_string(),
+    })
 }
 
 struct ConversionContext<'a> {
@@ -233,9 +217,10 @@ fn convert_tool_result_part(result: &rig::message::ToolResult, ctx: &ConversionC
 }
 
 fn convert_image_part(image: &rig::message::Image) -> Option<Part> {
-    let data = image_data(&image.data)?;
-    let media_type = image_mime_type(image.media_type.as_ref());
-    part_image(&data, Some(media_type))
+    tool_result_inline_data(image).map(|inline_data| Part {
+        inline_data: Some(inline_data),
+        ..Part::default()
+    })
 }
 
 fn convert_user_content(content: &[UserContent], ctx: &ConversionContext<'_>) -> Vec<Part> {

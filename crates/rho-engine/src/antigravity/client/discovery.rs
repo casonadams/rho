@@ -1,7 +1,7 @@
 //! Cloud Code Assist discovery: project id resolution and the live model
 //! catalog via `v1internal` metadata endpoints.
 
-use super::http::post_metadata;
+use super::http::{post_metadata_candidates, resolve_endpoints};
 
 fn clean_project_id(id: &str) -> Option<String> {
     let clean = id.strip_prefix("projects/").unwrap_or(id).trim();
@@ -53,7 +53,7 @@ pub(super) fn extract_project_id(value: &serde_json::Value) -> Option<String> {
 }
 
 /// Discover the Cloud Code Assist project id for the signed-in account.
-pub async fn load_project_id(token: &str) -> Option<String> {
+pub async fn load_project_id_from_endpoints(endpoints: &[String], token: &str) -> Option<String> {
     let body = serde_json::json!({
         "metadata": {
             "ideType": "ANTIGRAVITY",
@@ -61,17 +61,27 @@ pub async fn load_project_id(token: &str) -> Option<String> {
             "pluginType": "GEMINI"
         }
     });
-    if let Some(project) = post_metadata("/v1internal:loadCodeAssist", token, body)
+    if let Some(project) = post_metadata_candidates(endpoints, "/v1internal:loadCodeAssist", token, body)
         .await
         .as_ref()
         .and_then(extract_project_id)
     {
         return Some(project);
     }
-    post_metadata("/v1internal:listCloudAICompanionProjects", token, serde_json::json!({}))
-        .await
-        .as_ref()
-        .and_then(extract_project_id)
+    post_metadata_candidates(
+        endpoints,
+        "/v1internal:listCloudAICompanionProjects",
+        token,
+        serde_json::json!({}),
+    )
+    .await
+    .as_ref()
+    .and_then(extract_project_id)
+}
+
+/// Discover the Cloud Code Assist project id using configured endpoints.
+pub async fn load_project_id(token: &str) -> Option<String> {
+    load_project_id_from_endpoints(&resolve_endpoints(None), token).await
 }
 
 /// Runtime models selectable in rho (pi parity filters: gemini-/claude-/
@@ -81,9 +91,14 @@ pub fn is_selectable_runtime_model(id: &str) -> bool {
     selectable && !id.contains(char::is_whitespace) && !id.contains("image") && !id.starts_with("MODEL_")
 }
 
-/// Live model catalog via `v1internal:fetchAvailableModels`.
-pub async fn discover_models(token: &str, project_id: &str) -> Option<Vec<String>> {
-    let response = post_metadata(
+/// Live model catalog using candidate endpoints.
+pub async fn discover_models_from_endpoints(
+    endpoints: &[String],
+    token: &str,
+    project_id: &str,
+) -> Option<Vec<String>> {
+    let response = post_metadata_candidates(
+        endpoints,
         "/v1internal:fetchAvailableModels",
         token,
         serde_json::json!({ "project": project_id }),
@@ -100,4 +115,9 @@ pub async fn discover_models(token: &str, project_id: &str) -> Option<Vec<String
     }
     ids.sort();
     Some(ids)
+}
+
+/// Live model catalog via `v1internal:fetchAvailableModels`.
+pub async fn discover_models(token: &str, project_id: &str) -> Option<Vec<String>> {
+    discover_models_from_endpoints(&resolve_endpoints(None), token, project_id).await
 }

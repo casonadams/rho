@@ -336,3 +336,115 @@ async fn test_set_file_value_tools_and_permissions_keys() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn test_set_file_value_limits_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_limits_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "max_output_tokens", "4096").unwrap();
+    Config::set_file_value(&dir, "max_turns", "50").unwrap();
+    Config::set_file_value(&dir, "context_limit", "128000").unwrap();
+    Config::set_file_value(&dir, "context_window_messages", "20").unwrap();
+    Config::set_file_value(&dir, "compaction_max_bytes", "65536").unwrap();
+    Config::set_file_value(&dir, "reserve_tokens", "2000").unwrap();
+    Config::set_file_value(&dir, "keep_recent_tokens", "1000").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    assert_eq!(file.max_output_tokens, Some(4096));
+    assert_eq!(file.max_turns, Some(50));
+    assert_eq!(file.context_limit, Some(128000));
+    assert_eq!(file.context_window_messages, Some(20));
+    assert_eq!(file.compaction_max_bytes, Some(65536));
+    assert_eq!(file.reserve_tokens, Some(2000));
+    assert_eq!(file.keep_recent_tokens, Some(1000));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_set_file_value_network_and_retention_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_net_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "search_min_interval_ms", "500").unwrap();
+    Config::set_file_value(&dir, "search_timeout_sec", "15").unwrap();
+    Config::set_file_value(&dir, "fetch_timeout_sec", "20").unwrap();
+    Config::set_file_value(&dir, "fetch_limit", "10").unwrap();
+    Config::set_file_value(&dir, "fetch_max_bytes", "1048576").unwrap();
+    Config::set_file_value(&dir, "output_max_bytes", "524288").unwrap();
+    Config::set_file_value(&dir, "allow_private_network", "true").unwrap();
+    Config::set_file_value(&dir, "session_retention_days", "14").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    assert_eq!(file.search_min_interval_ms, Some(500));
+    assert_eq!(file.search_timeout_sec, Some(15));
+    assert_eq!(file.fetch_timeout_sec, Some(20));
+    assert_eq!(file.fetch_limit, Some(10));
+    assert_eq!(file.fetch_max_bytes, Some(1048576));
+    assert_eq!(file.output_max_bytes, Some(524288));
+    assert_eq!(file.allow_private_network, Some(true));
+    assert_eq!(file.session_retention_days, Some(14));
+
+    Config::set_file_value(&dir, "session_retention_days", "off").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.session_retention_days, Some(0));
+
+    Config::set_file_value(&dir, "session_retention_days", "0").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.session_retention_days, Some(0));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
+    let dir = std::env::temp_dir().join(format!("rho_model_rt_set_val_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "provider", "anthropic").unwrap();
+    Config::set_file_value(&dir, "model", "claude-3-7-sonnet").unwrap();
+    Config::set_file_value(&dir, "thinking_level", "off").unwrap();
+    Config::set_file_value(&dir, "region", "us-east-1").unwrap();
+    Config::set_file_value(&dir, "steering_mode", "all").unwrap();
+    Config::set_file_value(&dir, "follow_up_mode", "one-at-a-time").unwrap();
+    Config::set_file_value(&dir, "semantic_search", "true").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    assert_eq!(file.provider.as_deref(), Some("anthropic"));
+    assert_eq!(file.model.as_deref(), Some("claude-3-7-sonnet"));
+    assert_eq!(
+        file.models.get("anthropic").map(String::as_str),
+        Some("claude-3-7-sonnet")
+    );
+    assert_eq!(file.thinking_level, None);
+    assert_eq!(file.region.as_deref(), Some("us-east-1"));
+    assert_eq!(file.steering_mode, Some(crate::queue::QueueMode::All));
+    assert_eq!(file.follow_up_mode, Some(crate::queue::QueueMode::OneAtATime));
+    assert_eq!(file.semantic_search, Some(true));
+
+    Config::set_file_value(&dir, "provider", "openai").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.provider.as_deref(), Some("openai"));
+    assert_eq!(
+        file.model.as_deref(),
+        Some(crate::provider::default_model_for_provider("openai"))
+    );
+
+    Config::set_file_value(&dir, "provider", "anthropic").unwrap();
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+    assert_eq!(file.provider.as_deref(), Some("anthropic"));
+    assert_eq!(file.model.as_deref(), Some("claude-3-7-sonnet"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

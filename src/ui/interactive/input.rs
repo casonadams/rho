@@ -34,7 +34,29 @@ pub fn map_key(event: KeyEvent) -> InputAction {
     map_key_with_bindings(event, &bindings)
 }
 
-fn map_app_action(action: KeyAction) -> Option<InputAction> {
+fn map_app_session_action(action: KeyAction) -> Option<InputAction> {
+    Some(match action {
+        KeyAction::AppSessionNew => InputAction::SessionNew,
+        KeyAction::AppSessionTree => InputAction::SessionTree,
+        KeyAction::AppSessionResume => InputAction::SessionResume,
+        KeyAction::AppSessionFork => InputAction::Ignore,
+        _ => return None,
+    })
+}
+
+fn map_app_model_action(action: KeyAction) -> Option<InputAction> {
+    Some(match action {
+        KeyAction::AppModelSelect => InputAction::ModelSelect,
+        KeyAction::AppModelCycleForward => InputAction::ModelCycleForward,
+        KeyAction::AppModelCycleBackward => InputAction::ModelCycleBackward,
+        KeyAction::AppThinkingCycle => InputAction::ThinkingCycle,
+        KeyAction::AppThinkingToggle => InputAction::ThinkingToggle,
+        KeyAction::AppToolsExpand => InputAction::ToggleExpandTools,
+        _ => return None,
+    })
+}
+
+fn map_app_general_action(action: KeyAction) -> Option<InputAction> {
     Some(match action {
         KeyAction::AppInterrupt => InputAction::Cancel,
         KeyAction::AppClear => InputAction::Clear,
@@ -42,21 +64,17 @@ fn map_app_action(action: KeyAction) -> Option<InputAction> {
         KeyAction::AppSuspend => InputAction::Suspend,
         KeyAction::AppEditorExternal => InputAction::ExternalEditor,
         KeyAction::AppClipboardPasteImage => InputAction::ClipboardPasteImage,
-        KeyAction::AppModelSelect => InputAction::ModelSelect,
-        KeyAction::AppModelCycleForward => InputAction::ModelCycleForward,
-        KeyAction::AppModelCycleBackward => InputAction::ModelCycleBackward,
-        KeyAction::AppThinkingCycle => InputAction::ThinkingCycle,
-        KeyAction::AppThinkingToggle => InputAction::ThinkingToggle,
-        KeyAction::AppToolsExpand => InputAction::ToggleExpandTools,
         KeyAction::AppMessageCopy => InputAction::MessageCopy,
         KeyAction::AppMessageFollowUp => InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
         KeyAction::AppMessageDequeue => InputAction::DequeueQueued,
-        KeyAction::AppSessionNew => InputAction::SessionNew,
-        KeyAction::AppSessionTree => InputAction::SessionTree,
-        KeyAction::AppSessionResume => InputAction::SessionResume,
-        KeyAction::AppSessionFork => InputAction::Ignore,
         _ => return None,
     })
+}
+
+fn map_app_action(action: KeyAction) -> Option<InputAction> {
+    map_app_session_action(action)
+        .or_else(|| map_app_model_action(action))
+        .or_else(|| map_app_general_action(action))
 }
 
 fn map_tui_cursor_action(action: KeyAction) -> Option<InputAction> {
@@ -103,6 +121,10 @@ fn map_bound_action(action: KeyAction) -> InputAction {
 pub fn map_key_with_bindings(event: KeyEvent, bindings: &KeybindingMap) -> InputAction {
     if event.kind == KeyEventKind::Release {
         return InputAction::Ignore;
+    }
+
+    if event.code == KeyCode::Char('\n') {
+        return InputAction::Edit(UiAction::InsertNewline);
     }
 
     if let Some(action) = bindings.get_action(&event) {
@@ -162,6 +184,14 @@ mod tests {
     }
 
     #[test]
+    fn raw_newline_char_inserts_a_newline() {
+        assert_eq!(
+            map_key(key(KeyCode::Char('\n'), KeyModifiers::NONE)),
+            InputAction::Edit(UiAction::InsertNewline)
+        );
+    }
+
+    #[test]
     fn editor_navigation_and_control_keys_are_mapped() {
         let cases = [
             (
@@ -216,5 +246,38 @@ mod tests {
         for (event, expected) in cases {
             assert_eq!(map_key(event), expected);
         }
+    }
+
+    #[test]
+    fn app_actions_are_fully_mapped() {
+        let cases = [
+            (KeyAction::AppInterrupt, InputAction::Cancel),
+            (KeyAction::AppClear, InputAction::Clear),
+            (KeyAction::AppExit, InputAction::EndOfInput),
+            (KeyAction::AppSuspend, InputAction::Suspend),
+            (KeyAction::AppEditorExternal, InputAction::ExternalEditor),
+            (KeyAction::AppClipboardPasteImage, InputAction::ClipboardPasteImage),
+            (KeyAction::AppModelSelect, InputAction::ModelSelect),
+            (KeyAction::AppModelCycleForward, InputAction::ModelCycleForward),
+            (KeyAction::AppModelCycleBackward, InputAction::ModelCycleBackward),
+            (KeyAction::AppThinkingCycle, InputAction::ThinkingCycle),
+            (KeyAction::AppThinkingToggle, InputAction::ThinkingToggle),
+            (KeyAction::AppToolsExpand, InputAction::ToggleExpandTools),
+            (KeyAction::AppMessageCopy, InputAction::MessageCopy),
+            (
+                KeyAction::AppMessageFollowUp,
+                InputAction::Edit(UiAction::Submit(QueueKind::FollowUp)),
+            ),
+            (KeyAction::AppMessageDequeue, InputAction::DequeueQueued),
+            (KeyAction::AppSessionNew, InputAction::SessionNew),
+            (KeyAction::AppSessionTree, InputAction::SessionTree),
+            (KeyAction::AppSessionResume, InputAction::SessionResume),
+            (KeyAction::AppSessionFork, InputAction::Ignore),
+        ];
+
+        for (action, expected) in cases {
+            assert_eq!(map_bound_action(action), expected);
+        }
+        assert_eq!(map_app_action(KeyAction::TuiSelectConfirm), None);
     }
 }

@@ -22,7 +22,18 @@ const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
     (&["gemini"], 1_000_000),
     (&["gpt-6-astra"], 1_050_000),
     (&["sonnet", "opus", "fable"], 1_000_000),
-    (&["gpt-5.6", "luna", "terra", "sol"], 372_000),
+    (
+        &[
+            "gpt-5.6",
+            "gpt-6-sol",
+            "gpt-6-terra",
+            "gpt-6-luna",
+            "luna",
+            "terra",
+            "sol",
+        ],
+        372_000,
+    ),
     (&["gpt-5.4", "gpt-5.5"], 272_000),
     (&["claude", "o1", "o3"], 200_000),
 ];
@@ -95,8 +106,10 @@ pub fn calculate_context_tokens(
 static CL100K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::cl100k_base().ok());
 static O200K_BPE: LazyLock<Option<tiktoken_rs::CoreBPE>> = LazyLock::new(|| tiktoken_rs::o200k_base().ok());
 
+const O200K_SUBSTRINGS: &[&str] = &["gpt-4o", "gpt-5", "gpt-6", "luna", "terra", "sol"];
+
 fn is_o200k_model(lower: &str) -> bool {
-    if lower.contains("gpt-4o") || lower.contains("gpt-5") || lower.contains("gpt-6") {
+    if O200K_SUBSTRINGS.iter().any(|&sub| lower.contains(sub)) {
         return true;
     }
     lower

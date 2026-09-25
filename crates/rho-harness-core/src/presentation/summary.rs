@@ -243,54 +243,74 @@ fn extract_mcp_call_args(args: &serde_json::Value) -> Option<serde_json::Value> 
     None
 }
 
-fn format_mcp_summary(args: &serde_json::Value) -> String {
-    let action = args.get("action").and_then(|a| a.as_str());
-    let server = args.get("server").and_then(|s| s.as_str());
+fn format_scoped_mcp_target(server: Option<&str>, action: &str, target: &str) -> String {
+    let prefix = match server {
+        Some(s) if !s.is_empty() => format!("{s}:{action}"),
+        _ => action.to_string(),
+    };
+    if target.is_empty() {
+        prefix
+    } else {
+        format!("{prefix} {target}")
+    }
+}
 
+fn format_mcp_status(server: Option<&str>) -> String {
+    match server {
+        Some(s) if !s.is_empty() => format!("status {s}"),
+        _ => "status".to_string(),
+    }
+}
+
+fn format_mcp_default_summary(server: Option<&str>, action: Option<&str>) -> String {
+    if let Some(act) = action {
+        match server {
+            Some(s) if !s.is_empty() => format!("{s}:{act}"),
+            _ => act.to_string(),
+        }
+    } else if let Some(s) = server {
+        s.to_string()
+    } else {
+        String::new()
+    }
+}
+
+fn format_mcp_call_summary(server: Option<&str>, args: &serde_json::Value) -> Option<String> {
+    let action = args.get("action").and_then(|a| a.as_str());
     if action == Some("call") || args.get("tool").is_some() {
         let tool = args.get("tool").and_then(|t| t.as_str()).unwrap_or("");
         if !tool.is_empty() {
             let inner_args = extract_mcp_call_args(args);
-            return format_single_mcp_call(server, tool, inner_args.as_ref());
+            return Some(format_single_mcp_call(server, tool, inner_args.as_ref()));
         }
+    }
+    None
+}
+
+fn format_mcp_summary(args: &serde_json::Value) -> String {
+    let action = args.get("action").and_then(|a| a.as_str());
+    let server = args.get("server").and_then(|s| s.as_str());
+
+    if let Some(call) = format_mcp_call_summary(server, args) {
+        return call;
     }
 
     if action == Some("search") || args.get("search").is_some() {
         let query = args.get("search").and_then(|q| q.as_str()).unwrap_or("");
         let query_str = format_kv_val(&serde_json::Value::String(query.to_string()));
-        return match server {
-            Some(s) if !s.is_empty() => format!("{s}:search {query_str}"),
-            _ => format!("search {query_str}"),
-        };
+        return format_scoped_mcp_target(server, "search", &query_str);
     }
 
     if action == Some("describe") || args.get("describe").is_some() {
         let target = args.get("describe").and_then(|d| d.as_str()).unwrap_or("");
-        return match server {
-            Some(s) if !s.is_empty() => format!("{s}:describe {target}"),
-            _ => format!("describe {target}"),
-        };
+        return format_scoped_mcp_target(server, "describe", target);
     }
 
     if action == Some("status") {
-        return match server {
-            Some(s) if !s.is_empty() => format!("status {s}"),
-            _ => "status".to_string(),
-        };
+        return format_mcp_status(server);
     }
 
-    if let Some(act) = action {
-        return match server {
-            Some(s) if !s.is_empty() => format!("{s}:{act}"),
-            _ => act.to_string(),
-        };
-    }
-
-    if let Some(s) = server {
-        return s.to_string();
-    }
-
-    String::new()
+    format_mcp_default_summary(server, action)
 }
 
 fn format_mcp_script_summary(args: &serde_json::Value) -> String {

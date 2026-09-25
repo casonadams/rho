@@ -12,8 +12,7 @@ use crossterm::event::KeyEvent;
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
     open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
-    open_remote_modal, open_search_engine_selector, open_session_selector, open_tools_selector,
-    update_tools_search_engine,
+    open_search_engine_selector, open_session_selector, open_tools_selector, update_tools_search_engine,
 };
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -96,18 +95,25 @@ pub enum ModalKeyResult {
     },
 }
 
-pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {
+fn apply_motion_action(input: &mut EditorState, action: &UiAction) -> bool {
     match action {
-        UiAction::Insert(c) => input.insert(c),
-        UiAction::InsertNewline => input.insert_newline(),
-        UiAction::Backspace => input.backspace(),
-        UiAction::Delete => input.delete(),
         UiAction::MoveLeft => input.move_left(),
         UiAction::MoveRight => input.move_right(),
         UiAction::MoveWordLeft => input.move_word_left(),
         UiAction::MoveWordRight => input.move_word_right(),
         UiAction::MoveToStart => input.move_to_start(),
         UiAction::MoveToEnd => input.move_to_end(),
+        _ => return false,
+    }
+    true
+}
+
+fn apply_mutation_action(input: &mut EditorState, action: UiAction) {
+    match action {
+        UiAction::Insert(c) => input.insert(c),
+        UiAction::InsertNewline => input.insert_newline(),
+        UiAction::Backspace => input.backspace(),
+        UiAction::Delete => input.delete(),
         UiAction::DeleteWordBackward => input.delete_word_backward(),
         UiAction::DeleteWordForward => input.delete_word_forward(),
         UiAction::DeleteToLineStart => input.delete_to_line_start(),
@@ -116,6 +122,12 @@ pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {
         UiAction::Undo => input.undo(),
         UiAction::Paste(text) => input.handle_paste(&text),
         _ => {}
+    }
+}
+
+pub(crate) fn apply_input_edit(input: &mut EditorState, action: UiAction) {
+    if !apply_motion_action(input, &action) {
+        apply_mutation_action(input, action);
     }
 }
 
@@ -159,6 +171,67 @@ pub(crate) fn clear_filter_or_cancel<B: TerminalBackend>(controller: &mut Termin
     }
 }
 
+fn is_nav_prev(key: &KeyEvent, is_searchable: bool) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    match key.code {
+        KeyCode::Up | KeyCode::BackTab => true,
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => true,
+        KeyCode::Char('k') if !is_searchable && key.modifiers.is_empty() => true,
+        _ => false,
+    }
+}
+
+fn is_nav_next(key: &KeyEvent, is_searchable: bool) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    match key.code {
+        KeyCode::Down => true,
+        KeyCode::Tab if !key.modifiers.contains(KeyModifiers::SHIFT) => true,
+        KeyCode::Char('j') if !is_searchable && key.modifiers.is_empty() => true,
+        _ => false,
+    }
+}
+
+fn try_digit_jump<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: &KeyEvent,
+    is_searchable: bool,
+) -> Result<bool> {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    if is_searchable || key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) {
+        return Ok(false);
+    }
+    let KeyCode::Char(c) = key.code else {
+        return Ok(false);
+    };
+    if !('1'..='9').contains(&c) {
+        return Ok(false);
+    }
+    let idx = (c as usize).saturating_sub('1' as usize);
+    let count = controller.state().active_modal().map_or(0, |m| m.options.len());
+    if idx < count
+        && let Some(modal) = controller.state_mut().active_modal_mut()
+    {
+        modal.selected = idx;
+        controller.redraw()?;
+    }
+    Ok(true)
+}
+
+fn try_search_key<B: TerminalBackend>(controller: &mut TerminalController<B>, key: &KeyEvent) -> Result<bool> {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    match key.code {
+        KeyCode::Backspace => {
+            apply_filter(controller, None)?;
+            Ok(true)
+        }
+        KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
+            apply_filter(controller, Some(c))?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 pub(crate) fn handle_selector_nav<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     key: &KeyEvent,
@@ -167,62 +240,27 @@ pub(crate) fn handle_selector_nav<B: TerminalBackend>(
 
     let is_searchable = controller.state().active_modal().is_some_and(|m| m.is_searchable);
 
-    match key.code {
-        KeyCode::Up | KeyCode::BackTab => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-            Ok(true)
-        }
-        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-            Ok(true)
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-            Ok(true)
-        }
-        KeyCode::Char('k') if !is_searchable && key.modifiers.is_empty() => {
-            controller.state_mut().select_previous_modal_option();
-            controller.redraw()?;
-            Ok(true)
-        }
-        KeyCode::Char('j') if !is_searchable && key.modifiers.is_empty() => {
-            controller.state_mut().select_next_modal_option();
-            controller.redraw()?;
-            Ok(true)
-        }
-        KeyCode::Char(c)
-            if !is_searchable
-                && c.is_ascii_digit()
-                && c != '0'
-                && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-        {
-            let idx = (c as usize).saturating_sub('1' as usize);
-            let count = controller.state().active_modal().map_or(0, |m| m.options.len());
-            if idx < count
-                && let Some(modal) = controller.state_mut().active_modal_mut()
-            {
-                modal.selected = idx;
-                controller.redraw()?;
-            }
-            Ok(true)
-        }
-        KeyCode::Backspace if is_searchable => {
-            apply_filter(controller, None)?;
-            Ok(true)
-        }
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            clear_filter_or_cancel(controller)?;
-            Ok(true)
-        }
-        KeyCode::Char(c) if is_searchable && !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {
-            apply_filter(controller, Some(c))?;
-            Ok(true)
-        }
-        _ => Ok(false),
+    if is_nav_prev(key, is_searchable) {
+        controller.state_mut().select_previous_modal_option();
+        controller.redraw()?;
+        return Ok(true);
     }
+    if is_nav_next(key, is_searchable) {
+        controller.state_mut().select_next_modal_option();
+        controller.redraw()?;
+        return Ok(true);
+    }
+    if try_digit_jump(controller, key, is_searchable)? {
+        return Ok(true);
+    }
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        clear_filter_or_cancel(controller)?;
+        return Ok(true);
+    }
+    if is_searchable {
+        return try_search_key(controller, key);
+    }
+    Ok(false)
 }
 
 pub(crate) fn dispatch_simple_selector<B: TerminalBackend, F>(
@@ -321,7 +359,6 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Tools & Permissions" => selectors::handle_tools_key(controller, key),
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),
         "Login Provider" => selectors::handle_login_key(controller, key),
-        "Remote Access" => selectors::handle_remote_key(controller, key),
         _ => interaction::handle_interaction_key(controller, key, pending),
     }
 }

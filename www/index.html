@@ -129,7 +129,6 @@
         <button class="gallery-tab" data-gallery="turn">Active Turn &amp; Speed</button>
         <button class="gallery-tab" data-gallery="model">Model Switcher (/model)</button>
         <button class="gallery-tab" data-gallery="login">Provider Login</button>
-        <button class="gallery-tab" data-gallery="hub">Fleet Hub (P2P Remote)</button>
       </div>
 
       <div class="gallery-frame">
@@ -309,16 +308,16 @@ rho --mode rpc
         </div>
 
         <div class="card">
-          <h3 class="card-title">P2P Remote &amp; Fleet Hub</h3>
+          <h3 class="card-title">Session Tree &amp; DAG History</h3>
           <p class="card-desc">
-            Share sessions over Iroh peer-to-peer transport with <code>/remote</code>, or run a headless background daemon with <code>rho serve</code>. Steer and monitor live from any mobile or desktop browser.
+            Explore conversation turn trees, create branches, fork checkpoints, and switch context seamlessly with interactive branch navigation.
           </p>
           <div class="code-block-wrapper">
-            <pre><code># Serve node over P2P & WS
-rho serve --workspace ~/repo
+            <pre><code># Interactive DAG tree navigation
+/tree
 
-# In TUI: share to web hub
-/remote</code></pre>
+# Fork branch from checkpoint
+/fork &lt;node-id&gt;</code></pre>
           </div>
         </div>
 
@@ -548,7 +547,6 @@ rho serve --workspace ~/repo
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev (π)</a>
             <a href="https://github.com/0xPlaygrounds/rig" target="_blank" rel="noopener">Rig (LLM Engine)</a>
-            <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh (P2P Mesh)</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>

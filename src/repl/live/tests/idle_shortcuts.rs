@@ -138,3 +138,233 @@ fn test_modal_tree_input_ctrl_c_clears_input_text() {
     assert_eq!(modal.input.text(), "");
     assert!(matches!(modal.mode, ModalMode::Input { .. }));
 }
+
+#[tokio::test]
+async fn test_resume_session_does_not_deadlock_idle_step() {
+    let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
+    let temp_dir = std::env::temp_dir().join(format!("test_resume_deadlock_{}", uuid::Uuid::new_v4()));
+    session.config.sessions_dir = temp_dir.clone();
+    let mgr = rho_harness_core::session::SessionManager::new(&temp_dir, None).unwrap();
+    let session_id = mgr.session_id.clone();
+
+    let mut history =
+        crate::repl::interactive::InteractiveHistory::with_file(100, temp_dir.join("history.txt")).unwrap();
+    let mut input =
+        crate::repl::input_reader::TerminalInputReader::spawn_with_events(vec![crossterm::event::Event::Key(
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        )]);
+    let mut batch = LiveBatch::new();
+
+    let modal_ctx = crate::repl::live::idle::modal_action::ModalActionContext {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+    };
+
+    let result = crate::repl::live::idle::modal_action::apply_modal_key_result(
+        crate::repl::live::modal::ModalKeyResult::SessionSelected { session_id },
+        modal_ctx,
+        &mut batch,
+    )
+    .await
+    .unwrap();
+    assert!(result);
+
+    // Verify input is still readable and next event is processed without hanging
+    let event = input.recv().await;
+    assert!(event.is_some());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_idle_shortcut_ui_toggles() {
+    let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
+    let mut last_escape_time = None;
+    let mut batch = LiveBatch::new();
+
+    assert!(!controller.tools_expanded());
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ToggleExpandTools, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(controller.tools_expanded());
+    assert_eq!(controller.state().system_message(), Some("Tool output: expanded"));
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ToggleExpandTools, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(!controller.tools_expanded());
+    assert_eq!(controller.state().system_message(), Some("Tool output: collapsed"));
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ThinkingToggle, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(controller.hide_thinking());
+    assert_eq!(controller.state().system_message(), Some("Thinking blocks: hidden"));
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ThinkingToggle, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(!controller.hide_thinking());
+    assert_eq!(controller.state().system_message(), Some("Thinking blocks: visible"));
+}
+
+#[tokio::test]
+async fn test_idle_shortcut_selectors_and_session_actions() {
+    let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
+    let mut last_escape_time = None;
+    let mut batch = LiveBatch::new();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ModelSelect, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().title, "Select Model");
+    controller.state_mut().pop_modal();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::SessionResume, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(controller.state().active_modal().is_some());
+    controller.state_mut().pop_modal();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::SessionTree, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().title, "Conversation Tree");
+    controller.state_mut().pop_modal();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::SessionNew, ctx, &mut batch)
+        .await
+        .unwrap();
+    assert!(controller.transcript().is_empty());
+}
+
+#[tokio::test]
+async fn test_idle_shortcut_model_cycle_and_auxiliary_actions() {
+    let (mut controller, mut session, mut engine) = setup_shortcut_harness().await;
+    let mut last_escape_time = None;
+    let mut batch = LiveBatch::new();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ModelCycleForward, ctx, &mut batch)
+        .await
+        .unwrap();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ModelCycleBackward, ctx, &mut batch)
+        .await
+        .unwrap();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ThinkingCycle, ctx, &mut batch)
+        .await
+        .unwrap();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::MessageCopy, ctx, &mut batch)
+        .await
+        .unwrap();
+
+    let _ = controller.push_transcript_item(crate::ui::interactive::TranscriptItem::AssistantText(
+        "assistant message to copy".into(),
+    ));
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::MessageCopy, ctx, &mut batch)
+        .await
+        .unwrap();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::ClipboardPasteImage, ctx, &mut batch)
+        .await
+        .unwrap();
+
+    let ctx = IdleShortcutContext {
+        controller: &mut controller,
+        session: &mut session,
+        engine: &mut engine,
+        last_escape_time: &mut last_escape_time,
+    };
+    handle_shortcut_action(InputAction::Ignore, ctx, &mut batch)
+        .await
+        .unwrap();
+}

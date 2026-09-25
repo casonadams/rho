@@ -18,7 +18,7 @@ pub mod token;
 mod tests;
 
 pub use discovery::{discover_models, is_selectable_runtime_model, load_project_id};
-pub(crate) use http::post_metadata;
+pub(crate) use http::post_metadata_candidates;
 pub use http::{DEFAULT_ENDPOINT, ENDPOINT_CANDIDATES, antigravity_headers, http_client, resolve_endpoints};
 pub use token::{AuthStoreTokenProvider, StaticTokenProvider, TokenProvider};
 

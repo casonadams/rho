@@ -29,6 +29,40 @@ fn resolve_block_bg(theme: &Theme, style: &str) -> anstyle::Style {
     }
 }
 
+fn format_block_title(title: &str) -> String {
+    if title.is_empty() {
+        String::new()
+    } else {
+        let bold = anstyle::Style::new().bold();
+        format!("{bold}{title}{bold:#}\n\n")
+    }
+}
+
+fn resolve_block_format(theme: &Theme, style: &str) -> BlockFormat {
+    match theme.block_style {
+        crate::ui::theme::BlockStyle::Solid => {
+            let bg = resolve_block_bg(theme, style);
+            BlockFormat::new(bg, terminal_width())
+        }
+        crate::ui::theme::BlockStyle::Border => {
+            let border = if style == "warning" {
+                theme.warning
+            } else {
+                theme.agent_border
+            };
+            BlockFormat::border(border, terminal_width())
+        }
+    }
+}
+
+pub fn render_block_content(theme: &Theme, display: &BlockDisplay) -> String {
+    let formatted_title = format_block_title(&display.title);
+    let full_text = format!("{formatted_title}{}", display.content);
+    let block_fmt = resolve_block_format(theme, &display.style);
+    let rendered = block_fmt.with_vertical_padding().render_styled(&full_text);
+    format!("\n{rendered}\n")
+}
+
 impl TerminalRenderer {
     pub fn print_welcome(&self, display: &WelcomeDisplay) {
         let location = std::env::current_dir()
@@ -55,52 +89,28 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn print_session_status(&self, display: &SessionStatus) {
-        let dim = self.theme.dimmed;
-        let status = format_session_status(display);
-        let text = format!("{dim}{status}{dim:#}\n");
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text));
-        } else {
-            self.write_output(&text);
-        }
-    }
-
-    pub fn print_block(&self, display: &BlockDisplay) {
-        let bg = resolve_block_bg(&self.theme, &display.style);
-        let formatted_title = if display.title.is_empty() {
-            String::new()
-        } else {
-            let bold = anstyle::Style::new().bold();
-            format!("{bold}{}{bold:#}\n\n", display.title)
-        };
-        let full_text = format!("{formatted_title}{}", display.content);
-        let block_fmt = match self.theme.block_style {
-            crate::ui::theme::BlockStyle::Solid => BlockFormat::new(bg, terminal_width()),
-            crate::ui::theme::BlockStyle::Border => {
-                let border = if display.style == "warning" {
-                    self.theme.warning
-                } else {
-                    self.theme.agent_border
-                };
-                BlockFormat::border(border, terminal_width())
-            }
-        };
-        let rendered = block_fmt.with_vertical_padding().render_styled(&full_text);
-        let block_output = format!("\n{rendered}\n");
-        if let Some(ui) = &self.ui {
-            let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(block_output));
-        } else {
-            self.write_output(&block_output);
-        }
-    }
-
-    pub fn print_notice(&self, text: &str) {
+    fn emit_notice_output(&self, text: &str) {
         if let Some(ui) = &self.ui {
             let _ = ui.push_transcript(crate::ui::interactive::TranscriptItem::Notice(text.to_string()));
         } else {
             self.write_output(text);
         }
+    }
+
+    pub fn print_session_status(&self, display: &SessionStatus) {
+        let dim = self.theme.dimmed;
+        let status = format_session_status(display);
+        let text = format!("{dim}{status}{dim:#}\n");
+        self.emit_notice_output(&text);
+    }
+
+    pub fn print_block(&self, display: &BlockDisplay) {
+        let block_output = render_block_content(&self.theme, display);
+        self.emit_notice_output(&block_output);
+    }
+
+    pub fn print_notice(&self, text: &str) {
+        self.emit_notice_output(text);
     }
 
     pub fn print_status(&self, message: &str) {

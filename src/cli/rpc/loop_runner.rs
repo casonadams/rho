@@ -10,42 +10,64 @@ use rho_engine::engine::runner::TurnOutput;
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent, RpcRequest, RpcResponse};
 use rho_harness_core::rpc::transport::{JsonLinesReader, JsonLinesWriter};
 
+async fn handle_turn_control_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    cmd: &RpcCommand,
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<bool> {
+    match cmd {
+        RpcCommand::Prompt { message, .. } => {
+            handle_prompt_cmd((message.clone(), req_id), ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::Steer { message } => {
+            handle_steer_command((message.clone(), req_id), ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::Abort => {
+            handle_abort_cmd(req_id, ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::ToolResponse { approval_id, decision } => {
+            handle_tool_response_cmd((approval_id.clone(), decision.clone(), req_id), ctx).await?;
+            Ok(true)
+        }
+        RpcCommand::GetState => {
+            handle_state_command(req_id, ctx).await?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+async fn handle_exit_cmd<W: tokio::io::AsyncWrite + Unpin>(
+    req_id: Option<String>,
+    ctx: &mut RpcDaemonContext<'_, W>,
+) -> Result<RpcLoopAction> {
+    if let Some(handle) = ctx.active_turn.take() {
+        handle.abort();
+    }
+    ctx.writer
+        .write_message(&RpcResponse::success(req_id, "exit", None))
+        .await?;
+    Ok(RpcLoopAction::Break)
+}
+
 pub(crate) async fn dispatch_rpc<W: tokio::io::AsyncWrite + Unpin>(
     (cmd, req_id): (RpcCommand, Option<String>),
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<RpcLoopAction> {
-    match cmd {
-        RpcCommand::Prompt { message, .. } => {
-            handle_prompt_cmd((message, req_id), ctx).await?;
-        }
-        RpcCommand::Steer { message } => {
-            handle_steer_command((message, req_id), ctx).await?;
-        }
-        RpcCommand::Abort => {
-            handle_abort_cmd(req_id, ctx).await?;
-        }
-        RpcCommand::ToolResponse { approval_id, decision } => {
-            handle_tool_response_cmd((approval_id, decision, req_id), ctx).await?;
-        }
-        RpcCommand::GetState => {
-            handle_state_command(req_id, ctx).await?;
-        }
-        ref other if handle_remote_auth_cmd(other, req_id.clone(), ctx).await? => {}
-        RpcCommand::Exit => {
-            if let Some(handle) = ctx.active_turn.take() {
-                handle.abort();
-            }
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "exit", None))
-                .await?;
-            return Ok(RpcLoopAction::Break);
-        }
-        ref other if handle_session_lifecycle_cmd(other, req_id.clone(), ctx).await? => {}
-        ref other if handle_resume_or_fork_cmd(other, req_id.clone(), ctx).await? => {}
-        other => {
-            handle_config_update_cmd(other, req_id, ctx).await?;
-        }
+    if matches!(cmd, RpcCommand::Exit) {
+        return handle_exit_cmd(req_id, ctx).await;
     }
+    if handle_turn_control_cmd(&cmd, req_id.clone(), ctx).await?
+        || handle_remote_auth_cmd(&cmd, req_id.clone(), ctx).await?
+        || handle_session_lifecycle_cmd(&cmd, req_id.clone(), ctx).await?
+        || handle_resume_or_fork_cmd(&cmd, req_id.clone(), ctx).await?
+    {
+        return Ok(RpcLoopAction::Continue);
+    }
+    handle_config_update_cmd(cmd, req_id, ctx).await?;
     Ok(RpcLoopAction::Continue)
 }
 

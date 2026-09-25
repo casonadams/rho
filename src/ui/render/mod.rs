@@ -8,7 +8,6 @@
 //! presentation module and are re-exported here so external callers continue
 //! to use `crate::ui::render::{TerminalRenderer, ToolLine}` etc.
 
-pub mod broadcast_presenter;
 pub(crate) mod card;
 pub(crate) mod diff;
 pub(crate) mod formatters;
@@ -21,7 +20,6 @@ pub(crate) mod thinking_stream;
 #[cfg(test)]
 mod tests;
 
-pub use broadcast_presenter::BroadcastPresenter;
 pub use card::{
     detect_language_from_args, detect_language_from_path, fetch_content_kind, format_bash_args_header,
     format_read_header, format_tool_header, normalize_tool_name, render_headless_tool_card, render_tool_block,

@@ -39,8 +39,17 @@
   `cargo:rerun-if-changed` to prevent Cargo from invalidating incremental build
   caches on every invocation.
 
-## UX and modal guidelines
+## Code quality and CRAP score
 
+- The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining
+  cyclomatic complexity with test code coverage. Functions with a CRAP score > 30
+  are considered fragile and defect-prone.
+- When modifying, extending, or fixing bugs in any function, ensure its CRAP
+  score remains <= 30.
+- Never introduce new functions with a CRAP score > 30.
+- All changes must pass CRAP threshold evaluation (`make crap`).
+
+## UX and modal guidelines
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
   - Construct in-TUI popups using `ModalState` (`src/repl/live/modal/`) rather than suspending raw mode to run external CLI prompts (`inquire`).
   - Title: Clear, concise Title Case (e.g., `"Select Thinking Level"`, `"Login Provider"`, `"Settings"`).
@@ -57,9 +66,8 @@
 ## Documentation, website, and WASM synchronization
 
 - When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
-- When modifying RPC protocols, event schemas, remote server capabilities, or Web UI features, verify WebAssembly compilation (`make wasm` or `cargo check -p rho-wasm --target wasm32-unknown-unknown`). WebAssembly distribution artifacts in `www/hub/wasm/` are gitignored and generated automatically during CI deployment.
 - Maintain bidirectional UI parity: features, prompts, tool outputs, and interactive approvals visible in the raw-mode TUI must also stream, render, and resolve cleanly in the Web Hub dashboard.
 
 ## Completion
 
-- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), `make wasm`, and `cargo test --workspace` before finishing.
+- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), `cargo test --workspace`, and `make crap` before finishing.

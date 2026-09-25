@@ -51,7 +51,6 @@ fn build_turn_context<'a, B: TerminalBackend>(
     cancellation: &'a Arc<CancellationSignal>,
 ) -> (TurnContext<'a, B>, TurnRequest<'a>) {
     let steering = Arc::new(SharedSteeringQueue::new(engine.config.steering_mode));
-    crate::platform::remote::set_active_steering(Some(steering.clone()));
     let model_switch = Arc::new(rho_engine::engine::runner::SharedModelSwitch::new());
     let prompt = std::mem::take(&mut turn.prompt);
     let request = TurnRequest::new(prompt)
@@ -93,6 +92,12 @@ async fn handle_input_res<B: TerminalBackend>(
     dispatch_turn_input(&mut ctx.loop_ctx, &mut ctx.resources, event).await
 }
 
+async fn wait_turn_quota(rx: &mut tokio::sync::watch::Receiver<u64>) {
+    if rx.changed().await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
 async fn next_turn_event(
     frame: &mut tokio::time::Interval,
     periodic_quota: &mut tokio::time::Interval,
@@ -103,13 +108,7 @@ async fn next_turn_event(
     tokio::select! {
         biased;
         res = input.recv() => TurnEvent::Input(res),
-        res = quota_rx.changed() => {
-            if res.is_ok() {
-                TurnEvent::QuotaUpdated
-            } else {
-                std::future::pending().await
-            }
-        }
+        _ = wait_turn_quota(quota_rx) => TurnEvent::QuotaUpdated,
         _ = periodic_quota.tick() => TurnEvent::QuotaPeriodic,
         _ = frame.tick() => TurnEvent::Tick,
         Some(ev) = ui.recv() => TurnEvent::Ui(ev),
@@ -188,10 +187,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     let cancellation = Arc::new(CancellationSignal::default());
     let (mut ctx, request) = build_turn_context(session, engine, &mut turn, &cancellation);
     ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
-    let broadcast: Arc<dyn rho_harness_core::presentation::Presenter> = Arc::new(
-        crate::ui::render::BroadcastPresenter::new(renderer, crate::platform::remote::PEER_REGISTRY.clone()),
-    );
-    let mut run = Box::pin(engine.run_turn(request, broadcast));
+    let mut run = Box::pin(engine.run_turn(request, renderer));
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut periodic_quota = tokio::time::interval_at(

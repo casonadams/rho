@@ -132,11 +132,6 @@ pub fn resolve_endpoints(explicit: Option<&str>) -> Vec<String> {
     ENDPOINT_CANDIDATES.iter().map(|&s| s.to_string()).collect()
 }
 
-/// POST a Cloud Code Assist metadata endpoint, trying endpoint candidates.
-pub(crate) async fn post_metadata(path: &str, token: &str, body: serde_json::Value) -> Option<serde_json::Value> {
-    post_metadata_candidates(&resolve_endpoints(None), path, token, body).await
-}
-
 pub(crate) async fn post_metadata_candidates(
     endpoints: &[String],
     path: &str,

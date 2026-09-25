@@ -7,7 +7,6 @@ pub mod mcp;
 pub mod rpc;
 mod runner;
 pub mod self_update;
-pub mod serve;
 mod session;
 
 #[cfg(test)]

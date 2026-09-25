@@ -1,6 +1,6 @@
 mod activity;
 mod cache;
-mod fake;
+pub(crate) mod fake;
 mod lifecycle;
 mod output;
 mod redraw;

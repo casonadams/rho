@@ -93,7 +93,8 @@ pub(crate) async fn handle_node_info_cmd<W: tokio::io::AsyncWrite + Unpin>(
 }
 
 pub(crate) async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
-    (model, provider): (String, Option<String>),
+    model: String,
+    provider: Option<String>,
     req_id: Option<String>,
     ctx: &mut RpcDaemonContext<'_, W>,
 ) -> Result<()> {
@@ -104,19 +105,14 @@ pub(crate) async fn handle_set_model_cmd<W: tokio::io::AsyncWrite + Unpin>(
     }
     let auth = ctx.auth_store.read().await.clone();
     let mut eng = ctx.engine.write().await;
-    match eng.rebuild(cfg.clone(), auth).await {
+    let resp = match eng.rebuild(cfg.clone(), auth).await {
         Ok(rebuilt) => {
             *eng = rebuilt;
-            ctx.writer
-                .write_message(&RpcResponse::success(req_id, "set_model", None))
-                .await?;
+            RpcResponse::success(req_id, "set_model", None)
         }
-        Err(e) => {
-            ctx.writer
-                .write_message(&RpcResponse::failure(req_id, "set_model", &e.to_string()))
-                .await?;
-        }
-    }
+        Err(e) => RpcResponse::failure(req_id, "set_model", &e.to_string()),
+    };
+    ctx.writer.write_message(&resp).await?;
     Ok(())
 }
 
@@ -132,7 +128,8 @@ pub(crate) async fn handle_set_thinking_cmd<W: tokio::io::AsyncWrite + Unpin>(
     let _ = eng.update_model().await;
     ctx.writer
         .write_message(&RpcResponse::success(req_id, "set_thinking", None))
-        .await
+        .await?;
+    Ok(())
 }
 
 pub(crate) async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
@@ -147,7 +144,7 @@ pub(crate) async fn handle_config_update_cmd<W: tokio::io::AsyncWrite + Unpin>(
             ctx.writer.write_message(&res).await?;
         }
         RpcCommand::SetModel { model, provider } => {
-            handle_set_model_cmd((model, provider), req_id, ctx).await?;
+            handle_set_model_cmd(model, provider, req_id, ctx).await?;
         }
         RpcCommand::SetThinking { level } => {
             handle_set_thinking_cmd(level, req_id, ctx).await?;

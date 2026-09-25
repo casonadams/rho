@@ -4,7 +4,6 @@ members = [
     ".",
     "crates/rho-harness-core",
     "crates/rho-engine",
-    "crates/rho-wasm",
 ]
 
 [workspace.lints.rust]
@@ -50,10 +49,7 @@ flate2 = "1.0"
 tar = "0.4"
 toml = "1.1"
 toml_edit = "0.25"
-iroh = "1.2.0"
 base64 = "0.22"
-qrcode = { version = "0.14", default-features = false }
-tokio-websockets = { version = "0.13", default-features = false, features = ["server"] }
 
 [package]
 name = "rho"
@@ -116,10 +112,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 # CLI & REPL
-iroh.workspace = true
 base64.workspace = true
-qrcode.workspace = true
-tokio-websockets = { workspace = true }
 futures-util = "0.3"
 clap = { version = "4.5", features = ["derive", "env"] }
 reedline = { version = "0.51", optional = true }
@@ -157,7 +150,6 @@ winres = "0.1"
 rig.workspace = true
 reqwest.workspace = true
 tempfile = "3.17"
-http = "1.0"
 
 [profile.dev]
 opt-level = 0

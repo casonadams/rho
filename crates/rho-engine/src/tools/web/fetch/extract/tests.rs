@@ -149,3 +149,119 @@ fn test_extract_text_routing() {
     });
     assert!(unsupported.is_err());
 }
+
+#[test]
+fn test_extract_override_structured_formats() {
+    let json_text = extract_text(ExtractTextParams {
+        body: r#"{"foo":"bar"}"#,
+        content_type: "text/plain",
+        url_str: "https://example.com/data",
+        mode: "auto",
+        format_override: Some("json"),
+    })
+    .unwrap();
+    assert!(json_text.contains("\"foo\": \"bar\""));
+
+    let csv_text = extract_text(ExtractTextParams {
+        body: "a,b\n1,2",
+        content_type: "text/plain",
+        url_str: "https://example.com/data",
+        mode: "auto",
+        format_override: Some("csv"),
+    })
+    .unwrap();
+    assert!(csv_text.contains("| a | b |"));
+
+    let tsv_text = extract_text(ExtractTextParams {
+        body: "a\tb\n1\t2",
+        content_type: "text/plain",
+        url_str: "https://example.com/data",
+        mode: "auto",
+        format_override: Some("tsv"),
+    })
+    .unwrap();
+    assert!(tsv_text.contains("| a | b |"));
+
+    let xml_text = extract_text(ExtractTextParams {
+        body: "<root><item>test</item></root>",
+        content_type: "text/plain",
+        url_str: "https://example.com/feed.xml",
+        mode: "auto",
+        format_override: Some("xml"),
+    })
+    .unwrap();
+    assert!(xml_text.contains("test"));
+
+    let rss_text = extract_text(ExtractTextParams {
+        body: "<rss><channel><title>News</title></channel></rss>",
+        content_type: "text/plain",
+        url_str: "https://example.com/rss",
+        mode: "auto",
+        format_override: Some("rss"),
+    })
+    .unwrap();
+    assert!(rss_text.contains("News"));
+
+    let atom_text = extract_text(ExtractTextParams {
+        body: "<feed><title>Atom</title></feed>",
+        content_type: "text/plain",
+        url_str: "https://example.com/atom",
+        mode: "auto",
+        format_override: Some("atom"),
+    })
+    .unwrap();
+    assert!(atom_text.contains("Atom"));
+}
+
+#[test]
+fn test_extract_override_document_and_fallback_formats() {
+    let md_text = extract_text(ExtractTextParams {
+        body: "# Header\n[link](/test)",
+        content_type: "text/plain",
+        url_str: "https://example.com/doc",
+        mode: "auto",
+        format_override: Some("markdown"),
+    })
+    .unwrap();
+    assert!(md_text.contains("https://example.com/test"));
+
+    let md_short = extract_text(ExtractTextParams {
+        body: "# Header\n[link](/test)",
+        content_type: "text/plain",
+        url_str: "https://example.com/doc",
+        mode: "auto",
+        format_override: Some("md"),
+    })
+    .unwrap();
+    assert!(md_short.contains("https://example.com/test"));
+
+    let html_text = extract_text(ExtractTextParams {
+        body: "<html><body><p>Hello world</p></body></html>",
+        content_type: "text/plain",
+        url_str: "https://example.com/page",
+        mode: "raw",
+        format_override: Some("html"),
+    })
+    .unwrap();
+    assert!(html_text.contains("Hello world"));
+
+    let unknown_format = extract_text(ExtractTextParams {
+        body: "plain text fallback",
+        content_type: "text/plain",
+        url_str: "https://example.com/page",
+        mode: "auto",
+        format_override: Some("custom-unknown"),
+    })
+    .unwrap();
+    assert_eq!(unknown_format, "plain text fallback");
+}
+
+#[test]
+fn test_is_pdf_request() {
+    assert!(is_pdf_request("https://example.com/doc.pdf", None));
+    assert!(is_pdf_request("https://example.com/doc.PDF", None));
+    assert!(is_pdf_request("https://example.com/doc.pdf?download=true", None));
+    assert!(is_pdf_request("https://example.com/api", Some("pdf")));
+    assert!(!is_pdf_request("https://example.com/doc.html", None));
+    assert!(!is_pdf_request("https://example.com/api", Some("json")));
+}

@@ -17,18 +17,22 @@ static CONTENT_SEL: LazyLock<Selector> = LazyLock::new(|| {
     Selector::parse("div.content, p.snippet-description, div.snippet-description").expect("valid selector")
 });
 
-pub async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
-    let tf_param = match req.recency {
+pub fn brave_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
+    let tf_param = match recency {
         Some(WebSearchRecency::Day) => "&tf=pd",
         Some(WebSearchRecency::Week) => "&tf=pw",
         Some(WebSearchRecency::Month) => "&tf=pm",
         Some(WebSearchRecency::Year) => "&tf=py",
         None => "",
     };
-    let url = format!(
+    format!(
         "https://search.brave.com/search?q={}&source=web{tf_param}",
-        urlencoding_encode(req.query)
-    );
+        urlencoding_encode(query)
+    )
+}
+
+pub async fn search_brave(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+    let url = brave_search_url(req.query, req.recency);
     let resp = req
         .http
         .get_text(HttpRequest {
@@ -94,5 +98,29 @@ mod tests {
         assert_eq!(res[0].title, "Rust Programming");
         assert_eq!(res[0].url, "https://example.com/rust");
         assert!(res[0].abstract_text.contains("systems language"));
+    }
+
+    #[test]
+    fn test_brave_search_url_recency() {
+        assert_eq!(
+            brave_search_url("rust lang", None),
+            "https://search.brave.com/search?q=rust%20lang&source=web"
+        );
+        assert_eq!(
+            brave_search_url("rust lang", Some(WebSearchRecency::Day)),
+            "https://search.brave.com/search?q=rust%20lang&source=web&tf=pd"
+        );
+        assert_eq!(
+            brave_search_url("rust lang", Some(WebSearchRecency::Week)),
+            "https://search.brave.com/search?q=rust%20lang&source=web&tf=pw"
+        );
+        assert_eq!(
+            brave_search_url("rust lang", Some(WebSearchRecency::Month)),
+            "https://search.brave.com/search?q=rust%20lang&source=web&tf=pm"
+        );
+        assert_eq!(
+            brave_search_url("rust lang", Some(WebSearchRecency::Year)),
+            "https://search.brave.com/search?q=rust%20lang&source=web&tf=py"
+        );
     }
 }

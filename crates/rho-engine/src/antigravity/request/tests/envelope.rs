@@ -230,3 +230,104 @@ fn antigravity_tools_are_sorted_by_name() {
     assert_eq!(declarations[1]["name"], "read");
     assert_eq!(declarations[2]["name"], "write");
 }
+
+#[test]
+fn user_content_image_converts_to_inline_data() {
+    let request = minimal_request(vec![Message::User {
+        content: vec![
+            UserContent::Image(rig::message::Image {
+                data: rig::message::DocumentSourceKind::String("data:image/jpeg;base64,/9j/4AAQSkZJRg==".to_string()),
+                media_type: None,
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(rig::message::Image {
+                data: rig::message::DocumentSourceKind::Raw(vec![1, 2, 3]),
+                media_type: Some(rig::message::ImageMediaType::PNG),
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(rig::message::Image {
+                data: rig::message::DocumentSourceKind::String("data:invalid-uri".to_string()),
+                media_type: None,
+                detail: None,
+                additional_params: None,
+            }),
+            UserContent::Image(rig::message::Image {
+                data: rig::message::DocumentSourceKind::String(String::new()),
+                media_type: None,
+                detail: None,
+                additional_params: None,
+            }),
+        ],
+    }]);
+    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+    let parts = body["request"]["contents"][0]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 2);
+    assert_eq!(parts[0]["inlineData"]["mimeType"], "image/jpeg");
+    assert_eq!(parts[0]["inlineData"]["data"], "/9j/4AAQSkZJRg==");
+    assert_eq!(parts[1]["inlineData"]["mimeType"], "image/png");
+    assert_eq!(parts[1]["inlineData"]["data"], "AQID");
+}
+
+#[test]
+fn image_mime_types_map_correctly() {
+    for (media_type, expected_mime) in [
+        (Some(rig::message::ImageMediaType::JPEG), "image/jpeg"),
+        (Some(rig::message::ImageMediaType::PNG), "image/png"),
+        (Some(rig::message::ImageMediaType::GIF), "image/gif"),
+        (Some(rig::message::ImageMediaType::WEBP), "image/webp"),
+        (Some(rig::message::ImageMediaType::HEIC), "image/heic"),
+        (Some(rig::message::ImageMediaType::HEIF), "image/heif"),
+        (Some(rig::message::ImageMediaType::SVG), "image/svg+xml"),
+        (None, "image/png"),
+    ] {
+        let request = minimal_request(vec![Message::User {
+            content: vec![UserContent::Image(rig::message::Image {
+                data: rig::message::DocumentSourceKind::Base64("AQID".to_string()),
+                media_type,
+                detail: None,
+                additional_params: None,
+            })],
+        }]);
+        let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+        let parts = body["request"]["contents"][0]["parts"].as_array().unwrap();
+        assert_eq!(parts[0]["inlineData"]["mimeType"], expected_mime);
+    }
+}
+
+#[test]
+fn assistant_content_reasoning_converts_to_thought_parts() {
+    let request = minimal_request(vec![
+        Message::User {
+            content: vec![UserContent::text("hello")],
+        },
+        Message::Assistant {
+            id: None,
+            content: vec![
+                rig::message::AssistantContent::Reasoning(rig::message::Reasoning {
+                    id: None,
+                    content: vec![
+                        rig::message::ReasoningContent::Text {
+                            text: "evaluating options".to_string(),
+                            signature: Some("sig-xyz".to_string()),
+                        },
+                        rig::message::ReasoningContent::Text {
+                            text: "   ".to_string(),
+                            signature: None,
+                        },
+                    ],
+                }),
+                rig::message::AssistantContent::text("final answer"),
+            ],
+        },
+    ]);
+    let body = build_request_body(target("p", "gemini-3.8-flash-low"), &request, &envelope()).unwrap();
+    let contents = body["request"]["contents"].as_array().unwrap();
+    let parts = contents[1]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 2);
+    assert_eq!(parts[0]["text"], "evaluating options");
+    assert_eq!(parts[0]["thought"], true);
+    assert_eq!(parts[0]["thoughtSignature"], "sig-xyz");
+    assert_eq!(parts[1]["text"], "final answer");
+}

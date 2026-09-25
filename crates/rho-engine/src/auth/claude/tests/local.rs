@@ -149,3 +149,24 @@ fn test_detect_credentials_from_paths_success() {
     let cred = detect_credentials_from_paths(&creds_path, Some(&config_path)).unwrap();
     assert_detected_oauth(cred);
 }
+
+#[tokio::test]
+async fn test_detect_credentials_from_paths_async_success() {
+    let dir = tempdir().unwrap();
+    let (creds_path, config_path) = (dir.path().join(".credentials.json"), dir.path().join(".claude.json"));
+    std::fs::write(
+        &creds_path,
+        r#"{"claudeAiOauth": {"accessToken": "test-access", "refreshToken": "test-refresh", "expiresAt": 1800000000000}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &config_path,
+        r#"{"oauthAccount": {"organizationUuid": "org-1", "emailAddress": "user@test.com"}}"#,
+    )
+    .unwrap();
+
+    let cred = detect_credentials_from_paths_async(&creds_path, Some(&config_path))
+        .await
+        .unwrap();
+    assert_detected_oauth(cred);
+}

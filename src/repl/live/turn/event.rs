@@ -17,6 +17,37 @@ pub(super) struct TurnInputResources<'a> {
     pub cancellation: &'a CancellationSignal,
 }
 
+fn handle_resize<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, cols: u16, rows: u16) -> Result<()> {
+    let resized = lp.controller.resize_to(usize::from(cols), usize::from(rows))? || lp.controller.refresh_size()?;
+    if resized {
+        lp.session.renderer.set_width(lp.controller.width());
+    }
+    lp.batch.flush(lp.controller, true)
+}
+
+fn handle_paste<B: TerminalBackend>(lp: &mut TurnLoop<'_, B>, text: String) -> Result<()> {
+    if !handle_modal_paste(lp.controller, &text) {
+        lp.controller.state_mut().apply(UiAction::Paste(text));
+    }
+    lp.batch.flush(lp.controller, true)
+}
+
+fn handle_focus_change<B: TerminalBackend>(
+    lp: &mut TurnLoop<'_, B>,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+    focused: bool,
+) -> Result<()> {
+    if lp.controller.focused() == focused {
+        return Ok(());
+    }
+    lp.controller.set_focused(focused);
+    let _ = lp.drain_ui_batch(ui_events, false);
+    if matches!(lp.controller.state().footer().activity, Activity::Idle) {
+        lp.controller.state_mut().footer_mut().activity = Activity::Working;
+    }
+    lp.batch.flush(lp.controller, true)
+}
+
 pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
     lp: &mut TurnLoop<'_, B>,
     res: &mut TurnInputResources<'_>,
@@ -24,41 +55,19 @@ pub(super) async fn dispatch_turn_input<B: TerminalBackend>(
 ) -> Result<bool> {
     match event {
         Event::Resize(cols, rows) => {
-            let resized =
-                lp.controller.resize_to(usize::from(cols), usize::from(rows))? || lp.controller.refresh_size()?;
-            if resized {
-                lp.session.renderer.set_width(lp.controller.width());
-            }
-            lp.batch.flush(lp.controller, true)?;
+            handle_resize(lp, cols, rows)?;
             Ok(false)
         }
         Event::Paste(text) => {
-            if !handle_modal_paste(lp.controller, &text) {
-                lp.controller.state_mut().apply(UiAction::Paste(text));
-            }
-            lp.batch.flush(lp.controller, true)?;
+            handle_paste(lp, text)?;
             Ok(false)
         }
         Event::FocusGained => {
-            if !lp.controller.focused() {
-                lp.controller.set_focused(true);
-                let _ = lp.drain_ui_batch(res.ui_events, false);
-                if matches!(lp.controller.state().footer().activity, Activity::Idle) {
-                    lp.controller.state_mut().footer_mut().activity = Activity::Working;
-                }
-                lp.batch.flush(lp.controller, true)?;
-            }
+            handle_focus_change(lp, res.ui_events, true)?;
             Ok(false)
         }
         Event::FocusLost => {
-            if lp.controller.focused() {
-                lp.controller.set_focused(false);
-                let _ = lp.drain_ui_batch(res.ui_events, false);
-                if matches!(lp.controller.state().footer().activity, Activity::Idle) {
-                    lp.controller.state_mut().footer_mut().activity = Activity::Working;
-                }
-                lp.batch.flush(lp.controller, true)?;
-            }
+            handle_focus_change(lp, res.ui_events, false)?;
             Ok(false)
         }
         Event::Key(key) if key.kind != KeyEventKind::Release => dispatch_key_event(lp, res, key).await,

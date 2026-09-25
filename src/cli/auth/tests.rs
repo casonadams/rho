@@ -98,3 +98,154 @@ async fn login_provider_key_stdin_without_provider_fails() {
             .contains("Provider name required when using --key-stdin")
     );
 }
+
+#[test]
+fn test_provider_login_name_mappings() {
+    use rho_harness_core::provider::ProviderId;
+
+    assert_eq!(super::provider_login_name(ProviderId::ChatGpt), "ChatGPT");
+    assert_eq!(super::provider_login_name(ProviderId::Copilot), "GitHub Copilot");
+    assert_eq!(
+        super::provider_login_name(ProviderId::Antigravity),
+        "Google Antigravity"
+    );
+    assert_eq!(
+        super::provider_login_name(ProviderId::ClaudeCode),
+        "Claude (Subscription)"
+    );
+    assert_eq!(super::provider_login_name(ProviderId::OpenRouter), "OpenRouter");
+    assert_eq!(super::provider_login_name(ProviderId::OpenAi), "openai");
+    assert_eq!(super::provider_login_name(ProviderId::Local), "local");
+}
+
+#[test]
+fn test_is_default_oauth_provider_checks() {
+    use rho_harness_core::provider::ProviderId;
+
+    assert!(super::is_default_oauth_provider(ProviderId::ChatGpt));
+    assert!(super::is_default_oauth_provider(ProviderId::Copilot));
+    assert!(super::is_default_oauth_provider(ProviderId::Antigravity));
+    assert!(super::is_default_oauth_provider(ProviderId::ClaudeCode));
+    assert!(!super::is_default_oauth_provider(ProviderId::OpenAi));
+    assert!(!super::is_default_oauth_provider(ProviderId::OpenRouter));
+    assert!(!super::is_default_oauth_provider(ProviderId::Groq));
+}
+
+#[tokio::test]
+async fn test_store_api_key_valid_and_empty() {
+    let config = Config::default();
+    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
+
+    let err = super::store_api_key("gemini", "  ", &config, &mut auth_store).unwrap_err();
+    assert!(err.to_string().contains("API key cannot be empty"));
+
+    super::store_api_key("gemini", "test-key-123", &config, &mut auth_store).unwrap();
+    assert_eq!(
+        auth_store.get_key_sync("gemini").unwrap().as_deref(),
+        Some("test-key-123")
+    );
+}
+
+#[test]
+fn test_parse_logout_choice() {
+    let configured = vec!["anthropic".to_string(), "gemini".to_string()];
+    assert_eq!(super::parse_logout_choice("1", &configured).unwrap(), "anthropic");
+    assert_eq!(super::parse_logout_choice("2", &configured).unwrap(), "gemini");
+    assert!(super::parse_logout_choice("0", &configured).is_err());
+    assert!(super::parse_logout_choice("3", &configured).is_err());
+    assert!(super::parse_logout_choice("abc", &configured).is_err());
+}
+
+#[test]
+fn test_prompt_logout_selection() {
+    use std::io::Cursor;
+
+    let configured = vec!["anthropic".to_string(), "gemini".to_string()];
+    let mut reader = Cursor::new(b"2\n");
+    let mut writer = Vec::new();
+    let chosen = super::prompt_logout_selection(&mut reader, &mut writer, &configured).unwrap();
+    assert_eq!(chosen, "gemini");
+    let output = String::from_utf8(writer).unwrap();
+    assert!(output.contains("Select provider credentials to remove:"));
+    assert!(output.contains("1. anthropic"));
+    assert!(output.contains("2. gemini"));
+}
+
+#[test]
+fn test_logout_provider_named_and_empty_list() {
+    let config = Config::default();
+    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
+
+    assert!(super::logout_provider(None, &config, &mut auth_store).is_ok());
+
+    auth_store.set_key("gemini", "key-val").unwrap();
+    assert!(auth_store.get_key_sync("gemini").unwrap().is_some());
+    assert!(super::logout_provider(Some("gemini"), &config, &mut auth_store).is_ok());
+    assert!(auth_store.get_key_sync("gemini").unwrap().is_none());
+}
+
+#[test]
+fn test_should_default_oauth_mappings() {
+    use rho_harness_core::provider::ProviderId;
+
+    assert!(super::should_default_oauth(ProviderId::ChatGpt).unwrap());
+    assert!(super::should_default_oauth(ProviderId::Copilot).unwrap());
+    assert!(super::should_default_oauth(ProviderId::Antigravity).unwrap());
+    assert!(super::should_default_oauth(ProviderId::ClaudeCode).unwrap());
+    assert!(!super::should_default_oauth(ProviderId::OpenAi).unwrap());
+    assert!(!super::should_default_oauth(ProviderId::Groq).unwrap());
+    assert!(!super::should_default_oauth(ProviderId::Local).unwrap());
+}
+
+#[tokio::test]
+async fn test_try_oauth_login_skips_when_api_key_or_unsupported() {
+    use rho_harness_core::provider::ProviderId;
+
+    let config = Config::default();
+    let temp_auth = tempfile::NamedTempFile::new().unwrap();
+    let mut auth_store = crate::auth::AuthStore::load(temp_auth.path()).unwrap();
+
+    let res1 = super::try_oauth_login(
+        ProviderId::OpenAi,
+        Some(super::AuthMethod::ApiKey),
+        &config,
+        &mut auth_store,
+    )
+    .await
+    .unwrap();
+    assert!(!res1);
+
+    let res2 = super::try_oauth_login(ProviderId::OpenAi, None, &config, &mut auth_store)
+        .await
+        .unwrap();
+    assert!(!res2);
+}
+
+#[test]
+fn test_parse_selection_choice() {
+    use super::provider::parse_selection_choice;
+
+    assert_eq!(parse_selection_choice("1", 3).unwrap(), 0);
+    assert_eq!(parse_selection_choice("3", 3).unwrap(), 2);
+    assert!(parse_selection_choice("0", 3).is_err());
+    assert!(parse_selection_choice("4", 3).is_err());
+    assert!(parse_selection_choice("abc", 3).is_err());
+}
+
+#[test]
+fn test_prompt_select_from() {
+    use super::provider::prompt_select_from;
+    use std::io::Cursor;
+
+    let items = vec!["Option A".to_string(), "Option B".to_string()];
+    let mut reader = Cursor::new(b"2\n");
+    let mut writer = Vec::new();
+    let idx = prompt_select_from(&mut reader, &mut writer, "Pick:", &items).unwrap();
+    assert_eq!(idx, 1);
+    let output = String::from_utf8(writer).unwrap();
+    assert!(output.contains("Pick:"));
+    assert!(output.contains("1. Option A"));
+    assert!(output.contains("2. Option B"));
+}

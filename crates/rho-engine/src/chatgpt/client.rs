@@ -170,39 +170,46 @@ impl ChatGptClient {
         Err((Some(status.as_u16()), text))
     }
 
+    async fn retry_post_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
+        let fresh = self.token_provider.force_refresh().await.map_err(|e| (Some(401), e))?;
+        self.post_stream(&fresh, request).await
+    }
+
     pub async fn open_stream(&self, request: &CompletionRequest) -> Result<reqwest::Response, (Option<u16>, String)> {
         let token = self.token_provider.token().await.map_err(|e| (None, e))?;
         match self.post_stream(&token, request).await {
-            Ok(res) => Ok(res),
-            Err((Some(401), _)) => {
-                let fresh = self.token_provider.force_refresh().await.map_err(|e| (Some(401), e))?;
-                self.post_stream(&fresh, request).await
-            }
-            Err(e) => Err(e),
+            Err((Some(401), _)) => self.retry_post_stream(request).await,
+            other => other,
         }
     }
 
-    pub async fn feed_stream<F>(&self, request: &CompletionRequest, mut handler: F) -> Result<(), CompletionError>
+    pub async fn feed_stream<F>(&self, request: &CompletionRequest, handler: F) -> Result<(), CompletionError>
     where
         F: FnMut(Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>>) -> Result<(), CompletionError>,
     {
-        use futures::StreamExt;
         let response = self
             .open_stream(request)
             .await
             .map_err(|(status, body)| CompletionError::ProviderError(friendly_error(status, &body)))?;
-
-        let mut parser = SseParser::new();
-        let mut byte_stream = response.bytes_stream();
-        while let Some(chunk) = byte_stream.next().await {
-            let bytes = chunk.map_err(|e| CompletionError::ProviderError(e.to_string()))?;
-            let events = parser.feed(bytes.as_ref());
-            if !events.is_empty() {
-                handler(events)?;
-            }
-        }
-        Ok(())
+        feed_response_stream(response, handler).await
     }
+}
+
+async fn feed_response_stream<F>(response: reqwest::Response, mut handler: F) -> Result<(), CompletionError>
+where
+    F: FnMut(Vec<Result<RawStreamingChoice<StreamFinal>, CompletionError>>) -> Result<(), CompletionError>,
+{
+    use futures::StreamExt;
+    let mut parser = SseParser::new();
+    let mut byte_stream = response.bytes_stream();
+    while let Some(chunk) = byte_stream.next().await {
+        let bytes = chunk.map_err(|e| CompletionError::ProviderError(e.to_string()))?;
+        let events = parser.feed(bytes.as_ref());
+        if !events.is_empty() {
+            handler(events)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn into_handle(client: ChatGptClient) -> rig::agent::ModelHandle {
@@ -306,5 +313,276 @@ mod tests {
         assert!(req.max_output_tokens.is_none());
         let includes = req.additional_parameters.include.unwrap();
         assert!(includes.iter().any(|i| matches!(i, Include::ReasoningEncryptedContent)));
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    struct MockTokenProvider {
+        token_val: String,
+        refresh_count: Arc<AtomicUsize>,
+        fail_refresh: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl TokenProvider for MockTokenProvider {
+        async fn token(&self) -> std::result::Result<String, String> {
+            Ok(self.token_val.clone())
+        }
+        async fn force_refresh(&self) -> std::result::Result<String, String> {
+            self.refresh_count.fetch_add(1, Ordering::SeqCst);
+            if self.fail_refresh {
+                Err("refresh failed".to_string())
+            } else {
+                Ok("token-refreshed".to_string())
+            }
+        }
+    }
+
+    struct FailingTokenProvider;
+
+    #[async_trait::async_trait]
+    impl TokenProvider for FailingTokenProvider {
+        async fn token(&self) -> std::result::Result<String, String> {
+            Err("failed to get token".to_string())
+        }
+        async fn force_refresh(&self) -> std::result::Result<String, String> {
+            Err("failed to refresh".to_string())
+        }
+    }
+
+    async fn spawn_mock_responses(responses: Vec<String>) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            for resp in responses {
+                if let Ok((mut socket, _)) = listener.accept().await {
+                    let mut buf = [0u8; 4096];
+                    let _ = socket.read(&mut buf).await;
+                    let _ = socket.write_all(resp.as_bytes()).await;
+                    let _ = socket.flush().await;
+                }
+            }
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    fn sample_completion_request() -> CompletionRequest {
+        CompletionRequest {
+            model: None,
+            output_schema: None,
+            record_telemetry_content: false,
+            documents: Vec::new(),
+            tools: Vec::new(),
+            temperature: None,
+            max_tokens: None,
+            tool_choice: None,
+            additional_params: None,
+            chat_history: vec![rig::message::Message::user("hi")],
+            preamble: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn open_stream_success() {
+        let sse_body = "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 1, \"output_tokens\": 1, \"total_tokens\": 2}}}\n\n";
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
+            sse_body.len()
+        );
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp]).await;
+        let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
+        let res = client.open_stream(&sample_completion_request()).await;
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap().status(), 200);
+    }
+
+    #[tokio::test]
+    async fn open_stream_401_retry_success() {
+        let resp401 =
+            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
+        let sse_body = "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 1, \"output_tokens\": 1, \"total_tokens\": 2}}}\n\n";
+        let resp200 = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
+            sse_body.len()
+        );
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp401, resp200]).await;
+        let refresh_count = Arc::new(AtomicUsize::new(0));
+        let provider = Arc::new(MockTokenProvider {
+            token_val: "initial-token".to_string(),
+            refresh_count: refresh_count.clone(),
+            fail_refresh: false,
+        });
+        let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
+        let res = client.open_stream(&sample_completion_request()).await;
+        assert!(res.is_ok());
+        assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn open_stream_401_retry_fails() {
+        let resp401a =
+            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
+        let resp401b =
+            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp401a, resp401b]).await;
+        let refresh_count = Arc::new(AtomicUsize::new(0));
+        let provider = Arc::new(MockTokenProvider {
+            token_val: "initial-token".to_string(),
+            refresh_count: refresh_count.clone(),
+            fail_refresh: false,
+        });
+        let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
+        let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
+        assert_eq!(err.0, Some(401));
+        assert_eq!(refresh_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn open_stream_token_provider_fails() {
+        let client = ChatGptClient::with_token_provider(Arc::new(FailingTokenProvider), "gpt-5.4")
+            .with_endpoint("http://127.0.0.1:9");
+        let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
+        assert_eq!(err, (None, "failed to get token".to_string()));
+    }
+
+    #[tokio::test]
+    async fn open_stream_force_refresh_fails() {
+        let resp401 =
+            "HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\nConnection: close\r\n\r\nUnauthorized".to_string();
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp401]).await;
+        let provider = Arc::new(MockTokenProvider {
+            token_val: "initial-token".to_string(),
+            refresh_count: Arc::new(AtomicUsize::new(0)),
+            fail_refresh: true,
+        });
+        let client = ChatGptClient::with_token_provider(provider, "gpt-5.4").with_endpoint(endpoint);
+        let err = client.open_stream(&sample_completion_request()).await.unwrap_err();
+        assert_eq!(err, (Some(401), "refresh failed".to_string()));
+    }
+
+    #[tokio::test]
+    async fn completion_and_stream_roundtrip() {
+        let sse_body = concat!(
+            "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Hello world\"}\n\n",
+            "data: {\"type\": \"response.completed\", \"response\": {\"usage\": {\"input_tokens\": 5, \"output_tokens\": 2, \"total_tokens\": 7}}}\n\n"
+        );
+        let resp1 = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
+            sse_body.len()
+        );
+        let resp2 = resp1.clone();
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp1, resp2]).await;
+        let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
+
+        let completion_res = client.completion(sample_completion_request()).await.unwrap();
+        assert_eq!(completion_res.usage.total_tokens, 7);
+
+        let stream_res = client.stream(sample_completion_request()).await;
+        assert!(stream_res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn feed_stream_error_on_non_success_response() {
+        let resp500 =
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 16\r\nConnection: close\r\n\r\nServer exploded!"
+                .to_string();
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp500]).await;
+        let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
+        let err = client
+            .feed_stream(&sample_completion_request(), |_| Ok(()))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CompletionError::ProviderError(_)));
+    }
+
+    #[tokio::test]
+    async fn feed_stream_handler_error_stops_stream() {
+        let sse_body = "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Hello\"}\n\n";
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse_body}",
+            sse_body.len()
+        );
+        let (endpoint, _handle) = spawn_mock_responses(vec![resp]).await;
+        let client = ChatGptClient::new("test-token", "gpt-5.4").with_endpoint(endpoint);
+        let err = client
+            .feed_stream(&sample_completion_request(), |_| {
+                Err(CompletionError::ResponseError("handler aborted".to_string()))
+            })
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CompletionError::ResponseError(_)));
+    }
+
+    #[test]
+    fn build_request_instructions_preamble_variations() {
+        let client = ChatGptClient::new("test-token", "gpt-5.4");
+
+        let mut req_with_custom = sample_completion_request();
+        req_with_custom.preamble = Some("Act as a Rust compiler.".to_string());
+        let res_custom = client.build_request(req_with_custom).unwrap();
+        assert_eq!(
+            res_custom.instructions.unwrap(),
+            format!("{DEFAULT_INSTRUCTIONS}\n\nAct as a Rust compiler.")
+        );
+
+        let mut req_with_default = sample_completion_request();
+        req_with_default.preamble = Some(format!("{DEFAULT_INSTRUCTIONS} Be concise."));
+        let res_default = client.build_request(req_with_default).unwrap();
+        assert_eq!(
+            res_default.instructions.unwrap(),
+            format!("{DEFAULT_INSTRUCTIONS} Be concise.")
+        );
+    }
+
+    #[test]
+    fn constructors_and_handle_conversion() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = Arc::new(tokio::sync::Mutex::new(
+            crate::auth::store::AuthStore::load(temp.path().join("auth.json")).unwrap(),
+        ));
+        let client = ChatGptClient::with_auth_store(store, "gpt-5.4");
+        assert_eq!(client.target_url(), format!("{DEFAULT_ENDPOINT}{RESPONSES_PATH}"));
+        let _handle = into_handle(client);
+    }
+
+    #[test]
+    fn friendly_error_matches_all_status_and_body_patterns() {
+        let err429 = friendly_error(Some(429), r#"{"error":{"message":"rate limit exceeded"}}"#);
+        assert!(err429.contains("rate limit"));
+        assert!(err429.contains("Backend: rate limit exceeded"));
+
+        let err403 = friendly_error(Some(403), r#"{"message":"access forbidden"}"#);
+        assert!(err403.contains("ChatGPT access denied"));
+        assert!(err403.contains("Backend: access forbidden"));
+
+        let err400 = friendly_error(Some(400), r#"{"error":"invalid parameter"}"#);
+        assert!(err400.contains("ChatGPT request invalid"));
+        assert!(err400.contains("Backend: invalid parameter"));
+
+        let err503 = friendly_error(Some(503), "");
+        assert!(err503.contains("temporarily unavailable"));
+
+        let err502 = friendly_error(Some(502), "");
+        assert!(err502.contains("temporarily unavailable"));
+
+        let err500 = friendly_error(Some(500), "plain text internal error");
+        assert!(err500.contains("ChatGPT API error (500): plain text internal error"));
+
+        let err_err_str = friendly_error(Some(400), r#"{"error":"bad_req"}"#);
+        assert!(err_err_str.contains("Backend: bad_req"));
+
+        let err_no_msg = friendly_error(Some(500), r#"{"code":123}"#);
+        assert!(err_no_msg.contains("ChatGPT API error (500): {\"code\":123}"));
+
+        let err_none_prefixed = friendly_error(None, "ChatGPT request failed: boom");
+        assert_eq!(err_none_prefixed, "ChatGPT request failed: boom");
+
+        let err_none_unprefixed = friendly_error(None, "boom");
+        assert_eq!(err_none_unprefixed, "ChatGPT request failed: boom");
+
+        let err_empty = friendly_error(Some(500), "   ");
+        assert!(err_empty.contains("unknown error"));
     }
 }

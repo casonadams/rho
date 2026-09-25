@@ -45,26 +45,38 @@ async fn request_device_code(client: &reqwest::Client) -> Result<DeviceCodeRespo
         .map_err(|e| AppError::Auth(format!("Failed to parse device code response: {e}")))
 }
 
-async fn check_poll_response(resp: reqwest::Response) -> Option<Result<String>> {
+pub(crate) fn parse_poll_payload(json: &serde_json::Value) -> Option<Result<String>> {
+    if let Some(token) = json.get("access_token").and_then(|t| t.as_str()) {
+        Some(Ok(token.to_string()))
+    } else {
+        match json.get("error").and_then(|e| e.as_str()) {
+            Some("authorization_pending") | None => None,
+            Some(err) => Some(Err(AppError::Auth(format!("Device code failed: {err}")))),
+        }
+    }
+}
+
+pub(crate) async fn check_poll_response(resp: reqwest::Response) -> Option<Result<String>> {
     if !resp.status().is_success() {
         return None;
     }
     let json = resp.json::<serde_json::Value>().await.ok()?;
-    if let Some(token) = json.get("access_token").and_then(|t| t.as_str()) {
-        return Some(Ok(token.to_string()));
-    }
-    let err = json.get("error").and_then(|e| e.as_str())?;
-    if err == "authorization_pending" {
-        None
-    } else {
-        Some(Err(AppError::Auth(format!("Device code failed: {err}"))))
-    }
+    parse_poll_payload(&json)
+}
+
+pub(crate) fn build_device_token_form(device_code: &str) -> [(&'static str, &str); 3] {
+    [
+        ("client_id", COPILOT_CLIENT_ID),
+        ("device_code", device_code),
+        ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+    ]
 }
 
 async fn poll_device_token(
     client: &reqwest::Client,
     device_code: &str,
-    (interval_secs, expires_in): (u64, u64),
+    interval_secs: u64,
+    expires_in: u64,
 ) -> Result<String> {
     let interval = Duration::from_secs(interval_secs.max(5));
     let deadline = tokio::time::Instant::now() + Duration::from_secs(expires_in);
@@ -74,11 +86,7 @@ async fn poll_device_token(
             return Err(AppError::Auth("Device code login timed out".to_string()));
         }
         tokio::time::sleep(interval).await;
-        let form = [
-            ("client_id", COPILOT_CLIENT_ID),
-            ("device_code", device_code),
-            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-        ];
+        let form = build_device_token_form(device_code);
         if let Ok(resp) = client
             .post(COPILOT_TOKEN_URL)
             .header("Accept", "application/json")
@@ -108,6 +116,10 @@ async fn retrieve_copilot_token(client: &reqwest::Client, github_token: &str) ->
         .map_err(|e| AppError::Auth(format!("Failed to parse Copilot token: {e}")))
 }
 
+pub(crate) fn build_copilot_credential(token: String, github_token: String, expires_at_sec: i64) -> StoredCredential {
+    StoredCredential::oauth(token, Some(github_token), Some(expires_at_sec * 1000))
+}
+
 pub async fn perform_copilot_device_flow(callbacks: &dyn OAuthLoginCallbacks) -> Result<StoredCredential> {
     let client = http_client();
     let device_info = request_device_code(client).await?;
@@ -122,24 +134,25 @@ pub async fn perform_copilot_device_flow(callbacks: &dyn OAuthLoginCallbacks) ->
     let github_token = poll_device_token(
         client,
         &device_info.device_code,
-        (device_info.interval, device_info.expires_in),
+        device_info.interval,
+        device_info.expires_in,
     )
     .await?;
     let copilot_data = retrieve_copilot_token(client, &github_token).await?;
 
-    Ok(StoredCredential::oauth(
+    Ok(build_copilot_credential(
         copilot_data.token,
-        Some(github_token),
-        Some(copilot_data.expires_at * 1000),
+        github_token,
+        copilot_data.expires_at,
     ))
 }
 
 pub async fn refresh_copilot_token(github_token: &str) -> Result<StoredCredential> {
     let client = http_client();
     let copilot_data = retrieve_copilot_token(client, github_token).await?;
-    Ok(StoredCredential::oauth(
+    Ok(build_copilot_credential(
         copilot_data.token,
-        Some(github_token.to_string()),
-        Some(copilot_data.expires_at * 1000),
+        github_token.to_string(),
+        copilot_data.expires_at,
     ))
 }

@@ -65,9 +65,7 @@ pub async fn acquire_auth_code(
     if code.is_empty() {
         return Err(AppError::Auth("Authorization code cannot be empty".to_string()));
     }
-    if let Some(s) = pasted_state
-        && s != state
-    {
+    if pasted_state.is_some_and(|s| s != state) {
         return Err(AppError::Auth("OAuth state mismatch".to_string()));
     }
     Ok((code, REDIRECT_URI.to_string()))

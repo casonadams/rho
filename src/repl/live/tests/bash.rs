@@ -135,3 +135,56 @@ async fn test_user_bash_runner_failed_command_includes_exit_code() {
     assert!(res.output.contains("failure details"));
     assert!(res.output.contains("Command exited with code 42"));
 }
+
+#[tokio::test]
+async fn test_user_bash_runner_handles_ui_events_and_toggles() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    let (ui, mut events_rx) = crate::ui::interactive::InteractiveUi::channel();
+    let events = vec![
+        crossterm::event::Event::Resize(120, 50),
+        crossterm::event::Event::FocusLost,
+        crossterm::event::Event::FocusGained,
+        crossterm::event::Event::Key(crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::Char('o'),
+            modifiers: crossterm::event::KeyModifiers::CONTROL,
+            kind: crossterm::event::KeyEventKind::Release,
+            state: crossterm::event::KeyEventState::empty(),
+        }),
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('o'),
+            crossterm::event::KeyModifiers::CONTROL,
+        )),
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('t'),
+            crossterm::event::KeyModifiers::CONTROL,
+        )),
+        crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('z'),
+            crossterm::event::KeyModifiers::empty(),
+        )),
+        crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column: 0,
+            row: 0,
+            modifiers: crossterm::event::KeyModifiers::empty(),
+        }),
+    ];
+    let mut input_reader = crate::repl::input_reader::TerminalInputReader::spawn_with_events(events);
+
+    let renderer = crate::ui::TerminalRenderer::with_ui(ui);
+    let mut live_io = super::super::LiveIo {
+        controller: &mut controller,
+        events: &mut events_rx,
+        input: &mut input_reader,
+    };
+
+    let res = super::super::bash_runner::run_user_bash("echo 'ui events tested'", &renderer, &mut live_io)
+        .await
+        .unwrap();
+
+    assert!(!res.is_cancelled);
+    assert!(!res.is_error);
+    assert!(res.output.contains("ui events tested"));
+    assert!(controller.tools_expanded());
+    assert!(controller.hide_thinking());
+}

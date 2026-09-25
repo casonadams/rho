@@ -60,31 +60,76 @@ pub struct FooterState {
     pub remote_peers: usize,
 }
 
+type IdentityKey<'a> = (
+    &'a Activity,
+    Option<&'a str>,
+    &'a str,
+    &'a str,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+    Option<&'a str>,
+);
+
+type MetricsKey<'a> = (
+    Option<&'a str>,
+    Option<u64>,
+    usize,
+    u64,
+    u64,
+    u64,
+    u64,
+    Option<u64>,
+    Option<u64>,
+);
+
+type UiKey<'a> = (Option<&'a str>, usize, Option<&'a str>, bool, bool, usize);
+
+impl FooterState {
+    fn identity_key(&self) -> IdentityKey<'_> {
+        (
+            &self.activity,
+            self.running_tool.as_deref(),
+            &self.provider,
+            &self.model,
+            self.thinking_level.as_deref(),
+            self.cwd.as_deref(),
+            self.git_branch.as_deref(),
+            self.session_name.as_deref(),
+        )
+    }
+
+    fn metrics_key(&self) -> MetricsKey<'_> {
+        (
+            self.quota.as_deref(),
+            self.context_percent.map(f64::to_bits),
+            self.context_window,
+            self.total_input_tokens,
+            self.total_output_tokens,
+            self.total_cache_read_tokens,
+            self.total_cache_write_tokens,
+            self.total_cost.map(f64::to_bits),
+            self.tokens_per_second.map(f64::to_bits),
+        )
+    }
+
+    fn ui_key(&self) -> UiKey<'_> {
+        (
+            self.extra_status.as_deref(),
+            self.hidden_status_count,
+            self.context.as_deref(),
+            self.show_label,
+            self.remote_active,
+            self.remote_peers,
+        )
+    }
+}
+
 impl PartialEq for FooterState {
     fn eq(&self, other: &Self) -> bool {
-        self.activity == other.activity
-            && self.running_tool == other.running_tool
-            && self.provider == other.provider
-            && self.model == other.model
-            && self.thinking_level == other.thinking_level
-            && self.cwd == other.cwd
-            && self.git_branch == other.git_branch
-            && self.session_name == other.session_name
-            && self.quota == other.quota
-            && self.context_percent.map(f64::to_bits) == other.context_percent.map(f64::to_bits)
-            && self.context_window == other.context_window
-            && self.total_input_tokens == other.total_input_tokens
-            && self.total_output_tokens == other.total_output_tokens
-            && self.total_cache_read_tokens == other.total_cache_read_tokens
-            && self.total_cache_write_tokens == other.total_cache_write_tokens
-            && self.total_cost.map(f64::to_bits) == other.total_cost.map(f64::to_bits)
-            && self.tokens_per_second.map(f64::to_bits) == other.tokens_per_second.map(f64::to_bits)
-            && self.extra_status == other.extra_status
-            && self.hidden_status_count == other.hidden_status_count
-            && self.context == other.context
-            && self.show_label == other.show_label
-            && self.remote_active == other.remote_active
-            && self.remote_peers == other.remote_peers
+        self.identity_key() == other.identity_key()
+            && self.metrics_key() == other.metrics_key()
+            && self.ui_key() == other.ui_key()
     }
 }
 
