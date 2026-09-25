@@ -213,7 +213,7 @@ fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) ->
         ConfigKey::SearchEngine => {
             if !crate::config::validate::is_valid_search_engine_name(value) {
                 return Err(AppError::Config(format!(
-                    "Unknown search engine '{value}'. Supported engines: brave, duckduckgo, yahoo, firecrawl"
+                    "Unknown search engine '{value}'. Supported engines: brave, duckduckgo, yahoo, firecrawl, exa, gemini"
                 )));
             }
             let tools = file_config.tools.get_or_insert_with(Default::default);

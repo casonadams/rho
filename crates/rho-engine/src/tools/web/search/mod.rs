@@ -1,8 +1,10 @@
 pub mod brave;
 pub mod ddg_lite;
 pub mod engine;
+pub mod exa;
 pub mod firecrawl;
 pub mod format;
+pub mod gemini;
 pub mod query;
 pub mod result;
 pub mod yahoo;

@@ -13,6 +13,11 @@ const ENGINE_DEFS: &[(&str, &str)] = &[
         "firecrawl",
         "Firecrawl Search (Web scraping API; requires FIRECRAWL_API_KEY)",
     ),
+    ("exa", "Exa Search (Neural/semantic search; requires EXA_API_KEY)"),
+    (
+        "gemini",
+        "Gemini Grounded Search (Google Search Grounding; requires GEMINI_API_KEY)",
+    ),
 ];
 
 fn format_engine_option(id: &str, desc: &str, active_engine: &str) -> ModalOption {
@@ -118,7 +123,7 @@ mod tests {
 
         open_search_engine_selector(&session, &mut controller);
         assert_eq!(controller.state().active_modal().unwrap().title, "Select Search Engine");
-        assert_eq!(controller.state().active_modal().unwrap().options.len(), 4);
+        assert_eq!(controller.state().active_modal().unwrap().options.len(), 6);
         assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
         let key = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);

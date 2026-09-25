@@ -182,7 +182,8 @@ Supported search engine identifiers:
 - `duckduckgo` (aliases: `ddg`, `ddg_lite`): Queries DuckDuckGo Lite (no API key required).
 - `yahoo`: Scrapes Yahoo search results (no API key required).
 - `firecrawl`: Queries Firecrawl search API (requires `FIRECRAWL_API_KEY`).
-
+- `exa`: Queries Exa neural/semantic search API (requires `EXA_API_KEY`).
+- `gemini` (alias: `google`): Queries Google Search Grounding via Gemini API (requires `GEMINI_API_KEY`).
 Searches evaluate engines sequentially in order. Once an engine returns results, search terminates immediately. Subsequent engines in the fallback list are only queried if the earlier engine errors or returns zero results.
 
 To restrict searches to a single trusted engine and disable all fallbacks/scrapers:
