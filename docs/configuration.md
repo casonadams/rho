@@ -196,6 +196,14 @@ fallback = []
 
 When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from LLM dynamic registration and model tool catalogs. Tool toggles and default search engine selection can be changed interactively without leaving the session via `/settings` -> **Tools & Permissions**.
 
+### Specialized Web Fetch Extractors
+
+`web_fetch` includes specialized URL interceptors and extractors:
+- **GitHub (`github.com`)**: Intercepts issues, pull requests (with unified diffs), commits, raw file blobs, and directory trees, rendering them as clean, token-efficient Markdown without HTML boilerplate. Set `GITHUB_TOKEN` or `GH_TOKEN` in your environment for authenticated requests with a 5,000 req/hr quota.
+- **YouTube (`youtube.com`, `youtu.be`)**: Intercepts video URLs (`watch`, `shorts`, `embed`), extracting video details (title, channel, duration, views) and timed-text closed captions formatted into clean dialogue transcripts with timestamps (`[MM:SS] text`).
+
+Pass `format = "html"` to bypass specialized extraction and perform raw HTML scraping.
+
 ---
 
 ## System Instructions (`AGENTS.md`)

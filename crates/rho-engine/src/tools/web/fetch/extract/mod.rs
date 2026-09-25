@@ -1,16 +1,20 @@
 pub mod data;
 pub mod feed;
+pub mod github;
 pub mod html;
 pub mod markdown;
+pub mod youtube;
 
 #[cfg(test)]
 mod tests;
 
 pub use data::{extract_csv, extract_json, extract_pdf_bytes};
 pub use feed::extract_feed_or_xml;
+pub use github::{GitHubUrl, extract_github, parse_github_url};
 pub use html::extract_html;
 pub use markdown::resolve_markdown_links;
 use rho_harness_core::error::{AppError, Result};
+pub use youtube::{YouTubeUrl, extract_youtube, parse_youtube_url};
 
 pub fn is_pdf_request(url: &str, format_override: Option<&str>) -> bool {
     format_override == Some("pdf") || url.to_lowercase().ends_with(".pdf") || url.to_lowercase().contains(".pdf?")
