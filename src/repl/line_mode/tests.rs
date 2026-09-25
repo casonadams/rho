@@ -306,3 +306,104 @@ fn test_build_emacs_edit_mode_newline_bindings() {
         assert_eq!(binding, Some(ReedlineEvent::Edit(vec![EditCommand::InsertNewline])));
     }
 }
+
+#[tokio::test]
+async fn test_resolve_user_prompt() {
+    let renderer = TerminalRenderer::default();
+    assert_eq!(
+        super::resolve_user_prompt("plain prompt", &renderer).await,
+        Some("plain prompt".to_string())
+    );
+}
+
+#[test]
+fn test_handle_line_control_signal() {
+    use reedline::Signal;
+    let renderer = TerminalRenderer::default();
+
+    assert_eq!(super::handle_line_control_signal(&Signal::CtrlC, &renderer), Some(true));
+    assert_eq!(
+        super::handle_line_control_signal(&Signal::CtrlD, &renderer),
+        Some(false)
+    );
+    assert_eq!(
+        super::handle_line_control_signal(&Signal::Success("hello".to_string()), &renderer),
+        None
+    );
+}
+
+#[tokio::test]
+async fn test_handle_line_signal_control_paths() {
+    use reedline::Signal;
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+
+    let err_sig = Err(std::io::Error::other("read error"));
+    assert!(
+        !super::handle_line_signal(err_sig, &mut session, &mut engine, false)
+            .await
+            .unwrap()
+    );
+
+    assert!(
+        super::handle_line_signal(Ok(Signal::CtrlC), &mut session, &mut engine, false)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !super::handle_line_signal(Ok(Signal::CtrlD), &mut session, &mut engine, false)
+            .await
+            .unwrap()
+    );
+
+    let empty_sig = Ok(Signal::Success("   \n".to_string()));
+    assert!(
+        super::handle_line_signal(empty_sig, &mut session, &mut engine, false)
+            .await
+            .unwrap()
+    );
+
+    let exit_sig = Ok(Signal::Success("/exit".to_string()));
+    assert!(
+        !super::handle_line_signal(exit_sig, &mut session, &mut engine, false)
+            .await
+            .unwrap()
+    );
+
+    let help_sig = Ok(Signal::Success("/help".to_string()));
+    assert!(
+        super::handle_line_signal(help_sig, &mut session, &mut engine, false)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_apply_dispatch_outcome() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut session, mut engine) = setup_test_session(temp.path()).await;
+
+    assert!(
+        super::apply_dispatch_outcome(DispatchOutcome::Continue, &mut session, &mut engine)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !super::apply_dispatch_outcome(DispatchOutcome::Break, &mut session, &mut engine)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_step_line_prompt() {
+    let temp = tempfile::tempdir().unwrap();
+    let (session, engine) = setup_test_session(temp.path()).await;
+
+    let mut is_first = true;
+    super::step_line_prompt(&session, &engine, &mut is_first);
+    assert!(!is_first);
+
+    super::step_line_prompt(&session, &engine, &mut is_first);
+    assert!(!is_first);
+}
