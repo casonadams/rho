@@ -53,18 +53,35 @@ pub(crate) async fn handle_resume_session<B: TerminalBackend>(
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SessionSwitchTarget<'a> {
+    Fork(&'a Option<String>),
+    Clone,
+    Resume(&'a str),
+}
+
+pub(crate) fn parse_switch_target(result: &CommandResult) -> Option<SessionSwitchTarget<'_>> {
+    match result {
+        CommandResult::ForkSession { turn_or_node_id } => Some(SessionSwitchTarget::Fork(turn_or_node_id)),
+        CommandResult::CloneSession => Some(SessionSwitchTarget::Clone),
+        CommandResult::ResumeSession { session_id } => Some(SessionSwitchTarget::Resume(session_id.as_str())),
+        _ => None,
+    }
+}
+
 pub(crate) async fn switch_session_result<B: TerminalBackend>(
     ctx: &mut LiveCommandContext<'_, '_>,
     io: &mut SessionCommandIo<'_, B>,
     result: &CommandResult,
 ) -> Result<()> {
-    match result {
-        CommandResult::ForkSession { turn_or_node_id } => handle_fork_session(ctx, turn_or_node_id).await?,
-        CommandResult::CloneSession => handle_clone_session(ctx).await?,
-        CommandResult::ResumeSession { session_id } => handle_resume_session(ctx, session_id, io).await?,
-        _ => {}
+    let Some(target) = parse_switch_target(result) else {
+        return Ok(());
+    };
+    match target {
+        SessionSwitchTarget::Fork(id) => handle_fork_session(ctx, id).await,
+        SessionSwitchTarget::Clone => handle_clone_session(ctx).await,
+        SessionSwitchTarget::Resume(id) => handle_resume_session(ctx, id, io).await,
     }
-    Ok(())
 }
 
 pub(crate) async fn handle_switch_session_command<B: TerminalBackend>(
@@ -247,4 +264,52 @@ pub(crate) async fn handle_switch_branch<B: TerminalBackend>(
     let (abandoned, _) = tree.branch_divergence(&old_leaf, &leaf_id);
     let summary = maybe_summarize_abandoned(&mut ctx, &abandoned).await;
     switch_and_hydrate(&mut ctx, &leaf_id, summary, &old_leaf).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_switch_target_mappings() {
+        let fork_target = CommandResult::ForkSession {
+            turn_or_node_id: Some("turn-1".into()),
+        };
+        assert_eq!(
+            parse_switch_target(&fork_target),
+            Some(SessionSwitchTarget::Fork(&Some("turn-1".into())))
+        );
+        let fork_none = CommandResult::ForkSession { turn_or_node_id: None };
+        assert_eq!(parse_switch_target(&fork_none), Some(SessionSwitchTarget::Fork(&None)));
+        assert_eq!(
+            parse_switch_target(&CommandResult::CloneSession),
+            Some(SessionSwitchTarget::Clone)
+        );
+        assert_eq!(
+            parse_switch_target(&CommandResult::ResumeSession {
+                session_id: "sess-abc".into()
+            }),
+            Some(SessionSwitchTarget::Resume("sess-abc"))
+        );
+        assert_eq!(parse_switch_target(&CommandResult::Continue), None);
+    }
+
+    #[test]
+    fn test_is_tree_and_switch_arms() {
+        assert!(is_tree_arm(&CommandResult::Tree));
+        assert!(is_tree_arm(&CommandResult::OpenTreeSelector));
+        assert!(!is_tree_arm(&CommandResult::CloneSession));
+
+        assert!(is_session_switch_arm(&CommandResult::CloneSession));
+        assert!(is_session_switch_arm(&CommandResult::ForkSession {
+            turn_or_node_id: None
+        }));
+        assert!(is_session_switch_arm(&CommandResult::ResumeSession {
+            session_id: "s1".into()
+        }));
+        assert!(is_session_switch_arm(&CommandResult::SwitchBranch {
+            leaf_id: "b1".into()
+        }));
+        assert!(!is_session_switch_arm(&CommandResult::Continue));
+    }
 }

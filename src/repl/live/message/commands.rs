@@ -4,24 +4,32 @@ use crate::repl::commands::CommandResult;
 use crate::repl::live::LiveIo;
 use crate::ui::interactive::{TerminalBackend, TerminalController};
 
+pub(crate) fn open_selector_modal<B: TerminalBackend>(
+    session: &crate::repl::ReplSession,
+    io_controller: &mut TerminalController<B>,
+    action: &CommandResult,
+) {
+    match action {
+        CommandResult::OpenModelSelector => crate::repl::live::modal::open_model_selector(session, io_controller),
+        CommandResult::OpenSettingsSelector => crate::repl::live::modal::open_settings_selector(
+            Some(&session.config.model),
+            session.config.thinking_level.as_deref(),
+            session.config.semantic_search,
+            io_controller,
+        ),
+        CommandResult::OpenHelpSelector => crate::repl::live::modal::open_help_selector(io_controller),
+        CommandResult::OpenLoginSelector => crate::repl::live::modal::open_login_selector(session, io_controller),
+        CommandResult::OpenMcpSelector => crate::repl::live::modal::open_mcp_selector(session, io_controller),
+        _ => {}
+    }
+}
+
 pub(crate) async fn handle_selector_command(
     ctx: &mut LiveCommandContext<'_, '_>,
     io_controller: &mut TerminalController<impl TerminalBackend>,
     action: &CommandResult,
 ) -> Result<()> {
-    match action {
-        CommandResult::OpenModelSelector => crate::repl::live::modal::open_model_selector(ctx.session, io_controller),
-        CommandResult::OpenSettingsSelector => crate::repl::live::modal::open_settings_selector(
-            Some(&ctx.session.config.model),
-            ctx.session.config.thinking_level.as_deref(),
-            ctx.session.config.semantic_search,
-            io_controller,
-        ),
-        CommandResult::OpenHelpSelector => crate::repl::live::modal::open_help_selector(io_controller),
-        CommandResult::OpenLoginSelector => crate::repl::live::modal::open_login_selector(ctx.session, io_controller),
-        CommandResult::OpenMcpSelector => crate::repl::live::modal::open_mcp_selector(ctx.session, io_controller),
-        _ => {}
-    }
+    open_selector_modal(ctx.session, io_controller, action);
     io_controller.redraw()?;
     Ok(())
 }
@@ -173,6 +181,31 @@ pub(crate) async fn rebuild_after_auth(ctx: &mut LiveCommandContext<'_, '_>) -> 
     Ok(())
 }
 
+async fn execute_live_login<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+    provider: Option<&str>,
+) -> Result<()> {
+    let res = io
+        .suspend_for_async(|| {
+            crate::cli::login_provider(provider, false, &ctx.session.config, &mut ctx.session.auth_store)
+        })
+        .await?;
+    handle_auth_result(ctx, res, "Login");
+    rebuild_after_auth(ctx).await
+}
+
+fn execute_live_logout<B: TerminalBackend>(
+    ctx: &mut LiveCommandContext<'_, '_>,
+    io: &mut LiveIo<'_, B>,
+    provider: Option<&str>,
+) -> Result<()> {
+    let res =
+        io.suspend_for(|| crate::cli::logout_provider(provider, &ctx.session.config, &mut ctx.session.auth_store))?;
+    handle_auth_result(ctx, res, "Logout");
+    Ok(())
+}
+
 pub(crate) async fn handle_auth_command<B: TerminalBackend>(
     ctx: &mut LiveCommandContext<'_, '_>,
     io: &mut LiveIo<'_, B>,
@@ -180,30 +213,27 @@ pub(crate) async fn handle_auth_command<B: TerminalBackend>(
 ) -> Result<bool> {
     match result {
         CommandResult::Login { provider } => {
-            let login_res = io
-                .suspend_for_async(|| {
-                    crate::cli::login_provider(
-                        provider.as_deref(),
-                        false,
-                        &ctx.session.config,
-                        &mut ctx.session.auth_store,
-                    )
-                })
-                .await?;
-            handle_auth_result(ctx, login_res, "Login");
-            rebuild_after_auth(ctx).await?;
+            execute_live_login(ctx, io, provider.as_deref()).await?;
             Ok(true)
         }
         CommandResult::Logout { provider } => {
-            let logout_res = io.suspend_for(|| {
-                crate::cli::logout_provider(provider.as_deref(), &ctx.session.config, &mut ctx.session.auth_store)
-            })?;
-            handle_auth_result(ctx, logout_res, "Logout");
+            execute_live_logout(ctx, io, provider.as_deref())?;
             rebuild_after_auth(ctx).await?;
             Ok(true)
         }
         _ => Ok(false),
     }
+}
+
+fn print_tree_view(
+    session: &crate::repl::ReplSession,
+    session_id: &str,
+    tree: &rho_harness_core::session::tree::SessionTree,
+) {
+    let rendered = crate::ui::interactive::tree_view::render_tree_ascii(tree);
+    session
+        .renderer
+        .print_notice(&format!("\nConversation Tree (Session: {session_id}):\n{rendered}\n"));
 }
 
 pub(crate) async fn handle_tree_commands<B: TerminalBackend>(
@@ -212,19 +242,82 @@ pub(crate) async fn handle_tree_commands<B: TerminalBackend>(
     result: &CommandResult,
 ) -> Result<()> {
     let tree = ctx.engine.session_manager.load_tree().await?;
-    match result {
-        CommandResult::OpenTreeSelector => {
-            crate::repl::live::modal::open_tree_selector(&tree, io.controller);
-            io.controller.redraw()?;
-        }
-        CommandResult::Tree => {
-            let rendered = crate::ui::interactive::tree_view::render_tree_ascii(&tree);
-            ctx.session.renderer.print_notice(&format!(
-                "\nConversation Tree (Session: {}):\n{rendered}\n",
-                ctx.engine.session_manager.session_id
-            ));
-        }
-        _ => {}
+    if *result == CommandResult::OpenTreeSelector {
+        crate::repl::live::modal::open_tree_selector(&tree, io.controller);
+        io.controller.redraw()?;
+    } else if *result == CommandResult::Tree {
+        print_tree_view(ctx.session, &ctx.engine.session_manager.session_id, &tree);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::interactive::{InteractiveState, TerminalController};
+
+    struct MockBackend;
+    impl TerminalBackend for MockBackend {
+        fn set_raw_mode(&mut self, _: bool) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn size(&self) -> std::io::Result<(u16, u16)> {
+            Ok((80, 24))
+        }
+        fn hide_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn show_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_up(&mut self, _: usize) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_down(&mut self, _: usize) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_to_column(&mut self, _: usize) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn clear_line(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn write_text(&mut self, _: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_open_selector_modal_actions() {
+        let config = rho_harness_core::config::Config::default();
+        let auth = crate::auth::AuthStore::default();
+        let session = crate::repl::ReplSession::new(config, auth, None);
+
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        open_selector_modal(&session, &mut controller, &CommandResult::OpenModelSelector);
+        assert!(controller.state().active_modal().is_some());
+        controller.state_mut().pop_modal();
+
+        open_selector_modal(&session, &mut controller, &CommandResult::OpenSettingsSelector);
+        assert!(controller.state().active_modal().is_some());
+        controller.state_mut().pop_modal();
+
+        open_selector_modal(&session, &mut controller, &CommandResult::OpenHelpSelector);
+        assert!(controller.state().active_modal().is_some());
+        controller.state_mut().pop_modal();
+
+        open_selector_modal(&session, &mut controller, &CommandResult::OpenLoginSelector);
+        assert!(controller.state().active_modal().is_some());
+        controller.state_mut().pop_modal();
+
+        open_selector_modal(&session, &mut controller, &CommandResult::OpenMcpSelector);
+        assert!(controller.state().active_modal().is_some());
+        controller.state_mut().pop_modal();
+
+        open_selector_modal(&session, &mut controller, &CommandResult::Continue);
+        assert!(controller.state().active_modal().is_none());
+    }
 }

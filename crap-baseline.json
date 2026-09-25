@@ -5975,16 +5975,12 @@
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 67.64705882352942,
-      "crap": 8.65934764909424,
+      "coverage": 73.52941176470588,
+      "crap": 7.908838795033584,
       "uncovered": [
         {
           "start": 77,
           "end": 78
-        },
-        {
-          "start": 83,
-          "end": 84
         },
         {
           "start": 88,
@@ -25157,8 +25153,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -26861,13 +26863,9 @@
       "function": "BashRun::handle_chunk",
       "line": 125,
       "cyclomatic": 4.0,
-      "coverage": 66.66666666666666,
-      "crap": 4.5925925925925934,
+      "coverage": 91.66666666666666,
+      "crap": 4.0092592592592595,
       "uncovered": [
-        {
-          "start": 129,
-          "end": 131
-        },
         {
           "start": 133,
           "end": 133
@@ -27847,176 +27845,226 @@
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "clear_engine_context",
-      "line": 89,
+      "line": 97,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 89,
-          "end": 93
+          "start": 97,
+          "end": 101
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/message/commands.rs",
+      "function": "execute_live_login",
+      "line": 184,
+      "cyclomatic": 2.0,
+      "coverage": 0.0,
+      "crap": 6.0,
+      "uncovered": [
+        {
+          "start": 184,
+          "end": 196
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/message/commands.rs",
+      "function": "execute_live_logout",
+      "line": 198,
+      "cyclomatic": 2.0,
+      "coverage": 0.0,
+      "crap": 6.0,
+      "uncovered": [
+        {
+          "start": 198,
+          "end": 207
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_auth_command",
-      "line": 176,
-      "cyclomatic": 8.0,
-      "coverage": 29.629629629629626,
-      "crap": 30.302291317380483,
+      "line": 209,
+      "cyclomatic": 7.0,
+      "coverage": 53.333333333333336,
+      "crap": 11.979851851851851,
       "uncovered": [
         {
-          "start": 182,
-          "end": 203
+          "start": 215,
+          "end": 222
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_auth_result",
-      "line": 156,
+      "line": 164,
       "cyclomatic": 4.0,
       "coverage": 0.0,
       "crap": 20.0,
       "uncovered": [
         {
-          "start": 156,
-          "end": 166
+          "start": 164,
+          "end": 174
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_compact",
-      "line": 62,
+      "line": 70,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 62,
-          "end": 87
+          "start": 70,
+          "end": 95
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_engine_command",
-      "line": 137,
+      "line": 145,
       "cyclomatic": 6.0,
       "coverage": 72.72727272727273,
       "crap": 6.730277986476334,
       "uncovered": [
         {
-          "start": 148,
-          "end": 150
+          "start": 156,
+          "end": 158
         },
         {
-          "start": 153,
-          "end": 153
+          "start": 161,
+          "end": 161
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_engine_command_rest",
-      "line": 116,
+      "line": 124,
       "cyclomatic": 6.0,
       "coverage": 62.5,
       "crap": 7.8984375,
       "uncovered": [
         {
-          "start": 122,
-          "end": 122
+          "start": 130,
+          "end": 130
         },
         {
-          "start": 126,
-          "end": 131
+          "start": 134,
+          "end": 139
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_model_changed",
-      "line": 45,
+      "line": 53,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 45,
-          "end": 60
+          "start": 53,
+          "end": 68
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_model_or_thinking_command",
-      "line": 95,
+      "line": 103,
       "cyclomatic": 4.0,
       "coverage": 53.333333333333336,
       "crap": 5.626074074074074,
       "uncovered": [
         {
-          "start": 102,
-          "end": 110
+          "start": 110,
+          "end": 118
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_selector_command",
-      "line": 7,
-      "cyclomatic": 8.0,
+      "line": 27,
+      "cyclomatic": 2.0,
       "coverage": 0.0,
-      "crap": 72.0,
+      "crap": 6.0,
       "uncovered": [
         {
-          "start": 7,
-          "end": 27
+          "start": 27,
+          "end": 35
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_thinking_changed",
-      "line": 29,
+      "line": 37,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 29,
-          "end": 43
+          "start": 37,
+          "end": 51
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "handle_tree_commands",
-      "line": 209,
-      "cyclomatic": 6.0,
+      "line": 239,
+      "cyclomatic": 5.0,
       "coverage": 0.0,
-      "crap": 42.0,
+      "crap": 30.0,
       "uncovered": [
         {
-          "start": 209,
-          "end": 230
+          "start": 239,
+          "end": 252
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/message/commands.rs",
+      "function": "open_selector_modal",
+      "line": 7,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./src/repl/live/message/commands.rs",
+      "function": "print_tree_view",
+      "line": 228,
+      "cyclomatic": 1.0,
+      "coverage": 0.0,
+      "crap": 2.0,
+      "uncovered": [
+        {
+          "start": 228,
+          "end": 237
         }
       ]
     },
     {
       "file": "./src/repl/live/message/commands.rs",
       "function": "rebuild_after_auth",
-      "line": 168,
+      "line": 176,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 168,
-          "end": 174
+          "start": 176,
+          "end": 182
         }
       ]
     },
@@ -28171,46 +28219,46 @@
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "abandoned_messages",
-      "line": 188,
+      "line": 205,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 188,
-          "end": 190
+          "start": 205,
+          "end": 207
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "confirm_branch_summary",
-      "line": 162,
+      "line": 179,
       "cyclomatic": 4.0,
       "coverage": 0.0,
       "crap": 20.0,
       "uncovered": [
         {
-          "start": 162,
-          "end": 173
+          "start": 179,
+          "end": 190
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "dispatch_session_result",
-      "line": 95,
+      "line": 112,
       "cyclomatic": 5.0,
       "coverage": 73.33333333333333,
       "crap": 5.474074074074075,
       "uncovered": [
         {
-          "start": 101,
-          "end": 102
+          "start": 118,
+          "end": 119
         },
         {
-          "start": 105,
-          "end": 106
+          "start": 122,
+          "end": 123
         }
       ]
     },
@@ -28259,7 +28307,7 @@
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "handle_session_command",
-      "line": 154,
+      "line": 171,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -28267,53 +28315,53 @@
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "handle_session_diagnostics",
-      "line": 129,
+      "line": 146,
       "cyclomatic": 8.0,
       "coverage": 42.10526315789473,
       "crap": 20.419303105408954,
       "uncovered": [
         {
-          "start": 136,
-          "end": 147
+          "start": 153,
+          "end": 164
         },
         {
-          "start": 151,
-          "end": 151
+          "start": 168,
+          "end": 168
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "handle_switch_branch",
-      "line": 241,
+      "line": 258,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 241,
-          "end": 250
+          "start": 258,
+          "end": 267
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "handle_switch_session_command",
-      "line": 70,
+      "line": 87,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 70,
-          "end": 79
+          "start": 87,
+          "end": 96
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "is_session_switch_arm",
-      "line": 85,
+      "line": 102,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -28321,7 +28369,7 @@
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "is_tree_arm",
-      "line": 81,
+      "line": 98,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -28329,48 +28377,28 @@
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "maybe_summarize_abandoned",
-      "line": 192,
+      "line": 209,
       "cyclomatic": 4.0,
       "coverage": 0.0,
       "crap": 20.0,
       "uncovered": [
         {
-          "start": 192,
-          "end": 202
-        }
-      ]
-    },
-    {
-      "file": "./src/repl/live/message/session_ops.rs",
-      "function": "rebuild_and_hydrate",
-      "line": 204,
-      "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 204,
+          "start": 209,
           "end": 219
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
-      "function": "summarize_if_confirmed",
-      "line": 175,
+      "function": "parse_switch_target",
+      "line": 63,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
-      "uncovered": [
-        {
-          "start": 175,
-          "end": 186
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
-      "function": "switch_and_hydrate",
+      "function": "rebuild_and_hydrate",
       "line": 221,
       "cyclomatic": 3.0,
       "coverage": 0.0,
@@ -28378,35 +28406,63 @@
       "uncovered": [
         {
           "start": 221,
-          "end": 239
+          "end": 236
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/message/session_ops.rs",
+      "function": "summarize_if_confirmed",
+      "line": 192,
+      "cyclomatic": 5.0,
+      "coverage": 0.0,
+      "crap": 30.0,
+      "uncovered": [
+        {
+          "start": 192,
+          "end": 203
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/message/session_ops.rs",
+      "function": "switch_and_hydrate",
+      "line": 238,
+      "cyclomatic": 3.0,
+      "coverage": 0.0,
+      "crap": 12.0,
+      "uncovered": [
+        {
+          "start": 238,
+          "end": 256
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "switch_branch_for_command",
-      "line": 111,
+      "line": 128,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 111,
-          "end": 127
+          "start": 128,
+          "end": 144
         }
       ]
     },
     {
       "file": "./src/repl/live/message/session_ops.rs",
       "function": "switch_session_result",
-      "line": 56,
-      "cyclomatic": 8.0,
+      "line": 72,
+      "cyclomatic": 4.0,
       "coverage": 0.0,
-      "crap": 72.0,
+      "crap": 20.0,
       "uncovered": [
         {
-          "start": 56,
-          "end": 68
+          "start": 72,
+          "end": 85
         }
       ]
     },
@@ -29601,12 +29657,16 @@
       "function": "cycle_model",
       "line": 116,
       "cyclomatic": 3.0,
-      "coverage": 95.65217391304348,
-      "crap": 3.000739705761486,
+      "coverage": 82.6086956521739,
+      "crap": 3.047341168735103,
       "uncovered": [
         {
           "start": 119,
           "end": 119
+        },
+        {
+          "start": 130,
+          "end": 132
         }
       ]
     },
@@ -29615,12 +29675,16 @@
       "function": "cycle_thinking_level",
       "line": 67,
       "cyclomatic": 3.0,
-      "coverage": 96.29629629629629,
-      "crap": 3.0004572473708278,
+      "coverage": 85.18518518518519,
+      "crap": 3.0292638317329676,
       "uncovered": [
         {
           "start": 81,
           "end": 81
+        },
+        {
+          "start": 88,
+          "end": 90
         }
       ]
     },
