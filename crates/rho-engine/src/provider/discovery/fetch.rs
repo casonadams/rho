@@ -82,7 +82,7 @@ pub(crate) async fn discover_ollama_models() -> Result<Vec<DiscoveredModel>> {
         }
     }
 
-    Ok(Vec::new())
+    Ok(default_presets_for("local"))
 }
 
 pub(crate) async fn discover_ollama_cloud_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {

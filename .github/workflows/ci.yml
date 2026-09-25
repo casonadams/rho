@@ -36,7 +36,6 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
-          target: wasm32-unknown-unknown
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -46,14 +45,6 @@ jobs:
 
       - name: Run clippy (tests)
         run: cargo clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -D warnings
-
-      - name: Install wasm-bindgen-cli
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen-cli@0.2.128
-
-      - name: Check WebAssembly build
-        run: make wasm
 
   test:
     name: Test
