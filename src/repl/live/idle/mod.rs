@@ -1,4 +1,4 @@
-mod dispatch;
+pub(crate) mod dispatch;
 pub(crate) mod modal_action;
 pub(crate) mod shortcut;
 

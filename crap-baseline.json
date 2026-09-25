@@ -11329,11 +11329,11 @@
       "function": "wait_group_dead",
       "line": 97,
       "cyclomatic": 3.0,
-      "coverage": 66.66666666666666,
-      "crap": 3.333333333333334,
+      "coverage": 88.88888888888889,
+      "crap": 3.0123456790123457,
       "uncovered": [
         {
-          "start": 102,
+          "start": 105,
           "end": 105
         }
       ]
@@ -25629,14 +25629,8 @@
       "function": "complete_slash_commands",
       "line": 203,
       "cyclomatic": 4.0,
-      "coverage": 95.45454545454545,
-      "crap": 4.001502629601803,
-      "uncovered": [
-        {
-          "start": 205,
-          "end": 205
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/repl/interactive/completion.rs",
@@ -26697,26 +26691,20 @@
       "function": "update_autocomplete_state",
       "line": 112,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 112,
-          "end": 117
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/repl/live/autocomplete.rs",
       "function": "update_autocomplete_state_generic",
       "line": 119,
       "cyclomatic": 5.0,
-      "coverage": 72.22222222222221,
-      "crap": 5.535836762688615,
+      "coverage": 88.88888888888889,
+      "crap": 5.034293552812072,
       "uncovered": [
         {
           "start": 133,
-          "end": 137
+          "end": 134
         }
       ]
     },
@@ -26741,14 +26729,8 @@
       "function": "finalize_run",
       "line": 19,
       "cyclomatic": 2.0,
-      "coverage": 75.0,
-      "crap": 2.0625,
-      "uncovered": [
-        {
-          "start": 25,
-          "end": 27
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/bash_runner/outcome.rs",
@@ -27149,32 +27131,30 @@
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "apply_edited_text",
-      "line": 120,
+      "line": 126,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 120,
-          "end": 124
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "classify_event",
       "line": 24,
       "cyclomatic": 7.0,
-      "coverage": 77.77777777777779,
-      "crap": 7.5377229080932775,
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./src/repl/live/idle/dispatch.rs",
+      "function": "handle_completion_action",
+      "line": 92,
+      "cyclomatic": 3.0,
+      "coverage": 90.0,
+      "crap": 3.009,
       "uncovered": [
         {
-          "start": 27,
-          "end": 27
-        },
-        {
-          "start": 31,
-          "end": 31
+          "start": 98,
+          "end": 98
         }
       ]
     },
@@ -27183,26 +27163,28 @@
       "function": "handle_dequeue",
       "line": 82,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 82,
-          "end": 90
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "handle_edit_action",
       "line": 65,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/repl/live/idle/dispatch.rs",
+      "function": "handle_focus",
+      "line": 308,
+      "cyclomatic": 5.0,
+      "coverage": 92.85714285714286,
+      "crap": 5.009110787172012,
       "uncovered": [
         {
-          "start": 65,
-          "end": 80
+          "start": 319,
+          "end": 319
         }
       ]
     },
@@ -27223,142 +27205,138 @@
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "handle_misc_action",
-      "line": 92,
-      "cyclomatic": 9.0,
-      "coverage": 0.0,
-      "crap": 90.0,
-      "uncovered": [
-        {
-          "start": 92,
-          "end": 112
-        }
-      ]
+      "line": 103,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "handle_paste",
       "line": 35,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 35,
-          "end": 46
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "handle_plain_action",
-      "line": 159,
+      "line": 173,
       "cyclomatic": 10.0,
-      "coverage": 48.0,
-      "crap": 24.0608,
+      "coverage": 64.0,
+      "crap": 14.6656,
       "uncovered": [
         {
-          "start": 167,
-          "end": 182
-        },
-        {
-          "start": 188,
-          "end": 188
+          "start": 186,
+          "end": 196
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "handle_plain_or_shortcut",
-      "line": 192,
+      "line": 206,
       "cyclomatic": 8.0,
-      "coverage": 39.285714285714285,
-      "crap": 22.32361516034986,
+      "coverage": 60.71428571428571,
+      "crap": 11.880466472303208,
       "uncovered": [
         {
-          "start": 201,
-          "end": 201
-        },
-        {
-          "start": 203,
-          "end": 219
+          "start": 221,
+          "end": 231
         }
       ]
+    },
+    {
+      "file": "./src/repl/live/idle/dispatch.rs",
+      "function": "handle_raw_paste",
+      "line": 323,
+      "cyclomatic": 4.0,
+      "coverage": 84.61538461538461,
+      "crap": 4.058261265361857,
+      "uncovered": [
+        {
+          "start": 331,
+          "end": 332
+        }
+      ]
+    },
+    {
+      "file": "./src/repl/live/idle/dispatch.rs",
+      "function": "handle_resize",
+      "line": 296,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "open_external_editor",
-      "line": 126,
-      "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
-      "uncovered": [
-        {
-          "start": 126,
-          "end": 144
-        }
-      ]
+      "line": 143,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "process_key_event",
-      "line": 257,
+      "line": 271,
       "cyclomatic": 3.0,
       "coverage": 92.85714285714286,
       "crap": 3.003279883381924,
       "uncovered": [
         {
-          "start": 266,
-          "end": 266
+          "start": 280,
+          "end": 280
         }
       ]
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "process_raw_input",
-      "line": 272,
-      "cyclomatic": 19.0,
-      "coverage": 31.428571428571427,
-      "crap": 135.39566180758015,
-      "uncovered": [
-        {
-          "start": 281,
-          "end": 305
-        },
-        {
-          "start": 308,
-          "end": 308
-        }
-      ]
+      "line": 337,
+      "cyclomatic": 9.0,
+      "coverage": 100.0,
+      "crap": 9.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "resolve_editor_command",
-      "line": 114,
+      "line": 120,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 114,
-          "end": 118
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/repl/live/idle/dispatch.rs",
+      "function": "resume_terminal",
+      "line": 132,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/repl/live/idle/dispatch.rs",
+      "function": "sync_renderer_width",
+      "line": 286,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
       "function": "try_modal_key",
-      "line": 227,
+      "line": 241,
       "cyclomatic": 7.0,
       "coverage": 85.18518518518519,
       "crap": 7.159325306101712,
       "uncovered": [
         {
-          "start": 244,
-          "end": 245
+          "start": 258,
+          "end": 259
         },
         {
-          "start": 251,
-          "end": 252
+          "start": 265,
+          "end": 266
         }
       ]
     },
@@ -29507,26 +29485,20 @@
       "function": "apply_completion",
       "line": 172,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 172,
-          "end": 177
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/repl/live/navigation.rs",
       "function": "apply_completion_generic",
       "line": 179,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
+      "coverage": 55.00000000000001,
+      "crap": 2.3645,
       "uncovered": [
         {
-          "start": 179,
-          "end": 199
+          "start": 190,
+          "end": 198
         }
       ]
     },
@@ -31719,14 +31691,8 @@
       "function": "TerminalController::height",
       "line": 178,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 178,
-          "end": 180
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/ui/interactive/controller/mod.rs",
@@ -34829,14 +34795,8 @@
       "function": "InteractiveState::push_front_queued",
       "line": 124,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 124,
-          "end": 126
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/ui/interactive/state/mod.rs",

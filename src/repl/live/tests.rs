@@ -6,6 +6,7 @@ mod default_model;
 mod exit;
 mod footer;
 mod history;
+mod idle_dispatch;
 mod idle_shortcuts;
 mod modal_action;
 mod modal_navigation;
