@@ -66,10 +66,5 @@ coverage: ## Generate LCOV test coverage trace
 	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) llvm-cov --workspace --lcov --output-path target/lcov.info
 
 .PHONY: crap
-crap: coverage ## Evaluate CRAP metrics and gate on baseline regressions
-	$(CARGO) crap --path . --lcov target/lcov.info --baseline crap-baseline.json --fail-regression
-
-.PHONY: crap-baseline
-crap-baseline: coverage ## Regenerate crap-baseline.json from current coverage
-	$(CARGO) crap --path . --lcov target/lcov.info --format json --sort file --output crap-baseline.json
-	@python3 -c "import json; p='crap-baseline.json'; d=json.load(open(p)); d.pop('diagnostics', None); json.dump(d, open(p, 'w'), indent=2); open(p, 'a').write('\n')"
+crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30
+	$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --fail-above

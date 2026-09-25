@@ -44,15 +44,12 @@
 - The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining
   cyclomatic complexity with test code coverage. Functions with a CRAP score > 30
   are considered fragile and defect-prone.
-- When modifying, extending, or fixing bugs in any function flagged with a CRAP
-  score > 30, refactor it to reduce cyclomatic complexity and/or add focused
-  unit tests to lower its score.
+- When modifying, extending, or fixing bugs in any function, ensure its CRAP
+  score remains <= 30.
 - Never introduce new functions with a CRAP score > 30.
-- Never increase the CRAP score of existing functions. All changes must maintain
-  or improve baseline scores (`make crap`).
+- All changes must pass CRAP threshold evaluation (`make crap`).
 
 ## UX and modal guidelines
-
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
   - Construct in-TUI popups using `ModalState` (`src/repl/live/modal/`) rather than suspending raw mode to run external CLI prompts (`inquire`).
   - Title: Clear, concise Title Case (e.g., `"Select Thinking Level"`, `"Login Provider"`, `"Settings"`).

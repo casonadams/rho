@@ -106,7 +106,7 @@ jobs:
 
       - name: Publish CRAP summary to Step Summary
         if: always() && steps.coverage.outcome == 'success'
-        run: cargo crap --path . --lcov target/lcov.info --baseline crap-baseline.json --format markdown >> $GITHUB_STEP_SUMMARY
+        run: cargo crap --path . --lcov target/lcov.info --threshold 30 --format markdown >> $GITHUB_STEP_SUMMARY
 
-      - name: Gate on CRAP regressions
-        run: cargo crap --path . --lcov target/lcov.info --baseline crap-baseline.json --fail-regression
+      - name: Gate on CRAP threshold
+        run: cargo crap --path . --lcov target/lcov.info --threshold 30 --fail-above
