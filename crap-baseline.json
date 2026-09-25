@@ -5975,12 +5975,16 @@
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 73.52941176470588,
-      "crap": 7.908838795033584,
+      "coverage": 67.64705882352942,
+      "crap": 8.65934764909424,
       "uncovered": [
         {
           "start": 77,
           "end": 78
+        },
+        {
+          "start": 83,
+          "end": 84
         },
         {
           "start": 88,
@@ -22623,86 +22627,104 @@
     {
       "file": "./src/cli/auth/callbacks.rs",
       "function": "TerminalOAuthCallbacks::on_auth_url",
-      "line": 39,
+      "line": 54,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 39,
-          "end": 45
+          "start": 54,
+          "end": 60
         }
       ]
     },
     {
       "file": "./src/cli/auth/callbacks.rs",
       "function": "TerminalOAuthCallbacks::on_device_code",
-      "line": 47,
+      "line": 62,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 47,
-          "end": 58
+          "start": 62,
+          "end": 73
         }
       ]
     },
     {
       "file": "./src/cli/auth/callbacks.rs",
       "function": "TerminalOAuthCallbacks::on_progress",
-      "line": 77,
+      "line": 92,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 77,
-          "end": 80
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/cli/auth/callbacks.rs",
       "function": "TerminalOAuthCallbacks::on_prompt",
-      "line": 60,
+      "line": 75,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 60,
-          "end": 71
+          "start": 75,
+          "end": 86
         }
       ]
     },
     {
       "file": "./src/cli/auth/callbacks.rs",
       "function": "TerminalOAuthCallbacks::on_select",
-      "line": 73,
+      "line": 88,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 73,
-          "end": 75
+          "start": 88,
+          "end": 90
         }
       ]
     },
     {
       "file": "./src/cli/auth/callbacks.rs",
+      "function": "parse_selection",
+      "line": 22,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/cli/auth/callbacks.rs",
       "function": "prompt_ui_select",
-      "line": 8,
-      "cyclomatic": 8.0,
+      "line": 46,
+      "cyclomatic": 1.0,
       "coverage": 0.0,
-      "crap": 72.0,
+      "crap": 2.0,
       "uncovered": [
         {
-          "start": 8,
-          "end": 35
+          "start": 46,
+          "end": 50
         }
       ]
+    },
+    {
+      "file": "./src/cli/auth/callbacks.rs",
+      "function": "prompt_ui_select_from",
+      "line": 31,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/cli/auth/callbacks.rs",
+      "function": "write_select_options",
+      "line": 9,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
     },
     {
       "file": "./src/cli/auth/mod.rs",
@@ -26737,9 +26759,13 @@
       "function": "BashRun::handle_chunk",
       "line": 125,
       "cyclomatic": 4.0,
-      "coverage": 91.66666666666666,
-      "crap": 4.0092592592592595,
+      "coverage": 66.66666666666666,
+      "crap": 4.5925925925925934,
       "uncovered": [
+        {
+          "start": 129,
+          "end": 131
+        },
         {
           "start": 133,
           "end": 133
@@ -29473,16 +29499,12 @@
       "function": "cycle_model",
       "line": 116,
       "cyclomatic": 3.0,
-      "coverage": 82.6086956521739,
-      "crap": 3.047341168735103,
+      "coverage": 95.65217391304348,
+      "crap": 3.000739705761486,
       "uncovered": [
         {
           "start": 119,
           "end": 119
-        },
-        {
-          "start": 130,
-          "end": 132
         }
       ]
     },
@@ -29491,16 +29513,12 @@
       "function": "cycle_thinking_level",
       "line": 67,
       "cyclomatic": 3.0,
-      "coverage": 85.18518518518519,
-      "crap": 3.0292638317329676,
+      "coverage": 96.29629629629629,
+      "crap": 3.0004572473708278,
       "uncovered": [
         {
           "start": 81,
           "end": 81
-        },
-        {
-          "start": 88,
-          "end": 90
         }
       ]
     },
