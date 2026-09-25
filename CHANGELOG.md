@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.1](https://github.com/casonadams/rho/compare/v0.10.0...v0.10.1) (2026-09-25)
+
+
+### Features
+
+* **crap:** metric ([#50](https://github.com/casonadams/rho/issues/50)) ([f085381](https://github.com/casonadams/rho/commit/f08538110474d1b56a50c28c83f981d122c1c7dd))
+* **exa:** gemini search ([#51](https://github.com/casonadams/rho/issues/51)) ([f01bcc2](https://github.com/casonadams/rho/commit/f01bcc24fa4f6d608d4d666b9812c0d9c9226be0))
+* **hooks:** add rtk token optimization hook example and docs ([#44](https://github.com/casonadams/rho/issues/44)) ([c539852](https://github.com/casonadams/rho/commit/c53985211f72a296c1f8ebc141f2cd88a2a5bef7))
+* multimodal analysis ([#53](https://github.com/casonadams/rho/issues/53)) ([cb27138](https://github.com/casonadams/rho/commit/cb2713835c97ec5bfa160899aef5eb0ce8137f56))
+* **tools:** add web tool toggles, search engine selector, and settin… ([#49](https://github.com/casonadams/rho/issues/49)) ([519fc6f](https://github.com/casonadams/rho/commit/519fc6fdaab722eaafa3c229e9cb7c9c6e9b4886))
+* **web:** add specialized fetch extractors for GitHub and YouTube ([#52](https://github.com/casonadams/rho/issues/52)) ([fd907bc](https://github.com/casonadams/rho/commit/fd907bcf1c812ad32200719b92f61325d8228013))
+
+
+### Bug Fixes
+
+* **antigravity:** restore daily endpoint priority and non-blocking metadat a failover ([#48](https://github.com/casonadams/rho/issues/48)) ([a60127f](https://github.com/casonadams/rho/commit/a60127f936a2db7306c4c497430838201c73e796))
+* **ci:** pages deployment fix remove wasm ([6b3ee3a](https://github.com/casonadams/rho/commit/6b3ee3af6af9f8d80e1144ee46042bf2e05a2ace))
+
 ## [0.10.0](https://github.com/casonadams/rho/compare/v0.9.0...v0.10.0) (2026-09-22)
 
 
