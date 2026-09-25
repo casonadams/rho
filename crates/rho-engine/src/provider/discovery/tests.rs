@@ -198,3 +198,53 @@ fn test_default_presets_for_local_uses_latest_tag() {
     let ollama = default_presets_for("ollama");
     assert_eq!(ollama[0].id, "llama3.2:latest");
 }
+
+#[test]
+fn test_openai_compatible_endpoint_mappings() {
+    use super::openai_compatible_endpoint;
+    use rho_harness_core::provider::ProviderId;
+
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::OpenAi),
+        Some(("openai", "https://api.openai.com/v1"))
+    );
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::OpenRouter),
+        Some(("openrouter", "https://openrouter.ai/api/v1"))
+    );
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::Groq),
+        Some(("groq", "https://api.groq.com/openai/v1"))
+    );
+    assert_eq!(
+        openai_compatible_endpoint(ProviderId::DeepSeek),
+        Some(("deepseek", "https://api.deepseek.com"))
+    );
+    assert_eq!(openai_compatible_endpoint(ProviderId::Anthropic), None);
+    assert_eq!(openai_compatible_endpoint(ProviderId::ChatGpt), None);
+}
+
+#[test]
+fn test_preset_provider_models_mappings() {
+    use super::preset_provider_models;
+    use rho_harness_core::provider::ProviderId;
+
+    assert!(preset_provider_models(ProviderId::ChatGpt).is_some());
+    assert!(preset_provider_models(ProviderId::ClaudeCode).is_some());
+    assert!(preset_provider_models(ProviderId::Copilot).is_some());
+    assert!(preset_provider_models(ProviderId::OpenAi).is_none());
+}
+
+#[tokio::test]
+async fn test_discover_provider_models_presets_and_fallbacks() {
+    use super::discover_provider_models;
+    use crate::auth::AuthStore;
+    use rho_harness_core::provider::ProviderId;
+
+    let auth_store = AuthStore::default();
+
+    for provider in ProviderId::ALL {
+        let models = discover_provider_models(provider, &auth_store).await.unwrap();
+        assert!(!models.is_empty(), "expected models for provider {provider:?}");
+    }
+}

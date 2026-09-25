@@ -5975,16 +5975,12 @@
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 67.64705882352942,
-      "crap": 8.65934764909424,
+      "coverage": 73.52941176470588,
+      "crap": 7.908838795033584,
       "uncovered": [
         {
           "start": 77,
           "end": 78
-        },
-        {
-          "start": 83,
-          "end": 84
         },
         {
           "start": 88,
@@ -11780,6 +11776,14 @@
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
+      "function": "dedicated_provider_discovery",
+      "line": 112,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
       "function": "discover_anthropic",
       "line": 59,
       "cyclomatic": 3.0,
@@ -11797,26 +11801,26 @@
       "function": "discover_antigravity",
       "line": 45,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "coverage": 44.44444444444444,
+      "crap": 9.286694101508917,
       "uncovered": [
         {
-          "start": 45,
-          "end": 57
+          "start": 47,
+          "end": 53
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
       "function": "discover_custom_provider_models",
-      "line": 115,
+      "line": 140,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 115,
-          "end": 122
+          "start": 140,
+          "end": 147
         }
       ]
     },
@@ -11825,12 +11829,12 @@
       "function": "discover_gemini",
       "line": 67,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 80.0,
+      "crap": 3.072,
       "uncovered": [
         {
-          "start": 67,
-          "end": 73
+          "start": 69,
+          "end": 69
         }
       ]
     },
@@ -11839,12 +11843,12 @@
       "function": "discover_keyed_openai_compatible",
       "line": 34,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 87.5,
+      "crap": 3.017578125,
       "uncovered": [
         {
-          "start": 34,
-          "end": 43
+          "start": 39,
+          "end": 39
         }
       ]
     },
@@ -11853,19 +11857,19 @@
       "function": "discover_ollama_cloud",
       "line": 75,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
+      "coverage": 80.0,
+      "crap": 3.072,
       "uncovered": [
         {
-          "start": 75,
-          "end": 81
+          "start": 77,
+          "end": 77
         }
       ]
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
       "function": "discover_provider_models",
-      "line": 111,
+      "line": 136,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -11873,38 +11877,34 @@
     {
       "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
       "function": "dispatch_provider_discovery",
-      "line": 93,
-      "cyclomatic": 14.0,
-      "coverage": 31.25,
-      "crap": 77.6904296875,
-      "uncovered": [
-        {
-          "start": 95,
-          "end": 97
-        },
-        {
-          "start": 99,
-          "end": 102
-        },
-        {
-          "start": 104,
-          "end": 107
-        }
-      ]
+      "line": 123,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
       "function": "keyed_discovery",
       "line": 86,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 86,
-          "end": 91
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
+      "function": "openai_compatible_endpoint",
+      "line": 93,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
+    },
+    {
+      "file": "./crates/rho-engine/src/provider/discovery/mod.rs",
+      "function": "preset_provider_models",
+      "line": 103,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
@@ -11919,14 +11919,8 @@
       "function": "antigravity_preset_models",
       "line": 59,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 59,
-          "end": 61
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
@@ -11957,42 +11951,24 @@
       "function": "cohere_preset_models",
       "line": 225,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 225,
-          "end": 227
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "copilot_models",
       "line": 102,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 102,
-          "end": 104
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "deepseek_preset_models",
       "line": 185,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 185,
-          "end": 187
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
@@ -12031,14 +12007,8 @@
       "function": "groq_preset_models",
       "line": 194,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 194,
-          "end": 196
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
@@ -12061,14 +12031,8 @@
       "function": "mistral_preset_models",
       "line": 217,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 217,
-          "end": 219
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
@@ -12091,28 +12055,16 @@
       "function": "openrouter_preset_models",
       "line": 213,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 213,
-          "end": 215
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/discovery/presets.rs",
       "function": "xai_preset_models",
       "line": 221,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 221,
-          "end": 223
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/provider/extras.rs",
@@ -26805,9 +26757,13 @@
       "function": "BashRun::handle_chunk",
       "line": 125,
       "cyclomatic": 4.0,
-      "coverage": 91.66666666666666,
-      "crap": 4.0092592592592595,
+      "coverage": 66.66666666666666,
+      "crap": 4.5925925925925934,
       "uncovered": [
+        {
+          "start": 129,
+          "end": 131
+        },
         {
           "start": 133,
           "end": 133
@@ -29541,12 +29497,16 @@
       "function": "cycle_model",
       "line": 116,
       "cyclomatic": 3.0,
-      "coverage": 95.65217391304348,
-      "crap": 3.000739705761486,
+      "coverage": 82.6086956521739,
+      "crap": 3.047341168735103,
       "uncovered": [
         {
           "start": 119,
           "end": 119
+        },
+        {
+          "start": 130,
+          "end": 132
         }
       ]
     },
@@ -29555,12 +29515,16 @@
       "function": "cycle_thinking_level",
       "line": 67,
       "cyclomatic": 3.0,
-      "coverage": 96.29629629629629,
-      "crap": 3.0004572473708278,
+      "coverage": 85.18518518518519,
+      "crap": 3.0292638317329676,
       "uncovered": [
         {
           "start": 81,
           "end": 81
+        },
+        {
+          "start": 88,
+          "end": 90
         }
       ]
     },
