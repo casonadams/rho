@@ -6,8 +6,6 @@ on:
     paths:
       - "www/**"
       - "crates/**"
-      - "Cargo.lock"
-      - "Cargo.toml"
       - "Makefile"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -30,19 +28,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-
-      - name: Install wasm-bindgen-cli
-        uses: taiki-e/install-action@v2
-        with:
-          tool: wasm-bindgen-cli@0.2.128
-
-      - name: Build WebAssembly artifacts
-        run: make wasm
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
