@@ -51,10 +51,15 @@ fn is_html(ct_lower: &str, body: &str) -> bool {
         || body.trim_start().to_ascii_lowercase().starts_with("<html")
 }
 
+fn delimiter_for_format(fmt: &str) -> u8 {
+    if fmt.eq_ignore_ascii_case("tsv") { b'\t' } else { b',' }
+}
+
 fn extract_override_text(fmt: &str, body: &str, url_str: &str, mode: &str) -> Option<Result<String>> {
-    match fmt.to_lowercase().as_str() {
+    let lower = fmt.to_lowercase();
+    match lower.as_str() {
         "json" => Some(Ok(extract_json(body))),
-        "csv" | "tsv" => Some(Ok(extract_csv(body, if fmt == "tsv" { b'\t' } else { b',' }))),
+        "csv" | "tsv" => Some(Ok(extract_csv(body, delimiter_for_format(&lower)))),
         "xml" | "rss" | "atom" => Some(Ok(extract_feed_or_xml(body, url_str))),
         "markdown" | "md" => Some(Ok(resolve_markdown_links(body, url_str))),
         "html" => Some(extract_html(body, url_str, mode)),
