@@ -191,3 +191,12 @@ fn format_turn_prompt_prepends_git_status_when_present() {
     let whitespace = format_turn_prompt("Fix the bug", Some("   "));
     assert_eq!(whitespace, "Fix the bug");
 }
+
+#[test]
+fn test_escape_xml() {
+    assert_eq!(escape_xml("plain text"), "plain text");
+    assert_eq!(
+        escape_xml("a & b < c > d \" e ' f"),
+        "a &amp; b &lt; c &gt; d &quot; e &apos; f"
+    );
+}

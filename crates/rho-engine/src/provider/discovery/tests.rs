@@ -248,3 +248,23 @@ async fn test_discover_provider_models_presets_and_fallbacks() {
         assert!(!models.is_empty(), "expected models for provider {provider:?}");
     }
 }
+
+#[test]
+fn test_parse_ollama_show_response() {
+    use super::fetch::parse_ollama_show_response;
+
+    let with_params = serde_json::json!({
+        "parameters": "num_ctx 16384\ntemperature 0.7"
+    });
+    assert_eq!(parse_ollama_show_response(&with_params), Some(16384));
+
+    let with_model_info = serde_json::json!({
+        "model_info": {
+            "llama.context_length": 8192
+        }
+    });
+    assert_eq!(parse_ollama_show_response(&with_model_info), Some(8192));
+
+    let empty = serde_json::json!({});
+    assert_eq!(parse_ollama_show_response(&empty), None);
+}

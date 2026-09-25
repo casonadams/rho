@@ -92,7 +92,7 @@ jobs:
           cargo crap --version
       - name: Generate test coverage trace
         id: coverage
-        run: cargo llvm-cov --workspace --lcov --output-path target/lcov.info
+        run: make coverage
 
       - name: Emit GitHub PR annotations
         if: always() && steps.coverage.outcome == 'success'
@@ -103,4 +103,4 @@ jobs:
         run: cargo crap --path . --lcov target/lcov.info --threshold 30 --format markdown >> $GITHUB_STEP_SUMMARY
 
       - name: Gate on CRAP threshold
-        run: cargo crap --path . --lcov target/lcov.info --threshold 30 --fail-above
+        run: make crap
