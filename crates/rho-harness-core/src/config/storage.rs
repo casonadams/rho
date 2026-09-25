@@ -133,34 +133,56 @@ impl super::Config {
     }
 }
 
+fn apply_provider_change(file_config: &mut FileConfig, value: &str) {
+    let provider_changing = file_config.provider.as_deref().is_some_and(|p| p != value);
+    file_config.provider = Some(value.to_string());
+    if provider_changing {
+        if let Some(model) = file_config.models.get(value) {
+            file_config.model = Some(model.clone());
+        } else {
+            let default_m = crate::provider::default_model_for_provider(value);
+            file_config.model = Some(default_m.to_string());
+        }
+    } else if let Some(m) = &file_config.model {
+        file_config.models.insert(value.to_string(), m.clone());
+    }
+}
+
 fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
     match key {
         ConfigKey::Model => {
             file_config.model = Some(value.to_string());
-            if let Some(ref p) = file_config.provider {
+            if let Some(p) = &file_config.provider {
                 file_config.models.insert(p.clone(), value.to_string());
             }
         }
-        ConfigKey::Provider => {
-            let provider_changing = file_config.provider.as_deref().is_some_and(|p| p != value);
-            file_config.provider = Some(value.to_string());
-            if provider_changing {
-                if let Some(model) = file_config.models.get(value) {
-                    file_config.model = Some(model.clone());
-                } else {
-                    let default_m = crate::provider::default_model_for_provider(value);
-                    file_config.model = Some(default_m.to_string());
-                }
-            } else if let Some(ref m) = file_config.model {
-                file_config.models.insert(value.to_string(), m.clone());
-            }
-        }
+        ConfigKey::Provider => apply_provider_change(file_config, value),
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
         }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn apply_runtime_mode_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
+    match key {
         ConfigKey::Region => file_config.region = Some(value.to_string()),
         ConfigKey::SteeringMode => file_config.steering_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
+        ConfigKey::ShowLabel => {
+            file_config.show_label = Some(parse_bool(key.as_str(), value)?);
+        }
+        ConfigKey::SemanticSearch => {
+            file_config.semantic_search = Some(parse_bool(key.as_str(), value)?);
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+fn apply_ui_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
+    match key {
         ConfigKey::BlockStyle => {
             let ui = file_config.ui.get_or_insert_with(Default::default);
             ui.block_style = Some(value.to_string());
@@ -180,12 +202,6 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::Cursor => {
             let ui = file_config.ui.get_or_insert_with(Default::default);
             ui.cursor = Some(value.to_string());
-        }
-        ConfigKey::ShowLabel => {
-            file_config.show_label = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::SemanticSearch => {
-            file_config.semantic_search = Some(parse_bool(key.as_str(), value)?);
         }
         _ => return Ok(false),
     }
@@ -287,7 +303,11 @@ fn parse_retention(key: &str, value: &str) -> Result<Option<u32>> {
 
 fn apply_config_key(file_config: &mut FileConfig, key: &str, value: &str) -> Result<()> {
     let key = ConfigKey::from_str(key).map_err(|error| AppError::Config(error.to_string()))?;
-    if !apply_model_key(file_config, &key, value)? && !apply_tool_key(file_config, &key, value)? {
+    if !apply_model_key(file_config, &key, value)?
+        && !apply_runtime_mode_key(file_config, &key, value)?
+        && !apply_ui_key(file_config, &key, value)?
+        && !apply_tool_key(file_config, &key, value)?
+    {
         apply_limit_key(file_config, &key, value)?;
     }
     Ok(())
