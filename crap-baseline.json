@@ -24217,16 +24217,24 @@
     {
       "file": "./src/cli/self_update/platform.rs",
       "function": "Arch::current",
-      "line": 26,
+      "line": 33,
       "cyclomatic": 4.0,
       "coverage": 83.33333333333334,
       "crap": 4.0740740740740735,
       "uncovered": [
         {
-          "start": 30,
-          "end": 30
+          "start": 37,
+          "end": 37
         }
       ]
+    },
+    {
+      "file": "./src/cli/self_update/platform.rs",
+      "function": "Arch::hint",
+      "line": 40,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/cli/self_update/platform.rs",
@@ -24244,8 +24252,16 @@
     },
     {
       "file": "./src/cli/self_update/platform.rs",
+      "function": "Os::hint",
+      "line": 17,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/cli/self_update/platform.rs",
       "function": "Platform::current",
-      "line": 42,
+      "line": 55,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -24253,30 +24269,26 @@
     {
       "file": "./src/cli/self_update/platform.rs",
       "function": "Platform::target_triple",
-      "line": 49,
+      "line": 62,
       "cyclomatic": 7.0,
-      "coverage": 44.44444444444444,
-      "crap": 15.401920438957477,
-      "uncovered": [
-        {
-          "start": 52,
-          "end": 56
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./src/cli/self_update/platform.rs",
+      "function": "find_asset_by_hint",
+      "line": 83,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/cli/self_update/platform.rs",
       "function": "match_platform_asset",
-      "line": 70,
-      "cyclomatic": 8.0,
-      "coverage": 21.73913043478261,
-      "crap": 38.67707734034684,
-      "uncovered": [
-        {
-          "start": 75,
-          "end": 97
-        }
-      ]
+      "line": 90,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/cli/session.rs",
