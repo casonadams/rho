@@ -22728,49 +22728,61 @@
     },
     {
       "file": "./src/cli/auth/mod.rs",
+      "function": "is_default_oauth_provider",
+      "line": 62,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/cli/auth/mod.rs",
       "function": "login_api_key",
-      "line": 95,
-      "cyclomatic": 7.0,
+      "line": 118,
+      "cyclomatic": 2.0,
       "coverage": 0.0,
-      "crap": 56.0,
+      "crap": 6.0,
       "uncovered": [
         {
-          "start": 95,
-          "end": 110
+          "start": 118,
+          "end": 121
         }
       ]
     },
     {
       "file": "./src/cli/auth/mod.rs",
       "function": "login_provider",
-      "line": 112,
+      "line": 123,
       "cyclomatic": 9.0,
       "coverage": 69.56521739130434,
       "crap": 11.28347168570724,
       "uncovered": [
         {
-          "start": 128,
-          "end": 135
+          "start": 139,
+          "end": 146
         }
       ]
     },
     {
       "file": "./src/cli/auth/mod.rs",
       "function": "logout_provider",
-      "line": 138,
-      "cyclomatic": 10.0,
-      "coverage": 24.137931034482758,
-      "crap": 53.659026610357124,
+      "line": 189,
+      "cyclomatic": 7.0,
+      "coverage": 90.0,
+      "crap": 7.049,
       "uncovered": [
         {
-          "start": 140,
-          "end": 140
-        },
-        {
-          "start": 146,
-          "end": 172
+          "start": 193,
+          "end": 193
         }
       ]
+    },
+    {
+      "file": "./src/cli/auth/mod.rs",
+      "function": "parse_logout_choice",
+      "line": 149,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/cli/auth/mod.rs",
@@ -22788,15 +22800,31 @@
     },
     {
       "file": "./src/cli/auth/mod.rs",
+      "function": "prompt_logout_selection",
+      "line": 161,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./src/cli/auth/mod.rs",
       "function": "provider_login_name",
       "line": 24,
       "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./src/cli/auth/mod.rs",
+      "function": "read_api_key",
+      "line": 98,
+      "cyclomatic": 3.0,
       "coverage": 0.0,
-      "crap": 56.0,
+      "crap": 12.0,
       "uncovered": [
         {
-          "start": 24,
-          "end": 33
+          "start": 98,
+          "end": 105
         }
       ]
     },
@@ -22816,29 +22844,55 @@
     },
     {
       "file": "./src/cli/auth/mod.rs",
-      "function": "try_default_oauth_login",
-      "line": 62,
-      "cyclomatic": 8.0,
-      "coverage": 0.0,
-      "crap": 72.0,
+      "function": "select_logout_target",
+      "line": 177,
+      "cyclomatic": 3.0,
+      "coverage": 54.54545454545454,
+      "crap": 3.845229151014275,
       "uncovered": [
         {
-          "start": 62,
-          "end": 77
+          "start": 182,
+          "end": 186
         }
       ]
     },
     {
       "file": "./src/cli/auth/mod.rs",
-      "function": "try_oauth_login",
-      "line": 79,
-      "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "function": "should_default_oauth",
+      "line": 69,
+      "cyclomatic": 4.0,
+      "coverage": 85.71428571428571,
+      "crap": 4.0466472303206995,
       "uncovered": [
         {
-          "start": 79,
-          "end": 93
+          "start": 73,
+          "end": 73
+        }
+      ]
+    },
+    {
+      "file": "./src/cli/auth/mod.rs",
+      "function": "store_api_key",
+      "line": 107,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/cli/auth/mod.rs",
+      "function": "try_oauth_login",
+      "line": 79,
+      "cyclomatic": 7.0,
+      "coverage": 80.0,
+      "crap": 7.3919999999999995,
+      "uncovered": [
+        {
+          "start": 86,
+          "end": 86
+        },
+        {
+          "start": 91,
+          "end": 92
         }
       ]
     },
@@ -25111,14 +25165,8 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 95.23809523809523,
-      "crap": 6.003887269193392,
-      "uncovered": [
-        {
-          "start": 72,
-          "end": 72
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -26759,13 +26807,9 @@
       "function": "BashRun::handle_chunk",
       "line": 125,
       "cyclomatic": 4.0,
-      "coverage": 66.66666666666666,
-      "crap": 4.5925925925925934,
+      "coverage": 91.66666666666666,
+      "crap": 4.0092592592592595,
       "uncovered": [
-        {
-          "start": 129,
-          "end": 131
-        },
         {
           "start": 133,
           "end": 133
