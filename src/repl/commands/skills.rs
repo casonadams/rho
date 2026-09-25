@@ -21,27 +21,40 @@ fn print_available_skills(renderer: &TerminalRenderer, skills: &[ResolvedSkill],
     renderer.print_notice(&output);
 }
 
+fn parse_skill_choice(input: &str, choices: &[String]) -> Option<String> {
+    let idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
+    choices
+        .get(idx)
+        .and_then(|c| c.split_whitespace().next().map(str::to_string))
+}
+
+pub(crate) fn prompt_skill_choice_from<R: std::io::BufRead, W: std::io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+    choices: &[String],
+) -> Option<String> {
+    if choices.is_empty() {
+        return None;
+    }
+    writeln!(writer, "\nSelect a skill to inspect:").ok()?;
+    for (i, c) in choices.iter().enumerate() {
+        writeln!(writer, "  {}. {c}", i + 1).ok()?;
+    }
+    write!(writer, "Enter choice [1-{}]: ", choices.len()).ok()?;
+    writer.flush().ok()?;
+    let mut input = String::new();
+    reader.read_line(&mut input).ok()?;
+    parse_skill_choice(&input, choices)
+}
+
 async fn prompt_skill_selection(skills: &[ResolvedSkill]) -> Option<String> {
     let choices: Vec<String> = skills
         .iter()
         .map(|s| format!("{} - {} ({})", s.metadata.name, s.metadata.description, s.origin))
         .collect();
-    if choices.is_empty() {
-        return None;
-    }
-    println!("\nSelect a skill to inspect:");
-    for (i, c) in choices.iter().enumerate() {
-        println!("  {}. {c}", i + 1);
-    }
-    use std::io::Write;
-    print!("Enter choice [1-{}]: ", choices.len());
-    std::io::stdout().flush().ok()?;
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).ok()?;
-    let idx = input.trim().parse::<usize>().ok()?.checked_sub(1)?;
-    choices
-        .get(idx)
-        .and_then(|c| c.split_whitespace().next().map(str::to_string))
+    let mut stdin = std::io::stdin().lock();
+    let mut stdout = std::io::stdout();
+    prompt_skill_choice_from(&mut stdin, &mut stdout, &choices)
 }
 
 async fn inspect_selected_skill(renderer: &TerminalRenderer, skills: &[ResolvedSkill], name: &str) {

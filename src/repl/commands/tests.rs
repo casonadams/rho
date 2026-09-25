@@ -598,3 +598,69 @@ async fn session_command_displays_cache_efficiency_when_present() {
     assert!(output.contains("Cache Efficiency:            cache hit: 90%"));
     assert!(output.contains("Prompt Cache Hit:            90.0%"));
 }
+
+#[test]
+fn test_parse_command_args() {
+    use super::args::parse_command_args;
+
+    assert_eq!(parse_command_args(""), Vec::<String>::new());
+    assert_eq!(parse_command_args("   "), Vec::<String>::new());
+    assert_eq!(parse_command_args("hello"), vec!["hello"]);
+    assert_eq!(parse_command_args("foo bar  baz"), vec!["foo", "bar", "baz"]);
+    assert_eq!(
+        parse_command_args("cmd \"hello world\" 'single quote' tail"),
+        vec!["cmd", "hello world", "single quote", "tail"]
+    );
+    assert_eq!(
+        parse_command_args("echo \"unclosed quote"),
+        vec!["echo", "unclosed quote"]
+    );
+}
+
+#[test]
+fn test_prompt_model_choice_from() {
+    use super::model::prompt_model_choice_from;
+    use std::io::Cursor;
+
+    let mut reader = Cursor::new(b"1\n");
+    let mut writer = Vec::new();
+    assert_eq!(prompt_model_choice_from(&mut reader, &mut writer, &[]), None);
+
+    let models = vec![
+        "gpt-4o (openai) - Flagship model".to_string(),
+        "claude-3-5-sonnet (anthropic) - Smart model".to_string(),
+    ];
+
+    let mut reader2 = Cursor::new(b"2\n");
+    let mut writer2 = Vec::new();
+    let choice = prompt_model_choice_from(&mut reader2, &mut writer2, &models);
+    assert_eq!(choice, Some(("claude-3-5-sonnet".to_string(), "anthropic".to_string())));
+
+    let mut reader3 = Cursor::new(b"99\n");
+    let mut writer3 = Vec::new();
+    assert_eq!(prompt_model_choice_from(&mut reader3, &mut writer3, &models), None);
+}
+
+#[test]
+fn test_prompt_skill_choice_from() {
+    use super::skills::prompt_skill_choice_from;
+    use std::io::Cursor;
+
+    let mut reader = Cursor::new(b"1\n");
+    let mut writer = Vec::new();
+    assert_eq!(prompt_skill_choice_from(&mut reader, &mut writer, &[]), None);
+
+    let skills = vec![
+        "review - Code reviewer (built-in)".to_string(),
+        "lint - Linter (custom)".to_string(),
+    ];
+
+    let mut reader2 = Cursor::new(b"1\n");
+    let mut writer2 = Vec::new();
+    let choice = prompt_skill_choice_from(&mut reader2, &mut writer2, &skills);
+    assert_eq!(choice, Some("review".to_string()));
+
+    let mut reader3 = Cursor::new(b"abc\n");
+    let mut writer3 = Vec::new();
+    assert_eq!(prompt_skill_choice_from(&mut reader3, &mut writer3, &skills), None);
+}

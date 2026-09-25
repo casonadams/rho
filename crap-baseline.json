@@ -5975,12 +5975,16 @@
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 73.52941176470588,
-      "crap": 7.908838795033584,
+      "coverage": 67.64705882352942,
+      "crap": 8.65934764909424,
       "uncovered": [
         {
           "start": 77,
           "end": 78
+        },
+        {
+          "start": 83,
+          "end": 84
         },
         {
           "start": 88,
@@ -11325,11 +11329,11 @@
       "function": "wait_group_dead",
       "line": 97,
       "cyclomatic": 3.0,
-      "coverage": 66.66666666666666,
-      "crap": 3.333333333333334,
+      "coverage": 88.88888888888889,
+      "crap": 3.0123456790123457,
       "uncovered": [
         {
-          "start": 102,
+          "start": 105,
           "end": 105
         }
       ]
@@ -24617,56 +24621,32 @@
       "function": "ArgParser::finish",
       "line": 29,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 29,
-          "end": 34
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/commands/args.rs",
       "function": "ArgParser::new",
       "line": 8,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 8,
-          "end": 14
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/repl/commands/args.rs",
       "function": "ArgParser::push_char",
       "line": 16,
       "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 16,
-          "end": 27
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/commands/args.rs",
       "function": "parse_command_args",
       "line": 37,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 37,
-          "end": 43
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/repl/commands/export.rs",
@@ -24821,14 +24801,14 @@
     {
       "file": "./src/repl/commands/model.rs",
       "function": "handle_model",
-      "line": 73,
+      "line": 92,
       "cyclomatic": 3.0,
       "coverage": 63.1578947368421,
       "crap": 3.450065607231375,
       "uncovered": [
         {
-          "start": 84,
-          "end": 90
+          "start": 103,
+          "end": 109
         }
       ]
     },
@@ -24848,15 +24828,39 @@
     },
     {
       "file": "./src/repl/commands/model.rs",
-      "function": "prompt_terminal_model_select",
+      "function": "parse_model_choice",
       "line": 41,
-      "cyclomatic": 8.0,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/repl/commands/model.rs",
+      "function": "parse_model_selection",
+      "line": 47,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/repl/commands/model.rs",
+      "function": "prompt_model_choice_from",
+      "line": 53,
+      "cyclomatic": 9.0,
+      "coverage": 100.0,
+      "crap": 9.0
+    },
+    {
+      "file": "./src/repl/commands/model.rs",
+      "function": "prompt_terminal_model_select",
+      "line": 73,
+      "cyclomatic": 2.0,
       "coverage": 0.0,
-      "crap": 72.0,
+      "crap": 6.0,
       "uncovered": [
         {
-          "start": 41,
-          "end": 71
+          "start": 73,
+          "end": 90
         }
       ]
     },
@@ -24967,35 +24971,35 @@
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "format_skill_prompt",
-      "line": 82,
+      "line": 95,
       "cyclomatic": 2.0,
       "coverage": 80.0,
       "crap": 2.032,
       "uncovered": [
         {
-          "start": 84,
-          "end": 84
+          "start": 97,
+          "end": 97
         }
       ]
     },
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "handle_custom",
-      "line": 127,
+      "line": 140,
       "cyclomatic": 5.0,
       "coverage": 52.94117647058824,
       "crap": 7.605332790555669,
       "uncovered": [
         {
-          "start": 136,
-          "end": 144
+          "start": 149,
+          "end": 157
         }
       ]
     },
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "handle_skill",
-      "line": 70,
+      "line": 83,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -25003,7 +25007,15 @@
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "inspect_selected_skill",
-      "line": 47,
+      "line": 60,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./src/repl/commands/skills.rs",
+      "function": "parse_skill_choice",
+      "line": 24,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -25018,61 +25030,69 @@
     },
     {
       "file": "./src/repl/commands/skills.rs",
+      "function": "prompt_skill_choice_from",
+      "line": 31,
+      "cyclomatic": 8.0,
+      "coverage": 100.0,
+      "crap": 8.0
+    },
+    {
+      "file": "./src/repl/commands/skills.rs",
       "function": "prompt_skill_selection",
-      "line": 24,
-      "cyclomatic": 7.0,
+      "line": 50,
+      "cyclomatic": 1.0,
       "coverage": 0.0,
-      "crap": 56.0,
+      "crap": 2.0,
       "uncovered": [
         {
-          "start": 24,
-          "end": 45
+          "start": 50,
+          "end": 58
         }
       ]
     },
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "resolve_skill_target",
-      "line": 60,
+      "line": 73,
       "cyclomatic": 4.0,
       "coverage": 85.71428571428571,
       "crap": 4.0466472303206995,
       "uncovered": [
         {
-          "start": 64,
-          "end": 64
+          "start": 77,
+          "end": 77
         }
       ]
     },
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "try_handle_skill",
-      "line": 96,
+      "line": 109,
       "cyclomatic": 1.0,
       "coverage": 88.88888888888889,
       "crap": 1.0013717421124828,
       "uncovered": [
         {
-          "start": 104,
-          "end": 104
+          "start": 117,
+          "end": 117
         },
         {
-          "start": 107,
-          "end": 107
+          "start": 120,
+          "end": 120
         }
       ]
     },
     {
       "file": "./src/repl/commands/skills.rs",
       "function": "try_handle_template",
-      "line": 117,
+      "line": 130,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 117,
-          "end": 125
+          "start": 130,
+          "end": 138
         }
       ]
     },
@@ -26779,13 +26799,9 @@
       "function": "BashRun::handle_chunk",
       "line": 125,
       "cyclomatic": 4.0,
-      "coverage": 66.66666666666666,
-      "crap": 4.5925925925925934,
+      "coverage": 91.66666666666666,
+      "crap": 4.0092592592592595,
       "uncovered": [
-        {
-          "start": 129,
-          "end": 131
-        },
         {
           "start": 133,
           "end": 133
@@ -29519,16 +29535,12 @@
       "function": "cycle_model",
       "line": 116,
       "cyclomatic": 3.0,
-      "coverage": 82.6086956521739,
-      "crap": 3.047341168735103,
+      "coverage": 95.65217391304348,
+      "crap": 3.000739705761486,
       "uncovered": [
         {
           "start": 119,
           "end": 119
-        },
-        {
-          "start": 130,
-          "end": 132
         }
       ]
     },
@@ -29537,16 +29549,12 @@
       "function": "cycle_thinking_level",
       "line": 67,
       "cyclomatic": 3.0,
-      "coverage": 85.18518518518519,
-      "crap": 3.0292638317329676,
+      "coverage": 96.29629629629629,
+      "crap": 3.0004572473708278,
       "uncovered": [
         {
           "start": 81,
           "end": 81
-        },
-        {
-          "start": 88,
-          "end": 90
         }
       ]
     },
