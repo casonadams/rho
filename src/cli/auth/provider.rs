@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::error::Result;
 use rho_harness_core::provider::ProviderId;
+use std::io::IsTerminal;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,27 +44,46 @@ pub fn api_key_provider_options(config: &Config) -> Vec<(String, String)> {
     options
 }
 
-fn prompt_select_from_list(prompt: &str, items: &[String]) -> Result<usize> {
-    println!("\n{prompt}");
-    for (idx, item) in items.iter().enumerate() {
-        println!("  {}. {item}", idx + 1);
-    }
-    use std::io::Write;
-    print!("Enter choice [1-{}]: ", items.len());
-    std::io::stdout().flush().ok();
-    let mut input = String::new();
-    std::io::stdin()
-        .read_line(&mut input)
-        .map_err(|e| crate::error::AppError::Other(e.into()))?;
+pub(crate) fn parse_selection_choice(input: &str, count: usize) -> Result<usize> {
     let idx = input
         .trim()
         .parse::<usize>()
         .map_err(|_| crate::error::AppError::Cancelled("Invalid selection".to_string()))?;
-    if idx >= 1 && idx <= items.len() {
+    if idx >= 1 && idx <= count {
         Ok(idx - 1)
     } else {
         Err(crate::error::AppError::Cancelled("Selection out of range".to_string()))
     }
+}
+
+pub(crate) fn prompt_select_from<R: std::io::BufRead, W: std::io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+    prompt: &str,
+    items: &[String],
+) -> Result<usize> {
+    writeln!(writer, "\n{prompt}").map_err(|e| crate::error::AppError::Other(e.into()))?;
+    for (idx, item) in items.iter().enumerate() {
+        writeln!(writer, "  {}. {item}", idx + 1).map_err(|e| crate::error::AppError::Other(e.into()))?;
+    }
+    write!(writer, "Enter choice [1-{}]: ", items.len()).map_err(|e| crate::error::AppError::Other(e.into()))?;
+    writer.flush().map_err(|e| crate::error::AppError::Other(e.into()))?;
+    let mut input = String::new();
+    reader
+        .read_line(&mut input)
+        .map_err(|e| crate::error::AppError::Other(e.into()))?;
+    parse_selection_choice(&input, items.len())
+}
+
+fn prompt_select_from_list(prompt: &str, items: &[String]) -> Result<usize> {
+    if !std::io::stdin().is_terminal() || cfg!(test) {
+        return Err(crate::error::AppError::Cancelled(
+            "Interactive selection unavailable".to_string(),
+        ));
+    }
+    let mut stdin = std::io::stdin().lock();
+    let mut stdout = std::io::stdout();
+    prompt_select_from(&mut stdin, &mut stdout, prompt, items)
 }
 
 pub fn prompt_select_auth_method() -> Result<AuthMethod> {

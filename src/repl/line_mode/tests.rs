@@ -288,8 +288,14 @@ async fn test_try_login_action_variants() {
     let res = super::dispatch::try_login_action(&CommandResult::OpenLoginSelector, &mut session, &mut engine).await;
     assert!(matches!(res, Ok(Some(_))));
 
-    let res =
-        super::dispatch::try_login_action(&CommandResult::Login { provider: None }, &mut session, &mut engine).await;
+    let res = super::dispatch::try_login_action(
+        &CommandResult::Login {
+            provider: Some("local".to_string()),
+        },
+        &mut session,
+        &mut engine,
+    )
+    .await;
     assert!(matches!(res, Ok(Some(_))));
 
     let res = super::dispatch::try_login_action(&CommandResult::Exit, &mut session, &mut engine).await;

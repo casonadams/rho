@@ -222,3 +222,30 @@ async fn test_try_oauth_login_skips_when_api_key_or_unsupported() {
         .unwrap();
     assert!(!res2);
 }
+
+#[test]
+fn test_parse_selection_choice() {
+    use super::provider::parse_selection_choice;
+
+    assert_eq!(parse_selection_choice("1", 3).unwrap(), 0);
+    assert_eq!(parse_selection_choice("3", 3).unwrap(), 2);
+    assert!(parse_selection_choice("0", 3).is_err());
+    assert!(parse_selection_choice("4", 3).is_err());
+    assert!(parse_selection_choice("abc", 3).is_err());
+}
+
+#[test]
+fn test_prompt_select_from() {
+    use super::provider::prompt_select_from;
+    use std::io::Cursor;
+
+    let items = vec!["Option A".to_string(), "Option B".to_string()];
+    let mut reader = Cursor::new(b"2\n");
+    let mut writer = Vec::new();
+    let idx = prompt_select_from(&mut reader, &mut writer, "Pick:", &items).unwrap();
+    assert_eq!(idx, 1);
+    let output = String::from_utf8(writer).unwrap();
+    assert!(output.contains("Pick:"));
+    assert!(output.contains("1. Option A"));
+    assert!(output.contains("2. Option B"));
+}

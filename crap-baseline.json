@@ -21263,187 +21263,129 @@
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "collect_summary_set",
-      "line": 100,
+      "line": 99,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 100,
-          "end": 106
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "delete_session",
-      "line": 166,
+      "line": 165,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 166,
-          "end": 172
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "delete_session_async",
-      "line": 174,
+      "line": 173,
       "cyclomatic": 3.0,
-      "coverage": 85.71428571428571,
-      "crap": 3.0262390670553936,
-      "uncovered": [
-        {
-          "start": 177,
-          "end": 177
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "drain_session_ids_async",
-      "line": 44,
+      "line": 41,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 44,
-          "end": 54
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "drain_summaries_async",
-      "line": 108,
+      "line": 107,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 108,
-          "end": 118
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "extract_root_preview",
-      "line": 128,
+      "line": 127,
       "cyclomatic": 1.0,
       "coverage": 87.5,
       "crap": 1.001953125,
       "uncovered": [
         {
-          "start": 137,
-          "end": 137
+          "start": 136,
+          "end": 136
         },
         {
-          "start": 139,
-          "end": 139
+          "start": 138,
+          "end": 138
         }
       ]
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "jsonl_stem",
-      "line": 36,
+      "line": 33,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 36,
-          "end": 42
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "list_session_summaries",
-      "line": 64,
-      "cyclomatic": 9.0,
-      "coverage": 95.23809523809523,
-      "crap": 9.008746355685131,
-      "uncovered": [
-        {
-          "start": 66,
-          "end": 66
-        }
-      ]
+      "line": 73,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "list_session_summaries_async",
-      "line": 120,
+      "line": 119,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 120,
-          "end": 126
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "list_sessions",
       "line": 18,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
-      "uncovered": [
-        {
-          "start": 18,
-          "end": 34
-        }
-      ]
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "list_sessions_async",
-      "line": 56,
+      "line": 53,
       "cyclomatic": 3.0,
-      "coverage": 0.0,
-      "crap": 12.0,
-      "uncovered": [
-        {
-          "start": 56,
-          "end": 62
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "make_session_summary",
-      "line": 153,
+      "line": 152,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
-      "function": "summarize_entry_async",
-      "line": 88,
+      "function": "summarize_entry",
+      "line": 61,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
-      "uncovered": [
-        {
-          "start": 88,
-          "end": 98
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/session/summary.rs",
+      "function": "summarize_entry_async",
+      "line": 87,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/summary.rs",
       "function": "truncate_preview_text",
-      "line": 145,
+      "line": 144,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0
@@ -22923,7 +22865,7 @@
     {
       "file": "./src/cli/auth/provider.rs",
       "function": "api_key_provider_options",
-      "line": 22,
+      "line": 23,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -22931,85 +22873,101 @@
     {
       "file": "./src/cli/auth/provider.rs",
       "function": "oauth_provider_options",
-      "line": 12,
+      "line": 13,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
     },
     {
       "file": "./src/cli/auth/provider.rs",
+      "function": "parse_selection_choice",
+      "line": 47,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/cli/auth/provider.rs",
       "function": "prompt_auth_method",
-      "line": 96,
+      "line": 116,
       "cyclomatic": 3.0,
       "coverage": 0.0,
       "crap": 12.0,
       "uncovered": [
         {
-          "start": 96,
-          "end": 107
+          "start": 116,
+          "end": 127
         }
       ]
     },
     {
       "file": "./src/cli/auth/provider.rs",
       "function": "prompt_select_api_key_provider",
-      "line": 89,
+      "line": 109,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 89,
-          "end": 94
+          "start": 109,
+          "end": 114
         }
       ]
     },
     {
       "file": "./src/cli/auth/provider.rs",
       "function": "prompt_select_auth_method",
-      "line": 69,
+      "line": 89,
       "cyclomatic": 3.0,
       "coverage": 66.66666666666666,
       "crap": 3.333333333333334,
       "uncovered": [
         {
-          "start": 75,
-          "end": 78
+          "start": 95,
+          "end": 98
         }
       ]
     },
     {
       "file": "./src/cli/auth/provider.rs",
+      "function": "prompt_select_from",
+      "line": 59,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
+    },
+    {
+      "file": "./src/cli/auth/provider.rs",
       "function": "prompt_select_from_list",
-      "line": 46,
-      "cyclomatic": 6.0,
-      "coverage": 84.21052631578947,
-      "crap": 6.141711619769646,
+      "line": 78,
+      "cyclomatic": 3.0,
+      "coverage": 60.0,
+      "crap": 3.576,
       "uncovered": [
         {
-          "start": 62,
-          "end": 65
+          "start": 83,
+          "end": 86
         }
       ]
     },
     {
       "file": "./src/cli/auth/provider.rs",
       "function": "prompt_select_oauth_provider",
-      "line": 82,
+      "line": 102,
       "cyclomatic": 2.0,
       "coverage": 0.0,
       "crap": 6.0,
       "uncovered": [
         {
-          "start": 82,
-          "end": 87
+          "start": 102,
+          "end": 107
         }
       ]
     },
     {
       "file": "./src/cli/auth/provider.rs",
       "function": "resolve_provider_name",
-      "line": 109,
+      "line": 129,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -26237,14 +26195,8 @@
       "function": "try_login",
       "line": 200,
       "cyclomatic": 3.0,
-      "coverage": 92.3076923076923,
-      "crap": 3.0040964952207556,
-      "uncovered": [
-        {
-          "start": 209,
-          "end": 209
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/repl/line_mode/dispatch.rs",
