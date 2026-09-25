@@ -5975,16 +5975,12 @@
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 67.64705882352942,
-      "crap": 8.65934764909424,
+      "coverage": 73.52941176470588,
+      "crap": 7.908838795033584,
       "uncovered": [
         {
           "start": 77,
           "end": 78
-        },
-        {
-          "start": 83,
-          "end": 84
         },
         {
           "start": 88,
@@ -12281,14 +12277,8 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 70.0,
-      "crap": 4.432,
-      "uncovered": [
-        {
-          "start": 46,
-          "end": 52
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 4.0
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -18167,7 +18157,7 @@
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "format_generic_args_summary",
-      "line": 330,
+      "line": 350,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -18192,51 +18182,57 @@
     },
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
+      "function": "format_mcp_call_summary",
+      "line": 278,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/presentation/summary.rs",
+      "function": "format_mcp_default_summary",
+      "line": 265,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "format_mcp_script_summary",
-      "line": 296,
+      "line": 316,
       "cyclomatic": 5.0,
       "coverage": 88.88888888888889,
       "crap": 5.034293552812072,
       "uncovered": [
         {
-          "start": 314,
-          "end": 314
+          "start": 334,
+          "end": 334
         },
         {
-          "start": 321,
-          "end": 321
+          "start": 341,
+          "end": 341
         },
         {
-          "start": 326,
-          "end": 326
+          "start": 346,
+          "end": 346
         }
       ]
     },
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
+      "function": "format_mcp_status",
+      "line": 258,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
+    },
+    {
+      "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "format_mcp_summary",
-      "line": 246,
-      "cyclomatic": 19.0,
-      "coverage": 65.78947368421053,
-      "crap": 33.45394736842105,
-      "uncovered": [
-        {
-          "start": 255,
-          "end": 255
-        },
-        {
-          "start": 263,
-          "end": 263
-        },
-        {
-          "start": 271,
-          "end": 271
-        },
-        {
-          "start": 280,
-          "end": 293
-        }
-      ]
+      "line": 290,
+      "cyclomatic": 7.0,
+      "coverage": 100.0,
+      "crap": 7.0
     },
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
@@ -18257,6 +18253,20 @@
         {
           "start": 142,
           "end": 142
+        }
+      ]
+    },
+    {
+      "file": "./crates/rho-harness-core/src/presentation/summary.rs",
+      "function": "format_scoped_mcp_target",
+      "line": 246,
+      "cyclomatic": 4.0,
+      "coverage": 87.5,
+      "crap": 4.03125,
+      "uncovered": [
+        {
+          "start": 252,
+          "end": 252
         }
       ]
     },
@@ -18285,7 +18295,7 @@
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "format_tool_args_summary",
-      "line": 340,
+      "line": 360,
       "cyclomatic": 11.0,
       "coverage": 100.0,
       "crap": 11.0
@@ -18293,7 +18303,7 @@
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "quote_cli_arg",
-      "line": 355,
+      "line": 375,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -18309,7 +18319,7 @@
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "summarize_tool_output",
-      "line": 377,
+      "line": 397,
       "cyclomatic": 3.0,
       "coverage": 100.0,
       "crap": 3.0
@@ -18331,7 +18341,7 @@
     {
       "file": "./crates/rho-harness-core/src/presentation/summary.rs",
       "function": "truncate_preview",
-      "line": 369,
+      "line": 389,
       "cyclomatic": 2.0,
       "coverage": 100.0,
       "crap": 2.0

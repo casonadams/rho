@@ -171,6 +171,13 @@ fn format_tool_args_summary_mcp_actions() {
         format_tool_args_summary("mcp", &search),
         "playwright:search \"navigate\""
     );
+    let search_no_server = serde_json::json!({
+        "search": "navigate"
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &search_no_server),
+        "search \"navigate\""
+    );
 
     let describe = serde_json::json!({
         "action": "describe",
@@ -181,6 +188,40 @@ fn format_tool_args_summary_mcp_actions() {
         format_tool_args_summary("mcp", &describe),
         "playwright:describe browser_navigate"
     );
+
+    let describe_no_server = serde_json::json!({
+        "describe": "browser_navigate"
+    });
+    assert_eq!(
+        format_tool_args_summary("mcp", &describe_no_server),
+        "describe browser_navigate"
+    );
+
+    let custom_action = serde_json::json!({
+        "action": "restart",
+        "server": "playwright"
+    });
+    assert_eq!(format_tool_args_summary("mcp", &custom_action), "playwright:restart");
+
+    let custom_action_no_server = serde_json::json!({
+        "action": "restart"
+    });
+    assert_eq!(format_tool_args_summary("mcp", &custom_action_no_server), "restart");
+
+    let server_only = serde_json::json!({
+        "server": "playwright"
+    });
+    assert_eq!(format_tool_args_summary("mcp", &server_only), "playwright");
+
+    let empty = serde_json::json!({});
+    assert_eq!(format_tool_args_summary("mcp", &empty), "");
+
+    let empty_tool = serde_json::json!({
+        "action": "call",
+        "tool": "",
+        "server": "playwright"
+    });
+    assert_eq!(format_tool_args_summary("mcp", &empty_tool), "playwright:call");
 }
 
 #[test]
