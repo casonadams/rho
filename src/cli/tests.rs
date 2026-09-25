@@ -118,3 +118,102 @@ async fn test_handle_command_models_with_model_store() {
     let empty_formatted = format_model_entries(&[], "fallback-model");
     assert_eq!(empty_formatted, vec!["  - fallback-model"]);
 }
+
+#[test]
+fn test_format_config_summary_known_and_custom_provider() {
+    use super::commands::format_config_summary;
+    use crate::config::Config;
+    use std::path::PathBuf;
+
+    let config = Config {
+        config_dir: PathBuf::from("/test/config/dir"),
+        model: "claude-sonnet-4-6".to_string(),
+        provider: "anthropic".to_string(),
+        max_turns: 42,
+        context_window_messages: 50,
+        compaction_max_bytes: 100_000,
+        semantic_search: true,
+        ..Default::default()
+    };
+    let summary = format_config_summary(&config);
+    assert_eq!(
+        summary,
+        vec![
+            "Config location: /test/config/dir".to_string(),
+            "Model: claude-sonnet-4-6".to_string(),
+            "Provider: anthropic (API key)".to_string(),
+            "Max turns: 42".to_string(),
+            "Context window messages: 50".to_string(),
+            "Compaction max bytes: 100000".to_string(),
+            "Semantic search: enabled".to_string(),
+        ]
+    );
+
+    let custom_config = Config {
+        config_dir: PathBuf::from("/custom/dir"),
+        model: "my-model".to_string(),
+        provider: "unregistered_provider".to_string(),
+        semantic_search: false,
+        ..Default::default()
+    };
+    let custom_summary = format_config_summary(&custom_config);
+    assert!(custom_summary.contains(&"Provider: unregistered_provider (custom)".to_string()));
+    assert!(custom_summary.contains(&"Semantic search: disabled".to_string()));
+}
+
+#[tokio::test]
+async fn test_handle_command_config_variants() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::Commands;
+    use tempfile::tempdir;
+
+    let temp = tempdir().unwrap();
+    let config = Config {
+        config_dir: temp.path().to_path_buf(),
+        model: "gpt-4o".to_string(),
+        provider: "openai".to_string(),
+        ..Default::default()
+    };
+    std::fs::write(config.config_dir.join("config.toml"), "").unwrap();
+    let mut auth_store = AuthStore::load(temp.path().join("auth.json")).unwrap();
+
+    let res = handle_command(Commands::Config { key: None, value: None }, &config, &mut auth_store).await;
+    assert!(res.is_ok());
+
+    let res = handle_command(
+        Commands::Config {
+            key: Some("model".to_string()),
+            value: None,
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_ok());
+
+    let res = handle_command(
+        Commands::Config {
+            key: None,
+            value: Some("val".to_string()),
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_ok());
+
+    let res = handle_command(
+        Commands::Config {
+            key: Some("model".to_string()),
+            value: Some("custom-model".to_string()),
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res.is_ok());
+    let saved = std::fs::read_to_string(config.config_dir.join("config.toml")).unwrap();
+    assert!(saved.contains("custom-model"));
+}

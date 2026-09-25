@@ -23046,15 +23046,23 @@
     },
     {
       "file": "./src/cli/commands.rs",
+      "function": "format_config_summary",
+      "line": 56,
+      "cyclomatic": 4.0,
+      "coverage": 100.0,
+      "crap": 4.0
+    },
+    {
+      "file": "./src/cli/commands.rs",
       "function": "format_model_entries",
-      "line": 88,
+      "line": 95,
       "cyclomatic": 2.0,
       "coverage": 93.33333333333333,
       "crap": 2.0011851851851854,
       "uncovered": [
         {
-          "start": 99,
-          "end": 99
+          "start": 106,
+          "end": 106
         }
       ]
     },
@@ -23063,12 +23071,12 @@
       "function": "handle_basic_commands",
       "line": 14,
       "cyclomatic": 9.0,
-      "coverage": 50.0,
-      "crap": 19.125,
+      "coverage": 66.66666666666666,
+      "crap": 12.000000000000004,
       "uncovered": [
         {
           "start": 19,
-          "end": 29
+          "end": 25
         }
       ]
     },
@@ -23089,42 +23097,36 @@
     {
       "file": "./src/cli/commands.rs",
       "function": "handle_config",
-      "line": 56,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
-      "uncovered": [
-        {
-          "start": 56,
-          "end": 86
-        }
-      ]
+      "line": 79,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./src/cli/commands.rs",
       "function": "handle_index_command",
-      "line": 108,
+      "line": 115,
       "cyclomatic": 5.0,
       "coverage": 0.0,
       "crap": 30.0,
       "uncovered": [
         {
-          "start": 108,
-          "end": 127
+          "start": 115,
+          "end": 134
         }
       ]
     },
     {
       "file": "./src/cli/commands.rs",
       "function": "handle_models",
-      "line": 129,
+      "line": 136,
       "cyclomatic": 8.0,
       "coverage": 61.111111111111114,
       "crap": 11.764060356652948,
       "uncovered": [
         {
-          "start": 135,
-          "end": 143
+          "start": 142,
+          "end": 150
         }
       ]
     },
@@ -23141,6 +23143,14 @@
           "end": 12
         }
       ]
+    },
+    {
+      "file": "./src/cli/commands.rs",
+      "function": "print_config_summary",
+      "line": 73,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/cli/mcp.rs",
@@ -25145,14 +25155,8 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 95.23809523809523,
-      "crap": 6.003887269193392,
-      "uncovered": [
-        {
-          "start": 72,
-          "end": 72
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/coordinator/mod.rs",

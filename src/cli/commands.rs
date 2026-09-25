@@ -53,6 +53,29 @@ pub async fn handle_command(
     Ok(())
 }
 
+pub(crate) fn format_config_summary(config: &Config) -> Vec<String> {
+    let provider_label = match ProviderId::from_str(&config.provider) {
+        Ok(provider) => format!("Provider: {provider} ({})", provider.auth_mode_label()),
+        Err(_) => format!("Provider: {} (custom)", config.provider),
+    };
+    let semantic = if config.semantic_search { "enabled" } else { "disabled" };
+    vec![
+        format!("Config location: {}", config.config_dir.display()),
+        format!("Model: {}", config.model),
+        provider_label,
+        format!("Max turns: {}", config.max_turns),
+        format!("Context window messages: {}", config.context_window_messages),
+        format!("Compaction max bytes: {}", config.compaction_max_bytes),
+        format!("Semantic search: {semantic}"),
+    ]
+}
+
+fn print_config_summary(config: &Config) {
+    for line in format_config_summary(config) {
+        println!("{line}");
+    }
+}
+
 async fn handle_config(
     key: Option<String>,
     value: Option<String>,
@@ -63,24 +86,8 @@ async fn handle_config(
             Config::set_file_value_async(&config.config_dir, &k, &v).await?;
             println!("Set {k} = {v} in {}", config.config_dir.join("config.toml").display());
         }
-        (Some(_), None) | (None, Some(_)) => {
-            println!("Usage: rho config <key> <value>");
-        }
-        (None, None) => {
-            println!("Config location: {}", config.config_dir.display());
-            println!("Model: {}", config.model);
-            match ProviderId::from_str(&config.provider) {
-                Ok(provider) => println!("Provider: {provider} ({})", provider.auth_mode_label()),
-                Err(_) => println!("Provider: {} (custom)", config.provider),
-            }
-            println!("Max turns: {}", config.max_turns);
-            println!("Context window messages: {}", config.context_window_messages);
-            println!("Compaction max bytes: {}", config.compaction_max_bytes);
-            println!(
-                "Semantic search: {}",
-                if config.semantic_search { "enabled" } else { "disabled" }
-            );
-        }
+        (None, None) => print_config_summary(config),
+        _ => println!("Usage: rho config <key> <value>"),
     }
     Ok(())
 }
