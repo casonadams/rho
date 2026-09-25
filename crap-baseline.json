@@ -5975,12 +5975,16 @@
       "function": "AgentEngine::spawn_refresh_quota",
       "line": 68,
       "cyclomatic": 7.0,
-      "coverage": 73.52941176470588,
-      "crap": 7.908838795033584,
+      "coverage": 67.64705882352942,
+      "crap": 8.65934764909424,
       "uncovered": [
         {
           "start": 77,
           "end": 78
+        },
+        {
+          "start": 83,
+          "end": 84
         },
         {
           "start": 88,
@@ -12277,8 +12281,14 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 100.0,
-      "crap": 4.0
+      "coverage": 70.0,
+      "crap": 4.432,
+      "uncovered": [
+        {
+          "start": 46,
+          "end": 52
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -19091,7 +19101,7 @@
     {
       "file": "./crates/rho-harness-core/src/session/branch.rs",
       "function": "SessionManager::clone_session",
-      "line": 156,
+      "line": 149,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -19099,21 +19109,15 @@
     {
       "file": "./crates/rho-harness-core/src/session/branch.rs",
       "function": "SessionManager::copy_ancestors_to_forked",
-      "line": 128,
+      "line": 121,
       "cyclomatic": 3.0,
-      "coverage": 61.53846153846154,
-      "crap": 3.512061902594447,
-      "uncovered": [
-        {
-          "start": 136,
-          "end": 141
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/branch.rs",
       "function": "SessionManager::fork_session",
-      "line": 144,
+      "line": 137,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -19137,30 +19141,18 @@
     {
       "file": "./crates/rho-harness-core/src/session/branch.rs",
       "function": "SessionManager::resolve_target_node_id",
-      "line": 117,
+      "line": 110,
       "cyclomatic": 2.0,
-      "coverage": 57.14285714285714,
-      "crap": 2.314868804664723,
-      "uncovered": [
-        {
-          "start": 121,
-          "end": 124
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/branch.rs",
       "function": "SessionManager::resolve_turn_node_id",
       "line": 100,
-      "cyclomatic": 6.0,
-      "coverage": 0.0,
-      "crap": 42.0,
-      "uncovered": [
-        {
-          "start": 100,
-          "end": 115
-        }
-      ]
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/branch.rs",
@@ -19199,6 +19191,14 @@
           "end": 20
         }
       ]
+    },
+    {
+      "file": "./crates/rho-harness-core/src/session/branch.rs",
+      "function": "resolve_turn_node_id_from_tree",
+      "line": 154,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
     },
     {
       "file": "./crates/rho-harness-core/src/session/checkpoint.rs",
@@ -25187,8 +25187,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
