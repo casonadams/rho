@@ -167,7 +167,8 @@ fallback = ["duckduckgo", "yahoo"]
 [tools.web.fetch]
 # Enable or disable the built-in web_fetch tool (default: true)
 enabled = true
-
+# Enable or disable Gemini multimodal analysis fallback for images, charts, and scanned PDFs (default: true)
+multimodal = true
 [mcp]
 # Enable or disable MCP subsystem (default: true)
 enabled = true
@@ -202,6 +203,7 @@ When `enabled = false` for `web_search` or `web_fetch`, the tool is omitted from
 - **GitHub (`github.com`)**: Intercepts issues, pull requests (with unified diffs), commits, raw file blobs, and directory trees, rendering them as clean, token-efficient Markdown without HTML boilerplate. Set `GITHUB_TOKEN` or `GH_TOKEN` in your environment for authenticated requests with a 5,000 req/hr quota.
 - **YouTube (`youtube.com`, `youtu.be`)**: Intercepts video URLs (`watch`, `shorts`, `embed`), extracting video details (title, channel, duration, views) and timed-text closed captions formatted into clean dialogue transcripts with timestamps (`[MM:SS] text`).
 
+- **Multimodal Visual Analysis & PDF Fallback**: Intercepts direct image URLs (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`, `.gif`) and generates structured Markdown summaries, OCR transcriptions, and GFM data tables using Gemini 2.5 Flash. When native text extraction of scanned or complex PDFs fails or produces low-confidence text (< 50 characters on documents $\ge$ 10 KB), `web_fetch` automatically falls back to Gemini multimodal extraction. Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY` (or `rho login gemini`). Set `format = "multimodal"` or `format = "image"` in tool arguments to force multimodal analysis on any document or image.
 Pass `format = "html"` to bypass specialized extraction and perform raw HTML scraping.
 
 ---

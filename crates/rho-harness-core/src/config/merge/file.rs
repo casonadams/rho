@@ -163,10 +163,13 @@ fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
                 config.tools.web.search.fallback = fallback.clone();
             }
         }
-        if let Some(ref fetch) = web.fetch
-            && let Some(enabled) = fetch.enabled
-        {
-            config.tools.web.fetch.enabled = enabled;
+        if let Some(fetch) = &web.fetch {
+            if let Some(enabled) = fetch.enabled {
+                config.tools.web.fetch.enabled = enabled;
+            }
+            if let Some(multimodal) = fetch.multimodal {
+                config.tools.web.fetch.multimodal = multimodal;
+            }
         }
     }
 }

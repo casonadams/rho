@@ -164,11 +164,13 @@ fn build_web_dynamic_tools(config: &Config) -> Result<Vec<DynamicTool>> {
                 max_bytes: config.fetch_max_bytes,
                 pdf_max_bytes: 30 * 1024 * 1024,
                 default_limit: config.fetch_limit,
+                multimodal: config.tools.web.fetch.multimodal,
+                auth_file: Some(config.auth_file.clone()),
             },
         );
         tools.push(dynamic_tool(
             "web_fetch",
-            "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF).",
+            "Fetch and extract readable content from a URL (HTML, JSON, Markdown, RSS/Atom, CSV, PDF, images/diagrams).",
             move |_ctx, args: WebFetchArgs| {
                 let f = fetch.clone();
                 async move { f.execute(args).await }

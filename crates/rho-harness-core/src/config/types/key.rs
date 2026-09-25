@@ -33,6 +33,7 @@ pub(crate) enum ConfigKey {
     SearchEngine,
     WebSearchEnabled,
     WebFetchEnabled,
+    WebFetchMultimodal,
     McpEnabled,
     PermissionEnabled,
 }
@@ -98,6 +99,7 @@ fn parse_feature_key(value: &str) -> Option<ConfigKey> {
         }
         "tools.web.search.enabled" | "web_search" => Some(ConfigKey::WebSearchEnabled),
         "tools.web.fetch.enabled" | "web_fetch" => Some(ConfigKey::WebFetchEnabled),
+        "tools.web.fetch.multimodal" | "web_fetch_multimodal" => Some(ConfigKey::WebFetchMultimodal),
         "mcp.enabled" | "mcp" => Some(ConfigKey::McpEnabled),
         "permission.enabled" | "permission" => Some(ConfigKey::PermissionEnabled),
         _ => None,
@@ -152,6 +154,7 @@ impl ConfigKey {
             Self::SearchEngine => "tools.web.search.default",
             Self::WebSearchEnabled => "tools.web.search.enabled",
             Self::WebFetchEnabled => "tools.web.fetch.enabled",
+            Self::WebFetchMultimodal => "tools.web.fetch.multimodal",
             Self::McpEnabled => "mcp.enabled",
             Self::PermissionEnabled => "permission.enabled",
             _ => "",
@@ -163,7 +166,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 33] = [
+    const ALL_KEYS: [ConfigKey; 34] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -195,6 +198,7 @@ mod tests {
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,
         ConfigKey::WebFetchEnabled,
+        ConfigKey::WebFetchMultimodal,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
     ];

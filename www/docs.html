@@ -243,7 +243,7 @@ rho update</code></pre>
         <li><strong><code>fd</code></strong>: Fast gitignore-aware workspace file discovery with smart-case regex matching.</li>
         <li><strong><code>rg</code></strong>: Content search, gitignore-aware, skipping binaries and bounding output lines.</li>
         <li><strong><code>web_search</code></strong>: Live web searching with domain filters and structured summaries.</li>
-        <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, or feeds from URLs. Includes specialized extractors for GitHub (issues, PRs with diffs, commits, raw code) and YouTube (metadata and timed dialogue transcripts).</li>
+        <li><strong><code>web_fetch</code></strong>: Clean extraction of markdown, plain text, HTML, CSV, feeds, or images from URLs. Includes specialized extractors for GitHub, YouTube transcripts, and Gemini multimodal analysis for visual charts, diagrams, and scanned PDFs.</li>
       </ul>
 
       <h2 id="providers">Providers, Authentication &amp; Rolling Quotas</h2>
@@ -311,7 +311,7 @@ fallback = ["duckduckgo", "yahoo"] # Fallback engines attempted only on failure/
 
 [tools.web.fetch]
 enabled = true                  # Enable or disable built-in web_fetch
-
+multimodal = true               # Enable or disable Gemini multimodal analysis fallback
 [mcp]
 enabled = true                  # Enable or disable MCP subsystem
 
@@ -326,6 +326,7 @@ enabled = true                  # Enable or disable mutation guardrails</code></
       <ul>
         <li><strong>GitHub (<code>github.com</code>)</strong>: Formats issues, pull requests (with unified diffs), commits, raw file blobs, and directory trees directly via REST APIs and raw endpoints without HTML chrome. Set <code>GITHUB_TOKEN</code> or <code>GH_TOKEN</code> for authenticated API access (5,000 req/hr).</li>
         <li><strong>YouTube (<code>youtube.com</code>, <code>youtu.be</code>)</strong>: Extracts video details (title, channel, duration, views) and timed-text closed captions formatted into clean dialogue transcripts with timestamps (<code>[MM:SS] text</code>).</li>
+        <li><strong>Multimodal Analysis &amp; PDF Fallback</strong>: Analyzes images, charts, and diagrams (PNG, JPEG, WebP, SVG) via Gemini 2.5 Flash into structured Markdown and tables. Automatically falls back to Gemini OCR when native extraction of scanned or complex PDFs fails or yields low confidence. Set <code>GEMINI_API_KEY</code> or <code>GOOGLE_API_KEY</code> to enable.</li>
       </ul>
       <p>Pass <code>format = "html"</code> to bypass specialized extractors and retrieve raw HTML.</p>
 
