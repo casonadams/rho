@@ -85,8 +85,11 @@ jobs:
           tool: cargo-llvm-cov,cargo-binstall
 
       - name: Install cargo-crap
-        run: cargo binstall --no-confirm cargo-crap@0.5.0
-
+        run: |
+          cargo binstall --no-confirm --force cargo-crap@0.5.0
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo crap --version
       - name: Generate test coverage trace
         id: coverage
         run: cargo llvm-cov --workspace --lcov --output-path target/lcov.info
