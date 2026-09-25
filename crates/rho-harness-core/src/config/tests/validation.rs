@@ -90,6 +90,9 @@ fn accepts_valid_search_engines() {
         "ddg_lite".to_string(),
         "yahoo".to_string(),
         "firecrawl".to_string(),
+        "exa".to_string(),
+        "gemini".to_string(),
+        "google".to_string(),
     ];
     assert!(cfg.validate().is_ok());
 }
