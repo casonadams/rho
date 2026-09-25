@@ -2545,14 +2545,8 @@
       "function": "AuthStore::set_api_key_async",
       "line": 114,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 114,
-          "end": 116
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/auth/store/mod.rs",
@@ -2567,14 +2561,8 @@
       "function": "AuthStore::set_credential_async",
       "line": 96,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 96,
-          "end": 99
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/auth/store/mod.rs",
@@ -2589,14 +2577,8 @@
       "function": "AuthStore::set_key_async",
       "line": 105,
       "cyclomatic": 1.0,
-      "coverage": 0.0,
-      "crap": 2.0,
-      "uncovered": [
-        {
-          "start": 105,
-          "end": 108
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./crates/rho-engine/src/auth/store/mod.rs",
@@ -11325,11 +11307,11 @@
       "function": "wait_group_dead",
       "line": 97,
       "cyclomatic": 3.0,
-      "coverage": 88.88888888888889,
-      "crap": 3.0123456790123457,
+      "coverage": 66.66666666666666,
+      "crap": 3.333333333333334,
       "uncovered": [
         {
-          "start": 105,
+          "start": 102,
           "end": 105
         }
       ]
@@ -18953,14 +18935,8 @@
       "function": "RpcAuthBridge::resolve_input",
       "line": 27,
       "cyclomatic": 2.0,
-      "coverage": 83.33333333333334,
-      "crap": 2.0185185185185186,
-      "uncovered": [
-        {
-          "start": 32,
-          "end": 32
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./crates/rho-harness-core/src/rpc/auth_bridge.rs",
@@ -23417,56 +23393,52 @@
     {
       "file": "./src/cli/rpc/handlers/auth.rs",
       "function": "handle_auth_input_cmd",
-      "line": 60,
+      "line": 68,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
-      "uncovered": [
-        {
-          "start": 60,
-          "end": 77
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/cli/rpc/handlers/auth.rs",
       "function": "handle_auth_login_cmd",
-      "line": 9,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
+      "line": 37,
+      "cyclomatic": 3.0,
+      "coverage": 88.88888888888889,
+      "crap": 3.0123456790123457,
       "uncovered": [
         {
-          "start": 9,
-          "end": 58
+          "start": 58,
+          "end": 60
         }
       ]
+    },
+    {
+      "file": "./src/cli/rpc/handlers/auth.rs",
+      "function": "handle_oauth_login_result",
+      "line": 10,
+      "cyclomatic": 3.0,
+      "coverage": 100.0,
+      "crap": 3.0
     },
     {
       "file": "./src/cli/rpc/handlers/auth.rs",
       "function": "handle_remote_auth_cmd",
-      "line": 101,
+      "line": 112,
       "cyclomatic": 12.0,
-      "coverage": 34.48275862068966,
-      "crap": 52.49760137767026,
-      "uncovered": [
-        {
-          "start": 111,
-          "end": 134
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 12.0
     },
     {
       "file": "./src/cli/rpc/handlers/auth.rs",
       "function": "handle_set_api_key_cmd",
-      "line": 79,
+      "line": 89,
       "cyclomatic": 5.0,
-      "coverage": 0.0,
-      "crap": 30.0,
+      "coverage": 77.77777777777779,
+      "crap": 5.27434842249657,
       "uncovered": [
         {
-          "start": 79,
-          "end": 99
+          "start": 103,
+          "end": 106
         }
       ]
     },
@@ -23593,12 +23565,12 @@
       "function": "handle_create_session_cmd",
       "line": 284,
       "cyclomatic": 9.0,
-      "coverage": 85.41666666666666,
-      "crap": 9.251220703125,
+      "coverage": 87.5,
+      "crap": 9.158203125,
       "uncovered": [
         {
           "start": 296,
-          "end": 300
+          "end": 297
         },
         {
           "start": 333,
@@ -25155,8 +25127,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",

@@ -450,3 +450,107 @@ async fn test_run_rpc_session_over_stream_roundtrip() {
     let _ = handle.await;
     let _ = std::fs::remove_dir_all(&temp_dir);
 }
+
+#[tokio::test]
+async fn test_handle_remote_auth_cmd_login_and_input() {
+    use super::handlers::handle_remote_auth_cmd;
+    use rho_harness_core::rpc::protocol::RpcCommand;
+
+    let (client_io, server_io) = duplex(4096);
+    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
+    let mut writer = JsonLinesWriter::new(server_io);
+    let temp_dir = std::env::temp_dir().join(format!("rpc_auth_test_login_{}", uuid::Uuid::new_v4()));
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+
+    let res = handle_remote_auth_cmd(
+        &RpcCommand::AuthLogin {
+            provider: "invalid_prov_xyz".to_string(),
+        },
+        Some("req-login-fail".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(!resp.success);
+    assert!(resp.error.unwrap().contains("Unknown provider"));
+
+    let res = handle_remote_auth_cmd(
+        &RpcCommand::AuthLogin {
+            provider: "openai".to_string(),
+        },
+        Some("req-login-ok".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+
+    let res = handle_remote_auth_cmd(
+        &RpcCommand::AuthInput {
+            interaction_id: "nonexistent".to_string(),
+            secret_value: Some("sec".to_string()),
+            selected_option: None,
+        },
+        Some("req-input".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.data.unwrap()["resolved"], false);
+
+    let res = handle_remote_auth_cmd(&RpcCommand::GetState, Some("req-state".to_string()), &mut ctx).await;
+    assert!(!res.unwrap());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_handle_remote_auth_cmd_keys_and_session() {
+    use super::handlers::handle_remote_auth_cmd;
+    use rho_harness_core::rpc::protocol::RpcCommand;
+
+    let (client_io, server_io) = duplex(4096);
+    let mut client_reader = JsonLinesReader::new(tokio::io::BufReader::new(client_io));
+    let mut writer = JsonLinesWriter::new(server_io);
+    let temp_dir = std::env::temp_dir().join(format!("rpc_auth_test_keys_{}", uuid::Uuid::new_v4()));
+    let mut active_turn = None;
+    let mut ctx = setup_test_rpc_context(&mut writer, &temp_dir, &mut active_turn).await;
+
+    let res = handle_remote_auth_cmd(&RpcCommand::GetNodeInfo, Some("req-info".to_string()), &mut ctx).await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "get_node_info");
+
+    let res = handle_remote_auth_cmd(
+        &RpcCommand::CreateSession { workspace: None },
+        Some("req-create".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert_eq!(resp.command, "create_session");
+
+    let res = handle_remote_auth_cmd(
+        &RpcCommand::SetApiKey {
+            provider: "anthropic".to_string(),
+            api_key: "sk-ant-testkey".to_string(),
+        },
+        Some("req-key-ok".to_string()),
+        &mut ctx,
+    )
+    .await;
+    assert!(res.unwrap());
+    let resp = client_reader.read_message::<RpcResponse>().await.unwrap().unwrap();
+    assert!(resp.success);
+    assert!(ctx.auth_store.read().await.get_credential("anthropic").is_some());
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
