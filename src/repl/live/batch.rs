@@ -175,7 +175,7 @@ impl LiveBatch {
                 needs_flush = true;
             }
         }
-        if needs_flush {
+        if needs_flush || !self.ui.is_empty() {
             self.flush(controller, false)?;
         }
         Ok(())
@@ -189,15 +189,109 @@ pub fn drain_ui_events<B: crate::ui::interactive::TerminalBackend>(
 ) -> Result<()> {
     let mut batch = LiveBatch::new();
     batch.modal = modal.take();
-    let mut needs_flush = false;
-    while let Ok(event) = events.try_recv() {
-        if batch.push_event(controller, event)? {
-            needs_flush = true;
+    let result = batch.drain_events(controller, events);
+    *modal = batch.modal;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::interactive::{
+        Activity, InteractionOption, InteractionPrompt, InteractionResponder, InteractiveState, OptionLayout,
+        TerminalBackend,
+    };
+    use std::io;
+    use tokio::sync::{mpsc, oneshot};
+
+    struct MockBackend;
+
+    impl TerminalBackend for MockBackend {
+        fn set_raw_mode(&mut self, _: bool) -> io::Result<()> {
+            Ok(())
+        }
+        fn size(&self) -> io::Result<(u16, u16)> {
+            Ok((80, 24))
+        }
+        fn hide_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn show_cursor(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn move_up(&mut self, _: usize) -> io::Result<()> {
+            Ok(())
+        }
+        fn move_down(&mut self, _: usize) -> io::Result<()> {
+            Ok(())
+        }
+        fn move_to_column(&mut self, _: usize) -> io::Result<()> {
+            Ok(())
+        }
+        fn clear_line(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn write_text(&mut self, _: &str) -> io::Result<()> {
+            Ok(())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
         }
     }
-    if needs_flush || !batch.ui.is_empty() {
-        batch.flush(controller, false)?;
+
+    #[test]
+    fn test_drain_ui_events_empty() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let (_tx, mut rx) = mpsc::unbounded_channel();
+        let mut modal = None;
+        drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
+        assert!(modal.is_none());
     }
-    *modal = batch.modal;
-    Ok(())
+
+    #[test]
+    fn test_drain_ui_events_flushes_activity_and_output() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tx.send(UiEvent::Activity(Activity::Working)).unwrap();
+        tx.send(UiEvent::RunningTool(Some("read".into()))).unwrap();
+        let mut modal = None;
+        drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
+        assert_eq!(controller.state().footer().activity, Activity::Working);
+        assert_eq!(controller.state().footer().running_tool.as_deref(), Some("read"));
+    }
+
+    #[test]
+    fn test_drain_ui_events_dismiss_interaction_clears_modal() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let (oneshot_tx, _oneshot_rx) = oneshot::channel();
+        let mut modal = None;
+        install_interaction(
+            &mut controller,
+            UiEvent::Interaction {
+                prompt: InteractionPrompt {
+                    title: "Test".into(),
+                    body: "Confirm?".into(),
+                    options: vec![InteractionOption {
+                        label: "Yes".into(),
+                        description: None,
+                        input: None,
+                    }],
+                    initial_selection: 0,
+                    allow_custom: false,
+                    initial_text: None,
+                    option_layout: OptionLayout::Vertical,
+                },
+                responder: InteractionResponder { responder: oneshot_tx },
+            },
+            &mut modal,
+        );
+        assert!(modal.is_some());
+        assert!(controller.state().active_modal().is_some());
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tx.send(UiEvent::DismissInteraction).unwrap();
+        drain_ui_events(&mut controller, &mut rx, &mut modal).unwrap();
+        assert!(modal.is_none());
+        assert!(controller.state().active_modal().is_none());
+    }
 }

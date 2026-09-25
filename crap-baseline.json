@@ -27046,9 +27046,9 @@
       "file": "./src/repl/live/batch.rs",
       "function": "LiveBatch::drain_events",
       "line": 167,
-      "cyclomatic": 6.0,
+      "cyclomatic": 7.0,
       "coverage": 100.0,
-      "crap": 6.0
+      "crap": 7.0
     },
     {
       "file": "./src/repl/live/batch.rs",
@@ -27106,15 +27106,9 @@
       "file": "./src/repl/live/batch.rs",
       "function": "drain_ui_events",
       "line": 185,
-      "cyclomatic": 7.0,
-      "coverage": 0.0,
-      "crap": 56.0,
-      "uncovered": [
-        {
-          "start": 185,
-          "end": 203
-        }
-      ]
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
     },
     {
       "file": "./src/repl/live/idle/dispatch.rs",
