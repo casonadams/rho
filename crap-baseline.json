@@ -28805,39 +28805,45 @@
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "apply_filter",
-      "line": 127,
+      "line": 140,
       "cyclomatic": 4.0,
       "coverage": 93.75,
       "crap": 4.00390625,
       "uncovered": [
         {
-          "start": 139,
-          "end": 139
+          "start": 152,
+          "end": 152
         }
       ]
     },
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "apply_input_edit",
+      "line": 128,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/repl/live/modal/mod.rs",
+      "function": "apply_motion_action",
       "line": 98,
-      "cyclomatic": 19.0,
-      "coverage": 42.857142857142854,
-      "crap": 86.35860058309036,
-      "uncovered": [
-        {
-          "start": 105,
-          "end": 115
-        },
-        {
-          "start": 117,
-          "end": 117
-        }
-      ]
+      "cyclomatic": 8.0,
+      "coverage": 100.0,
+      "crap": 8.0
+    },
+    {
+      "file": "./src/repl/live/modal/mod.rs",
+      "function": "apply_mutation_action",
+      "line": 111,
+      "cyclomatic": 13.0,
+      "coverage": 100.0,
+      "crap": 13.0
     },
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "clear_filter_or_cancel",
-      "line": 144,
+      "line": 157,
       "cyclomatic": 5.0,
       "coverage": 100.0,
       "crap": 5.0
@@ -28845,7 +28851,7 @@
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "dispatch_simple_selector",
-      "line": 227,
+      "line": 266,
       "cyclomatic": 7.0,
       "coverage": 100.0,
       "crap": 7.0
@@ -28853,7 +28859,7 @@
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "handle_modal_key",
-      "line": 300,
+      "line": 339,
       "cyclomatic": 12.0,
       "coverage": 100.0,
       "crap": 12.0
@@ -28861,50 +28867,80 @@
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "handle_modal_paste",
-      "line": 258,
+      "line": 297,
       "cyclomatic": 10.0,
       "coverage": 84.21052631578947,
       "crap": 10.393643388249016,
       "uncovered": [
         {
-          "start": 281,
-          "end": 285
+          "start": 320,
+          "end": 324
         },
         {
-          "start": 296,
-          "end": 296
+          "start": 335,
+          "end": 335
         }
       ]
     },
     {
       "file": "./src/repl/live/modal/mod.rs",
       "function": "handle_selector_nav",
-      "line": 161,
-      "cyclomatic": 28.0,
-      "coverage": 72.91666666666666,
-      "crap": 43.57479745370373,
+      "line": 235,
+      "cyclomatic": 11.0,
+      "coverage": 100.0,
+      "crap": 11.0
+    },
+    {
+      "file": "./src/repl/live/modal/mod.rs",
+      "function": "is_nav_next",
+      "line": 184,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
+    },
+    {
+      "file": "./src/repl/live/modal/mod.rs",
+      "function": "is_nav_prev",
+      "line": 174,
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
+    },
+    {
+      "file": "./src/repl/live/modal/mod.rs",
+      "function": "pop_and_cancel",
+      "line": 134,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/repl/live/modal/mod.rs",
+      "function": "try_digit_jump",
+      "line": 194,
+      "cyclomatic": 7.0,
+      "coverage": 95.45454545454545,
+      "crap": 7.004601803155522,
       "uncovered": [
         {
-          "start": 175,
-          "end": 178
-        },
-        {
-          "start": 185,
-          "end": 193
-        },
-        {
-          "start": 208,
-          "end": 208
+          "start": 207,
+          "end": 207
         }
       ]
     },
     {
       "file": "./src/repl/live/modal/mod.rs",
-      "function": "pop_and_cancel",
-      "line": 121,
-      "cyclomatic": 2.0,
-      "coverage": 100.0,
-      "crap": 2.0
+      "function": "try_search_key",
+      "line": 220,
+      "cyclomatic": 6.0,
+      "coverage": 88.88888888888889,
+      "crap": 6.049382716049383,
+      "uncovered": [
+        {
+          "start": 231,
+          "end": 231
+        }
+      ]
     },
     {
       "file": "./src/repl/live/modal/selectors/auth.rs",
@@ -34349,12 +34385,16 @@
       "function": "EditorState::delete_to_line_end",
       "line": 230,
       "cyclomatic": 4.0,
-      "coverage": 0.0,
-      "crap": 20.0,
+      "coverage": 87.5,
+      "crap": 4.03125,
       "uncovered": [
         {
-          "start": 230,
-          "end": 247
+          "start": 232,
+          "end": 232
+        },
+        {
+          "start": 240,
+          "end": 240
         }
       ]
     },
@@ -34363,14 +34403,8 @@
       "function": "EditorState::delete_to_line_start",
       "line": 218,
       "cyclomatic": 2.0,
-      "coverage": 90.9090909090909,
-      "crap": 2.0030052592036065,
-      "uncovered": [
-        {
-          "start": 220,
-          "end": 220
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 2.0
     },
     {
       "file": "./src/ui/interactive/state/editor/mod.rs",
@@ -34391,12 +34425,12 @@
       "function": "EditorState::delete_word_forward",
       "line": 204,
       "cyclomatic": 2.0,
-      "coverage": 0.0,
-      "crap": 6.0,
+      "coverage": 92.3076923076923,
+      "crap": 2.0018206645425582,
       "uncovered": [
         {
-          "start": 204,
-          "end": 216
+          "start": 206,
+          "end": 206
         }
       ]
     },
@@ -34481,12 +34515,12 @@
       "function": "EditorState::move_right",
       "line": 260,
       "cyclomatic": 4.0,
-      "coverage": 60.0,
-      "crap": 5.024,
+      "coverage": 90.0,
+      "crap": 4.016,
       "uncovered": [
         {
           "start": 264,
-          "end": 267
+          "end": 264
         }
       ]
     },
