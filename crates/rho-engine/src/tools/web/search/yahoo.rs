@@ -14,18 +14,22 @@ static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a[href]"
 static TITLE_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("h3, a.title").expect("valid selector"));
 static SNIPPET_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse(".compText, p").expect("valid selector"));
 
-pub async fn search_yahoo(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
-    let age_param = match req.recency {
+pub fn yahoo_search_url(query: &str, recency: Option<WebSearchRecency>) -> String {
+    let age_param = match recency {
         Some(WebSearchRecency::Day) => "&age=1d",
         Some(WebSearchRecency::Week) => "&age=1w",
         Some(WebSearchRecency::Month) => "&age=1m",
         Some(WebSearchRecency::Year) => "&age=1y",
         None => "",
     };
-    let url = format!(
+    format!(
         "https://search.yahoo.com/search?p={}{age_param}",
-        urlencoding_encode(req.query)
-    );
+        urlencoding_encode(query)
+    )
+}
+
+pub async fn search_yahoo(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+    let url = yahoo_search_url(req.query, req.recency);
     let resp = req
         .http
         .get_text(HttpRequest {
@@ -110,5 +114,29 @@ mod tests {
         assert_eq!(res[0].title, "Docs.rs");
         assert_eq!(res[0].url, "https://docs.rs/");
         assert!(res[0].abstract_text.contains("Documentation"));
+    }
+
+    #[test]
+    fn test_yahoo_search_url_recency() {
+        assert_eq!(
+            yahoo_search_url("rust lang", None),
+            "https://search.yahoo.com/search?p=rust%20lang"
+        );
+        assert_eq!(
+            yahoo_search_url("rust lang", Some(WebSearchRecency::Day)),
+            "https://search.yahoo.com/search?p=rust%20lang&age=1d"
+        );
+        assert_eq!(
+            yahoo_search_url("rust lang", Some(WebSearchRecency::Week)),
+            "https://search.yahoo.com/search?p=rust%20lang&age=1w"
+        );
+        assert_eq!(
+            yahoo_search_url("rust lang", Some(WebSearchRecency::Month)),
+            "https://search.yahoo.com/search?p=rust%20lang&age=1m"
+        );
+        assert_eq!(
+            yahoo_search_url("rust lang", Some(WebSearchRecency::Year)),
+            "https://search.yahoo.com/search?p=rust%20lang&age=1y"
+        );
     }
 }

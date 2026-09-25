@@ -57,10 +57,6 @@ test-all: ## Run all tests including unit, integration, and doc tests
 run: ## Run the rho CLI
 	$(CARGO) run --
 
-.PHONY: wasm
-wasm: ## No-op (rho-wasm removed)
-	@true
-
 .PHONY: clean
 clean: ## Clean cargo build artifacts
 	$(CARGO) clean

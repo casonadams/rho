@@ -14,19 +14,23 @@ static LINK_SEL: LazyLock<Selector> = LazyLock::new(|| Selector::parse("a.result
 static SNIPPET_SEL: LazyLock<Selector> =
     LazyLock::new(|| Selector::parse("td.result-snippet").expect("valid selector"));
 
-pub async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
-    let df_param = match req.recency {
+pub fn ddg_lite_search_url(query: &str, region: &str, recency: Option<WebSearchRecency>) -> String {
+    let df_param = match recency {
         Some(WebSearchRecency::Day) => "&df=d",
         Some(WebSearchRecency::Week) => "&df=w",
         Some(WebSearchRecency::Month) => "&df=m",
         Some(WebSearchRecency::Year) => "&df=y",
         None => "",
     };
-    let url = format!(
+    format!(
         "https://lite.duckduckgo.com/lite/?q={}&kl={}{df_param}",
-        urlencoding_encode(req.query),
-        urlencoding_encode(req.region)
-    );
+        urlencoding_encode(query),
+        urlencoding_encode(region)
+    )
+}
+
+pub async fn search_ddg_lite(req: &EngineRequest<'_>) -> Result<Vec<SearchResult>, AppError> {
+    let url = ddg_lite_search_url(req.query, req.region, req.recency);
     let resp = req
         .http
         .get_text(HttpRequest {
@@ -109,5 +113,29 @@ mod tests {
         assert_eq!(res[0].title, "Rust Language");
         assert_eq!(res[0].url, "https://www.rust-lang.org/");
         assert!(res[0].abstract_text.contains("reliable software"));
+    }
+
+    #[test]
+    fn test_ddg_lite_search_url_recency() {
+        assert_eq!(
+            ddg_lite_search_url("rust lang", "us-en", None),
+            "https://lite.duckduckgo.com/lite/?q=rust%20lang&kl=us%2Den"
+        );
+        assert_eq!(
+            ddg_lite_search_url("rust lang", "us-en", Some(WebSearchRecency::Day)),
+            "https://lite.duckduckgo.com/lite/?q=rust%20lang&kl=us%2Den&df=d"
+        );
+        assert_eq!(
+            ddg_lite_search_url("rust lang", "us-en", Some(WebSearchRecency::Week)),
+            "https://lite.duckduckgo.com/lite/?q=rust%20lang&kl=us%2Den&df=w"
+        );
+        assert_eq!(
+            ddg_lite_search_url("rust lang", "us-en", Some(WebSearchRecency::Month)),
+            "https://lite.duckduckgo.com/lite/?q=rust%20lang&kl=us%2Den&df=m"
+        );
+        assert_eq!(
+            ddg_lite_search_url("rust lang", "us-en", Some(WebSearchRecency::Year)),
+            "https://lite.duckduckgo.com/lite/?q=rust%20lang&kl=us%2Den&df=y"
+        );
     }
 }
