@@ -12263,8 +12263,14 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 100.0,
-      "crap": 4.0
+      "coverage": 70.0,
+      "crap": 4.432,
+      "uncovered": [
+        {
+          "start": 46,
+          "end": 52
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -25117,8 +25123,14 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 100.0,
-      "crap": 6.0
+      "coverage": 95.23809523809523,
+      "crap": 6.003887269193392,
+      "uncovered": [
+        {
+          "start": 72,
+          "end": 72
+        }
+      ]
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -32949,33 +32961,39 @@
     {
       "file": "./src/ui/interactive/input.rs",
       "function": "map_app_action",
+      "line": 74,
+      "cyclomatic": 1.0,
+      "coverage": 100.0,
+      "crap": 1.0
+    },
+    {
+      "file": "./src/ui/interactive/input.rs",
+      "function": "map_app_general_action",
+      "line": 59,
+      "cyclomatic": 11.0,
+      "coverage": 100.0,
+      "crap": 11.0
+    },
+    {
+      "file": "./src/ui/interactive/input.rs",
+      "function": "map_app_model_action",
+      "line": 47,
+      "cyclomatic": 8.0,
+      "coverage": 100.0,
+      "crap": 8.0
+    },
+    {
+      "file": "./src/ui/interactive/input.rs",
+      "function": "map_app_session_action",
       "line": 37,
-      "cyclomatic": 21.0,
-      "coverage": 69.56521739130434,
-      "crap": 33.432234733294976,
-      "uncovered": [
-        {
-          "start": 39,
-          "end": 39
-        },
-        {
-          "start": 43,
-          "end": 43
-        },
-        {
-          "start": 47,
-          "end": 47
-        },
-        {
-          "start": 54,
-          "end": 57
-        }
-      ]
+      "cyclomatic": 6.0,
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/ui/interactive/input.rs",
       "function": "map_bound_action",
-      "line": 96,
+      "line": 114,
       "cyclomatic": 1.0,
       "coverage": 100.0,
       "crap": 1.0
@@ -32991,54 +33009,54 @@
     {
       "file": "./src/ui/interactive/input.rs",
       "function": "map_key_with_bindings",
-      "line": 103,
+      "line": 121,
       "cyclomatic": 6.0,
       "coverage": 86.66666666666667,
       "crap": 6.085333333333334,
       "uncovered": [
         {
-          "start": 105,
-          "end": 105
+          "start": 123,
+          "end": 123
         },
         {
-          "start": 120,
-          "end": 120
+          "start": 138,
+          "end": 138
         }
       ]
     },
     {
       "file": "./src/ui/interactive/input.rs",
       "function": "map_tui_cursor_action",
-      "line": 62,
+      "line": 80,
       "cyclomatic": 10.0,
       "coverage": 66.66666666666666,
       "crap": 13.70370370370371,
       "uncovered": [
         {
-          "start": 68,
-          "end": 71
+          "start": 86,
+          "end": 89
         }
       ]
     },
     {
       "file": "./src/ui/interactive/input.rs",
       "function": "map_tui_edit_action",
-      "line": 76,
+      "line": 94,
       "cyclomatic": 14.0,
       "coverage": 68.75,
       "crap": 19.9814453125,
       "uncovered": [
         {
-          "start": 78,
-          "end": 79
+          "start": 96,
+          "end": 97
         },
         {
-          "start": 81,
-          "end": 82
+          "start": 99,
+          "end": 100
         },
         {
-          "start": 92,
-          "end": 92
+          "start": 110,
+          "end": 110
         }
       ]
     },
