@@ -182,6 +182,7 @@ fallback = ["yahoo"]
 
 [tools.web.fetch]
 enabled = false
+multimodal = false
 "#;
     let file: FileConfig = toml::from_str(toml_str).unwrap();
     let mut config = Config::default();
@@ -190,6 +191,7 @@ enabled = false
     assert_eq!(config.tools.web.search.default, "duckduckgo");
     assert_eq!(config.tools.web.search.fallback, vec!["yahoo".to_string()]);
     assert!(!config.tools.web.fetch.enabled);
+    assert!(!config.tools.web.fetch.multimodal);
 }
 
 #[test]
@@ -201,6 +203,7 @@ fn parses_tools_web_config_omitted_defaults_to_true() {
     assert!(config.tools.web.search.enabled);
     assert_eq!(config.tools.web.search.default, "brave");
     assert!(config.tools.web.fetch.enabled);
+    assert!(config.tools.web.fetch.multimodal);
 }
 
 #[test]

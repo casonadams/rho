@@ -233,6 +233,12 @@ fn apply_tool_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) ->
             let fetch = web.fetch.get_or_insert_with(Default::default);
             fetch.enabled = Some(parse_bool(key.as_str(), value)?);
         }
+        ConfigKey::WebFetchMultimodal => {
+            let tools = file_config.tools.get_or_insert_with(Default::default);
+            let web = tools.web.get_or_insert_with(Default::default);
+            let fetch = web.fetch.get_or_insert_with(Default::default);
+            fetch.multimodal = Some(parse_bool(key.as_str(), value)?);
+        }
         ConfigKey::McpEnabled => {
             let mcp = file_config.mcp.get_or_insert_with(Default::default);
             mcp.enabled = Some(parse_bool(key.as_str(), value)?);

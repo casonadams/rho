@@ -58,6 +58,68 @@ pub fn is_pdf(bytes: &[u8], content_type: &str) -> bool {
     content_type.to_lowercase().contains("application/pdf") || bytes.starts_with(b"%PDF-")
 }
 
+fn mime_from_content_type(ct_lower: &str) -> Option<&'static str> {
+    if ct_lower.contains("image/png") {
+        Some("image/png")
+    } else if ct_lower.contains("image/jpeg") || ct_lower.contains("image/jpg") {
+        Some("image/jpeg")
+    } else if ct_lower.contains("image/webp") {
+        Some("image/webp")
+    } else if ct_lower.contains("image/gif") {
+        Some("image/gif")
+    } else if ct_lower.contains("image/svg+xml") || ct_lower.contains("image/svg") {
+        Some("image/svg+xml")
+    } else {
+        None
+    }
+}
+
+fn mime_from_magic_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else if bytes.starts_with(b"<svg") || (bytes.starts_with(b"<?xml") && bytes.windows(4).any(|w| w == b"<svg")) {
+        Some("image/svg+xml")
+    } else {
+        None
+    }
+}
+
+fn mime_from_url_extension(url: &str) -> Option<&'static str> {
+    let clean = url.split('?').next().unwrap_or(url);
+    let clean = clean.split('#').next().unwrap_or(clean);
+    let lower = clean.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        Some("image/png")
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        Some("image/jpeg")
+    } else if lower.ends_with(".webp") {
+        Some("image/webp")
+    } else if lower.ends_with(".gif") {
+        Some("image/gif")
+    } else if lower.ends_with(".svg") {
+        Some("image/svg+xml")
+    } else {
+        None
+    }
+}
+
+pub fn image_mime_type(bytes: &[u8], content_type: &str, url: &str) -> Option<&'static str> {
+    let ct_lower = content_type.to_ascii_lowercase();
+    mime_from_content_type(&ct_lower)
+        .or_else(|| mime_from_magic_bytes(bytes))
+        .or_else(|| mime_from_url_extension(url))
+}
+
+pub fn is_image(bytes: &[u8], content_type: &str, url: &str) -> bool {
+    image_mime_type(bytes, content_type, url).is_some()
+}
+
 const SUPPORTED_SUBSTRINGS: &[&str] = &[
     "html",
     "xhtml",
@@ -148,5 +210,57 @@ mod tests {
         assert!(is_pdf(b"", "application/pdf"));
         assert!(is_pdf(b"%PDF-1.4...", "application/octet-stream"));
         assert!(!is_pdf(b"not a pdf", "text/plain"));
+    }
+
+    #[test]
+    fn test_image_detection_by_content_type() {
+        assert_eq!(image_mime_type(&[], "image/png; charset=utf-8", ""), Some("image/png"));
+        assert_eq!(image_mime_type(&[], "IMAGE/JPEG", ""), Some("image/jpeg"));
+        assert_eq!(image_mime_type(&[], "image/webp", ""), Some("image/webp"));
+        assert_eq!(image_mime_type(&[], "image/gif", ""), Some("image/gif"));
+        assert_eq!(image_mime_type(&[], "image/svg+xml", ""), Some("image/svg+xml"));
+        assert_eq!(image_mime_type(&[], "text/html", ""), None);
+    }
+
+    #[test]
+    fn test_image_detection_by_magic_bytes() {
+        assert_eq!(
+            image_mime_type(b"\x89PNG\r\n\x1a\n\x00", "application/octet-stream", ""),
+            Some("image/png")
+        );
+        assert_eq!(
+            image_mime_type(b"\xff\xd8\xff\xe0", "application/octet-stream", ""),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            image_mime_type(b"GIF89a...", "application/octet-stream", ""),
+            Some("image/gif")
+        );
+        assert_eq!(
+            image_mime_type(b"RIFF\x00\x00\x00\x00WEBPVP8", "application/octet-stream", ""),
+            Some("image/webp")
+        );
+        assert_eq!(
+            image_mime_type(b"<svg viewBox='0 0 10 10'></svg>", "application/octet-stream", ""),
+            Some("image/svg+xml")
+        );
+    }
+
+    #[test]
+    fn test_image_detection_by_url_extension() {
+        assert_eq!(
+            image_mime_type(&[], "application/octet-stream", "https://example.com/chart.PNG?raw=1"),
+            Some("image/png")
+        );
+        assert_eq!(
+            image_mime_type(&[], "", "https://example.com/photo.jpeg#heading"),
+            Some("image/jpeg")
+        );
+        assert_eq!(
+            image_mime_type(&[], "", "https://example.com/logo.svg"),
+            Some("image/svg+xml")
+        );
+        assert!(is_image(&[], "", "https://example.com/diagram.webp"));
+        assert!(!is_image(&[], "text/plain", "https://example.com/notes.txt"));
     }
 }

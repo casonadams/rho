@@ -107,6 +107,8 @@ async fn test_web_fetch_rejects_credentials_with_explanation() {
             max_bytes: 1024,
             pdf_max_bytes: 1024,
             default_limit: 20,
+            multimodal: true,
+            auth_file: None,
         },
     );
     let res = tool
@@ -135,6 +137,8 @@ async fn test_web_fetch_html_override_skips_interception() {
             max_bytes: 1024,
             pdf_max_bytes: 1024,
             default_limit: 20,
+            multimodal: true,
+            auth_file: None,
         },
     );
     let opt_gh = tool
@@ -149,4 +153,151 @@ async fn test_web_fetch_html_override_skips_interception() {
 
     let opt_other = tool.try_specialized_extract("https://example.com/page", None).await;
     assert!(opt_other.is_none());
+}
+
+#[tokio::test]
+async fn test_web_fetch_image_disabled_multimodal_returns_error() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            use tokio::io::AsyncWriteExt;
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\n\r\nfake";
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+
+    let http = HttpClient::new(true).unwrap();
+    let cache = FetchCache::new(60, 4);
+    let tool = WebFetchTool::new(
+        http,
+        cache,
+        WebFetchConfig {
+            timeout_sec: 1,
+            max_bytes: 1024,
+            pdf_max_bytes: 1024,
+            default_limit: 20,
+            multimodal: false,
+            auth_file: None,
+        },
+    );
+    let res = tool
+        .execute(WebFetchArgs {
+            url: format!("http://{addr}/chart.png"),
+            offset: None,
+            limit: None,
+            mode: None,
+            format: None,
+        })
+        .await
+        .unwrap();
+    assert!(res.is_error);
+    assert!(res.content.contains("multimodal is disabled"));
+}
+
+#[tokio::test]
+async fn test_web_fetch_image_missing_credentials_returns_actionable_error() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = listener.accept().await {
+            use tokio::io::AsyncWriteExt;
+            let response = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: 4\r\n\r\nfake";
+            let _ = stream.write_all(response.as_bytes()).await;
+        }
+    });
+
+    let temp = tempfile::tempdir().unwrap();
+    let auth_file = temp.path().join("empty_auth.json");
+    let http = HttpClient::new(true).unwrap();
+    let cache = FetchCache::new(60, 4);
+    let tool = WebFetchTool::new(
+        http,
+        cache,
+        WebFetchConfig {
+            timeout_sec: 1,
+            max_bytes: 1024,
+            pdf_max_bytes: 1024,
+            default_limit: 20,
+            multimodal: true,
+            auth_file: Some(auth_file),
+        },
+    );
+
+    if std::env::var("GEMINI_API_KEY").is_err() && std::env::var("GOOGLE_API_KEY").is_err() {
+        let res = tool
+            .execute(WebFetchArgs {
+                url: format!("http://{addr}/diagram.png"),
+                offset: None,
+                limit: None,
+                mode: None,
+                format: None,
+            })
+            .await
+            .unwrap();
+        assert!(res.is_error);
+        assert!(res.content.contains("GEMINI_API_KEY"));
+    }
+}
+
+#[tokio::test]
+async fn test_extract_pdf_disabled_multimodal_override() {
+    let http = HttpClient::new(true).unwrap();
+    let cache = FetchCache::new(60, 4);
+    let tool = WebFetchTool::new(
+        http,
+        cache,
+        WebFetchConfig {
+            timeout_sec: 1,
+            max_bytes: 1024,
+            pdf_max_bytes: 1024,
+            default_limit: 20,
+            multimodal: false,
+            auth_file: None,
+        },
+    );
+    let err = tool.extract_pdf(b"%PDF-1.4...", true).await.unwrap_err();
+    assert!(err.to_string().contains("multimodal is disabled"));
+}
+
+#[tokio::test]
+async fn test_extract_pdf_corrupt_multimodal_disabled() {
+    let http = HttpClient::new(true).unwrap();
+    let cache = FetchCache::new(60, 4);
+    let tool = WebFetchTool::new(
+        http,
+        cache,
+        WebFetchConfig {
+            timeout_sec: 1,
+            max_bytes: 1024,
+            pdf_max_bytes: 1024,
+            default_limit: 20,
+            multimodal: false,
+            auth_file: None,
+        },
+    );
+    let err = tool.extract_pdf(b"corrupt-pdf-bytes", false).await.unwrap_err();
+    assert!(err.to_string().contains("PDF extraction error"));
+}
+
+#[tokio::test]
+async fn test_extract_pdf_corrupt_multimodal_fallback_no_credentials() {
+    let http = HttpClient::new(true).unwrap();
+    let cache = FetchCache::new(60, 4);
+    let tool = WebFetchTool::new(
+        http,
+        cache,
+        WebFetchConfig {
+            timeout_sec: 1,
+            max_bytes: 1024,
+            pdf_max_bytes: 1024,
+            default_limit: 20,
+            multimodal: true,
+            auth_file: None,
+        },
+    );
+    if std::env::var("GEMINI_API_KEY").is_err() && std::env::var("GOOGLE_API_KEY").is_err() {
+        let err = tool.extract_pdf(b"corrupt-pdf-bytes", false).await.unwrap_err();
+        assert!(err.to_string().contains("Gemini multimodal fallback failed"));
+    }
 }

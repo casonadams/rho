@@ -100,7 +100,7 @@ pub struct WebFetchArgs {
     pub limit: Option<usize>,
     /// Extraction mode ("auto", "main", or "full", default "auto")
     pub mode: Option<String>,
-    /// Optional format override ("html", "json", "markdown", "csv", "xml", "pdf")
+    /// Optional format override ("html", "json", "markdown", "csv", "xml", "pdf", "multimodal", "image")
     pub format: Option<String>,
 }
 

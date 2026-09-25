@@ -82,6 +82,8 @@ pub struct WebSearchConfigFile {
 pub struct WebFetchConfigFile {
     #[serde(default)]
     pub enabled: Option<bool>,
+    #[serde(default)]
+    pub multimodal: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

@@ -127,11 +127,16 @@ pub struct WebToolsConfig {
 pub struct WebFetchConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub multimodal: bool,
 }
 
 impl Default for WebFetchConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            multimodal: true,
+        }
     }
 }
 
