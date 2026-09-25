@@ -12263,8 +12263,14 @@
       "function": "ModelStore::load",
       "line": 31,
       "cyclomatic": 4.0,
-      "coverage": 100.0,
-      "crap": 4.0
+      "coverage": 70.0,
+      "crap": 4.432,
+      "uncovered": [
+        {
+          "start": 46,
+          "end": 52
+        }
+      ]
     },
     {
       "file": "./crates/rho-engine/src/provider/store.rs",
@@ -25117,14 +25123,8 @@
       "function": "handle_coordinator_input",
       "line": 64,
       "cyclomatic": 6.0,
-      "coverage": 95.23809523809523,
-      "crap": 6.003887269193392,
-      "uncovered": [
-        {
-          "start": 72,
-          "end": 72
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 6.0
     },
     {
       "file": "./src/repl/coordinator/mod.rs",
@@ -29899,80 +29899,80 @@
     {
       "file": "./src/repl/live/turn/event.rs",
       "function": "dispatch_key_event",
-      "line": 69,
+      "line": 78,
       "cyclomatic": 6.0,
       "coverage": 66.66666666666666,
       "crap": 7.333333333333336,
       "uncovered": [
         {
-          "start": 78,
-          "end": 83
+          "start": 87,
+          "end": 92
         }
       ]
     },
     {
       "file": "./src/repl/live/turn/event.rs",
       "function": "dispatch_regular_key",
-      "line": 109,
+      "line": 118,
       "cyclomatic": 4.0,
       "coverage": 90.47619047619048,
       "crap": 4.013821401576504,
       "uncovered": [
         {
-          "start": 127,
-          "end": 128
+          "start": 136,
+          "end": 137
         }
       ]
     },
     {
       "file": "./src/repl/live/turn/event.rs",
       "function": "dispatch_turn_input",
-      "line": 20,
-      "cyclomatic": 20.0,
-      "coverage": 65.85365853658537,
-      "crap": 35.92547989727369,
+      "line": 51,
+      "cyclomatic": 11.0,
+      "coverage": 100.0,
+      "crap": 11.0
+    },
+    {
+      "file": "./src/repl/live/turn/event.rs",
+      "function": "handle_focus_change",
+      "line": 35,
+      "cyclomatic": 3.0,
+      "coverage": 93.33333333333333,
+      "crap": 3.002666666666667,
       "uncovered": [
         {
-          "start": 26,
-          "end": 33
-        },
-        {
-          "start": 37,
-          "end": 37
-        },
-        {
-          "start": 47,
-          "end": 47
-        },
-        {
-          "start": 50,
-          "end": 50
-        },
-        {
-          "start": 58,
-          "end": 58
-        },
-        {
-          "start": 61,
-          "end": 61
-        },
-        {
-          "start": 65,
-          "end": 65
+          "start": 46,
+          "end": 46
         }
       ]
     },
     {
       "file": "./src/repl/live/turn/event.rs",
+      "function": "handle_paste",
+      "line": 28,
+      "cyclomatic": 2.0,
+      "coverage": 100.0,
+      "crap": 2.0
+    },
+    {
+      "file": "./src/repl/live/turn/event.rs",
+      "function": "handle_resize",
+      "line": 20,
+      "cyclomatic": 5.0,
+      "coverage": 100.0,
+      "crap": 5.0
+    },
+    {
+      "file": "./src/repl/live/turn/event.rs",
       "function": "switch_modal_model",
-      "line": 89,
+      "line": 98,
       "cyclomatic": 1.0,
       "coverage": 0.0,
       "crap": 2.0,
       "uncovered": [
         {
-          "start": 89,
-          "end": 107
+          "start": 98,
+          "end": 116
         }
       ]
     },
@@ -30377,14 +30377,8 @@
       "function": "TurnLoop::drain_ui_batch",
       "line": 80,
       "cyclomatic": 11.0,
-      "coverage": 94.73684210526315,
-      "crap": 11.017641055547456,
-      "uncovered": [
-        {
-          "start": 96,
-          "end": 96
-        }
-      ]
+      "coverage": 100.0,
+      "crap": 11.0
     },
     {
       "file": "./src/repl/live/turn/runner.rs",
