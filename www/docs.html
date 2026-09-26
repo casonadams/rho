@@ -33,7 +33,6 @@
       <ul class="nav-links">
         <li><a href="./" class="nav-link">Home</a></li>
         <li><a href="packages.html" class="nav-link">Ecosystem</a></li>
-        <li><a href="hub/" class="nav-link">Hub</a></li>
         <li><a href="docs.html" class="nav-link active">Documentation</a></li>
         <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
       </ul>
@@ -61,7 +60,6 @@
         <ul class="mobile-nav-links">
           <li><a href="./" class="mobile-nav-link">Home</a></li>
           <li><a href="packages.html" class="mobile-nav-link">Ecosystem</a></li>
-          <li><a href="hub/" class="mobile-nav-link">Hub</a></li>
           <li><a href="docs.html" class="mobile-nav-link active">Documentation</a></li>
           <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="mobile-nav-link">crates.io ↗</a></li>
           <li><a href="https://github.com/casonadams/rho" target="_blank" rel="noopener" class="mobile-nav-link">GitHub ↗</a></li>
@@ -116,8 +114,8 @@
         <ul class="docs-nav-list">
           <li class="docs-nav-item"><a href="#rpc-mode">Headless &amp; IDE RPC Mode</a></li>
           <li class="docs-nav-item"><a href="#compaction">Context Compaction</a></li>
-          <li class="docs-nav-item"><a href="#mcp">MCP Configuration</a></li>
           <li class="docs-nav-item"><a href="#hooks">Lifecycle Hooks</a></li>
+          <li class="docs-nav-item"><a href="#mcp">MCP Configuration</a></li>
         </ul>
       </div>
     </aside>
@@ -333,14 +331,80 @@ enabled = true                  # Enable or disable mutation guardrails</code></
 
       <h2 id="permissions">Safety Guardrails &amp; Modal Controls</h2>
       <p>
-        rho isolates mutating operations (file writes, edits, shell commands) behind an interactive modal:
+        <code>rho</code> features an in-process safety and permission gatekeeper that evaluates tool executions and shell commands before they run. Non-mutating inspections run automatically, while potentially hazardous operations are presented in an interactive confirmation modal:
       </p>
       <ul>
-        <li><kbd class="kbd">[y] Allow</kbd>: Authorize this specific operation.</li>
-        <li><kbd class="kbd">[e] Edit</kbd>: Inspect and adjust command arguments interactively before execution.</li>
-        <li><kbd class="kbd">[a] Always</kbd>: Authorize this command or pattern for the remainder of the session.</li>
-        <li><kbd class="kbd">[n] Deny</kbd>: Reject execution and return helpful feedback to the model.</li>
+        <li><kbd class="kbd">[y] Allow</kbd>: Authorize this specific operation for a single run.</li>
+        <li><kbd class="kbd">[e] Edit</kbd>: Inspect and modify command arguments interactively in a multiline editor before execution.</li>
+        <li><kbd class="kbd">[a] Always</kbd>: Persist an allow rule (with wildcard pattern support) to <code>.rho/permission.toml</code> (project) or <code>~/.config/rho/permission.toml</code> (global).</li>
+        <li><kbd class="kbd">[n] Deny</kbd>: Block execution and submit custom feedback to the agent so it can self-correct its plan.</li>
       </ul>
+
+      <h3>Automated Guard Model Classification</h3>
+      <p>
+        To eliminate confirmation fatigue while maintaining strict safety, <code>rho</code> can delegate unclassified shell command evaluation to a dedicated, low-latency <strong>Guard Model</strong>.
+      </p>
+      <ul>
+        <li><strong>Frictionless Safe Execution:</strong> Benign developer tasks—running builds, tests, typecheckers, linters, local git inspections, and read-only diagnostics—are classified as safe (<code>{"safe": true}</code>) and execute immediately without manual prompts.</li>
+        <li><strong>Targeted Risk Interception:</strong> Hazardous operations—remote git pushes, remote branch deletions, cluster/cloud infrastructure mutations, privilege escalation, credential access, or mass deletions—are flagged (<code>{"safe": false}</code>) and pause for confirmation with the model's security rationale.</li>
+        <li><strong>Fail-Safe Closed Architecture:</strong> If the guard model times out (10s), is offline, encounters an error, or returns unparseable text, <code>rho</code> fails closed and falls back to manual human confirmation (or denial in headless mode). Commands never slip through silently on error.</li>
+      </ul>
+
+      <h3>Recommended Local Model: <code>qwen2.5-coder:7b</code></h3>
+      <p>
+        For fast, offline command inspection without cloud API costs or latency, <code>ollama/qwen2.5-coder:7b</code> is strongly recommended for the <code>guard</code> role:
+      </p>
+      <ul>
+        <li><strong>Domain Comprehension:</strong> Pretrained extensively on code, shell scripts, CLI flags, and DevOps tools (<code>git</code>, <code>kubectl</code>, <code>terraform</code>, <code>docker</code>, cloud CLIs, database clients), accurately discriminating benign dev tasks from destructive commands.</li>
+        <li><strong>Low Latency &amp; Small Footprint:</strong> At ~4.7 GB quantized (Q4_K_M), it fits easily into Apple Silicon unified memory or consumer GPUs, providing sub-second classification without perceptible CLI pauses.</li>
+        <li><strong>Reliable Structured JSON:</strong> Runs deterministically at <code>temperature: 0.0</code> with non-thinking execution (<code>thinking_level: None</code>), consistently producing clean JSON schemas.</li>
+        <li><strong>Air-Gapped Privacy:</strong> Shell commands, repository paths, and sensitive CLI arguments remain 100% on-device and are never transmitted to cloud endpoints.</li>
+        <li><strong>Offline Resilience:</strong> Functions seamlessly during network disruptions, air-gapped environments, or offline travel.</li>
+      </ul>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Configuring Guard Model via CLI</span>
+          <button class="copy-btn" data-copy="ollama pull qwen2.5-coder:7b
+rho config models.guard ollama/qwen2.5-coder:7b">Copy</button>
+        </div>
+        <pre><code># 1. Pull the model locally with Ollama
+ollama pull qwen2.5-coder:7b
+
+# 2. Configure guard model role in rho
+rho config models.guard ollama/qwen2.5-coder:7b
+
+# Or disable guard model evaluation (reverts to baseline prompt)
+rho config models.guard none</code></pre>
+      </div>
+
+      <h3>Declarative Rules (<code>permission.toml</code>)</h3>
+      <p>
+        Rules can be explicitly authored in <code>.rho/permission.toml</code> (project) or <code>~/.config/rho/permission.toml</code> (global). Explicit rules take priority over the guard model:
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>.rho/permission.toml</span>
+          <button class="copy-btn" data-copy="[permission.bash]
+&quot;cargo test *&quot; = &quot;allow&quot;
+&quot;npm run build&quot; = &quot;allow&quot;
+&quot;git push --force*&quot; = { action = &quot;deny&quot;, reason = &quot;Force-pushing is strictly prohibited&quot; }
+&quot;rm -rf *&quot; = { action = &quot;deny&quot;, reason = &quot;Destructive deletion blocked by project policy&quot; }
+
+[permission.path]
+&quot;*.env*&quot; = { action = &quot;deny&quot;, reason = &quot;Do not read secret environment files&quot; }">Copy</button>
+        </div>
+        <pre><code>[permission.bash]
+"cargo test *" = "allow"
+"npm run build" = "allow"
+"git push --force*" = { action = "deny", reason = "Force-pushing is strictly prohibited" }
+"rm -rf *" = { action = "deny", reason = "Destructive deletion blocked by project policy" }
+
+[permission.path]
+"*.env*" = { action = "deny", reason = "Do not read secret environment files" }</code></pre>
+      </div>
+
       <p>Use <code>rho --no-permission</code> to bypass permission modals for headless non-interactive CI environments.</p>
 
       <h2 id="privacy">Privacy &amp; Zero Telemetry</h2>
@@ -436,8 +500,20 @@ enabled = true                  # Enable or disable mutation guardrails</code></
               <td>Open interactive model and provider switcher modal (<kbd class="kbd">Ctrl+L</kbd>)</td>
             </tr>
             <tr>
+              <td><code>/thinking</code></td>
+              <td>Set reasoning effort level (<kbd class="kbd">Shift+Tab</kbd>)</td>
+            </tr>
+            <tr>
               <td><code>/settings</code></td>
               <td>Open interactive runtime settings modal (block style, framing, model, guard model, thinking, tools &amp; permissions)</td>
+            </tr>
+            <tr>
+              <td><code>/resume</code></td>
+              <td>Interactive session selector to resume historical conversations</td>
+            </tr>
+            <tr>
+              <td><code>/rewind</code></td>
+              <td>Rewind conversation history to an earlier checkpoint turn</td>
             </tr>
             <tr>
               <td><code>/mcp</code></td>
@@ -448,20 +524,8 @@ enabled = true                  # Enable or disable mutation guardrails</code></
               <td>Manually trigger context compaction with an optional focus directive (e.g. <code>/compact "focus on tests"</code>)</td>
             </tr>
             <tr>
-              <td><code>/tokens</code></td>
-              <td>Display live context window usage, turn counts, and token telemetry</td>
-            </tr>
-            <tr>
               <td><code>/tree</code></td>
               <td>View session turn DAG tree and branch navigation (<kbd class="kbd">Ctrl+O</kbd>)</td>
-            </tr>
-            <tr>
-              <td><code>/reload</code></td>
-              <td>Reload configuration, skills, and MCP tools without losing conversation history</td>
-            </tr>
-            <tr>
-              <td><code>/new</code></td>
-              <td>Clear conversation and start a fresh session in the current directory</td>
             </tr>
             <tr>
               <td><code>/exit</code></td>

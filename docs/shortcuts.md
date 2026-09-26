@@ -108,12 +108,13 @@ commands:
 
 | Command     | Action                           | Details                                                                       |
 | :---------- | :------------------------------- | :---------------------------------------------------------------------------- |
-| `/remote`   | **Remote Hub &amp; P2P Sharing** | Opens pairing modal with QR code and link for mobile/web dashboard mirroring. |
 | `/settings` | **Runtime Settings**             | Configure model, thinking levels, tool card expansion, border styles, and permissions. |
 | `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers.             |
+| `/thinking` | **Thinking Level**               | Set reasoning effort (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). |
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |
 | `/tree`     | **Conversation Tree**            | Visualize turn DAG, switch branches, and label checkpoints.                   |
+| `/rewind`   | **Rewind Session**               | Rewind conversation history to an earlier checkpoint turn.                    |
 | `/fork`     | **Fork Session**                 | Forks session from a specific turn into an isolated conversation.             |
 | `/clone`    | **Clone Session**                | Duplicates active branch into a new session file.                             |
 | `/name`     | **Name Session**                 | Assigns a human-readable display name to the session.                         |

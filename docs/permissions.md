@@ -86,24 +86,89 @@ enabled = false
 
 ## Guard Model
 
-To streamline development workflows without disabling safety protections, `rho` supports delegating non-baseline bash command evaluations to a dedicated **Guard Model** (typically a fast local model such as `local/qwen2.5-coder:7b`).
+To streamline development workflows without disabling safety protections, `rho` supports delegating bash command evaluations to a dedicated **Guard Model** (by default recommended as a fast local model: `ollama/qwen2.5-coder:7b`).
 
-### How It Works
+When a guard model is configured, benign developer operations (compiling code, executing tests, running linters, inspecting local git history, checking container logs) execute automatically with zero interactive prompts, while hazardous operations (remote git pushes, cloud resource deletion, database mutations, privilege escalation, credential exfiltration) are intercepted with an explicit security explanation.
 
-1. **Precedence**: Explicit rules in `permission.toml` (`allow`, `deny`) take priority. Built-in tools (`read`, `write`, `edit`, `fd`, `rg`, `web_search`, `web_fetch`) are allowed by default unless restricted.
-2. **Guard Evaluation**: Bash commands without explicit rules are evaluated by the guard model. If verified safe, the command executes automatically with zero friction. If classified unsafe, `rho` surfaces the interactive confirmation prompt with the guard model's rationale.
-3. **Fail-Safe**: If the guard model times out (10 seconds), is unreachable, or encounters an error, execution safely falls back to standard human confirmation (or denial in headless mode).
+### Architecture & Multi-Tier Evaluation
 
-### Configuration
+Every tool invocation flows through a multi-tiered security pipeline before execution:
 
-Set the guard model in `config.toml` or interactively in `/settings` under **Guard Model**:
+1. **Explicit Policy Rules (`permission.toml`)**: Custom `allow`, `deny`, or `ask` patterns defined in `.rho/permission.toml` (project) or `~/.config/rho/permission.toml` (global) take highest precedence. If a command matches an explicit rule, that action is taken immediately without consulting the guard model.
+2. **Baseline Safe Classification**: Built-in non-mutating inspection tools (`read`, `fd`, `rg`, `web_search`, `web_fetch`) and non-mutating shell commands (`pwd`, `git status`, `git diff`, `git log`) run immediately within the workspace.
+3. **Guard Model Security Evaluation**: For unclassified bash commands, `rho` encapsulates the full command string inside `<command_to_evaluate>` and invokes the configured guard model with a specialized security classification system prompt.
+4. **Frictionless Safe Execution**: If the guard model classifies the command as safe (`{"safe": true, "reason": "..."}`), execution proceeds immediately without interrupting your flow.
+5. **Targeted Interception**: If classified as unsafe (`{"safe": false, "reason": "..."}`), execution pauses and surfaces the interactive approval modal displaying the guard's specific security rationale.
+6. **Fail-Safe Closed Fallback**: If the guard model times out (10 seconds), is offline, encounters an error, or returns unparseable output, execution safely fails closed: interactive mode displays the approval prompt with the failure notice, and headless mode rejects execution. Commands never execute silently on failure.
 
-```toml
-[models]
-guard = "local/qwen2.5-coder:7b"
+---
+
+## Guidance on `qwen2.5-coder:7b`
+
+`qwen2.5-coder:7b` (via Ollama or local inference) is strongly recommended for the guard model role:
+
+### Why `qwen2.5-coder:7b`?
+
+- **Deep DevOps & CLI Domain Comprehension**: Pretrained heavily on source code, shell scripts, CLI flags, and DevOps/SRE/Cloud infrastructure tools (git, kubectl, terraform, docker, helm, cloud CLIs, database clients). It accurately discriminates between safe local developer commands (`rm -rf target/`, `git checkout -b fix`, `kubectl get pods`) and hazardous system mutations (`rm -rf /`, `git push --force`, `kubectl delete namespace`).
+- **Low Latency & Compact Footprint**: At ~4.7 GB quantized (Q4_K_M), it fits easily into Apple Silicon unified memory (M1/M2/M3/M4 with 8GB+ RAM) or consumer GPUs (RTX 3060/4060+). It evaluates commands in sub-second time, eliminating perceptible CLI lag during rapid autonomous agent turns.
+- **Reliable Structured Output**: Operates deterministically at `temperature: 0.0` with non-thinking execution (`thinking_level: None`), consistently returning raw JSON matching `{"safe": boolean, "reason": "..."}` without conversational filler or hallucinated explanations.
+- **Air-Gapped Privacy & Zero Data Leakage**: Shell command strings, internal repository paths, CLI arguments, and sensitive parameters remain 100% on-device and are never transmitted to external APIs or third-party cloud relays.
+- **Offline Resilience**: Guards remain fully operational during flights, offline travel, or inside strict air-gapped enterprise networks.
+
+### Quick Setup with Ollama
+
+1. **Pull the model locally**:
+   ```bash
+   ollama pull qwen2.5-coder:7b
+   ```
+
+2. **Configure in rho**:
+   ```bash
+   rho config models.guard ollama/qwen2.5-coder:7b
+   ```
+
+   Or edit `~/.config/rho/config.toml` (global) or `.rho/config.toml` (project):
+   ```toml
+   [models]
+   default = "anthropic/claude-3-7-sonnet"
+   guard = "ollama/qwen2.5-coder:7b"
+   ```
+
+3. **Verify in `/settings`**:
+   Type `/settings` in an active REPL session to view or switch the configured **Guard Model**.
+
+To disable the guard model and require manual confirmation for all non-baseline commands:
+```bash
+rho config models.guard none
 ```
 
-To disable the guard model, set `guard = "none"` or select `None` in the `/settings` modal.
+---
+
+## Security Classification Taxonomy
+
+The guard model evaluates commands against strict operational boundaries:
+
+### Safe Categories (Allowed Automatically)
+
+- **Local Build, Test & Linting**: `cargo`, `go`, `bun`, `npm`, `pnpm`, `yarn`, `pip`, `uv`, `pytest`, `vitest`, `jest`, `make`, `tsc`, `ruff`, `clippy`, and other typecheckers.
+- **Local Dependency Resolution**: `cargo check`, `cargo fetch`, `npm install`, `bun install`, `pip install -r requirements.txt` (within project scope).
+- **Workspace File Management**: Creating, editing, moving, or cleaning local files inside the project (`touch`, `mkdir`, `cp`, `mv`, `rm -rf target/dist/build/.cache`).
+- **Local Version Control**: Non-remote git operations (`git status`, `git diff`, `git log`, `git show`, `git branch`, `git checkout`, `git switch`, `git add`, `git commit`, `git stash`).
+- **Read-Only Diagnostics & Inspection**: `ps`, `top`, `htop`, `lsof`, `uname`, `whoami`, `id`, `df`, `du`, `cat`, `grep`, `rg`, `head`, `tail`, `jq`, `yq`.
+- **Read-Only Containers & Clusters**: `docker ps`, `docker images`, `docker inspect`, `docker logs`, `kubectl get`, `kubectl describe`, `kubectl logs`.
+- **Read-Only Network Diagnostics**: `ping`, `traceroute`, `dig`, `nslookup`, `curl` (GET/HEAD requests without piping to shell).
+
+### Unsafe Categories (Always Pauses for Confirmation)
+
+- **Remote Git Publishing**: ANY `git push` (normal or `--force`), deleting remote branches, or pushing tags.
+- **Destructive Git History Loss**: `git reset --hard`, `git clean -fd`, mass discard operations (`git checkout .`, `git restore .`).
+- **Destructive Filesystem Deletions**: `rm -rf /`, `rm -rf ~`, `rm -rf *`, recursive deletes outside the project workspace, low-level disk formatting (`mkfs`, `dd if=`, raw writes to `/dev/sd*`), and indiscriminate permission changes (`chmod -R 777`).
+- **Infrastructure & Cloud Mutations**: `kubectl apply/create/delete/patch/exec`, `terraform apply/destroy`, `helm install/upgrade/delete`, cloud resource mutations (`aws ... create/delete`, `gcloud ... create/delete`, `az ... create/delete`).
+- **System Tampering & Privilege Escalation**: `sudo`, `su`, `doas`, and modifying system files (`/etc`, `/usr`, `/var`, `/System`, `systemctl`, `launchctl`).
+- **Secret Exposure & Exfiltration**: Accessing credentials (`~/.ssh`, `~/.aws`, `~/.kube/config`, `.env*` files), piping remote scripts to shells (`curl ... | bash`, `wget ... | sh`), or transmitting sensitive data to external endpoints.
+- **Databases & State Mutations**: Mutating SQL queries (`DROP`, `TRUNCATE`, `DELETE`, `ALTER`), database schema migrations, and clearing caches/queues (`redis FLUSHALL/FLUSHDB`, kafka topic deletions).
+- **Package & Artifact Publishing**: `cargo publish`, `npm publish`, `twine upload`, `docker push`.
+- **Compound Commands**: In compound commands (`&&`, `||`, `;`, `|`), if **any** sub-command or pipeline stage is unsafe, the entire command is classified as unsafe.
 
 ---
 

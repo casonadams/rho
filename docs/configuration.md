@@ -115,15 +115,37 @@ thinking_level = "high"
 # Primary assistant model (<provider>/<model>)
 default = "anthropic/claude-3-7-sonnet"
 
-# Optional guard model for security evaluation (low latency, non-thinking)
-guard = "local/qwen2.5-coder:7b"
+# Dedicated local guard model for automated shell security classification
+guard = "ollama/qwen2.5-coder:7b"
 
 # Forward-compatible with future specialized roles:
 # plan = "openai/o3-mini"
 # advisor = "google/gemini-2.5-flash"
 ```
 
-The guard model strictly executes without thinking tokens (`thinking_level: None`) to ensure fast, deterministic, and low-latency security evaluation. Reasoning effort for the primary assistant is governed by `thinking_level` and can be adjusted interactively via `/thinking` or `F3`.
+### Dedicated Guard Model
+
+The guard model evaluates shell commands before execution to determine whether they can run automatically or require interactive human authorization.
+
+- **Non-Thinking & Deterministic**: The guard model strictly executes without thinking tokens (`thinking_level: None`) at `temperature: 0.0` to ensure fast, deterministic, sub-second security evaluation. Reasoning effort for the primary assistant remains governed by `thinking_level` (adjustable interactively via `/thinking` or `Shift+Tab`).
+- **Recommended Local Model (`qwen2.5-coder:7b`)**: For fast, offline security checks without API costs or cloud latency, `ollama/qwen2.5-coder:7b` (or `local/qwen2.5-coder:7b`) is strongly recommended:
+  - *Domain Comprehension*: Pretrained extensively on source code, shell scripts, CLI flags, and DevOps/SRE tooling (git, kubectl, terraform, docker, cloud CLIs, database clients), accurately discriminating benign developer commands from destructive mutations.
+  - *Low Latency & Compact Footprint*: At ~4.7 GB quantized (Q4_K_M), it fits easily into consumer GPUs or Apple Silicon unified memory (M1-M4 with 8GB+ RAM), delivering sub-second evaluations without perceptible CLI lag.
+  - *Deterministic Structured Output*: Reliably produces clean JSON adhering to `{"safe": boolean, "reason": "..."}` without conversational boilerplate or markdown fences.
+  - *Air-Gapped Privacy*: Shell commands, repository paths, CLI arguments, and sensitive parameters remain strictly on-device.
+  - *Offline Resilience*: Operates during network disruptions, in air-gapped corporate environments, or while traveling disconnected.
+
+Configure via CLI:
+```bash
+# Pull model locally with Ollama
+ollama pull qwen2.5-coder:7b
+
+# Set guard model in rho
+rho config models.guard ollama/qwen2.5-coder:7b
+
+# Or disable guard model evaluation (reverts to baseline confirmation prompts)
+rho config models.guard none
+```
 
 ---
 
@@ -324,24 +346,3 @@ Templates are automatically registered as slash commands in the REPL:
 ```text
 /review src/lib.rs
 ```
-
----
-
-## Remote Daemon & Web Hub Access (`rho serve` and `/remote`)
-
-`rho` can run headless as a persistent background daemon (e.g. via `systemd` or
-`launchd`) using WebSocket transport:
-
-```bash
-# Start background node for a repository
-rho serve --workspace ~/src/backend-api
-
-# Optional: specify custom port and friendly node name
-rho serve --workspace ~/src/backend-api --port 50051 --name "work-laptop"
-```
-
-The node outputs a pairing URL and QR code. Open the URL in any browser to
-access the **Fleet Hub** (`www/hub/`), or type `/remote` inside an active
-terminal REPL session to pair on-demand. The Fleet Hub provides full parity with
-the terminal interface, streaming thinking and tool executions, interactive
-approvals, real-time token tracking, and live provider rate limit/quota status.

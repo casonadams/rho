@@ -38,7 +38,6 @@
       <ul class="nav-links">
         <li><a href="./" class="nav-link active">Home</a></li>
         <li><a href="packages.html" class="nav-link">Ecosystem</a></li>
-        <li><a href="hub/" class="nav-link">Hub</a></li>
         <li><a href="docs.html" class="nav-link">Documentation</a></li>
         <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="nav-link">crates.io</a></li>
       </ul>
@@ -66,7 +65,6 @@
         <ul class="mobile-nav-links">
           <li><a href="./" class="mobile-nav-link active">Home</a></li>
           <li><a href="packages.html" class="mobile-nav-link">Ecosystem</a></li>
-          <li><a href="hub/" class="mobile-nav-link">Hub</a></li>
           <li><a href="docs.html" class="mobile-nav-link">Documentation</a></li>
           <li><a href="https://crates.io/crates/rho" target="_blank" rel="noopener" class="mobile-nav-link">crates.io ↗</a></li>
           <li><a href="https://github.com/casonadams/rho" target="_blank" rel="noopener" class="mobile-nav-link">GitHub ↗</a></li>
@@ -230,13 +228,13 @@
 
         <div class="card">
           <div class="card-icon icon-blue">🛡</div>
-          <h3 class="card-title">Fail-Closed Safety</h3>
+          <h3 class="card-title">In-Process Guard &amp; Safety</h3>
           <p class="card-desc">
-            Hooks run in isolated process groups with strict timeouts. Unhandled errors or timeouts fail closed. Hooks can also instruct rho to prompt the user via native TUI dialogs.
+            Delegate shell command safety to an automated local guard model (<code>qwen2.5-coder:7b</code> via Ollama). Benign commands run automatically; risky operations pause for review with full fail-closed safety.
           </p>
           <div class="card-footer">
-            <span>{"action": "ask"}</span>
-            <span>Deterministic security</span>
+            <span>models.guard = "ollama/qwen2.5-coder:7b"</span>
+            <span>Fail-closed security</span>
           </div>
         </div>
       </div>
@@ -308,15 +306,16 @@ rho --mode rpc
         </div>
 
         <div class="card">
-          <h3 class="card-title">Session Tree &amp; DAG History</h3>
+          <h3 class="card-title">Conversation Trees &amp; DAG History</h3>
           <p class="card-desc">
-            Explore conversation turn trees, create branches, fork checkpoints, and switch context seamlessly with interactive branch navigation.
+            Explore turn history with <code>/tree</code>, label key checkpoints, rewind to prior turns with <code>/rewind</code>, or fork clean sub-branches with <code>/fork</code>.
           </p>
           <div class="code-block-wrapper">
             <pre><code># Interactive DAG tree navigation
 /tree
 
-# Fork branch from checkpoint
+# Rewind or fork from turn
+/rewind 4
 /fork &lt;node-id&gt;</code></pre>
           </div>
         </div>
@@ -331,20 +330,6 @@ rho --mode rpc
 /compact "focus on tests"
 
 # Proactive auto-compact at threshold</code></pre>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">Conversation Trees &amp; Branching</h3>
-          <p class="card-desc">
-            Explore conversation turn history with <code>/tree</code>, label key checkpoints, rewind to prior turns, or fork clean sub-branches with automatic abandoned-branch summarization.
-          </p>
-          <div class="code-block-wrapper">
-            <pre><code># Interactive history tree
-/tree
-
-# Rewind or branch from turn
-/rewind 4</code></pre>
           </div>
         </div>
       </div>

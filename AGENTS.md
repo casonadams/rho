@@ -64,7 +64,6 @@
 ## Documentation, and website synchronization
 
 - When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
-- Maintain bidirectional UI parity: features, prompts, tool outputs, and interactive approvals visible in the raw-mode TUI must also stream, render, and resolve cleanly in the Web Hub dashboard.
 
 ## Completion
 

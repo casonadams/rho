@@ -29,22 +29,7 @@ rho --model gemini/gemini-2.5-flash
 rho --resume <SESSION_ID>
 # Or browse recent sessions interactively
 rho --resume-picker
-
-# Run headless remote daemon
-rho serve --workspace ~/src/my-project
-
-# Share active terminal session to web dashboard
-/remote
 ```
-
----
-
-## Fleet Hub & Remote Access
-
-`rho` includes zero-cloud remote access powered by direct WebSocket RPC.
-- **`rho serve`**: Run an autonomous agent node on any server or devbox. Outputs an encrypted node ticket and terminal QR code.
-- **`/remote`**: In an active terminal session, opens an in-TUI pairing modal to monitor and steer from a mobile or web browser.
-- **Web Hub**: Statically hosted at `https://casonadams.github.io/rho/hub/` (zero hosted backend servers, 100% client-side WebAssembly). Direct control across your machines with live tool streaming, interactive approvals, real-time token tracking, and provider quota status.
 
 ---
 
@@ -100,12 +85,10 @@ Comprehensive guides are organized in [`docs/`](docs/):
 
 - **[Permissions, Privacy & Safety](docs/permissions.md)**
   - Strict zero-telemetry policy: rho collects nothing, no analytics, no phone-home pings.
-  - In-process safety layer separating baseline safe inspection from mutating
-    commands.
-  - Interactive approval modals: **Allow**, **Edit** (with multiline arrow
-    navigation), **Always** (with pattern matching), and **Deny** (with
-    feedback).
-  - Fail-closed execution in headless automation.
+  - In-process safety layer separating baseline safe inspection from mutating commands.
+  - Delegated **Guard Model** classification: automatically classifies shell commands using a fast local model (`qwen2.5-coder:7b` via Ollama) to execute safe commands without friction while intercepting hazardous operations.
+  - Interactive approval modals: **Allow**, **Edit** (with multiline arrow navigation), **Always** (with pattern matching), and **Deny** (with feedback).
+  - Fail-closed execution in headless automation and on guard model errors or timeouts.
 
 - **[MCP Servers & Lifecycle Hooks](docs/mcp-and-hooks.md)**
   - Full Model Context Protocol (MCP) support: `stdio` and `streamable-http` transports with OAuth 2.1 PKCE authorization.
