@@ -5,6 +5,7 @@
 pub mod baseline;
 pub mod bash;
 pub mod eval;
+pub mod guard;
 pub mod hook;
 pub mod matcher;
 pub mod path;
