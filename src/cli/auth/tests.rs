@@ -41,6 +41,7 @@ fn api_key_provider_options_are_filtered_and_concise() {
         rho_harness_core::config::ProviderConfig {
             base_url: "http://localhost:8000".to_string(),
             key_env: None,
+            default_model: None,
         },
     );
 

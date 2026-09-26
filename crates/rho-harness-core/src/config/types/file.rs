@@ -8,6 +8,8 @@ pub(crate) struct FileConfig {
     pub model: Option<String>,
     #[serde(default, alias = "default_provider")]
     pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
     pub max_output_tokens: Option<u64>,
     pub max_turns: Option<usize>,
     pub context_limit: Option<usize>,

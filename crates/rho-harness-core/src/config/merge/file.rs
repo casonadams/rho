@@ -1,9 +1,18 @@
 use super::super::Config;
 use super::super::types::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
+use std::str::FromStr;
 
 fn merge_provider_fallback(config: &mut Config, model_specified: bool) {
     if !model_specified {
         return;
+    }
+    if let Some((p, _)) = config.model.split_once('/') {
+        let p = p.trim();
+        if !p.is_empty() {
+            config.provider = p.to_string();
+            config.default_provider = Some(p.to_string());
+            return;
+        }
     }
     if let Some(inferred) = crate::provider::infer_provider_for_model(&config.model) {
         config.provider = inferred.to_string();
@@ -193,7 +202,68 @@ fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
-pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
+const LEGACY_MODEL_DEPRECATION_WARNING: &str = "Warning: 'model_provider' and 'providers.*.default_model' are deprecated. Use 'model = \"<provider>/<model>\"' instead.";
+
+fn detect_legacy_model_provider(file: &mut FileConfig) -> bool {
+    let Some(ref mp) = file.model_provider else {
+        return false;
+    };
+    let provider = mp.trim();
+    if let Some(ref m) = file.model {
+        if !m.contains('/') {
+            file.model = Some(format!("{provider}/{}", m.trim()));
+        }
+    } else {
+        let default_m = file
+            .models
+            .get(provider)
+            .cloned()
+            .unwrap_or_else(|| crate::provider::default_model_for_provider(provider).to_string());
+        file.model = Some(format!("{provider}/{default_m}"));
+    }
+    file.provider = Some(provider.to_string());
+    true
+}
+
+fn detect_legacy_provider_default_models(file: &mut FileConfig) -> bool {
+    let mut detected = false;
+    let mut default_spec = None;
+
+    for (name, provider_cfg) in &mut file.providers {
+        if let Some(dm) = provider_cfg.default_model.take() {
+            detected = true;
+            if default_spec.is_none() {
+                default_spec = Some((name.clone(), dm));
+            }
+        }
+    }
+
+    if (file.model.is_none() || file.model.as_deref().unwrap_or("").trim().is_empty())
+        && let Some((p, dm)) = default_spec
+    {
+        file.model = Some(format!("{p}/{}", dm.trim()));
+        file.provider = Some(p);
+    }
+
+    file.providers
+        .retain(|name, p| !(p.base_url.trim().is_empty() && crate::provider::ProviderId::from_str(name).is_ok()));
+
+    detected
+}
+
+fn migrate_legacy_model_config(config: &mut Config, file: &mut FileConfig) {
+    let p1 = detect_legacy_model_provider(file);
+    let p2 = detect_legacy_provider_default_models(file);
+    if p1 || p2 {
+        eprintln!("{LEGACY_MODEL_DEPRECATION_WARNING}");
+        config
+            .migration_warnings
+            .push(LEGACY_MODEL_DEPRECATION_WARNING.to_string());
+    }
+}
+
+pub(crate) fn merge_file(config: &mut Config, mut file: FileConfig) {
+    migrate_legacy_model_config(config, &mut file);
     config.models.extend(file.models.clone());
     merge_model_and_provider(config, &file);
     merge_token_limits(config, &file);

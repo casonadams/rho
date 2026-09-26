@@ -111,9 +111,12 @@ impl McpServerConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ProviderConfig {
+    #[serde(default)]
     pub base_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_env: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
 }

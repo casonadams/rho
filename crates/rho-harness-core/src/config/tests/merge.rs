@@ -253,3 +253,105 @@ fn test_tools_web_search_default_and_merge() {
     assert_eq!(merged.tools.web.search.default, "duckduckgo");
     assert_eq!(merged.tools.web.search.fallback, vec!["yahoo", "firecrawl"]);
 }
+
+#[tokio::test]
+async fn test_legacy_model_config_migration() {
+    // 1. model_provider + model -> <provider>/<model> with warning
+    let toml1 = r#"
+        model_provider = "openai"
+        model = "gpt-4o"
+    "#;
+    let file_cfg1: FileConfig = toml::from_str(toml1).unwrap();
+    let mut config1 = Config::default();
+    merge::merge_file(&mut config1, file_cfg1);
+    assert_eq!(config1.model, "openai/gpt-4o");
+    assert_eq!(config1.provider, "openai");
+    assert!(config1.migration_warnings.iter().any(|w| w.contains("deprecated")));
+
+    // 2. providers.anthropic.default_model -> anthropic/<default_model> with warning
+    let toml2 = r#"
+        [providers.anthropic]
+        default_model = "claude-3-7-sonnet"
+    "#;
+    let file_cfg2: FileConfig = toml::from_str(toml2).unwrap();
+    let mut config2 = Config::default();
+    merge::merge_file(&mut config2, file_cfg2);
+    assert_eq!(config2.model, "anthropic/claude-3-7-sonnet");
+    assert_eq!(config2.provider, "anthropic");
+    assert!(config2.validate().is_ok());
+    assert!(config2.migration_warnings.iter().any(|w| w.contains("deprecated")));
+
+    // 3. Custom provider with base_url and default_model
+    let toml3 = r#"
+        [providers.custom-llm]
+        base_url = "https://custom.ai/v1"
+        default_model = "model-x"
+    "#;
+    let file_cfg3: FileConfig = toml::from_str(toml3).unwrap();
+    let mut config3 = Config::default();
+    merge::merge_file(&mut config3, file_cfg3);
+    assert_eq!(config3.model, "custom-llm/model-x");
+    assert_eq!(config3.provider, "custom-llm");
+    assert!(config3.providers.contains_key("custom-llm"));
+    assert!(config3.validate().is_ok());
+
+    // 4. Canonical format emits no warnings
+    let toml4 = r#"
+        model = "anthropic/claude-3-7-sonnet"
+    "#;
+    let file_cfg4: FileConfig = toml::from_str(toml4).unwrap();
+    let mut config4 = Config::default();
+    merge::merge_file(&mut config4, file_cfg4);
+    assert_eq!(config4.model, "anthropic/claude-3-7-sonnet");
+    assert_eq!(config4.provider, "anthropic");
+    assert!(config4.migration_warnings.is_empty());
+
+    // 5. Saving config does not write deprecated fields
+    let dir = std::env::temp_dir().join(format!("rho_test_mig_save_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let legacy_toml = "model_provider = \"openai\"\n[providers.openai]\ndefault_model = \"gpt-4o\"\n";
+    std::fs::write(dir.join("config.toml"), legacy_toml).unwrap();
+
+    Config::save_default_model_async(&dir, "gpt-4o", "openai")
+        .await
+        .unwrap();
+
+    let saved = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert!(!saved.contains("model_provider"));
+    assert!(!saved.contains("default_model"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_canonical_model_spec() {
+    let mut config = Config {
+        model: "anthropic/claude-3-7-sonnet".to_string(),
+        provider: "anthropic".to_string(),
+        ..Default::default()
+    };
+    assert_eq!(config.canonical_model_spec(), "anthropic/claude-3-7-sonnet");
+
+    config.model = "openrouter/anthropic/claude-3.7-sonnet".to_string();
+    config.provider = "openrouter".to_string();
+    assert_eq!(config.canonical_model_spec(), "openrouter/anthropic/claude-3.7-sonnet");
+
+    config.model = "gpt-4o".to_string();
+    config.provider = "openai".to_string();
+    assert_eq!(config.canonical_model_spec(), "openai/gpt-4o");
+
+    config.model = "claude-3-7-sonnet".to_string();
+    config.provider = String::new();
+    assert_eq!(config.canonical_model_spec(), "anthropic/claude-3-7-sonnet");
+
+    config.model = "qwen2.5-coder:7b".to_string();
+    config.provider = String::new();
+    assert_eq!(config.canonical_model_spec(), "local/qwen2.5-coder:7b");
+
+    config.model = String::new();
+    config.provider = "openai".to_string();
+    assert_eq!(config.canonical_model_spec(), "openai/gpt-4o");
+
+    config.model = String::new();
+    config.provider = "local".to_string();
+    assert_eq!(config.canonical_model_spec(), "local/llama3.2:latest");
+}

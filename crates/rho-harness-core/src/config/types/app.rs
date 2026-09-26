@@ -46,6 +46,8 @@ pub struct Config {
     pub models: BTreeMap<String, String>,
     #[serde(default)]
     pub session_retention_days: Option<u32>,
+    #[serde(skip)]
+    pub migration_warnings: Vec<String>,
     pub providers: BTreeMap<String, ProviderConfig>,
     pub mcp: McpConfig,
     pub permission: PermissionConfig,
@@ -90,6 +92,7 @@ macro_rules! default_config_literal {
             default_provider: None,
             models: BTreeMap::new(),
             session_retention_days: Some(5),
+            migration_warnings: Vec::new(),
             providers: BTreeMap::new(),
             mcp: McpConfig::default(),
             permission: PermissionConfig::default(),
@@ -197,5 +200,31 @@ impl Config {
                 self.models.remove("guard");
             }
         }
+    }
+
+    pub fn canonical_model_spec(&self) -> String {
+        let trimmed = self.model.trim();
+        if trimmed.is_empty() {
+            let provider = if self.provider.trim().is_empty() {
+                "local"
+            } else {
+                self.provider.trim()
+            };
+            let default_m = crate::provider::default_model_for_provider(provider);
+            return format!("{provider}/{default_m}");
+        }
+        if let Some((p, m)) = trimmed.split_once('/') {
+            let p = p.trim();
+            let m = m.trim();
+            if !p.is_empty() {
+                return format!("{p}/{m}");
+            }
+        }
+        let provider = if !self.provider.trim().is_empty() {
+            self.provider.trim()
+        } else {
+            crate::provider::infer_provider_for_model(trimmed).unwrap_or("local")
+        };
+        format!("{provider}/{trimmed}")
     }
 }

@@ -5,6 +5,7 @@ fn rejects_colliding_or_bad_provider_name() {
     let valid = ProviderConfig {
         base_url: "https://api.acme.dev/v1".to_string(),
         key_env: None,
+        default_model: None,
     };
     let mut config = Config::default();
     config.providers.insert("anthropic".to_string(), valid.clone());
@@ -25,6 +26,7 @@ fn rejects_invalid_provider_urls() {
             ProviderConfig {
                 base_url: bad_url.to_string(),
                 key_env: None,
+                default_model: None,
             },
         );
         assert!(config.validate().is_err());
@@ -36,6 +38,7 @@ fn rejects_invalid_provider_urls() {
         ProviderConfig {
             base_url: "https://api.acme.dev/v1".to_string(),
             key_env: None,
+            default_model: None,
         },
     );
     config.validate().unwrap();

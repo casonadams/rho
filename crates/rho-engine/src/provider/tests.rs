@@ -16,6 +16,7 @@ fn spec(base_url: &str, key_env: Option<&str>) -> ProviderConfig {
     ProviderConfig {
         base_url: base_url.to_string(),
         key_env: key_env.map(str::to_string),
+        default_model: None,
     }
 }
 

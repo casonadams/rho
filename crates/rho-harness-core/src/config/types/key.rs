@@ -56,7 +56,7 @@ impl FromStr for ConfigKey {
 fn parse_runtime_key(value: &str) -> Option<ConfigKey> {
     match value {
         "model" | "default_model" => Some(ConfigKey::Model),
-        "provider" | "default_provider" => Some(ConfigKey::Provider),
+        "provider" | "default_provider" | "model_provider" => Some(ConfigKey::Provider),
         "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Some(ConfigKey::ThinkingLevel),
         "max_output_tokens" => Some(ConfigKey::MaxOutputTokens),
         "max_turns" => Some(ConfigKey::MaxTurns),
@@ -221,6 +221,7 @@ mod tests {
         let aliases = [
             ("default_model", ConfigKey::Model),
             ("default_provider", ConfigKey::Provider),
+            ("model_provider", ConfigKey::Provider),
             ("thinking", ConfigKey::ThinkingLevel),
             ("default_thinking", ConfigKey::ThinkingLevel),
             ("default_thinking_level", ConfigKey::ThinkingLevel),

@@ -24,6 +24,10 @@ impl super::Config {
         let mut file_config = read_file_config_async(&path).await?;
         file_config.model = Some(model.to_string());
         file_config.provider = Some(provider.to_string());
+        file_config.model_provider = None;
+        for p in file_config.providers.values_mut() {
+            p.default_model = None;
+        }
         file_config.models.insert(provider.to_string(), model.to_string());
         write_file_config_async(&path, &file_config).await
     }
@@ -350,7 +354,13 @@ fn read_file_config(path: &Path) -> Result<FileConfig> {
     }
     let content = std::fs::read_to_string(path)
         .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+    let mut file: FileConfig =
+        toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))?;
+    file.model_provider = None;
+    for p in file.providers.values_mut() {
+        p.default_model = None;
+    }
+    Ok(file)
 }
 
 async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
@@ -360,7 +370,13 @@ async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
     let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
+    let mut file: FileConfig =
+        toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))?;
+    file.model_provider = None;
+    for p in file.providers.values_mut() {
+        p.default_model = None;
+    }
+    Ok(file)
 }
 
 fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {
