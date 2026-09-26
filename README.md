@@ -21,9 +21,9 @@ rho
 # Run one-shot prompt
 rho -p "summarize this repository"
 
-# Select provider and model
-rho --provider gemini --model gemini-2.5-flash
-rho --provider anthropic --model claude-3-7-sonnet-latest
+# Select model in <provider>/<model> format
+rho --model anthropic/claude-3-7-sonnet
+rho --model gemini/gemini-2.5-flash
 
 # Resume a previous session
 rho --resume <SESSION_ID>

@@ -500,11 +500,11 @@ async fn settings_modal_actions_persist_to_disk() {
     let content = std::fs::read_to_string(&config_path).expect("config.toml written");
     let toml: toml::Value = toml::from_str(&content).unwrap();
 
+    let models = toml.get("models").expect("models section in config");
     assert_eq!(
-        toml.get("model").and_then(|v| v.as_str()),
-        Some("claude-3-5-haiku-20241022")
+        models.get("default").and_then(|v| v.as_str()),
+        Some("anthropic/claude-3-5-haiku-20241022")
     );
-    assert_eq!(toml.get("provider").and_then(|v| v.as_str()), Some("anthropic"));
     assert_eq!(toml.get("thinking_level").and_then(|v| v.as_str()), Some("high"));
     assert_eq!(toml.get("show_label").and_then(|v| v.as_bool()), Some(true));
 

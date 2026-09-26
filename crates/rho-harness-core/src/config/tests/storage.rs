@@ -41,8 +41,7 @@ fn load_config_with_rho_home(dir: &std::path::Path) -> Config {
 fn test_config_file_loads_model_provider_and_thinking_level() {
     let dir = std::env::temp_dir().join(format!("rho_cfg_load_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    Config::set_file_value(&dir, "model", "gemini-2.0-flash").unwrap();
-    Config::set_file_value(&dir, "provider", "gemini").unwrap();
+    Config::set_file_value(&dir, "model", "gemini/gemini-2.0-flash").unwrap();
     Config::set_file_value(&dir, "thinking_level", "high").unwrap();
 
     let config = load_config_with_rho_home(&dir);
@@ -59,7 +58,7 @@ fn test_config_file_loads_model_provider_and_thinking_level() {
             "gemini-2.0-flash",
             "gemini",
             Some("high"),
-            Some("gemini-2.0-flash"),
+            Some("gemini/gemini-2.0-flash"),
             Some("gemini")
         )
     );
@@ -70,7 +69,7 @@ fn test_config_file_loads_model_provider_and_thinking_level() {
 fn test_config_file_aliases_load_correctly() {
     let dir = std::env::temp_dir().join(format!("rho_cfg_alias_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    let toml = "default_model = \"claude-3-7-sonnet-20250219\"\ndefault_provider = \"anthropic\"\ndefault_thinking = \"medium\"\n";
+    let toml = "default_thinking = \"medium\"\n[models]\ndefault = \"anthropic/claude-3-7-sonnet-20250219\"\n";
     std::fs::write(dir.join("config.toml"), toml).unwrap();
 
     let config = load_config_with_rho_home(&dir);
@@ -87,7 +86,7 @@ fn test_config_file_aliases_load_correctly() {
             "claude-3-7-sonnet-20250219",
             "anthropic",
             Some("medium"),
-            Some("claude-3-7-sonnet-20250219"),
+            Some("anthropic/claude-3-7-sonnet-20250219"),
             Some("anthropic")
         )
     );
@@ -98,8 +97,8 @@ fn test_config_file_aliases_load_correctly() {
 // serde must ignore it rather than reject the whole file.
 #[test]
 fn stale_theme_key_in_config_file_is_ignored() {
-    let file: FileConfig = toml::from_str("theme = \"nord\"\nmodel = \"gpt-test\"\n").unwrap();
-    assert_eq!(file.model.as_deref(), Some("gpt-test"));
+    let file: FileConfig = toml::from_str("theme = \"nord\"\n[models]\ndefault = \"gpt-test\"\n").unwrap();
+    assert_eq!(file.models.default.as_deref(), Some("gpt-test"));
 }
 
 #[test]
@@ -111,7 +110,7 @@ fn test_set_file_value_persists_and_validates() {
     Config::set_file_value(&dir, "max_turns", "7").unwrap();
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
-    let actual = (file.model.as_deref(), file.max_turns);
+    let actual = (file.models.default.as_deref(), file.max_turns);
     assert_eq!(actual, (Some("gpt-test"), Some(7)));
     assert!(Config::set_file_value(&dir, "max_turns", "0").is_err());
     assert!(Config::set_file_value(&dir, "unknown", "value").is_err());
@@ -165,14 +164,13 @@ async fn test_save_default_model_persists_both_fields() {
         (
             "saved-model",
             "saved-provider",
-            Some("saved-model"),
+            Some("saved-provider/saved-model"),
             Some("saved-provider")
         )
     );
-    assert_eq!(
-        config.models.get("saved-provider").map(String::as_str),
-        Some("saved-model")
-    );
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    assert!(content.contains("[models]"));
+    assert!(content.contains("default = \"saved-provider/saved-model\""));
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -418,12 +416,7 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
 
-    assert_eq!(file.provider.as_deref(), Some("anthropic"));
-    assert_eq!(file.model.as_deref(), Some("claude-3-7-sonnet"));
-    assert_eq!(
-        file.models.get("anthropic").map(String::as_str),
-        Some("claude-3-7-sonnet")
-    );
+    assert_eq!(file.models.default.as_deref(), Some("claude-3-7-sonnet"));
     assert_eq!(file.thinking_level, None);
     assert_eq!(file.region.as_deref(), Some("us-east-1"));
     assert_eq!(file.steering_mode, Some(crate::queue::QueueMode::All));
@@ -432,17 +425,12 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     Config::set_file_value(&dir, "provider", "openai").unwrap();
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
-    assert_eq!(file.provider.as_deref(), Some("openai"));
-    assert_eq!(
-        file.model.as_deref(),
-        Some(crate::provider::default_model_for_provider("openai"))
-    );
+    assert_eq!(file.models.default.as_deref(), Some("openai/claude-3-7-sonnet"));
 
     Config::set_file_value(&dir, "provider", "anthropic").unwrap();
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
-    assert_eq!(file.provider.as_deref(), Some("anthropic"));
-    assert_eq!(file.model.as_deref(), Some("claude-3-7-sonnet"));
+    assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
 
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -461,4 +449,32 @@ fn test_config_file_guard_model() {
     assert_eq!(config2.guard_model(), None);
 
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn test_empty_tables_omitted() {
+    let file = FileConfig::default();
+    let serialized = toml::to_string_pretty(&file).unwrap();
+    assert!(!serialized.contains("[providers]"));
+    assert!(!serialized.contains("[models]"));
+
+    let mut with_model = FileConfig::default();
+    with_model.models.default = Some("anthropic/claude-3-7-sonnet".to_string());
+    let serialized_model = toml::to_string_pretty(&with_model).unwrap();
+    assert!(serialized_model.contains("[models]"));
+    assert!(serialized_model.contains("default = \"anthropic/claude-3-7-sonnet\""));
+    assert!(!serialized_model.contains("[providers]"));
+
+    let mut with_provider = FileConfig::default();
+    with_provider.providers.insert(
+        "custom".to_string(),
+        crate::config::ProviderConfig {
+            base_url: "https://example.com".to_string(),
+            key_env: None,
+            default_model: None,
+        },
+    );
+    let serialized_provider = toml::to_string_pretty(&with_provider).unwrap();
+    assert!(serialized_provider.contains("[providers.custom]"));
+    assert!(!serialized_provider.contains("[models]"));
 }

@@ -27,7 +27,7 @@ fn with_test_env<F: FnOnce(&std::path::Path)>(toml: &str, env_pair: (&str, &str)
 #[test]
 fn custom_provider_end_to_end_via_config_file() {
     let _guard = crate::ENV_LOCK.lock().unwrap();
-    let toml = "model = \"acme-large\"\nprovider = \"acme\"\n\n[providers.acme]\nbase_url = \"https://api.acme.dev/v1\"\nkey_env = \"RHO_E2E_ACME_KEY\"\n";
+    let toml = "[models]\ndefault = \"acme/acme-large\"\n\n[providers.acme]\nbase_url = \"https://api.acme.dev/v1\"\nkey_env = \"RHO_E2E_ACME_KEY\"\n";
     with_test_env(toml, ("RHO_E2E_ACME_KEY", "acme-secret"), |home| {
         let config = Config::load(None).unwrap();
         assert!(config.providers.contains_key("acme"));
@@ -40,7 +40,7 @@ fn custom_provider_end_to_end_via_config_file() {
 #[test]
 fn custom_provider_private_endpoint_blocked_by_default() {
     let _guard = crate::ENV_LOCK.lock().unwrap();
-    let toml = "provider = \"custom-private\"\n\n[providers.custom-private]\nbase_url = \"http://127.0.0.1:8080/v1\"\nkey_env = \"RHO_E2E_LOCAL_KEY\"\n";
+    let toml = "[models]\ndefault = \"custom-private/llama\"\n\n[providers.custom-private]\nbase_url = \"http://127.0.0.1:8080/v1\"\nkey_env = \"RHO_E2E_LOCAL_KEY\"\n";
     with_test_env(toml, ("RHO_E2E_LOCAL_KEY", "local-secret"), |home| {
         let config = Config::load(None).unwrap();
         let auth_store = AuthStore::load(home.join("auth.json")).unwrap();

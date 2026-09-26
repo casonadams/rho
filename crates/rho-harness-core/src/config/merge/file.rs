@@ -1,52 +1,35 @@
 use super::super::Config;
 use super::super::types::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
-use std::str::FromStr;
-
-fn merge_provider_fallback(config: &mut Config, model_specified: bool) {
-    if !model_specified {
-        return;
-    }
-    if let Some((p, _)) = config.model.split_once('/') {
-        let p = p.trim();
-        if !p.is_empty() {
-            config.provider = p.to_string();
-            config.default_provider = Some(p.to_string());
-            return;
-        }
-    }
-    if let Some(inferred) = crate::provider::infer_provider_for_model(&config.model) {
-        config.provider = inferred.to_string();
-        config.default_provider = Some(inferred.to_string());
-    } else {
-        config.provider = "local".to_string();
-        config.default_provider = None;
-    }
-}
 
 fn merge_model_and_provider(config: &mut Config, file: &FileConfig) {
-    let model_specified = file.model.is_some();
-    if let Some(ref m) = file.model {
-        config.model = m.clone();
-        config.default_model = Some(m.clone());
-    }
-    if let Some(ref p) = file.provider {
-        config.provider = p.clone();
-        config.default_provider = Some(p.clone());
-        if !model_specified {
-            if let Some(configured) = config.models.get(p) {
-                config.model = configured.clone();
-                config.default_model = Some(configured.clone());
-            } else {
-                let default_m = crate::provider::default_model_for_provider(p);
-                config.model = default_m.to_string();
-                config.default_model = Some(default_m.to_string());
-            }
-        }
+    if let Some(ref default_spec) = file.models.default {
+        let (p, m) = crate::provider::parse_model_spec(default_spec);
+        let provider = if !p.is_empty() {
+            p
+        } else {
+            crate::provider::infer_provider_for_model(&m)
+                .unwrap_or("local")
+                .to_string()
+        };
+        config.provider = provider.clone();
+        config.model = m;
+        config.default_provider = Some(provider);
+        config.default_model = Some(default_spec.clone());
     } else {
-        if !model_specified && let Some(configured) = config.models.get(&config.provider) {
-            config.model = configured.clone();
-        }
-        merge_provider_fallback(config, model_specified);
+        config.provider = "local".to_string();
+        config.model = "qwen2.5-coder:7b".to_string();
+        config.default_provider = Some("local".to_string());
+        config.default_model = Some("local/qwen2.5-coder:7b".to_string());
+    }
+
+    if let Some(ref guard) = file.models.guard {
+        config.models.insert("guard".to_string(), guard.clone());
+    }
+    if let Some(ref plan) = file.models.plan {
+        config.models.insert("plan".to_string(), plan.clone());
+    }
+    if let Some(ref advisor) = file.models.advisor {
+        config.models.insert("advisor".to_string(), advisor.clone());
     }
     if let Some(ref t) = file.thinking_level {
         config.thinking_level = (t != "off").then(|| t.clone());
@@ -192,69 +175,7 @@ fn merge_mcp_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
-const LEGACY_MODEL_DEPRECATION_WARNING: &str = "Warning: 'model_provider' and 'providers.*.default_model' are deprecated. Use 'model = \"<provider>/<model>\"' instead.";
-
-fn detect_legacy_model_provider(file: &mut FileConfig) -> bool {
-    let Some(ref mp) = file.model_provider else {
-        return false;
-    };
-    let provider = mp.trim();
-    if let Some(ref m) = file.model {
-        if !m.contains('/') {
-            file.model = Some(format!("{provider}/{}", m.trim()));
-        }
-    } else {
-        let default_m = file
-            .models
-            .get(provider)
-            .cloned()
-            .unwrap_or_else(|| crate::provider::default_model_for_provider(provider).to_string());
-        file.model = Some(format!("{provider}/{default_m}"));
-    }
-    file.provider = Some(provider.to_string());
-    true
-}
-
-fn detect_legacy_provider_default_models(file: &mut FileConfig) -> bool {
-    let mut detected = false;
-    let mut default_spec = None;
-
-    for (name, provider_cfg) in &mut file.providers {
-        if let Some(dm) = provider_cfg.default_model.take() {
-            detected = true;
-            if default_spec.is_none() {
-                default_spec = Some((name.clone(), dm));
-            }
-        }
-    }
-
-    if (file.model.is_none() || file.model.as_deref().unwrap_or("").trim().is_empty())
-        && let Some((p, dm)) = default_spec
-    {
-        file.model = Some(format!("{p}/{}", dm.trim()));
-        file.provider = Some(p);
-    }
-
-    file.providers
-        .retain(|name, p| !(p.base_url.trim().is_empty() && crate::provider::ProviderId::from_str(name).is_ok()));
-
-    detected
-}
-
-fn migrate_legacy_model_config(config: &mut Config, file: &mut FileConfig) {
-    let p1 = detect_legacy_model_provider(file);
-    let p2 = detect_legacy_provider_default_models(file);
-    if p1 || p2 {
-        eprintln!("{LEGACY_MODEL_DEPRECATION_WARNING}");
-        config
-            .migration_warnings
-            .push(LEGACY_MODEL_DEPRECATION_WARNING.to_string());
-    }
-}
-
-pub(crate) fn merge_file(config: &mut Config, mut file: FileConfig) {
-    migrate_legacy_model_config(config, &mut file);
-    config.models.extend(file.models.clone());
+pub(crate) fn merge_file(config: &mut Config, file: FileConfig) {
     merge_model_and_provider(config, &file);
     merge_token_limits(config, &file);
     merge_context_settings(config, &file);

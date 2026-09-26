@@ -22,13 +22,14 @@ impl super::Config {
     pub async fn save_default_model_async(config_dir: &Path, model: &str, provider: &str) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
-        file_config.model = Some(model.to_string());
-        file_config.provider = Some(provider.to_string());
-        file_config.model_provider = None;
-        for p in file_config.providers.values_mut() {
-            p.default_model = None;
-        }
-        file_config.models.insert(provider.to_string(), model.to_string());
+        let spec = if model.contains('/') {
+            model.to_string()
+        } else if !provider.is_empty() {
+            format!("{provider}/{model}")
+        } else {
+            model.to_string()
+        };
+        file_config.models.default = Some(spec);
         write_file_config_async(&path, &file_config).await
     }
 
@@ -42,17 +43,10 @@ impl super::Config {
     pub async fn save_guard_model_async(config_dir: &Path, guard: Option<&str>) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
-        match guard
+        file_config.models.guard = guard
             .map(str::trim)
             .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
-        {
-            Some(g) => {
-                file_config.models.insert("guard".to_string(), g.to_string());
-            }
-            None => {
-                file_config.models.remove("guard");
-            }
-        }
+            .map(str::to_string);
         write_file_config_async(&path, &file_config).await
     }
 
@@ -147,39 +141,30 @@ impl super::Config {
     }
 }
 
-fn apply_provider_change(file_config: &mut FileConfig, value: &str) {
-    let provider_changing = file_config.provider.as_deref().is_some_and(|p| p != value);
-    file_config.provider = Some(value.to_string());
-    if provider_changing {
-        if let Some(model) = file_config.models.get(value) {
-            file_config.model = Some(model.clone());
-        } else {
-            let default_m = crate::provider::default_model_for_provider(value);
-            file_config.model = Some(default_m.to_string());
-        }
-    } else if let Some(m) = &file_config.model {
-        file_config.models.insert(value.to_string(), m.clone());
-    }
-}
-
 fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -> Result<bool> {
     match key {
         ConfigKey::Model => {
-            file_config.model = Some(value.to_string());
-            if let Some(p) = &file_config.provider {
-                file_config.models.insert(p.clone(), value.to_string());
+            file_config.models.default = Some(value.to_string());
+        }
+        ConfigKey::Provider => {
+            if let Some(ref current_spec) = file_config.models.default {
+                let (_, m) = crate::provider::parse_model_spec(current_spec);
+                let model = if m.is_empty() { current_spec } else { &m };
+                file_config.models.default = Some(format!("{value}/{model}"));
+            } else {
+                let default_m = crate::provider::default_model_for_provider(value);
+                file_config.models.default = Some(format!("{value}/{default_m}"));
             }
         }
-        ConfigKey::Provider => apply_provider_change(file_config, value),
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
         }
         ConfigKey::GuardModel => {
             let trimmed = value.trim();
             if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
-                file_config.models.remove("guard");
+                file_config.models.guard = None;
             } else {
-                file_config.models.insert("guard".to_string(), trimmed.to_string());
+                file_config.models.guard = Some(trimmed.to_string());
             }
         }
         _ => return Ok(false),
@@ -344,13 +329,7 @@ fn read_file_config(path: &Path) -> Result<FileConfig> {
     }
     let content = std::fs::read_to_string(path)
         .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-    let mut file: FileConfig =
-        toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))?;
-    file.model_provider = None;
-    for p in file.providers.values_mut() {
-        p.default_model = None;
-    }
-    Ok(file)
+    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
 }
 
 async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
@@ -360,13 +339,7 @@ async fn read_file_config_async(path: &Path) -> Result<FileConfig> {
     let content = tokio::fs::read_to_string(path)
         .await
         .map_err(|error| AppError::Config(format!("Failed to read config file {}: {error}", path.display())))?;
-    let mut file: FileConfig =
-        toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))?;
-    file.model_provider = None;
-    for p in file.providers.values_mut() {
-        p.default_model = None;
-    }
-    Ok(file)
+    toml::from_str(&content).map_err(|error| AppError::Config(format!("Failed to parse config file: {error}")))
 }
 
 fn write_file_config(path: &Path, file_config: &FileConfig) -> Result<()> {

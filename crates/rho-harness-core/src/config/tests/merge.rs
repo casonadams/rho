@@ -52,8 +52,10 @@ fn assert_merged_limits(cfg: &Config) {
 fn test_file_merge() {
     let mut cfg = Config::default();
     let file_cfg = FileConfig {
-        model: Some("gpt-4o".to_string()),
-        provider: Some("openai".to_string()),
+        models: crate::config::ModelsConfig {
+            default: Some("openai/gpt-4o".to_string()),
+            ..Default::default()
+        },
         max_output_tokens: Some(8192),
         max_turns: Some(10),
         context_limit: Some(65536),
@@ -97,7 +99,10 @@ fn test_precedence_is_defaults_file_environment_then_cli() {
     merge::merge_file(
         &mut config,
         FileConfig {
-            model: Some("file-model".to_string()),
+            models: crate::config::ModelsConfig {
+                default: Some("file-model".to_string()),
+                ..Default::default()
+            },
             max_turns: Some(20),
             ..Default::default()
         },
@@ -174,15 +179,16 @@ fn test_cli_permission_flag_override() {
 #[test]
 fn test_cli_provider_switch_picks_model_from_models_table() {
     let mut config = Config::default();
+    config
+        .models
+        .insert("gemini".to_string(), "gemini-3.6-flash".to_string());
     merge::merge_file(
         &mut config,
         FileConfig {
-            model: Some("claude-sonnet-5".to_string()),
-            provider: Some("claude".to_string()),
-            models: std::collections::BTreeMap::from([
-                ("claude".to_string(), "claude-sonnet-5".to_string()),
-                ("gemini".to_string(), "gemini-3.6-flash".to_string()),
-            ]),
+            models: crate::config::ModelsConfig {
+                default: Some("claude/claude-sonnet-5".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         },
     );
@@ -202,8 +208,10 @@ fn test_cli_provider_switch_falls_back_to_canonical_default_when_not_in_models_t
     merge::merge_file(
         &mut config,
         FileConfig {
-            model: Some("claude-sonnet-5".to_string()),
-            provider: Some("claude".to_string()),
+            models: crate::config::ModelsConfig {
+                default: Some("claude/claude-sonnet-5".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         },
     );
@@ -218,12 +226,16 @@ fn test_cli_provider_switch_falls_back_to_canonical_default_when_not_in_models_t
 #[test]
 fn test_cli_provider_switch_with_explicit_model_flag_overrides_models_table() {
     let mut config = Config::default();
+    config
+        .models
+        .insert("gemini".to_string(), "gemini-3.6-flash".to_string());
     merge::merge_file(
         &mut config,
         FileConfig {
-            model: Some("claude-sonnet-5".to_string()),
-            provider: Some("claude".to_string()),
-            models: std::collections::BTreeMap::from([("gemini".to_string(), "gemini-3.6-flash".to_string())]),
+            models: crate::config::ModelsConfig {
+                default: Some("claude/claude-sonnet-5".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         },
     );
@@ -254,72 +266,49 @@ fn test_tools_web_search_default_and_merge() {
     assert_eq!(merged.tools.web.search.fallback, vec!["yahoo", "firecrawl"]);
 }
 
-#[tokio::test]
-async fn test_legacy_model_config_migration() {
-    // 1. model_provider + model -> <provider>/<model> with warning
+#[test]
+fn test_merge_models() {
     let toml1 = r#"
-        model_provider = "openai"
-        model = "gpt-4o"
+        [models]
+        default = "anthropic/claude-3-7-sonnet"
+        guard = "local/qwen2.5-coder:7b"
+        plan = "openai/o3-mini"
+        advisor = "google/gemini-2.5-flash"
     "#;
-    let file_cfg1: FileConfig = toml::from_str(toml1).unwrap();
+    let file1: FileConfig = toml::from_str(toml1).unwrap();
     let mut config1 = Config::default();
-    merge::merge_file(&mut config1, file_cfg1);
-    assert_eq!(config1.model, "openai/gpt-4o");
-    assert_eq!(config1.provider, "openai");
-    assert!(config1.migration_warnings.iter().any(|w| w.contains("deprecated")));
+    merge::merge_file(&mut config1, file1);
+    assert_eq!(config1.provider, "anthropic");
+    assert_eq!(config1.model, "claude-3-7-sonnet");
+    assert_eq!(config1.guard_model(), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(config1.models.get("plan").map(String::as_str), Some("openai/o3-mini"));
+    assert_eq!(
+        config1.models.get("advisor").map(String::as_str),
+        Some("google/gemini-2.5-flash")
+    );
 
-    // 2. providers.anthropic.default_model -> anthropic/<default_model> with warning
+    // OpenRouter multi-slash model
     let toml2 = r#"
-        [providers.anthropic]
-        default_model = "claude-3-7-sonnet"
+        [models]
+        default = "openrouter/anthropic/claude-3.7-sonnet"
     "#;
-    let file_cfg2: FileConfig = toml::from_str(toml2).unwrap();
+    let file2: FileConfig = toml::from_str(toml2).unwrap();
     let mut config2 = Config::default();
-    merge::merge_file(&mut config2, file_cfg2);
-    assert_eq!(config2.model, "anthropic/claude-3-7-sonnet");
-    assert_eq!(config2.provider, "anthropic");
-    assert!(config2.validate().is_ok());
-    assert!(config2.migration_warnings.iter().any(|w| w.contains("deprecated")));
+    merge::merge_file(&mut config2, file2);
+    assert_eq!(config2.provider, "openrouter");
+    assert_eq!(config2.model, "anthropic/claude-3.7-sonnet");
 
-    // 3. Custom provider with base_url and default_model
+    // Absent default falls back to built-in default
     let toml3 = r#"
-        [providers.custom-llm]
-        base_url = "https://custom.ai/v1"
-        default_model = "model-x"
+        [models]
+        guard = "local/qwen2.5-coder:7b"
     "#;
-    let file_cfg3: FileConfig = toml::from_str(toml3).unwrap();
+    let file3: FileConfig = toml::from_str(toml3).unwrap();
     let mut config3 = Config::default();
-    merge::merge_file(&mut config3, file_cfg3);
-    assert_eq!(config3.model, "custom-llm/model-x");
-    assert_eq!(config3.provider, "custom-llm");
-    assert!(config3.providers.contains_key("custom-llm"));
-    assert!(config3.validate().is_ok());
-
-    // 4. Canonical format emits no warnings
-    let toml4 = r#"
-        model = "anthropic/claude-3-7-sonnet"
-    "#;
-    let file_cfg4: FileConfig = toml::from_str(toml4).unwrap();
-    let mut config4 = Config::default();
-    merge::merge_file(&mut config4, file_cfg4);
-    assert_eq!(config4.model, "anthropic/claude-3-7-sonnet");
-    assert_eq!(config4.provider, "anthropic");
-    assert!(config4.migration_warnings.is_empty());
-
-    // 5. Saving config does not write deprecated fields
-    let dir = std::env::temp_dir().join(format!("rho_test_mig_save_{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let legacy_toml = "model_provider = \"openai\"\n[providers.openai]\ndefault_model = \"gpt-4o\"\n";
-    std::fs::write(dir.join("config.toml"), legacy_toml).unwrap();
-
-    Config::save_default_model_async(&dir, "gpt-4o", "openai")
-        .await
-        .unwrap();
-
-    let saved = std::fs::read_to_string(dir.join("config.toml")).unwrap();
-    assert!(!saved.contains("model_provider"));
-    assert!(!saved.contains("default_model"));
-    std::fs::remove_dir_all(dir).unwrap();
+    merge::merge_file(&mut config3, file3);
+    assert_eq!(config3.provider, "local");
+    assert_eq!(config3.model, "qwen2.5-coder:7b");
+    assert_eq!(config3.guard_model(), Some("local/qwen2.5-coder:7b"));
 }
 
 #[test]

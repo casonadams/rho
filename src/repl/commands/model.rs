@@ -23,8 +23,9 @@ pub(crate) fn handle_thinking(ctx: &mut SlashCommandContext<'_>, parts: &[&str])
 
 pub(crate) fn resolve_model_spec(parts: &[&str], current_provider: &str) -> (String, String) {
     let model_spec = parts[1];
-    let (provider, model) = if let Some((p, m)) = model_spec.split_once('/') {
-        (p.to_string(), m.to_string())
+    let (p, m) = rho_harness_core::provider::parse_model_spec(model_spec);
+    let (provider, model) = if !p.is_empty() {
+        (p, m)
     } else if let Some(p) = parts.get(2) {
         ((*p).to_string(), model_spec.to_string())
     } else {
