@@ -10,7 +10,7 @@ use rho_harness_core::provider::ProviderId;
 const HELP_REFERENCE: &str = "\nCommands\n\
   /help                       Show this reference\n\
   /settings                   Interactive runtime interface settings\n\
-  /model [model] [provider]   Inspect or switch the model\n\
+  /model [<model>]            Inspect or switch the model (<provider>/<model>)\n\
   /resume [id]                Resume a prior session\n\
   /skill [name]               List or inspect skills\n\
   /mcp                        List configured MCP servers\n\
@@ -135,8 +135,6 @@ pub fn handle_session(ctx: &SlashCommandContext<'_>) {
     let _ = writeln!(out, "  Max Turns:                   {}", ctx.config.max_turns);
     let _ = writeln!(out, "  Steering Mode:               {}", ctx.config.steering_mode);
     let _ = writeln!(out, "  Follow-up Mode:              {}", ctx.config.follow_up_mode);
-    let rag_status = "Disabled (removed)".to_string();
-    let _ = writeln!(out, "  Semantic Search (RAG):       {rag_status}");
     let _ = writeln!(out);
     ctx.renderer.print_notice(&out);
 }

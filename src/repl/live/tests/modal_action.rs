@@ -296,8 +296,6 @@ async fn test_modal_action_ui_settings_toggled() {
         ModalKeyResult::McpServerToggled {
             server: "nonexistent".to_string(),
         },
-        ModalKeyResult::SemanticSearchToggled { enabled: true },
-        ModalKeyResult::SemanticSearchToggled { enabled: false },
     ];
 
     for action in actions {
@@ -311,8 +309,6 @@ async fn test_modal_action_ui_settings_toggled() {
         assert!(apply_modal_key_result(action, ctx, &mut batch).await.unwrap());
     }
 
-    assert!(!session.config.semantic_search);
-    assert!(!engine.config.semantic_search);
     assert!(!session.config.mcp.servers["test_srv"].enabled);
 }
 

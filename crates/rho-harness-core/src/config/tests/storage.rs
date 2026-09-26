@@ -414,7 +414,6 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     Config::set_file_value(&dir, "region", "us-east-1").unwrap();
     Config::set_file_value(&dir, "steering_mode", "all").unwrap();
     Config::set_file_value(&dir, "follow_up_mode", "one-at-a-time").unwrap();
-    Config::set_file_value(&dir, "semantic_search", "true").unwrap();
 
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
     let file: FileConfig = toml::from_str(&content).unwrap();
@@ -429,7 +428,6 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
     assert_eq!(file.region.as_deref(), Some("us-east-1"));
     assert_eq!(file.steering_mode, Some(crate::queue::QueueMode::All));
     assert_eq!(file.follow_up_mode, Some(crate::queue::QueueMode::OneAtATime));
-    assert_eq!(file.semantic_search, Some(true));
 
     Config::set_file_value(&dir, "provider", "openai").unwrap();
     let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();

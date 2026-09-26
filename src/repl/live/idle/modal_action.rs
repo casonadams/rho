@@ -226,7 +226,6 @@ fn open_help_modal(
             Some(&session.config.model),
             session.config.guard_model(),
             session.config.thinking_level.as_deref(),
-            session.config.semantic_search,
             controller,
         ),
         "/model" => super::super::modal::open_model_selector(session, controller),
@@ -308,16 +307,6 @@ async fn handle_ui_setting_toggled(
                     .renderer
                     .print_notice(&format!("\nMCP server '{server}' {status}.\n"));
             }
-            Ok(true)
-        }
-        ModalKeyResult::SemanticSearchToggled { enabled } => {
-            ctx.session.config.semantic_search = enabled;
-            ctx.engine.config.semantic_search = enabled;
-            let _ =
-                rho_harness_core::config::Config::save_semantic_search_async(&ctx.session.config.config_dir, enabled)
-                    .await;
-            let status = if enabled { "enabled" } else { "disabled" };
-            ctx.session.renderer.print_status(&format!("Semantic search {status}"));
             Ok(true)
         }
         _ => Ok(false),

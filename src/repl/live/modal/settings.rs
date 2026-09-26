@@ -28,7 +28,6 @@ pub fn open_settings_selector<B: TerminalBackend>(
     model: Option<&str>,
     guard_model: Option<&str>,
     thinking_level: Option<&str>,
-    semantic_search: bool,
     controller: &mut TerminalController<B>,
 ) {
     let hide_thinking = controller.state().hide_thinking();
@@ -51,7 +50,6 @@ pub fn open_settings_selector<B: TerminalBackend>(
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
     let agent_status = if boxed { "On" } else { "Off" };
     let label_status = if show_label { "Shown" } else { "Hidden" };
-    let semantic_status = if semantic_search { "On" } else { "Off" };
 
     let options = vec![
         ModalOption::new("Block Style       ", Some(block_style.to_string())),
@@ -63,7 +61,6 @@ pub fn open_settings_selector<B: TerminalBackend>(
         ModalOption::new("Tool Output       ", Some(tools_status.to_string())),
         ModalOption::new("Version Banner    ", Some(label_status.to_string())),
         ModalOption::new("Cursor Style      ", Some(cursor_mode.to_string())),
-        ModalOption::new("Semantic Search   ", Some(semantic_status.to_string())),
         ModalOption::new("Tools & Permissions", None::<&str>),
     ];
 
@@ -169,7 +166,7 @@ fn toggle_modal_setting<B: TerminalBackend>(
             let _ = controller.redraw();
             Some(ModalKeyResult::OpenGuardModelSelector)
         }
-        10 => Some(ModalKeyResult::OpenToolsMenu),
+        9 => Some(ModalKeyResult::OpenToolsMenu),
         _ => None,
     }
 }
@@ -193,17 +190,6 @@ fn toggle_feature_setting<B: TerminalBackend>(
                 .unwrap_or_else(|_| controller.state_mut().toggle_tools_expanded());
             update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 6));
             Some(ModalKeyResult::ToolOutputToggled { expanded })
-        }
-        9 => {
-            let current = controller
-                .state()
-                .active_modal()
-                .and_then(|m| m.options.get(9))
-                .and_then(|o| o.description.as_deref())
-                .unwrap_or("Off");
-            let next = current != "On";
-            update_setting_description(controller, (if next { "On" } else { "Off" }, 9));
-            Some(ModalKeyResult::SemanticSearchToggled { enabled: next })
         }
         _ => None,
     }

@@ -49,10 +49,6 @@ pub(crate) struct FileConfig {
     #[serde(default)]
     pub models: BTreeMap<String, String>,
     #[serde(default)]
-    pub semantic_search: Option<bool>,
-    #[serde(default)]
-    pub features: Option<FeaturesConfig>,
-    #[serde(default)]
     pub tools: Option<ToolsConfigFile>,
 }
 
@@ -96,10 +92,4 @@ pub struct McpConfigFile {
     pub defer_threshold: Option<usize>,
     #[serde(default)]
     pub servers: BTreeMap<String, super::integrations::McpServerConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct FeaturesConfig {
-    #[serde(default)]
-    pub semantic_search: Option<bool>,
 }

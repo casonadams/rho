@@ -49,10 +49,10 @@ key_env = "CUSTOM_API_KEY" # optional; falls back to `rho login custom_endpoint`
 Select your custom provider using:
 
 ```sh
-rho --provider custom_endpoint --model my-model-id
+rho --model custom_endpoint/my-model-id
 ```
 
-Or switch in the REPL with `/model custom_endpoint:my-model-id`.
+Or switch in the REPL with `/model custom_endpoint/my-model-id`.
 
 > **Security Note**: `base_url` requires `http` or `https`. Requests to private
 > or loopback IP ranges are rejected unless explicitly allowed with
@@ -66,9 +66,9 @@ Or switch in the REPL with `/model custom_endpoint:my-model-id`.
 `rho` loads configuration by merging settings in order of precedence (highest to
 lowest):
 
-1. **CLI Flags** (`--model`, `--provider`, `--thinking`, `--no-permission`,
+1. **CLI Flags** (`--model <provider>/<model>`, `--provider` (optional/legacy), `--thinking`, `--no-permission`,
    etc.)
-2. **Environment Variables** (`AI_MODEL`, `AI_PROVIDER`, `AI_THINKING_LEVEL`,
+2. **Environment Variables** (`RHO_MODEL`, `RHO_PROVIDER`, `AI_MODEL`, `AI_PROVIDER`, `AI_THINKING_LEVEL`,
    `AI_MAX_OUTPUT_TOKENS`, `AI_MAX_TURNS`, `AI_CONTEXT_WINDOW_MESSAGES`,
    `AI_COMPACTION_MAX_BYTES`, `RHO_HOME`)
 3. **Project Configuration** (`.rho/config.toml`)
@@ -101,6 +101,22 @@ history:
 ```text
 /reload
 ```
+
+---
+
+## Model & Guard Model Configuration
+
+Configure the default model in `~/.config/rho/config.toml` or `.rho/config.toml` using the unified `<provider>/<model>` format:
+
+```toml
+# Unified model specification: <provider>/<model>
+model = "anthropic/claude-3-7-sonnet"
+
+# Optional guard model for security evaluation (low latency, non-thinking)
+guard_model = "local/qwen2.5-coder:7b"
+```
+
+> **Deprecation Note**: Legacy `model_provider` and `providers.<name>.default_model` settings are deprecated. They are automatically migrated in memory on load, but config persistence writes canonical `model = "<provider>/<model>"`.
 
 ---
 
@@ -139,10 +155,9 @@ Top-level preferences:
 - `allow_private_network = true`: Permit connections to loopback and private
   network addresses.
 - `show_label = true`: Display the agent branding banner in the divider.
-- `semantic_search = true`: Enable local ONNX embeddings and passive RAG code retrieval across turns (default: `false`). Can also be set as `[features] semantic_search = true`.
 
 All adjustments made in the interactive `/settings` modal (Block Style, Box
-Responses, Cursor Style, Model, Guard Model, Semantic Search, Thinking Effort, Thinking Output,
+Responses, Cursor Style, Model, Guard Model, Thinking Effort, Thinking Output,
 Tool Output, and Version Banner) are automatically saved to `~/.config/rho/config.toml`.
 
 Environment override: `RHO_BLOCK_STYLE=border` or `RHO_UI_BLOCK_STYLE=border`.

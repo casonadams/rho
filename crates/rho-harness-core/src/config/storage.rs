@@ -103,13 +103,6 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
-    pub async fn save_semantic_search_async(config_dir: &Path, enabled: bool) -> Result<()> {
-        let path = config_dir.join("config.toml");
-        let mut file_config = read_file_config_async(&path).await?;
-        file_config.semantic_search = Some(enabled);
-        write_file_config_async(&path, &file_config).await
-    }
-
     pub async fn save_default_search_engine_async(config_dir: &Path, engine: &str) -> Result<()> {
         Self::set_file_value_async(config_dir, "tools.web.search.default", engine).await
     }
@@ -201,9 +194,6 @@ fn apply_runtime_mode_key(file_config: &mut FileConfig, key: &ConfigKey, value: 
         ConfigKey::FollowUpMode => file_config.follow_up_mode = Some(value.parse().map_err(AppError::Config)?),
         ConfigKey::ShowLabel => {
             file_config.show_label = Some(parse_bool(key.as_str(), value)?);
-        }
-        ConfigKey::SemanticSearch => {
-            file_config.semantic_search = Some(parse_bool(key.as_str(), value)?);
         }
         _ => return Ok(false),
     }

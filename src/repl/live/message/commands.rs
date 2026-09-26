@@ -15,7 +15,6 @@ pub(crate) fn open_selector_modal<B: TerminalBackend>(
             Some(&session.config.model),
             session.config.guard_model(),
             session.config.thinking_level.as_deref(),
-            session.config.semantic_search,
             io_controller,
         ),
         CommandResult::OpenHelpSelector => crate::repl::live::modal::open_help_selector(io_controller),

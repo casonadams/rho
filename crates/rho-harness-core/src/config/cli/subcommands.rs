@@ -31,14 +31,6 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<McpCommands>,
     },
-    /// Index the workspace codebase for local semantic search and passive RAG
-    Index {
-        /// Workspace directory path to index (defaults to current working directory)
-        path: Option<String>,
-        /// Force re-indexing all files
-        #[arg(long, short)]
-        force: bool,
-    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

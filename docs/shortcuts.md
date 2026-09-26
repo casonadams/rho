@@ -109,7 +109,7 @@ commands:
 | Command     | Action                           | Details                                                                       |
 | :---------- | :------------------------------- | :---------------------------------------------------------------------------- |
 | `/remote`   | **Remote Hub &amp; P2P Sharing** | Opens pairing modal with QR code and link for mobile/web dashboard mirroring. |
-| `/settings` | **Runtime Settings**             | Configure model, thinking levels, tool card expansion, border styles, and semantic search. |
+| `/settings` | **Runtime Settings**             | Configure model, thinking levels, tool card expansion, border styles, and permissions. |
 | `/model`    | **Model Switcher**               | Interactive fuzzy model selector across all configured providers.             |
 | `/resume`   | **Resume Session**               | Interactive session selector to resume historical conversations.              |
 | `/compact`  | **Manual Compaction**            | Summarizes earlier turns to reclaim context window capacity.                  |

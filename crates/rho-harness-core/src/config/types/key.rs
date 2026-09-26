@@ -29,7 +29,6 @@ pub(crate) enum ConfigKey {
     ToolsExpanded,
     Cursor,
     ShowLabel,
-    SemanticSearch,
     SearchEngine,
     WebSearchEnabled,
     WebFetchEnabled,
@@ -94,7 +93,6 @@ fn parse_feature_key(value: &str) -> Option<ConfigKey> {
             Some(ConfigKey::Cursor)
         }
         "show_label" => Some(ConfigKey::ShowLabel),
-        "semantic_search" | "semantic-search" | "features.semantic_search" => Some(ConfigKey::SemanticSearch),
         "tools.web.search.default" | "tools.web.search" | "search_engine" | "search_provider" => {
             Some(ConfigKey::SearchEngine)
         }
@@ -152,7 +150,6 @@ impl ConfigKey {
             Self::ToolsExpanded => "ui.tools_expanded",
             Self::Cursor => "ui.cursor",
             Self::ShowLabel => "show_label",
-            Self::SemanticSearch => "semantic_search",
             Self::SearchEngine => "tools.web.search.default",
             Self::WebSearchEnabled => "tools.web.search.enabled",
             Self::WebFetchEnabled => "tools.web.fetch.enabled",
@@ -169,7 +166,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 35] = [
+    const ALL_KEYS: [ConfigKey; 34] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -197,7 +194,6 @@ mod tests {
         ConfigKey::ToolsExpanded,
         ConfigKey::Cursor,
         ConfigKey::ShowLabel,
-        ConfigKey::SemanticSearch,
         ConfigKey::SearchEngine,
         ConfigKey::WebSearchEnabled,
         ConfigKey::WebFetchEnabled,
@@ -236,8 +232,6 @@ mod tests {
             ("ui.cursor_style", ConfigKey::Cursor),
             ("cursor_mode", ConfigKey::Cursor),
             ("ui.cursor_mode", ConfigKey::Cursor),
-            ("semantic-search", ConfigKey::SemanticSearch),
-            ("features.semantic_search", ConfigKey::SemanticSearch),
             ("tools.web.search", ConfigKey::SearchEngine),
             ("search_engine", ConfigKey::SearchEngine),
             ("search_provider", ConfigKey::SearchEngine),

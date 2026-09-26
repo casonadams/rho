@@ -154,7 +154,6 @@ fn test_format_config_summary_known_and_custom_provider() {
         max_turns: 42,
         context_window_messages: 50,
         compaction_max_bytes: 100_000,
-        semantic_search: true,
         ..Default::default()
     };
     let summary = format_config_summary(&config);
@@ -167,7 +166,6 @@ fn test_format_config_summary_known_and_custom_provider() {
             "Max turns: 42".to_string(),
             "Context window messages: 50".to_string(),
             "Compaction max bytes: 100000".to_string(),
-            "Semantic search: enabled".to_string(),
         ]
     );
 
@@ -175,12 +173,10 @@ fn test_format_config_summary_known_and_custom_provider() {
         config_dir: PathBuf::from("/custom/dir"),
         model: "my-model".to_string(),
         provider: "unregistered_provider".to_string(),
-        semantic_search: false,
         ..Default::default()
     };
     let custom_summary = format_config_summary(&custom_config);
     assert!(custom_summary.contains(&"Provider: unregistered_provider (custom)".to_string()));
-    assert!(custom_summary.contains(&"Semantic search: disabled".to_string()));
 }
 
 #[tokio::test]

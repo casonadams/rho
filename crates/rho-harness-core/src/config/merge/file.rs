@@ -147,16 +147,6 @@ fn merge_ui_settings(config: &mut Config, file: &FileConfig) {
     }
 }
 
-fn merge_features(config: &mut Config, file: &FileConfig) {
-    if let Some(s) = file.semantic_search {
-        config.semantic_search = s;
-    } else if let Some(ref features) = file.features
-        && let Some(s) = features.semantic_search
-    {
-        config.semantic_search = s;
-    }
-}
-
 fn merge_web_search_settings(config: &mut Config, search: &WebSearchConfigFile) {
     if let Some(enabled) = search.enabled {
         config.tools.web.search.enabled = enabled;
@@ -276,6 +266,5 @@ pub(crate) fn merge_file(config: &mut Config, mut file: FileConfig) {
     merge_permission_and_providers(config, file.clone());
     merge_mcp_settings(config, &file);
     merge_ui_settings(config, &file);
-    merge_features(config, &file);
     merge_tools_settings(config, &file);
 }

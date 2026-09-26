@@ -98,9 +98,9 @@ autocomplete):
 | Command                     | Description                                                                                               |
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------- |
 | `/help`                     | Open interactive command reference modal (or display summary in non-interactive mode).                    |
-| `/model [model] [provider]` | Open interactive model selector modal, or switch model/provider directly.                                 |
+| `/model [<provider>/<model>]` | Open interactive model selector modal, or switch model directly.                                 |
 | `/thinking [level]`         | Open interactive thinking selector modal, or set reasoning effort directly (alias: `/think`).             |
-| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, semantic search, and Tools & Permissions). |
+| `/settings`                 | Open interactive runtime settings modal (block style, response framing, model, guard model, thinking, output toggles, and Tools & Permissions). |
 | `/resume [id]`              | Open interactive session selector modal, or resume a prior session by ID.                                 |
 | `/session`                  | Display token capacity, cost, context window utilization, and diagnostics (alias: `/tokens`).             |
 | `/compact [instructions]`   | Summarize earlier context to reclaim context window space.                                                |

@@ -215,8 +215,7 @@ rho models
 
 # Inspect or edit configuration
 rho config
-rho config provider claude
-rho config model claude-sonnet-5
+rho config model anthropic/claude-3-7-sonnet
 
 # Model Context Protocol (MCP)
 rho mcp list
@@ -265,25 +264,20 @@ rho update</code></pre>
       <div class="code-block-wrapper">
         <div class="code-block-header">
           <span>~/.config/rho/config.toml</span>
-          <button class="copy-btn" data-copy="provider = &quot;anthropic&quot;
-model = &quot;claude-3-7-sonnet-latest&quot;
+          <button class="copy-btn" data-copy="model = &quot;anthropic/claude-3-7-sonnet&quot;
 thinking_level = &quot;high&quot;
 max_turns = 1000
 context_window_messages = 24
 compaction_max_bytes = 8192">Copy</button>
         </div>
-        <pre><code># Default provider, model, and thinking level
-provider = "anthropic"
-model = "claude-3-7-sonnet-latest"
+        <pre><code># Default model in &lt;provider&gt;/&lt;model&gt; format and thinking level
+model = "anthropic/claude-3-7-sonnet"
 thinking_level = "high"
 
 # Execution limits & context window
 max_turns = 1000
 context_window_messages = 24
 compaction_max_bytes = 8192
-
-# Local embeddings & passive RAG code retrieval (off by default)
-semantic_search = false          # or [features] semantic_search = false
 
 # Custom OpenAI-compatible endpoints
 [providers.my-local-endpoint]
@@ -436,7 +430,7 @@ enabled = true                  # Enable or disable mutation guardrails</code></
             </tr>
             <tr>
               <td><code>/settings</code></td>
-              <td>Open interactive runtime settings modal (block style, framing, model, guard model, thinking, semantic search, tools &amp; permissions)</td>
+              <td>Open interactive runtime settings modal (block style, framing, model, guard model, thinking, tools &amp; permissions)</td>
             </tr>
             <tr>
               <td><code>/mcp</code></td>
@@ -557,8 +551,8 @@ enabled = true                  # Enable or disable mutation guardrails</code></
             </tr>
             <tr>
               <td><code>set_model</code></td>
-              <td><code>{ "model": "...", "provider": "..." }</code></td>
-              <td>Hot-swap the active inference model or provider at runtime.</td>
+              <td><code>{ "model": "&lt;provider&gt;/&lt;model&gt;" }</code></td>
+              <td>Hot-swap the active inference model at runtime.</td>
             </tr>
             <tr>
               <td><code>set_thinking</code></td>

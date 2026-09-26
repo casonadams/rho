@@ -47,7 +47,6 @@ pub async fn handle_command(
     match cmd {
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config, auth_store).await?,
         Commands::Update => handle_update_command(config).await?,
-        Commands::Index { path, force } => handle_index_command(path, force).await?,
         _ => {}
     }
     Ok(())
@@ -58,7 +57,6 @@ pub(crate) fn format_config_summary(config: &Config) -> Vec<String> {
         Ok(provider) => format!("Provider: {provider} ({})", provider.auth_mode_label()),
         Err(_) => format!("Provider: {} (custom)", config.provider),
     };
-    let semantic = if config.semantic_search { "enabled" } else { "disabled" };
     vec![
         format!("Config location: {}", config.config_dir.display()),
         format!("Model: {}", config.model),
@@ -66,7 +64,6 @@ pub(crate) fn format_config_summary(config: &Config) -> Vec<String> {
         format!("Max turns: {}", config.max_turns),
         format!("Context window messages: {}", config.context_window_messages),
         format!("Compaction max bytes: {}", config.compaction_max_bytes),
-        format!("Semantic search: {semantic}"),
     ]
 }
 
@@ -110,11 +107,6 @@ pub(crate) fn format_model_entries(
             })
             .collect()
     }
-}
-
-async fn handle_index_command(_path: Option<String>, _force: bool) -> Result<(), Box<dyn std::error::Error>> {
-    eprintln!("'rho index' is deprecated: semantic search has been removed.");
-    Ok(())
 }
 
 async fn handle_models(config: &Config, auth_store: &AuthStore) {

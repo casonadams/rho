@@ -96,9 +96,6 @@ pub enum ModalKeyResult {
     CursorToggled {
         cursor: String,
     },
-    SemanticSearchToggled {
-        enabled: bool,
-    },
 }
 
 fn apply_motion_action(input: &mut EditorState, action: &UiAction) -> bool {
