@@ -11,6 +11,8 @@ Environment Variables:
   COHERE_API_KEY                   - Cohere API key
   OLLAMA_API_KEY                   - Ollama Cloud API key
   OLLAMA_HOST                      - Ollama service host (default: http://localhost:11434)
+  RHO_MODEL                        - Default model in <provider>/<model> format
+  RHO_PROVIDER                     - Default provider (optional/legacy)
   AI_MODEL                         - Default model ID
   AI_PROVIDER                      - Default provider
   AI_THINKING_LEVEL                - Default thinking level (off, minimal, low, medium, high, xhigh, max)

@@ -1,20 +1,46 @@
 use super::super::Config;
 use crate::config::cli::Cli;
 
-fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
-    if let Some(ref m) = c.model {
-        config.model = m.clone();
-    }
-    if let Some(ref p) = c.provider {
-        let provider_changed = config.provider != *p;
-        config.provider = p.clone();
-        if c.model.is_none() && provider_changed {
-            if let Some(configured) = config.models.get(p) {
-                config.model = configured.clone();
-            } else {
-                config.model = crate::provider::default_model_for_provider(p).to_string();
+fn resolve_model_with_provider(config: &mut Config, model_spec: &str, provider_flag: Option<&str>) {
+    let (p, _) = crate::provider::parse_model_spec(model_spec);
+    if !p.is_empty() {
+        if let Some(prov) = provider_flag {
+            let prov = prov.trim();
+            if !prov.is_empty() && prov != p {
+                let warning = format!("Warning: Provider '{prov}' overridden by provider in model spec '{p}'.");
+                eprintln!("{warning}");
+                config.migration_warnings.push(warning);
             }
         }
+        config.provider = p;
+    } else if let Some(prov) = provider_flag {
+        config.provider = prov.trim().to_string();
+    } else if let Some(inferred) = crate::provider::infer_provider_for_model(model_spec) {
+        config.provider = inferred.to_string();
+    } else {
+        config.provider = "local".to_string();
+    }
+    config.model = model_spec.to_string();
+}
+
+fn apply_provider_flag_only(config: &mut Config, provider: &str) {
+    let provider = provider.trim();
+    let provider_changed = config.provider != provider;
+    config.provider = provider.to_string();
+    if provider_changed {
+        if let Some(configured) = config.models.get(provider) {
+            config.model = configured.clone();
+        } else {
+            config.model = crate::provider::default_model_for_provider(provider).to_string();
+        }
+    }
+}
+
+fn apply_model_cli_overrides(config: &mut Config, c: &Cli) {
+    if let Some(ref m) = c.model {
+        resolve_model_with_provider(config, m.trim(), c.provider.as_deref());
+    } else if let Some(ref p) = c.provider {
+        apply_provider_flag_only(config, p);
     }
     if let Some(ref t) = c.thinking {
         config.thinking_level = (t != "off").then(|| t.clone());

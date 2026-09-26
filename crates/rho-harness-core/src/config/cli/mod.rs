@@ -22,11 +22,11 @@ pub struct Cli {
     #[arg(short = 'p', long = "prompt")]
     pub prompt: Option<String>,
 
-    /// Model to use for completions
+    /// Model to use for completions in <provider>/<model> format (e.g. anthropic/claude-3-7-sonnet)
     #[arg(short = 'm', long = "model")]
     pub model: Option<String>,
 
-    /// AI provider: API-key, local, or subscription identity (chatgpt/copilot)
+    /// AI provider: API-key, local, or subscription identity (optional/legacy when model includes provider)
     #[arg(long = "provider")]
     pub provider: Option<String>,
 

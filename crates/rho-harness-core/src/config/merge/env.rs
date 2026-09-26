@@ -5,17 +5,42 @@ pub(crate) fn apply_env_overrides(config: &mut Config) -> Result<()> {
     apply_env_overrides_with(config, |name| std::env::var(name).ok())
 }
 
+fn resolve_model_env(config: &mut Config, model_spec: &str, provider_env: Option<&str>) {
+    let (p, _) = crate::provider::parse_model_spec(model_spec);
+    if !p.is_empty() {
+        if let Some(prov) = provider_env {
+            let prov = prov.trim();
+            if !prov.is_empty() && prov != p {
+                let warning = format!("Warning: Provider '{prov}' overridden by provider in model spec '{p}'.");
+                eprintln!("{warning}");
+                config.migration_warnings.push(warning);
+            }
+        }
+        config.provider = p;
+    } else if let Some(prov) = provider_env {
+        config.provider = prov.trim().to_string();
+    } else if let Some(inferred) = crate::provider::infer_provider_for_model(model_spec) {
+        config.provider = inferred.to_string();
+    } else {
+        config.provider = "local".to_string();
+    }
+    config.model = model_spec.to_string();
+}
+
 fn apply_model_env_overrides<F: Fn(&str) -> Option<String>>(config: &mut Config, get: &F) {
-    if let Some(val) = get("AI_MODEL").or_else(|| get("MODEL"))
-        && !val.trim().is_empty()
+    let model_env = get("RHO_MODEL").or_else(|| get("AI_MODEL")).or_else(|| get("MODEL"));
+    let provider_env = get("RHO_PROVIDER").or_else(|| get("AI_PROVIDER"));
+
+    if let Some(ref m) = model_env
+        && !m.trim().is_empty()
     {
-        config.model = val.trim().to_string();
-    }
-    if let Some(val) = get("AI_PROVIDER")
-        && !val.trim().is_empty()
+        resolve_model_env(config, m.trim(), provider_env.as_deref());
+    } else if let Some(ref p) = provider_env
+        && !p.trim().is_empty()
     {
-        config.provider = val.trim().to_string();
+        config.provider = p.trim().to_string();
     }
+
     if let Some(val) = get("AI_THINKING_LEVEL") {
         config.thinking_level = (val != "off").then_some(val);
     }

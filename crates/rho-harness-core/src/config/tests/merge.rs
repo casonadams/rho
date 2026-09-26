@@ -355,3 +355,99 @@ fn test_canonical_model_spec() {
     config.provider = "local".to_string();
     assert_eq!(config.canonical_model_spec(), "local/llama3.2:latest");
 }
+
+#[test]
+fn test_cli_override_model_resolution() {
+    use crate::config::cli::Cli;
+    use clap::Parser;
+
+    let cases = [
+        (
+            vec!["rho", "--model", "anthropic/claude-3-7-sonnet"],
+            "anthropic",
+            "anthropic/claude-3-7-sonnet",
+            false,
+        ),
+        (
+            vec!["rho", "--model", "openrouter/anthropic/claude-3.7-sonnet"],
+            "openrouter",
+            "openrouter/anthropic/claude-3.7-sonnet",
+            false,
+        ),
+        (
+            vec!["rho", "--model", "claude-3-7-sonnet"],
+            "anthropic",
+            "claude-3-7-sonnet",
+            false,
+        ),
+        (vec!["rho", "--model", "custom-model"], "local", "custom-model", false),
+        (
+            vec![
+                "rho",
+                "--model",
+                "anthropic/claude-3-7-sonnet",
+                "--provider",
+                "anthropic",
+            ],
+            "anthropic",
+            "anthropic/claude-3-7-sonnet",
+            false,
+        ),
+        (
+            vec!["rho", "--model", "anthropic/claude-3-7-sonnet", "--provider", "openai"],
+            "anthropic",
+            "anthropic/claude-3-7-sonnet",
+            true,
+        ),
+        (
+            vec!["rho", "--model", "gpt-4o", "--provider", "openai"],
+            "openai",
+            "gpt-4o",
+            false,
+        ),
+        (vec!["rho", "--provider", "openai"], "openai", "gpt-4o", false),
+    ];
+
+    for (args, expected_p, expected_m, expect_warn) in cases {
+        let mut config = Config::default();
+        let cli = Cli::try_parse_from(args).unwrap();
+        merge::apply_cli_overrides(&mut config, Some(&cli));
+        assert_eq!(config.provider, expected_p);
+        assert_eq!(config.model, expected_m);
+        if expect_warn {
+            assert!(config.migration_warnings.iter().any(|w| w.contains(
+                "Warning: Provider 'openai' overridden by provider in model spec 'anthropic'."
+            )));
+        } else {
+            assert!(config.migration_warnings.is_empty());
+        }
+    }
+}
+
+#[test]
+fn test_env_override_model_resolution() {
+    let mut config = Config::default();
+    crate::config::merge::apply_env_overrides_with(&mut config, |name| match name {
+        "RHO_MODEL" => Some("openrouter/meta-llama/llama-3.3-70b-instruct:free".to_string()),
+        _ => None,
+    })
+    .unwrap();
+    assert_eq!(config.provider, "openrouter");
+    assert_eq!(config.model, "openrouter/meta-llama/llama-3.3-70b-instruct:free");
+
+    let mut config = Config::default();
+    crate::config::merge::apply_env_overrides_with(&mut config, |name| match name {
+        "RHO_MODEL" => Some("anthropic/claude-3-7-sonnet".to_string()),
+        "RHO_PROVIDER" => Some("openai".to_string()),
+        _ => None,
+    })
+    .unwrap();
+    assert_eq!(config.provider, "anthropic");
+    assert_eq!(config.model, "anthropic/claude-3-7-sonnet");
+    assert!(
+        config
+            .migration_warnings
+            .iter()
+            .any(|w| w.contains("Warning: Provider 'openai' overridden by provider in model spec 'anthropic'."))
+    );
+}

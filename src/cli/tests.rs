@@ -25,6 +25,28 @@ fn rpc_response_roundtrip() {
     assert!(resp_json.contains("\"success\":true"));
 }
 
+#[test]
+fn test_cli_model_parsing() {
+    use clap::Parser;
+    use rho_harness_core::config::cli::Cli;
+
+    let cli = Cli::try_parse_from(["rho", "--model", "anthropic/claude-3-7-sonnet"]).unwrap();
+    assert_eq!(cli.model.as_deref(), Some("anthropic/claude-3-7-sonnet"));
+    assert_eq!(cli.provider, None);
+
+    let cli = Cli::try_parse_from(["rho", "--model", "openrouter/anthropic/claude-3.7-sonnet"]).unwrap();
+    assert_eq!(cli.model.as_deref(), Some("openrouter/anthropic/claude-3.7-sonnet"));
+    assert_eq!(cli.provider, None);
+
+    let cli = Cli::try_parse_from(["rho", "-m", "local/qwen2.5-coder:7b"]).unwrap();
+    assert_eq!(cli.model.as_deref(), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(cli.provider, None);
+
+    let cli = Cli::try_parse_from(["rho", "--model", "claude-3-7-sonnet", "--provider", "anthropic"]).unwrap();
+    assert_eq!(cli.model.as_deref(), Some("claude-3-7-sonnet"));
+    assert_eq!(cli.provider.as_deref(), Some("anthropic"));
+}
+
 #[tokio::test]
 async fn test_handle_command_mcp_lifecycle() {
     use super::commands::handle_command;
