@@ -164,3 +164,30 @@ fn infer_provider_for_model_resolves_common_prefixes() {
         assert_eq!(infer_provider_for_model(model), expected);
     }
 }
+
+#[test]
+fn test_parse_model_spec() {
+    let cases = [
+        ("anthropic/claude-3-7-sonnet", ("anthropic", "claude-3-7-sonnet")),
+        ("openai/gpt-4o", ("openai", "gpt-4o")),
+        ("local/qwen2.5-coder:7b", ("local", "qwen2.5-coder:7b")),
+        ("ollama/llama3.2:latest", ("ollama", "llama3.2:latest")),
+        (
+            "openrouter/anthropic/claude-3.7-sonnet",
+            ("openrouter", "anthropic/claude-3.7-sonnet"),
+        ),
+        (
+            "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+            ("openrouter", "meta-llama/llama-3.3-70b-instruct:free"),
+        ),
+        ("  anthropic / claude-3-7-sonnet  ", ("anthropic", "claude-3-7-sonnet")),
+        ("claude-3-7-sonnet", ("", "claude-3-7-sonnet")),
+        ("", ("", "")),
+    ];
+    for (input, (expected_p, expected_m)) in cases {
+        assert_eq!(
+            parse_model_spec(input),
+            (expected_p.to_string(), expected_m.to_string())
+        );
+    }
+}

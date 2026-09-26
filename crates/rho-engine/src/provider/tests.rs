@@ -305,3 +305,27 @@ fn resolve_guard_model_tests() {
         Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
     );
 }
+
+#[test]
+fn test_guard_model_thinking_is_none() {
+    let mut config = Config {
+        thinking_level: Some("high".to_string()),
+        ..Default::default()
+    };
+    config.set_guard_model(Some("local/qwen2.5-coder:7b"));
+
+    let (provider, model) = resolve_guard_model(&config).expect("guard model should resolve");
+    let req = ProviderFactory::guard_model_request(provider, &model);
+    assert_eq!(req.thinking_level, None);
+    assert_eq!(req.provider, ProviderId::Local);
+    assert_eq!(req.model, "qwen2.5-coder:7b");
+
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+
+    let handle = ProviderFactory::create_guard_model(&config, &auth_store).unwrap();
+    assert!(handle.is_some());
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

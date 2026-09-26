@@ -38,44 +38,42 @@ pub struct ProviderFactory;
 
 pub fn resolve_guard_model(config: &Config) -> Option<(ProviderId, String)> {
     let spec = config.guard_model()?;
-    let (provider_opt, model) = if let Some((p, m)) = spec.split_once('/') {
-        (Some(p.trim()), m.trim())
-    } else {
-        (None, spec.trim())
-    };
+    let (provider, model) = rho_harness_core::provider::parse_model_spec(spec);
 
     if model.is_empty() {
         return None;
     }
 
-    let provider_id = match provider_opt {
-        Some(p) => ProviderId::from_str(p).ok()?,
-        None => {
-            if let Some(inferred) = rho_harness_core::provider::infer_provider_for_model(model) {
-                ProviderId::from_str(inferred).ok()?
-            } else {
-                ProviderId::Local
-            }
+    let provider_id = if provider.is_empty() {
+        if let Some(inferred) = rho_harness_core::provider::infer_provider_for_model(&model) {
+            ProviderId::from_str(inferred).ok()?
+        } else {
+            ProviderId::Local
         }
+    } else {
+        ProviderId::from_str(&provider).ok()?
     };
 
-    Some((provider_id, model.to_string()))
+    Some((provider_id, model))
 }
 
 impl ProviderFactory {
+    pub fn guard_model_request<'a>(provider: ProviderId, model: &'a str) -> ModelRequest<'a> {
+        // Guard models never think to guarantee fast and deterministic evaluation.
+        ModelRequest {
+            provider,
+            model,
+            thinking_level: None,
+            shared_auth: None,
+        }
+    }
+
     pub fn create_guard_model(config: &Config, auth_store: &AuthStore) -> Result<Option<ModelHandle>> {
         let Some((provider, model)) = resolve_guard_model(config) else {
             return Ok(None);
         };
-        let handle = Self::create_model_for(
-            ModelRequest {
-                provider,
-                model: &model,
-                thinking_level: None,
-                shared_auth: None,
-            },
-            auth_store,
-        )?;
+        let request = Self::guard_model_request(provider, &model);
+        let handle = Self::create_model_for(request, auth_store)?;
         Ok(Some(handle))
     }
 

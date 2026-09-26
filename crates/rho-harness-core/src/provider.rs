@@ -175,6 +175,14 @@ impl FromStr for ProviderId {
 
 pub use inference::infer_provider_for_model;
 
+pub fn parse_model_spec(spec: &str) -> (String, String) {
+    if let Some((provider, model)) = spec.split_once('/') {
+        (provider.trim().to_string(), model.trim().to_string())
+    } else {
+        (String::new(), spec.trim().to_string())
+    }
+}
+
 pub fn default_model_for_provider(provider: &str) -> &'static str {
     match provider.trim().to_ascii_lowercase().as_str() {
         "anthropic" | "claude" | "claude-code" => "claude-3-7-sonnet-20250219",
