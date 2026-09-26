@@ -8,6 +8,7 @@ use rig::agent::hook::{AgentHook, HookContext, ToolCall, ToolCallAction};
 use serde_json::Value;
 
 use super::eval::{ask_drafts, decide_tool_call};
+use super::guard::GuardEvaluator;
 use super::policy::{Policy, load_policy, save_allow_rule, target_config_path};
 use super::prompt::{build_permission_prompt, rewrite_tool_args};
 use super::suggest::{canonical_tool, match_input, suggested_rule};
@@ -17,6 +18,7 @@ pub struct PermissionHook {
     working_dir: Option<PathBuf>,
     presenter: Arc<dyn Presenter>,
     policy: Arc<RwLock<Policy>>,
+    guard_evaluator: Option<GuardEvaluator>,
 }
 
 impl PermissionHook {
@@ -26,6 +28,7 @@ impl PermissionHook {
             working_dir,
             presenter,
             policy: Arc::new(RwLock::new(policy)),
+            guard_evaluator: None,
         }
     }
 
@@ -34,7 +37,13 @@ impl PermissionHook {
             working_dir,
             presenter,
             policy: Arc::new(RwLock::new(policy)),
+            guard_evaluator: None,
         }
+    }
+
+    pub fn with_guard(mut self, guard: GuardEvaluator) -> Self {
+        self.guard_evaluator = Some(guard);
+        self
     }
 
     async fn map_interaction_action(
@@ -62,17 +71,40 @@ impl PermissionHook {
         }
     }
 
-    async fn handle_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> ToolCallAction {
+    async fn handle_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft], reason: Option<&str>) -> ToolCallAction {
         if !self.presenter.has_interactive_ui() {
+            let detail = reason.map(|r| format!(": {r}")).unwrap_or_default();
             return ToolCallAction::skip(format!(
-                "Permission required for tool '{}' but cannot prompt in headless mode",
+                "Permission required for tool '{}'{detail} but cannot prompt in headless mode",
                 req.tool
             ));
         }
 
-        let prompt = build_permission_prompt(req.tool, req.args, drafts);
+        let mut prompt = build_permission_prompt(req.tool, req.args, drafts);
+        if let Some(r) = reason {
+            prompt.body = format!("{}\nNotice: {r}", prompt.body);
+        }
         let response = self.presenter.request_interaction(prompt).await;
         self.map_interaction_action(response, req, drafts).await
+    }
+
+    async fn evaluate_guard_or_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft]) -> ToolCallAction {
+        if req.tool == "bash"
+            && let Some(guard) = &self.guard_evaluator
+        {
+            let cmd = match_input(req.args);
+            if crate::permission::bash::is_critical_danger_bash(&cmd) {
+                return self
+                    .handle_ask(req, drafts, Some("Critical destructive command detected."))
+                    .await;
+            }
+            let verdict = guard.evaluate(&cmd).await;
+            if verdict.safe {
+                return ToolCallAction::run();
+            }
+            return self.handle_ask(req, drafts, Some(&verdict.reason)).await;
+        }
+        self.handle_ask(req, drafts, None).await
     }
 
     async fn apply_always_allow(&self, req: EvalRequest<'_>, drafts: &[RuleDraft], custom_pattern: Option<&str>) {
@@ -132,7 +164,7 @@ impl AgentHook for PermissionHook {
             Decision::Deny(reason) => ToolCallAction::skip(reason),
             Decision::Ask => {
                 let drafts = ask_drafts(&policy, req);
-                self.handle_ask(req, &drafts).await
+                self.evaluate_guard_or_ask(req, &drafts).await
             }
         }
     }

@@ -82,6 +82,32 @@ Or disabled permanently in `~/.config/rho/config.toml` or `.rho/config.toml`:
 enabled = false
 ```
 
+---
+
+## Guard Model
+
+To streamline development workflows without disabling safety protections, `rho` supports delegating non-baseline bash command evaluations to a dedicated **Guard Model** (typically a fast local model such as `local/qwen2.5-coder:7b`).
+
+### How It Works
+
+1. **Precedence**: Explicit rules in `permission.toml` (`allow`, `deny`) and built-in baseline safe commands (`git status`, `cargo test`, `ls`) run immediately without querying the guard model.
+2. **Critical Danger Fast-Path**: Commands matching destructive signatures (`rm -rf /`, `mkfs`, `dd if=`, `git reset --hard`, destructive DB / cluster actions) are intercepted immediately and surfaced to the user.
+3. **Guard Evaluation**: For other non-baseline bash operations, the guard model evaluates the command against safety boundaries. If verified safe, the command executes automatically. If unsafe, it surfaces to the user with the guard model's rationale.
+4. **Fail-Safe**: If the guard model times out (4 seconds), is unreachable, or fails, execution falls back to human confirmation (or denial in headless mode).
+
+### Configuration
+
+Set the guard model in `config.toml` or interactively in `/settings` under **Guard Model**:
+
+```toml
+[models]
+guard = "local/qwen2.5-coder:7b"
+```
+
+To disable the guard model, set `guard = "none"` or select `None` in the `/settings` modal.
+
+---
+
 ### Permission Rules (`permission.toml`)
 
 Rules can be manually authored or inspected in `.rho/permission.toml`

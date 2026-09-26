@@ -166,7 +166,15 @@ impl AgentEngine {
         hook_stack.push(RepeatedCallHook::new(cwd.clone()));
         hook_stack.push(lifecycle_hook);
         if self.config.permission.enabled {
-            hook_stack.push(crate::permission::PermissionHook::new(Some(cwd), presenter.clone()));
+            let mut perm_hook = crate::permission::PermissionHook::new(Some(cwd), presenter.clone());
+            let auth_store = self.auth_store.lock().await;
+            if let Ok(Some(guard_model)) =
+                crate::provider::ProviderFactory::create_guard_model(&self.config, &auth_store)
+            {
+                perm_hook = perm_hook.with_guard(crate::permission::guard::GuardEvaluator::new(guard_model));
+            }
+            drop(auth_store);
+            hook_stack.push(perm_hook);
         }
         let mut auto_compact = super::auto_compact::AutoCompactHook::new(
             self.session_compactor(),

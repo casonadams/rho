@@ -1,11 +1,12 @@
 use rho_harness_core::presentation::types::InteractionResponse;
-use rig::agent::AgentBuilder;
+use rig::agent::{AgentBuilder, ModelHandle};
 use rig::test_utils::{MockCompletionModel, MockTurn};
 use serde_json::json;
 use std::sync::Arc;
 use tempfile::tempdir;
 
 use super::mock::MockHookPresenter;
+use crate::permission::guard::GuardEvaluator;
 use crate::permission::hook::PermissionHook;
 use crate::permission::policy::{build_policy, parse_scope_from_str};
 use crate::tools::BashTool;
@@ -240,4 +241,109 @@ async fn test_ask_interactive_cancel() {
     let _ = agent.runner("touch").max_turns(2).run().await.unwrap();
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("Operation denied by user."));
+}
+
+#[tokio::test]
+async fn test_guard_evaluator_auto_allows_safe_command() {
+    let dir = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(true, None));
+    let policy = build_policy(None, None);
+
+    let guard_mock = MockCompletionModel::new([MockTurn::text(
+        r#"{"safe": true, "reason": "Local directory creation"}"#,
+    )]);
+    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call("1", "bash", json!({"command": "mkdir -p src/foo"})),
+        MockTurn::text("success"),
+    ]);
+    let agent = AgentBuilder::new(model.clone())
+        .tool(BashTool::new(dir.path()))
+        .add_hook(hook)
+        .build();
+
+    let response = agent.runner("mkdir").max_turns(2).run().await.unwrap();
+    assert_eq!(response.output, "success");
+    // Verify no interactive prompt was surfaced
+    assert!(presenter.last_prompt.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
+    let dir = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
+    let policy = build_policy(None, None);
+
+    let guard_mock = MockCompletionModel::new([MockTurn::text(
+        r#"{"safe": false, "reason": "Git push modifies remote repository"}"#,
+    )]);
+    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call("1", "bash", json!({"command": "git push origin main"})),
+        MockTurn::text("done"),
+    ]);
+    let agent = AgentBuilder::new(model.clone())
+        .tool(BashTool::new(dir.path()))
+        .add_hook(hook)
+        .build();
+
+    let _ = agent.runner("push").max_turns(2).run().await.unwrap();
+    let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
+    assert!(prompt.body.contains("Git push modifies remote repository"));
+}
+
+#[tokio::test]
+async fn test_guard_evaluator_critical_danger_bypasses_guard() {
+    let dir = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
+    let policy = build_policy(None, None);
+
+    // Guard mock has empty turns; if called, it would panic or fail
+    let guard_mock = MockCompletionModel::new([]);
+    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call("1", "bash", json!({"command": "git reset --hard HEAD~1"})),
+        MockTurn::text("cancelled"),
+    ]);
+    let agent = AgentBuilder::new(model.clone())
+        .tool(BashTool::new(dir.path()))
+        .add_hook(hook)
+        .build();
+
+    let _ = agent.runner("reset").max_turns(2).run().await.unwrap();
+    let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
+    assert!(prompt.body.contains("Critical destructive command detected"));
+}
+
+#[tokio::test]
+async fn test_guard_evaluator_headless_denies_unsafe_command() {
+    let dir = tempdir().unwrap();
+    let presenter = Arc::new(MockHookPresenter::new(false, None));
+    let policy = build_policy(None, None);
+
+    let guard_mock = MockCompletionModel::new([MockTurn::text(
+        r#"{"safe": false, "reason": "Cluster deletion is unsafe"}"#,
+    )]);
+    let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
+    let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
+
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call("1", "bash", json!({"command": "kubectl delete pod foo"})),
+        MockTurn::text("stopped"),
+    ]);
+    let agent = AgentBuilder::new(model.clone())
+        .tool(BashTool::new(dir.path()))
+        .add_hook(hook)
+        .build();
+
+    let _ = agent.runner("delete").max_turns(2).run().await.unwrap();
+    let history = format!("{:?}", model.requests()[1].chat_history);
+    assert!(history.contains("Cluster deletion is unsafe"));
+    assert!(history.contains("cannot prompt in headless mode"));
 }
