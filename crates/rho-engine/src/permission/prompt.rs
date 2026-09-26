@@ -56,14 +56,22 @@ fn build_permission_options(p: PermissionPromptParams<'_>, input_display: &str) 
     ]
 }
 
-pub fn build_permission_prompt(tool: &str, args: &Value, drafts: &[RuleDraft]) -> InteractionPrompt {
+pub fn build_permission_prompt(
+    tool: &str,
+    args: &Value,
+    drafts: &[RuleDraft],
+    notice: Option<&str>,
+) -> InteractionPrompt {
     let input_display = match_input(args);
     let formatted_input = if tool == "bash" {
         super::bash::format_command_lines(&input_display)
     } else {
         input_display.clone()
     };
-    let body = format!("Tool: {tool}\nInput: {formatted_input}");
+    let body = match notice {
+        Some(n) => format!("Tool: {tool}\nNotice: {n}\nInput: {formatted_input}"),
+        None => format!("Tool: {tool}\nInput: {formatted_input}"),
+    };
     let params = PermissionPromptParams {
         tool,
         formatted: formatted_input,

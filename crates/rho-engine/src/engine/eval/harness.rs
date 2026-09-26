@@ -30,6 +30,7 @@ fn build_harness_engine(
             base_dir,
             app_config: rho_harness_core::config::Config {
                 max_turns: scenario.max_turns,
+                permission: rho_harness_core::config::PermissionConfig { enabled: false },
                 ..rho_harness_core::config::Config::default()
             },
             session_manager: None,

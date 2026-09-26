@@ -14,7 +14,7 @@ impl GuardEvaluator {
     pub fn new(model: ModelHandle) -> Self {
         Self {
             model,
-            timeout: Duration::from_secs(4),
+            timeout: Duration::from_secs(10),
         }
     }
 

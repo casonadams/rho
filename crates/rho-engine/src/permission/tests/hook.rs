@@ -15,7 +15,8 @@ use crate::tools::BashTool;
 async fn test_allowed_call_runs_silently() {
     let dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, None));
-    let policy = build_policy(None, None);
+    let scope = parse_scope_from_str("[permission.bash]\n\"git *\" = \"allow\"\n").unwrap();
+    let policy = build_policy(Some(scope), None);
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy);
 
     let model = MockCompletionModel::new([

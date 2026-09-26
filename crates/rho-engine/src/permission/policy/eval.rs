@@ -1,5 +1,5 @@
 use super::model::{PermissionState, Policy, PolicyRule, ScopeRules, SurfaceDecision, SurfaceKind};
-use crate::permission::baseline::{BASELINE_BASH_ALLOW, BASELINE_TOOLS};
+use crate::permission::baseline::BASELINE_TOOLS;
 use crate::permission::matcher::wildcard_match;
 
 pub fn build_policy(global: Option<ScopeRules>, project: Option<ScopeRules>) -> Policy {
@@ -41,15 +41,6 @@ fn add_catchalls_and_baselines(merged: &[PolicyRule], rules: &mut Vec<PolicyRule
                 synthetic: true,
             });
         }
-    }
-    for pattern in BASELINE_BASH_ALLOW {
-        rules.push(PolicyRule {
-            surface: "bash".into(),
-            pattern: pattern.to_string(),
-            state: PermissionState::Allow,
-            reason: None,
-            synthetic: true,
-        });
     }
 }
 

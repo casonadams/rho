@@ -141,13 +141,20 @@ fn ask_drafts_targets_single_and_empty() {
             working_dir: ws(),
         },
     );
+    assert_eq!(drafts.len(), 2);
     assert_eq!(
-        (drafts.len(), drafts[0].surface.as_str(), drafts[0].pattern.as_str()),
-        (1, "path", "/etc/hosts/*")
+        (drafts[0].surface.as_str(), drafts[0].pattern.as_str()),
+        ("bash", "cat /etc/hosts")
+    );
+    assert_eq!(
+        (drafts[1].surface.as_str(), drafts[1].pattern.as_str()),
+        ("path", "/etc/hosts/*")
     );
 
+    let scope = parse_scope_from_str("[permission.bash]\n\"cat *\" = \"allow\"\n").unwrap();
+    let policy_with_allow = build_policy(Some(scope), None);
     let drafts = ask_drafts(
-        &policy,
+        &policy_with_allow,
         EvalRequest {
             tool: "bash",
             args: &json!({"command": "cat src/main.rs"}),
@@ -252,28 +259,37 @@ fn check_default_bash(cmd: &str) -> Decision {
 }
 
 #[test]
-fn default_policy_allows_safe_bash() {
+fn default_policy_asks_for_unconfigured_bash() {
     for cmd in [
         "git status",
-        "git branch --show-current",
         "cargo check",
         "cargo test",
         "ls -la",
         "pwd",
-    ] {
-        assert_eq!(check_default_bash(cmd), Decision::Allow);
-    }
-}
-
-#[test]
-fn default_policy_asks_for_unknown_bash() {
-    for cmd in [
         "make clippy",
         "git commit -m 'feat: test'",
         "curl https://example.com",
         "npm install",
     ] {
         assert_eq!(check_default_bash(cmd), Decision::Ask);
+    }
+}
+
+#[test]
+fn policy_allows_explicit_bash_rules() {
+    let scope = parse_scope_from_str("[permission.bash]\n\"git *\" = \"allow\"\n\"cargo *\" = \"allow\"\n").unwrap();
+    let policy = build_policy(Some(scope), None);
+
+    for cmd in ["git status", "git diff", "cargo check", "cargo test"] {
+        let dec = decide_tool_call(
+            &policy,
+            EvalRequest {
+                tool: "bash",
+                args: &json!({"command": cmd}),
+                working_dir: ws(),
+            },
+        );
+        assert_eq!(dec, Decision::Allow);
     }
 }
 

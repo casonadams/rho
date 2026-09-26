@@ -80,10 +80,7 @@ impl PermissionHook {
             ));
         }
 
-        let mut prompt = build_permission_prompt(req.tool, req.args, drafts);
-        if let Some(r) = reason {
-            prompt.body = format!("{}\nNotice: {r}", prompt.body);
-        }
+        let prompt = build_permission_prompt(req.tool, req.args, drafts, reason);
         let response = self.presenter.request_interaction(prompt).await;
         self.map_interaction_action(response, req, drafts).await
     }
