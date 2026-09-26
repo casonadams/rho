@@ -54,7 +54,7 @@ impl FromStr for ConfigKey {
 
 fn parse_runtime_key(value: &str) -> Option<ConfigKey> {
     match value {
-        "model" | "default_model" => Some(ConfigKey::Model),
+        "model" | "default_model" | "models.default" => Some(ConfigKey::Model),
         "provider" | "default_provider" | "model_provider" => Some(ConfigKey::Provider),
         "thinking_level" | "thinking" | "default_thinking" | "default_thinking_level" => Some(ConfigKey::ThinkingLevel),
         "max_output_tokens" => Some(ConfigKey::MaxOutputTokens),

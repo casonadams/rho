@@ -452,6 +452,29 @@ fn test_config_file_guard_model() {
 }
 
 #[test]
+fn test_set_file_value_models() {
+    let dir = std::env::temp_dir().join(format!("rho_set_models_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "models.default", "anthropic/claude-3-7-sonnet").unwrap();
+    Config::set_file_value(&dir, "models.guard", "local/qwen2.5-coder:7b").unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let file: FileConfig = toml::from_str(&content).unwrap();
+
+    assert_eq!(file.models.default.as_deref(), Some("anthropic/claude-3-7-sonnet"));
+    assert_eq!(file.models.guard.as_deref(), Some("local/qwen2.5-coder:7b"));
+    assert!(!content.contains("[providers]"));
+
+    let config = load_config_with_rho_home(&dir);
+    assert_eq!(config.model, "claude-3-7-sonnet");
+    assert_eq!(config.provider, "anthropic");
+    assert_eq!(config.guard_model(), Some("local/qwen2.5-coder:7b"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn test_empty_tables_omitted() {
     let file = FileConfig::default();
     let serialized = toml::to_string_pretty(&file).unwrap();

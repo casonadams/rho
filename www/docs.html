@@ -264,15 +264,22 @@ rho update</code></pre>
       <div class="code-block-wrapper">
         <div class="code-block-header">
           <span>~/.config/rho/config.toml</span>
-          <button class="copy-btn" data-copy="model = &quot;anthropic/claude-3-7-sonnet&quot;
-thinking_level = &quot;high&quot;
+          <button class="copy-btn" data-copy="thinking_level = &quot;high&quot;
+
+[models]
+default = &quot;anthropic/claude-3-7-sonnet&quot;
+guard = &quot;local/qwen2.5-coder:7b&quot;
+
 max_turns = 1000
 context_window_messages = 24
 compaction_max_bytes = 8192">Copy</button>
         </div>
-        <pre><code># Default model in &lt;provider&gt;/&lt;model&gt; format and thinking level
-model = "anthropic/claude-3-7-sonnet"
+        <pre><code># Role-based model configuration and thinking level
 thinking_level = "high"
+
+[models]
+default = "anthropic/claude-3-7-sonnet"
+guard = "local/qwen2.5-coder:7b"
 
 # Execution limits & context window
 max_turns = 1000

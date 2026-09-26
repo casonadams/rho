@@ -106,17 +106,24 @@ history:
 
 ## Model & Guard Model Configuration
 
-Configure the default model in `~/.config/rho/config.toml` or `.rho/config.toml` using the unified `<provider>/<model>` format:
+Configure model roles in `~/.config/rho/config.toml` or `.rho/config.toml` under the `[models]` table using the unified `<provider>/<model>` format:
 
 ```toml
-# Unified model specification: <provider>/<model>
-model = "anthropic/claude-3-7-sonnet"
+thinking_level = "high"
+
+[models]
+# Primary assistant model (<provider>/<model>)
+default = "anthropic/claude-3-7-sonnet"
 
 # Optional guard model for security evaluation (low latency, non-thinking)
-guard_model = "local/qwen2.5-coder:7b"
+guard = "local/qwen2.5-coder:7b"
+
+# Forward-compatible with future specialized roles:
+# plan = "openai/o3-mini"
+# advisor = "google/gemini-2.5-flash"
 ```
 
-> **Deprecation Note**: Legacy `model_provider` and `providers.<name>.default_model` settings are deprecated. They are automatically migrated in memory on load, but config persistence writes canonical `model = "<provider>/<model>"`.
+The guard model strictly executes without thinking tokens (`thinking_level: None`) to ensure fast, deterministic, and low-latency security evaluation. Reasoning effort for the primary assistant is governed by `thinking_level` and can be adjusted interactively via `/thinking` or `F3`.
 
 ---
 
