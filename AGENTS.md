@@ -68,9 +68,9 @@
 
 ## Completion
 
-Follow the fail-fast check order (fastest static checks first, heaviest test/coverage runs last):
-1. `make complexity` (or `cccc .`) — instant AST cognitive complexity gate (~15ms)
-2. `cargo fmt --all -- --check` — instant formatting check (~30ms)
-3. `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`) — fast compiler diagnostics, types, and lints (~1-2s)
-4. `cargo test --workspace` — unit and integration test suite (~5-15s)
-5. `make crap` — instrumented test coverage and change-risk gating (~30-60s)
+- Run the following checks in order before finishing:
+  1. `cccc` (or `make complexity`)
+  2. `cargo crap` (or `make crap`)
+  3. `cargo test --workspace`
+  4. `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`)
+  5. `cargo fmt --all -- --check`
