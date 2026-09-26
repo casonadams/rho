@@ -91,9 +91,8 @@ To streamline development workflows without disabling safety protections, `rho` 
 ### How It Works
 
 1. **Precedence**: Explicit rules in `permission.toml` (`allow`, `deny`) and built-in baseline safe commands (`git status`, `cargo test`, `ls`) run immediately without querying the guard model.
-2. **Critical Danger Fast-Path**: Commands matching destructive signatures (`rm -rf /`, `mkfs`, `dd if=`, `git reset --hard`, destructive DB / cluster actions) are intercepted immediately and surfaced to the user.
-3. **Guard Evaluation**: For other non-baseline bash operations, the guard model evaluates the command against safety boundaries. If verified safe, the command executes automatically. If unsafe, it surfaces to the user with the guard model's rationale.
-4. **Fail-Safe**: If the guard model times out (4 seconds), is unreachable, or fails, execution falls back to human confirmation (or denial in headless mode).
+2. **Guard Evaluation**: Non-baseline bash commands are evaluated by the guard model. If verified safe, the command executes automatically with zero friction. If classified unsafe, `rho` surfaces the interactive confirmation prompt with the guard model's rationale.
+3. **Fail-Safe**: If the guard model times out (4 seconds), is unreachable, or encounters an error, execution safely falls back to standard human confirmation (or denial in headless mode).
 
 ### Configuration
 

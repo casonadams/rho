@@ -93,11 +93,6 @@ impl PermissionHook {
             && let Some(guard) = &self.guard_evaluator
         {
             let cmd = match_input(req.args);
-            if crate::permission::bash::is_critical_danger_bash(&cmd) {
-                return self
-                    .handle_ask(req, drafts, Some("Critical destructive command detected."))
-                    .await;
-            }
             let verdict = guard.evaluate(&cmd).await;
             if verdict.safe {
                 return ToolCallAction::run();

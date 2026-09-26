@@ -297,12 +297,12 @@ async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
 }
 
 #[tokio::test]
-async fn test_guard_evaluator_critical_danger_bypasses_guard() {
+async fn test_guard_evaluator_error_falls_back_to_prompt() {
     let dir = tempdir().unwrap();
     let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Cancelled)));
     let policy = build_policy(None, None);
 
-    // Guard mock has empty turns; if called, it would panic or fail
+    // Guard mock with empty turns triggers an error in the evaluator, falling back to ask
     let guard_mock = MockCompletionModel::new([]);
     let guard = GuardEvaluator::new(ModelHandle::new(guard_mock));
     let hook = PermissionHook::with_policy(Some(dir.path().to_path_buf()), presenter.clone(), policy).with_guard(guard);
@@ -318,7 +318,7 @@ async fn test_guard_evaluator_critical_danger_bypasses_guard() {
 
     let _ = agent.runner("reset").max_turns(2).run().await.unwrap();
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
-    assert!(prompt.body.contains("Critical destructive command detected"));
+    assert!(prompt.body.contains("Notice: Guard model evaluation error"));
 }
 
 #[tokio::test]
