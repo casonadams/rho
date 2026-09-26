@@ -20,11 +20,11 @@
 - Do not add Clippy `allow`, `expect`, command-line exclusions, or crate-level
   lint suppressions. Refactor code to satisfy the configured lints instead.
 - Remove any existing Clippy suppression encountered in code being changed.
-- Verify with `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`).
+- Verify with `make clippy`
 
 ## Testing and performance
 
-- Use `cargo test --workspace` for test feedback during development (a bare
+- Use `make test` for test feedback during development (a bare
   `cargo test` only covers the root `rho` package, not the other crates).
 - Write unit tests in in-file `#[cfg(test)] mod tests` blocks or sibling `tests.rs`
   files, avoiding deep nested test module folders.
@@ -45,7 +45,7 @@
 - The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining cyclomatic complexity with test code coverage. Functions with a CRAP score > 30 are considered fragile and defect-prone.
 - When modifying, extending, or fixing bugs in any function, ensure its cognitive complexity remains <= 15 and its CRAP score remains <= 30.
 - Never introduce new functions with cognitive complexity > 15 or a CRAP score > 30.
-- All changes must pass complexity evaluation (`make complexity` or `cccc .`) and CRAP threshold evaluation (`make crap`).
+- All changes must pass complexity evaluation `make complexity` and CRAP threshold evaluation (`make crap`).
 
 ## UX and modal guidelines
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
@@ -61,7 +61,7 @@
   - `Ctrl+C`: Clear the current input draft or filter query (never interrupts running turns or kills the process).
   - `Ctrl+D`: Exit when the prompt is empty.
 
-## Documentation, website, and WASM synchronization
+## Documentation, and website synchronization
 
 - When adding or changing observable CLI features, commands, flags, protocols, or UI behaviors, update both the markdown documentation (`docs/`, `README.md`) and the website pages (`www/index.html`, `www/docs.html`, etc.) to keep them synchronized with the implementation.
 - Maintain bidirectional UI parity: features, prompts, tool outputs, and interactive approvals visible in the raw-mode TUI must also stream, render, and resolve cleanly in the Web Hub dashboard.
@@ -69,8 +69,8 @@
 ## Completion
 
 - Run the following checks in order before finishing:
-  1. `cccc` (or `make complexity`)
-  2. `cargo crap` (or `make crap`)
-  3. `cargo test --workspace`
-  4. `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`)
-  5. `cargo fmt --all -- --check`
+  1. `make complexity`
+  2. `make crap`
+  3. `make test`
+  4. `make clippy`
+  5. `make fmt`

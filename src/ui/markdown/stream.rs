@@ -36,6 +36,56 @@ impl StreamWordWrapper {
         self.max_width = width;
     }
 
+    fn try_consume_ansi(&mut self, chunk: &str, offset: &mut usize) -> bool {
+        if chunk[*offset..].starts_with('\x1b')
+            && let Some(end) = chunk[*offset..].find('m')
+        {
+            let seq = &chunk[*offset..=*offset + end];
+            self.pending_ansi.push_str(seq);
+            self.pending_word.push_str(seq);
+            *offset += end + 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn handle_newline(&mut self, out: &mut String) {
+        self.commit_pending_word(out);
+        out.push('\n');
+        self.col = 0;
+        self.pending_spaces.clear();
+        self.pending_spaces_width = 0;
+    }
+
+    fn handle_whitespace(&mut self, c: char, out: &mut String) {
+        if !self.pending_word.is_empty() {
+            self.commit_pending_word(out);
+        }
+        let cw = UnicodeWidthChar::width(c).unwrap_or(1);
+        self.pending_spaces.push(c);
+        self.pending_spaces_width += cw;
+    }
+
+    fn handle_char(&mut self, c: char, cw: usize, out: &mut String) {
+        if self.pending_word_width + cw > self.max_width {
+            if self.col > 0 {
+                self.flush_line(out);
+                self.pending_spaces.clear();
+                self.pending_spaces_width = 0;
+            }
+            if self.pending_word_width > 0 && self.pending_word_width + cw > self.max_width {
+                out.push_str(&self.pending_word);
+                self.apply_pending_ansi();
+                self.flush_line(out);
+                self.pending_word.clear();
+                self.pending_word_width = 0;
+            }
+        }
+        self.pending_word.push(c);
+        self.pending_word_width += cw;
+    }
+
     pub fn process_chunk(&mut self, chunk: &str) -> String {
         if self.max_width == 0 {
             return chunk.to_string();
@@ -45,13 +95,7 @@ impl StreamWordWrapper {
         let len = chunk.len();
 
         while offset < len {
-            if chunk[offset..].starts_with('\x1b')
-                && let Some(end) = chunk[offset..].find('m')
-            {
-                let seq = &chunk[offset..=offset + end];
-                self.pending_ansi.push_str(seq);
-                self.pending_word.push_str(seq);
-                offset += end + 1;
+            if self.try_consume_ansi(chunk, &mut offset) {
                 continue;
             }
 
@@ -61,38 +105,14 @@ impl StreamWordWrapper {
             offset += c.len_utf8();
 
             if c == '\n' {
-                self.commit_pending_word(&mut out);
-                out.push('\n');
-                self.col = 0;
-                self.pending_spaces.clear();
-                self.pending_spaces_width = 0;
+                self.handle_newline(&mut out);
             } else if c == '\r' {
                 continue;
             } else if c == ' ' || c == '\t' {
-                if !self.pending_word.is_empty() {
-                    self.commit_pending_word(&mut out);
-                }
-                let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                self.pending_spaces.push(c);
-                self.pending_spaces_width += cw;
+                self.handle_whitespace(c, &mut out);
             } else {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                if self.pending_word_width + cw > self.max_width {
-                    if self.col > 0 {
-                        self.flush_line(&mut out);
-                        self.pending_spaces.clear();
-                        self.pending_spaces_width = 0;
-                    }
-                    if self.pending_word_width > 0 && self.pending_word_width + cw > self.max_width {
-                        out.push_str(&self.pending_word);
-                        self.apply_pending_ansi();
-                        self.flush_line(&mut out);
-                        self.pending_word.clear();
-                        self.pending_word_width = 0;
-                    }
-                }
-                self.pending_word.push(c);
-                self.pending_word_width += cw;
+                self.handle_char(c, cw, &mut out);
             }
         }
         out

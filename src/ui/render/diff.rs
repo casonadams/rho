@@ -87,39 +87,63 @@ fn tokenize(text: &str) -> Vec<&str> {
     tokens
 }
 
+fn handle_diff_op<'a>(
+    op: similar::DiffOp,
+    old_tokens: &[&'a str],
+    new_tokens: &[&'a str],
+    diff: &mut Vec<DiffToken<'a>>,
+) {
+    match op {
+        similar::DiffOp::Equal { old_index, len, .. } => {
+            diff.extend(
+                old_tokens[old_index..old_index + len]
+                    .iter()
+                    .copied()
+                    .map(DiffToken::Same),
+            );
+        }
+        similar::DiffOp::Delete { old_index, old_len, .. } => {
+            diff.extend(
+                old_tokens[old_index..old_index + old_len]
+                    .iter()
+                    .copied()
+                    .map(DiffToken::Removed),
+            );
+        }
+        similar::DiffOp::Insert { new_index, new_len, .. } => {
+            diff.extend(
+                new_tokens[new_index..new_index + new_len]
+                    .iter()
+                    .copied()
+                    .map(DiffToken::Added),
+            );
+        }
+        similar::DiffOp::Replace {
+            old_index,
+            old_len,
+            new_index,
+            new_len,
+        } => {
+            diff.extend(
+                old_tokens[old_index..old_index + old_len]
+                    .iter()
+                    .copied()
+                    .map(DiffToken::Removed),
+            );
+            diff.extend(
+                new_tokens[new_index..new_index + new_len]
+                    .iter()
+                    .copied()
+                    .map(DiffToken::Added),
+            );
+        }
+    }
+}
+
 fn compute_token_diff<'a>(old_tokens: &[&'a str], new_tokens: &[&'a str]) -> Vec<DiffToken<'a>> {
     let mut diff = Vec::new();
     for op in similar::capture_diff_slices(similar::Algorithm::Myers, old_tokens, new_tokens) {
-        match op {
-            similar::DiffOp::Equal { old_index, len, .. } => {
-                for token in &old_tokens[old_index..old_index + len] {
-                    diff.push(DiffToken::Same(token));
-                }
-            }
-            similar::DiffOp::Delete { old_index, old_len, .. } => {
-                for token in &old_tokens[old_index..old_index + old_len] {
-                    diff.push(DiffToken::Removed(token));
-                }
-            }
-            similar::DiffOp::Insert { new_index, new_len, .. } => {
-                for token in &new_tokens[new_index..new_index + new_len] {
-                    diff.push(DiffToken::Added(token));
-                }
-            }
-            similar::DiffOp::Replace {
-                old_index,
-                old_len,
-                new_index,
-                new_len,
-            } => {
-                for token in &old_tokens[old_index..old_index + old_len] {
-                    diff.push(DiffToken::Removed(token));
-                }
-                for token in &new_tokens[new_index..new_index + new_len] {
-                    diff.push(DiffToken::Added(token));
-                }
-            }
-        }
+        handle_diff_op(op, old_tokens, new_tokens, &mut diff);
     }
     diff
 }

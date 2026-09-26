@@ -57,6 +57,27 @@ pub struct Theme {
     pub cursor_mode: CursorMode,
 }
 
+fn resolve_border_style(color: Option<&String>) -> Option<Style> {
+    let c = parse_color(color?)?;
+    Some(Style::new().fg_color(Some(c)))
+}
+
+fn parse_block_style(style: &str) -> Option<BlockStyle> {
+    match style.trim().to_lowercase().as_str() {
+        "border" | "outline" => Some(BlockStyle::Border),
+        "solid" | "fill" => Some(BlockStyle::Solid),
+        _ => None,
+    }
+}
+
+fn parse_cursor_mode(cursor: &str) -> Option<CursorMode> {
+    match cursor.trim().to_lowercase().as_str() {
+        "hardware" | "hw" | "native" | "terminal" => Some(CursorMode::Hardware),
+        "software" | "sw" | "block" => Some(CursorMode::Software),
+        _ => None,
+    }
+}
+
 impl Theme {
     pub fn tool_title_style(&self, is_error: bool) -> Style {
         if is_error {
@@ -97,44 +118,26 @@ impl Theme {
     }
 
     pub fn apply_ui_config(&mut self, ui: &rho_harness_core::config::UiConfig) {
-        if let Some(ref style) = ui.block_style {
-            match style.trim().to_lowercase().as_str() {
-                "border" | "outline" => self.block_style = BlockStyle::Border,
-                "solid" | "fill" => self.block_style = BlockStyle::Solid,
-                _ => {}
-            }
+        if let Some(style) = ui.block_style.as_deref().and_then(parse_block_style) {
+            self.block_style = style;
         }
-        if let Some(ref cursor) = ui.cursor {
-            match cursor.trim().to_lowercase().as_str() {
-                "hardware" | "hw" | "native" | "terminal" => self.cursor_mode = CursorMode::Hardware,
-                "software" | "sw" | "block" => self.cursor_mode = CursorMode::Software,
-                _ => {}
-            }
+        if let Some(cursor) = ui.cursor.as_deref().and_then(parse_cursor_mode) {
+            self.cursor_mode = cursor;
         }
-        if let Some(ref color) = ui.user_border
-            && let Some(c) = parse_color(color)
-        {
-            self.user_border = Style::new().fg_color(Some(c));
+        if let Some(s) = resolve_border_style(ui.user_border.as_ref()) {
+            self.user_border = s;
         }
-        if let Some(ref color) = ui.agent_border
-            && let Some(c) = parse_color(color)
-        {
-            self.agent_border = Style::new().fg_color(Some(c));
+        if let Some(s) = resolve_border_style(ui.agent_border.as_ref()) {
+            self.agent_border = s;
         }
-        if let Some(ref color) = ui.tool_border
-            && let Some(c) = parse_color(color)
-        {
-            self.tool_border = Style::new().fg_color(Some(c));
+        if let Some(s) = resolve_border_style(ui.tool_border.as_ref()) {
+            self.tool_border = s;
         }
-        if let Some(ref color) = ui.bash_success_border
-            && let Some(c) = parse_color(color)
-        {
-            self.bash_success_border = Style::new().fg_color(Some(c));
+        if let Some(s) = resolve_border_style(ui.bash_success_border.as_ref()) {
+            self.bash_success_border = s;
         }
-        if let Some(ref color) = ui.bash_error_border
-            && let Some(c) = parse_color(color)
-        {
-            self.bash_error_border = Style::new().fg_color(Some(c));
+        if let Some(s) = resolve_border_style(ui.bash_error_border.as_ref()) {
+            self.bash_error_border = s;
         }
         if let Some(val) = ui.agent_block_output {
             self.block_agent_output = val;

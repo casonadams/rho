@@ -69,92 +69,98 @@ fn constrain_column_widths(widths: &mut [usize], available: usize) {
     }
 }
 
-fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
-    let width = width.max(1);
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut current_width = 0;
-    let mut pending_spaces = String::new();
-    let mut pending_spaces_width = 0;
-    let mut pending_word = String::new();
-    let mut pending_word_width = 0;
+struct CellWrapper {
+    width: usize,
+    lines: Vec<String>,
+    current: String,
+    current_width: usize,
+    pending_spaces: String,
+    pending_spaces_width: usize,
+    pending_word: String,
+    pending_word_width: usize,
+}
 
-    let commit_word = |current: &mut String,
-                       current_width: &mut usize,
-                       pending_spaces: &mut String,
-                       pending_spaces_width: &mut usize,
-                       pending_word: &mut String,
-                       pending_word_width: &mut usize,
-                       lines: &mut Vec<String>| {
-        if pending_word.is_empty() && *pending_word_width == 0 {
+impl CellWrapper {
+    fn new(width: usize) -> Self {
+        Self {
+            width: width.max(1),
+            lines: Vec::new(),
+            current: String::new(),
+            current_width: 0,
+            pending_spaces: String::new(),
+            pending_spaces_width: 0,
+            pending_word: String::new(),
+            pending_word_width: 0,
+        }
+    }
+
+    fn commit_word(&mut self) {
+        if self.pending_word.is_empty() && self.pending_word_width == 0 {
             return;
         }
-        let needed = *pending_spaces_width + *pending_word_width;
-        if *current_width > 0 && *current_width + needed > width {
-            lines.push(std::mem::take(current));
-            *current_width = 0;
-            pending_spaces.clear();
-            *pending_spaces_width = 0;
+        let needed = self.pending_spaces_width + self.pending_word_width;
+        if self.current_width > 0 && self.current_width + needed > self.width {
+            self.lines.push(std::mem::take(&mut self.current));
+            self.current_width = 0;
+            self.pending_spaces.clear();
+            self.pending_spaces_width = 0;
         }
-        if *current_width > 0 || lines.is_empty() {
-            current.push_str(pending_spaces);
-            *current_width += *pending_spaces_width;
+        if self.current_width > 0 || self.lines.is_empty() {
+            self.current.push_str(&self.pending_spaces);
+            self.current_width += self.pending_spaces_width;
         }
-        pending_spaces.clear();
-        *pending_spaces_width = 0;
+        self.pending_spaces.clear();
+        self.pending_spaces_width = 0;
 
-        current.push_str(pending_word);
-        *current_width += *pending_word_width;
-        pending_word.clear();
-        *pending_word_width = 0;
-    };
+        self.current.push_str(&self.pending_word);
+        self.current_width += self.pending_word_width;
+        self.pending_word.clear();
+        self.pending_word_width = 0;
+    }
 
+    fn push_space(&mut self, character: char, character_width: usize) {
+        self.commit_word();
+        self.pending_spaces.push(character);
+        self.pending_spaces_width += character_width;
+    }
+
+    fn push_char(&mut self, character: char, character_width: usize) {
+        if self.pending_word_width + character_width > self.width {
+            if self.current_width > 0 {
+                self.lines.push(std::mem::take(&mut self.current));
+                self.current_width = 0;
+                self.pending_spaces.clear();
+                self.pending_spaces_width = 0;
+            }
+            if self.pending_word_width + character_width > self.width && self.pending_word_width > 0 {
+                self.lines.push(std::mem::take(&mut self.pending_word));
+                self.pending_word_width = 0;
+            }
+        }
+        self.pending_word.push(character);
+        self.pending_word_width += character_width;
+    }
+
+    fn finish(mut self) -> Vec<String> {
+        self.commit_word();
+        if !self.current.is_empty() || self.lines.is_empty() {
+            self.lines.push(self.current);
+        }
+        self.lines
+    }
+}
+
+fn wrap_cell(cell: &str, width: usize) -> Vec<String> {
+    let mut wrapper = CellWrapper::new(width);
     for character in cell.chars() {
         let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
         if character == ' ' || character == '\t' {
-            commit_word(
-                &mut current,
-                &mut current_width,
-                &mut pending_spaces,
-                &mut pending_spaces_width,
-                &mut pending_word,
-                &mut pending_word_width,
-                &mut lines,
-            );
-            pending_spaces.push(character);
-            pending_spaces_width += character_width;
+            wrapper.push_space(character, character_width);
         } else {
-            if pending_word_width + character_width > width {
-                if current_width > 0 {
-                    lines.push(std::mem::take(&mut current));
-                    current_width = 0;
-                    pending_spaces.clear();
-                    pending_spaces_width = 0;
-                }
-                if pending_word_width + character_width > width && pending_word_width > 0 {
-                    lines.push(std::mem::take(&mut pending_word));
-                    pending_word_width = 0;
-                }
-            }
-            pending_word.push(character);
-            pending_word_width += character_width;
+            wrapper.push_char(character, character_width);
         }
     }
-
-    commit_word(
-        &mut current,
-        &mut current_width,
-        &mut pending_spaces,
-        &mut pending_spaces_width,
-        &mut pending_word,
-        &mut pending_word_width,
-        &mut lines,
-    );
-
-    if !current.is_empty() || lines.is_empty() {
-        lines.push(current);
-    }
-    lines
+    wrapper.finish()
 }
 
 fn render_compact_table(rows: &[Vec<String>], header_end: usize, width: usize) -> String {

@@ -134,6 +134,32 @@ impl<'a> LineWrapper<'a> {
         self.apply_pending_ansi();
     }
 
+    fn handle_space(&mut self, c: char, output: &mut Vec<String>) {
+        self.commit_pending_word(output);
+        let cw = UnicodeWidthChar::width(c).unwrap_or(0);
+        self.pending_spaces.push(c);
+        self.pending_spaces_width += cw;
+    }
+
+    fn handle_char(&mut self, c: char, cw: usize, output: &mut Vec<String>) {
+        if self.pending_word_width + cw > self.max_width {
+            if self.current_width > 0 {
+                self.flush_current_line(output);
+                self.pending_spaces.clear();
+                self.pending_spaces_width = 0;
+            }
+            if self.pending_word_width + cw > self.max_width && self.pending_word_width > 0 {
+                self.current_line.push_str(&self.pending_word);
+                self.apply_pending_ansi();
+                self.flush_current_line(output);
+                self.pending_word.clear();
+                self.pending_word_width = 0;
+            }
+        }
+        self.pending_word.push(c);
+        self.pending_word_width += cw;
+    }
+
     fn wrap(mut self, output: &mut Vec<String>) {
         while self.offset < self.line.len() {
             if self.try_consume_ansi() {
@@ -148,28 +174,10 @@ impl<'a> LineWrapper<'a> {
             }
 
             if c == ' ' || c == '\t' {
-                self.commit_pending_word(output);
-                let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-                self.pending_spaces.push(c);
-                self.pending_spaces_width += cw;
+                self.handle_space(c, output);
             } else {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(0);
-                if self.pending_word_width + cw > self.max_width {
-                    if self.current_width > 0 {
-                        self.flush_current_line(output);
-                        self.pending_spaces.clear();
-                        self.pending_spaces_width = 0;
-                    }
-                    if self.pending_word_width + cw > self.max_width && self.pending_word_width > 0 {
-                        self.current_line.push_str(&self.pending_word);
-                        self.apply_pending_ansi();
-                        self.flush_current_line(output);
-                        self.pending_word.clear();
-                        self.pending_word_width = 0;
-                    }
-                }
-                self.pending_word.push(c);
-                self.pending_word_width += cw;
+                self.handle_char(c, cw, output);
             }
         }
         self.commit_pending_word(output);

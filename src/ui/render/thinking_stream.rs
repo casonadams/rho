@@ -24,6 +24,48 @@ impl ThinkingStreamTracker {
         }
     }
 
+    fn handle_newline(&mut self, out: &mut String, max_width: usize, d: anstyle::Style) {
+        self.commit_pending_word(out, max_width, d);
+        out.push('\n');
+        self.col = 0;
+        self.at_line_start = true;
+        self.pending_spaces.clear();
+        self.pending_spaces_width = 0;
+    }
+
+    fn handle_whitespace(&mut self, c: char, out: &mut String, max_width: usize, d: anstyle::Style) {
+        if !self.pending_word.is_empty() {
+            self.commit_pending_word(out, max_width, d);
+        }
+        let cw = UnicodeWidthChar::width(c).unwrap_or(1);
+        self.pending_spaces.push(c);
+        self.pending_spaces_width += cw;
+    }
+
+    fn handle_char(&mut self, c: char, cw: usize, max_width: usize, d: anstyle::Style, out: &mut String) {
+        if self.pending_word_width + cw > max_width {
+            if !self.at_line_start && self.col > 1 {
+                out.push('\n');
+                out.push(' ');
+                self.col = 1;
+                self.pending_spaces.clear();
+                self.pending_spaces_width = 0;
+            } else if self.at_line_start && self.col == 0 {
+                out.push(' ');
+                self.col = 1;
+                self.at_line_start = false;
+            }
+            out.push_str(&format!("{d}{}{d:#}", self.pending_word));
+            out.push('\n');
+            out.push(' ');
+            self.col = 1;
+            self.pending_word.clear();
+            self.pending_word_width = 0;
+        }
+        self.pending_word.push(c);
+        self.pending_word_width += cw;
+    }
+
     pub fn process_token(&mut self, token: &str, width: usize, theme: &Theme) -> String {
         let max_width = if width > 0 { width.saturating_sub(1).max(10) } else { 79 };
         let d = theme.dimmed;
@@ -31,44 +73,14 @@ impl ThinkingStreamTracker {
 
         for c in token.chars() {
             if c == '\n' {
-                self.commit_pending_word(&mut out, max_width, d);
-                out.push('\n');
-                self.col = 0;
-                self.at_line_start = true;
-                self.pending_spaces.clear();
-                self.pending_spaces_width = 0;
+                self.handle_newline(&mut out, max_width, d);
             } else if c == '\r' {
                 continue;
             } else if c == ' ' || c == '\t' {
-                if !self.pending_word.is_empty() {
-                    self.commit_pending_word(&mut out, max_width, d);
-                }
-                let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                self.pending_spaces.push(c);
-                self.pending_spaces_width += cw;
+                self.handle_whitespace(c, &mut out, max_width, d);
             } else {
                 let cw = UnicodeWidthChar::width(c).unwrap_or(1);
-                if self.pending_word_width + cw > max_width {
-                    if !self.at_line_start && self.col > 1 {
-                        out.push('\n');
-                        out.push(' ');
-                        self.col = 1;
-                        self.pending_spaces.clear();
-                        self.pending_spaces_width = 0;
-                    } else if self.at_line_start && self.col == 0 {
-                        out.push(' ');
-                        self.col = 1;
-                        self.at_line_start = false;
-                    }
-                    out.push_str(&format!("{d}{}{d:#}", self.pending_word));
-                    out.push('\n');
-                    out.push(' ');
-                    self.col = 1;
-                    self.pending_word.clear();
-                    self.pending_word_width = 0;
-                }
-                self.pending_word.push(c);
-                self.pending_word_width += cw;
+                self.handle_char(c, cw, max_width, d, &mut out);
             }
         }
 

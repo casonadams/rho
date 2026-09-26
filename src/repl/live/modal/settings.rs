@@ -109,10 +109,10 @@ fn step_thinking_effort<B: TerminalBackend>(controller: &mut TerminalController<
     }
 }
 
-fn toggle_selected_setting<B: TerminalBackend>(
+fn toggle_ui_setting<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     selected: usize,
-) -> ModalKeyResult {
+) -> Option<ModalKeyResult> {
     match selected {
         0 => {
             let next = controller
@@ -123,44 +123,19 @@ fn toggle_selected_setting<B: TerminalBackend>(
                 crate::ui::theme::BlockStyle::Solid => "Solid",
             };
             update_setting_description(controller, (label, 0));
-            ModalKeyResult::BlockStyleToggled {
+            Some(ModalKeyResult::BlockStyleToggled {
                 style: label.to_lowercase(),
-            }
+            })
         }
         1 => {
             let boxed = controller.toggle_block_agent_output().unwrap_or(false);
             update_setting_description(controller, (if boxed { "On" } else { "Off" }, 1));
-            ModalKeyResult::AgentBoxToggled { boxed }
-        }
-        2 => {
-            controller.state_mut().pop_modal();
-            let _ = controller.redraw();
-            ModalKeyResult::OpenModelSelector { save_as_default: true }
-        }
-        3 => {
-            controller.state_mut().pop_modal();
-            let _ = controller.redraw();
-            ModalKeyResult::OpenGuardModelSelector
-        }
-        4 => step_thinking_effort(controller, true),
-        5 => {
-            let hide = controller
-                .toggle_thinking()
-                .unwrap_or_else(|_| controller.state_mut().toggle_thinking());
-            update_setting_description(controller, (if hide { "Hidden" } else { "Shown" }, 5));
-            ModalKeyResult::ThinkingOutputToggled { hidden: hide }
-        }
-        6 => {
-            let expanded = controller
-                .toggle_tools_expanded()
-                .unwrap_or_else(|_| controller.state_mut().toggle_tools_expanded());
-            update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 6));
-            ModalKeyResult::ToolOutputToggled { expanded }
+            Some(ModalKeyResult::AgentBoxToggled { boxed })
         }
         7 => {
             let shown = controller.state_mut().toggle_show_label();
             update_setting_description(controller, (if shown { "Shown" } else { "Hidden" }, 7));
-            ModalKeyResult::ShowLabelToggled { shown }
+            Some(ModalKeyResult::ShowLabelToggled { shown })
         }
         8 => {
             let next = controller
@@ -171,9 +146,53 @@ fn toggle_selected_setting<B: TerminalBackend>(
                 crate::ui::theme::CursorMode::Hardware => "Hardware",
             };
             update_setting_description(controller, (label, 8));
-            ModalKeyResult::CursorToggled {
+            Some(ModalKeyResult::CursorToggled {
                 cursor: label.to_lowercase(),
-            }
+            })
+        }
+        _ => None,
+    }
+}
+
+fn toggle_modal_setting<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    selected: usize,
+) -> Option<ModalKeyResult> {
+    match selected {
+        2 => {
+            controller.state_mut().pop_modal();
+            let _ = controller.redraw();
+            Some(ModalKeyResult::OpenModelSelector { save_as_default: true })
+        }
+        3 => {
+            controller.state_mut().pop_modal();
+            let _ = controller.redraw();
+            Some(ModalKeyResult::OpenGuardModelSelector)
+        }
+        10 => Some(ModalKeyResult::OpenToolsMenu),
+        _ => None,
+    }
+}
+
+fn toggle_feature_setting<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    selected: usize,
+) -> Option<ModalKeyResult> {
+    match selected {
+        4 => Some(step_thinking_effort(controller, true)),
+        5 => {
+            let hide = controller
+                .toggle_thinking()
+                .unwrap_or_else(|_| controller.state_mut().toggle_thinking());
+            update_setting_description(controller, (if hide { "Hidden" } else { "Shown" }, 5));
+            Some(ModalKeyResult::ThinkingOutputToggled { hidden: hide })
+        }
+        6 => {
+            let expanded = controller
+                .toggle_tools_expanded()
+                .unwrap_or_else(|_| controller.state_mut().toggle_tools_expanded());
+            update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 6));
+            Some(ModalKeyResult::ToolOutputToggled { expanded })
         }
         9 => {
             let current = controller
@@ -184,11 +203,48 @@ fn toggle_selected_setting<B: TerminalBackend>(
                 .unwrap_or("Off");
             let next = current != "On";
             update_setting_description(controller, (if next { "On" } else { "Off" }, 9));
-            ModalKeyResult::SemanticSearchToggled { enabled: next }
+            Some(ModalKeyResult::SemanticSearchToggled { enabled: next })
         }
-        10 => ModalKeyResult::OpenToolsMenu,
-        _ => ModalKeyResult::Handled,
+        _ => None,
     }
+}
+
+fn toggle_selected_setting<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    selected: usize,
+) -> ModalKeyResult {
+    if let Some(res) = toggle_ui_setting(controller, selected) {
+        return res;
+    }
+    if let Some(res) = toggle_modal_setting(controller, selected) {
+        return res;
+    }
+    toggle_feature_setting(controller, selected).unwrap_or(ModalKeyResult::Handled)
+}
+
+fn handle_thinking_effort_key<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    key: &KeyEvent,
+) -> Option<ModalKeyResult> {
+    if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        let current = current_thinking_from_modal(controller);
+        let level = if current == "off" {
+            None
+        } else {
+            Some(current.to_string())
+        };
+        return Some(ModalKeyResult::ThinkingLevelSelected {
+            level,
+            save_as_default: true,
+        });
+    }
+    if key.code == KeyCode::Left || key.code == KeyCode::Char('h') {
+        return Some(step_thinking_effort(controller, false));
+    }
+    if key.code == KeyCode::Right || key.code == KeyCode::Char('l') {
+        return Some(step_thinking_effort(controller, true));
+    }
+    None
 }
 
 fn handle_settings_action<B: TerminalBackend>(
@@ -196,25 +252,10 @@ fn handle_settings_action<B: TerminalBackend>(
     key: &KeyEvent,
 ) -> ModalKeyResult {
     let selected = controller.state().active_modal().map_or(0, |m| m.selected);
-    if selected == 4 {
-        if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
-            let current = current_thinking_from_modal(controller);
-            let level = if current == "off" {
-                None
-            } else {
-                Some(current.to_string())
-            };
-            return ModalKeyResult::ThinkingLevelSelected {
-                level,
-                save_as_default: true,
-            };
-        }
-        if key.code == KeyCode::Left || key.code == KeyCode::Char('h') {
-            return step_thinking_effort(controller, false);
-        }
-        if key.code == KeyCode::Right || key.code == KeyCode::Char('l') {
-            return step_thinking_effort(controller, true);
-        }
+    if selected == 4
+        && let Some(res) = handle_thinking_effort_key(controller, key)
+    {
+        return res;
     }
     if key.code == KeyCode::Enter || key.code == KeyCode::Char(' ') {
         return toggle_selected_setting(controller, selected);
