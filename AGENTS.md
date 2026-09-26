@@ -39,15 +39,13 @@
   `cargo:rerun-if-changed` to prevent Cargo from invalidating incremental build
   caches on every invocation.
 
-## Code quality and CRAP score
+## Code quality, complexity, and CRAP score
 
-- The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining
-  cyclomatic complexity with test code coverage. Functions with a CRAP score > 30
-  are considered fragile and defect-prone.
-- When modifying, extending, or fixing bugs in any function, ensure its CRAP
-  score remains <= 30.
-- Never introduce new functions with a CRAP score > 30.
-- All changes must pass CRAP threshold evaluation (`make crap`).
+- The repository enforces strict cognitive complexity limits via `cccc` (SonarSource Campbell standard). Functions must maintain a cognitive complexity score <= 15.
+- The repository enforces CRAP (Change Risk Anti-Patterns) analysis combining cyclomatic complexity with test code coverage. Functions with a CRAP score > 30 are considered fragile and defect-prone.
+- When modifying, extending, or fixing bugs in any function, ensure its cognitive complexity remains <= 15 and its CRAP score remains <= 30.
+- Never introduce new functions with cognitive complexity > 15 or a CRAP score > 30.
+- All changes must pass complexity evaluation (`make complexity` or `cccc .`) and CRAP threshold evaluation (`make crap`).
 
 ## UX and modal guidelines
 - Standardize all interactive selectors on the clean `/thinking` modal pattern:
@@ -70,4 +68,9 @@
 
 ## Completion
 
-- Run `cargo fmt --all -- --check`, `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`), `cargo test --workspace`, and `make crap` before finishing.
+Follow the fail-fast check order (fastest static checks first, heaviest test/coverage runs last):
+1. `make complexity` (or `cccc .`) — instant AST cognitive complexity gate (~15ms)
+2. `cargo fmt --all -- --check` — instant formatting check (~30ms)
+3. `make clippy` (or `cargo clippy --workspace --all-targets -- -D warnings`) — fast compiler diagnostics, types, and lints (~1-2s)
+4. `cargo test --workspace` — unit and integration test suite (~5-15s)
+5. `make crap` — instrumented test coverage and change-risk gating (~30-60s)
