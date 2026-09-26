@@ -330,3 +330,36 @@ fn test_guard_model_thinking_is_none() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn test_factory_creates_model_from_spec() {
+    let dir = std::env::temp_dir().join(format!("rho_auth_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let auth_store = AuthStore::load(dir.join("auth.json")).unwrap();
+
+    // 1. Model spec overrides config.provider
+    let config = Config {
+        provider: "anthropic".to_string(),
+        ..Default::default()
+    };
+    let handle = ProviderFactory::create_model(&config, "local/qwen2.5-coder:7b", &auth_store).unwrap();
+    assert_eq!(handle.label(), Some("local"));
+
+    // 2. Bare model fallback to config.provider
+    let config = Config {
+        provider: "local".to_string(),
+        ..Default::default()
+    };
+    let handle = ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store).unwrap();
+    assert_eq!(handle.label(), Some("local"));
+
+    // 3. Bare model without config.provider infers or falls back to local
+    let config = Config {
+        provider: String::new(),
+        ..Default::default()
+    };
+    let handle = ProviderFactory::create_model(&config, "qwen2.5-coder:7b", &auth_store).unwrap();
+    assert_eq!(handle.label(), Some("local"));
+
+    std::fs::remove_dir_all(dir).unwrap();
+}

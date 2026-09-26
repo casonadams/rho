@@ -36,14 +36,14 @@ fn model_selector_marks_default_model_separately_from_active() {
     let active = modal
         .options
         .iter()
-        .find(|o| o.label == "claude-3-5-haiku-20241022")
+        .find(|o| o.label == "anthropic/claude-3-5-haiku-20241022")
         .unwrap();
     assert_eq!(extract_desc_marks(active.description.as_deref().unwrap()), ("✓", ""));
 
     let default = modal
         .options
         .iter()
-        .find(|o| o.label == "claude-3-7-sonnet-20250219")
+        .find(|o| o.label == "anthropic/claude-3-7-sonnet-20250219")
         .unwrap();
     assert_eq!(
         extract_desc_marks(default.description.as_deref().unwrap()),

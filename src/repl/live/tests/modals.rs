@@ -1017,7 +1017,11 @@ fn model_selector_displays_claude_tag() {
     let modal = controller.state().active_modal().unwrap();
     assert_eq!(modal.title, "Select Model");
 
-    let claude_opt = modal.options.iter().find(|o| o.label == "claude-sonnet-4-6").unwrap();
+    let claude_opt = modal
+        .options
+        .iter()
+        .find(|o| o.label == "claude/claude-sonnet-4-6")
+        .unwrap();
     assert!(claude_opt.description.as_deref().unwrap().starts_with("claude\t"));
 
     let rendered = layout(LayoutInput {
@@ -1057,7 +1061,7 @@ fn model_selector_selects_claude_model() {
         } => {
             assert_eq!(
                 (model.as_str(), provider.as_str(), save_as_default),
-                ("claude-sonnet-4-6", "claude", false)
+                ("claude/claude-sonnet-4-6", "claude", false)
             );
         }
         _ => panic!("expected ModelSelected"),
@@ -1178,4 +1182,48 @@ fn search_engine_selector_modal_lifecycle() {
         }
     );
     assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn test_repl_model_selection_format() {
+    let temp = tempfile::tempdir().unwrap();
+    let session = setup_model_selector_session(temp.path().to_path_buf());
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    super::super::modal::open_model_selector(&session, &mut controller);
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Select Model");
+
+    for opt in &modal.options {
+        assert!(
+            opt.label.contains('/'),
+            "option label must be <provider>/<model>: {}",
+            opt.label
+        );
+    }
+
+    let active_opt = modal
+        .options
+        .iter()
+        .find(|o| o.label == session.config.canonical_model_spec());
+    assert!(active_opt.is_some(), "active model option must exist");
+    assert!(active_opt.unwrap().description.as_deref().unwrap().contains('✓'));
+
+    let res = send_modal_key(&mut controller, KeyCode::Enter);
+    match res {
+        super::super::modal::ModalKeyResult::ModelSelected {
+            model,
+            provider,
+            save_as_default,
+        } => {
+            assert!(
+                model.contains('/'),
+                "selected model must be in <provider>/<model> format: {model}"
+            );
+            let (p, _) = rho_harness_core::provider::parse_model_spec(&model);
+            assert_eq!(p, provider);
+            assert!(!save_as_default);
+        }
+        other => panic!("expected ModelSelected, got {other:?}"),
+    }
 }

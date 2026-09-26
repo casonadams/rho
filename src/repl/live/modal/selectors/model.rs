@@ -5,26 +5,38 @@ use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{ModalOption, ModalState, TerminalBackend, TerminalController};
 
-fn is_default_model(session: &ReplSession, model_id: &str, provider: &str) -> bool {
+fn canonical_model_id(item: &crate::repl::interactive::ModelItem) -> String {
+    if item.id.contains('/') && item.id.starts_with(&format!("{}/", item.provider)) {
+        item.id.clone()
+    } else {
+        format!("{}/{}", item.provider, item.id)
+    }
+}
+
+fn is_default_model(session: &ReplSession, canonical_id: &str, model_id: &str, provider: &str) -> bool {
     session.config.default_model.as_deref().is_some_and(|dm| {
-        model_id == dm
-            && session
-                .config
-                .default_provider
-                .as_deref()
-                .is_none_or(|dp| provider == dp)
+        dm == canonical_id
+            || (model_id == dm
+                && session
+                    .config
+                    .default_provider
+                    .as_deref()
+                    .is_none_or(|dp| provider == dp))
     })
 }
 
 fn build_model_option(session: &ReplSession, item: &crate::repl::interactive::ModelItem) -> ModalOption {
-    let active_mark = if item.id == session.config.model { "✓" } else { "" };
-    let default_mark = if is_default_model(session, &item.id, &item.provider) {
+    let canonical = canonical_model_id(item);
+    let active_spec = session.config.canonical_model_spec();
+    let is_active = canonical == active_spec || item.id == session.config.model;
+    let active_mark = if is_active { "✓" } else { "" };
+    let default_mark = if is_default_model(session, &canonical, &item.id, &item.provider) {
         "default"
     } else {
         ""
     };
     ModalOption::new(
-        item.id.clone(),
+        canonical,
         Some(format!(
             "{}\t{}\t{}\t{}",
             item.provider, active_mark, default_mark, item.description
@@ -45,8 +57,10 @@ pub fn open_model_selector_with_default<B: TerminalBackend>(
     let mut options = Vec::new();
     let mut initial_selection = 0;
 
+    let active_spec = session.config.canonical_model_spec();
     for (i, item) in discovered.iter().enumerate() {
-        if item.id == session.config.model {
+        let canonical = canonical_model_id(item);
+        if canonical == active_spec || item.id == session.config.model {
             initial_selection = i;
         }
         options.push(build_model_option(session, item));
@@ -74,8 +88,9 @@ pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, cont
 
     let mut initial_selection = 0;
     for (i, item) in discovered.iter().enumerate() {
+        let canonical = canonical_model_id(item);
         let active_mark = if let Some(g) = current_guard {
-            let matches_full = g == format!("{}/{}", item.provider, item.id);
+            let matches_full = g == canonical;
             let matches_id = g == item.id;
             if matches_full || matches_id {
                 initial_selection = i + 1;
@@ -87,7 +102,7 @@ pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, cont
             ""
         };
         options.push(ModalOption::new(
-            item.id.clone(),
+            canonical,
             Some(format!("{}\t{}\t\t{}", item.provider, active_mark, item.description)),
         ));
     }
@@ -99,14 +114,22 @@ pub fn open_guard_model_selector<B: TerminalBackend>(session: &ReplSession, cont
 
 fn extract_selected_model<B: TerminalBackend>(controller: &TerminalController<B>) -> Option<(String, String)> {
     let opt = controller.state().active_modal().and_then(|m| m.selected_option())?;
-    let selected_model = opt.label.clone();
-    let provider = opt
-        .description
-        .as_deref()
-        .and_then(|d| d.split('\t').next())
-        .unwrap_or("anthropic")
-        .to_string();
-    Some((selected_model, provider))
+    let label = opt.label.clone();
+    if label == "None" {
+        return Some(("None".to_string(), "none".to_string()));
+    }
+    let (provider, _) = rho_harness_core::provider::parse_model_spec(&label);
+    if !provider.is_empty() {
+        Some((label, provider))
+    } else {
+        let provider = opt
+            .description
+            .as_deref()
+            .and_then(|d| d.split('\t').next())
+            .unwrap_or("anthropic")
+            .to_string();
+        Some((label, provider))
+    }
 }
 
 fn pop_and_select_model<B: TerminalBackend>(

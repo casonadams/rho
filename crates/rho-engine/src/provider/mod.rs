@@ -78,23 +78,41 @@ impl ProviderFactory {
     }
 
     pub fn create_model(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
-        let name = config.provider.trim();
-        if let Ok(provider_id) = ProviderId::from_str(name) {
+        let (spec_provider, spec_model) = rho_harness_core::provider::parse_model_spec(model);
+        let (provider_name, actual_model) = if !spec_provider.is_empty() {
+            (spec_provider, spec_model)
+        } else {
+            let provider = if !config.provider.trim().is_empty() {
+                config.provider.trim().to_string()
+            } else {
+                rho_harness_core::provider::infer_provider_for_model(model)
+                    .unwrap_or("local")
+                    .to_string()
+            };
+            (provider, model.trim().to_string())
+        };
+
+        if let Ok(provider_id) = ProviderId::from_str(&provider_name) {
             return Self::create_model_for(
                 ModelRequest {
                     provider: provider_id,
-                    model,
+                    model: &actual_model,
                     thinking_level: config.thinking_level.as_deref(),
                     shared_auth: None,
                 },
                 auth_store,
             );
         }
-        Self::create_custom_model(config, model, auth_store)
+        Self::create_custom_model(config, &provider_name, &actual_model, auth_store)
     }
 
-    fn create_custom_model(config: &Config, model: &str, auth_store: &AuthStore) -> Result<ModelHandle> {
-        let name = config.provider.trim();
+    fn create_custom_model(
+        config: &Config,
+        provider_name: &str,
+        model: &str,
+        auth_store: &AuthStore,
+    ) -> Result<ModelHandle> {
+        let name = provider_name.trim();
         let spec = config.providers.get(&name.to_ascii_lowercase()).ok_or_else(|| {
             AppError::Provider(format!(
                 "Unknown provider '{name}'. Configure it in config.toml as\n\

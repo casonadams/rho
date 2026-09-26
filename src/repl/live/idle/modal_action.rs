@@ -442,6 +442,8 @@ async fn handle_guard_model_selected(
 ) -> Result<bool> {
     let guard_spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
         None
+    } else if model.contains('/') {
+        Some(model.clone())
     } else {
         Some(format!("{provider}/{model}"))
     };

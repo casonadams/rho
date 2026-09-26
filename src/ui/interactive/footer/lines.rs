@@ -99,21 +99,27 @@ fn push_speed_part(footer: &FooterState, parts: &mut Vec<String>) {
 }
 
 pub(crate) fn format_model_details(footer: &FooterState) -> String {
-    let provider = (!footer.provider.is_empty()).then_some(footer.provider.as_str());
-    let model_id = if footer.model.is_empty() {
-        "no-model"
-    } else {
-        &footer.model
-    };
     let thinking = footer
         .thinking_level
         .as_deref()
         .filter(|s| !s.is_empty())
         .unwrap_or("off");
 
-    match provider {
-        Some(p) => format!("{p}/{model_id}/{thinking}"),
-        None => format!("{model_id}/{thinking}"),
+    if footer.model.is_empty() {
+        return if footer.provider.is_empty() {
+            format!("no-model/{thinking}")
+        } else {
+            format!("{}/no-model/{thinking}", footer.provider)
+        };
+    }
+
+    let (spec_p, spec_m) = rho_harness_core::provider::parse_model_spec(&footer.model);
+    if !spec_p.is_empty() {
+        format!("{spec_p}/{spec_m}/{thinking}")
+    } else if !footer.provider.is_empty() {
+        format!("{}/{}/{thinking}", footer.provider, footer.model)
+    } else {
+        format!("{}/{thinking}", footer.model)
     }
 }
 
