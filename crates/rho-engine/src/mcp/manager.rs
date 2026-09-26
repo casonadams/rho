@@ -116,6 +116,71 @@ async fn load_single_server(target: ServerLoadTarget<'_>) -> Option<SingleServer
     })
 }
 
+struct GatewayAccumulator {
+    clients: std::collections::BTreeMap<String, Arc<McpClient>>,
+    defs: Vec<(String, McpToolDefinition)>,
+}
+
+fn separate_gateway_servers(results: Vec<SingleServerLoaded>) -> (GatewayAccumulator, Vec<SingleServerLoaded>) {
+    let mut gateway = GatewayAccumulator {
+        clients: std::collections::BTreeMap::new(),
+        defs: Vec::new(),
+    };
+    let mut non_gateway = Vec::new();
+
+    for loaded in results {
+        if loaded.mode == rho_harness_core::config::McpExposureMode::Gateway {
+            gateway
+                .clients
+                .insert(loaded.server_name.clone(), Arc::clone(&loaded.client));
+            for tool in loaded.tools {
+                gateway.defs.push((loaded.server_name.clone(), tool));
+            }
+        } else {
+            non_gateway.push(loaded);
+        }
+    }
+    (gateway, non_gateway)
+}
+
+struct ToolRoutingContext<'a> {
+    should_defer: bool,
+    active_history_tools: &'a std::collections::HashSet<String>,
+    activator: &'a super::search::DynamicToolActivator,
+}
+
+fn route_server_tools(
+    loaded: SingleServerLoaded,
+    ctx: &ToolRoutingContext,
+    initial_tools: &mut Vec<DynamicTool>,
+    deferred_tools: &mut Vec<super::search::DeferredMcpTool>,
+) {
+    for tool in loaded.tools {
+        let wire_name = format!("{}_{}", loaded.server_name, tool.name);
+        let must_expose_directly = loaded.mode == rho_harness_core::config::McpExposureMode::Direct
+            || !ctx.should_defer
+            || ctx.active_history_tools.contains(&wire_name);
+
+        if must_expose_directly {
+            ctx.activator.mark_activated(&wire_name);
+            initial_tools.push(build_single_mcp_tool(
+                tool,
+                Arc::clone(&loaded.client),
+                (&loaded.server_name, loaded.max_bytes),
+            ));
+        } else {
+            deferred_tools.push(super::search::DeferredMcpTool::new(
+                loaded.server_name.clone(),
+                tool.name,
+                tool.description.unwrap_or_default(),
+                tool.input_schema,
+                Arc::clone(&loaded.client),
+                loaded.max_bytes,
+            ));
+        }
+    }
+}
+
 fn aggregate_loaded_servers(
     results: Vec<SingleServerLoaded>,
     config: &Config,
@@ -123,23 +188,10 @@ fn aggregate_loaded_servers(
 ) -> (Vec<DynamicTool>, super::search::DynamicToolActivator) {
     let activator = super::search::DynamicToolActivator::new();
     let mut initial_tools = Vec::new();
-    let mut gateway_clients = std::collections::BTreeMap::new();
-    let mut gateway_tool_defs = Vec::new();
+    let (gateway, non_gateway_servers) = separate_gateway_servers(results);
 
-    let mut non_gateway_servers = Vec::new();
-    for loaded in results {
-        if loaded.mode == rho_harness_core::config::McpExposureMode::Gateway {
-            gateway_clients.insert(loaded.server_name.clone(), Arc::clone(&loaded.client));
-            for tool in loaded.tools {
-                gateway_tool_defs.push((loaded.server_name.clone(), tool));
-            }
-        } else {
-            non_gateway_servers.push(loaded);
-        }
-    }
-
-    if !gateway_clients.is_empty() {
-        let gateway = super::gateway::McpGateway::new(gateway_clients, gateway_tool_defs, config.output_max_bytes);
+    if !gateway.clients.is_empty() {
+        let gateway = super::gateway::McpGateway::new(gateway.clients, gateway.defs, config.output_max_bytes);
         let (gw_tool, script_tool) = gateway.into_dynamic_tools();
         initial_tools.push(gw_tool);
         initial_tools.push(script_tool);
@@ -147,33 +199,15 @@ fn aggregate_loaded_servers(
 
     let total_tools: usize = non_gateway_servers.iter().map(|s| s.tools.len()).sum();
     let should_defer = total_tools > config.mcp.defer_threshold;
+    let ctx = ToolRoutingContext {
+        should_defer,
+        active_history_tools,
+        activator: &activator,
+    };
 
     let mut deferred_tools = Vec::new();
     for loaded in non_gateway_servers {
-        for tool in loaded.tools {
-            let wire_name = format!("{}_{}", loaded.server_name, tool.name);
-            let must_expose_directly = loaded.mode == rho_harness_core::config::McpExposureMode::Direct
-                || !should_defer
-                || active_history_tools.contains(&wire_name);
-
-            if must_expose_directly {
-                activator.mark_activated(&wire_name);
-                initial_tools.push(build_single_mcp_tool(
-                    tool,
-                    Arc::clone(&loaded.client),
-                    (&loaded.server_name, loaded.max_bytes),
-                ));
-            } else {
-                deferred_tools.push(super::search::DeferredMcpTool::new(
-                    loaded.server_name.clone(),
-                    tool.name,
-                    tool.description.unwrap_or_default(),
-                    tool.input_schema,
-                    Arc::clone(&loaded.client),
-                    loaded.max_bytes,
-                ));
-            }
-        }
+        route_server_tools(loaded, &ctx, &mut initial_tools, &mut deferred_tools);
     }
 
     if !deferred_tools.is_empty() {

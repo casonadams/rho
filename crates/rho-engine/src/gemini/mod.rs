@@ -46,6 +46,63 @@ impl AggregatedCost {
     }
 }
 
+fn should_process_session_file(
+    entry: &std::fs::DirEntry,
+    skip_file_name: Option<&str>,
+    start_of_month: DateTime<Utc>,
+) -> bool {
+    let path = entry.path();
+    if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
+        return false;
+    }
+    if let Some(skip_name) = skip_file_name
+        && entry.file_name() == skip_name
+    {
+        return false;
+    }
+    if let Ok(meta) = entry.metadata()
+        && let Ok(modified) = meta.modified()
+    {
+        let dt: DateTime<Utc> = modified.into();
+        if dt < start_of_month {
+            return false;
+        }
+    }
+    true
+}
+
+fn parse_gemini_line_cost(line: &str, model: &str, windows: &BillingWindows) -> Option<(f64, f64)> {
+    if !line.contains("\"audit_event\"") || !line.contains("\"run_summary\"") {
+        return None;
+    }
+    let record = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    let event = record.get("event")?;
+    let ts_str = event.get("timestamp")?.as_str()?;
+    let ts_utc = DateTime::parse_from_rfc3339(ts_str).ok()?.with_timezone(&Utc);
+    if ts_utc < windows.start_of_month {
+        return None;
+    }
+    let usage = event.get("payload")?.get("usage")?;
+    let input = usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let output = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let cached = usage.get("cached_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+    let cost = calculate_gemini_cost(model, input, output, cached);
+    let day = if ts_utc >= windows.start_of_day { cost } else { 0.0 };
+    Some((day, cost))
+}
+
+fn accumulate_file_costs(path: &Path, model: &str, windows: &BillingWindows, day_cost: &mut f64, month_cost: &mut f64) {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return;
+    };
+    for line in content.lines() {
+        if let Some((day, month)) = parse_gemini_line_cost(line, model, windows) {
+            *day_cost += day;
+            *month_cost += month;
+        }
+    }
+}
+
 pub fn aggregate_gemini_usage(
     sessions_dir: &Path,
     current_session_id: Option<&str>,
@@ -60,52 +117,8 @@ pub fn aggregate_gemini_usage(
     if let Ok(entries) = std::fs::read_dir(sessions_dir) {
         let skip_file_name = current_session_id.map(|id| format!("{id}.jsonl"));
         for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
-                continue;
-            }
-            if let Some(ref skip_name) = skip_file_name
-                && entry.file_name() == skip_name.as_str()
-            {
-                continue;
-            }
-            if let Ok(meta) = entry.metadata()
-                && let Ok(modified) = meta.modified()
-            {
-                let dt: DateTime<Utc> = modified.into();
-                if dt < windows.start_of_month {
-                    continue;
-                }
-            }
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                for line in content.lines() {
-                    if !line.contains("\"audit_event\"") || !line.contains("\"run_summary\"") {
-                        continue;
-                    }
-                    if let Ok(record) = serde_json::from_str::<serde_json::Value>(line) {
-                        let Some(event) = record.get("event") else { continue };
-                        let Some(ts_str) = event.get("timestamp").and_then(|v| v.as_str()) else {
-                            continue;
-                        };
-                        let Ok(ts) = DateTime::parse_from_rfc3339(ts_str) else {
-                            continue;
-                        };
-                        let ts_utc = ts.with_timezone(&Utc);
-                        if ts_utc < windows.start_of_month {
-                            continue;
-                        }
-                        let Some(payload) = event.get("payload") else { continue };
-                        let Some(usage) = payload.get("usage") else { continue };
-                        let input = usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let output = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let cached = usage.get("cached_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let cost = calculate_gemini_cost(model, input, output, cached);
-                        month_cost += cost;
-                        if ts_utc >= windows.start_of_day {
-                            day_cost += cost;
-                        }
-                    }
-                }
+            if should_process_session_file(&entry, skip_file_name.as_deref(), windows.start_of_month) {
+                accumulate_file_costs(&entry.path(), model, &windows, &mut day_cost, &mut month_cost);
             }
         }
     }

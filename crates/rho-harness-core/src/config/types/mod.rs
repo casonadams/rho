@@ -6,7 +6,7 @@ mod paths;
 mod ui;
 
 pub use app::{Config, DEFAULT_MAX_TURNS, ToolsConfig, WebFetchConfig, WebSearchConfig, WebToolsConfig};
-pub(crate) use file::FileConfig;
+pub(crate) use file::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
 pub use integrations::{
     McpConfig, McpExposureMode, McpServerConfig, McpTransportKind, PermissionConfig, ProviderConfig,
 };

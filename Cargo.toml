@@ -12,7 +12,6 @@ linker_messages = "allow"
 
 [workspace.lints.clippy]
 too_many_lines = "warn"
-cognitive_complexity = "warn"
 
 [workspace.package]
 version = "0.10.1"

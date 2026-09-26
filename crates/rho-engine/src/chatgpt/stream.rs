@@ -171,6 +171,50 @@ struct OutputTokensDetailsPayload {
     reasoning_tokens: Option<u64>,
 }
 
+struct ReconciledCall {
+    name: String,
+    final_args: String,
+    call_id: String,
+    wire_id: String,
+}
+
+fn reconcile_function_call(call: FunctionCallPayload, pending: Option<PendingToolCall>) -> ReconciledCall {
+    if let Some(pending) = pending {
+        let final_args = if !call.arguments.is_empty() {
+            call.arguments
+        } else {
+            pending.arguments
+        };
+        let call_id = if !call.call_id.is_empty() {
+            call.call_id
+        } else {
+            pending.call_id
+        };
+        let wire_id = if !call.id.is_empty() { call.id } else { pending.id };
+        ReconciledCall {
+            name: pending.name,
+            final_args,
+            call_id,
+            wire_id,
+        }
+    } else {
+        ReconciledCall {
+            name: call.name,
+            final_args: call.arguments,
+            call_id: call.call_id,
+            wire_id: call.id,
+        }
+    }
+}
+
+fn parse_call_args(args_str: &str) -> serde_json::Value {
+    if args_str.trim().is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str(args_str).unwrap_or_else(|_| serde_json::json!({}))
+    }
+}
+
 impl SseParser {
     pub fn new() -> Self {
         Self::default()
@@ -256,40 +300,20 @@ impl SseParser {
         } else {
             format!("output-{index}")
         };
-        let (name, final_args, call_id, wire_id) = if let Some(pending) = self.pending_tool_calls.remove(&key) {
-            let args_str = if !call.arguments.is_empty() {
-                call.arguments
-            } else {
-                pending.arguments
-            };
-            let cid = if !call.call_id.is_empty() {
-                call.call_id
-            } else {
-                pending.call_id
-            };
-            let wid = if !call.id.is_empty() { call.id } else { pending.id };
-            (pending.name, args_str, cid, wid)
-        } else {
-            (call.name, call.arguments, call.call_id, call.id)
-        };
+        let reconciled = reconcile_function_call(call, self.pending_tool_calls.remove(&key));
+        let parsed_args = parse_call_args(&reconciled.final_args);
 
-        let parsed_args = if final_args.trim().is_empty() {
-            serde_json::json!({})
-        } else {
-            serde_json::from_str(&final_args).unwrap_or_else(|_| serde_json::json!({}))
-        };
-
-        let effective_id = if !call_id.is_empty() {
-            call_id.clone()
-        } else if !wire_id.is_empty() {
-            wire_id
+        let effective_id = if !reconciled.call_id.is_empty() {
+            reconciled.call_id.clone()
+        } else if !reconciled.wire_id.is_empty() {
+            reconciled.wire_id
         } else {
             format!("call-{index}")
         };
 
-        let mut tc = RawStreamingToolCall::new(StreamPartId::wire(effective_id), name, parsed_args);
-        if !call_id.is_empty() {
-            tc.call_id = Some(call_id);
+        let mut tc = RawStreamingToolCall::new(StreamPartId::wire(effective_id), reconciled.name, parsed_args);
+        if !reconciled.call_id.is_empty() {
+            tc.call_id = Some(reconciled.call_id);
         }
         events.push(Ok(RawStreamingChoice::ToolCall(tc)));
     }

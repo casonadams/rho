@@ -109,45 +109,7 @@ impl ToolSearchCatalog {
         let mut scored: Vec<(usize, &DeferredMcpTool)> = tools
             .iter()
             .filter_map(|t| {
-                let wire_lower = t.wire_name.to_lowercase();
-                let name_lower = t.name.to_lowercase();
-                let server_lower = t.server_name.to_lowercase();
-                let desc_lower = t.description.to_lowercase();
-
-                let exact = wire_lower == q || name_lower == q;
-                let mut score = 0;
-                if exact {
-                    score += 1000;
-                }
-
-                for &token in &tokens {
-                    let stem = token.strip_suffix('s').unwrap_or(token);
-                    if wire_lower == token || name_lower == token {
-                        score += 500;
-                    } else if wire_lower.contains(token) || name_lower.contains(token) {
-                        score += 100;
-                    } else if !stem.is_empty() && (wire_lower.contains(stem) || name_lower.contains(stem)) {
-                        score += 80;
-                    }
-
-                    if server_lower.contains(token) || server_lower.contains(stem) {
-                        score += 50;
-                    }
-
-                    if desc_lower.contains(token) || desc_lower.contains(stem) {
-                        score += 30;
-                    }
-
-                    if let Some(props) = t.input_schema.get("properties").and_then(|p| p.as_object()) {
-                        for prop in props.keys() {
-                            let prop_lower = prop.to_lowercase();
-                            if prop_lower.contains(token) || prop_lower.contains(stem) {
-                                score += 20;
-                            }
-                        }
-                    }
-                }
-
+                let score = score_tool_match(t, &q, &tokens);
                 if score > 0 { Some((score, t)) } else { None }
             })
             .collect();
@@ -216,6 +178,68 @@ fn format_parameter_summary(schema: &serde_json::Value) -> String {
         }
     }
     parts.join(", ")
+}
+
+struct ToolMatchTarget<'a> {
+    wire: String,
+    name: String,
+    server: String,
+    desc: String,
+    props: Option<&'a serde_json::Map<String, serde_json::Value>>,
+}
+
+fn score_property_tokens(props: Option<&serde_json::Map<String, serde_json::Value>>, token: &str, stem: &str) -> usize {
+    let Some(props) = props else { return 0 };
+    let mut score = 0;
+    for prop in props.keys() {
+        let prop_lower = prop.to_lowercase();
+        if prop_lower.contains(token) || prop_lower.contains(stem) {
+            score += 20;
+        }
+    }
+    score
+}
+
+fn score_token(token: &str, target: &ToolMatchTarget) -> usize {
+    let stem = token.strip_suffix('s').unwrap_or(token);
+    let mut score = 0;
+    if target.wire == token || target.name == token {
+        score += 500;
+    } else if target.wire.contains(token) || target.name.contains(token) {
+        score += 100;
+    } else if !stem.is_empty() && (target.wire.contains(stem) || target.name.contains(stem)) {
+        score += 80;
+    }
+
+    if target.server.contains(token) || target.server.contains(stem) {
+        score += 50;
+    }
+
+    if target.desc.contains(token) || target.desc.contains(stem) {
+        score += 30;
+    }
+
+    score + score_property_tokens(target.props, token, stem)
+}
+
+fn score_tool_match(tool: &DeferredMcpTool, query: &str, tokens: &[&str]) -> usize {
+    let target = ToolMatchTarget {
+        wire: tool.wire_name.to_lowercase(),
+        name: tool.name.to_lowercase(),
+        server: tool.server_name.to_lowercase(),
+        desc: tool.description.to_lowercase(),
+        props: tool.input_schema.get("properties").and_then(|p| p.as_object()),
+    };
+
+    let mut score = if target.wire == query || target.name == query {
+        1000
+    } else {
+        0
+    };
+    for &token in tokens {
+        score += score_token(token, &target);
+    }
+    score
 }
 
 type SharedToolNames = Arc<std::sync::RwLock<Vec<String>>>;

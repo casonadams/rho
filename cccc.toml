@@ -1,0 +1,12 @@
+# cccc.toml
+max-cognitive = 15
+cache = true
+languages = ["rust", "es"]
+exclude = [
+    "**/tests/**",
+    "**/tests.rs",
+    "**/*_tests.rs",
+    "**/test_*.rs",
+    "src/ui/interactive/controller/tests/**",
+    "**/runner_tests/**",
+]

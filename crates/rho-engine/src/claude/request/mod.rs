@@ -288,35 +288,28 @@ pub fn build_request_body(
     Ok(body)
 }
 
+fn count_array_breakpoints(items: Option<&Vec<Value>>) -> usize {
+    items.map_or(0, |arr| {
+        arr.iter().filter(|item| item.get("cache_control").is_some()).count()
+    })
+}
+
+fn count_message_content_breakpoints(messages: Option<&Vec<Value>>) -> usize {
+    messages.map_or(0, |msgs| {
+        msgs.iter()
+            .filter_map(|msg| msg.get("content").and_then(Value::as_array))
+            .flat_map(|parts| parts.iter())
+            .filter(|part| part.get("cache_control").is_some())
+            .count()
+    })
+}
+
 /// Anthropic prompt caching: up to 4 breakpoints across tools, system, turn N-1, and messages tail.
 pub fn count_cache_breakpoints(body: &Value) -> usize {
-    let mut count = 0;
-    if let Some(system) = body.get("system").and_then(Value::as_array) {
-        for block in system {
-            if block.get("cache_control").is_some() {
-                count += 1;
-            }
-        }
-    }
-    if let Some(tools) = body.get("tools").and_then(Value::as_array) {
-        for tool in tools {
-            if tool.get("cache_control").is_some() {
-                count += 1;
-            }
-        }
-    }
-    if let Some(messages) = body.get("messages").and_then(Value::as_array) {
-        for msg in messages {
-            if let Some(parts) = msg.get("content").and_then(Value::as_array) {
-                for part in parts {
-                    if part.get("cache_control").is_some() {
-                        count += 1;
-                    }
-                }
-            }
-        }
-    }
-    count
+    let system = count_array_breakpoints(body.get("system").and_then(Value::as_array));
+    let tools = count_array_breakpoints(body.get("tools").and_then(Value::as_array));
+    let messages = count_message_content_breakpoints(body.get("messages").and_then(Value::as_array));
+    system + tools + messages
 }
 
 fn is_tool_result_message(message: &Value) -> bool {

@@ -44,7 +44,14 @@ jobs:
         run: cargo clippy --workspace --lib --bins -- -D warnings
 
       - name: Run clippy (tests)
-        run: cargo clippy --workspace --tests -- -A clippy::cognitive_complexity -A clippy::too_many_lines -D warnings
+        run: cargo clippy --workspace --tests -- -A clippy::too_many_lines -D warnings
+
+      - name: Run cccc complexity gate
+        uses: moznion/cccc-action@v1
+        with:
+          path: .
+          top-cognitive: 10
+
 
   test:
     name: Test

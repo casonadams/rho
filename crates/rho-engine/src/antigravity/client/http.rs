@@ -56,6 +56,32 @@ pub fn antigravity_headers(token: &str) -> HeaderMap {
     headers
 }
 
+fn extract_field_violations(details: &[serde_json::Value]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for item in details {
+        let Some(fvs) = item.get("fieldViolations").and_then(|f| f.as_array()) else {
+            continue;
+        };
+        for fv in fvs {
+            let field = fv.get("field").and_then(|f| f.as_str()).unwrap_or("");
+            let desc = fv.get("description").and_then(|d| d.as_str()).unwrap_or("");
+            if !field.is_empty() || !desc.is_empty() {
+                violations.push(format!("{field}: {desc}"));
+            }
+        }
+    }
+    violations
+}
+
+fn format_error_details(message: &str, details: &[serde_json::Value]) -> String {
+    let violations = extract_field_violations(details);
+    if !violations.is_empty() {
+        format!("{message} (details: {})", violations.join("; "))
+    } else {
+        format!("{message} (raw details: {details:?})")
+    }
+}
+
 fn parse_error_message(body: &str) -> String {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(body) else {
         return body.chars().take(300).collect();
@@ -65,24 +91,10 @@ fn parse_error_message(body: &str) -> String {
     };
     let message = err.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
     if let Some(details) = err.get("details").and_then(|d| d.as_array()) {
-        let mut violations = Vec::new();
-        for item in details {
-            if let Some(fvs) = item.get("fieldViolations").and_then(|f| f.as_array()) {
-                for fv in fvs {
-                    let field = fv.get("field").and_then(|f| f.as_str()).unwrap_or("");
-                    let desc = fv.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                    if !field.is_empty() || !desc.is_empty() {
-                        violations.push(format!("{field}: {desc}"));
-                    }
-                }
-            }
-        }
-        if !violations.is_empty() {
-            return format!("{message} (details: {})", violations.join("; "));
-        }
-        return format!("{message} (raw details: {details:?})");
+        format_error_details(message, details)
+    } else {
+        format!("{message} (body: {v})")
     }
-    format!("{message} (body: {v})")
 }
 
 fn format_status_error(status: u16, message: &str) -> String {

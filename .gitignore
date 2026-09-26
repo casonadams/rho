@@ -9,3 +9,4 @@ improvements.md
 .playwright-mcp/
 .pi/
 www/hub/wasm/
+.cccc.cache

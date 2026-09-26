@@ -4,12 +4,20 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+fn expand_bracketed_var(chars: &mut std::iter::Peekable<std::str::Chars>) -> String {
+    let mut var_name = String::new();
+    for inner in chars.by_ref() {
+        if inner == '}' {
+            return std::env::var(&var_name).unwrap_or_else(|_| format!("${{{var_name}}}"));
+        }
+        var_name.push(inner);
+    }
+    format!("${{{var_name}")
+}
+
 fn expand_env_vars(s: &str) -> String {
     if let Some(var_name) = s.strip_prefix("env:") {
-        if let Ok(val) = std::env::var(var_name) {
-            return val;
-        }
-        return s.to_string();
+        return std::env::var(var_name).unwrap_or_else(|_| s.to_string());
     }
 
     let mut out = String::with_capacity(s.len());
@@ -17,26 +25,8 @@ fn expand_env_vars(s: &str) -> String {
 
     while let Some(ch) = chars.next() {
         if ch == '$' && chars.peek() == Some(&'{') {
-            chars.next(); // consume '{'
-            let mut var_name = String::new();
-            let mut closed = false;
-            for inner in chars.by_ref() {
-                if inner == '}' {
-                    closed = true;
-                    break;
-                }
-                var_name.push(inner);
-            }
-            if closed {
-                if let Ok(val) = std::env::var(&var_name) {
-                    out.push_str(&val);
-                } else {
-                    out.push_str(&format!("${{{var_name}}}"));
-                }
-            } else {
-                out.push_str("${");
-                out.push_str(&var_name);
-            }
+            chars.next();
+            out.push_str(&expand_bracketed_var(&mut chars));
         } else {
             out.push(ch);
         }

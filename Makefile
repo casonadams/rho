@@ -68,3 +68,9 @@ coverage: ## Generate LCOV test coverage trace
 .PHONY: crap
 crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30
 	$(CARGO) crap --path . --lcov target/lcov.info --threshold 30 --fail-above
+
+.PHONY: complexity
+complexity: ## Evaluate Cognitive and Cyclomatic complexity with cccc
+	@command -v cccc >/dev/null 2>&1 || { echo "Error: cccc not found. Install with: cargo install cccc-cli"; exit 1; }
+	cccc --table --top-cognitive 10 .
+

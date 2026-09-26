@@ -26,6 +26,36 @@ pub struct HttpTransport {
     next_id: AtomicI64,
 }
 
+fn try_parse_target_response(data_lines: &mut Vec<String>, target_id: i64) -> Option<Result<Value>> {
+    if data_lines.is_empty() {
+        return None;
+    }
+    let combined = data_lines.join("\n");
+    data_lines.clear();
+    let resp = serde_json::from_str::<JsonRpcResponse>(&combined).ok()?;
+    if resp.id.as_i64() != Some(target_id) {
+        return None;
+    }
+    if let Some(err) = resp.error {
+        return Some(Err(AppError::Mcp(format!(
+            "MCP error: {} (code {})",
+            err.message, err.code
+        ))));
+    }
+    Some(Ok(resp.result.unwrap_or(Value::Null)))
+}
+
+fn process_sse_line(line: &str, data_lines: &mut Vec<String>, target_id: i64) -> Option<Result<Value>> {
+    if line.is_empty() {
+        try_parse_target_response(data_lines, target_id)
+    } else {
+        if let Some(stripped) = line.strip_prefix("data:") {
+            data_lines.push(stripped.trim().to_string());
+        }
+        None
+    }
+}
+
 impl HttpTransport {
     pub fn new(
         url: impl Into<String>,
@@ -110,21 +140,8 @@ impl HttpTransport {
                 let line = buffer[..pos].trim_end_matches('\r').to_string();
                 buffer.drain(..=pos);
 
-                if line.is_empty() {
-                    if !data_lines.is_empty() {
-                        let combined = data_lines.join("\n");
-                        data_lines.clear();
-                        if let Ok(resp) = serde_json::from_str::<JsonRpcResponse>(&combined)
-                            && resp.id.as_i64() == Some(target_id)
-                        {
-                            if let Some(err) = resp.error {
-                                return Err(AppError::Mcp(format!("MCP error: {} (code {})", err.message, err.code)));
-                            }
-                            return Ok(resp.result.unwrap_or(Value::Null));
-                        }
-                    }
-                } else if let Some(stripped) = line.strip_prefix("data:") {
-                    data_lines.push(stripped.trim().to_string());
+                if let Some(res) = process_sse_line(&line, &mut data_lines, target_id) {
+                    return res;
                 }
             }
         }

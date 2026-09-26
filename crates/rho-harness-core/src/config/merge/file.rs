@@ -1,5 +1,5 @@
 use super::super::Config;
-use super::super::types::FileConfig;
+use super::super::types::{FileConfig, WebFetchConfigFile, WebSearchConfigFile};
 
 fn merge_provider_fallback(config: &mut Config, model_specified: bool) {
     if !model_specified {
@@ -148,29 +148,36 @@ fn merge_features(config: &mut Config, file: &FileConfig) {
     }
 }
 
+fn merge_web_search_settings(config: &mut Config, search: &WebSearchConfigFile) {
+    if let Some(enabled) = search.enabled {
+        config.tools.web.search.enabled = enabled;
+    }
+    if let Some(ref default) = search.default {
+        config.tools.web.search.default = default.clone();
+    }
+    if let Some(ref fallback) = search.fallback {
+        config.tools.web.search.fallback = fallback.clone();
+    }
+}
+
+fn merge_web_fetch_settings(config: &mut Config, fetch: &WebFetchConfigFile) {
+    if let Some(enabled) = fetch.enabled {
+        config.tools.web.fetch.enabled = enabled;
+    }
+    if let Some(multimodal) = fetch.multimodal {
+        config.tools.web.fetch.multimodal = multimodal;
+    }
+}
+
 fn merge_tools_settings(config: &mut Config, file: &FileConfig) {
-    if let Some(ref tools) = file.tools
-        && let Some(ref web) = tools.web
-    {
-        if let Some(ref search) = web.search {
-            if let Some(enabled) = search.enabled {
-                config.tools.web.search.enabled = enabled;
-            }
-            if let Some(ref default) = search.default {
-                config.tools.web.search.default = default.clone();
-            }
-            if let Some(ref fallback) = search.fallback {
-                config.tools.web.search.fallback = fallback.clone();
-            }
-        }
-        if let Some(fetch) = &web.fetch {
-            if let Some(enabled) = fetch.enabled {
-                config.tools.web.fetch.enabled = enabled;
-            }
-            if let Some(multimodal) = fetch.multimodal {
-                config.tools.web.fetch.multimodal = multimodal;
-            }
-        }
+    let Some(web) = file.tools.as_ref().and_then(|t| t.web.as_ref()) else {
+        return;
+    };
+    if let Some(ref search) = web.search {
+        merge_web_search_settings(config, search);
+    }
+    if let Some(ref fetch) = web.fetch {
+        merge_web_fetch_settings(config, fetch);
     }
 }
 
