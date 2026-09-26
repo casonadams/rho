@@ -135,17 +135,7 @@ pub fn handle_session(ctx: &SlashCommandContext<'_>) {
     let _ = writeln!(out, "  Max Turns:                   {}", ctx.config.max_turns);
     let _ = writeln!(out, "  Steering Mode:               {}", ctx.config.steering_mode);
     let _ = writeln!(out, "  Follow-up Mode:              {}", ctx.config.follow_up_mode);
-    let rag_status = if ctx.config.semantic_search {
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let index_path = rho_engine::rag::CodebaseIndex::index_path(&cwd);
-        if let Some(index) = rho_engine::rag::CodebaseIndex::load(&index_path) {
-            format!("Enabled ({} chunks, {})", index.chunks.len(), index.model)
-        } else {
-            "Enabled (unindexed - run 'rho index')".to_string()
-        }
-    } else {
-        "Disabled".to_string()
-    };
+    let rag_status = "Disabled (removed)".to_string();
     let _ = writeln!(out, "  Semantic Search (RAG):       {rag_status}");
     let _ = writeln!(out);
     ctx.renderer.print_notice(&out);

@@ -32,7 +32,6 @@ pub mod ollama;
 pub mod permission;
 pub mod process;
 pub mod provider;
-pub mod rag;
 pub mod repeat;
 pub mod tools;
 

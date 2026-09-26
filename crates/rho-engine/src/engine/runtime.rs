@@ -51,23 +51,6 @@ pub fn build_coding_agent(
         None => builder,
     };
 
-    let builder = if config.semantic_search {
-        let index_path = crate::rag::CodebaseIndex::index_path(runtime.base_dir);
-        if let Some(index) = crate::rag::CodebaseIndex::load(&index_path) {
-            let embedder = if index.model == "deterministic" {
-                std::sync::Arc::new(crate::rag::LocalEmbedder::new_deterministic())
-            } else {
-                std::sync::Arc::new(crate::rag::LocalEmbedder::new())
-            };
-            let vector_index = crate::rag::CodebaseVectorIndex::new(std::sync::Arc::new(index), embedder);
-            builder.dynamic_context(3, vector_index)
-        } else {
-            builder
-        }
-    } else {
-        builder
-    };
-
     let agent = match config.max_output_tokens {
         Some(max_tokens) => builder.max_tokens(max_tokens).build(),
         None => builder.build(),
@@ -172,39 +155,6 @@ mod tests {
             let requests = model.requests();
             assert!(requests[0].additional_params.is_none(), "{provider}");
         }
-    }
-
-    #[tokio::test]
-    async fn coding_agent_dynamic_context_with_semantic_search() {
-        let model = MockCompletionModel::text("done");
-        let (mut config, dir) = coding_config("local", None);
-        config.semantic_search = true;
-
-        // Create index file
-        let index_path = crate::rag::CodebaseIndex::index_path(&dir);
-        let index = crate::rag::CodebaseIndex {
-            version: 1,
-            model: "deterministic".to_string(),
-            chunks: vec![crate::rag::CodeChunk {
-                id: "src/lib.rs:1-10".to_string(),
-                file_path: "src/lib.rs".to_string(),
-                start_line: 1,
-                end_line: 10,
-                content: "pub fn hello_world() {}".to_string(),
-                content_hash: "abc".to_string(),
-                embedding: crate::rag::deterministic_embed("pub fn hello_world() {}", 384),
-            }],
-        };
-        index.save(&index_path).unwrap();
-
-        let agent = coding_agent_with_model(model.clone(), &config, &dir);
-        build_runner(&agent, "hello world").run().await.unwrap();
-
-        let requests = model.requests();
-        assert_eq!(requests.len(), 1);
-        let doc = requests[0].documents.first().expect("document attached");
-        assert!(doc.text.contains("hello_world"));
-        assert!(doc.text.contains("hello_world"));
     }
 
     fn coding_config(provider: &str, thinking: Option<&str>) -> (Config, std::path::PathBuf) {

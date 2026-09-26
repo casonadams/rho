@@ -112,24 +112,8 @@ pub(crate) fn format_model_entries(
     }
 }
 
-async fn handle_index_command(path: Option<String>, force: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let workspace = match path {
-        Some(p) => std::path::PathBuf::from(p),
-        None => std::env::current_dir()?,
-    };
-    println!("Indexing workspace: {}", workspace.display());
-    let embedder = rho_engine::rag::LocalEmbedder::new();
-    let summary = rho_engine::rag::index_workspace(&workspace, force, &embedder)
-        .await
-        .map_err(|e| format!("Indexing failed: {e}"))?;
-    println!(
-        "Index complete: {} files scanned, {} total chunks ({} new, {} reused)",
-        summary.files_indexed, summary.total_chunks, summary.new_chunks, summary.reused_chunks
-    );
-    println!(
-        "Index saved to: {}",
-        rho_engine::rag::CodebaseIndex::index_path(&workspace).display()
-    );
+async fn handle_index_command(_path: Option<String>, _force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("'rho index' is deprecated: semantic search has been removed.");
     Ok(())
 }
 

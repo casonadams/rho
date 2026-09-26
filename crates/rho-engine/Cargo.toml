@@ -52,7 +52,6 @@ toml_edit.workspace = true
 
 [features]
 default = []
-fastembed = ["rig/fastembed"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
