@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.2](https://github.com/casonadams/rho/compare/v0.10.1...v0.10.2) (2026-09-26)
+
+
+### Features
+
+* **cli:** support unified model spec in cli flags and env vars ([7205624](https://github.com/casonadams/rho/commit/7205624aa782ae1f5fff0fa6ad60e90793b4747a))
+* **config:** add legacy model config migration and canonical model spec ([78f6813](https://github.com/casonadams/rho/commit/78f6813db382cf53c788b86afc36fceabd0519f7))
+* **config:** introduce ModelsConfig role table and enforce serialization hygiene ([7ee71ca](https://github.com/casonadams/rho/commit/7ee71ca7a83b4f5cfc07c234390efc0484e2c253))
+* **model:** implement model spec parser and guard non-thinking invariant ([7d097a3](https://github.com/casonadams/rho/commit/7d097a381e554ad05e5af44029e5469ae17c4520))
+* **permission:** add critical danger regex and guard system prompt ([3c0f472](https://github.com/casonadams/rho/commit/3c0f472c2fb740e4325448572b97b12fa1f33929))
+* **permission:** add guard evaluator and structured verdict parser ([ff4fecf](https://github.com/casonadams/rho/commit/ff4fecf26c31ec0592ef13308cb2606069adafeb))
+* **permission:** align guard prompt with skill builder xml and generic security boundaries ([2829371](https://github.com/casonadams/rho/commit/2829371db44c7601d23e0412d222f49250438dfa))
+* **permission:** integrate guard model evaluator into permission hook ([64b79ca](https://github.com/casonadams/rho/commit/64b79cad63f42b9b0ad88fdff1d19299d749f196))
+* **permission:** refine prompt notice order, 10s timeout, and built-in baselines ([a03f83a](https://github.com/casonadams/rho/commit/a03f83ab3bcc8c5fe530e9befb87dcf5c3c5b8d2))
+* **repl:** support canonical model spec in engine factory and repl model selector ([d72c537](https://github.com/casonadams/rho/commit/d72c53789bc4ee7073a5b8db195af0f3d4b80e65))
+* **settings:** add guard model configuration and selector ([0818dee](https://github.com/casonadams/rho/commit/0818deeabb6e8c55fcde8d4a65aa7a81bc36fe38))
+
 ## [0.10.1](https://github.com/casonadams/rho/compare/v0.10.0...v0.10.1) (2026-09-25)
 
 
