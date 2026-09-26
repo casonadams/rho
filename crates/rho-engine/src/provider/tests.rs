@@ -272,3 +272,36 @@ fn claude_provider_fails_without_credentials() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn resolve_guard_model_tests() {
+    let mut config = Config::default();
+    assert_eq!(resolve_guard_model(&config), None);
+
+    config.set_guard_model(Some("none"));
+    assert_eq!(resolve_guard_model(&config), None);
+
+    config.set_guard_model(Some("local/qwen2.5-coder:7b"));
+    assert_eq!(
+        resolve_guard_model(&config),
+        Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
+    );
+
+    config.set_guard_model(Some("ollama/qwen2.5-coder:7b"));
+    assert_eq!(
+        resolve_guard_model(&config),
+        Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
+    );
+
+    config.set_guard_model(Some("anthropic/claude-3-5-haiku"));
+    assert_eq!(
+        resolve_guard_model(&config),
+        Some((ProviderId::Anthropic, "claude-3-5-haiku".to_string()))
+    );
+
+    config.set_guard_model(Some("qwen2.5-coder:7b"));
+    assert_eq!(
+        resolve_guard_model(&config),
+        Some((ProviderId::Local, "qwen2.5-coder:7b".to_string()))
+    );
+}

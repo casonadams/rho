@@ -176,4 +176,26 @@ impl Config {
         self.default_provider = Some(provider.to_string());
         self.models.insert(provider.to_string(), model.to_string());
     }
+
+    pub fn guard_model(&self) -> Option<&str> {
+        self.models
+            .get("guard")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+    }
+
+    pub fn set_guard_model(&mut self, guard: Option<&str>) {
+        match guard
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+        {
+            Some(g) => {
+                self.models.insert("guard".to_string(), g.to_string());
+            }
+            None => {
+                self.models.remove("guard");
+            }
+        }
+    }
 }

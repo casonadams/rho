@@ -36,6 +36,7 @@ pub(crate) enum ConfigKey {
     WebFetchMultimodal,
     McpEnabled,
     PermissionEnabled,
+    GuardModel,
 }
 
 impl FromStr for ConfigKey {
@@ -102,6 +103,7 @@ fn parse_feature_key(value: &str) -> Option<ConfigKey> {
         "tools.web.fetch.multimodal" | "web_fetch_multimodal" => Some(ConfigKey::WebFetchMultimodal),
         "mcp.enabled" | "mcp" => Some(ConfigKey::McpEnabled),
         "permission.enabled" | "permission" => Some(ConfigKey::PermissionEnabled),
+        "models.guard" | "guard_model" | "guard" => Some(ConfigKey::GuardModel),
         _ => None,
     }
 }
@@ -157,6 +159,7 @@ impl ConfigKey {
             Self::WebFetchMultimodal => "tools.web.fetch.multimodal",
             Self::McpEnabled => "mcp.enabled",
             Self::PermissionEnabled => "permission.enabled",
+            Self::GuardModel => "models.guard",
             _ => "",
         }
     }
@@ -166,7 +169,7 @@ impl ConfigKey {
 mod tests {
     use super::*;
 
-    const ALL_KEYS: [ConfigKey; 34] = [
+    const ALL_KEYS: [ConfigKey; 35] = [
         ConfigKey::Model,
         ConfigKey::Provider,
         ConfigKey::MaxOutputTokens,
@@ -201,6 +204,7 @@ mod tests {
         ConfigKey::WebFetchMultimodal,
         ConfigKey::McpEnabled,
         ConfigKey::PermissionEnabled,
+        ConfigKey::GuardModel,
     ];
 
     #[test]
@@ -240,6 +244,8 @@ mod tests {
             ("web_fetch", ConfigKey::WebFetchEnabled),
             ("mcp", ConfigKey::McpEnabled),
             ("permission", ConfigKey::PermissionEnabled),
+            ("guard", ConfigKey::GuardModel),
+            ("guard_model", ConfigKey::GuardModel),
         ];
         for (alias, expected) in aliases {
             assert_eq!(ConfigKey::from_str(alias), Ok(expected));

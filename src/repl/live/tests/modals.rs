@@ -79,7 +79,7 @@ fn model_selector_modal_selection() {
 #[test]
 fn settings_selector_modal_toggles_block_style() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
     let res = send_modal_key(&mut controller, KeyCode::Enter);
@@ -95,10 +95,10 @@ fn settings_selector_modal_toggles_block_style() {
 #[test]
 fn settings_selector_modal_opens_tools_menu() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
 
     let modal = controller.state_mut().active_modal_mut().unwrap();
-    modal.selected = 9;
+    modal.selected = 10;
 
     let res = send_modal_key(&mut controller, KeyCode::Enter);
     assert_eq!(res, super::super::modal::ModalKeyResult::OpenToolsMenu);
@@ -107,10 +107,10 @@ fn settings_selector_modal_opens_tools_menu() {
 #[test]
 fn settings_selector_modal_toggles_cursor_mode() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
-    let key8 = KeyEvent::new(KeyCode::Char('8'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key8, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 7);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
+    let key9 = KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key9, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 8);
 
     let res = send_modal_key(&mut controller, KeyCode::Enter);
     assert_eq!(
@@ -125,10 +125,9 @@ fn settings_selector_modal_toggles_cursor_mode() {
 #[test]
 fn settings_selector_modal_toggles_semantic_search() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
-    let key9 = KeyEvent::new(KeyCode::Char('9'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key9, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 8);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
+    let modal = controller.state_mut().active_modal_mut().unwrap();
+    modal.selected = 9;
 
     let res = send_modal_key(&mut controller, KeyCode::Enter);
     assert_eq!(
@@ -136,7 +135,7 @@ fn settings_selector_modal_toggles_semantic_search() {
         super::super::modal::ModalKeyResult::SemanticSearchToggled { enabled: true }
     );
     assert_eq!(
-        controller.state().active_modal().unwrap().options[8]
+        controller.state().active_modal().unwrap().options[9]
             .description
             .as_deref(),
         Some("On")
@@ -146,7 +145,13 @@ fn settings_selector_modal_toggles_semantic_search() {
 #[test]
 fn settings_selector_modal_selects_model_opens_selector() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), Some("medium"), false, &mut controller);
+    super::super::modal::open_settings_selector(
+        Some("claude-3-7-sonnet"),
+        None,
+        Some("medium"),
+        false,
+        &mut controller,
+    );
     let key3 = KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, key3, &mut None).unwrap();
     assert_eq!(controller.state().active_modal().unwrap().selected, 2);
@@ -164,14 +169,46 @@ fn settings_selector_modal_selects_model_opens_selector() {
 }
 
 #[test]
-fn settings_selector_modal_cycles_thinking_effort() {
+fn settings_selector_modal_selects_guard_model_opens_selector() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(Some("claude-3-7-sonnet"), Some("medium"), false, &mut controller);
+    super::super::modal::open_settings_selector(
+        Some("claude-3-7-sonnet"),
+        Some("local/qwen2.5-coder:7b"),
+        Some("medium"),
+        false,
+        &mut controller,
+    );
     let key4 = KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE);
     let _ = super::super::modal::handle_modal_key(&mut controller, key4, &mut None).unwrap();
     assert_eq!(controller.state().active_modal().unwrap().selected, 3);
     assert_eq!(
         controller.state().active_modal().unwrap().options[3]
+            .description
+            .as_deref(),
+        Some("local/qwen2.5-coder:7b")
+    );
+    assert_eq!(
+        send_modal_key(&mut controller, KeyCode::Enter),
+        super::super::modal::ModalKeyResult::OpenGuardModelSelector
+    );
+    assert!(controller.state().active_modal().is_none());
+}
+
+#[test]
+fn settings_selector_modal_cycles_thinking_effort() {
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::super::modal::open_settings_selector(
+        Some("claude-3-7-sonnet"),
+        None,
+        Some("medium"),
+        false,
+        &mut controller,
+    );
+    let key5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key5, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 4);
+    assert_eq!(
+        controller.state().active_modal().unwrap().options[4]
             .description
             .as_deref(),
         Some("medium")
@@ -184,7 +221,7 @@ fn settings_selector_modal_cycles_thinking_effort() {
         }
     );
     assert_eq!(
-        controller.state().active_modal().unwrap().options[3]
+        controller.state().active_modal().unwrap().options[4]
             .description
             .as_deref(),
         Some("high")
@@ -195,17 +232,17 @@ fn settings_selector_modal_cycles_thinking_effort() {
 fn settings_selector_modal_toggles_thinking_output() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     assert!(!controller.state().hide_thinking());
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
-    let key5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key5, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 4);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
+    let key6 = KeyEvent::new(KeyCode::Char('6'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key6, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 5);
     assert_eq!(
         send_modal_key(&mut controller, KeyCode::Enter),
         super::super::modal::ModalKeyResult::ThinkingOutputToggled { hidden: true }
     );
     assert!(controller.state().hide_thinking());
     assert!(
-        controller.state().active_modal().unwrap().options[4]
+        controller.state().active_modal().unwrap().options[5]
             .description
             .as_ref()
             .unwrap()
@@ -217,17 +254,17 @@ fn settings_selector_modal_toggles_thinking_output() {
 fn settings_selector_modal_toggles_tools_expanded() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
     assert!(!controller.state().tools_expanded());
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
-    let key6 = KeyEvent::new(KeyCode::Char('6'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key6, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 5);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
+    let key7 = KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key7, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 6);
     assert_eq!(
         send_modal_key(&mut controller, KeyCode::Enter),
         super::super::modal::ModalKeyResult::ToolOutputToggled { expanded: true }
     );
     assert!(controller.state().tools_expanded());
     assert!(
-        controller.state().active_modal().unwrap().options[5]
+        controller.state().active_modal().unwrap().options[6]
             .description
             .as_ref()
             .unwrap()
@@ -238,7 +275,7 @@ fn settings_selector_modal_toggles_tools_expanded() {
 #[test]
 fn settings_selector_modal_toggles_box_responses_and_labels() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
 
     // Jump to Box Responses (digit 2 -> index 1)
     let key2 = KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE);
@@ -252,10 +289,10 @@ fn settings_selector_modal_toggles_box_responses_and_labels() {
     );
     assert!(controller.block_agent_output());
 
-    // Jump to Version Banner (digit 7 -> index 6)
-    let key7 = KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key7, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 6);
+    // Jump to Version Banner (digit 8 -> index 7)
+    let key8 = KeyEvent::new(KeyCode::Char('8'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key8, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 7);
 
     let res = send_modal_key(&mut controller, KeyCode::Enter);
     assert_eq!(
@@ -268,10 +305,10 @@ fn settings_selector_modal_toggles_box_responses_and_labels() {
 #[test]
 fn settings_selector_modal_arrows_step_thinking_effort() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, Some("medium"), false, &mut controller);
-    let key4 = KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key4, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 3);
+    super::super::modal::open_settings_selector(None, None, Some("medium"), false, &mut controller);
+    let key5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key5, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 4);
 
     // Left arrow goes backward (medium -> low)
     let res = super::super::modal::handle_modal_key(
@@ -288,7 +325,7 @@ fn settings_selector_modal_arrows_step_thinking_effort() {
         }
     );
     assert_eq!(
-        controller.state().active_modal().unwrap().options[3]
+        controller.state().active_modal().unwrap().options[4]
             .description
             .as_deref(),
         Some("low")
@@ -313,10 +350,10 @@ fn settings_selector_modal_arrows_step_thinking_effort() {
 #[test]
 fn settings_selector_modal_ctrl_s_saves_thinking_as_default() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, Some("high"), false, &mut controller);
-    let key4 = KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key4, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 3);
+    super::super::modal::open_settings_selector(None, None, Some("high"), false, &mut controller);
+    let key5 = KeyEvent::new(KeyCode::Char('5'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key5, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 4);
 
     let ctrl_s = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL);
     let res = super::super::modal::handle_modal_key(&mut controller, ctrl_s, &mut None).unwrap();
@@ -332,13 +369,13 @@ fn settings_selector_modal_ctrl_s_saves_thinking_as_default() {
 #[test]
 fn settings_selector_modal_digit_jump_navigates() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
-    // Press '6' jumps to Tool Output (index 5)
-    let key6 = KeyEvent::new(KeyCode::Char('6'), KeyModifiers::NONE);
-    let _ = super::super::modal::handle_modal_key(&mut controller, key6, &mut None).unwrap();
-    assert_eq!(controller.state().active_modal().unwrap().selected, 5);
+    // Press '7' jumps to Tool Output (index 6)
+    let key7 = KeyEvent::new(KeyCode::Char('7'), KeyModifiers::NONE);
+    let _ = super::super::modal::handle_modal_key(&mut controller, key7, &mut None).unwrap();
+    assert_eq!(controller.state().active_modal().unwrap().selected, 6);
 
     // Press '1' jumps back to Agent Box Output (index 0)
     let key1 = KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE);
@@ -358,7 +395,7 @@ fn release_key(code: KeyCode) -> KeyEvent {
 #[test]
 fn modal_key_handler_ignores_key_release_events() {
     let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
-    super::super::modal::open_settings_selector(None, None, false, &mut controller);
+    super::super::modal::open_settings_selector(None, None, None, false, &mut controller);
     assert_eq!(controller.state().active_modal().unwrap().selected, 0);
 
     let res = super::super::modal::handle_modal_key(&mut controller, release_key(KeyCode::Down), &mut None).unwrap();
@@ -1024,6 +1061,61 @@ fn model_selector_selects_claude_model() {
             );
         }
         _ => panic!("expected ModelSelected"),
+    }
+}
+
+#[test]
+fn guard_model_selector_lifecycle() {
+    let (_dir, session) = setup_claude_session();
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+    super::super::modal::open_guard_model_selector(&session, &mut controller);
+
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Select Guard Model");
+    assert_eq!(modal.options[0].label, "None");
+
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+
+    super::super::modal::open_guard_model_selector(&session, &mut controller);
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    match res {
+        ModalKeyResult::GuardModelSelected { model, provider } => {
+            assert_eq!((model.as_str(), provider.as_str()), ("None", "none"));
+        }
+        _ => panic!("expected GuardModelSelected"),
+    }
+
+    super::super::modal::open_guard_model_selector(&session, &mut controller);
+    let _ = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    let res = handle_modal_key(
+        &mut controller,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &mut None,
+    )
+    .unwrap();
+    match res {
+        ModalKeyResult::GuardModelSelected { model, provider } => {
+            assert!(!model.is_empty());
+            assert!(!provider.is_empty());
+        }
+        _ => panic!("expected GuardModelSelected"),
     }
 }
 

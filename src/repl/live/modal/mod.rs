@@ -11,8 +11,9 @@ use crossterm::event::KeyEvent;
 
 pub use interaction::{PendingModal, install_interaction};
 pub use selectors::{
-    open_help_selector, open_login_selector, open_mcp_selector, open_model_selector, open_model_selector_with_default,
-    open_search_engine_selector, open_session_selector, open_tools_selector, update_tools_search_engine,
+    open_guard_model_selector, open_help_selector, open_login_selector, open_mcp_selector, open_model_selector,
+    open_model_selector_with_default, open_search_engine_selector, open_session_selector, open_tools_selector,
+    update_tools_search_engine,
 };
 pub use settings::open_settings_selector;
 pub use tree::open_tree_selector;
@@ -54,6 +55,11 @@ pub enum ModalKeyResult {
     },
     OpenModelSelector {
         save_as_default: bool,
+    },
+    OpenGuardModelSelector,
+    GuardModelSelected {
+        model: String,
+        provider: String,
     },
     OpenToolsMenu,
     OpenSearchEngineSelector,
@@ -355,6 +361,7 @@ pub fn handle_modal_key<B: TerminalBackend>(
         "Resume Session" => selectors::handle_session_key(controller, key),
         "Conversation Tree" => tree::handle_tree_key(controller, key),
         "Select Model" => selectors::handle_model_key(controller, key),
+        "Select Guard Model" => selectors::handle_guard_model_key(controller, key),
         "Select Search Engine" => selectors::handle_search_engine_key(controller, key),
         "Tools & Permissions" => selectors::handle_tools_key(controller, key),
         "Model Context Protocol" => selectors::handle_mcp_key(controller, key),

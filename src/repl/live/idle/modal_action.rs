@@ -224,6 +224,7 @@ fn open_help_modal(
     match command {
         "/settings" => super::super::modal::open_settings_selector(
             Some(&session.config.model),
+            session.config.guard_model(),
             session.config.thinking_level.as_deref(),
             session.config.semantic_search,
             controller,
@@ -401,6 +402,9 @@ fn handle_modal_menu_open(
         ModalKeyResult::OpenModelSelector { save_as_default } => {
             super::super::modal::open_model_selector_with_default(ctx.session, ctx.controller, *save_as_default);
         }
+        ModalKeyResult::OpenGuardModelSelector => {
+            super::super::modal::open_guard_model_selector(ctx.session, ctx.controller);
+        }
         ModalKeyResult::OpenToolsMenu => {
             super::super::modal::open_tools_selector(ctx.session, ctx.controller);
         }
@@ -431,6 +435,32 @@ async fn handle_search_engine_selected(
     Ok(true)
 }
 
+async fn handle_guard_model_selected(
+    ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
+    model: String,
+    provider: String,
+) -> Result<bool> {
+    let guard_spec = if model.eq_ignore_ascii_case("none") || provider.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        Some(format!("{provider}/{model}"))
+    };
+
+    ctx.session.config.set_guard_model(guard_spec.as_deref());
+    ctx.engine.config.set_guard_model(guard_spec.as_deref());
+
+    let _ =
+        rho_harness_core::config::Config::save_guard_model_async(&ctx.session.config.config_dir, guard_spec.as_deref())
+            .await;
+
+    let display = guard_spec.as_deref().unwrap_or("None");
+    ctx.session
+        .renderer
+        .print_status(&format!("Guard model set to {display}"));
+    ctx.controller.redraw()?;
+    Ok(true)
+}
+
 async fn handle_session_modal_action(
     ctx: &mut ModalActionContext<'_, impl TerminalBackend>,
     res: ModalKeyResult,
@@ -455,6 +485,9 @@ async fn handle_selection_action(
             provider,
             save_as_default,
         } => handle_model_selected(ctx, model, provider, save_as_default, batch).await,
+        ModalKeyResult::GuardModelSelected { model, provider } => {
+            handle_guard_model_selected(ctx, model, provider).await
+        }
         ModalKeyResult::ThinkingLevelSelected { level, save_as_default } => {
             handle_thinking_selected(ctx, level, save_as_default).await
         }

@@ -35,6 +35,23 @@ impl super::Config {
         write_file_config_async(&path, &file_config).await
     }
 
+    pub async fn save_guard_model_async(config_dir: &Path, guard: Option<&str>) -> Result<()> {
+        let path = config_dir.join("config.toml");
+        let mut file_config = read_file_config_async(&path).await?;
+        match guard
+            .map(str::trim)
+            .filter(|s| !s.is_empty() && !s.eq_ignore_ascii_case("none"))
+        {
+            Some(g) => {
+                file_config.models.insert("guard".to_string(), g.to_string());
+            }
+            None => {
+                file_config.models.remove("guard");
+            }
+        }
+        write_file_config_async(&path, &file_config).await
+    }
+
     pub async fn save_ui_block_style_async(config_dir: &Path, style: &str) -> Result<()> {
         let path = config_dir.join("config.toml");
         let mut file_config = read_file_config_async(&path).await?;
@@ -159,6 +176,14 @@ fn apply_model_key(file_config: &mut FileConfig, key: &ConfigKey, value: &str) -
         ConfigKey::Provider => apply_provider_change(file_config, value),
         ConfigKey::ThinkingLevel => {
             file_config.thinking_level = (value != "off").then(|| value.to_string());
+        }
+        ConfigKey::GuardModel => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+                file_config.models.remove("guard");
+            } else {
+                file_config.models.insert("guard".to_string(), trimmed.to_string());
+            }
         }
         _ => return Ok(false),
     }

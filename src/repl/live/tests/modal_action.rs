@@ -118,6 +118,72 @@ async fn test_modal_action_menu_openers() {
             .unwrap()
     );
     assert_eq!(controller.state().active_modal().unwrap().title, "Select Search Engine");
+    controller.state_mut().pop_modal();
+
+    let ctx = ModalActionContext {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+    };
+    assert!(
+        apply_modal_key_result(ModalKeyResult::OpenGuardModelSelector, ctx, &mut batch)
+            .await
+            .unwrap()
+    );
+    assert_eq!(controller.state().active_modal().unwrap().title, "Select Guard Model");
+}
+
+#[tokio::test]
+async fn test_modal_action_guard_model_selected() {
+    let temp = tempfile::tempdir().unwrap();
+    let (mut controller, mut history, mut batch, mut session, mut engine, mut input) =
+        setup_modal_action_harness(temp.path()).await;
+
+    let ctx = ModalActionContext {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+    };
+    assert!(
+        apply_modal_key_result(
+            ModalKeyResult::GuardModelSelected {
+                model: "qwen2.5-coder:7b".to_string(),
+                provider: "local".to_string(),
+            },
+            ctx,
+            &mut batch
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(session.config.guard_model(), Some("local/qwen2.5-coder:7b"));
+    assert_eq!(engine.config.guard_model(), Some("local/qwen2.5-coder:7b"));
+
+    let ctx = ModalActionContext {
+        controller: &mut controller,
+        history: &mut history,
+        session: &mut session,
+        engine: &mut engine,
+        input: &mut input,
+    };
+    assert!(
+        apply_modal_key_result(
+            ModalKeyResult::GuardModelSelected {
+                model: "none".to_string(),
+                provider: "none".to_string(),
+            },
+            ctx,
+            &mut batch
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(session.config.guard_model(), None);
+    assert_eq!(engine.config.guard_model(), None);
 }
 
 #[tokio::test]

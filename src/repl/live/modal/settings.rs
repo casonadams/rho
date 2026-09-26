@@ -26,6 +26,7 @@ fn prev_thinking_level(current: &str) -> &'static str {
 
 pub fn open_settings_selector<B: TerminalBackend>(
     model: Option<&str>,
+    guard_model: Option<&str>,
     thinking_level: Option<&str>,
     semantic_search: bool,
     controller: &mut TerminalController<B>,
@@ -44,6 +45,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
     };
 
     let model_name = model.unwrap_or("default");
+    let guard_name = guard_model.unwrap_or("None");
     let thinking_effort = thinking_level.unwrap_or("off");
     let thinking_status = if hide_thinking { "Hidden" } else { "Shown" };
     let tools_status = if tools_expanded { "Expanded" } else { "Collapsed" };
@@ -55,6 +57,7 @@ pub fn open_settings_selector<B: TerminalBackend>(
         ModalOption::new("Block Style       ", Some(block_style.to_string())),
         ModalOption::new("Box Responses     ", Some(agent_status.to_string())),
         ModalOption::new("Model             ", Some(model_name.to_string())),
+        ModalOption::new("Guard Model       ", Some(guard_name.to_string())),
         ModalOption::new("Thinking Effort   ", Some(thinking_effort.to_string())),
         ModalOption::new("Thinking Output   ", Some(thinking_status.to_string())),
         ModalOption::new("Tool Output       ", Some(tools_status.to_string())),
@@ -83,7 +86,7 @@ fn current_thinking_from_modal<B: TerminalBackend>(controller: &TerminalControll
     controller
         .state()
         .active_modal()
-        .and_then(|m| m.options.get(3))
+        .and_then(|m| m.options.get(4))
         .and_then(|o| o.description.as_deref())
         .unwrap_or("off")
 }
@@ -95,7 +98,7 @@ fn step_thinking_effort<B: TerminalBackend>(controller: &mut TerminalController<
     } else {
         prev_thinking_level(current)
     };
-    update_setting_description(controller, (target, 3));
+    update_setting_description(controller, (target, 4));
     ModalKeyResult::ThinkingLevelSelected {
         level: if target == "off" {
             None
@@ -134,27 +137,32 @@ fn toggle_selected_setting<B: TerminalBackend>(
             let _ = controller.redraw();
             ModalKeyResult::OpenModelSelector { save_as_default: true }
         }
-        3 => step_thinking_effort(controller, true),
-        4 => {
+        3 => {
+            controller.state_mut().pop_modal();
+            let _ = controller.redraw();
+            ModalKeyResult::OpenGuardModelSelector
+        }
+        4 => step_thinking_effort(controller, true),
+        5 => {
             let hide = controller
                 .toggle_thinking()
                 .unwrap_or_else(|_| controller.state_mut().toggle_thinking());
-            update_setting_description(controller, (if hide { "Hidden" } else { "Shown" }, 4));
+            update_setting_description(controller, (if hide { "Hidden" } else { "Shown" }, 5));
             ModalKeyResult::ThinkingOutputToggled { hidden: hide }
         }
-        5 => {
+        6 => {
             let expanded = controller
                 .toggle_tools_expanded()
                 .unwrap_or_else(|_| controller.state_mut().toggle_tools_expanded());
-            update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 5));
+            update_setting_description(controller, (if expanded { "Expanded" } else { "Collapsed" }, 6));
             ModalKeyResult::ToolOutputToggled { expanded }
         }
-        6 => {
+        7 => {
             let shown = controller.state_mut().toggle_show_label();
-            update_setting_description(controller, (if shown { "Shown" } else { "Hidden" }, 6));
+            update_setting_description(controller, (if shown { "Shown" } else { "Hidden" }, 7));
             ModalKeyResult::ShowLabelToggled { shown }
         }
-        7 => {
+        8 => {
             let next = controller
                 .toggle_cursor_mode()
                 .unwrap_or(crate::ui::theme::CursorMode::Hardware);
@@ -162,23 +170,23 @@ fn toggle_selected_setting<B: TerminalBackend>(
                 crate::ui::theme::CursorMode::Software => "Software",
                 crate::ui::theme::CursorMode::Hardware => "Hardware",
             };
-            update_setting_description(controller, (label, 7));
+            update_setting_description(controller, (label, 8));
             ModalKeyResult::CursorToggled {
                 cursor: label.to_lowercase(),
             }
         }
-        8 => {
+        9 => {
             let current = controller
                 .state()
                 .active_modal()
-                .and_then(|m| m.options.get(8))
+                .and_then(|m| m.options.get(9))
                 .and_then(|o| o.description.as_deref())
                 .unwrap_or("Off");
             let next = current != "On";
-            update_setting_description(controller, (if next { "On" } else { "Off" }, 8));
+            update_setting_description(controller, (if next { "On" } else { "Off" }, 9));
             ModalKeyResult::SemanticSearchToggled { enabled: next }
         }
-        9 => ModalKeyResult::OpenToolsMenu,
+        10 => ModalKeyResult::OpenToolsMenu,
         _ => ModalKeyResult::Handled,
     }
 }
@@ -188,7 +196,7 @@ fn handle_settings_action<B: TerminalBackend>(
     key: &KeyEvent,
 ) -> ModalKeyResult {
     let selected = controller.state().active_modal().map_or(0, |m| m.selected);
-    if selected == 3 {
+    if selected == 4 {
         if key.code == KeyCode::Char('s') && key.modifiers.contains(KeyModifiers::CONTROL) {
             let current = current_thinking_from_modal(controller);
             let level = if current == "off" {

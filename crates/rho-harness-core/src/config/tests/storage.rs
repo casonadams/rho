@@ -448,3 +448,19 @@ fn test_set_file_value_model_provider_cache_and_runtime_mode_keys() {
 
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn test_config_file_guard_model() {
+    let dir = std::env::temp_dir().join(format!("rho_cfg_guard_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+
+    Config::set_file_value(&dir, "models.guard", "local/qwen2.5-coder:7b").unwrap();
+    let config = load_config_with_rho_home(&dir);
+    assert_eq!(config.guard_model(), Some("local/qwen2.5-coder:7b"));
+
+    Config::set_file_value(&dir, "models.guard", "none").unwrap();
+    let config2 = load_config_with_rho_home(&dir);
+    assert_eq!(config2.guard_model(), None);
+
+    std::fs::remove_dir_all(dir).unwrap();
+}
