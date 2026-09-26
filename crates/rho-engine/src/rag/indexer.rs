@@ -50,6 +50,61 @@ fn discover_workspace_files(workspace_dir: &Path) -> Vec<(String, String)> {
     files
 }
 
+struct PartitionedChunks {
+    all_chunks: Vec<CodeChunk>,
+    needing_embeddings: Vec<(usize, String)>,
+    reused_count: usize,
+}
+
+fn partition_file_chunks(
+    files: Vec<(String, String)>,
+    existing_map: &HashMap<(String, String), CodeChunk>,
+) -> PartitionedChunks {
+    let mut all_chunks = Vec::new();
+    let mut needing_embeddings = Vec::new();
+    let mut reused_count = 0;
+
+    for (rel_path, content) in files {
+        let chunks = chunk_text(&rel_path, &content, CHUNK_LINES, OVERLAP_LINES);
+        for mut chunk in chunks {
+            if let Some(existing) = existing_map.get(&(chunk.file_path.clone(), chunk.content_hash.clone())) {
+                chunk.embedding = existing.embedding.clone();
+                reused_count += 1;
+                all_chunks.push(chunk);
+            } else {
+                let idx = all_chunks.len();
+                needing_embeddings.push((idx, chunk.content.clone()));
+                all_chunks.push(chunk);
+            }
+        }
+    }
+
+    PartitionedChunks {
+        all_chunks,
+        needing_embeddings,
+        reused_count,
+    }
+}
+
+async fn compute_missing_embeddings(
+    needing: &[(usize, String)],
+    all_chunks: &mut [CodeChunk],
+    embedder: &LocalEmbedder,
+) -> Result<(), String> {
+    if needing.is_empty() {
+        return Ok(());
+    }
+    let texts: Vec<String> = needing.iter().map(|(_, t)| t.clone()).collect();
+    for (batch_idx, chunk_slice) in texts.chunks(32).enumerate() {
+        let batch_embeddings = embedder.embed_batch(chunk_slice).await?;
+        for (i, emb) in batch_embeddings.into_iter().enumerate() {
+            let (target_idx, _) = needing[batch_idx * 32 + i];
+            all_chunks[target_idx].embedding = emb;
+        }
+    }
+    Ok(())
+}
+
 pub async fn index_workspace(
     workspace_dir: &Path,
     force: bool,
@@ -71,42 +126,16 @@ pub async fn index_workspace(
 
     let files_to_chunk = discover_workspace_files(workspace_dir);
     let files_indexed = files_to_chunk.len();
-    let mut all_chunks = Vec::new();
-    let mut chunks_needing_embeddings = Vec::new();
-    let mut reused_chunks = 0;
+    let mut partitioned = partition_file_chunks(files_to_chunk, &existing_map);
+    let new_chunks = partitioned.needing_embeddings.len();
 
-    for (rel_path, content) in files_to_chunk {
-        let chunks = chunk_text(&rel_path, &content, CHUNK_LINES, OVERLAP_LINES);
-        for mut chunk in chunks {
-            if let Some(existing) = existing_map.get(&(chunk.file_path.clone(), chunk.content_hash.clone())) {
-                chunk.embedding = existing.embedding.clone();
-                reused_chunks += 1;
-                all_chunks.push(chunk);
-            } else {
-                let idx = all_chunks.len();
-                chunks_needing_embeddings.push((idx, chunk.content.clone()));
-                all_chunks.push(chunk);
-            }
-        }
-    }
+    compute_missing_embeddings(&partitioned.needing_embeddings, &mut partitioned.all_chunks, embedder).await?;
 
-    let new_chunks = chunks_needing_embeddings.len();
-    if !chunks_needing_embeddings.is_empty() {
-        let texts: Vec<String> = chunks_needing_embeddings.iter().map(|(_, t)| t.clone()).collect();
-        for (batch_idx, chunk_slice) in texts.chunks(32).enumerate() {
-            let batch_embeddings = embedder.embed_batch(chunk_slice).await?;
-            for (i, emb) in batch_embeddings.into_iter().enumerate() {
-                let (target_idx, _) = chunks_needing_embeddings[batch_idx * 32 + i];
-                all_chunks[target_idx].embedding = emb;
-            }
-        }
-    }
-
-    let total_chunks = all_chunks.len();
+    let total_chunks = partitioned.all_chunks.len();
     let new_index = CodebaseIndex {
         version: 1,
         model: "bge-small-en-v1.5".to_string(),
-        chunks: all_chunks,
+        chunks: partitioned.all_chunks,
     };
 
     new_index.save_async(&index_file).await?;
@@ -114,7 +143,7 @@ pub async fn index_workspace(
     Ok(IndexSummary {
         files_indexed,
         total_chunks,
-        reused_chunks,
+        reused_chunks: partitioned.reused_count,
         new_chunks,
     })
 }

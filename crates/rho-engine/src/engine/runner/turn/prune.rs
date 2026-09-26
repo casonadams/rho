@@ -290,6 +290,36 @@ fn prune_search_result(
     }
 }
 
+fn prune_fetch_result(text: &str, target: &str, line_count: usize, size_str: &str) -> Option<String> {
+    if is_fetch_error(text) {
+        return None;
+    }
+    if target.is_empty() {
+        Some(format!(
+            "[URL fetched ({line_count} lines, {size_str}). Output pruned for historical turn.]"
+        ))
+    } else {
+        Some(format!(
+            "[URL '{target}' fetched ({line_count} lines, {size_str}). Output pruned for historical turn.]"
+        ))
+    }
+}
+
+fn prune_web_search_result(text: &str, target: &str, line_count: usize, size_str: &str) -> Option<String> {
+    if is_search_error(text) {
+        return None;
+    }
+    if target.is_empty() {
+        Some(format!(
+            "[Web search completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
+        ))
+    } else {
+        Some(format!(
+            "[Web search for '{target}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
+        ))
+    }
+}
+
 fn prune_web_result(tool_name: &str, text: &str, meta: Option<&ToolCallMeta>, line_threshold: usize) -> Option<String> {
     let line_count = text.lines().count();
     if line_count <= line_threshold {
@@ -298,31 +328,9 @@ fn prune_web_result(tool_name: &str, text: &str, meta: Option<&ToolCallMeta>, li
     let size_str = crate::tools::truncate::format_size(text.len());
     let target = meta.map(|m| m.target.as_str()).unwrap_or("");
     if tool_name == "web_fetch" || tool_name == "webfetch" {
-        if is_fetch_error(text) {
-            return None;
-        }
-        if target.is_empty() {
-            Some(format!(
-                "[URL fetched ({line_count} lines, {size_str}). Output pruned for historical turn.]"
-            ))
-        } else {
-            Some(format!(
-                "[URL '{target}' fetched ({line_count} lines, {size_str}). Output pruned for historical turn.]"
-            ))
-        }
+        prune_fetch_result(text, target, line_count, &size_str)
     } else if tool_name == "web_search" || tool_name == "websearch" {
-        if is_search_error(text) {
-            return None;
-        }
-        if target.is_empty() {
-            Some(format!(
-                "[Web search completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
-            ))
-        } else {
-            Some(format!(
-                "[Web search for '{target}' completed with {line_count} lines ({size_str}). Output pruned for historical turn.]"
-            ))
-        }
+        prune_web_search_result(text, target, line_count, &size_str)
     } else {
         None
     }

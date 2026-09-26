@@ -42,27 +42,35 @@ fn needs_sanitization(text: &str) -> bool {
     text[last_idx..].chars().any(is_filtered_char)
 }
 
+fn handle_cr(chars: &mut std::iter::Peekable<std::str::Chars>, out: &mut String, at_line_start: &mut bool) {
+    if chars.peek() == Some(&'\n') {
+        return;
+    }
+    if !*at_line_start {
+        out.push('\n');
+        *at_line_start = true;
+    }
+}
+
+fn handle_lf(chars: &mut std::iter::Peekable<std::str::Chars>, out: &mut String, at_line_start: &mut bool) {
+    out.push('\n');
+    *at_line_start = true;
+    while chars.peek() == Some(&'\r') {
+        chars.next();
+        if chars.peek() == Some(&'\n') {
+            break;
+        }
+    }
+}
+
 fn sanitize_text_into(text: &str, out: &mut String, at_line_start: &mut bool) {
     let mut chars = text.chars().peekable();
 
     while let Some(c) = chars.next() {
         if c == '\r' {
-            if chars.peek() == Some(&'\n') {
-                continue;
-            }
-            if !*at_line_start {
-                out.push('\n');
-                *at_line_start = true;
-            }
+            handle_cr(&mut chars, out, at_line_start);
         } else if c == '\n' {
-            out.push('\n');
-            *at_line_start = true;
-            while chars.peek() == Some(&'\r') {
-                chars.next();
-                if chars.peek() == Some(&'\n') {
-                    break;
-                }
-            }
+            handle_lf(&mut chars, out, at_line_start);
         } else if !is_filtered_char(c) {
             out.push(c);
             *at_line_start = false;

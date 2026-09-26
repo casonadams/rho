@@ -80,12 +80,7 @@ fn is_git_read_only(tokens: &[&str]) -> bool {
     }
 }
 
-fn is_single_read_only_command(cmd: &str) -> bool {
-    let lower = cmd.to_lowercase();
-    if lower.contains("-delete") || lower.contains("-exec") {
-        return false;
-    }
-    let mut tokens: Vec<&str> = cmd.split_whitespace().collect();
+fn strip_leading_readonly_wrappers(tokens: &mut Vec<&str>) {
     while tokens.len() >= 2 {
         let first = tokens[0]
             .split('/')
@@ -112,6 +107,15 @@ fn is_single_read_only_command(cmd: &str) -> bool {
         }
         break;
     }
+}
+
+fn is_single_read_only_command(cmd: &str) -> bool {
+    let lower = cmd.to_lowercase();
+    if lower.contains("-delete") || lower.contains("-exec") {
+        return false;
+    }
+    let mut tokens: Vec<&str> = cmd.split_whitespace().collect();
+    strip_leading_readonly_wrappers(&mut tokens);
     let Some(first) = tokens.first() else {
         return true;
     };

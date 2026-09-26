@@ -335,6 +335,42 @@ pub fn format_pull_request(pr: &serde_json::Value, comments: &[serde_json::Value
     out.trim_end().to_string()
 }
 
+fn format_commit_parents(parents: &[serde_json::Value]) -> Option<String> {
+    if parents.is_empty() {
+        return None;
+    }
+    let parent_shas: Vec<&str> = parents
+        .iter()
+        .filter_map(|p| p["sha"].as_str().map(|s| if s.len() >= 12 { &s[..12] } else { s }))
+        .collect();
+    Some(format!("Parents: {}\n", parent_shas.join(", ")))
+}
+
+fn format_commit_files(file_list: &[serde_json::Value]) -> String {
+    let mut out = format!("\n---\n\n## Files ({})\n\n", file_list.len());
+    for file in file_list {
+        let filename = file["filename"].as_str().unwrap_or("unknown");
+        let status = file["status"].as_str().unwrap_or("modified");
+        let f_add = file["additions"].as_u64().unwrap_or(0);
+        let f_del = file["deletions"].as_u64().unwrap_or(0);
+
+        out.push_str(&format!("### {filename}\n\n"));
+        out.push_str(&format!("{status} · +{f_add} −{f_del}\n\n"));
+
+        if let Some(patch) = file["patch"].as_str() {
+            out.push_str("```diff\n");
+            out.push_str(patch);
+            if !patch.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str("```\n\n");
+        } else {
+            out.push_str("*No textual diff (binary or unchanged).*\n\n");
+        }
+    }
+    out
+}
+
 /// Format a commit, its stats, and file diff patches into clean Markdown.
 pub fn format_commit(commit: &serde_json::Value) -> String {
     let sha = commit["sha"].as_str().unwrap_or("unknown");
@@ -366,13 +402,9 @@ pub fn format_commit(commit: &serde_json::Value) -> String {
     out.push_str(&format!("{file_count} files changed · +{additions} −{deletions}\n"));
 
     if let Some(parents) = commit["parents"].as_array()
-        && !parents.is_empty()
+        && let Some(parents_str) = format_commit_parents(parents)
     {
-        let parent_shas: Vec<&str> = parents
-            .iter()
-            .filter_map(|p| p["sha"].as_str().map(|s| if s.len() >= 12 { &s[..12] } else { s }))
-            .collect();
-        out.push_str(&format!("Parents: {}\n", parent_shas.join(", ")));
+        out.push_str(&parents_str);
     }
 
     if !body.is_empty() {
@@ -382,27 +414,7 @@ pub fn format_commit(commit: &serde_json::Value) -> String {
     if let Some(file_list) = files
         && !file_list.is_empty()
     {
-        out.push_str(&format!("\n---\n\n## Files ({})\n\n", file_list.len()));
-        for file in file_list {
-            let filename = file["filename"].as_str().unwrap_or("unknown");
-            let status = file["status"].as_str().unwrap_or("modified");
-            let f_add = file["additions"].as_u64().unwrap_or(0);
-            let f_del = file["deletions"].as_u64().unwrap_or(0);
-
-            out.push_str(&format!("### {filename}\n\n"));
-            out.push_str(&format!("{status} · +{f_add} −{f_del}\n\n"));
-
-            if let Some(patch) = file["patch"].as_str() {
-                out.push_str("```diff\n");
-                out.push_str(patch);
-                if !patch.ends_with('\n') {
-                    out.push('\n');
-                }
-                out.push_str("```\n\n");
-            } else {
-                out.push_str("*No textual diff (binary or unchanged).*\n\n");
-            }
-        }
+        out.push_str(&format_commit_files(file_list));
     }
 
     out.trim_end().to_string()

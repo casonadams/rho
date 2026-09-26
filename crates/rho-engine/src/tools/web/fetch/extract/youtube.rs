@@ -15,41 +15,36 @@ pub fn is_valid_video_id(id: &str) -> bool {
     id.len() == 11 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Parse a URL into a structured `YouTubeUrl` if it targets a YouTube video.
-pub fn parse_youtube_url(raw_url: &str) -> Option<YouTubeUrl> {
-    let parsed = Url::parse(raw_url).ok()?;
-    let host = parsed.host_str()?;
+fn parse_youtu_be_url(parsed: &Url) -> Option<YouTubeUrl> {
+    let mut segments = parsed.path_segments()?;
+    let first = segments.next()?.trim();
+    if is_valid_video_id(first) {
+        Some(YouTubeUrl {
+            video_id: first.to_string(),
+        })
+    } else {
+        None
+    }
+}
 
-    if host.eq_ignore_ascii_case("youtu.be") {
-        let mut segments = parsed.path_segments()?;
-        let first = segments.next()?.trim();
-        if is_valid_video_id(first) {
+fn is_youtube_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("youtube.com")
+        || host.eq_ignore_ascii_case("www.youtube.com")
+        || host.eq_ignore_ascii_case("m.youtube.com")
+}
+
+fn parse_watch_video_id(parsed: &Url) -> Option<YouTubeUrl> {
+    for (k, v) in parsed.query_pairs() {
+        if k == "v" && is_valid_video_id(&v) {
             return Some(YouTubeUrl {
-                video_id: first.to_string(),
+                video_id: v.into_owned(),
             });
         }
-        return None;
     }
+    None
+}
 
-    if !host.eq_ignore_ascii_case("youtube.com")
-        && !host.eq_ignore_ascii_case("www.youtube.com")
-        && !host.eq_ignore_ascii_case("m.youtube.com")
-    {
-        return None;
-    }
-
-    let path = parsed.path();
-    if path == "/watch" {
-        for (k, v) in parsed.query_pairs() {
-            if k == "v" && is_valid_video_id(&v) {
-                return Some(YouTubeUrl {
-                    video_id: v.into_owned(),
-                });
-            }
-        }
-        return None;
-    }
-
+fn parse_path_prefix_video_id(path: &str) -> Option<YouTubeUrl> {
     for prefix in ["/shorts/", "/embed/", "/v/"] {
         if let Some(rest) = path.strip_prefix(prefix) {
             let candidate = rest.split('/').next().unwrap_or("").trim();
@@ -60,8 +55,26 @@ pub fn parse_youtube_url(raw_url: &str) -> Option<YouTubeUrl> {
             }
         }
     }
-
     None
+}
+
+/// Parse a URL into a structured `YouTubeUrl` if it targets a YouTube video.
+pub fn parse_youtube_url(raw_url: &str) -> Option<YouTubeUrl> {
+    let parsed = Url::parse(raw_url).ok()?;
+    let host = parsed.host_str()?;
+
+    if host.eq_ignore_ascii_case("youtu.be") {
+        return parse_youtu_be_url(&parsed);
+    }
+    if !is_youtube_host(host) {
+        return None;
+    }
+
+    if parsed.path() == "/watch" {
+        parse_watch_video_id(&parsed)
+    } else {
+        parse_path_prefix_video_id(parsed.path())
+    }
 }
 
 /// Extract `ytInitialPlayerResponse` JSON object from YouTube watch HTML.

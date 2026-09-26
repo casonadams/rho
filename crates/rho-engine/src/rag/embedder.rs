@@ -118,53 +118,56 @@ fn fnv1a_hash(bytes: &[u8], seed: u64) -> u64 {
     hash
 }
 
+fn accumulate_token_3grams(bytes: &[u8], dim: usize, vec: &mut [f32]) {
+    if bytes.len() < 3 {
+        return;
+    }
+    for window in bytes.windows(3) {
+        let g1 = fnv1a_hash(window, 0x85ebca6b);
+        let g2 = fnv1a_hash(window, 0xc2b2ae35);
+        let g_idx = (g1 as usize) % dim;
+        let g_sign = if (g2 & 1) == 0 { 0.5f32 } else { -0.5f32 };
+        vec[g_idx] += g_sign;
+    }
+}
+
+fn accumulate_token_embedding(token: &str, dim: usize, vec: &mut [f32]) {
+    let lower = token.to_ascii_lowercase();
+    let bytes = lower.as_bytes();
+
+    let h1 = fnv1a_hash(bytes, 0x9e3779b97f4a7c15);
+    let h2 = fnv1a_hash(bytes, 0x517cc1b727220a95);
+    let idx = (h1 as usize) % dim;
+    let sign = if (h2 & 1) == 0 { 1.0f32 } else { -1.0f32 };
+    vec[idx] += sign * 2.0;
+
+    accumulate_token_3grams(bytes, dim, vec);
+}
+
+fn normalize_l2(vec: &mut [f32]) {
+    let norm_sq: f32 = vec.iter().map(|&v| v * v).sum();
+    if norm_sq > 0.0 {
+        let norm = norm_sq.sqrt();
+        for val in vec {
+            *val /= norm;
+        }
+    }
+}
+
 pub fn deterministic_embed(text: &str, dim: usize) -> Vec<f32> {
     if dim == 0 {
         return Vec::new();
     }
     let mut vec = vec![0.0f32; dim];
 
-    // Tokenize text into words and sub-tokens
-    let tokens: Vec<&str> = text
+    let tokens = text
         .split(|c: char| !c.is_alphanumeric() && c != '_')
-        .filter(|s| !s.is_empty())
-        .collect();
+        .filter(|s| !s.is_empty());
 
-    if tokens.is_empty() {
-        return vec;
+    for token in tokens {
+        accumulate_token_embedding(token, dim, &mut vec);
     }
 
-    for token in &tokens {
-        let lower = token.to_ascii_lowercase();
-        let bytes = lower.as_bytes();
-
-        // Hash token to dimension and sign
-        let h1 = fnv1a_hash(bytes, 0x9e3779b97f4a7c15);
-        let h2 = fnv1a_hash(bytes, 0x517cc1b727220a95);
-        let idx = (h1 as usize) % dim;
-        let sign = if (h2 & 1) == 0 { 1.0f32 } else { -1.0f32 };
-        vec[idx] += sign * 2.0;
-
-        // Character 3-grams
-        if bytes.len() >= 3 {
-            for window in bytes.windows(3) {
-                let g1 = fnv1a_hash(window, 0x85ebca6b);
-                let g2 = fnv1a_hash(window, 0xc2b2ae35);
-                let g_idx = (g1 as usize) % dim;
-                let g_sign = if (g2 & 1) == 0 { 0.5f32 } else { -0.5f32 };
-                vec[g_idx] += g_sign;
-            }
-        }
-    }
-
-    // L2 normalization
-    let norm_sq: f32 = vec.iter().map(|&v| v * v).sum();
-    if norm_sq > 0.0 {
-        let norm = norm_sq.sqrt();
-        for val in &mut vec {
-            *val /= norm;
-        }
-    }
-
+    normalize_l2(&mut vec);
     vec
 }

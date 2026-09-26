@@ -77,36 +77,56 @@ fn is_assignment(raw: &str) -> bool {
     (first.is_ascii_alphabetic() || first == '_') && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+fn try_strip_rtk(words: &mut Vec<Token>) -> bool {
+    if words[1].raw.starts_with('-')
+        || matches!(
+            words[1].text.as_str(),
+            "gain" | "stats" | "hook" | "hook-audit" | "init" | "recall"
+        )
+    {
+        return false;
+    }
+    if words[1].text == "read" {
+        words[1].text = "cat".to_string();
+        words[1].raw = "cat".to_string();
+    }
+    words.remove(0);
+    true
+}
+
+fn try_strip_timeout(words: &mut Vec<Token>) -> bool {
+    if words.len() > 2 && words[0].text == "timeout" && is_duration(&words[1].text) {
+        words.drain(0..2);
+        true
+    } else {
+        false
+    }
+}
+
+fn try_strip_command_wrapper(words: &mut Vec<Token>) -> bool {
+    if words[1].raw.starts_with('-') {
+        return false;
+    }
+    let first = words[0].text.as_str();
+    if WRAPPERS.contains(&first) || first == "xargs" {
+        words.remove(0);
+        true
+    } else {
+        false
+    }
+}
+
 pub(crate) fn strip_wrappers(words: &mut Vec<Token>) {
     while words.len() >= 2 && words[0].kind == TokenKind::Word {
-        let first = &words[0].text;
-        if first == "rtk" && !words[1].raw.starts_with('-') {
-            if matches!(
-                words[1].text.as_str(),
-                "gain" | "stats" | "hook" | "hook-audit" | "init" | "recall"
-            ) {
+        if words[0].text == "rtk" {
+            if !try_strip_rtk(words) {
                 break;
             }
-            if words[1].text == "read" {
-                words[1].text = "cat".to_string();
-                words[1].raw = "cat".to_string();
-            }
-            words.remove(0);
+        } else if try_strip_timeout(words) || try_strip_command_wrapper(words) {
             continue;
+        } else {
+            break;
         }
-        if WRAPPERS.contains(&first.as_str()) && !words[1].raw.starts_with('-') {
-            words.remove(0);
-            continue;
-        }
-        if first == "timeout" && is_duration(&words[1].text) && words.len() > 2 {
-            words.drain(0..2);
-            continue;
-        }
-        if first == "xargs" && !words[1].raw.starts_with('-') {
-            words.remove(0);
-            continue;
-        }
-        break;
     }
 }
 
