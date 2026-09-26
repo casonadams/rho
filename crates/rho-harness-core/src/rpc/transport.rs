@@ -28,6 +28,14 @@ impl<R: AsyncBufRead + Unpin> JsonLinesReader<R> {
             return Ok(Some(msg));
         }
     }
+
+    pub fn get_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
+
+    pub fn into_inner(self) -> R {
+        self.reader
+    }
 }
 
 pub struct JsonLinesWriter<W> {
@@ -46,6 +54,14 @@ impl<W: AsyncWrite + Unpin> JsonLinesWriter<W> {
         self.writer.write_all(&json).await?;
         self.writer.flush().await?;
         Ok(())
+    }
+
+    pub fn get_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+
+    pub fn into_inner(self) -> W {
+        self.writer
     }
 }
 

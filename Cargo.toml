@@ -49,6 +49,8 @@ tar = "0.4"
 toml = "1.1"
 toml_edit = "0.25"
 base64 = "0.22"
+ring = "0.17"
+iroh = { version = "1.2", default-features = false, features = ["tls-ring"] }
 
 [package]
 name = "rho"
@@ -152,18 +154,26 @@ tempfile = "3.17"
 [profile.dev]
 opt-level = 0
 debug = 1
+split-debuginfo = "unpacked"
 
 [profile.dev.package."*"]
-opt-level = 0
+opt-level = 1
 debug = false
+
+[profile.dev.build-override]
+opt-level = 3
 
 [profile.test]
 opt-level = 0
 debug = 1
+split-debuginfo = "unpacked"
 
 [profile.test.package."*"]
-opt-level = 0
+opt-level = 1
 debug = false
+
+[profile.test.build-override]
+opt-level = 3
 
 [profile.release]
 opt-level = 3

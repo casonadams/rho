@@ -217,6 +217,10 @@ pub enum RpcEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
+    CollabSnapshot {
+        turns: Vec<Value>,
+        current_state: String,
+    },
     Error {
         code: String,
         message: String,
@@ -409,6 +413,19 @@ mod tests {
         assert!(json.contains("\"tokens_per_second\":42.5"));
         assert!(json.contains("\"quota\":\"85% (3h20m)\""));
 
+        let deserialized: RpcEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, event);
+    }
+
+    #[test]
+    fn test_rpc_collab_snapshot_event() {
+        let event = RpcEvent::CollabSnapshot {
+            turns: vec![serde_json::json!({"turn": 1, "prompt": "hello"})],
+            current_state: "idle".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"collab_snapshot\""));
+        assert!(json.contains("\"current_state\":\"idle\""));
         let deserialized: RpcEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, event);
     }

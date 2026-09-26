@@ -19,6 +19,7 @@
 
 pub mod args;
 pub mod auth;
+pub mod collab;
 pub mod config;
 pub mod error;
 pub mod net;
