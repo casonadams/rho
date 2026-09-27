@@ -29,6 +29,17 @@ fn test_estimate_text_tokens_model_aware_differentiation() {
 }
 
 #[test]
+fn test_estimate_text_tokens_claude_calibration() {
+    let sample = "A fast and efficient coding assistant operating inside rho, an agent harness.";
+    let gpt4_tokens = estimate_text_tokens(sample, "gpt-4");
+    let claude_tokens = estimate_text_tokens(sample, "claude-3-7-sonnet");
+
+    assert!(claude_tokens >= gpt4_tokens);
+    let expected = gpt4_tokens.saturating_mul(115).div_ceil(100);
+    assert_eq!(claude_tokens, expected);
+}
+
+#[test]
 fn test_estimate_image_tokens() {
     let msg = Message::User {
         content: vec![

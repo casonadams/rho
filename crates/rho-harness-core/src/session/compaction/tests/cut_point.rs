@@ -28,7 +28,7 @@ fn test_find_token_cut_point_preserves_atomic_tool_pairs() {
         Message::assistant("Turn 2 final answer"),
     ];
 
-    let cut = find_token_cut_point(&messages, 10, "claude-3-7-sonnet");
+    let cut = find_token_cut_point(&messages, 20, "claude-3-7-sonnet");
     assert!(cut.cut_index <= 3);
     assert_ne!(cut.cut_index, 4);
 }

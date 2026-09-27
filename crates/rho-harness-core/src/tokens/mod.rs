@@ -141,9 +141,22 @@ fn bpe_for_model(model: &str) -> Option<&'static tiktoken_rs::CoreBPE> {
     }
 }
 
+fn is_claude_model(lower: &str) -> bool {
+    lower.contains("claude") || lower.contains("sonnet") || lower.contains("opus") || lower.contains("haiku")
+}
+
 pub fn estimate_text_tokens(text: &str, model: &str) -> usize {
     if text.is_empty() {
         return 0;
+    }
+    let lower = model.to_lowercase();
+    if is_claude_model(&lower) {
+        if let Some(bpe) = CL100K_BPE.as_ref() {
+            let base = bpe.encode_with_special_tokens(text).len();
+            return base.saturating_mul(115).div_ceil(100);
+        }
+        let chars = text.chars().count();
+        return chars.saturating_mul(10).div_ceil(35);
     }
     if let Some(bpe) = bpe_for_model(model) {
         return bpe.encode_with_special_tokens(text).len();
