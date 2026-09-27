@@ -80,10 +80,54 @@ pub fn find_turn_boundary_cutoff(messages: &[Message], volatile_turns: usize) ->
     0
 }
 
+enum BashExitStatus {
+    Success,
+    Failed(String),
+}
+
 struct BashPruneDetails {
     lines: usize,
     size_str: String,
     log_path: Option<String>,
+    exit_status: BashExitStatus,
+}
+
+fn parse_accumulator_lines(text: &str) -> Option<usize> {
+    let start = text.rfind("[Showing lines ")?;
+    let of_pos = text[start..].find(" of ")? + start + 4;
+    let end = text[of_pos..].find(' ')?;
+    text[of_pos..of_pos + end].parse().ok()
+}
+
+fn extract_bash_log_path(text: &str) -> Option<String> {
+    if let Some(path_start) = text.rfind("Full log:") {
+        let after = text[path_start + "Full log:".len()..].trim();
+        let path = after.split_whitespace().next()?.trim_matches(']');
+        return Some(path.to_string());
+    }
+    if let Some(path_start) = text.rfind("Full output:") {
+        let after = text[path_start + "Full output:".len()..].trim();
+        let path = after.split_whitespace().next()?.trim_matches(']');
+        return Some(path.to_string());
+    }
+    None
+}
+
+fn extract_bash_exit_code(text: &str) -> Option<String> {
+    if let Some(pos) = text.rfind("Command exited with code ") {
+        let after = text[pos + "Command exited with code ".len()..].trim();
+        let code = after
+            .split_whitespace()
+            .next()?
+            .trim_matches(|c: char| !c.is_ascii_digit() && c != '-');
+        if !code.is_empty() {
+            return Some(code.to_string());
+        }
+    }
+    if text.contains("Command timed out after ") {
+        return Some("timeout".to_string());
+    }
+    None
 }
 
 fn parse_bash_footer_details(text: &str) -> Option<BashPruneDetails> {
@@ -100,27 +144,17 @@ fn parse_bash_footer_details(text: &str) -> Option<BashPruneDetails> {
     let size_part = split.next()?.trim();
 
     let lines = lines_part.split_whitespace().next()?.parse::<usize>().ok()?;
-
-    let log_path = if let Some(path_start) = inner.find("Full log:") {
-        let after = inner[path_start + "Full log:".len()..].trim();
-        let path = after.split_whitespace().next()?.trim_matches(']');
-        Some(path.to_string())
-    } else {
-        None
-    };
+    let log_path = extract_bash_log_path(inner);
 
     Some(BashPruneDetails {
         lines,
         size_str: size_part.to_string(),
         log_path,
+        exit_status: BashExitStatus::Success,
     })
 }
 
 fn check_prunable_bash_output(text: &str, line_threshold: usize) -> Option<BashPruneDetails> {
-    if text.contains("Command exited with code") || text.contains("Command timed out after") {
-        return None;
-    }
-
     if let Some(details) = parse_bash_footer_details(text) {
         if details.lines > line_threshold {
             return Some(details);
@@ -128,12 +162,19 @@ fn check_prunable_bash_output(text: &str, line_threshold: usize) -> Option<BashP
         return None;
     }
 
-    let line_count = text.lines().count();
+    let line_count = parse_accumulator_lines(text).unwrap_or_else(|| text.lines().count());
     if line_count > line_threshold {
+        let exit_status = if let Some(code) = extract_bash_exit_code(text) {
+            BashExitStatus::Failed(code)
+        } else {
+            BashExitStatus::Success
+        };
+        let log_path = extract_bash_log_path(text);
         Some(BashPruneDetails {
             lines: line_count,
             size_str: crate::tools::truncate::format_size(text.len()),
-            log_path: None,
+            log_path,
+            exit_status,
         })
     } else {
         None
@@ -211,13 +252,21 @@ fn collect_tool_calls(messages: &[Message]) -> HashMap<String, ToolCallMeta> {
 }
 
 fn format_pruned_stub(cmd: &str, details: &BashPruneDetails) -> String {
-    match &details.log_path {
-        Some(path) => format!(
+    match (&details.exit_status, &details.log_path) {
+        (BashExitStatus::Success, Some(path)) => format!(
             "[Command '{cmd}' completed with exit code 0. Output pruned ({} lines, {}). Full log: {path}]",
             details.lines, details.size_str
         ),
-        None => format!(
+        (BashExitStatus::Success, None) => format!(
             "[Command '{cmd}' completed with exit code 0. Output pruned ({} lines, {}).]",
+            details.lines, details.size_str
+        ),
+        (BashExitStatus::Failed(code), Some(path)) => format!(
+            "[Command '{cmd}' failed with exit code {code} ({} lines, {}). Full log: {path}]",
+            details.lines, details.size_str
+        ),
+        (BashExitStatus::Failed(code), None) => format!(
+            "[Command '{cmd}' failed with exit code {code} ({} lines, {}).]",
             details.lines, details.size_str
         ),
     }
@@ -873,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prior_turn_failed_bash_output_is_not_pruned() {
+    fn test_historical_failed_bash_output_is_pruned() {
         let output = (1..=30).map(|i| format!("error {i}")).collect::<Vec<_>>().join("\n");
         let output_with_err = format!("{output}\n\nCommand exited with code 1");
         let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &output_with_err);
@@ -897,8 +946,78 @@ mod tests {
             ToolResultContent::Text(t) => &t.text,
             _ => panic!(),
         };
+        assert!(text.contains("[Command 'cargo test' failed with exit code 1 (32 lines,"));
+    }
+
+    #[test]
+    fn test_recent_failed_bash_output_within_protection_window_is_not_pruned() {
+        let output = (1..=30).map(|i| format!("error {i}")).collect::<Vec<_>>().join("\n");
+        let output_with_err = format!("{output}\n\nCommand exited with code 1");
+        let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo test", &output_with_err);
+
+        let history = vec![
+            Message::user("Please test"),
+            call_msg,
+            res_msg,
+            Message::assistant("Tests failed with exit code 1"),
+            Message::user("Fix the tests"),
+        ];
+
+        let policy = PrunePolicy::cache_preserving();
+        let pruned = prune_historical_tool_outputs_with_policy(&history, &policy);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
         assert!(text.contains("error 1"));
         assert!(text.contains("Command exited with code 1"));
+    }
+
+    #[test]
+    fn test_historical_failed_bash_output_with_log_path_pruned() {
+        let err_body = (1..=30)
+            .map(|i| format!("compiler error {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let output = format!(
+            "{err_body}\n\n[Showing lines 1-500 of 1200 (50.0KB limit). Full output: /tmp/rho-bash-123.log]\n\nCommand exited with code 1"
+        );
+        let (call_msg, res_msg) = make_tool_turn("c1", "bash", "cargo build", &output);
+
+        let large_padding = "word ".repeat(50_000);
+        let history = vec![
+            Message::user("Build the project"),
+            call_msg,
+            res_msg,
+            Message::assistant("Build failed with exit code 1"),
+            Message::user(large_padding),
+            Message::assistant("Acknowledge large output"),
+            Message::user("Continue work"),
+        ];
+
+        let policy = PrunePolicy {
+            prune_minimum_tokens: 0,
+            ..PrunePolicy::cache_preserving()
+        };
+        let pruned = prune_historical_tool_outputs_with_policy(&history, &policy);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(res) = &content[0] else {
+            panic!()
+        };
+        let text = match &res.content[0] {
+            ToolResultContent::Text(t) => &t.text,
+            _ => panic!(),
+        };
+        assert!(text.contains("[Command 'cargo build' failed with exit code 1 (1200 lines,"));
+        assert!(text.contains("Full log: /tmp/rho-bash-123.log]"));
     }
 
     #[test]
