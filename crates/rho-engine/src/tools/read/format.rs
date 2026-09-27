@@ -81,10 +81,12 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs, artifact
 pub fn number_lines(content: &str, start_line: usize) -> String {
     use std::fmt::Write;
     let line_count = content.lines().count();
-    let mut output = String::with_capacity(content.len() + line_count * 8);
+    let max_line = start_line.saturating_add(line_count);
+    let width = max_line.to_string().len().max(3);
+    let mut output = String::with_capacity(content.len() + line_count * (width + 2));
     for (idx, line) in content.lines().enumerate() {
         let line_num = start_line + idx;
-        let _ = writeln!(output, "{line_num:6}\t{line}");
+        let _ = writeln!(output, "{line_num:>width$}\t{line}");
     }
     output
 }

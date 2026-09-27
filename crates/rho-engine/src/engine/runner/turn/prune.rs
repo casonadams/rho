@@ -9,13 +9,14 @@ pub const DEFAULT_PROTECT_RECENT_TOKENS: usize = 30_000;
 pub const DEFAULT_PRUNE_MINIMUM_SAVINGS: usize = 20_000;
 pub const DEFAULT_MIN_PRUNE_TOKENS: usize = 50;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PrunePolicy {
     pub volatile_turns: usize,
     pub line_threshold: usize,
     pub protect_recent_tokens: usize,
     pub prune_minimum_tokens: usize,
     pub min_prune_tokens: usize,
+    pub model: Option<String>,
 }
 
 impl Default for PrunePolicy {
@@ -32,6 +33,7 @@ impl PrunePolicy {
             protect_recent_tokens: 0,
             prune_minimum_tokens: 0,
             min_prune_tokens: 0,
+            model: None,
         }
     }
 
@@ -42,6 +44,7 @@ impl PrunePolicy {
             protect_recent_tokens: DEFAULT_PROTECT_RECENT_TOKENS,
             prune_minimum_tokens: DEFAULT_PRUNE_MINIMUM_SAVINGS,
             min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+            model: None,
         }
     }
 
@@ -54,7 +57,13 @@ impl PrunePolicy {
             protect_recent_tokens: protect_recent,
             prune_minimum_tokens: savings_floor,
             min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+            model: None,
         }
+    }
+
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
     }
 }
 
@@ -495,13 +504,13 @@ pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String>
     superseded
 }
 
-pub fn find_recent_tokens_cutoff(messages: &[Message], protect_tokens: usize) -> usize {
+pub fn find_recent_tokens_cutoff(messages: &[Message], protect_tokens: usize, model: &str) -> usize {
     if protect_tokens == 0 || messages.is_empty() {
         return messages.len();
     }
     let mut accumulated = 0usize;
     for (idx, msg) in messages.iter().enumerate().rev() {
-        accumulated = accumulated.saturating_add(rho_harness_core::tokens::estimate_message_tokens(msg, "gpt-4"));
+        accumulated = accumulated.saturating_add(rho_harness_core::tokens::estimate_message_tokens(msg, model));
         if accumulated >= protect_tokens {
             return idx;
         }
@@ -514,6 +523,7 @@ struct PruneContext<'a> {
     superseded_call_ids: &'a HashSet<String>,
     line_threshold: usize,
     min_prune_tokens: usize,
+    model: &'a str,
 }
 
 fn dispatch_tool_prune_stub(
@@ -564,7 +574,7 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
         .join("\n");
 
     if ctx.min_prune_tokens > 0 && !is_superseded {
-        let tokens = rho_harness_core::tokens::estimate_text_tokens(&text, "gpt-4");
+        let tokens = rho_harness_core::tokens::estimate_text_tokens(&text, ctx.model);
         if tokens < ctx.min_prune_tokens {
             return None;
         }
@@ -617,8 +627,9 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &
         return Vec::new();
     }
 
+    let model = policy.model.as_deref().unwrap_or("gpt-4");
     let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
-    let recent_cutoff_idx = find_recent_tokens_cutoff(messages, policy.protect_recent_tokens);
+    let recent_cutoff_idx = find_recent_tokens_cutoff(messages, policy.protect_recent_tokens, model);
     let effective_cutoff = cutoff_idx.min(recent_cutoff_idx);
     if effective_cutoff == 0 {
         return messages.to_vec();
@@ -631,6 +642,7 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &
         superseded_call_ids: &superseded_ids,
         line_threshold: policy.line_threshold,
         min_prune_tokens: policy.min_prune_tokens,
+        model,
     };
 
     let mut total_savings = 0usize;
@@ -644,9 +656,9 @@ pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &
             match msg {
                 Message::User { content } => match prune_user_message_content(content, &ctx) {
                     Some(new_content) => {
-                        let original_tokens = rho_harness_core::tokens::estimate_message_tokens(msg, "gpt-4");
+                        let original_tokens = rho_harness_core::tokens::estimate_message_tokens(msg, model);
                         let new_msg = Message::User { content: new_content };
-                        let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, "gpt-4");
+                        let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, model);
                         total_savings = total_savings.saturating_add(original_tokens.saturating_sub(new_tokens));
                         new_msg
                     }
@@ -1734,6 +1746,7 @@ mod tests {
             protect_recent_tokens: 30_000,
             prune_minimum_tokens: 0,
             min_prune_tokens: 0,
+            model: None,
         };
         let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_protected);
         assert_eq!(pruned, history);
@@ -1744,6 +1757,7 @@ mod tests {
             protect_recent_tokens: 5,
             prune_minimum_tokens: 0,
             min_prune_tokens: 0,
+            model: None,
         };
         let pruned_unprotected = prune_historical_tool_outputs_with_policy(&history, &policy_unprotected);
         assert_ne!(pruned_unprotected, history);
@@ -1776,6 +1790,7 @@ mod tests {
             protect_recent_tokens: 0,
             prune_minimum_tokens: 50_000,
             min_prune_tokens: 0,
+            model: None,
         };
         let pruned_skipped = prune_historical_tool_outputs_with_policy(&history, &high_savings_floor);
         assert_eq!(pruned_skipped, history);
@@ -1786,6 +1801,7 @@ mod tests {
             protect_recent_tokens: 0,
             prune_minimum_tokens: 10,
             min_prune_tokens: 0,
+            model: None,
         };
         let pruned_executed = prune_historical_tool_outputs_with_policy(&history, &low_savings_floor);
         assert_ne!(pruned_executed, history);
@@ -1809,6 +1825,7 @@ mod tests {
             protect_recent_tokens: 0,
             prune_minimum_tokens: 0,
             min_prune_tokens: 100,
+            model: None,
         };
         let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_skip_small);
         assert_eq!(pruned, history);
@@ -1854,6 +1871,12 @@ mod tests {
         adaptive_policy.protect_recent_tokens = 0;
         let pruned = prune_historical_tool_outputs_with_policy(&history, &adaptive_policy);
         assert_ne!(pruned, history);
+    }
+
+    #[test]
+    fn test_prune_policy_model_propagation() {
+        let policy = PrunePolicy::cache_preserving().with_model("claude-3-7-sonnet");
+        assert_eq!(policy.model.as_deref(), Some("claude-3-7-sonnet"));
     }
 
     #[test]

@@ -79,7 +79,7 @@ async fn test_read_byte_truncation_shows_range_and_next_offset() {
             .content
             .contains("[Showing lines 1-506 of 1000 (50.0KB limit). Use offset=507 to continue.]")
     );
-    assert!(result.content.contains("     1\t"));
+    assert!(result.content.contains("  1\t"));
 }
 
 #[tokio::test]

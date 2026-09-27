@@ -78,7 +78,7 @@ impl AgentEngine {
             .context
             .limit_for(&self.config.model, &self.config.provider)
             .unwrap_or(128_000);
-        let policy = super::prune::PrunePolicy::for_context_window(window);
+        let policy = super::prune::PrunePolicy::for_context_window(window).with_model(&self.config.model);
         Ok(super::prune::prune_historical_tool_outputs_with_policy(&raw, &policy))
     }
 

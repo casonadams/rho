@@ -106,6 +106,7 @@ impl AutoCompactHook {
     ) -> Self {
         let demotion_hook = compactor.demotion_hook().cloned();
         let window = context_window(compactor.model_name(), provider, &context);
+        let prune_policy = super::PrunePolicy::for_context_window(window).with_model(compactor.model_name());
         Self {
             compactor,
             presenter,
@@ -114,7 +115,7 @@ impl AutoCompactHook {
             provider: provider.to_string(),
             reserve_tokens,
             demotion_hook,
-            prune_policy: super::PrunePolicy::for_context_window(window),
+            prune_policy,
             speculative_plan: Arc::new(std::sync::Mutex::new(None)),
             in_flight: Arc::new(AtomicBool::new(false)),
             speculative_epoch: Arc::new(AtomicU64::new(0)),
