@@ -44,6 +44,18 @@ impl PrunePolicy {
             min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
         }
     }
+
+    pub fn for_context_window(context_window: usize) -> Self {
+        let savings_floor = (context_window / 20).clamp(3_000, DEFAULT_PRUNE_MINIMUM_SAVINGS);
+        let protect_recent = (context_window * 3 / 20).clamp(10_000, DEFAULT_PROTECT_RECENT_TOKENS);
+        Self {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: protect_recent,
+            prune_minimum_tokens: savings_floor,
+            min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+        }
+    }
 }
 
 fn is_assistant_final_response(message: &Message) -> bool {
@@ -1800,6 +1812,48 @@ mod tests {
         };
         let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_skip_small);
         assert_eq!(pruned, history);
+    }
+
+    #[test]
+    fn test_prune_policy_for_context_window() {
+        let p_128k = PrunePolicy::for_context_window(128_000);
+        assert_eq!(p_128k.prune_minimum_tokens, 6_400);
+        assert_eq!(p_128k.protect_recent_tokens, 19_200);
+
+        let p_200k = PrunePolicy::for_context_window(200_000);
+        assert_eq!(p_200k.prune_minimum_tokens, 10_000);
+        assert_eq!(p_200k.protect_recent_tokens, 30_000);
+
+        let p_1m = PrunePolicy::for_context_window(1_000_000);
+        assert_eq!(p_1m.prune_minimum_tokens, 20_000);
+        assert_eq!(p_1m.protect_recent_tokens, 30_000);
+
+        let p_tiny = PrunePolicy::for_context_window(32_000);
+        assert_eq!(p_tiny.prune_minimum_tokens, 3_000);
+        assert_eq!(p_tiny.protect_recent_tokens, 10_000);
+    }
+
+    #[test]
+    fn test_adaptive_pruning_floor_triggers_on_smaller_window() {
+        let body = "verbose compiler warning line output\n".repeat(1_600);
+        let (call, res) = make_tool_turn("c1", "bash", "cargo build", &body);
+        let history = vec![
+            Message::user("Build"),
+            call,
+            res,
+            Message::assistant("Done build"),
+            Message::user("Next command"),
+        ];
+
+        let mut static_policy = PrunePolicy::cache_preserving();
+        static_policy.protect_recent_tokens = 0;
+        let unpruned = prune_historical_tool_outputs_with_policy(&history, &static_policy);
+        assert_eq!(unpruned, history);
+
+        let mut adaptive_policy = PrunePolicy::for_context_window(128_000);
+        adaptive_policy.protect_recent_tokens = 0;
+        let pruned = prune_historical_tool_outputs_with_policy(&history, &adaptive_policy);
+        assert_ne!(pruned, history);
     }
 
     #[test]

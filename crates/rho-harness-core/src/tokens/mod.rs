@@ -35,7 +35,11 @@ const MODEL_CONTEXT_WINDOWS: &[(&[&str], usize)] = &[
         372_000,
     ),
     (&["gpt-5.4", "gpt-5.5"], 272_000),
-    (&["claude", "o1", "o3"], 200_000),
+    (&["claude", "haiku", "o1", "o3", "o4-mini"], 200_000),
+    (
+        &["gpt-4", "gpt-4o", "chatgpt-4o", "deepseek", "qwen", "mistral", "llama"],
+        128_000,
+    ),
 ];
 
 pub fn context_window_size_for_provider(model: &str, provider: &str) -> usize {
