@@ -48,6 +48,17 @@ async fn handle_collab_start(ctx: &mut SlashCommandContext<'_>) -> Result<Option
     }
 
     let server = CollabHostServer::start(default_collab_config()).await?;
+    if let Some(sm) = ctx.session_manager
+        && let Ok(tree) = sm.load_tree().await
+    {
+        let msgs = tree.active_messages();
+        let turns = rho_harness_core::session::turns::extract_turns(&msgs);
+        let turns_val: Vec<serde_json::Value> =
+            turns.into_iter().filter_map(|t| serde_json::to_value(t).ok()).collect();
+        server
+            .update_snapshot(rho_harness_core::collab::CollabSnapshot::new(turns_val, "idle"))
+            .await;
+    }
     let (full, view) = server.tickets().await?;
     **collab_slot = Some(Arc::new(server));
 
