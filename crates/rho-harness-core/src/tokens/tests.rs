@@ -132,6 +132,17 @@ fn test_should_compact_thresholds() {
 }
 
 #[test]
+fn test_is_in_lead_band() {
+    let window = 200_000;
+    let reserve = 20_000; // threshold = 180_000, lead_threshold = 180_000 * 0.85 = 153_000
+    assert!(!is_in_lead_band(100_000, window, reserve));
+    assert!(is_in_lead_band(153_000, window, reserve));
+    assert!(is_in_lead_band(170_000, window, reserve));
+    assert!(is_in_lead_band(180_000, window, reserve));
+    assert!(!is_in_lead_band(180_001, window, reserve)); // above threshold
+}
+
+#[test]
 fn test_find_token_cut_point_and_tool_pair_preservation() {
     let messages = vec![
         Message::user("User message 1"),

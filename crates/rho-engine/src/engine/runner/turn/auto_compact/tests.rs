@@ -251,7 +251,8 @@ async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
         engine.context,
         "anthropic",
         50,
-    );
+    )
+    .with_prune_policy(crate::engine::runner::turn::PrunePolicy::unconstrained(1, 15));
 
     let output = (1..=30)
         .map(|i| format!("cargo build line {i}"))
@@ -296,6 +297,56 @@ async fn test_auto_compact_hook_patches_pruned_historical_bash_output() {
             assert!(text.contains("[Command 'cargo build' completed with exit code 0. Output pruned (30 lines, 600B). Full log: /tmp/log.txt]"));
         }
         other => panic!("expected history patch with pruned bash output, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_auto_compact_hook_preserves_recent_tool_outputs_under_default_cache_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        50,
+    );
+
+    let output = (1..=30)
+        .map(|i| format!("cargo build line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let call = rig::message::ToolCall::new(
+        rig::message::ToolCallId::new_or_mint("c1"),
+        rig::message::ToolFunction::new("bash".to_string(), serde_json::json!({ "command": "cargo build" })),
+    );
+    let res = rig::message::ToolResult {
+        call: rig::message::ToolCallId::new_or_mint("c1"),
+        provider: None,
+        name: "bash".to_string(),
+        content: vec![rig::message::ToolResultContent::Text(rig::message::Text::new(output))],
+    };
+
+    let history = vec![
+        Message::user("Please build"),
+        Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(call)],
+        },
+        Message::User {
+            content: vec![UserContent::ToolResult(res)],
+        },
+        Message::assistant("Build completed"),
+        Message::user("Now run tests"),
+    ];
+
+    let action = hook.handle(None, &history, &Message::user("latest prompt")).await;
+    match action {
+        CompletionCallAction::Continue => {}
+        other => panic!("expected Continue to preserve prompt cache, got {other:?}"),
     }
 }
 
@@ -588,4 +639,90 @@ fn test_trigger_tokens_without_assistant_message_uses_anchor_max_fallback() {
     let zero_anchor = StructuralUsage::default();
     let zero_result = trigger_tokens(&history, Some(&zero_anchor), model, provider, &context);
     assert_eq!(zero_result, full_estimate);
+}
+
+#[tokio::test]
+async fn test_speculative_compaction_plan_adopted_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::default();
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+
+    let speculative_prefix = vec![Message::user("Precomputed speculative summary")];
+    let precomputed_plan = super::PatchPlan {
+        cut: 2,
+        prefix: speculative_prefix.clone(),
+    };
+
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        50,
+    )
+    .with_speculative_plan(precomputed_plan);
+
+    let usage = Usage {
+        input_tokens: 199_990,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let history = vec![
+        Message::user("Turn 1 prompt"),
+        Message::assistant("Turn 1 answer"),
+        Message::user("Turn 2 prompt"),
+    ];
+
+    let action = hook.handle(None, &history, &Message::user("Turn 3 prompt")).await;
+    match action {
+        CompletionCallAction::Patch(patch) => {
+            let patched = patch.history.expect("patch supplies history");
+            assert_eq!(patched[0], Message::user("Precomputed speculative summary"));
+            assert_eq!(patched[1], Message::user("Turn 2 prompt"));
+        }
+        other => panic!("expected immediate patch from speculative plan, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_speculative_plan_generated_in_lead_band() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("## Goal\nSpeculative goal\n\n## Progress\n- [x] Done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        10_000,
+    );
+
+    let usage = Usage {
+        input_tokens: 105_000,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let history = vec![
+        Message::user("Turn 1 prompt with details"),
+        Message::assistant("Turn 1 response with details"),
+        Message::user("Turn 2 prompt with details"),
+        Message::assistant("Turn 2 response with details"),
+    ];
+
+    let action = hook.handle(None, &history, &Message::user("Turn 3 prompt")).await;
+    assert!(matches!(action, CompletionCallAction::Continue));
+    assert!(hook.speculative_plan.lock().unwrap().is_some());
 }

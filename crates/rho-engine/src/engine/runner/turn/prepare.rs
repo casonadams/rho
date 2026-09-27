@@ -74,10 +74,9 @@ impl AgentEngine {
         let raw = ConversationMemory::load(&self.session_manager, &self.session_manager.session_id)
             .await
             .map_err(|e| AppError::Session(format!("Model-visible session history could not be loaded: {e}")))?;
-        Ok(super::prune::prune_historical_tool_outputs(
+        Ok(super::prune::prune_historical_tool_outputs_with_policy(
             &raw,
-            1,
-            super::prune::DEFAULT_PRUNE_LINE_THRESHOLD,
+            &super::prune::PrunePolicy::cache_preserving(),
         ))
     }
 

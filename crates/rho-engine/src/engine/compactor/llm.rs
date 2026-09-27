@@ -1,5 +1,6 @@
 use rig::agent::ModelHandle;
-use rig::message::Message;
+use rig::completion::message::MimeType;
+use rig::message::{Message, ToolResultContent, UserContent};
 use std::time::Duration;
 
 use rho_harness_core::session::compaction::{
@@ -97,6 +98,49 @@ fn truncate_oldest_round(messages: &[Message]) -> Option<Vec<Message>> {
     Some(truncated)
 }
 
+pub fn strip_media_for_summarization(messages: &[Message]) -> Vec<Message> {
+    messages.iter().map(strip_media_from_message).collect()
+}
+
+fn strip_media_from_user_content(item: &UserContent) -> UserContent {
+    match item {
+        UserContent::Image(img) => {
+            let mime = img.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+            UserContent::text(format!("[Image: {mime}]"))
+        }
+        UserContent::ToolResult(res) => {
+            let new_res_content = res
+                .content
+                .iter()
+                .map(|c| match c {
+                    ToolResultContent::Image(img) => {
+                        let mime = img.media_type.as_ref().map_or("unknown", MimeType::to_mime_type);
+                        ToolResultContent::text(format!("[Image: {mime}]"))
+                    }
+                    other => other.clone(),
+                })
+                .collect();
+            UserContent::ToolResult(rig::message::ToolResult {
+                call: res.call.clone(),
+                provider: res.provider.clone(),
+                name: res.name.clone(),
+                content: new_res_content,
+            })
+        }
+        other => other.clone(),
+    }
+}
+
+fn strip_media_from_message(msg: &Message) -> Message {
+    match msg {
+        Message::User { content } => {
+            let new_content = content.iter().map(strip_media_from_user_content).collect();
+            Message::User { content: new_content }
+        }
+        other => other.clone(),
+    }
+}
+
 impl LlmCompactor {
     pub fn new(model: Option<ModelHandle>) -> Self {
         Self { model }
@@ -146,7 +190,7 @@ impl LlmCompactor {
         options: SummarizeOptions<'_>,
     ) -> (String, Option<StructuralUsage>) {
         const MAX_OVERFLOW_RETRIES: usize = 3;
-        let mut current_messages = messages.to_vec();
+        let mut current_messages = strip_media_for_summarization(messages);
 
         for attempt in 0..=MAX_OVERFLOW_RETRIES {
             let transcript = serialize_conversation(&current_messages);
@@ -194,7 +238,7 @@ impl LlmCompactor {
         instructions: Option<&str>,
     ) -> (String, Option<StructuralUsage>) {
         const MAX_OVERFLOW_RETRIES: usize = 3;
-        let mut current_messages = prefix.to_vec();
+        let mut current_messages = strip_media_for_summarization(prefix);
 
         for attempt in 0..=MAX_OVERFLOW_RETRIES {
             let transcript = serialize_conversation(&current_messages);

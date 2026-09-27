@@ -2,6 +2,7 @@
 //! schema (`rho_harness_core::args`), execution, and truncation behavior;
 //! `registry` wires declarations into the model-facing tool list.
 
+pub mod artifact;
 pub(crate) mod atomic;
 pub mod bash;
 pub mod builtin_tools;
@@ -16,6 +17,9 @@ pub mod types;
 pub mod web;
 pub mod write;
 
+pub use artifact::{
+    ArtifactDemotionHook, cleanup_artifacts, default_artifact_dir, format_artifact_notice, spill_artifact,
+};
 pub use bash::{BashArgs, BashTool};
 pub use builtin_tools::{
     BuiltinToolDeclaration, BuiltinToolKind, DECLARATIONS, build_all_builtin_tools, build_builtin_tools,

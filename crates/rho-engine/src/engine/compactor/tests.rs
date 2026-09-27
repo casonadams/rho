@@ -103,6 +103,54 @@ mod compactor {
         assert!(summary.contains("src/app.rs"));
     }
 
+    #[test]
+    fn test_strip_media_for_summarization_replaces_image_with_stub() {
+        use rig::completion::message::ImageMediaType;
+        use rig::message::{ToolResultContent, UserContent};
+
+        let msg_with_image = Message::User {
+            content: vec![
+                UserContent::text("Here is an image:"),
+                UserContent::image_base64("iVBORw0KGgoAAAANSUhEUgA=", Some(ImageMediaType::PNG), None),
+                UserContent::ToolResult(rig::message::ToolResult {
+                    call: rig::message::ToolCallId::new_or_mint("c1"),
+                    provider: None,
+                    name: "screenshot".to_string(),
+                    content: vec![
+                        ToolResultContent::text("Captured screen"),
+                        ToolResultContent::image_base64("iVBORw0KGgoAAAANSUhEUgA=", Some(ImageMediaType::JPEG), None),
+                    ],
+                }),
+            ],
+        };
+
+        let stripped = crate::engine::compactor::llm::strip_media_for_summarization(&[msg_with_image]);
+        assert_eq!(stripped.len(), 1);
+        let Message::User { content } = &stripped[0] else {
+            panic!()
+        };
+        assert_eq!(content.len(), 3);
+
+        let UserContent::Text(t1) = &content[0] else { panic!() };
+        assert_eq!(t1.text, "Here is an image:");
+
+        let UserContent::Text(t2) = &content[1] else { panic!() };
+        assert_eq!(t2.text, "[Image: image/png]");
+
+        let UserContent::ToolResult(res) = &content[2] else {
+            panic!()
+        };
+        assert_eq!(res.content.len(), 2);
+        let ToolResultContent::Text(rt1) = &res.content[0] else {
+            panic!()
+        };
+        assert_eq!(rt1.text, "Captured screen");
+        let ToolResultContent::Text(rt2) = &res.content[1] else {
+            panic!()
+        };
+        assert_eq!(rt2.text, "[Image: image/jpeg]");
+    }
+
     #[tokio::test]
     async fn test_llm_compactor_successful_llm_call() {
         let mock = MockCompletionModel::text("## Goal\nImplement feature Y\n\n## Progress\n### Done\n- [x] Done");

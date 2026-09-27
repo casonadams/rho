@@ -1,10 +1,50 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rho_harness_core::tokens::cut_point::is_user_turn_start;
 use rig::completion::message::MimeType;
 use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
 
 pub const DEFAULT_PRUNE_LINE_THRESHOLD: usize = 15;
+pub const DEFAULT_PROTECT_RECENT_TOKENS: usize = 30_000;
+pub const DEFAULT_PRUNE_MINIMUM_SAVINGS: usize = 20_000;
+pub const DEFAULT_MIN_PRUNE_TOKENS: usize = 50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PrunePolicy {
+    pub volatile_turns: usize,
+    pub line_threshold: usize,
+    pub protect_recent_tokens: usize,
+    pub prune_minimum_tokens: usize,
+    pub min_prune_tokens: usize,
+}
+
+impl Default for PrunePolicy {
+    fn default() -> Self {
+        Self::cache_preserving()
+    }
+}
+
+impl PrunePolicy {
+    pub const fn unconstrained(volatile_turns: usize, line_threshold: usize) -> Self {
+        Self {
+            volatile_turns,
+            line_threshold,
+            protect_recent_tokens: 0,
+            prune_minimum_tokens: 0,
+            min_prune_tokens: 0,
+        }
+    }
+
+    pub const fn cache_preserving() -> Self {
+        Self {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: DEFAULT_PROTECT_RECENT_TOKENS,
+            prune_minimum_tokens: DEFAULT_PRUNE_MINIMUM_SAVINGS,
+            min_prune_tokens: DEFAULT_MIN_PRUNE_TOKENS,
+        }
+    }
+}
 
 fn is_assistant_final_response(message: &Message) -> bool {
     match message {
@@ -350,21 +390,108 @@ fn prune_mcp_result(tool_name: &str, text: &str, line_threshold: usize) -> Optio
     ))
 }
 
-fn prune_tool_result_item(
-    item: &UserContent,
-    tool_calls: &HashMap<String, ToolCallMeta>,
+fn is_read_tool(name: &str) -> bool {
+    matches!(name, "read" | "read_file")
+}
+
+fn is_write_or_edit_tool(name: &str) -> bool {
+    matches!(name, "write" | "write_file" | "edit" | "edit_file")
+}
+
+fn extract_file_path_arg(args: &serde_json::Value) -> Option<String> {
+    args.get("path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String> {
+    let mut seen_paths = HashSet::new();
+    let mut superseded = HashSet::new();
+    for msg in messages.iter().rev() {
+        let Message::Assistant { content, .. } = msg else {
+            continue;
+        };
+        for item in content.iter().rev() {
+            let AssistantContent::ToolCall(call) = item else {
+                continue;
+            };
+            let name = call.function.name.to_ascii_lowercase();
+            let Some(p) = extract_file_path_arg(&call.function.arguments) else {
+                continue;
+            };
+            if is_read_tool(&name) {
+                if seen_paths.contains(&p) {
+                    superseded.insert(call.id.to_string());
+                } else {
+                    seen_paths.insert(p);
+                }
+            } else if is_write_or_edit_tool(&name) {
+                seen_paths.insert(p);
+            }
+        }
+    }
+    superseded
+}
+
+pub fn find_recent_tokens_cutoff(messages: &[Message], protect_tokens: usize) -> usize {
+    if protect_tokens == 0 || messages.is_empty() {
+        return messages.len();
+    }
+    let mut accumulated = 0usize;
+    for (idx, msg) in messages.iter().enumerate().rev() {
+        accumulated = accumulated.saturating_add(rho_harness_core::tokens::estimate_message_tokens(msg, "gpt-4"));
+        if accumulated >= protect_tokens {
+            return idx;
+        }
+    }
+    0
+}
+
+struct PruneContext<'a> {
+    tool_calls: &'a HashMap<String, ToolCallMeta>,
+    superseded_call_ids: &'a HashSet<String>,
     line_threshold: usize,
-) -> Option<UserContent> {
+    min_prune_tokens: usize,
+}
+
+fn dispatch_tool_prune_stub(
+    tool_name: &str,
+    text: &str,
+    meta: Option<&ToolCallMeta>,
+    line_threshold: usize,
+) -> Option<String> {
+    if tool_name == "bash" {
+        prune_bash_result(text, meta, line_threshold)
+    } else if tool_name == "read" || tool_name == "read_file" {
+        prune_read_result(text, meta, line_threshold)
+    } else if matches!(tool_name, "rg" | "grep" | "fd" | "find" | "glob") {
+        prune_search_result(tool_name, text, meta, line_threshold)
+    } else if tool_name.starts_with("web_") || tool_name.starts_with("web") {
+        prune_web_result(tool_name, text, meta, line_threshold)
+    } else if tool_name.starts_with("mcp__") || tool_name.contains("__") {
+        prune_mcp_result(tool_name, text, line_threshold)
+    } else {
+        None
+    }
+}
+
+fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<UserContent> {
     let UserContent::ToolResult(res) = item else {
         return None;
     };
-    let meta = tool_calls.get(&res.call.to_string());
+    let meta = ctx.tool_calls.get(&res.call.to_string());
     let tool_name = if !res.name.is_empty() {
         res.name.to_ascii_lowercase()
     } else {
         meta.map_or(String::new(), |m| m.name.clone())
     };
 
+    if tool_name == "skill" || tool_name.starts_with("skill_") {
+        return None;
+    }
+
+    let is_superseded = ctx.superseded_call_ids.contains(&res.call.to_string());
     let text = res
         .content
         .iter()
@@ -375,25 +502,29 @@ fn prune_tool_result_item(
         .collect::<Vec<_>>()
         .join("\n");
 
+    if ctx.min_prune_tokens > 0 && !is_superseded {
+        let tokens = rho_harness_core::tokens::estimate_text_tokens(&text, "gpt-4");
+        if tokens < ctx.min_prune_tokens {
+            return None;
+        }
+    }
+
     let image_block = res.content.iter().find_map(|c| match c {
         ToolResultContent::Image(img) => Some(img),
         _ => None,
     });
 
-    let stub = if let Some(img) = image_block {
+    let stub = if is_superseded {
+        let target = meta.map_or("", |m| m.target.as_str());
+        if target.is_empty() {
+            "[File read superseded by a later operation]".to_string()
+        } else {
+            format!("[File read superseded by a later operation on {target}]")
+        }
+    } else if let Some(img) = image_block {
         prune_image_tool_result(&tool_name, &text, meta, img)
-    } else if tool_name == "bash" {
-        prune_bash_result(&text, meta, line_threshold)?
-    } else if tool_name == "read" || tool_name == "read_file" {
-        prune_read_result(&text, meta, line_threshold)?
-    } else if matches!(tool_name.as_str(), "rg" | "grep" | "fd" | "find" | "glob") {
-        prune_search_result(&tool_name, &text, meta, line_threshold)?
-    } else if tool_name.starts_with("web_") || tool_name.starts_with("web") {
-        prune_web_result(&tool_name, &text, meta, line_threshold)?
-    } else if tool_name.starts_with("mcp__") || tool_name.contains("__") {
-        prune_mcp_result(&tool_name, &text, line_threshold)?
     } else {
-        return None;
+        dispatch_tool_prune_stub(&tool_name, &text, meta, ctx.line_threshold)?
     };
 
     Some(UserContent::ToolResult(rig::message::ToolResult {
@@ -404,15 +535,11 @@ fn prune_tool_result_item(
     }))
 }
 
-fn prune_user_message_content(
-    content: &[UserContent],
-    tool_calls: &HashMap<String, ToolCallMeta>,
-    line_threshold: usize,
-) -> Option<Vec<UserContent>> {
+fn prune_user_message_content(content: &[UserContent], ctx: &PruneContext<'_>) -> Option<Vec<UserContent>> {
     let mut modified = false;
     let new_content: Vec<UserContent> = content
         .iter()
-        .map(|item| match prune_tool_result_item(item, tool_calls, line_threshold) {
+        .map(|item| match prune_tool_result_item(item, ctx) {
             Some(pruned) => {
                 modified = true;
                 pruned
@@ -424,37 +551,64 @@ fn prune_user_message_content(
     if modified { Some(new_content) } else { None }
 }
 
-pub fn prune_historical_tool_outputs(
-    messages: &[Message],
-    volatile_turns: usize,
-    line_threshold: usize,
-) -> Vec<Message> {
+pub fn prune_historical_tool_outputs_with_policy(messages: &[Message], policy: &PrunePolicy) -> Vec<Message> {
     if messages.is_empty() {
         return Vec::new();
     }
 
-    let cutoff_idx = find_turn_boundary_cutoff(messages, volatile_turns);
-    if cutoff_idx == 0 {
+    let cutoff_idx = find_turn_boundary_cutoff(messages, policy.volatile_turns);
+    let recent_cutoff_idx = find_recent_tokens_cutoff(messages, policy.protect_recent_tokens);
+    let effective_cutoff = cutoff_idx.min(recent_cutoff_idx);
+    if effective_cutoff == 0 {
         return messages.to_vec();
     }
 
     let tool_calls = collect_tool_calls(messages);
-    messages
+    let superseded_ids = collect_superseded_tool_call_ids(messages);
+    let ctx = PruneContext {
+        tool_calls: &tool_calls,
+        superseded_call_ids: &superseded_ids,
+        line_threshold: policy.line_threshold,
+        min_prune_tokens: policy.min_prune_tokens,
+    };
+
+    let mut total_savings = 0usize;
+    let pruned_messages: Vec<Message> = messages
         .iter()
         .enumerate()
         .map(|(idx, msg)| {
-            if idx >= cutoff_idx {
+            if idx >= effective_cutoff {
                 return msg.clone();
             }
             match msg {
-                Message::User { content } => match prune_user_message_content(content, &tool_calls, line_threshold) {
-                    Some(new_content) => Message::User { content: new_content },
+                Message::User { content } => match prune_user_message_content(content, &ctx) {
+                    Some(new_content) => {
+                        let original_tokens = rho_harness_core::tokens::estimate_message_tokens(msg, "gpt-4");
+                        let new_msg = Message::User { content: new_content };
+                        let new_tokens = rho_harness_core::tokens::estimate_message_tokens(&new_msg, "gpt-4");
+                        total_savings = total_savings.saturating_add(original_tokens.saturating_sub(new_tokens));
+                        new_msg
+                    }
                     None => msg.clone(),
                 },
                 _ => msg.clone(),
             }
         })
-        .collect()
+        .collect();
+
+    if policy.prune_minimum_tokens > 0 && total_savings < policy.prune_minimum_tokens {
+        return messages.to_vec();
+    }
+
+    pruned_messages
+}
+
+pub fn prune_historical_tool_outputs(
+    messages: &[Message],
+    volatile_turns: usize,
+    line_threshold: usize,
+) -> Vec<Message> {
+    prune_historical_tool_outputs_with_policy(messages, &PrunePolicy::unconstrained(volatile_turns, line_threshold))
 }
 
 #[cfg(test)]
@@ -1430,5 +1584,167 @@ mod tests {
             extract_text(6),
             "[Tool 'screenshot' for 'window' returned image (image/png). Image content pruned for historical turn.]"
         );
+    }
+
+    #[test]
+    fn test_protect_recent_tokens_prevents_pruning() {
+        let (call, res) = make_tool_turn("c1", "bash", "cargo test", &"verbose test output\n".repeat(30));
+        let history = vec![
+            Message::user("Run test"),
+            call,
+            res,
+            Message::assistant("Done test"),
+            Message::user("Next step"),
+        ];
+
+        let policy_protected = PrunePolicy {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: 30_000,
+            prune_minimum_tokens: 0,
+            min_prune_tokens: 0,
+        };
+        let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_protected);
+        assert_eq!(pruned, history);
+
+        let policy_unprotected = PrunePolicy {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: 5,
+            prune_minimum_tokens: 0,
+            min_prune_tokens: 0,
+        };
+        let pruned_unprotected = prune_historical_tool_outputs_with_policy(&history, &policy_unprotected);
+        assert_ne!(pruned_unprotected, history);
+        let Message::User { content } = &pruned_unprotected[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(r) = &content[0] else {
+            panic!()
+        };
+        let ToolResultContent::Text(t) = &r.content[0] else {
+            panic!()
+        };
+        assert!(t.text.contains("completed with exit code 0"));
+    }
+
+    #[test]
+    fn test_prune_minimum_tokens_savings_floor() {
+        let (call, res) = make_tool_turn("c1", "bash", "cargo test", &"verbose test output\n".repeat(30));
+        let history = vec![
+            Message::user("Run test"),
+            call,
+            res,
+            Message::assistant("Done test"),
+            Message::user("Next step"),
+        ];
+
+        let high_savings_floor = PrunePolicy {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: 0,
+            prune_minimum_tokens: 50_000,
+            min_prune_tokens: 0,
+        };
+        let pruned_skipped = prune_historical_tool_outputs_with_policy(&history, &high_savings_floor);
+        assert_eq!(pruned_skipped, history);
+
+        let low_savings_floor = PrunePolicy {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: 0,
+            prune_minimum_tokens: 10,
+            min_prune_tokens: 0,
+        };
+        let pruned_executed = prune_historical_tool_outputs_with_policy(&history, &low_savings_floor);
+        assert_ne!(pruned_executed, history);
+    }
+
+    #[test]
+    fn test_min_prune_tokens_skips_small_outputs() {
+        let short_lines = "x\n".repeat(25);
+        let (call, res) = make_tool_turn("c1", "bash", "echo", &short_lines);
+        let history = vec![
+            Message::user("Run echo"),
+            call,
+            res,
+            Message::assistant("Done echo"),
+            Message::user("Next step"),
+        ];
+
+        let policy_skip_small = PrunePolicy {
+            volatile_turns: 1,
+            line_threshold: DEFAULT_PRUNE_LINE_THRESHOLD,
+            protect_recent_tokens: 0,
+            prune_minimum_tokens: 0,
+            min_prune_tokens: 100,
+        };
+        let pruned = prune_historical_tool_outputs_with_policy(&history, &policy_skip_small);
+        assert_eq!(pruned, history);
+    }
+
+    #[test]
+    fn test_skill_tool_output_never_pruned() {
+        let skill_output = "Skill instructions line\n".repeat(50);
+        let (call, res) = make_tool_turn("c1", "skill", "coding-standard", &skill_output);
+        let history = vec![
+            Message::user("Load skill"),
+            call,
+            res,
+            Message::assistant("Skill loaded"),
+            Message::user("Next step"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        assert_eq!(pruned, history);
+    }
+
+    #[test]
+    fn test_superseded_file_reads_detected_and_elided() {
+        let (read_call1, read_res1) = make_read_turn("c1", "src/lib.rs", &"pub fn foo() {}\n".repeat(20));
+        let edit_call = ToolCall::new(
+            ToolCallId::new_or_mint("c2"),
+            ToolFunction::new(
+                "edit".to_string(),
+                serde_json::json!({ "path": "src/lib.rs", "content": "edited" }),
+            ),
+        );
+        let edit_res = rig::message::ToolResult {
+            call: ToolCallId::new_or_mint("c2"),
+            provider: None,
+            name: "edit".to_string(),
+            content: vec![ToolResultContent::Text(Text::new("Successfully replaced"))],
+        };
+        let edit_call_msg = Message::Assistant {
+            id: None,
+            content: vec![AssistantContent::ToolCall(edit_call)],
+        };
+        let edit_res_msg = Message::User {
+            content: vec![UserContent::ToolResult(edit_res)],
+        };
+
+        let history = vec![
+            Message::user("Read file"),
+            read_call1,
+            read_res1,
+            Message::assistant("I read lib.rs"),
+            Message::user("Now edit it"),
+            edit_call_msg,
+            edit_res_msg,
+            Message::assistant("File edited"),
+            Message::user("Next step"),
+        ];
+
+        let pruned = prune_historical_tool_outputs(&history, 1, DEFAULT_PRUNE_LINE_THRESHOLD);
+        let Message::User { content } = &pruned[2] else {
+            panic!()
+        };
+        let UserContent::ToolResult(r) = &content[0] else {
+            panic!()
+        };
+        let ToolResultContent::Text(t) = &r.content[0] else {
+            panic!()
+        };
+        assert_eq!(t.text, "[File read superseded by a later operation on src/lib.rs]");
     }
 }

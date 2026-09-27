@@ -6,6 +6,7 @@
 //! partial final line through `last_line_partial`.
 
 use std::borrow::Cow;
+use std::path::Path;
 
 pub const DEFAULT_MAX_LINES: usize = 2000;
 pub const DEFAULT_MAX_BYTES: usize = 50 * 1024; // 50 KB
@@ -230,6 +231,42 @@ pub fn truncate_tail(content: &str, max_lines: usize, max_bytes: usize) -> Trunc
     }
 }
 
+pub fn truncate_head_with_spill(
+    content: &str,
+    max_lines: usize,
+    max_bytes: usize,
+    artifact_dir: Option<&Path>,
+) -> Truncation {
+    let mut trunc = truncate_head(content, max_lines, max_bytes);
+    if trunc.truncated
+        && let Some(dir) = artifact_dir
+        && let Ok(path) = crate::tools::artifact::spill_artifact(dir, content)
+    {
+        let notice = crate::tools::artifact::format_artifact_notice(&path, trunc.total_lines, trunc.total_bytes);
+        trunc.content.push_str("\n\n");
+        trunc.content.push_str(&notice);
+    }
+    trunc
+}
+
+pub fn truncate_tail_with_spill(
+    content: &str,
+    max_lines: usize,
+    max_bytes: usize,
+    artifact_dir: Option<&Path>,
+) -> Truncation {
+    let mut trunc = truncate_tail(content, max_lines, max_bytes);
+    if trunc.truncated
+        && let Some(dir) = artifact_dir
+        && let Ok(path) = crate::tools::artifact::spill_artifact(dir, content)
+    {
+        let notice = crate::tools::artifact::format_artifact_notice(&path, trunc.total_lines, trunc.total_bytes);
+        trunc.content.push_str("\n\n");
+        trunc.content.push_str(&notice);
+    }
+    trunc
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -386,5 +423,32 @@ mod tests {
         assert_eq!(res.truncated_by, Some(TruncatedBy::Bytes));
         assert_eq!(res.content, "abcdef");
         assert!(res.last_line_partial);
+    }
+
+    #[test]
+    fn test_truncate_head_with_spill_writes_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = "line 1\nline 2\nline 3\nline 4\nline 5";
+        let res = truncate_head_with_spill(content, 2, 1000, Some(dir.path()));
+
+        assert!(res.truncated);
+        assert!(res.content.contains("line 1\nline 2"));
+        assert!(res.content.contains("Full content (5 lines, 34B) saved to"));
+
+        let files: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(files.len(), 1);
+        let saved_content = std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap();
+        assert_eq!(saved_content, content);
+    }
+
+    #[test]
+    fn test_truncate_tail_with_spill_writes_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let content = "line 1\nline 2\nline 3\nline 4\nline 5";
+        let res = truncate_tail_with_spill(content, 2, 1000, Some(dir.path()));
+
+        assert!(res.truncated);
+        assert!(res.content.contains("line 4\nline 5"));
+        assert!(res.content.contains("Full content (5 lines, 34B) saved to"));
     }
 }

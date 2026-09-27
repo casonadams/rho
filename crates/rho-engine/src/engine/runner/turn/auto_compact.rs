@@ -88,6 +88,8 @@ pub(crate) struct AutoCompactHook {
     provider: String,
     reserve_tokens: usize,
     demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
+    prune_policy: super::PrunePolicy,
+    speculative_plan: Arc<std::sync::Mutex<Option<PatchPlan>>>,
 }
 
 impl AutoCompactHook {
@@ -108,7 +110,21 @@ impl AutoCompactHook {
             provider: provider.to_string(),
             reserve_tokens,
             demotion_hook,
+            prune_policy: super::PrunePolicy::cache_preserving(),
+            speculative_plan: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_speculative_plan(self, plan: PatchPlan) -> Self {
+        *self.speculative_plan.lock().unwrap() = Some(plan);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_prune_policy(mut self, policy: super::PrunePolicy) -> Self {
+        self.prune_policy = policy;
+        self
     }
 
     pub(crate) fn with_demotion_hook(mut self, hook: Arc<dyn rig::memory::DemotionHook>) -> Self {
@@ -215,14 +231,47 @@ impl AgentHook for AutoCompactHook {
 }
 
 impl AutoCompactHook {
+    async fn check_and_execute_compaction(
+        &self,
+        effective_history: &[Message],
+        prompt: &Message,
+        base_len: usize,
+    ) -> Option<PatchPlan> {
+        let window = context_window(self.model_name(), &self.provider, &self.context);
+        let prompt_tokens = self.context.estimate_message_tokens(prompt, self.model_name());
+        let messages = trigger_tokens(
+            effective_history,
+            self.usage.latest().as_ref(),
+            self.model_name(),
+            &self.provider,
+            &self.context,
+        )
+        .saturating_add(prompt_tokens);
+
+        if should_compact(messages, window, self.reserve_tokens) {
+            let cached = self.speculative_plan.lock().unwrap().take();
+            if let Some(p) = cached {
+                return Some(p);
+            }
+            return self.compact_and_plan(effective_history, base_len).await;
+        }
+
+        if rho_harness_core::tokens::is_in_lead_band(messages, window, self.reserve_tokens) {
+            let empty = self.speculative_plan.lock().unwrap().is_none();
+            if empty && let Some(plan) = self.ephemeral_plan(effective_history).await {
+                *self.speculative_plan.lock().unwrap() = Some(plan);
+            }
+        }
+        None
+    }
+
     pub(crate) async fn handle(
         &self,
         ctx: Option<&HookContext>,
         history: &[Message],
         prompt: &Message,
     ) -> CompletionCallAction {
-        let pruned =
-            super::prune::prune_historical_tool_outputs(history, 1, super::prune::DEFAULT_PRUNE_LINE_THRESHOLD);
+        let pruned = super::prune::prune_historical_tool_outputs_with_policy(history, &self.prune_policy);
         let was_pruned = pruned != history;
         let effective_history = if was_pruned { &pruned } else { history };
 
@@ -237,28 +286,19 @@ impl AutoCompactHook {
             (local_state.tripped, effective_history.len())
         };
 
-        if !tripped {
-            let window = context_window(self.model_name(), &self.provider, &self.context);
-            let prompt_tokens = self.context.estimate_message_tokens(prompt, self.model_name());
-            let messages = trigger_tokens(
-                effective_history,
-                self.usage.latest().as_ref(),
-                self.model_name(),
-                &self.provider,
-                &self.context,
-            )
-            .saturating_add(prompt_tokens);
-            if should_compact(messages, window, self.reserve_tokens) {
-                let plan = self.compact_and_plan(effective_history, base_len).await;
-                if let Some(c) = ctx {
-                    c.scratchpad().update::<CompactState, _>(|state| {
-                        state.tripped = true;
-                        state.patch = plan;
-                    });
-                } else {
-                    local_state.tripped = true;
-                    local_state.patch = plan;
-                }
+        if !tripped
+            && let Some(plan) = self
+                .check_and_execute_compaction(effective_history, prompt, base_len)
+                .await
+        {
+            if let Some(c) = ctx {
+                c.scratchpad().update::<CompactState, _>(|state| {
+                    state.tripped = true;
+                    state.patch = Some(plan);
+                });
+            } else {
+                local_state.tripped = true;
+                local_state.patch = Some(plan);
             }
         }
         let replacement = if let Some(c) = ctx {

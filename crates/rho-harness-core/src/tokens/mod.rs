@@ -72,6 +72,17 @@ pub fn should_compact(context_tokens: usize, context_window: usize, reserve_toke
     context_tokens > context_window.saturating_sub(effective_reserve)
 }
 
+pub fn is_in_lead_band(context_tokens: usize, context_window: usize, reserve_tokens: usize) -> bool {
+    let effective_reserve = if reserve_tokens == 0 {
+        (context_window as f64 * 0.045).round() as usize
+    } else {
+        reserve_tokens
+    };
+    let threshold = context_window.saturating_sub(effective_reserve);
+    let lead_threshold = (threshold as f64 * 0.85).round() as usize;
+    context_tokens >= lead_threshold && context_tokens <= threshold
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ContextTokenStats {
     pub total_tokens: usize,
