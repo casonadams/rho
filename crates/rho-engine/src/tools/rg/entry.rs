@@ -17,12 +17,20 @@ pub struct LineMatch {
 
 pub fn render(matches: &[LineMatch]) -> String {
     use std::fmt::Write;
-    let mut out = String::with_capacity(matches.len() * 64);
-    for (i, m) in matches.iter().enumerate() {
-        if i > 0 {
-            out.push('\n');
+    let mut out = String::with_capacity(matches.len() * 48);
+    let mut current_path: Option<&str> = None;
+    for m in matches {
+        if current_path != Some(&m.path) {
+            if current_path.is_some() {
+                out.push('\n');
+            }
+            current_path = Some(&m.path);
+            let _ = writeln!(out, "{}:", m.path);
         }
-        let _ = write!(out, "{}:{}: {}", m.path, m.line, m.text);
+        let _ = writeln!(out, "  {}: {}", m.line, m.text);
+    }
+    if out.ends_with('\n') {
+        out.pop();
     }
     out
 }

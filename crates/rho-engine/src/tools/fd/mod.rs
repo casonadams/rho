@@ -19,7 +19,7 @@ use crate::tools::traversal::{CancelOnDrop, DEFAULT_TRAVERSAL_TIMEOUT_SECS, buil
 use crate::tools::types::{ToolResult, generated_schema, into_rig_result};
 use regex::Regex;
 
-pub const DEFAULT_FD_LIMIT: usize = 200;
+pub const DEFAULT_FD_LIMIT: usize = 100;
 pub const MAX_FD_LIMIT: usize = 1000;
 pub const MAX_FD_DEPTH: usize = 10;
 

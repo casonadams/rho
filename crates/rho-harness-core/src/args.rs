@@ -53,7 +53,7 @@ pub struct FdArgs {
     pub hidden: Option<bool>,
     /// Maximum traversal depth, clamped to 1-10 when provided (default: unlimited)
     pub depth: Option<usize>,
-    /// Maximum number of results to return (default: 200, max: 1000)
+    /// Maximum number of results to return (default: 100, max: 1000)
     pub limit: Option<usize>,
     /// Include line count and byte size in output (default: false; enabled automatically if min_lines, max_lines, or sort is set)
     pub stats: Option<bool>,
@@ -86,7 +86,7 @@ pub struct RgArgs {
     pub file_type: Option<String>,
     /// Include hidden entries and paths excluded by ignore rules (.gitignore, .ignore)
     pub hidden: Option<bool>,
-    /// Maximum number of matches to return (default: 200, max: 1000)
+    /// Maximum number of matches to return (default: 100, max: 1000)
     pub limit: Option<usize>,
 }
 

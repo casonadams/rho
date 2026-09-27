@@ -5,7 +5,7 @@ async fn matches_report_path_line_and_text() {
     let dir = fixture();
     let result = search(&dir, "widget", |_| {}).await;
     assert!(!result.is_error);
-    assert_eq!(result.content, "src/ui/widget.rs:1: pub struct Widget;");
+    assert_eq!(result.content, "src/ui/widget.rs:\n  1: pub struct Widget;");
 }
 
 #[tokio::test]
@@ -15,10 +15,15 @@ async fn results_are_ordered_by_path_then_line() {
     assert_eq!(
         result.content.lines().collect::<Vec<_>>(),
         [
-            "README.md:3: pub markdown",
-            "src/lib.rs:1: pub mod ui;",
-            "src/ui/widget.rs:1: pub struct Widget;",
-            "src/ui/widget.rs:2: pub enum Kind { A, B }",
+            "README.md:",
+            "  3: pub markdown",
+            "",
+            "src/lib.rs:",
+            "  1: pub mod ui;",
+            "",
+            "src/ui/widget.rs:",
+            "  1: pub struct Widget;",
+            "  2: pub enum Kind { A, B }",
         ]
     );
 }
@@ -27,7 +32,7 @@ async fn results_are_ordered_by_path_then_line() {
 async fn pattern_is_smart_case() {
     let dir = fixture();
     let lower = search(&dir, "todo", |_| {}).await;
-    assert_eq!(lower.content, "README.md:2: todo list");
+    assert_eq!(lower.content, "README.md:\n  2: todo list");
 
     let upper = search(&dir, "TODO", |_| {}).await;
     assert_eq!(upper.content, "No matches found");
@@ -63,15 +68,18 @@ async fn oversized_files_are_skipped_but_large_ones_are_searched() {
 async fn type_filter_scopes_matches_to_source_files() {
     let dir = fixture();
     let unfiltered = search(&dir, "pub", |_| {}).await;
-    assert_eq!(unfiltered.content.lines().count(), 4);
+    assert_eq!(unfiltered.content.lines().count(), 9);
 
     let filtered = search(&dir, "pub", |args| args.file_type = Some("rust".to_string())).await;
     assert_eq!(
         filtered.content.lines().collect::<Vec<_>>(),
         [
-            "src/lib.rs:1: pub mod ui;",
-            "src/ui/widget.rs:1: pub struct Widget;",
-            "src/ui/widget.rs:2: pub enum Kind { A, B }",
+            "src/lib.rs:",
+            "  1: pub mod ui;",
+            "",
+            "src/ui/widget.rs:",
+            "  1: pub struct Widget;",
+            "  2: pub enum Kind { A, B }",
         ]
     );
 
@@ -94,5 +102,5 @@ async fn hidden_flag_includes_hidden_files_while_respecting_gitignore() {
     assert_eq!(ignored.content, "No matches found");
 
     let dotfile = search(&dir, "hidden todo", |args| args.hidden = Some(true)).await;
-    assert_eq!(dotfile.content, ".hidden_file:1: hidden todo");
+    assert_eq!(dotfile.content, ".hidden_file:\n  1: hidden todo");
 }

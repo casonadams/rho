@@ -9,7 +9,7 @@ async fn long_match_lines_are_truncated_with_a_marked_suffix_and_notice() {
     std::fs::write(dir.path().join("long.txt"), format!("needle{}\n", "x".repeat(600))).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
-    let text = result.content.strip_prefix("long.txt:1: ").unwrap();
+    let text = result.content.strip_prefix("long.txt:\n  1: ").unwrap();
     let line_text = text.split("\n\n").next().unwrap();
     assert_eq!(line_text.chars().count(), 500 + "... [truncated]".len());
     assert!(line_text.ends_with("... [truncated]"));
@@ -45,7 +45,7 @@ async fn limit_truncates_with_a_narrowing_notice() {
     assert!(!result.is_error);
     assert_eq!(
         result.content,
-        "README.md:1: # Fixture\nREADME.md:2: todo list\n\n[showing first 2 of 7 matches; narrow with a tighter pattern, path, or type]"
+        "README.md:\n  1: # Fixture\n  2: todo list\n\n[showing first 2 of 7 matches; narrow with a tighter pattern, path, or type]"
     );
 }
 
@@ -55,7 +55,7 @@ async fn limit_clamps_to_at_least_one() {
     let result = search(&dir, ".", |args| args.limit = Some(0)).await;
     assert_eq!(
         result.content,
-        "README.md:1: # Fixture\n\n[showing first 1 of 7 matches; narrow with a tighter pattern, path, or type]"
+        "README.md:\n  1: # Fixture\n\n[showing first 1 of 7 matches; narrow with a tighter pattern, path, or type]"
     );
 }
 
@@ -67,35 +67,36 @@ async fn collection_ceiling_stops_traversal_and_flags_the_notice() {
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
     let lines: Vec<&str> = result.content.lines().collect();
-    assert_eq!(lines.len(), 202);
-    assert_eq!(lines[0], "many.txt:1: needle line 0");
+    assert_eq!(lines.len(), 103);
+    assert_eq!(lines[0], "many.txt:");
+    assert_eq!(lines[1], "  1: needle line 0");
     assert_eq!(
-        lines[201],
-        "[showing first 200 of 5000+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type]"
+        lines[102],
+        "[showing first 100 of 5000+ matches (collection ceiling reached); narrow with a tighter pattern, path, or type]"
     );
 }
 
 #[tokio::test]
 async fn oversized_output_is_byte_capped_before_the_notices() {
     let dir = fixture();
-    let row = format!("needle{}\n", "x".repeat(300));
+    let row = format!("needle{}\n", "x".repeat(600));
     let many: String = std::iter::repeat_n(row, 400).collect();
     std::fs::write(dir.path().join("many.txt"), many).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
     assert!(!result.is_error);
-    assert!(result.content.contains("showing first 200 of 400"));
+    assert!(result.content.contains("showing first 100 of 400"));
     assert!(result.content.contains("50.0KB limit reached"));
     // Byte truncation applies to the rendered rows; notices ride behind the
     // truncated block on their own paragraph.
     let body = result.content.split("\n\n").next().unwrap();
     assert!(body.len() <= DEFAULT_MAX_BYTES);
-    assert!(body.lines().count() < 200);
+    assert!(body.lines().count() < 100);
 }
 
 #[tokio::test]
 async fn test_rg_oversized_search_spills_artifact() {
     let dir = fixture();
-    let row = format!("needle{}\n", "x".repeat(300));
+    let row = format!("needle{}\n", "x".repeat(600));
     let many: String = std::iter::repeat_n(row, 400).collect();
     std::fs::write(dir.path().join("many.txt"), many).unwrap();
     let result = search(&dir, "needle", |_| {}).await;
@@ -107,7 +108,7 @@ async fn test_rg_oversized_search_spills_artifact() {
     let entries: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
     assert_eq!(entries.len(), 1);
     let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
-    assert!(spilled_content.contains("many.txt:1: needle"));
+    assert!(spilled_content.contains("many.txt:\n  1: needle"));
 }
 
 #[tokio::test]
@@ -136,7 +137,7 @@ async fn path_outside_workspace_is_searched_successfully() {
     let outside_path = outside.path().to_str().unwrap().to_string();
     let result = search(&dir, "external target", |args| args.path = Some(outside_path)).await;
     assert!(!result.is_error);
-    assert!(result.content.contains("external.txt:1: external target line"));
+    assert!(result.content.contains("external.txt:\n  1: external target line"));
 }
 
 #[tokio::test]
@@ -152,7 +153,7 @@ async fn path_scopes_results_to_a_subtree() {
     let dir = fixture();
     let result = search(&dir, "pub", |args| args.path = Some("src".to_string())).await;
     assert!(!result.is_error);
-    assert_eq!(result.content.lines().count(), 3);
+    assert_eq!(result.content.lines().count(), 6);
     assert!(!result.content.contains("README.md"));
 }
 

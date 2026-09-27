@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-pub const DEFAULT_RG_LIMIT: usize = 200;
+pub const DEFAULT_RG_LIMIT: usize = 100;
 pub const MAX_RG_LIMIT: usize = 1000;
 
 pub struct RgTool {
