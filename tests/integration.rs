@@ -1,5 +1,7 @@
 pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[path = "collab_integration.rs"]
+mod collab_integration;
 #[path = "custom_provider.rs"]
 mod custom_provider;
 #[path = "eval.rs"]

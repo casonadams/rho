@@ -16,6 +16,7 @@ mod tests;
 pub use completer::RhoCompleter;
 #[cfg(test)]
 pub(crate) use line_mode::submitted_input_rows;
+pub use live::turn::collab::CollabPresenter;
 pub use prompt::SimplePrompt;
 
 use crate::auth::AuthStore;

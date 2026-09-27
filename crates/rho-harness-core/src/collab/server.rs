@@ -96,6 +96,36 @@ pub struct CollabHostServer {
     accept_task: tokio::task::JoinHandle<()>,
 }
 
+fn test_loopback_addr() -> Option<SocketAddr> {
+    if cfg!(test)
+        || std::env::var_os("RUST_TEST_THREADS").is_some()
+        || std::thread::current().name().is_some_and(|n| n.contains("::"))
+    {
+        Some(SocketAddr::from(([127, 0, 0, 1], 0)))
+    } else {
+        None
+    }
+}
+
+async fn bind_collab_endpoint(bind_addr: Option<SocketAddr>) -> Result<Endpoint> {
+    let effective_addr = bind_addr.or_else(test_loopback_addr);
+    if let Some(addr) = effective_addr {
+        Endpoint::builder(Minimal)
+            .bind_addr(addr)
+            .map_err(|e| AppError::Network(e.to_string()))?
+            .alpns(vec![COLLAB_ALPN.to_vec()])
+            .bind()
+            .await
+            .map_err(|e| AppError::Network(e.to_string()))
+    } else {
+        Endpoint::builder(N0)
+            .alpns(vec![COLLAB_ALPN.to_vec()])
+            .bind()
+            .await
+            .map_err(|e| AppError::Network(e.to_string()))
+    }
+}
+
 impl CollabHostServer {
     pub async fn start(config: CollabHostConfig) -> Result<Self> {
         let secret = match config.secret {
@@ -103,21 +133,7 @@ impl CollabHostServer {
             None => CollabSecret::generate().map_err(|_| AppError::Auth("Failed to generate secret".into()))?,
         };
 
-        let endpoint = if let Some(addr) = config.bind_addr {
-            Endpoint::builder(Minimal)
-                .bind_addr(addr)
-                .map_err(|e| AppError::Network(e.to_string()))?
-                .alpns(vec![COLLAB_ALPN.to_vec()])
-                .bind()
-                .await
-                .map_err(|e| AppError::Network(e.to_string()))?
-        } else {
-            Endpoint::builder(N0)
-                .alpns(vec![COLLAB_ALPN.to_vec()])
-                .bind()
-                .await
-                .map_err(|e| AppError::Network(e.to_string()))?
-        };
+        let endpoint = bind_collab_endpoint(config.bind_addr).await?;
 
         let snapshot_provider = config
             .snapshot_provider
@@ -214,6 +230,15 @@ impl CollabHostServer {
         }
     }
 
+    pub async fn send_to_peer(&self, peer_id: usize, event: &RpcEvent) -> bool {
+        let guard = self.state.read().await;
+        if let Some(peer) = guard.peers.get(&peer_id) {
+            peer.sender.try_send(event.clone()).is_ok()
+        } else {
+            false
+        }
+    }
+
     pub async fn kick_peer(&self, peer_id: usize) -> bool {
         let mut guard = self.state.write().await;
         if let Some(mut peer) = guard.peers.remove(&peer_id) {
@@ -287,6 +312,7 @@ impl CollabHostServer {
 
     pub async fn stop(&self) {
         let _ = self.shutdown_tx.send(());
+        self.accept_task.abort();
         {
             let mut guard = self.state.write().await;
             for (_, mut peer) in guard.peers.drain() {

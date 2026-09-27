@@ -1,4 +1,5 @@
 mod cancel;
+pub(crate) mod collab;
 mod event;
 pub(crate) mod footer;
 mod input;
@@ -42,6 +43,8 @@ enum TurnEvent {
     QuotaUpdated,
     Input(Option<std::io::Result<crossterm::event::Event>>),
     Ui(crate::ui::interactive::UiEvent),
+    CollabCommand(rho_harness_core::collab::CollabIncomingCommand),
+    CollabPeer(rho_harness_core::collab::CollabPeerEvent),
 }
 
 fn build_turn_context<'a, B: TerminalBackend>(
@@ -98,16 +101,37 @@ async fn wait_turn_quota(rx: &mut tokio::sync::watch::Receiver<u64>) {
     }
 }
 
+async fn wait_collab_cmd(
+    collab: Option<&Arc<rho_harness_core::collab::CollabHostServer>>,
+) -> Option<rho_harness_core::collab::CollabIncomingCommand> {
+    match collab {
+        Some(c) => c.recv_command().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn wait_collab_peer(
+    collab: Option<&Arc<rho_harness_core::collab::CollabHostServer>>,
+) -> Option<rho_harness_core::collab::CollabPeerEvent> {
+    match collab {
+        Some(c) => c.recv_peer_event().await,
+        None => std::future::pending().await,
+    }
+}
+
 async fn next_turn_event(
     frame: &mut tokio::time::Interval,
     periodic_quota: &mut tokio::time::Interval,
     quota_rx: &mut tokio::sync::watch::Receiver<u64>,
     input: &mut TerminalInputReader,
     ui: &mut tokio::sync::mpsc::UnboundedReceiver<crate::ui::interactive::UiEvent>,
+    collab: Option<&Arc<rho_harness_core::collab::CollabHostServer>>,
 ) -> TurnEvent {
     tokio::select! {
         biased;
         res = input.recv() => TurnEvent::Input(res),
+        Some(cmd) = wait_collab_cmd(collab) => TurnEvent::CollabCommand(cmd),
+        Some(pe) = wait_collab_peer(collab) => TurnEvent::CollabPeer(pe),
         _ = wait_turn_quota(quota_rx) => TurnEvent::QuotaUpdated,
         _ = periodic_quota.tick() => TurnEvent::QuotaPeriodic,
         _ = frame.tick() => TurnEvent::Tick,
@@ -115,7 +139,40 @@ async fn next_turn_event(
     }
 }
 
-async fn handle_turn_event<B: TerminalBackend>(ctx: &mut TurnContext<'_, B>, ev: TurnEvent) -> Result<bool> {
+async fn handle_turn_collab_event<B: TerminalBackend>(
+    ctx: &mut TurnContext<'_, B>,
+    collab_presenter: Option<&collab::CollabPresenter>,
+    ev: TurnEvent,
+) -> Result<bool> {
+    match ev {
+        TurnEvent::CollabCommand(incoming) => {
+            collab::handle_collab_turn_command(&mut ctx.loop_ctx, &mut ctx.resources, collab_presenter, incoming).await
+        }
+        TurnEvent::CollabPeer(event) => {
+            let count = ctx
+                .loop_ctx
+                .session
+                .collab
+                .as_ref()
+                .map(|c| c.peer_count_sync())
+                .unwrap_or(0);
+            collab::handle_collab_peer_event(&event, &ctx.loop_ctx.session.renderer, count);
+            let f = ctx.loop_ctx.controller.state_mut().footer_mut();
+            f.remote_active = true;
+            f.remote_peers = count;
+            f.extra_status = Some(format!("[Collab: {count}]"));
+            ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
+            Ok(false)
+        }
+        _ => Ok(false),
+    }
+}
+
+async fn handle_turn_event<B: TerminalBackend>(
+    ctx: &mut TurnContext<'_, B>,
+    collab_presenter: Option<&collab::CollabPresenter>,
+    ev: TurnEvent,
+) -> Result<bool> {
     match ev {
         TurnEvent::Tick => {
             let prev_w = ctx.loop_ctx.controller.width();
@@ -147,6 +204,9 @@ async fn handle_turn_event<B: TerminalBackend>(ctx: &mut TurnContext<'_, B>, ev:
             ctx.loop_ctx.handle_ui_event(ctx.resources.ui_events, ev)?;
             Ok(false)
         }
+        TurnEvent::CollabCommand(_) | TurnEvent::CollabPeer(_) => {
+            handle_turn_collab_event(ctx, collab_presenter, ev).await
+        }
     }
 }
 
@@ -154,18 +214,21 @@ use futures::future::{Either, select};
 
 async fn step_turn_select<B: TerminalBackend>(
     ctx: &mut TurnContext<'_, B>,
+    collab_presenter: Option<&collab::CollabPresenter>,
     run: &mut (dyn std::future::Future<Output = Result<TurnOutput>> + Send + std::marker::Unpin),
     frame: &mut tokio::time::Interval,
     periodic_quota: &mut tokio::time::Interval,
     quota_rx: &mut tokio::sync::watch::Receiver<u64>,
 ) -> Result<bool> {
     let outcome = {
+        let collab = ctx.loop_ctx.session.collab.as_ref();
         let ev_fut = std::pin::pin!(next_turn_event(
             frame,
             periodic_quota,
             quota_rx,
             ctx.input_reader,
             ctx.resources.ui_events,
+            collab,
         ));
         match select(run, ev_fut).await {
             Either::Left((res, _)) => Either::Left(res),
@@ -174,7 +237,7 @@ async fn step_turn_select<B: TerminalBackend>(
     };
     match outcome {
         Either::Left(res) => finish_active_turn(&mut ctx.loop_ctx, ctx.resources.ui_events, res).map(|_| true),
-        Either::Right(ev) => handle_turn_event(ctx, ev).await,
+        Either::Right(ev) => handle_turn_event(ctx, collab_presenter, ev).await,
     }
 }
 
@@ -183,11 +246,25 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     engine: &AgentEngine,
     mut turn: ActiveTurn<'_, B>,
 ) -> Result<()> {
-    let renderer = std::sync::Arc::new(session.renderer.clone());
+    let (presenter, collab_presenter) = if let Some(ref collab) = session.collab {
+        let cp = Arc::new(collab::CollabPresenter::new(
+            Arc::new(session.renderer.clone()),
+            Arc::clone(collab),
+        ));
+        (
+            Arc::clone(&cp) as Arc<dyn rho_harness_core::presentation::Presenter>,
+            Some(cp),
+        )
+    } else {
+        (
+            Arc::new(session.renderer.clone()) as Arc<dyn rho_harness_core::presentation::Presenter>,
+            None,
+        )
+    };
     let cancellation = Arc::new(CancellationSignal::default());
     let (mut ctx, request) = build_turn_context(session, engine, &mut turn, &cancellation);
     ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
-    let mut run = Box::pin(engine.run_turn(request, renderer));
+    let mut run = Box::pin(engine.run_turn(request, presenter));
     let mut frame = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
     frame.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut periodic_quota = tokio::time::interval_at(
@@ -196,6 +273,27 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     );
     periodic_quota.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut quota_rx = engine.quota_subscribe();
-    while !step_turn_select(&mut ctx, &mut run, &mut frame, &mut periodic_quota, &mut quota_rx).await? {}
+    while !step_turn_select(
+        &mut ctx,
+        collab_presenter.as_deref(),
+        &mut run,
+        &mut frame,
+        &mut periodic_quota,
+        &mut quota_rx,
+    )
+    .await?
+    {}
+
+    if let Some(ref cp) = collab_presenter
+        && let Ok(tree) = engine.session_manager.load_tree().await
+    {
+        let msgs = tree.active_messages();
+        let turns = rho_harness_core::session::turns::extract_turns(&msgs);
+        let turns_val: Vec<serde_json::Value> =
+            turns.into_iter().filter_map(|t| serde_json::to_value(t).ok()).collect();
+        cp.collab
+            .update_snapshot(rho_harness_core::collab::CollabSnapshot::new(turns_val, "idle"))
+            .await;
+    }
     Ok(())
 }

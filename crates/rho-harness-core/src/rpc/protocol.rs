@@ -139,6 +139,7 @@ pub enum RpcEvent {
         tool: String,
         arguments: Value,
     },
+    #[serde(alias = "approval_required")]
     ToolApprovalRequest {
         approval_id: String,
         tool: String,
@@ -146,6 +147,7 @@ pub enum RpcEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
     },
+    #[serde(alias = "approval_resolved")]
     ToolApprovalResolved {
         approval_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -428,5 +430,20 @@ mod tests {
         assert!(json.contains("\"current_state\":\"idle\""));
         let deserialized: RpcEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, event);
+    }
+
+    #[test]
+    fn test_rpc_tool_approval_aliases() {
+        let json = r#"{"type":"approval_required","approval_id":"appr-1","tool":"bash","arguments":{"cmd":"ls"}}"#;
+        let event: RpcEvent = serde_json::from_str(json).unwrap();
+        assert!(
+            matches!(event, RpcEvent::ToolApprovalRequest { approval_id, tool, .. } if approval_id == "appr-1" && tool == "bash")
+        );
+
+        let resolved_json = r#"{"type":"approval_resolved","approval_id":"appr-1","decision":"allow"}"#;
+        let resolved_event: RpcEvent = serde_json::from_str(resolved_json).unwrap();
+        assert!(
+            matches!(resolved_event, RpcEvent::ToolApprovalResolved { approval_id, decision } if approval_id == "appr-1" && decision.as_deref() == Some("allow"))
+        );
     }
 }

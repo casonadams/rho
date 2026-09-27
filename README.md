@@ -96,6 +96,13 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Context budget tool gating (`direct` vs `gateway` vs `auto`), `/mcp` TUI modal, and `rho mcp` management suite.
   - One-shot lifecycle hooks in `.agents/hooks/` for deterministic policy enforcement, tool gating, argument rewriting, and turn control without background daemons.
 
+- **Collab (Peer-to-Peer Live Pairing)**
+  - Share active sessions terminal-to-terminal over end-to-end encrypted QUIC powered by [Iroh](https://iroh.computer).
+  - Capability-based cryptographic isolation: full interactive co-pilot vs. read-only spectator.
+  - REPL slash commands: `/collab start`, `/collab peers`, `/collab kick <id>`, `/collab rotate`, `/collab stop`.
+  - Collaborators join instantly with zero server setup via `rho join <ticket>`.
+  - Shared interactive tool approval synchronization across terminals.
+
 ---
 
 ## Privacy & Zero Telemetry
@@ -125,3 +132,4 @@ cargo fmt --all -- --check
 
 - Special thanks to [pi.dev](https://pi.dev) for inspiring aspects of rho's design and ergonomics.
 - Built on [Rig](https://github.com/0xPlaygrounds/rig) for modular, performant LLM application pipelines in Rust.
+- Powered by [Iroh](https://iroh.computer) for direct, zero-infrastructure peer-to-peer QUIC networking and NAT traversal.

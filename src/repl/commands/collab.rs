@@ -22,6 +22,16 @@ pub(crate) async fn handle_collab(ctx: &mut SlashCommandContext<'_>, parts: &[&s
     }
 }
 
+#[cfg(test)]
+fn default_collab_config() -> CollabHostConfig {
+    CollabHostConfig::new().with_bind_addr(std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
+}
+
+#[cfg(not(test))]
+fn default_collab_config() -> CollabHostConfig {
+    CollabHostConfig::default()
+}
+
 async fn handle_collab_start(ctx: &mut SlashCommandContext<'_>) -> Result<Option<CommandResult>> {
     let Some(ref mut collab_slot) = ctx.collab else {
         ctx.renderer.print_notice("  Collab is not supported in this session\n");
@@ -37,7 +47,7 @@ async fn handle_collab_start(ctx: &mut SlashCommandContext<'_>) -> Result<Option
         return Ok(Some(CommandResult::Continue));
     }
 
-    let server = CollabHostServer::start(CollabHostConfig::default()).await?;
+    let server = CollabHostServer::start(default_collab_config()).await?;
     let (full, view) = server.tickets().await?;
     **collab_slot = Some(Arc::new(server));
 

@@ -528,6 +528,10 @@ rho config models.guard none</code></pre>
               <td>View session turn DAG tree and branch navigation (<kbd class="kbd">Ctrl+O</kbd>)</td>
             </tr>
             <tr>
+              <td><code>/collab</code></td>
+              <td>Start P2P live pairing session or manage active collaborators (<code>/collab [start|stop|link|peers|kick|rotate]</code>)</td>
+            </tr>
+            <tr>
               <td><code>/exit</code></td>
               <td>Exit the interactive session cleanly (<kbd class="kbd">Ctrl+D</kbd>)</td>
             </tr>
@@ -536,6 +540,39 @@ rho config models.guard none</code></pre>
       </div>
 
       <img src="assets/modal-model.svg" alt="rho model selector modal with fuzzy search" class="doc-screenshot" width="960" height="620">
+
+      <h2 id="collab-mode">Collab: Zero-Infrastructure P2P Live Pairing</h2>
+      <p>
+        <code>rho</code> includes zero-infrastructure, end-to-end encrypted terminal-to-terminal collaboration powered by <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh</a>. Pair with teammates or secondary devices directly from the terminal without central servers, cloud accounts, or third-party relays.
+      </p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Starting a Collab Session (Host)</span>
+          <button class="copy-btn" data-copy="/collab">Copy</button>
+        </div>
+        <pre><code>/collab</code></pre>
+      </div>
+
+      <p>
+        The host generates ephemeral Ed25519 node identities and cryptographic capability links:
+      </p>
+      <ul>
+        <li><strong>Co-Pilot (Full Capability):</strong> Interactive pairing with prompt submissions, steering, <kbd class="kbd">Esc</kbd> turn interrupts, and shared tool confirmations.</li>
+        <li><strong>Spectator (View-Only):</strong> One-way derived key (HKDF-SHA256) allowing guests to follow thoughts, streaming tokens, and diffs without mutation capabilities.</li>
+      </ul>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span>Joining as Guest</span>
+          <button class="copy-btn" data-copy="rho join &quot;rho://...&quot;">Copy</button>
+        </div>
+        <pre><code>rho join "rho://&lt;node_id&gt;?relay=&lt;relay_url&gt;#&lt;secret&gt;"</code></pre>
+      </div>
+
+      <p>
+        All tool executions remain governed by the host machine. If a command requires authorization, the prompt appears simultaneously on both host and co-pilot screens — whichever participant responds first resolves the turn.
+      </p>
 
       <h2 id="rpc-mode">Headless &amp; IDE RPC Server Mode</h2>
       <p>
@@ -856,6 +893,7 @@ rho mcp add db "https://mcp.db.example.com/mcp"
             <a href="https://github.com/casonadams/rho" target="_blank" rel="noopener">GitHub</a>
             <a href="https://pi.dev" target="_blank" rel="noopener">pi.dev (π)</a>
             <a href="https://github.com/0xPlaygrounds/rig" target="_blank" rel="noopener">Rig (LLM Engine)</a>
+            <a href="https://iroh.computer" target="_blank" rel="noopener">Iroh (P2P Networking)</a>
             <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">MCP Protocol</a>
           </div>
         </div>

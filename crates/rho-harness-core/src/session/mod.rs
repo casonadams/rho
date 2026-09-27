@@ -18,7 +18,7 @@ pub mod summary;
 #[cfg(test)]
 mod tests;
 pub mod tree;
-mod turns;
+pub mod turns;
 mod validation;
 
 use secrets::SecretGuard;

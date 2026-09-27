@@ -6,6 +6,7 @@ use crate::repl::interactive::{CompletionSet, InteractiveHistory};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{Activity, InteractiveState, QueueKind, RunningTool, TerminalBackend, TerminalController};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventState, KeyModifiers};
+use rho_engine::engine::runner::SteeringQueueProvider;
 
 struct MockTerminal;
 
@@ -676,7 +677,7 @@ async fn test_turn_ui_transcript_event_flushes_immediately() {
         crate::ui::interactive::TranscriptItem::Tool(tool_item),
     ));
 
-    super::handle_turn_event(&mut ctx, event).await.unwrap();
+    super::handle_turn_event(&mut ctx, None, event).await.unwrap();
 
     assert_eq!(ctx.loop_ctx.controller.transcript().len(), 1);
     assert!(ctx.loop_ctx.batch.ui.is_empty());
@@ -732,11 +733,50 @@ async fn test_turn_quota_periodic_and_updated_events_sync_footer() {
         resources: res,
     };
 
-    let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaPeriodic).await;
+    let result = super::handle_turn_event(&mut ctx, None, super::TurnEvent::QuotaPeriodic).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
 
-    let result = super::handle_turn_event(&mut ctx, super::TurnEvent::QuotaUpdated).await;
+    let result = super::handle_turn_event(&mut ctx, None, super::TurnEvent::QuotaUpdated).await;
     assert!(result.is_ok());
     assert!(!result.unwrap());
+
+    // Test collab peer event
+    let peer_ev = super::TurnEvent::CollabPeer(rho_harness_core::collab::CollabPeerEvent::Connected(
+        rho_harness_core::collab::CollabPeerInfo {
+            id: 1,
+            role: rho_harness_core::collab::CapabilityLevel::Full,
+            connected_at: chrono::Utc::now(),
+        },
+    ));
+    let peer_res = super::handle_turn_event(&mut ctx, None, peer_ev).await;
+    assert!(peer_res.is_ok());
+    assert!(!peer_res.unwrap());
+
+    // Test collab steer command
+    let steer_ev = super::TurnEvent::CollabCommand(rho_harness_core::collab::CollabIncomingCommand {
+        peer_id: 1,
+        role: rho_harness_core::collab::CapabilityLevel::Full,
+        command: rho_harness_core::rpc::protocol::RpcCommand::Steer {
+            message: "steer msg".into(),
+        },
+    });
+    let steer_res = super::handle_turn_event(&mut ctx, None, steer_ev).await;
+    assert!(steer_res.is_ok());
+    assert!(!steer_res.unwrap());
+    assert_eq!(ctx.loop_ctx.steering.poll_steering().await, vec!["steer msg"]);
+
+    // Test collab busy prompt command
+    let busy_ev = super::TurnEvent::CollabCommand(rho_harness_core::collab::CollabIncomingCommand {
+        peer_id: 1,
+        role: rho_harness_core::collab::CapabilityLevel::Full,
+        command: rho_harness_core::rpc::protocol::RpcCommand::Prompt {
+            message: "busy msg".into(),
+            images: None,
+            streaming_behavior: None,
+        },
+    });
+    let busy_res = super::handle_turn_event(&mut ctx, None, busy_ev).await;
+    assert!(busy_res.is_ok());
+    assert!(!busy_res.unwrap());
 }

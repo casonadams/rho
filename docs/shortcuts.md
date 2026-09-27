@@ -122,6 +122,7 @@ commands:
 | `/login`    | **Provider Auth**                | Configure OAuth or verify API keys for 14+ providers.                         |
 | `/mcp`      | **MCP Servers**                  | Inspect configured MCP servers and capabilities.                              |
 | `/export`   | **Export Transcript**            | Generates an HTML or Markdown transcript file.                                |
+| `/collab`   | **P2P Live Pairing**             | Start pairing session, view tickets, manage peers, or kick collaborators.    |
 | `/exit`     | **Exit rho**                     | Shuts down the interactive REPL.                                              |
 
 ---
