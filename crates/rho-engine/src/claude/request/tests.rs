@@ -422,3 +422,27 @@ fn convert_tool_choice_variants() {
         json!({ "type": "auto" })
     );
 }
+
+#[test]
+fn test_system_prompt_remains_invariant_when_compaction_summary_present() {
+    let mut req = sample_request_with_tools(vec![dummy_tool("bash")]);
+    req.preamble = Some("Project base instructions and guidelines".to_string());
+    req.chat_history = vec![
+        Message::System {
+            content: "[Context Summary: Prior turns summarized here]".to_string(),
+        },
+        Message::user("Next user turn"),
+    ];
+
+    let body = build_request_body("claude-sonnet-4-6", None, &req).unwrap();
+    assert_eq!(body["system"][1]["text"], "Project base instructions and guidelines");
+    assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
+
+    let messages = body["messages"].as_array().unwrap();
+    assert!(
+        messages[0]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("[Context Summary: Prior turns summarized here]")
+    );
+}

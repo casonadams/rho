@@ -971,3 +971,47 @@ async fn test_speculative_plan_discarded_if_history_reset() {
         _ => {}
     }
 }
+
+#[tokio::test]
+async fn test_speculative_plan_discarded_if_cut_exceeds_base_len() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+
+    let invalid_plan = super::PatchPlan {
+        cut: 4,
+        prefix: vec![Message::user("Summary")],
+    };
+
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        50,
+    )
+    .with_speculative_plan(invalid_plan);
+
+    let usage = Usage {
+        input_tokens: 199_990,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let history = vec![Message::user("Turn 1"), Message::assistant("Turn 1 response")];
+
+    let action = hook.handle(None, &history, &Message::user("Turn 2 prompt")).await;
+    match action {
+        CompletionCallAction::Continue => {}
+        CompletionCallAction::Patch(patch) => {
+            let patched = patch.history.expect("patch supplies history");
+            assert_ne!(patched[0], Message::user("Summary"));
+        }
+        _ => {}
+    }
+}

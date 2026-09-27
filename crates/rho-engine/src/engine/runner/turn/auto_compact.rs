@@ -169,23 +169,24 @@ impl AutoCompactHook {
             // keep-recent budget): summarize the flat prefix of this run.
             Ok(_) => {
                 spinner.finish_and_clear();
-                self.ephemeral_plan(history).await
+                self.ephemeral_plan(history, base_len).await
             }
             Err(err) => {
                 spinner.finish_and_clear();
                 eprintln!("Warning: Mid-run auto-compaction failed: {err}");
-                self.ephemeral_plan(history).await
+                self.ephemeral_plan(history, base_len).await
             }
         }
     }
 
-    async fn ephemeral_plan(&self, history: &[Message]) -> Option<PatchPlan> {
+    async fn ephemeral_plan(&self, history: &[Message], base_len: usize) -> Option<PatchPlan> {
         run_ephemeral_plan(
             &self.compactor,
             self.demotion_hook.as_ref(),
             &self.context,
             &self.usage,
             history,
+            base_len,
         )
         .await
     }
@@ -209,9 +210,15 @@ async fn run_ephemeral_plan(
     context: &ContextTracker,
     usage: &UsageTracker,
     history: &[Message],
+    base_len: usize,
 ) -> Option<PatchPlan> {
     let model = compactor.model_name();
-    let cut = find_token_cut_point(history, compactor.keep_recent_tokens(), model);
+    let max_cut = if base_len > 0 {
+        base_len.min(history.len())
+    } else {
+        history.len()
+    };
+    let cut = find_token_cut_point(&history[..max_cut], compactor.keep_recent_tokens(), model);
     if cut.cut_index == 0 {
         return None;
     }
@@ -267,7 +274,7 @@ impl AgentHook for AutoCompactHook {
 }
 
 impl AutoCompactHook {
-    fn spawn_speculative_compaction(&self, history: &[Message]) {
+    fn spawn_speculative_compaction(&self, history: &[Message], base_len: usize) {
         if self.speculative_plan.lock().unwrap().is_some() {
             return;
         }
@@ -291,7 +298,8 @@ impl AutoCompactHook {
 
         tokio::spawn(async move {
             let _guard = InFlightGuard(in_flight);
-            if let Some(plan) = run_ephemeral_plan(&compactor, demotion_hook.as_ref(), &context, &usage, &history).await
+            if let Some(plan) =
+                run_ephemeral_plan(&compactor, demotion_hook.as_ref(), &context, &usage, &history, base_len).await
             {
                 let mut slot = plan_slot.lock().unwrap();
                 if epoch.load(Ordering::SeqCst) == current_epoch {
@@ -321,7 +329,7 @@ impl AutoCompactHook {
         if should_compact(messages, window, self.reserve_tokens) {
             let cached = self.speculative_plan.lock().unwrap().take();
             if let Some(p) = cached
-                && p.cut <= effective_history.len()
+                && p.cut <= base_len
             {
                 self.speculative_epoch.fetch_add(1, Ordering::SeqCst);
                 return Some(p);
@@ -330,7 +338,7 @@ impl AutoCompactHook {
         }
 
         if rho_harness_core::tokens::is_in_lead_band(messages, window, self.reserve_tokens) {
-            self.spawn_speculative_compaction(effective_history);
+            self.spawn_speculative_compaction(effective_history, base_len);
         }
         None
     }

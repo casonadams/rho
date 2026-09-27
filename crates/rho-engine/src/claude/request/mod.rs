@@ -389,12 +389,15 @@ pub fn mark_cache_breakpoints(body: &mut Value) {
 }
 
 fn system_prompt(request: &CompletionRequest) -> Option<String> {
+    if let Some(ref preamble) = request.preamble {
+        return Some(preamble.clone());
+    }
     for message in &request.chat_history {
         if let Message::System { content } = message {
             return Some(content.clone());
         }
     }
-    request.preamble.clone()
+    None
 }
 
 fn convert_tools(request: &CompletionRequest) -> Vec<Value> {

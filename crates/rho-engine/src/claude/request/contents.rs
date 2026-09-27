@@ -9,7 +9,18 @@ pub fn convert_messages(request: &CompletionRequest) -> Vec<Value> {
     let mut messages: Vec<(String, Vec<Value>)> = Vec::new();
     for message in &request.chat_history {
         match message {
-            Message::System { .. } => {}
+            Message::System { content } => {
+                if request.preamble.is_some() {
+                    append_turn(
+                        &mut messages,
+                        "user",
+                        vec![json!({
+                            "type": "text",
+                            "text": content,
+                        })],
+                    );
+                }
+            }
             Message::User { content } => {
                 let parts: Vec<Value> = content.iter().filter_map(convert_user_content).collect();
                 append_turn(&mut messages, "user", parts);
