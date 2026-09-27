@@ -26,6 +26,7 @@ const HELP_REFERENCE: &str = "\nCommands\n\
   /logout [provider]          Remove stored provider auth\n\
   /reload                     Re-read config, skills, and MCP tools; keep history\n\
   /export [html|md] [path]    Export the active branch as a readable artifact\n\
+  /collab [cmd]               Peer-to-peer live pairing (start, link, peers, kick, stop)\n\
   /exit                       Exit rho (alias: /quit)\n\
 \nShortcuts\n\
   Tab                         Complete slash commands & skill names\n\

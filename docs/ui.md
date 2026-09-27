@@ -116,6 +116,7 @@ autocomplete):
 | `/logout [provider]`        | Remove stored credentials for a provider.                                                                 |
 | `/reload`                   | Reload configuration, skills, and MCP tools without losing conversation history.                          |
 | `/export [html\|md] [path]` | Export the active session branch as a clean Markdown or HTML document.                                    |
+| `/collab`                   | Peer-to-peer live pairing (start, link, peers, kick, stop).                                              |
 | `/exit`                     | Exit rho (alias: `/quit`).                                                                                |
 
 ---
