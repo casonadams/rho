@@ -8,7 +8,7 @@ pub mod coordinator;
 pub(crate) mod input_reader;
 pub mod interactive;
 mod line_mode;
-mod live;
+pub(crate) mod live;
 mod prompt;
 #[cfg(test)]
 mod tests;

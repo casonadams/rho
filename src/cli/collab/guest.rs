@@ -6,10 +6,17 @@ use rho_harness_core::collab::session::{CollabReader, CollabSessionStream, Colla
 use rho_harness_core::collab::{CapabilityLevel, CollabSnapshot, CollabTicket};
 use rho_harness_core::error::{AppError, Result};
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent};
+use std::io::IsTerminal;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::repl::input_reader::TerminalInputReader;
+use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
+use crate::repl::live::modal::{PendingModal, handle_modal_key, install_interaction};
 use crate::ui::TerminalRenderer;
+use crate::ui::interactive::{
+    InputAction, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveState,
+    InteractiveUi, OptionLayout, TerminalBackend, TerminalController, TranscriptItem, UiAction, UiEvent, map_key,
+};
 
 struct RawModeGuard;
 
@@ -57,15 +64,502 @@ pub async fn run_guest_client(ticket_str: &str) -> std::result::Result<(), Box<d
         .await
         .map_err(|e| AppError::Network(format!("Failed to bind client endpoint: {e}")))?;
 
-    let renderer = TerminalRenderer::default();
     let (writer, reader, snapshot) = connect_and_handshake(&endpoint, &ticket).await?;
 
-    print_connection_banner(&renderer, reader.role(), snapshot.as_ref());
+    dispatch_guest_session(writer, reader, snapshot).await?;
+    Ok(())
+}
 
+fn is_interactive_terminal() -> bool {
+    crate::repl::live::live_ui_supported(std::io::stdin().is_terminal(), std::io::stdout().is_terminal())
+}
+
+async fn dispatch_guest_session<W: AsyncWrite + Unpin + Send + 'static, R: AsyncRead + Unpin + Send + 'static>(
+    writer: CollabWriter<W>,
+    reader: CollabReader<R>,
+    snapshot: Option<CollabSnapshot>,
+) -> Result<()> {
+    if is_interactive_terminal() {
+        run_guest_interactive(writer, reader, snapshot).await
+    } else {
+        run_guest_stream_fallback(writer, reader, snapshot).await
+    }
+}
+
+async fn run_guest_stream_fallback<W: AsyncWrite + Unpin + Send + 'static, R: AsyncRead + Unpin + Send + 'static>(
+    writer: CollabWriter<W>,
+    reader: CollabReader<R>,
+    snapshot: Option<CollabSnapshot>,
+) -> Result<()> {
+    let renderer = TerminalRenderer::default();
+    print_connection_banner(&renderer, reader.role(), snapshot.as_ref());
     let input = TerminalInputReader::spawn()?;
     let _raw_guard = RawModeGuard::enter()?;
-    run_guest_session(writer, reader, &renderer, input).await?;
+    run_guest_session(writer, reader, &renderer, input).await
+}
 
+pub(crate) async fn run_guest_interactive<
+    W: AsyncWrite + Unpin + Send + 'static,
+    R: AsyncRead + Unpin + Send + 'static,
+>(
+    writer: CollabWriter<W>,
+    reader: CollabReader<R>,
+    snapshot: Option<CollabSnapshot>,
+) -> Result<()> {
+    let (ui, ui_events) = InteractiveUi::channel();
+    let renderer = TerminalRenderer::with_ui(ui);
+    let role = reader.role();
+
+    let mut state = InteractiveState::default();
+    configure_guest_state(&mut state, role);
+    let mut controller = TerminalController::stdout(state)?;
+
+    if let Some(ref snap) = snapshot {
+        let _ = hydrate_snapshot_controller(&mut controller, snap);
+    }
+
+    let input = TerminalInputReader::spawn()?;
+    run_guest_interactive_loop(writer, reader, &renderer, &mut controller, ui_events, input).await
+}
+
+pub fn configure_guest_state(state: &mut InteractiveState, role: CapabilityLevel) {
+    let role_label = match role {
+        CapabilityLevel::Full => "co-pilot",
+        CapabilityLevel::ViewOnly => "spectator",
+    };
+    let footer = state.footer_mut();
+    footer.provider = "collab".to_string();
+    footer.model = role_label.to_string();
+    footer.remote_active = true;
+    footer.extra_status = Some(format!("[Collab: {role_label}]"));
+    if role == CapabilityLevel::ViewOnly {
+        state.set_system_message(Some("View Only - Read Mode".to_string()));
+    }
+}
+
+pub fn hydrate_snapshot_controller<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    snapshot: &CollabSnapshot,
+) -> std::io::Result<()> {
+    for turn_val in &snapshot.turns {
+        if let Ok(turn) = serde_json::from_value::<rho_harness_core::session::turns::ConversationTurn>(turn_val.clone())
+        {
+            if !turn.user_prompt.is_empty() {
+                controller.push_transcript_item(TranscriptItem::UserMessage(turn.user_prompt))?;
+            }
+            if !turn.assistant_preview.is_empty() {
+                controller.push_transcript_item(TranscriptItem::AssistantText(turn.assistant_preview))?;
+            }
+        }
+    }
+    controller.redraw()?;
+    Ok(())
+}
+
+#[derive(Default)]
+pub struct GuestApprovalState {
+    pub current_id: Option<String>,
+    pub modal_pending: Option<PendingModal>,
+    pub response_rx: Option<tokio::sync::oneshot::Receiver<InteractionResponse>>,
+}
+
+pub(crate) async fn run_guest_interactive_loop<B: TerminalBackend, W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+    mut writer: CollabWriter<W>,
+    mut reader: CollabReader<R>,
+    renderer: &TerminalRenderer,
+    controller: &mut TerminalController<B>,
+    mut ui_events: tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    mut input: TerminalInputReader,
+) -> Result<()> {
+    let role = reader.role();
+    let mut batch = LiveBatch::new();
+    let mut approvals = GuestApprovalState::default();
+    let mut interval = tokio::time::interval(OUTPUT_FRAME_INTERVAL);
+
+    loop {
+        tokio::select! {
+            event_res = reader.recv_event() => {
+                match event_res {
+                    Ok(Some(event)) => {
+                        let keep_running = handle_guest_rpc_event(
+                            &event,
+                            renderer,
+                            controller,
+                            &mut approvals,
+                        ).await?;
+                        if !keep_running {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        controller.set_system_message("Host disconnected");
+                        break;
+                    }
+                    Err(e) => {
+                        controller.set_system_message(format!("Connection error: {e}"));
+                        break;
+                    }
+                }
+            }
+            Some(Ok(term_event)) = input.recv() => {
+                let exit = handle_guest_terminal_event(
+                    term_event,
+                    controller,
+                    &mut writer,
+                    role,
+                    &mut approvals,
+                ).await?;
+                if exit {
+                    break;
+                }
+            }
+            _ = interval.tick() => {
+                drain_guest_ui_tick(
+                    controller,
+                    &mut batch,
+                    &mut ui_events,
+                    &mut writer,
+                    &mut approvals,
+                ).await?;
+            }
+        }
+    }
+
+    let _ = controller.redraw();
+    Ok(())
+}
+
+async fn drain_guest_ui_tick<B: TerminalBackend, W: AsyncWrite + Unpin>(
+    controller: &mut TerminalController<B>,
+    batch: &mut LiveBatch,
+    ui_events: &mut tokio::sync::mpsc::UnboundedReceiver<UiEvent>,
+    writer: &mut CollabWriter<W>,
+    approvals: &mut GuestApprovalState,
+) -> Result<()> {
+    while let Ok(event) = ui_events.try_recv() {
+        batch.push_event(controller, event)?;
+    }
+    batch.flush(controller, false)?;
+    controller.check_system_message_expiration();
+
+    poll_and_send_approval_response(writer, approvals).await
+}
+
+async fn poll_and_send_approval_response<W: AsyncWrite + Unpin>(
+    writer: &mut CollabWriter<W>,
+    approvals: &mut GuestApprovalState,
+) -> Result<()> {
+    let Some(rx) = &mut approvals.response_rx else {
+        return Ok(());
+    };
+    let Ok(resp) = rx.try_recv() else {
+        return Ok(());
+    };
+    let decision = match resp {
+        InteractionResponse::Selected(0) => "allow",
+        _ => "deny",
+    };
+    if let Some(id) = approvals.current_id.take() {
+        writer
+            .send_command(&RpcCommand::ToolResponse {
+                approval_id: id,
+                decision: decision.to_string(),
+            })
+            .await?;
+    }
+    approvals.response_rx = None;
+    approvals.modal_pending = None;
+    Ok(())
+}
+
+pub async fn handle_guest_rpc_event<B: TerminalBackend>(
+    event: &RpcEvent,
+    renderer: &TerminalRenderer,
+    controller: &mut TerminalController<B>,
+    approvals: &mut GuestApprovalState,
+) -> Result<bool> {
+    match event {
+        RpcEvent::TurnStart { prompt, .. } => {
+            renderer.print_user_block(prompt);
+        }
+        RpcEvent::TextChunk { content } => {
+            renderer.print_token(content);
+        }
+        RpcEvent::ReasoningChunk { content } => {
+            renderer.print_thinking_token(content);
+        }
+        RpcEvent::TurnEnd { .. } => {
+            renderer.write_output("\n\n");
+            renderer.flush();
+            controller.commit_streamed_output();
+        }
+        RpcEvent::ToolCallStart { tool, arguments, .. } => {
+            renderer.start_tool_run(tool, arguments);
+        }
+        RpcEvent::ToolCallResult {
+            tool, output, is_error, ..
+        } => {
+            handle_tool_call_result(renderer, tool, output, *is_error);
+        }
+        RpcEvent::StatusChanged { status } => {
+            renderer.set_extra_status(Some(status.clone()));
+        }
+        RpcEvent::ToolApprovalRequest {
+            approval_id,
+            tool,
+            arguments,
+            description,
+        } => {
+            install_guest_approval_modal(
+                controller,
+                approval_id,
+                tool,
+                arguments,
+                description.as_deref(),
+                approvals,
+            );
+        }
+        RpcEvent::ToolApprovalResolved { approval_id, .. } => {
+            dismiss_guest_approval_modal(controller, approval_id, approvals);
+        }
+        RpcEvent::Error { code, message } => {
+            if matches!(code.as_str(), "KICKED" | "ROTATED" | "STOPPED") {
+                controller.set_system_message(format!("{code}: {message}"));
+                return Ok(false);
+            }
+            renderer.print_notice(&format!("\n● Error [{code}]: {message}\n"));
+        }
+        _ => {}
+    }
+    Ok(true)
+}
+
+fn handle_tool_call_result(renderer: &TerminalRenderer, tool: &str, output: &str, is_error: bool) {
+    renderer.finish_tool_line(rho_harness_core::presentation::ToolLine {
+        name: tool.to_string(),
+        arguments: serde_json::Value::Null,
+        output: output.to_string(),
+        output_summary: String::new(),
+        is_error,
+        duration_ms: None,
+    });
+}
+
+pub fn install_guest_approval_modal<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    approval_id: &str,
+    tool: &str,
+    arguments: &serde_json::Value,
+    description: Option<&str>,
+    approvals: &mut GuestApprovalState,
+) {
+    let body = arguments
+        .get("body")
+        .and_then(|v| v.as_str())
+        .or(description)
+        .unwrap_or("Tool execution approval required");
+    let options = vec![
+        InteractionOption {
+            label: "Allow".to_string(),
+            description: Some("Approve tool execution".to_string()),
+            input: None,
+        },
+        InteractionOption {
+            label: "Deny".to_string(),
+            description: Some("Reject tool execution".to_string()),
+            input: None,
+        },
+    ];
+    let prompt = InteractionPrompt {
+        title: format!("Approval Required: {tool}"),
+        body: body.to_string(),
+        options,
+        initial_selection: 0,
+        allow_custom: false,
+        initial_text: None,
+        option_layout: OptionLayout::default(),
+    };
+    let (responder_tx, responder_rx) = tokio::sync::oneshot::channel();
+    let event = UiEvent::Interaction {
+        prompt,
+        responder: InteractionResponder {
+            responder: responder_tx,
+        },
+    };
+    install_interaction(controller, event, &mut approvals.modal_pending);
+    approvals.current_id = Some(approval_id.to_string());
+    approvals.response_rx = Some(responder_rx);
+}
+
+pub fn dismiss_guest_approval_modal<B: TerminalBackend>(
+    controller: &mut TerminalController<B>,
+    approval_id: &str,
+    approvals: &mut GuestApprovalState,
+) {
+    if approvals.current_id.as_deref() == Some(approval_id) {
+        approvals.current_id = None;
+        approvals.modal_pending = None;
+        approvals.response_rx = None;
+        if controller.state().active_modal().is_some() {
+            controller.state_mut().pop_modal();
+        }
+    }
+}
+
+pub async fn handle_guest_terminal_event<B: TerminalBackend, W: AsyncWrite + Unpin>(
+    event: Event,
+    controller: &mut TerminalController<B>,
+    writer: &mut CollabWriter<W>,
+    role: CapabilityLevel,
+    approvals: &mut GuestApprovalState,
+) -> Result<bool> {
+    match event {
+        Event::Resize(cols, rows) => {
+            controller.resize_to(cols as usize, rows as usize)?;
+            Ok(false)
+        }
+        Event::Paste(text) => {
+            if role == CapabilityLevel::Full && controller.state().active_modal().is_none() {
+                controller.state_mut().editor_mut().handle_paste(&text);
+                controller.redraw()?;
+            }
+            Ok(false)
+        }
+        Event::Key(key) => {
+            if key.kind == KeyEventKind::Release {
+                return Ok(false);
+            }
+            if controller.state().active_modal().is_some() {
+                handle_modal_key_event(key, controller, writer, role, approvals).await
+            } else if role == CapabilityLevel::ViewOnly {
+                handle_spectator_key_event(key, controller)
+            } else {
+                handle_copilot_key_event(key, controller, writer).await
+            }
+        }
+        _ => Ok(false),
+    }
+}
+
+async fn handle_modal_key_event<B: TerminalBackend, W: AsyncWrite + Unpin>(
+    key: KeyEvent,
+    controller: &mut TerminalController<B>,
+    writer: &mut CollabWriter<W>,
+    role: CapabilityLevel,
+    approvals: &mut GuestApprovalState,
+) -> Result<bool> {
+    if role != CapabilityLevel::Full {
+        if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+            return Ok(true);
+        }
+        return Ok(false);
+    }
+
+    if matches!(key.code, KeyCode::Char('y' | 'Y')) {
+        return send_quick_approval(controller, writer, approvals, "allow").await;
+    }
+    if matches!(key.code, KeyCode::Char('n' | 'N')) {
+        return send_quick_approval(controller, writer, approvals, "deny").await;
+    }
+
+    let _ = handle_modal_key(controller, key, &mut approvals.modal_pending)?;
+    controller.redraw()?;
+    Ok(false)
+}
+
+async fn send_quick_approval<B: TerminalBackend, W: AsyncWrite + Unpin>(
+    controller: &mut TerminalController<B>,
+    writer: &mut CollabWriter<W>,
+    approvals: &mut GuestApprovalState,
+    decision: &str,
+) -> Result<bool> {
+    if let Some(id) = approvals.current_id.take() {
+        approvals.modal_pending = None;
+        approvals.response_rx = None;
+        if controller.state().active_modal().is_some() {
+            controller.state_mut().pop_modal();
+        }
+        writer
+            .send_command(&RpcCommand::ToolResponse {
+                approval_id: id,
+                decision: decision.to_string(),
+            })
+            .await?;
+        controller.redraw()?;
+    }
+    Ok(false)
+}
+
+pub fn handle_spectator_key_event<B: TerminalBackend>(
+    key: KeyEvent,
+    controller: &mut TerminalController<B>,
+) -> Result<bool> {
+    let is_ctrl_c = key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL);
+    let is_ctrl_d = key.code == KeyCode::Char('d') && key.modifiers.contains(KeyModifiers::CONTROL);
+    if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) || is_ctrl_c || is_ctrl_d {
+        return Ok(true);
+    }
+    controller.set_system_message("View Only - Read Mode");
+    controller.redraw()?;
+    Ok(false)
+}
+
+pub async fn handle_copilot_key_event<B: TerminalBackend, W: AsyncWrite + Unpin>(
+    key: KeyEvent,
+    controller: &mut TerminalController<B>,
+    writer: &mut CollabWriter<W>,
+) -> Result<bool> {
+    match map_key(key) {
+        InputAction::Cancel => {
+            writer.send_command(&RpcCommand::Abort).await?;
+        }
+        InputAction::Clear => {
+            controller.state_mut().editor_mut().set_text("");
+            controller.redraw()?;
+        }
+        InputAction::EndOfInput => {
+            if controller.state().editor().is_empty() {
+                return Ok(true);
+            }
+        }
+        InputAction::ThinkingToggle => {
+            let curr = controller.state().hide_thinking();
+            controller.state_mut().set_hide_thinking(!curr);
+            controller.redraw()?;
+        }
+        InputAction::ToggleExpandTools => {
+            let curr = controller.state().tools_expanded();
+            controller.state_mut().set_tools_expanded(!curr);
+            controller.redraw()?;
+        }
+        InputAction::Edit(UiAction::Submit(_)) => {
+            submit_copilot_prompt(controller, writer).await?;
+        }
+        InputAction::Edit(action) => {
+            controller.state_mut().apply(action);
+            controller.redraw()?;
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+async fn submit_copilot_prompt<B: TerminalBackend, W: AsyncWrite + Unpin>(
+    controller: &mut TerminalController<B>,
+    writer: &mut CollabWriter<W>,
+) -> Result<()> {
+    let text = controller.state().editor().text().trim().to_string();
+    if !text.is_empty() {
+        controller.state_mut().editor_mut().set_text("");
+        writer
+            .send_command(&RpcCommand::Prompt {
+                message: text,
+                images: None,
+                streaming_behavior: None,
+            })
+            .await?;
+        controller.redraw()?;
+    }
     Ok(())
 }
 
@@ -590,5 +1084,302 @@ mod tests {
         let snap = CollabSnapshot::new(vec![serde_json::json!({"turn": 1})], "idle");
         print_connection_banner(&renderer, CapabilityLevel::Full, Some(&snap));
         print_connection_banner(&renderer, CapabilityLevel::ViewOnly, None);
+    }
+
+    struct MockBackend;
+    impl TerminalBackend for MockBackend {
+        fn set_raw_mode(&mut self, _: bool) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn size(&self) -> std::io::Result<(u16, u16)> {
+            Ok((80, 24))
+        }
+        fn hide_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn show_cursor(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_up(&mut self, _: usize) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_down(&mut self, _: usize) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn move_to_column(&mut self, _: usize) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn clear_line(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn write_text(&mut self, _: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_configure_guest_state_modes() {
+        let mut state_full = InteractiveState::default();
+        configure_guest_state(&mut state_full, CapabilityLevel::Full);
+        assert_eq!(state_full.footer().model, "co-pilot");
+        assert_eq!(state_full.footer().extra_status.as_deref(), Some("[Collab: co-pilot]"));
+        assert!(state_full.footer().remote_active);
+
+        let mut state_view = InteractiveState::default();
+        configure_guest_state(&mut state_view, CapabilityLevel::ViewOnly);
+        assert_eq!(state_view.footer().model, "spectator");
+        assert_eq!(state_view.footer().extra_status.as_deref(), Some("[Collab: spectator]"));
+        assert_eq!(state_view.system_message(), Some("View Only - Read Mode"));
+    }
+
+    #[test]
+    fn test_hydrate_snapshot_controller_populates_transcript() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let turn = rho_harness_core::session::turns::ConversationTurn {
+            turn_number: 1,
+            user_prompt: "hello from past".into(),
+            assistant_preview: "answer from past".into(),
+            tool_calls_count: 0,
+        };
+        let snapshot = CollabSnapshot::new(vec![serde_json::to_value(turn).unwrap()], "idle");
+        hydrate_snapshot_controller(&mut controller, &snapshot).unwrap();
+
+        assert_eq!(controller.transcript().len(), 2);
+        assert!(matches!(
+            controller.transcript()[0],
+            TranscriptItem::UserMessage(ref msg) if msg == "hello from past"
+        ));
+        assert!(matches!(
+            controller.transcript()[1],
+            TranscriptItem::AssistantText(ref msg) if msg == "answer from past"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_handle_copilot_key_event_workflow() {
+        let (send, mut recv) = duplex(1024);
+        let mut writer = CollabWriter::new(send, CapabilityLevel::Full);
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+
+        let key_h = make_key(KeyCode::Char('h'), KeyModifiers::empty());
+        let key_i = make_key(KeyCode::Char('i'), KeyModifiers::empty());
+        handle_copilot_key_event(key_h, &mut controller, &mut writer)
+            .await
+            .unwrap();
+        handle_copilot_key_event(key_i, &mut controller, &mut writer)
+            .await
+            .unwrap();
+        assert_eq!(controller.state().editor().text(), "hi");
+
+        let key_enter = make_key(KeyCode::Enter, KeyModifiers::empty());
+        handle_copilot_key_event(key_enter, &mut controller, &mut writer)
+            .await
+            .unwrap();
+        assert!(controller.state().editor().is_empty());
+
+        let mut lines_reader =
+            rho_harness_core::rpc::transport::JsonLinesReader::new(tokio::io::BufReader::new(&mut recv));
+        let cmd: Option<RpcCommand> = lines_reader.read_message().await.unwrap();
+        assert!(matches!(cmd, Some(RpcCommand::Prompt { message, .. }) if message == "hi"));
+
+        let key_esc = make_key(KeyCode::Esc, KeyModifiers::empty());
+        handle_copilot_key_event(key_esc, &mut controller, &mut writer)
+            .await
+            .unwrap();
+        let abort_cmd: Option<RpcCommand> = lines_reader.read_message().await.unwrap();
+        assert!(matches!(abort_cmd, Some(RpcCommand::Abort)));
+
+        controller.state_mut().editor_mut().set_text("draft to clear");
+        let key_ctrl_c = make_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        handle_copilot_key_event(key_ctrl_c, &mut controller, &mut writer)
+            .await
+            .unwrap();
+        assert!(controller.state().editor().is_empty());
+
+        let key_ctrl_d = make_key(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        let exit = handle_copilot_key_event(key_ctrl_d, &mut controller, &mut writer)
+            .await
+            .unwrap();
+        assert!(exit);
+    }
+
+    #[test]
+    fn test_handle_spectator_key_event_behavior() {
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+
+        let key_q = make_key(KeyCode::Char('q'), KeyModifiers::empty());
+        assert!(handle_spectator_key_event(key_q, &mut controller).unwrap());
+
+        let key_esc = make_key(KeyCode::Esc, KeyModifiers::empty());
+        assert!(handle_spectator_key_event(key_esc, &mut controller).unwrap());
+
+        let key_ctrl_c = make_key(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert!(handle_spectator_key_event(key_ctrl_c, &mut controller).unwrap());
+
+        let key_ctrl_d = make_key(KeyCode::Char('d'), KeyModifiers::CONTROL);
+        assert!(handle_spectator_key_event(key_ctrl_d, &mut controller).unwrap());
+
+        let key_a = make_key(KeyCode::Char('a'), KeyModifiers::empty());
+        assert!(!handle_spectator_key_event(key_a, &mut controller).unwrap());
+        assert_eq!(controller.state().system_message(), Some("View Only - Read Mode"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_guest_rpc_event_turn_and_tool() {
+        let (ui, _rx) = InteractiveUi::channel();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut approvals = GuestApprovalState::default();
+
+        let turn_start = RpcEvent::TurnStart {
+            turn_number: 1,
+            prompt: "interactive prompt".into(),
+        };
+        assert!(
+            handle_guest_rpc_event(&turn_start, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+
+        let text_chunk = RpcEvent::TextChunk {
+            content: "interactive token".into(),
+        };
+        assert!(
+            handle_guest_rpc_event(&text_chunk, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+
+        let status_event = RpcEvent::StatusChanged {
+            status: "running tests".into(),
+        };
+        assert!(
+            handle_guest_rpc_event(&status_event, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_handle_guest_rpc_event_approval_and_error() {
+        let (ui, _rx) = InteractiveUi::channel();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut approvals = GuestApprovalState::default();
+
+        let req = RpcEvent::ToolApprovalRequest {
+            approval_id: "app-99".into(),
+            tool: "bash".into(),
+            arguments: serde_json::json!({"body": "Run rm -rf?"}),
+            description: None,
+        };
+        assert!(
+            handle_guest_rpc_event(&req, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+        assert_eq!(approvals.current_id.as_deref(), Some("app-99"));
+        assert!(controller.state().active_modal().is_some());
+
+        let resolved = RpcEvent::ToolApprovalResolved {
+            approval_id: "app-99".into(),
+            decision: Some("allow".into()),
+        };
+        assert!(
+            handle_guest_rpc_event(&resolved, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+        assert_eq!(approvals.current_id, None);
+        assert!(controller.state().active_modal().is_none());
+
+        let kicked = RpcEvent::Error {
+            code: "KICKED".into(),
+            message: "kicked".into(),
+        };
+        let keep_running = handle_guest_rpc_event(&kicked, &renderer, &mut controller, &mut approvals)
+            .await
+            .unwrap();
+        assert!(!keep_running);
+    }
+
+    #[tokio::test]
+    async fn test_drain_guest_ui_tick_and_approval_resolution() {
+        let (send, mut recv) = duplex(1024);
+        let mut writer = CollabWriter::new(send, CapabilityLevel::Full);
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut batch = LiveBatch::new();
+        let (ui, mut ui_events) = InteractiveUi::channel();
+        let _ = ui.set_extra_status(Some("testing".into()));
+
+        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+        let mut approvals = GuestApprovalState {
+            current_id: Some("app-99".into()),
+            modal_pending: None,
+            response_rx: Some(resp_rx),
+        };
+
+        let _ = resp_tx.send(InteractionResponse::Selected(0));
+
+        drain_guest_ui_tick(&mut controller, &mut batch, &mut ui_events, &mut writer, &mut approvals)
+            .await
+            .unwrap();
+
+        assert!(approvals.current_id.is_none());
+        assert!(approvals.response_rx.is_none());
+
+        let mut lines_reader =
+            rho_harness_core::rpc::transport::JsonLinesReader::new(tokio::io::BufReader::new(&mut recv));
+        let cmd: Option<RpcCommand> = lines_reader.read_message().await.unwrap();
+        assert!(matches!(
+            cmd,
+            Some(RpcCommand::ToolResponse {
+                approval_id,
+                decision
+            }) if approval_id == "app-99" && decision == "allow"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_guest_terminal_quick_approval_workflow() {
+        let (send, mut recv) = duplex(1024);
+        let mut writer = CollabWriter::new(send, CapabilityLevel::Full);
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut approvals = GuestApprovalState::default();
+
+        install_guest_approval_modal(
+            &mut controller,
+            "app-42",
+            "git",
+            &serde_json::json!({}),
+            Some("Allow git commit?"),
+            &mut approvals,
+        );
+        assert!(controller.state().active_modal().is_some());
+
+        let key_y = make_key(KeyCode::Char('y'), KeyModifiers::empty());
+        let exit = handle_guest_terminal_event(
+            Event::Key(key_y),
+            &mut controller,
+            &mut writer,
+            CapabilityLevel::Full,
+            &mut approvals,
+        )
+        .await
+        .unwrap();
+        assert!(!exit);
+        assert!(controller.state().active_modal().is_none());
+        assert_eq!(approvals.current_id, None);
+
+        let mut lines_reader =
+            rho_harness_core::rpc::transport::JsonLinesReader::new(tokio::io::BufReader::new(&mut recv));
+        let cmd: Option<RpcCommand> = lines_reader.read_message().await.unwrap();
+        assert!(matches!(
+            cmd,
+            Some(RpcCommand::ToolResponse { approval_id, decision }) if approval_id == "app-42" && decision == "allow"
+        ));
     }
 }
