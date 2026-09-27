@@ -101,7 +101,8 @@ Comprehensive guides are organized in [`docs/`](docs/):
   - Capability-based cryptographic isolation: full interactive co-pilot vs. read-only spectator.
   - REPL slash commands: `/collab start`, `/collab peers`, `/collab kick <id>`, `/collab rotate`, `/collab stop`.
   - Collaborators join instantly with zero server setup via `rho join <ticket>`.
-  - Shared interactive tool approval synchronization across terminals.
+  - Full interactive TUI for guests: alternate-screen rendering, markdown token streaming, styled tool cards, and snapshot transcript hydration.
+  - Shared interactive tool approval synchronization across terminals via in-TUI confirmation modals.
 
 ---
 

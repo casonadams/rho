@@ -256,3 +256,15 @@ Inside `/settings`, selecting **Tools & Permissions** opens an interactive subme
 - **MCP**: Interactive `On` / `Off` toggle for the Model Context Protocol subsystem (`[mcp] enabled`).
 - **Permissions**: Interactive `On` / `Off` toggle for runtime mutation guardrails (`[permission] enabled`).
 
+---
+
+## P2P Collaboration & Guest TUI
+
+Joining a pairing session with `rho join <ticket>` connects to the host session and launches the interactive terminal interface:
+
+- **TTY Detection & Alternate Screen**: When run in an interactive terminal, `rho join` boots into `TerminalController` on an alternate screen with live token streaming, styled tool cards, thinking toggles, and status footer metrics. Piped or non-interactive environments cleanly fall back to sequential line output.
+- **Snapshot Transcript Hydration**: Prior conversation turns are hydrated immediately upon handshake into the scrollable transcript.
+- **Co-Pilot Mode**: Provides an active prompt editor with cursor navigation, multiline editing, `Enter` prompt submissions, `Esc` generation aborts, and `Ctrl+C` draft clears.
+- **Spectator Mode**: Displays a locked `[View Only - Read Mode]` banner, suppresses text mutation, and allows quick exits via `q`, `Esc`, `Ctrl+C`, or `Ctrl+D`.
+- **Interactive Tool Approvals**: Dangerous tool executions broadcast approval requests to both screens; co-pilots can approve (`y` / `Enter`) or deny (`n` / `Esc`) via the interactive confirmation modal.
+

@@ -571,8 +571,14 @@ rho config models.guard none</code></pre>
       </div>
 
       <p>
-        All tool executions remain governed by the host machine. If a command requires authorization, the prompt appears simultaneously on both host and co-pilot screens — whichever participant responds first resolves the turn.
+        In interactive terminals, <code>rho join</code> launches directly into the full-screen terminal interface mirroring the host's layout:
       </p>
+      <ul>
+        <li><strong>Interactive TUI &amp; History Hydration:</strong> Mounts on an alternate screen with live token streaming, styled tool cards, thinking toggles, and instant transcript hydration from the host's session history (falling back to sequential stdout for non-TTY pipelines).</li>
+        <li><strong>Co-Pilot Input:</strong> Full prompt bar editing with cursor navigation, multiline support, <kbd class="kbd">Enter</kbd> submissions, <kbd class="kbd">Esc</kbd> turn aborts, and <kbd class="kbd">Ctrl+C</kbd> draft clearing.</li>
+        <li><strong>Spectator Mode:</strong> Locked prompt bar indicating <code>[View Only - Read Mode]</code> with quick quit keys (<kbd class="kbd">q</kbd>, <kbd class="kbd">Esc</kbd>, <kbd class="kbd">Ctrl+C</kbd>).</li>
+        <li><strong>Shared Tool Approvals:</strong> If a command requires authorization, the confirmation modal appears simultaneously on both host and co-pilot screens. Either peer can approve (<kbd class="kbd">y</kbd>) or deny (<kbd class="kbd">n</kbd>) to continue execution.</li>
+      </ul>
 
       <h2 id="rpc-mode">Headless &amp; IDE RPC Server Mode</h2>
       <p>
