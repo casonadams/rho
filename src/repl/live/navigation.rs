@@ -62,6 +62,15 @@ pub fn update_footer(state: &mut InteractiveState, session: &ReplSession, engine
     footer.tokens_per_second = engine.tokens_per_second();
     footer.context = Some(engine.context_remaining_display());
     footer.show_label = session.config.show_label;
+    if let Some(ref collab) = session.collab {
+        let count = collab.peer_count_sync();
+        footer.remote_active = true;
+        footer.remote_peers = count;
+        footer.extra_status = Some(format!("[Collab: {count}]"));
+    } else {
+        footer.remote_active = false;
+        footer.remote_peers = 0;
+    }
 }
 
 pub async fn cycle_thinking_level<B: TerminalBackend>(

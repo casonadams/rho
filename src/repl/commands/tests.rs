@@ -42,6 +42,7 @@ fn test_context<'a>(
         session_manager: None,
         engine: None,
         home_dir: None,
+        collab: None,
     }
 }
 
@@ -285,6 +286,7 @@ async fn export_command_writes_markdown_default_path() {
         session_manager: Some(&session_manager),
         engine: None,
         home_dir: None,
+        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/export", &mut context).await.unwrap();
@@ -312,6 +314,7 @@ async fn export_command_writes_html_to_override_path() {
         session_manager: Some(&session_manager),
         engine: None,
         home_dir: None,
+        collab: None,
     };
 
     let cmd = format!("/export html {}", override_path.display());
@@ -346,6 +349,7 @@ async fn export_command_rejects_unknown_format_with_usage() {
         session_manager: Some(&session_manager),
         engine: None,
         home_dir: None,
+        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/export unknown_format", &mut context)
@@ -369,6 +373,7 @@ async fn session_command_prints_diagnostics() {
         session_manager: None,
         engine: None,
         home_dir: None,
+        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
@@ -415,6 +420,7 @@ async fn session_command_prints_diagnostics_with_engine() {
         session_manager: None,
         engine: Some(&engine),
         home_dir: None,
+        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
@@ -444,6 +450,7 @@ fn skill_context<'a>(
         session_manager: None,
         engine: None,
         home_dir,
+        collab: None,
     }
 }
 
@@ -546,6 +553,7 @@ async fn tokens_command_displays_cache_hit_when_present() {
         session_manager: None,
         engine: Some(&engine),
         home_dir: None,
+        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/tokens", &mut context).await.unwrap();
@@ -589,6 +597,7 @@ async fn session_command_displays_cache_efficiency_when_present() {
         session_manager: None,
         engine: Some(&engine),
         home_dir: None,
+        collab: None,
     };
 
     let result = SlashCommandHandler::handle("/session", &mut context).await.unwrap();
@@ -662,4 +671,123 @@ fn test_prompt_skill_choice_from() {
     let mut reader3 = Cursor::new(b"abc\n");
     let mut writer3 = Vec::new();
     assert_eq!(prompt_skill_choice_from(&mut reader3, &mut writer3, &skills), None);
+}
+
+#[tokio::test]
+async fn collab_commands_without_active_session() {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, mut events) = collecting_renderer();
+    let mut slot: Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>> = None;
+    let mut context = SlashCommandContext {
+        config: &mut config,
+        auth_store: &mut auth,
+        renderer: &renderer,
+        session_id: Some("test-session"),
+        session_manager: None,
+        engine: None,
+        home_dir: None,
+        collab: Some(&mut slot),
+    };
+
+    let kick_res = SlashCommandHandler::handle("/collab kick 1", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(kick_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collab session is not active"));
+
+    let link_res = SlashCommandHandler::handle("/collab link", &mut context).await.unwrap();
+    assert_eq!(link_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collab session is not active"));
+
+    let stop_res = SlashCommandHandler::handle("/collab stop", &mut context).await.unwrap();
+    assert_eq!(stop_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collab session is not active"));
+
+    let rotate_res = SlashCommandHandler::handle("/collab rotate", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(rotate_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collab session is not active"));
+
+    let peers_res = SlashCommandHandler::handle("/collab peers", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(peers_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collab session is not active"));
+}
+
+#[tokio::test]
+async fn collab_start_and_lifecycle() {
+    let mut config = Config::default();
+    let mut auth = AuthStore::default();
+    let (renderer, mut events) = collecting_renderer();
+    let mut slot: Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>> = None;
+    let mut context = SlashCommandContext {
+        config: &mut config,
+        auth_store: &mut auth,
+        renderer: &renderer,
+        session_id: Some("test-session"),
+        session_manager: None,
+        engine: None,
+        home_dir: None,
+        collab: Some(&mut slot),
+    };
+
+    let start_res = SlashCommandHandler::handle("/collab start", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(start_res, Some(CommandResult::Continue));
+    assert!(context.collab.as_ref().unwrap().is_some());
+    let out = collected_output(&mut events);
+    assert!(out.contains("Collab session active"));
+    assert!(out.contains("rho join rho://"));
+
+    let link_res = SlashCommandHandler::handle("/collab link", &mut context).await.unwrap();
+    assert_eq!(link_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Active Collab Session"));
+
+    let rotate_res = SlashCommandHandler::handle("/collab rotate", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(rotate_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collab keys rotated"));
+
+    let kick_res = SlashCommandHandler::handle("/collab kick 42", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(kick_res, Some(CommandResult::Continue));
+    assert!(collected_output(&mut events).contains("Collaborator 42 not found"));
+
+    let peers_res = SlashCommandHandler::handle("/collab peers", &mut context)
+        .await
+        .unwrap();
+    assert_eq!(peers_res, Some(CommandResult::OpenCollabSelector));
+
+    let stop_res = SlashCommandHandler::handle("/collab stop", &mut context).await.unwrap();
+    assert_eq!(stop_res, Some(CommandResult::Continue));
+    assert!(context.collab.as_ref().unwrap().is_none());
+    assert!(collected_output(&mut events).contains("Collab session stopped"));
+}
+
+#[tokio::test]
+async fn collab_peers_with_connected_peers() {
+    let (renderer, mut events) = collecting_renderer();
+    let peers = vec![
+        rho_harness_core::collab::CollabPeerInfo {
+            id: 1,
+            role: rho_harness_core::collab::CapabilityLevel::Full,
+            connected_at: chrono::Utc::now(),
+        },
+        rho_harness_core::collab::CollabPeerInfo {
+            id: 2,
+            role: rho_harness_core::collab::CapabilityLevel::ViewOnly,
+            connected_at: chrono::Utc::now(),
+        },
+    ];
+    super::collab::print_peer_list(&renderer, &peers);
+    let out = collected_output(&mut events);
+    assert!(out.contains("Active collaborators (2)"));
+    assert!(out.contains("#1: Full"));
+    assert!(out.contains("#2: ViewOnly"));
 }

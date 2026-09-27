@@ -186,6 +186,19 @@ impl CollabHostServer {
         self.state.read().await.peers.len()
     }
 
+    pub fn peers_sync(&self) -> Vec<CollabPeerInfo> {
+        let Ok(guard) = self.state.try_read() else {
+            return Vec::new();
+        };
+        let mut list: Vec<CollabPeerInfo> = guard.peers.values().map(|p| p.info.clone()).collect();
+        list.sort_by_key(|p| p.id);
+        list
+    }
+
+    pub fn peer_count_sync(&self) -> usize {
+        self.state.try_read().map(|g| g.peers.len()).unwrap_or(0)
+    }
+
     pub fn broadcast(&self, event: &RpcEvent) {
         if let Ok(guard) = self.state.try_read() {
             for peer in guard.peers.values() {

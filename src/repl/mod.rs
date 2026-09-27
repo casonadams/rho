@@ -31,6 +31,7 @@ pub struct ReplSession {
     pub renderer: TerminalRenderer,
     pub resume_id: Option<String>,
     pub cli: Option<crate::config::cli::Cli>,
+    pub collab: Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>>,
 }
 
 impl ReplSession {
@@ -43,6 +44,7 @@ impl ReplSession {
             renderer,
             resume_id,
             cli: None,
+            collab: None,
         }
     }
 

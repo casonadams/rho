@@ -1,4 +1,5 @@
 pub mod args;
+pub mod collab;
 pub mod export;
 pub mod help;
 pub mod model;
@@ -53,6 +54,7 @@ async fn handle_async_slash_commands(
             provider: parts.get(1).map(|v| (*v).to_string()),
         })),
         "export" => handle_export(ctx, parts).await,
+        "collab" => collab::handle_collab(ctx, parts).await,
         custom => handle_custom(ctx, custom, parts).await,
     }
 }

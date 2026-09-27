@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod collab;
 pub mod help;
 pub mod mcp;
 pub mod model;
@@ -7,6 +8,7 @@ pub mod session;
 pub mod tools;
 
 pub use auth::{handle_login_key, open_login_selector};
+pub use collab::{handle_collab_key, open_collab_selector};
 pub use help::{handle_help_key, open_help_selector};
 pub use mcp::{handle_mcp_key, open_mcp_selector};
 pub use model::{

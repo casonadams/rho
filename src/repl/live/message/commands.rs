@@ -20,6 +20,7 @@ pub(crate) fn open_selector_modal<B: TerminalBackend>(
         CommandResult::OpenHelpSelector => crate::repl::live::modal::open_help_selector(io_controller),
         CommandResult::OpenLoginSelector => crate::repl::live::modal::open_login_selector(session, io_controller),
         CommandResult::OpenMcpSelector => crate::repl::live::modal::open_mcp_selector(session, io_controller),
+        CommandResult::OpenCollabSelector => crate::repl::live::modal::open_collab_selector(session, io_controller),
         _ => {}
     }
 }
@@ -152,7 +153,8 @@ pub(crate) async fn handle_engine_command<B: TerminalBackend>(
         | CommandResult::OpenSettingsSelector
         | CommandResult::OpenHelpSelector
         | CommandResult::OpenLoginSelector
-        | CommandResult::OpenMcpSelector => {
+        | CommandResult::OpenMcpSelector
+        | CommandResult::OpenCollabSelector => {
             handle_selector_command(ctx, io.controller, result).await?;
         }
         CommandResult::ClearContext => clear_engine_context(ctx).await?,

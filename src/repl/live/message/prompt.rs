@@ -63,6 +63,7 @@ pub(crate) async fn run_slash_handler(
         session_manager: Some(&engine.session_manager),
         engine: Some(engine),
         home_dir: None,
+        collab: Some(&mut session.collab),
     };
     SlashCommandHandler::handle(input, &mut command_context).await
 }

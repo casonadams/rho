@@ -232,6 +232,7 @@ fn open_help_modal(
         "/resume" => super::super::modal::open_session_selector(&session.config.sessions_dir, controller),
         "/mcp" => super::super::modal::open_mcp_selector(session, controller),
         "/login" => super::super::modal::open_login_selector(session, controller),
+        "/collab" => super::super::modal::open_collab_selector(session, controller),
         _ => return false,
     }
     true
@@ -306,6 +307,15 @@ async fn handle_ui_setting_toggled(
                 ctx.session
                     .renderer
                     .print_notice(&format!("\nMCP server '{server}' {status}.\n"));
+            }
+            Ok(true)
+        }
+        ModalKeyResult::CollabPeerKicked { peer_id } => {
+            if let Some(ref collab) = ctx.session.collab {
+                collab.kick_peer(peer_id).await;
+                ctx.session
+                    .renderer
+                    .print_status(&format!("Collaborator #{peer_id} kicked"));
             }
             Ok(true)
         }

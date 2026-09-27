@@ -1194,3 +1194,23 @@ fn test_repl_model_selection_format() {
         other => panic!("expected ModelSelected, got {other:?}"),
     }
 }
+
+#[test]
+fn collab_selector_modal_lifecycle() {
+    let session = crate::repl::ReplSession::new(
+        rho_harness_core::config::Config::default(),
+        crate::auth::AuthStore::default(),
+        None,
+    );
+    let mut controller = TerminalController::new(HistoryTerminal, InteractiveState::default()).unwrap();
+
+    super::super::modal::open_collab_selector(&session, &mut controller);
+    let modal = controller.state().active_modal().unwrap();
+    assert_eq!(modal.title, "Active Collaborators");
+    assert_eq!(modal.options.len(), 1);
+    assert_eq!(modal.options[0].label, "none");
+
+    let res = send_modal_key(&mut controller, KeyCode::Esc);
+    assert_eq!(res, ModalKeyResult::Handled);
+    assert!(controller.state().active_modal().is_none());
+}

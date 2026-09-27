@@ -201,6 +201,7 @@ async fn handle_line_slash_command(
         session_manager: Some(&engine.session_manager),
         engine: Some(engine),
         home_dir: None,
+        collab: Some(&mut session.collab),
     };
     let Some(cmd_res) = SlashCommandHandler::handle(input, &mut ctx).await? else {
         return Ok(None);

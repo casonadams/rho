@@ -35,6 +35,7 @@ pub enum CommandResult {
     OpenHelpSelector,
     OpenLoginSelector,
     OpenMcpSelector,
+    OpenCollabSelector,
     ThinkingChanged {
         level: Option<String>,
     },
@@ -62,6 +63,7 @@ pub struct SlashCommandContext<'a> {
     pub session_manager: Option<&'a rho_harness_core::session::SessionManager>,
     pub engine: Option<&'a AgentEngine>,
     pub home_dir: Option<&'a std::path::Path>,
+    pub collab: Option<&'a mut Option<std::sync::Arc<rho_harness_core::collab::CollabHostServer>>>,
 }
 
 pub const SLASH_COMMANDS: &[&str] = &[
@@ -85,6 +87,7 @@ pub const SLASH_COMMANDS: &[&str] = &[
     "/logout",
     "/reload",
     "/export",
+    "/collab",
     "/remote",
     "/exit",
     "/quit",

@@ -51,6 +51,13 @@ impl<'a, B: TerminalBackend> TurnLoop<'a, B> {
         let expired = self.controller.check_system_message_expiration();
         let resized = self.controller.refresh_size()?;
         let footer = sync_turn_footer(self.controller, self.engine);
+        if let Some(ref collab) = self.session.collab {
+            let count = collab.peer_count_sync();
+            let f = self.controller.state_mut().footer_mut();
+            f.remote_active = true;
+            f.remote_peers = count;
+            f.extra_status = Some(format!("[Collab: {count}]"));
+        }
         self.batch
             .flush(self.controller, spinner || footer || expired || steering || resized)?;
         if matches!(self.controller.state().footer().activity, Activity::Idle) {
