@@ -189,10 +189,11 @@ fn handle_collab_idle_peer<B: TerminalBackend>(
     controller: &mut TerminalController<B>,
     batch: &mut LiveBatch,
     session: &ReplSession,
+    engine: &crate::engine::AgentEngine,
     pe: rho_harness_core::collab::CollabPeerEvent,
 ) -> Result<IdleStepOutcome> {
     let count = session.collab.as_ref().map(|c| c.peer_count_sync()).unwrap_or(0);
-    super::turn::collab::handle_collab_peer_event(&pe, &session.renderer, count);
+    super::turn::collab::handle_collab_peer_event(&pe, session, Some(engine), count);
     let f = controller.state_mut().footer_mut();
     f.remote_active = true;
     f.remote_peers = count;
@@ -222,7 +223,7 @@ async fn handle_idle_step_source<B: TerminalBackend>(
             let msg = super::turn::collab::handle_collab_idle_command(cmd, ctx.session);
             Ok(msg.map_or(IdleStepOutcome::Continue, IdleStepOutcome::Message))
         }
-        IdleSource::CollabPeer(pe) => handle_collab_idle_peer(controller, batch, ctx.session, pe),
+        IdleSource::CollabPeer(pe) => handle_collab_idle_peer(controller, batch, ctx.session, ctx.engine, pe),
     }
 }
 

@@ -18,7 +18,6 @@ use super::runner::TurnLoop;
 use crate::error::Result;
 use crate::repl::ReplSession;
 use crate::ui::interactive::{QueuedMessage, TerminalBackend};
-use crate::ui::render::TerminalRenderer;
 
 pub struct PendingCollabApproval {
     pub approval_id: String,
@@ -100,6 +99,11 @@ impl Presenter for CollabPresenter {
 
     fn print_session_status(&self, display: &SessionStatus) {
         self.inner.print_session_status(display);
+        self.collab.broadcast(&RpcEvent::SessionStart {
+            session_id: String::new(),
+            model: display.model.clone(),
+            provider: display.provider.clone(),
+        });
     }
 
     fn print_notice(&self, text: &str) {
@@ -348,20 +352,51 @@ pub fn handle_collab_idle_command(incoming: CollabIncomingCommand, session: &Rep
     }
 }
 
-pub fn handle_collab_peer_event(event: &CollabPeerEvent, renderer: &TerminalRenderer, peer_count: usize) {
+pub fn build_usage_update(engine: &crate::engine::AgentEngine) -> RpcEvent {
+    let totals = engine.session_usage_totals();
+    RpcEvent::UsageUpdate {
+        input_tokens: Some(totals.total_input),
+        output_tokens: Some(totals.total_output),
+        cache_read_tokens: Some(totals.total_cache_read),
+        cache_write_tokens: Some(totals.total_cache_write),
+        total_cost: None,
+        context_percent: engine.context_percent_f64(),
+        context_window: engine.context_limit(),
+        tokens_per_second: engine.tokens_per_second(),
+        quota: engine.quota_display(),
+    }
+}
+
+pub fn handle_collab_peer_event(
+    event: &CollabPeerEvent,
+    session: &ReplSession,
+    engine: Option<&crate::engine::AgentEngine>,
+    peer_count: usize,
+) {
     match event {
         CollabPeerEvent::Connected(info) => {
             let role_label = match info.role {
                 CapabilityLevel::Full => "co-pilot",
                 CapabilityLevel::ViewOnly => "spectator",
             };
-            renderer.print_notice(&format!(
+            session.renderer.print_notice(&format!(
                 "\n  ● Collaborator connected: {} ({role_label}, {peer_count} peer(s) total)\n",
                 info.display_name()
             ));
+            if let Some(ref collab) = session.collab {
+                let session_id = session.resume_id.clone().unwrap_or_else(|| "live".to_string());
+                collab.broadcast(&RpcEvent::SessionStart {
+                    session_id,
+                    model: session.config.model.clone(),
+                    provider: session.config.provider.clone(),
+                });
+                if let Some(eng) = engine {
+                    collab.broadcast(&build_usage_update(eng));
+                }
+            }
         }
         CollabPeerEvent::Disconnected { display_name, .. } => {
-            renderer.print_notice(&format!(
+            session.renderer.print_notice(&format!(
                 "\n  ● Collaborator {display_name} disconnected ({peer_count} peer(s) remaining)\n"
             ));
         }
@@ -371,6 +406,7 @@ pub fn handle_collab_peer_event(event: &CollabPeerEvent, renderer: &TerminalRend
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::render::TerminalRenderer;
     use rho_harness_core::collab::CollabHostConfig;
     use std::net::SocketAddr;
 
@@ -475,20 +511,52 @@ mod tests {
     fn test_handle_collab_peer_event() {
         let (ui, _) = crate::ui::interactive::InteractiveUi::channel();
         let renderer = TerminalRenderer::with_ui(ui);
+        let mut session = ReplSession::new(
+            crate::config::Config::default(),
+            crate::auth::AuthStore::default(),
+            None,
+        );
+        session.renderer = renderer;
         let event_connected = CollabPeerEvent::Connected(rho_harness_core::collab::CollabPeerInfo {
             id: 1,
             role: CapabilityLevel::Full,
             hostname: Some("worker-1".into()),
             connected_at: chrono::Utc::now(),
         });
-        handle_collab_peer_event(&event_connected, &renderer, 1);
+        handle_collab_peer_event(&event_connected, &session, None, 1);
 
         let event_disconnected = CollabPeerEvent::Disconnected {
             peer_id: 1,
             display_name: "worker-1".into(),
             reason: "Stream closed".into(),
         };
-        handle_collab_peer_event(&event_disconnected, &renderer, 0);
+        handle_collab_peer_event(&event_disconnected, &session, None, 0);
+    }
+
+    #[tokio::test]
+    async fn test_handle_collab_peer_event_with_collab_server() {
+        let config = CollabHostConfig::new().with_bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)));
+        let server = Arc::new(CollabHostServer::start(config).await.expect("start server"));
+        let (ui, _) = crate::ui::interactive::InteractiveUi::channel();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut session = ReplSession::new(
+            crate::config::Config::default(),
+            crate::auth::AuthStore::default(),
+            None,
+        );
+        session.renderer = renderer;
+        session.collab = Some(Arc::clone(&server));
+        session.config.model = "gpt-4o".to_string();
+        session.config.provider = "openai".to_string();
+
+        let event_connected = CollabPeerEvent::Connected(rho_harness_core::collab::CollabPeerInfo {
+            id: 1,
+            role: CapabilityLevel::Full,
+            hostname: Some("worker-1".into()),
+            connected_at: chrono::Utc::now(),
+        });
+        handle_collab_peer_event(&event_connected, &session, None, 1);
+        server.stop().await;
     }
 
     #[tokio::test]

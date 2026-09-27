@@ -449,3 +449,93 @@ async fn test_collab_prompt_command_turn_start_sync() {
     server.stop().await;
     guest_ep.close().await;
 }
+
+#[tokio::test]
+async fn test_collab_footer_metric_and_activity_sync() {
+    let initial_snapshot = CollabSnapshot::new(vec![], "idle");
+    let mut fixture = start_test_collab_fixture(initial_snapshot).await;
+    let (ui, _ui_rx) = rho::ui::interactive::InteractiveUi::channel();
+    let renderer = rho::ui::TerminalRenderer::with_ui(ui);
+    let mut state = rho::ui::interactive::InteractiveState::default();
+    rho::cli::collab::guest::configure_guest_state(&mut state, CapabilityLevel::Full);
+    let mut controller =
+        rho::ui::interactive::TerminalController::new(IntegrationMockBackend, state).expect("controller");
+    let mut approvals = rho::cli::collab::guest::GuestApprovalState::default();
+
+    assert_eq!(
+        controller.state().footer().activity,
+        rho::ui::interactive::Activity::Idle
+    );
+    assert_eq!(controller.state().footer().provider, "collab");
+
+    let session_start = RpcEvent::SessionStart {
+        session_id: "test-sess".into(),
+        model: "claude-3-7-sonnet".into(),
+        provider: "anthropic".into(),
+    };
+    fixture.server.broadcast(&session_start);
+    let ev = fixture.guest_reader.recv_event().await.expect("recv").expect("some");
+    rho::cli::collab::guest::handle_guest_rpc_event(&ev, &renderer, &mut controller, &mut approvals)
+        .await
+        .expect("handle session start");
+    assert_eq!(controller.state().footer().model, "claude-3-7-sonnet");
+    assert_eq!(controller.state().footer().provider, "anthropic");
+
+    let turn_start = RpcEvent::TurnStart {
+        turn_number: 1,
+        prompt: "hello world".into(),
+    };
+    fixture.server.broadcast(&turn_start);
+    let ev = fixture.guest_reader.recv_event().await.expect("recv").expect("some");
+    rho::cli::collab::guest::handle_guest_rpc_event(&ev, &renderer, &mut controller, &mut approvals)
+        .await
+        .expect("handle turn start");
+    assert_eq!(
+        controller.state().footer().activity,
+        rho::ui::interactive::Activity::Working
+    );
+
+    let usage = RpcEvent::UsageUpdate {
+        input_tokens: Some(500),
+        output_tokens: Some(120),
+        cache_read_tokens: Some(50),
+        cache_write_tokens: Some(20),
+        total_cost: Some(0.015),
+        context_percent: Some(18.5),
+        context_window: Some(200_000),
+        tokens_per_second: Some(42.0),
+        quota: Some("75%".into()),
+    };
+    fixture.server.broadcast(&usage);
+    let ev = fixture.guest_reader.recv_event().await.expect("recv").expect("some");
+    rho::cli::collab::guest::handle_guest_rpc_event(&ev, &renderer, &mut controller, &mut approvals)
+        .await
+        .expect("handle usage update");
+    let f = controller.state().footer();
+    assert_eq!(f.total_input_tokens, 500);
+    assert_eq!(f.total_output_tokens, 120);
+    assert_eq!(f.total_cache_read_tokens, 50);
+    assert_eq!(f.total_cache_write_tokens, 20);
+    assert_eq!(f.total_cost, Some(0.015));
+    assert_eq!(f.context_percent, Some(18.5));
+    assert_eq!(f.context_window, 200_000);
+    assert_eq!(f.tokens_per_second, Some(42.0));
+    assert_eq!(f.quota, Some("75%".into()));
+
+    let turn_end = RpcEvent::TurnEnd {
+        stop_reason: "completed".into(),
+    };
+    fixture.server.broadcast(&turn_end);
+    let ev = fixture.guest_reader.recv_event().await.expect("recv").expect("some");
+    rho::cli::collab::guest::handle_guest_rpc_event(&ev, &renderer, &mut controller, &mut approvals)
+        .await
+        .expect("handle turn end");
+    assert_eq!(
+        controller.state().footer().activity,
+        rho::ui::interactive::Activity::Idle
+    );
+
+    drop(fixture.guest_writer);
+    fixture.server.stop().await;
+    fixture.guest_ep.close().await;
+}

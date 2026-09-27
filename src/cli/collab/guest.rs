@@ -14,8 +14,9 @@ use crate::repl::live::batch::{LiveBatch, OUTPUT_FRAME_INTERVAL};
 use crate::repl::live::modal::{PendingModal, handle_modal_key, install_interaction};
 use crate::ui::TerminalRenderer;
 use crate::ui::interactive::{
-    InputAction, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse, InteractiveState,
-    InteractiveUi, OptionLayout, TerminalBackend, TerminalController, TranscriptItem, UiAction, UiEvent, map_key,
+    Activity, InputAction, InteractionOption, InteractionPrompt, InteractionResponder, InteractionResponse,
+    InteractiveState, InteractiveUi, OptionLayout, TerminalBackend, TerminalController, TranscriptItem, UiAction,
+    UiEvent, map_key,
 };
 
 struct RawModeGuard;
@@ -272,6 +273,50 @@ async fn poll_and_send_approval_response<W: AsyncWrite + Unpin>(
     Ok(())
 }
 
+pub fn apply_guest_usage_update(footer: &mut crate::ui::interactive::FooterState, event: &RpcEvent) {
+    let RpcEvent::UsageUpdate {
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+        total_cost,
+        context_percent,
+        context_window,
+        tokens_per_second,
+        quota,
+    } = event
+    else {
+        return;
+    };
+    if let Some(tok) = input_tokens {
+        footer.total_input_tokens = *tok;
+    }
+    if let Some(tok) = output_tokens {
+        footer.total_output_tokens = *tok;
+    }
+    if let Some(tok) = cache_read_tokens {
+        footer.total_cache_read_tokens = *tok;
+    }
+    if let Some(tok) = cache_write_tokens {
+        footer.total_cache_write_tokens = *tok;
+    }
+    if total_cost.is_some() {
+        footer.total_cost = *total_cost;
+    }
+    if context_percent.is_some() {
+        footer.context_percent = *context_percent;
+    }
+    if let Some(cw) = context_window {
+        footer.context_window = *cw;
+    }
+    if tokens_per_second.is_some() {
+        footer.tokens_per_second = *tokens_per_second;
+    }
+    if quota.is_some() {
+        footer.quota = quota.clone();
+    }
+}
+
 pub async fn handle_guest_rpc_event<B: TerminalBackend>(
     event: &RpcEvent,
     renderer: &TerminalRenderer,
@@ -279,10 +324,20 @@ pub async fn handle_guest_rpc_event<B: TerminalBackend>(
     approvals: &mut GuestApprovalState,
 ) -> Result<bool> {
     match event {
+        RpcEvent::SessionStart { model, provider, .. } => {
+            let footer = controller.state_mut().footer_mut();
+            if !model.is_empty() {
+                footer.model = model.clone();
+            }
+            if !provider.is_empty() {
+                footer.provider = provider.clone();
+            }
+        }
         RpcEvent::TurnStart { prompt, .. } => {
             controller.commit_streamed_output();
             renderer.print_user_block(prompt);
             renderer.flush();
+            controller.state_mut().footer_mut().activity = Activity::Working;
         }
         RpcEvent::TextChunk { content } => {
             renderer.print_token(content);
@@ -294,6 +349,10 @@ pub async fn handle_guest_rpc_event<B: TerminalBackend>(
             renderer.write_output("\n\n");
             renderer.flush();
             controller.commit_streamed_output();
+            controller.state_mut().footer_mut().activity = Activity::Idle;
+        }
+        RpcEvent::UsageUpdate { .. } => {
+            apply_guest_usage_update(controller.state_mut().footer_mut(), event);
         }
         RpcEvent::ToolCallStart { tool, arguments, .. } => {
             renderer.start_tool_run(tool, arguments);
@@ -1227,6 +1286,97 @@ mod tests {
         let key_a = make_key(KeyCode::Char('a'), KeyModifiers::empty());
         assert!(!handle_spectator_key_event(key_a, &mut controller).unwrap());
         assert_eq!(controller.state().system_message(), Some("View Only - Read Mode"));
+    }
+
+    #[test]
+    fn test_apply_guest_usage_update() {
+        let mut footer = crate::ui::interactive::FooterState::default();
+        let usage = RpcEvent::UsageUpdate {
+            input_tokens: Some(1500),
+            output_tokens: Some(300),
+            cache_read_tokens: Some(120),
+            cache_write_tokens: Some(40),
+            total_cost: Some(0.042),
+            context_percent: Some(25.5),
+            context_window: Some(200_000),
+            tokens_per_second: Some(45.0),
+            quota: Some("85%".to_string()),
+        };
+        apply_guest_usage_update(&mut footer, &usage);
+        assert_eq!(footer.total_input_tokens, 1500);
+        assert_eq!(footer.total_output_tokens, 300);
+        assert_eq!(footer.total_cache_read_tokens, 120);
+        assert_eq!(footer.total_cache_write_tokens, 40);
+        assert_eq!(footer.total_cost, Some(0.042));
+        assert_eq!(footer.context_percent, Some(25.5));
+        assert_eq!(footer.context_window, 200_000);
+        assert_eq!(footer.tokens_per_second, Some(45.0));
+        assert_eq!(footer.quota, Some("85%".to_string()));
+
+        let non_usage = RpcEvent::StatusChanged { status: "ready".into() };
+        apply_guest_usage_update(&mut footer, &non_usage);
+        assert_eq!(footer.total_input_tokens, 1500);
+    }
+
+    #[tokio::test]
+    async fn test_handle_guest_rpc_event_session_and_usage_lifecycle() {
+        let (ui, _rx) = InteractiveUi::channel();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        let mut approvals = GuestApprovalState::default();
+
+        let session_start = RpcEvent::SessionStart {
+            session_id: "s1".into(),
+            model: "claude-3-7-sonnet".into(),
+            provider: "anthropic".into(),
+        };
+        assert!(
+            handle_guest_rpc_event(&session_start, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+        assert_eq!(controller.state().footer().model, "claude-3-7-sonnet");
+        assert_eq!(controller.state().footer().provider, "anthropic");
+
+        let turn_start = RpcEvent::TurnStart {
+            turn_number: 1,
+            prompt: "hello".into(),
+        };
+        assert!(
+            handle_guest_rpc_event(&turn_start, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+        assert_eq!(controller.state().footer().activity, Activity::Working);
+
+        let usage = RpcEvent::UsageUpdate {
+            input_tokens: Some(400),
+            output_tokens: Some(80),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_cost: None,
+            context_percent: Some(10.0),
+            context_window: Some(128_000),
+            tokens_per_second: Some(25.0),
+            quota: Some("95%".into()),
+        };
+        assert!(
+            handle_guest_rpc_event(&usage, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+        assert_eq!(controller.state().footer().total_input_tokens, 400);
+        assert_eq!(controller.state().footer().total_output_tokens, 80);
+
+        let turn_end = RpcEvent::TurnEnd {
+            stop_reason: "completed".into(),
+        };
+        assert!(
+            handle_guest_rpc_event(&turn_end, &renderer, &mut controller, &mut approvals)
+                .await
+                .unwrap()
+        );
+        assert_eq!(controller.state().footer().activity, Activity::Idle);
     }
 
     #[tokio::test]

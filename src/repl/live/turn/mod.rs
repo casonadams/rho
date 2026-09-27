@@ -157,7 +157,7 @@ async fn handle_turn_collab_event<B: TerminalBackend>(
                 .as_ref()
                 .map(|c| c.peer_count_sync())
                 .unwrap_or(0);
-            collab::handle_collab_peer_event(&event, &ctx.loop_ctx.session.renderer, count);
+            collab::handle_collab_peer_event(&event, ctx.loop_ctx.session, Some(ctx.loop_ctx.engine), count);
             let f = ctx.loop_ctx.controller.state_mut().footer_mut();
             f.remote_active = true;
             f.remote_peers = count;
@@ -191,12 +191,18 @@ async fn handle_turn_event<B: TerminalBackend>(
             if changed {
                 ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
             }
+            if let Some(ref collab) = ctx.loop_ctx.session.collab {
+                collab.broadcast(&collab::build_usage_update(ctx.loop_ctx.engine));
+            }
             Ok(false)
         }
         TurnEvent::QuotaUpdated => {
             let changed = sync_turn_footer(ctx.loop_ctx.controller, ctx.loop_ctx.engine);
             if changed {
                 ctx.loop_ctx.batch.flush(ctx.loop_ctx.controller, true)?;
+            }
+            if let Some(ref collab) = ctx.loop_ctx.session.collab {
+                collab.broadcast(&collab::build_usage_update(ctx.loop_ctx.engine));
             }
             Ok(false)
         }
@@ -258,6 +264,7 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
             turn_number,
             prompt: turn.prompt.to_string(),
         });
+        collab.broadcast(&collab::build_usage_update(engine));
     }
 
     let (presenter, collab_presenter) = if let Some(ref collab) = session.collab {
@@ -297,6 +304,18 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     )
     .await?
     {}
+
+    let stop_reason = if cancellation.is_cancelled() {
+        "cancelled"
+    } else {
+        "completed"
+    };
+    if let Some(ref cp) = collab_presenter {
+        cp.collab.broadcast(&collab::build_usage_update(engine));
+        cp.collab.broadcast(&RpcEvent::TurnEnd {
+            stop_reason: stop_reason.to_string(),
+        });
+    }
 
     if let Some(ref cp) = collab_presenter
         && let Ok(tree) = engine.session_manager.load_tree().await
