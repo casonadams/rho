@@ -267,4 +267,7 @@ Joining a pairing session with `rho join <ticket>` connects to the host session 
 - **Co-Pilot Mode**: Provides an active prompt editor with cursor navigation, multiline editing, `Enter` prompt submissions, `Esc` generation aborts, and `Ctrl+C` draft clears.
 - **Spectator Mode**: Displays a locked `[View Only - Read Mode]` banner, suppresses text mutation, and allows quick exits via `q`, `Esc`, `Ctrl+C`, or `Ctrl+D`.
 - **Interactive Tool Approvals**: Dangerous tool executions broadcast approval requests to both screens; co-pilots can approve (`y` / `Enter`) or deny (`n` / `Esc`) via the interactive confirmation modal.
+- **Peer Identity & Hostname Attribution**: Machines exchange hostnames during cryptographic handshake. The host REPL logs collaborator hostnames in connection notices and prompt attribution badges (e.g. `● Collaborator prompt [macbook-air]: <prompt>`), falling back to `peer #<id>` when unconfigured.
+- **Turn & Prompt Synchronization**: Prompts submitted by either peer trigger formatted prompt cards in both host and guest transcripts via synchronized `TurnStart` events.
+- **Live Footer Metrics & Activity**: The guest footer continuously mirrors the active model, provider, token counts, velocity, context percent, and quota via `UsageUpdate`, switching between `Working` and `Idle` in sync with turn boundaries.
 

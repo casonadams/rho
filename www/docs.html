@@ -578,6 +578,8 @@ rho config models.guard none</code></pre>
         <li><strong>Co-Pilot Input:</strong> Full prompt bar editing with cursor navigation, multiline support, <kbd class="kbd">Enter</kbd> submissions, <kbd class="kbd">Esc</kbd> turn aborts, and <kbd class="kbd">Ctrl+C</kbd> draft clearing.</li>
         <li><strong>Spectator Mode:</strong> Locked prompt bar indicating <code>[View Only - Read Mode]</code> with quick quit keys (<kbd class="kbd">q</kbd>, <kbd class="kbd">Esc</kbd>, <kbd class="kbd">Ctrl+C</kbd>).</li>
         <li><strong>Shared Tool Approvals:</strong> If a command requires authorization, the confirmation modal appears simultaneously on both host and co-pilot screens. Either peer can approve (<kbd class="kbd">y</kbd>) or deny (<kbd class="kbd">n</kbd>) to continue execution.</li>
+        <li><strong>Peer Attribution &amp; Prompt Synchronization:</strong> Machine hostnames are securely exchanged during handshake. Submitting a prompt renders formatted user prompt cards on all screens simultaneously, with author attribution notices displayed on the host.</li>
+        <li><strong>Live Footer Metrics &amp; Activity:</strong> The guest footer continuously mirrors the active model, provider, token counts, velocity, context percent, and quota, transitioning seamlessly between working and idle states with turn execution.</li>
       </ul>
 
       <h2 id="rpc-mode">Headless &amp; IDE RPC Server Mode</h2>

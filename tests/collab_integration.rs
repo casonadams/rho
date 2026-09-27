@@ -4,7 +4,8 @@ use std::sync::Arc;
 use iroh::Endpoint;
 use iroh::endpoint::presets::Minimal;
 use rho_harness_core::collab::{
-    COLLAB_ALPN, CapabilityLevel, CollabHostConfig, CollabHostServer, CollabSessionStream, CollabSnapshot,
+    COLLAB_ALPN, CapabilityLevel, CollabHostConfig, CollabHostServer, CollabPeerEvent, CollabSessionStream,
+    CollabSnapshot,
 };
 use rho_harness_core::rpc::protocol::{RpcCommand, RpcEvent};
 
@@ -268,6 +269,13 @@ struct TestCollabFixture {
 }
 
 async fn start_test_collab_fixture(snapshot: CollabSnapshot) -> TestCollabFixture {
+    start_test_collab_fixture_with_hostname(snapshot, None).await
+}
+
+async fn start_test_collab_fixture_with_hostname(
+    snapshot: CollabSnapshot,
+    hostname: Option<String>,
+) -> TestCollabFixture {
     let config = CollabHostConfig::new()
         .with_bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)))
         .with_snapshot_provider({
@@ -291,9 +299,10 @@ async fn start_test_collab_fixture(snapshot: CollabSnapshot) -> TestCollabFixtur
         .expect("connect");
     let (send, recv) = conn.accept_bi().await.expect("accept_bi");
 
-    let mut guest_stream = CollabSessionStream::connect_guest_with_ticket(send, recv, &full_ticket)
-        .await
-        .expect("connect guest");
+    let mut guest_stream =
+        CollabSessionStream::connect_guest_with_ticket_and_hostname(send, recv, &full_ticket, hostname)
+            .await
+            .expect("connect guest");
 
     let snap = guest_stream
         .recv_snapshot()
@@ -536,6 +545,238 @@ async fn test_collab_footer_metric_and_activity_sync() {
     );
 
     drop(fixture.guest_writer);
+    fixture.server.stop().await;
+    fixture.guest_ep.close().await;
+}
+
+fn make_test_host_session(
+    server: &Arc<CollabHostServer>,
+    renderer: rho::ui::TerminalRenderer,
+) -> rho::repl::ReplSession {
+    let mut session =
+        rho::repl::ReplSession::new(rho::config::Config::default(), rho::auth::AuthStore::default(), None);
+    session.renderer = renderer;
+    session.collab = Some(Arc::clone(server));
+    session.config.model = "claude-3-7-sonnet".to_string();
+    session.config.provider = "anthropic".to_string();
+    session
+}
+
+fn make_test_guest_controller() -> rho::ui::interactive::TerminalController<IntegrationMockBackend> {
+    let mut state = rho::ui::interactive::InteractiveState::default();
+    rho::cli::collab::guest::configure_guest_state(&mut state, CapabilityLevel::Full);
+    rho::ui::interactive::TerminalController::new(IntegrationMockBackend, state).expect("controller")
+}
+
+async fn assert_host_transcript_notice(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<rho::ui::interactive::UiEvent>,
+    expected: &str,
+) {
+    let notice = rx.recv().await.expect("host notice");
+    match notice {
+        rho::ui::interactive::UiEvent::Transcript(rho::ui::interactive::TranscriptItem::Notice(text)) => {
+            assert!(text.contains(expected));
+        }
+        _ => panic!("expected TranscriptItem::Notice"),
+    }
+}
+
+async fn assert_guest_user_message(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<rho::ui::interactive::UiEvent>,
+    expected: &str,
+) {
+    let ev = rx.recv().await.expect("guest user message");
+    match ev {
+        rho::ui::interactive::UiEvent::Transcript(rho::ui::interactive::TranscriptItem::UserMessage(prompt)) => {
+            assert_eq!(prompt, expected);
+        }
+        _ => panic!("expected TranscriptItem::UserMessage"),
+    }
+}
+
+async fn handle_next_guest_event(
+    reader: &mut rho_harness_core::collab::session::CollabReader<iroh::endpoint::RecvStream>,
+    renderer: &rho::ui::TerminalRenderer,
+    controller: &mut rho::ui::interactive::TerminalController<IntegrationMockBackend>,
+    approvals: &mut rho::cli::collab::guest::GuestApprovalState,
+) {
+    let ev = reader.recv_event().await.expect("recv").expect("event");
+    rho::cli::collab::guest::handle_guest_rpc_event(&ev, renderer, controller, approvals)
+        .await
+        .expect("handle rpc event");
+}
+
+#[tokio::test]
+async fn test_collab_lifecycle_peer_connect_and_prompt_sync() {
+    let initial_snapshot = CollabSnapshot::new(vec![], "idle");
+    let mut fixture = start_test_collab_fixture_with_hostname(initial_snapshot, Some("cadams-laptop".into())).await;
+
+    let (host_ui, mut host_ui_rx) = rho::ui::interactive::InteractiveUi::channel();
+    let host_session = make_test_host_session(&fixture.server, rho::ui::TerminalRenderer::with_ui(host_ui));
+
+    let (guest_ui, mut guest_ui_rx) = rho::ui::interactive::InteractiveUi::channel();
+    let guest_renderer = rho::ui::TerminalRenderer::with_ui(guest_ui);
+    let mut guest_controller = make_test_guest_controller();
+    let mut guest_approvals = rho::cli::collab::guest::GuestApprovalState::default();
+
+    let peer_event = fixture.server.recv_peer_event().await.expect("peer event");
+    assert!(
+        matches!(peer_event, CollabPeerEvent::Connected(ref info) if info.hostname.as_deref() == Some("cadams-laptop"))
+    );
+    rho::repl::handle_collab_peer_event(&peer_event, &host_session, None, 1);
+    assert_host_transcript_notice(
+        &mut host_ui_rx,
+        "Collaborator connected: cadams-laptop (co-pilot, 1 peer(s) total)",
+    )
+    .await;
+
+    handle_next_guest_event(
+        &mut fixture.guest_reader,
+        &guest_renderer,
+        &mut guest_controller,
+        &mut guest_approvals,
+    )
+    .await;
+    assert_eq!(guest_controller.state().footer().model, "claude-3-7-sonnet");
+    assert_eq!(guest_controller.state().footer().provider, "anthropic");
+
+    let prompt_cmd = RpcCommand::Prompt {
+        message: "refactor auth module".into(),
+        images: None,
+        streaming_behavior: None,
+    };
+    fixture
+        .guest_writer
+        .send_command(&prompt_cmd)
+        .await
+        .expect("send prompt");
+
+    let received_cmd = fixture.server.recv_command().await.expect("server recv command");
+    assert_eq!(received_cmd.peer_id, 1);
+    let queued = rho::repl::handle_collab_idle_command(received_cmd, &host_session);
+    assert!(matches!(queued, Some(ref q) if q.text == "refactor auth module"));
+    assert_host_transcript_notice(
+        &mut host_ui_rx,
+        "Collaborator prompt [cadams-laptop]: refactor auth module",
+    )
+    .await;
+
+    let turn_start_ev = RpcEvent::TurnStart {
+        turn_number: 1,
+        prompt: "refactor auth module".into(),
+    };
+    fixture.server.broadcast(&turn_start_ev);
+
+    handle_next_guest_event(
+        &mut fixture.guest_reader,
+        &guest_renderer,
+        &mut guest_controller,
+        &mut guest_approvals,
+    )
+    .await;
+    assert_eq!(
+        guest_controller.state().footer().activity,
+        rho::ui::interactive::Activity::Working
+    );
+
+    assert_guest_user_message(&mut guest_ui_rx, "refactor auth module").await;
+
+    fixture.server.stop().await;
+    fixture.guest_ep.close().await;
+}
+
+#[tokio::test]
+async fn test_collab_lifecycle_streaming_usage_and_turn_completion() {
+    let initial_snapshot = CollabSnapshot::new(vec![], "idle");
+    let mut fixture = start_test_collab_fixture_with_hostname(initial_snapshot, Some("cadams-laptop".into())).await;
+
+    let (host_ui, mut host_ui_rx) = rho::ui::interactive::InteractiveUi::channel();
+    let host_session = make_test_host_session(&fixture.server, rho::ui::TerminalRenderer::with_ui(host_ui));
+    let _connect_event = fixture.server.recv_peer_event().await.expect("connect event");
+
+    let (guest_ui, _guest_ui_rx) = rho::ui::interactive::InteractiveUi::channel();
+    let guest_renderer = rho::ui::TerminalRenderer::with_ui(guest_ui);
+    let mut guest_controller = make_test_guest_controller();
+    let mut guest_approvals = rho::cli::collab::guest::GuestApprovalState::default();
+
+    let usage_ev = RpcEvent::UsageUpdate {
+        input_tokens: Some(1250),
+        output_tokens: Some(340),
+        cache_read_tokens: Some(150),
+        cache_write_tokens: Some(60),
+        total_cost: Some(0.024),
+        context_percent: Some(22.0),
+        context_window: Some(200_000),
+        tokens_per_second: Some(48.5),
+        quota: Some("80%".into()),
+    };
+    fixture.server.broadcast(&usage_ev);
+    handle_next_guest_event(
+        &mut fixture.guest_reader,
+        &guest_renderer,
+        &mut guest_controller,
+        &mut guest_approvals,
+    )
+    .await;
+    let f = guest_controller.state().footer();
+    assert_eq!(f.total_input_tokens, 1250);
+    assert_eq!(f.total_output_tokens, 340);
+    assert_eq!(f.total_cache_read_tokens, 150);
+    assert_eq!(f.total_cache_write_tokens, 60);
+    assert_eq!(f.total_cost, Some(0.024));
+    assert_eq!(f.context_percent, Some(22.0));
+    assert_eq!(f.tokens_per_second, Some(48.5));
+    assert_eq!(f.quota, Some("80%".into()));
+
+    let turn_end_ev = RpcEvent::TurnEnd {
+        stop_reason: "completed".into(),
+    };
+    fixture.server.broadcast(&turn_end_ev);
+    handle_next_guest_event(
+        &mut fixture.guest_reader,
+        &guest_renderer,
+        &mut guest_controller,
+        &mut guest_approvals,
+    )
+    .await;
+    assert_eq!(
+        guest_controller.state().footer().activity,
+        rho::ui::interactive::Activity::Idle
+    );
+
+    drop(fixture.guest_writer);
+    let disconnect_event = fixture.server.recv_peer_event().await.expect("disconnect event");
+    assert!(
+        matches!(disconnect_event, CollabPeerEvent::Disconnected { ref display_name, .. } if display_name == "cadams-laptop")
+    );
+    rho::repl::handle_collab_peer_event(&disconnect_event, &host_session, None, 0);
+    assert_host_transcript_notice(
+        &mut host_ui_rx,
+        "Collaborator cadams-laptop disconnected (0 peer(s) remaining)",
+    )
+    .await;
+
+    fixture.server.stop().await;
+    fixture.guest_ep.close().await;
+}
+
+#[tokio::test]
+async fn test_collab_peer_hostname_fallback_when_none() {
+    let initial_snapshot = CollabSnapshot::new(vec![], "idle");
+    let fixture = start_test_collab_fixture_with_hostname(initial_snapshot, None).await;
+
+    let (host_ui, mut host_ui_rx) = rho::ui::interactive::InteractiveUi::channel();
+    let host_session = make_test_host_session(&fixture.server, rho::ui::TerminalRenderer::with_ui(host_ui));
+
+    let peer_event = fixture.server.recv_peer_event().await.expect("peer event");
+    assert!(matches!(peer_event, CollabPeerEvent::Connected(ref info) if info.hostname.is_none()));
+    rho::repl::handle_collab_peer_event(&peer_event, &host_session, None, 1);
+    assert_host_transcript_notice(
+        &mut host_ui_rx,
+        "Collaborator connected: peer #1 (co-pilot, 1 peer(s) total)",
+    )
+    .await;
+
     fixture.server.stop().await;
     fixture.guest_ep.close().await;
 }
