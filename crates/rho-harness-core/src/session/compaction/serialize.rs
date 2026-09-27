@@ -75,12 +75,16 @@ fn sanitize_tool_arguments(tool_name: &str, arguments: &serde_json::Value) -> se
     };
 
     match tool_name {
-        "write" => {
+        "write" | "write_file" => {
             sanitize_value_strings(&mut val, &["content"]);
             val
         }
-        "edit" => {
+        "edit" | "edit_file" => {
             sanitize_value_strings(&mut val, &["oldText", "old_text", "newText", "new_text"]);
+            val
+        }
+        "bash" | "sh" => {
+            sanitize_value_strings(&mut val, &["command"]);
             val
         }
         _ => arguments.clone(),

@@ -234,3 +234,47 @@ fn test_serialize_conversation_small_write_and_edit_preserved() {
     assert!(transcript.contains("\"newText\":\"tiny\""));
     assert!(!transcript.contains("truncated"));
 }
+
+#[test]
+fn test_serialize_conversation_large_bash_command_truncated() {
+    let large_script = "echo 'line of script'\n".repeat(40);
+    let msg = Message::Assistant {
+        id: None,
+        content: vec![AssistantContent::ToolCall(ToolCall::new(
+            ToolCallId::new_or_mint("call-bash"),
+            ToolFunction::new(
+                "bash".to_string(),
+                serde_json::json!({
+                    "command": large_script,
+                }),
+            ),
+        ))],
+    };
+
+    let transcript = serialize_conversation(&[msg]);
+    assert!(transcript.contains("[Assistant tool call]: bash("));
+    assert!(transcript.contains("[truncated: 40 lines, "));
+    assert!(!transcript.contains(&large_script));
+}
+
+#[test]
+fn test_serialize_conversation_file_aliases_sanitized() {
+    let large_text = "content line\n".repeat(30);
+    let msg = Message::Assistant {
+        id: None,
+        content: vec![AssistantContent::ToolCall(ToolCall::new(
+            ToolCallId::new_or_mint("call-write-file"),
+            ToolFunction::new(
+                "write_file".to_string(),
+                serde_json::json!({
+                    "path": "test.txt",
+                    "content": large_text,
+                }),
+            ),
+        ))],
+    };
+
+    let transcript = serialize_conversation(&[msg]);
+    assert!(transcript.contains("[Assistant tool call]: write_file("));
+    assert!(transcript.contains("[truncated: 30 lines, "));
+}
