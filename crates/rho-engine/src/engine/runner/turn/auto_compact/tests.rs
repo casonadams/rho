@@ -724,5 +724,250 @@ async fn test_speculative_plan_generated_in_lead_band() {
 
     let action = hook.handle(None, &history, &Message::user("Turn 3 prompt")).await;
     assert!(matches!(action, CompletionCallAction::Continue));
-    assert!(hook.speculative_plan.lock().unwrap().is_some());
+
+    let mut generated = false;
+    for _ in 0..50 {
+        if hook.speculative_plan.lock().unwrap().is_some() {
+            generated = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        generated,
+        "speculative plan should complete asynchronously in background"
+    );
+}
+
+struct BlockingDemotionHook {
+    started: Arc<tokio::sync::Notify>,
+    proceed: Arc<tokio::sync::Notify>,
+    blocked_once: std::sync::atomic::AtomicBool,
+}
+
+impl rig::memory::DemotionHook for BlockingDemotionHook {
+    fn on_demote<'a>(
+        &'a self,
+        _conversation_id: &'a str,
+        _messages: Vec<Message>,
+    ) -> rig::wasm_compat::WasmBoxedFuture<'a, Result<(), rig::memory::MemoryError>> {
+        let started = Arc::clone(&self.started);
+        let proceed = Arc::clone(&self.proceed);
+        let should_block = self
+            .blocked_once
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+            )
+            .is_ok();
+        Box::pin(async move {
+            if should_block {
+                started.notify_one();
+                proceed.notified().await;
+            }
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn test_speculative_compaction_non_blocking_and_adopted() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("## Goal\nBackground goal\n\n## Progress\n- [x] Done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let proceed = Arc::new(tokio::sync::Notify::new());
+    let blocking_hook = Arc::new(BlockingDemotionHook {
+        started: Arc::clone(&started),
+        proceed: Arc::clone(&proceed),
+        blocked_once: std::sync::atomic::AtomicBool::new(false),
+    });
+
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        10_000,
+    )
+    .with_demotion_hook(blocking_hook);
+
+    let usage = Usage {
+        input_tokens: 105_000,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let history = vec![
+        Message::user("Turn 1 prompt with details"),
+        Message::assistant("Turn 1 response with details"),
+        Message::user("Turn 2 prompt with details"),
+        Message::assistant("Turn 2 response with details"),
+    ];
+
+    // AC-001: Entering lead band returns immediately without awaiting summarization
+    let action = hook.handle(None, &history, &Message::user("Turn 3 prompt")).await;
+    assert!(matches!(action, CompletionCallAction::Continue));
+
+    // Wait until background task has reached demotion and is paused
+    started.notified().await;
+    assert!(hook.in_flight.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(hook.speculative_plan.lock().unwrap().is_none());
+
+    // Release background task to finish
+    proceed.notify_one();
+
+    // Wait for background task to complete
+    let mut completed = false;
+    for _ in 0..50 {
+        if hook.speculative_plan.lock().unwrap().is_some() {
+            completed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(completed, "speculative plan must be populated on background completion");
+    assert!(!hook.in_flight.load(std::sync::atomic::Ordering::SeqCst));
+
+    // AC-002: Hard compaction threshold adopts cached speculative plan immediately
+    let hard_usage = Usage {
+        input_tokens: 199_990,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(hard_usage, hard_usage), 100);
+
+    let hard_action = hook.handle(None, &history, &Message::user("Turn 4 prompt")).await;
+    match hard_action {
+        CompletionCallAction::Patch(patch) => {
+            let patched = patch.history.expect("patch supplies history");
+            assert!(matches!(patched[0], Message::System { .. }));
+        }
+        other => panic!("expected immediate patch from precomputed speculative plan, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_speculative_compaction_fallback_when_task_in_flight() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("## Goal\nFallback goal\n\n## Progress\n- [x] Done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let proceed = Arc::new(tokio::sync::Notify::new());
+    let blocking_hook = Arc::new(BlockingDemotionHook {
+        started: Arc::clone(&started),
+        proceed: Arc::clone(&proceed),
+        blocked_once: std::sync::atomic::AtomicBool::new(false),
+    });
+
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        10_000,
+    )
+    .with_demotion_hook(blocking_hook);
+
+    let usage = Usage {
+        input_tokens: 105_000,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let history = vec![
+        Message::user("Turn 1 prompt with details"),
+        Message::assistant("Turn 1 response with details"),
+        Message::user("Turn 2 prompt with details"),
+        Message::assistant("Turn 2 response with details"),
+    ];
+
+    let action = hook.handle(None, &history, &Message::user("Turn 3 prompt")).await;
+    assert!(matches!(action, CompletionCallAction::Continue));
+
+    started.notified().await;
+    assert!(hook.in_flight.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(hook.speculative_plan.lock().unwrap().is_none());
+
+    let hard_usage = Usage {
+        input_tokens: 199_990,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(hard_usage, hard_usage), 100);
+
+    let hard_action = hook.handle(None, &history, &Message::user("Turn 4 prompt")).await;
+    assert!(matches!(hard_action, CompletionCallAction::Patch(_)));
+
+    proceed.notify_one();
+
+    for _ in 0..50 {
+        if !hook.in_flight.load(std::sync::atomic::Ordering::SeqCst) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(hook.speculative_plan.lock().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn test_speculative_plan_discarded_if_history_reset() {
+    let dir = tempfile::tempdir().unwrap();
+    let model = MockCompletionModel::text("done");
+    let engine = engine_for(dir.path(), model);
+    let presenter = Arc::new(CapturingPresenter::default());
+
+    let precomputed_plan = super::PatchPlan {
+        cut: 10,
+        prefix: vec![Message::user("Stale speculative summary")],
+    };
+
+    let hook = AutoCompactHook::new(
+        engine.session_compactor(),
+        presenter,
+        engine.usage.clone(),
+        engine.context,
+        "anthropic",
+        50,
+    )
+    .with_speculative_plan(precomputed_plan);
+
+    let usage = Usage {
+        input_tokens: 199_990,
+        ..Default::default()
+    }
+    .into();
+    engine
+        .usage
+        .record_turn(crate::engine::tracking::TurnUsage::new(usage, usage), 100);
+
+    let short_history = vec![Message::user("Reset turn 1")];
+
+    let action = hook.handle(None, &short_history, &Message::user("Reset turn 2")).await;
+    match action {
+        CompletionCallAction::Continue => {}
+        CompletionCallAction::Patch(patch) => {
+            let patched = patch.history.expect("patch supplies history");
+            assert_ne!(patched[0], Message::user("Stale speculative summary"));
+        }
+        _ => {}
+    }
 }

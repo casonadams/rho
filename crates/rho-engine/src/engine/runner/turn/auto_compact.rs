@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use crate::engine::AgentEngine;
 use crate::engine::compactor::SessionCompactor;
@@ -90,6 +91,8 @@ pub(crate) struct AutoCompactHook {
     demotion_hook: Option<Arc<dyn rig::memory::DemotionHook>>,
     prune_policy: super::PrunePolicy,
     speculative_plan: Arc<std::sync::Mutex<Option<PatchPlan>>>,
+    in_flight: Arc<AtomicBool>,
+    speculative_epoch: Arc<AtomicU64>,
 }
 
 impl AutoCompactHook {
@@ -112,6 +115,8 @@ impl AutoCompactHook {
             demotion_hook,
             prune_policy: super::PrunePolicy::cache_preserving(),
             speculative_plan: Arc::new(std::sync::Mutex::new(None)),
+            in_flight: Arc::new(AtomicBool::new(false)),
+            speculative_epoch: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -137,6 +142,8 @@ impl AutoCompactHook {
     }
 
     async fn compact_and_plan(&self, history: &[Message], base_len: usize) -> Option<PatchPlan> {
+        self.speculative_epoch.fetch_add(1, Ordering::SeqCst);
+        *self.speculative_plan.lock().unwrap() = None;
         let spinner = self.presenter.start_spinner("Compacting...");
         match self.compactor.compact(None).await {
             Ok(stats) if !stats.summary.is_empty() => {
@@ -172,55 +179,83 @@ impl AutoCompactHook {
     }
 
     async fn ephemeral_plan(&self, history: &[Message]) -> Option<PatchPlan> {
-        let model = self.model_name();
-        let cut = find_token_cut_point(history, self.compactor.keep_recent_tokens(), model);
-        if cut.cut_index == 0 {
-            return None;
-        }
-        let evicted = &history[..cut.cut_index];
-        crate::engine::compactor::orchestrator::dispatch_demote(
+        run_ephemeral_plan(
+            &self.compactor,
             self.demotion_hook.as_ref(),
-            &self.compactor.session_manager().session_id,
-            evicted,
+            &self.context,
+            &self.usage,
+            history,
+        )
+        .await
+    }
+}
+
+fn truncate_summary(summary: String, max_bytes: usize) -> String {
+    if max_bytes > 0 && summary.len() > max_bytes {
+        let mut end = max_bytes;
+        while end > 0 && !summary.is_char_boundary(end) {
+            end -= 1;
+        }
+        summary[..end].to_string()
+    } else {
+        summary
+    }
+}
+
+async fn run_ephemeral_plan(
+    compactor: &SessionCompactor,
+    demotion_hook: Option<&Arc<dyn rig::memory::DemotionHook>>,
+    context: &ContextTracker,
+    usage: &UsageTracker,
+    history: &[Message],
+) -> Option<PatchPlan> {
+    let model = compactor.model_name();
+    let cut = find_token_cut_point(history, compactor.keep_recent_tokens(), model);
+    if cut.cut_index == 0 {
+        return None;
+    }
+    let evicted = &history[..cut.cut_index];
+    crate::engine::compactor::orchestrator::dispatch_demote(
+        demotion_hook,
+        &compactor.session_manager().session_id,
+        evicted,
+    )
+    .await;
+    let compactor_llm = LlmCompactor::new(compactor.model().cloned());
+    let summary = compactor_llm
+        .summarize(
+            &history[..cut.cut_index],
+            SummarizeOptions {
+                prior_summary: None,
+                custom_instructions: None,
+                is_split_turn: cut.is_split_turn,
+                structured: false,
+            },
         )
         .await;
-        let compactor = LlmCompactor::new(self.compactor.model().cloned());
-        let summary = compactor
-            .summarize(
-                &history[..cut.cut_index],
-                SummarizeOptions {
-                    prior_summary: None,
-                    custom_instructions: None,
-                    is_split_turn: cut.is_split_turn,
-                    structured: false,
-                },
-            )
-            .await;
-        let summary = self.compactor.session_manager().redact_credentials(&summary);
-        let summary = if self.compactor.max_bytes() > 0 && summary.len() > self.compactor.max_bytes() {
-            let mut end = self.compactor.max_bytes();
-            while end > 0 && !summary.is_char_boundary(end) {
-                end -= 1;
-            }
-            summary[..end].to_string()
-        } else {
-            summary
-        };
-        let summary_message = compaction_summary_message(&summary);
-        let mut kept_with_summary = vec![summary_message.clone()];
-        kept_with_summary.extend_from_slice(&history[cut.cut_index..]);
-        let tokens_after = self
-            .context
-            .calculate_context_tokens(&kept_with_summary, None, model)
-            .total_tokens;
-        self.usage.record(StructuralUsage {
-            input_tokens: tokens_after as u64,
-            ..Default::default()
-        });
-        Some(PatchPlan {
-            cut: cut.cut_index,
-            prefix: vec![summary_message],
-        })
+    let summary = compactor.session_manager().redact_credentials(&summary);
+    let summary = truncate_summary(summary, compactor.max_bytes());
+    let summary_message = compaction_summary_message(&summary);
+    let mut kept_with_summary = vec![summary_message.clone()];
+    kept_with_summary.extend_from_slice(&history[cut.cut_index..]);
+    let tokens_after = context
+        .calculate_context_tokens(&kept_with_summary, None, model)
+        .total_tokens;
+    usage.record(StructuralUsage {
+        input_tokens: tokens_after as u64,
+        ..Default::default()
+    });
+    Some(PatchPlan {
+        cut: cut.cut_index,
+        prefix: vec![summary_message],
+    })
+}
+
+struct InFlightGuard(Arc<AtomicBool>);
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -231,6 +266,40 @@ impl AgentHook for AutoCompactHook {
 }
 
 impl AutoCompactHook {
+    fn spawn_speculative_compaction(&self, history: &[Message]) {
+        if self.speculative_plan.lock().unwrap().is_some() {
+            return;
+        }
+        if self
+            .in_flight
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
+
+        let compactor = self.compactor.clone();
+        let demotion_hook = self.demotion_hook.clone();
+        let context = self.context.clone();
+        let usage = self.usage.clone();
+        let plan_slot = Arc::clone(&self.speculative_plan);
+        let in_flight = Arc::clone(&self.in_flight);
+        let epoch = Arc::clone(&self.speculative_epoch);
+        let current_epoch = epoch.load(Ordering::SeqCst);
+        let history = history.to_vec();
+
+        tokio::spawn(async move {
+            let _guard = InFlightGuard(in_flight);
+            if let Some(plan) = run_ephemeral_plan(&compactor, demotion_hook.as_ref(), &context, &usage, &history).await
+            {
+                let mut slot = plan_slot.lock().unwrap();
+                if epoch.load(Ordering::SeqCst) == current_epoch {
+                    *slot = Some(plan);
+                }
+            }
+        });
+    }
+
     async fn check_and_execute_compaction(
         &self,
         effective_history: &[Message],
@@ -250,17 +319,17 @@ impl AutoCompactHook {
 
         if should_compact(messages, window, self.reserve_tokens) {
             let cached = self.speculative_plan.lock().unwrap().take();
-            if let Some(p) = cached {
+            if let Some(p) = cached
+                && p.cut <= effective_history.len()
+            {
+                self.speculative_epoch.fetch_add(1, Ordering::SeqCst);
                 return Some(p);
             }
             return self.compact_and_plan(effective_history, base_len).await;
         }
 
         if rho_harness_core::tokens::is_in_lead_band(messages, window, self.reserve_tokens) {
-            let empty = self.speculative_plan.lock().unwrap().is_none();
-            if empty && let Some(plan) = self.ephemeral_plan(effective_history).await {
-                *self.speculative_plan.lock().unwrap() = Some(plan);
-            }
+            self.spawn_speculative_compaction(effective_history);
         }
         None
     }

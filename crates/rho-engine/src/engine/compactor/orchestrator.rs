@@ -140,6 +140,7 @@ fn filter_conversation_messages(
 
 /// Compaction orchestration over the durable session tree. Shared by the
 /// engine's compaction entry points and the mid-run auto-compaction hook.
+#[derive(Clone)]
 pub struct SessionCompactor {
     session_manager: SessionManager,
     usage: UsageTracker,
