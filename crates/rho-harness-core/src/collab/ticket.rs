@@ -41,6 +41,20 @@ impl CollabTicket {
         }
     }
 
+    pub fn parse(s: &str) -> std::result::Result<Self, TicketError> {
+        s.parse()
+    }
+
+    #[must_use]
+    pub fn to_endpoint_addr(&self) -> iroh::EndpointAddr {
+        let addr = iroh::EndpointAddr::new(self.endpoint_id);
+        if let Some(ref relay) = self.relay_url {
+            addr.with_relay_url(relay.clone())
+        } else {
+            addr
+        }
+    }
+
     #[must_use]
     pub fn to_uri(&self) -> String {
         let b64_secret = URL_SAFE_NO_PAD.encode(self.secret);

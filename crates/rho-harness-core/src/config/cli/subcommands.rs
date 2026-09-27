@@ -31,6 +31,25 @@ pub enum Commands {
         #[command(subcommand)]
         action: Option<McpCommands>,
     },
+    /// Join an active terminal collaboration session
+    Join {
+        /// Invitation ticket URI (rho://...)
+        ticket: String,
+    },
+    /// Manage peer-to-peer collaboration sessions
+    Collab {
+        #[command(subcommand)]
+        action: CollabCommands,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
+pub enum CollabCommands {
+    /// Join an active terminal collaboration session
+    Join {
+        /// Invitation ticket URI (rho://...)
+        ticket: String,
+    },
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]

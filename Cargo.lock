@@ -3810,6 +3810,7 @@ dependencies = [
  "fuzzy-matcher",
  "image",
  "indicatif",
+ "iroh",
  "libc",
  "merman",
  "pulldown-cmark",

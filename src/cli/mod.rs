@@ -2,6 +2,7 @@
 //! flows, self-update, and process cleanup guards.
 
 pub mod auth;
+pub mod collab;
 mod commands;
 pub mod mcp;
 pub mod rpc;

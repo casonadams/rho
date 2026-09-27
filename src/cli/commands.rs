@@ -47,6 +47,14 @@ pub async fn handle_command(
     match cmd {
         Commands::Mcp { action } => super::mcp::handle_mcp(action, config, auth_store).await?,
         Commands::Update => handle_update_command(config).await?,
+        Commands::Join { ticket } => {
+            super::collab::run_guest_client(&ticket).await?;
+        }
+        Commands::Collab { action } => match action {
+            crate::config::cli::CollabCommands::Join { ticket } => {
+                super::collab::run_guest_client(&ticket).await?;
+            }
+        },
         _ => {}
     }
     Ok(())

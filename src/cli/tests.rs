@@ -235,3 +235,40 @@ async fn test_handle_command_config_variants() {
     let saved = std::fs::read_to_string(config.config_dir.join("config.toml")).unwrap();
     assert!(saved.contains("custom-model"));
 }
+
+#[tokio::test]
+async fn test_handle_command_join_and_collab_subcommand() {
+    use super::commands::handle_command;
+    use crate::auth::AuthStore;
+    use crate::config::Config;
+    use crate::config::cli::{CollabCommands, Commands};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config = Config {
+        config_dir: temp_dir.path().to_path_buf(),
+        ..Config::default()
+    };
+    let mut auth_store = AuthStore::default();
+
+    let res_join = handle_command(
+        Commands::Join {
+            ticket: "invalid-ticket".into(),
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res_join.is_err());
+
+    let res_collab = handle_command(
+        Commands::Collab {
+            action: CollabCommands::Join {
+                ticket: "invalid-ticket".into(),
+            },
+        },
+        &config,
+        &mut auth_store,
+    )
+    .await;
+    assert!(res_collab.is_err());
+}

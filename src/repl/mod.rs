@@ -5,7 +5,7 @@
 pub mod commands;
 pub mod completer;
 pub mod coordinator;
-mod input_reader;
+pub(crate) mod input_reader;
 pub mod interactive;
 mod line_mode;
 mod live;
