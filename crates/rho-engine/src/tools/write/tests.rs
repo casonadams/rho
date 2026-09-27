@@ -1,22 +1,29 @@
 use super::*;
 
 #[tokio::test]
-async fn rejects_excluded_targets_before_writing() {
-    let temp_dir = std::env::temp_dir().join(format!("write_test_{}", uuid::Uuid::new_v4()));
-    let excluded = temp_dir.join("rho");
-    tokio::fs::create_dir_all(&excluded).await.unwrap();
-    let path = excluded.join("config.toml");
-    let tool = WriteTool::with_exclusions(&temp_dir, [&excluded]);
+async fn writes_to_external_directory_successfully() {
+    let temp_workspace = std::env::temp_dir().join(format!("write_ws_{}", uuid::Uuid::new_v4()));
+    let external_dir = std::env::temp_dir().join(format!("write_ext_{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_workspace).await.unwrap();
+    tokio::fs::create_dir_all(&external_dir).await.unwrap();
+
+    let external_file = external_dir.join("external.txt");
+    let tool = WriteTool::new(&temp_workspace);
     let result = tool
         .execute(WriteArgs {
-            path: path.to_string_lossy().into_owned(),
-            content: "secret = true".to_string(),
+            path: external_file.to_string_lossy().into_owned(),
+            content: "external content".to_string(),
         })
         .await
         .unwrap();
-    assert!(result.is_error);
-    assert!(!path.exists());
-    let _ = tokio::fs::remove_dir_all(temp_dir).await;
+
+    assert!(!result.is_error);
+    assert!(result.content.contains("Successfully wrote"));
+    let read_back = tokio::fs::read_to_string(&external_file).await.unwrap();
+    assert_eq!(read_back, "external content");
+
+    let _ = tokio::fs::remove_dir_all(temp_workspace).await;
+    let _ = tokio::fs::remove_dir_all(external_dir).await;
 }
 
 #[tokio::test]

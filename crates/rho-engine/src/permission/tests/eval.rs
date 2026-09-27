@@ -56,6 +56,14 @@ fn paths_outside_working_dir_always_ask() {
 
     for path in ["/etc/passwd", "../sibling/x", "a/../../etc/x"] {
         assert_eq!(check_eval(&policy, "read", json!({"path": path})), Decision::Ask);
+        assert_eq!(
+            check_eval(&policy, "write", json!({"path": path, "content": "x"})),
+            Decision::Ask
+        );
+        assert_eq!(
+            check_eval(&policy, "edit", json!({"path": path, "edits": []})),
+            Decision::Ask
+        );
     }
     assert_eq!(
         check_eval(&policy, "read", json!({"path": "src/../main.rs"})),
@@ -71,6 +79,42 @@ fn paths_outside_working_dir_always_ask() {
             }
         ),
         Decision::Ask
+    );
+}
+
+#[test]
+fn protected_paths_always_ask() {
+    let policy = build_policy(None, None);
+    let protected = [
+        ".git/config",
+        ".git/HEAD",
+        ".rho/config.toml",
+        ".env",
+        ".env.local",
+        "sub/.env.production",
+    ];
+    for path in protected {
+        assert_eq!(
+            check_eval(&policy, "read", json!({"path": path})),
+            Decision::Ask,
+            "expected {path} to ask"
+        );
+        assert_eq!(
+            check_eval(&policy, "write", json!({"path": path, "content": ""})),
+            Decision::Ask,
+            "expected {path} to ask"
+        );
+    }
+    assert_eq!(
+        check_eval(&policy, "read", json!({"path": "src/main.rs"})),
+        Decision::Allow
+    );
+
+    let scope = parse_scope_from_str("[permission.path]\n\".env\" = \"allow\"\n").unwrap();
+    let allow_policy = build_policy(Some(scope), None);
+    assert_eq!(
+        check_eval(&allow_policy, "read", json!({"path": ".env"})),
+        Decision::Allow
     );
 }
 

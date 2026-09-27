@@ -43,6 +43,8 @@ fn protects_git_directory() {
         assert!(!workspace.can_mutate(path));
     }
     assert!(workspace.is_protected(&root.join(".git/config").display().to_string()));
+    assert!(workspace.is_protected("/external/repo/.git/config"));
+    assert!(!workspace.can_mutate("/external/repo/.git/config"));
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -52,5 +54,6 @@ fn rejects_escape_outside_workspace() {
     std::fs::create_dir_all(&root).unwrap();
     let workspace = Workspace::new(&root);
     assert!(!workspace.is_within("../outside.txt"));
+    assert!(workspace.can_mutate("../outside.txt"));
     std::fs::remove_dir_all(root).unwrap();
 }

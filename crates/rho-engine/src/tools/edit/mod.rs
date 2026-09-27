@@ -14,7 +14,6 @@ use std::path::{Path, PathBuf};
 
 pub struct EditTool {
     pub base_dir: PathBuf,
-    exclusions: Vec<PathBuf>,
 }
 
 async fn read_edit_file(path: &Path, clean_path: &str, base: &Path) -> std::result::Result<String, ToolResult> {
@@ -122,33 +121,27 @@ async fn write_edit_result(
 
 impl EditTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        Self::with_exclusions(base_dir, std::iter::empty::<&Path>())
+        Self {
+            base_dir: base_dir.as_ref().to_path_buf(),
+        }
     }
 
-    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, exclusions: I) -> Self
+    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, _exclusions: I) -> Self
     where
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
     {
-        Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
-            exclusions: exclusions.into_iter().map(|path| path.as_ref().to_path_buf()).collect(),
-        }
+        Self::new(base_dir)
     }
 
     fn validate_edit_target(&self, clean_path: &str) -> std::result::Result<(Workspace, PathBuf), ToolResult> {
         if clean_path.is_empty() {
             return Err(ToolResult::error("Empty file path provided for edit tool"));
         }
-        let workspace = Workspace::with_exclusions(&self.base_dir, &self.exclusions);
+        let workspace = Workspace::new(&self.base_dir);
         let Some(path) = workspace.resolve(clean_path) else {
             return Err(ToolResult::error("Empty file path provided for edit tool"));
         };
-        if !workspace.can_mutate(clean_path) {
-            return Err(ToolResult::error(format!(
-                "Edit target is outside the permitted workspace: {clean_path}"
-            )));
-        }
         Ok((workspace, path))
     }
 
@@ -169,11 +162,6 @@ impl EditTool {
             Ok(v) => v,
             Err(e) => return Ok(e),
         };
-        if !workspace.can_mutate(clean_path) {
-            return Ok(ToolResult::error(format!(
-                "Edit target moved outside the permitted workspace: {clean_path}"
-            )));
-        }
         write_edit_result(&path, clean_path, updated, lines, args.edits.len()).await
     }
 }

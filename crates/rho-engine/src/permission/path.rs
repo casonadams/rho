@@ -54,6 +54,25 @@ pub fn is_path_outside_working_dir(path_str: &str, cwd: Option<&Path>) -> bool {
     !is_path_within_dir(&canonical, &canonical_cwd)
 }
 
+pub fn is_protected_path(path_str: &str, cwd: Option<&Path>) -> bool {
+    let trimmed = path_str.trim();
+    if is_safe_system_path(trimmed) {
+        return false;
+    }
+    let base_cwd = cwd.unwrap_or(Path::new("."));
+    let canonical = canonical_path(trimmed, base_cwd);
+    let has_protected_dir = canonical
+        .components()
+        .any(|c| c.as_os_str() == ".git" || c.as_os_str() == ".rho");
+    if has_protected_dir {
+        return true;
+    }
+    canonical
+        .file_name()
+        .and_then(|f| f.to_str())
+        .is_some_and(|name| name.starts_with(".env"))
+}
+
 pub fn is_infrastructure_read(tool: &str, path_str: &str, cwd: Option<&Path>) -> bool {
     if !READ_ONLY_PATH_TOOLS.contains(&tool) {
         return false;

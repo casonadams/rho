@@ -65,10 +65,7 @@ impl Workspace {
             return false;
         };
         let canonical = canonicalize_path(&candidate);
-        canonical
-            .strip_prefix(&self.root)
-            .ok()
-            .is_some_and(|relative| relative.components().any(|c| c.as_os_str() == ".git"))
+        canonical.components().any(|c| c.as_os_str() == ".git")
     }
 
     pub fn is_excluded(&self, raw_path: &str) -> bool {
@@ -82,7 +79,7 @@ impl Workspace {
     }
 
     pub fn can_mutate(&self, raw_path: &str) -> bool {
-        self.is_within(raw_path) && !self.is_protected(raw_path) && !self.is_excluded(raw_path)
+        !self.is_protected(raw_path) && !self.is_excluded(raw_path)
     }
 
     pub fn list_files(&self, max_files: usize) -> Vec<String> {

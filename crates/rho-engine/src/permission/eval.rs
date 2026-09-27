@@ -1,7 +1,7 @@
 use super::bash::analyze_bash_command;
 use super::path::{
     extract_mcp_path, extract_mcp_targets, extract_tool_path, is_infrastructure_read, is_path_outside_working_dir,
-    path_policy_values,
+    is_protected_path, path_policy_values,
 };
 use super::policy::{PermissionState, Policy, PolicyRule, SurfaceDecision, SurfaceKind, decide_surface};
 use super::suggest::{match_input, suggested_rule};
@@ -166,7 +166,7 @@ fn path_component(rules: &[PolicyRule], token: &str, cwd: Option<&Path>) -> Comp
     let dec = decide_surface(rules, ("path", &vals), SurfaceKind::Any);
     let decision = if dec.matched_pattern.is_some() {
         map_surface_decision("path", dec)
-    } else if is_path_outside_working_dir(token, cwd) {
+    } else if is_path_outside_working_dir(token, cwd) || is_protected_path(token, cwd) {
         Decision::Ask
     } else {
         Decision::Allow

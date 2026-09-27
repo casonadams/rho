@@ -169,3 +169,35 @@ async fn test_edit_rejects_directory() {
 
     let _ = tokio::fs::remove_dir_all(temp_dir).await;
 }
+
+#[tokio::test]
+async fn test_edit_external_file_successfully() {
+    let temp_workspace = std::env::temp_dir().join(format!("edit_ws_{}", uuid::Uuid::new_v4()));
+    let external_dir = std::env::temp_dir().join(format!("edit_ext_{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir_all(&temp_workspace).await.unwrap();
+    tokio::fs::create_dir_all(&external_dir).await.unwrap();
+
+    let external_file = external_dir.join("external_edit.txt");
+    tokio::fs::write(&external_file, "initial external line\n")
+        .await
+        .unwrap();
+
+    let tool = EditTool::new(&temp_workspace);
+    let res = tool
+        .execute(EditArgs {
+            path: external_file.to_str().unwrap().to_string(),
+            edits: vec![EditReplacement {
+                old_text: "initial external line".to_string(),
+                new_text: "modified external line".to_string(),
+            }],
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    let updated = tokio::fs::read_to_string(&external_file).await.unwrap();
+    assert_eq!(updated, "modified external line\n");
+
+    let _ = tokio::fs::remove_dir_all(temp_workspace).await;
+    let _ = tokio::fs::remove_dir_all(external_dir).await;
+}

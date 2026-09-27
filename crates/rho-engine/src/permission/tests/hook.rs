@@ -9,7 +9,7 @@ use super::mock::MockHookPresenter;
 use crate::permission::guard::GuardEvaluator;
 use crate::permission::hook::PermissionHook;
 use crate::permission::policy::{build_policy, parse_scope_from_str};
-use crate::tools::BashTool;
+use crate::tools::{BashTool, EditTool, WriteTool};
 
 #[tokio::test]
 async fn test_allowed_call_runs_silently() {
@@ -347,4 +347,77 @@ async fn test_guard_evaluator_headless_denies_unsafe_command() {
     let history = format!("{:?}", model.requests()[1].chat_history);
     assert!(history.contains("Cluster deletion is unsafe"));
     assert!(history.contains("cannot prompt in headless mode"));
+}
+
+#[tokio::test]
+async fn test_external_write_prompts_and_completes_on_allow() {
+    let ws_dir = tempdir().unwrap();
+    let ext_dir = tempdir().unwrap();
+    let ext_file = ext_dir.path().join("hook_written.txt");
+
+    let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
+    let policy = build_policy(None, None);
+    let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
+
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call(
+            "1",
+            "write",
+            json!({
+                "path": ext_file.to_string_lossy(),
+                "content": "external write through hook"
+            }),
+        ),
+        MockTurn::text("done"),
+    ]);
+
+    let agent = AgentBuilder::new(model.clone())
+        .tool(WriteTool::new(ws_dir.path()))
+        .add_hook(hook)
+        .build();
+
+    let response = agent.runner("write external").max_turns(2).run().await.unwrap();
+    assert_eq!(response.output, "done");
+    assert!(presenter.last_prompt.lock().unwrap().is_some());
+    assert_eq!(
+        std::fs::read_to_string(&ext_file).unwrap(),
+        "external write through hook"
+    );
+}
+
+#[tokio::test]
+async fn test_external_edit_prompts_and_completes_on_allow() {
+    let ws_dir = tempdir().unwrap();
+    let ext_dir = tempdir().unwrap();
+    let ext_file = ext_dir.path().join("hook_edited.txt");
+    std::fs::write(&ext_file, "before edit\n").unwrap();
+
+    let presenter = Arc::new(MockHookPresenter::new(true, Some(InteractionResponse::Selected(0))));
+    let policy = build_policy(None, None);
+    let hook = PermissionHook::with_policy(Some(ws_dir.path().to_path_buf()), presenter.clone(), policy);
+
+    let model = MockCompletionModel::new([
+        MockTurn::tool_call(
+            "1",
+            "edit",
+            json!({
+                "path": ext_file.to_string_lossy(),
+                "edits": [{
+                    "oldText": "before edit",
+                    "newText": "after edit"
+                }]
+            }),
+        ),
+        MockTurn::text("done"),
+    ]);
+
+    let agent = AgentBuilder::new(model.clone())
+        .tool(EditTool::new(ws_dir.path()))
+        .add_hook(hook)
+        .build();
+
+    let response = agent.runner("edit external").max_turns(2).run().await.unwrap();
+    assert_eq!(response.output, "done");
+    assert!(presenter.last_prompt.lock().unwrap().is_some());
+    assert_eq!(std::fs::read_to_string(&ext_file).unwrap(), "after edit\n");
 }

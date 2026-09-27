@@ -11,7 +11,6 @@ mod tests;
 
 pub struct WriteTool {
     pub base_dir: PathBuf,
-    exclusions: Vec<PathBuf>,
 }
 
 fn validate_write_workspace(
@@ -21,11 +20,6 @@ fn validate_write_workspace(
     let Some(path) = workspace.resolve(clean_path) else {
         return Err(ToolResult::error("Empty file path provided for write tool"));
     };
-    if !workspace.can_mutate(clean_path) {
-        return Err(ToolResult::error(format!(
-            "Write target is outside the permitted workspace: {clean_path}"
-        )));
-    }
     Ok(path)
 }
 
@@ -62,18 +56,17 @@ async fn perform_atomic_write(path: &Path, clean_path: &str, content: &str) -> R
 
 impl WriteTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        Self::with_exclusions(base_dir, std::iter::empty::<&Path>())
+        Self {
+            base_dir: base_dir.as_ref().to_path_buf(),
+        }
     }
 
-    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, exclusions: I) -> Self
+    pub fn with_exclusions<I, P>(base_dir: impl AsRef<Path>, _exclusions: I) -> Self
     where
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
     {
-        Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
-            exclusions: exclusions.into_iter().map(|path| path.as_ref().to_path_buf()).collect(),
-        }
+        Self::new(base_dir)
     }
 
     pub async fn execute(&self, args: WriteArgs) -> Result<ToolResult, AppError> {
@@ -82,7 +75,7 @@ impl WriteTool {
             return Ok(ToolResult::error("Empty file path provided for write tool"));
         }
 
-        let workspace = Workspace::with_exclusions(&self.base_dir, &self.exclusions);
+        let workspace = Workspace::new(&self.base_dir);
         let path = match validate_write_workspace(&workspace, clean_path) {
             Ok(p) => p,
             Err(e) => return Ok(e),
@@ -92,11 +85,6 @@ impl WriteTool {
         }
         if let Err(e) = ensure_parent_dir(&path, clean_path).await {
             return Ok(e);
-        }
-        if !workspace.can_mutate(clean_path) {
-            return Ok(ToolResult::error(format!(
-                "Write target moved outside the permitted workspace: {clean_path}"
-            )));
         }
 
         perform_atomic_write(&path, clean_path, &args.content).await
