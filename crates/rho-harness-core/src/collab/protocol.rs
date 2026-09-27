@@ -16,6 +16,8 @@ pub struct HandshakeChallenge {
 pub struct HandshakeResponse {
     pub role: CapabilityLevel,
     pub auth_mac: [u8; 32],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hostname: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -79,11 +81,43 @@ impl TryFrom<crate::rpc::protocol::RpcEvent> for CollabSnapshot {
     }
 }
 
+#[must_use]
+pub fn sanitize_hostname(name: &str) -> String {
+    let stripped = strip_ansi_escapes::strip_str(name);
+    let filtered: String = stripped.chars().filter(|c| !c.is_control()).collect();
+    let trimmed = filtered.trim();
+    let truncated: String = trimmed.chars().take(32).collect();
+    truncated.trim_end().to_string()
+}
+
+#[must_use]
+pub fn get_host_name() -> String {
+    if let Ok(name) = std::env::var("HOSTNAME") {
+        let sanitized = sanitize_hostname(&name);
+        if !sanitized.is_empty() {
+            return sanitized;
+        }
+    }
+    std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| sanitize_hostname(&s))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 pub async fn perform_host_handshake<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
     reader: &mut JsonLinesReader<R>,
     writer: &mut JsonLinesWriter<W>,
     secret: &CollabSecret,
-) -> Result<CapabilityLevel> {
+) -> Result<(CapabilityLevel, Option<String>)> {
     let rng = SystemRandom::new();
     let mut nonce = [0u8; 32];
     rng.fill(&mut nonce)
@@ -134,7 +168,13 @@ pub async fn perform_host_handshake<R: AsyncBufRead + Unpin, W: AsyncWrite + Unp
     });
     writer.write_message(&ack).await?;
 
-    Ok(resp.role)
+    let peer_hostname = resp
+        .hostname
+        .as_deref()
+        .map(sanitize_hostname)
+        .filter(|s| !s.is_empty());
+
+    Ok((resp.role, peer_hostname))
 }
 
 pub async fn perform_guest_handshake<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
@@ -143,6 +183,7 @@ pub async fn perform_guest_handshake<R: AsyncBufRead + Unpin, W: AsyncWrite + Un
     key_material: &[u8; 32],
     is_seed: bool,
     desired_role: CapabilityLevel,
+    hostname: Option<String>,
 ) -> Result<CapabilityLevel> {
     let msg: HandshakeMessage = reader
         .read_message()
@@ -177,9 +218,11 @@ pub async fn perform_guest_handshake<R: AsyncBufRead + Unpin, W: AsyncWrite + Un
     };
 
     let auth_mac = CollabSecret::sign_challenge(&effective_key, &challenge.nonce);
+    let sanitized_hostname = hostname.as_deref().map(sanitize_hostname).filter(|s| !s.is_empty());
     let response = HandshakeMessage::Response(HandshakeResponse {
         role: desired_role,
         auth_mac,
+        hostname: sanitized_hostname,
     });
     writer.write_message(&response).await?;
 
@@ -227,10 +270,12 @@ mod tests {
             secret.seed(),
             true,
             CapabilityLevel::Full,
+            None,
         );
 
-        let (host_role, guest_role) = tokio::try_join!(host_fut, guest_fut).expect("handshake failed");
+        let ((host_role, peer_hostname), guest_role) = tokio::try_join!(host_fut, guest_fut).expect("handshake failed");
         assert_eq!(host_role, CapabilityLevel::Full);
+        assert_eq!(peer_hostname, None);
         assert_eq!(guest_role, CapabilityLevel::Full);
     }
 
@@ -255,9 +300,10 @@ mod tests {
             &read_key,
             false,
             CapabilityLevel::ViewOnly,
+            None,
         );
 
-        let (host_role, guest_role) = tokio::try_join!(host_fut, guest_fut).expect("handshake failed");
+        let ((host_role, _), guest_role) = tokio::try_join!(host_fut, guest_fut).expect("handshake failed");
         assert_eq!(host_role, CapabilityLevel::ViewOnly);
         assert_eq!(guest_role, CapabilityLevel::ViewOnly);
     }
@@ -290,6 +336,7 @@ mod tests {
                 .write_message(&HandshakeMessage::Response(HandshakeResponse {
                     role: CapabilityLevel::Full,
                     auth_mac: forged_mac,
+                    hostname: None,
                 }))
                 .await?;
             let ack_msg: HandshakeMessage = guest_reader
@@ -331,6 +378,7 @@ mod tests {
             &bogus_key,
             false,
             CapabilityLevel::ViewOnly,
+            None,
         );
 
         let (host_res, guest_res) = tokio::join!(host_fut, guest_fut);
@@ -344,5 +392,74 @@ mod tests {
         let event = snapshot.to_rpc_event();
         let parsed = CollabSnapshot::try_from(event).expect("roundtrip conversion");
         assert_eq!(parsed, snapshot);
+    }
+
+    #[test]
+    fn test_handshake_response_serialization_with_and_without_hostname() {
+        let resp_with = HandshakeResponse {
+            role: CapabilityLevel::Full,
+            auth_mac: [1u8; 32],
+            hostname: Some("worker-node".into()),
+        };
+        let json_with = serde_json::to_string(&resp_with).expect("serialize with");
+        assert!(json_with.contains("\"hostname\":\"worker-node\""));
+        let deserialized_with: HandshakeResponse = serde_json::from_str(&json_with).expect("deserialize with");
+        assert_eq!(deserialized_with, resp_with);
+
+        let resp_without = HandshakeResponse {
+            role: CapabilityLevel::ViewOnly,
+            auth_mac: [2u8; 32],
+            hostname: None,
+        };
+        let json_without = serde_json::to_string(&resp_without).expect("serialize without");
+        assert!(!json_without.contains("hostname"));
+        let deserialized_without: HandshakeResponse = serde_json::from_str(&json_without).expect("deserialize without");
+        assert_eq!(deserialized_without, resp_without);
+
+        let legacy_json =
+            r#"{"role":"full","auth_mac":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}"#;
+        let legacy_resp: HandshakeResponse = serde_json::from_str(legacy_json).expect("deserialize legacy");
+        assert_eq!(legacy_resp.hostname, None);
+    }
+
+    #[test]
+    fn test_sanitize_hostname() {
+        assert_eq!(sanitize_hostname("  valid-name  "), "valid-name");
+        assert_eq!(sanitize_hostname("\x1b[31mbad\x1b[0m"), "bad");
+        assert_eq!(sanitize_hostname("clean\t\r\nname"), "cleanname");
+        assert_eq!(
+            sanitize_hostname("a_very_long_hostname_that_exceeds_thirty_two_chars_by_a_lot"),
+            "a_very_long_hostname_that_exceed"
+        );
+        assert_eq!(sanitize_hostname("   "), "");
+    }
+
+    #[tokio::test]
+    async fn test_handshake_with_hostname_exchange() {
+        let secret = CollabSecret::generate().expect("failed to generate secret");
+        let (host_stream, guest_stream) = duplex(1024);
+
+        let (host_read, host_write) = tokio::io::split(host_stream);
+        let mut host_reader = JsonLinesReader::new(tokio::io::BufReader::new(host_read));
+        let mut host_writer = JsonLinesWriter::new(host_write);
+
+        let (guest_read, guest_write) = tokio::io::split(guest_stream);
+        let mut guest_reader = JsonLinesReader::new(tokio::io::BufReader::new(guest_read));
+        let mut guest_writer = JsonLinesWriter::new(guest_write);
+
+        let host_fut = perform_host_handshake(&mut host_reader, &mut host_writer, &secret);
+        let guest_fut = perform_guest_handshake(
+            &mut guest_reader,
+            &mut guest_writer,
+            secret.seed(),
+            true,
+            CapabilityLevel::Full,
+            Some(" \x1b[32mdev-laptop\x1b[0m ".into()),
+        );
+
+        let ((host_role, peer_hostname), guest_role) = tokio::try_join!(host_fut, guest_fut).expect("handshake failed");
+        assert_eq!(host_role, CapabilityLevel::Full);
+        assert_eq!(peer_hostname, Some("dev-laptop".to_string()));
+        assert_eq!(guest_role, CapabilityLevel::Full);
     }
 }

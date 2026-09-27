@@ -106,6 +106,7 @@ impl<R: AsyncRead + Unpin> CollabReader<R> {
 pub struct CollabSessionStream<W = iroh::endpoint::SendStream, R = iroh::endpoint::RecvStream> {
     pub writer: CollabWriter<W>,
     pub reader: CollabReader<R>,
+    pub peer_hostname: Option<String>,
 }
 
 impl<W: AsyncWrite + Unpin, R: AsyncRead + Unpin> CollabSessionStream<W, R> {
@@ -114,7 +115,19 @@ impl<W: AsyncWrite + Unpin, R: AsyncRead + Unpin> CollabSessionStream<W, R> {
         Self {
             writer: CollabWriter::new(send, role),
             reader: CollabReader::new(recv, role),
+            peer_hostname: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_peer_hostname(mut self, hostname: Option<String>) -> Self {
+        self.peer_hostname = hostname;
+        self
+    }
+
+    #[must_use]
+    pub fn peer_hostname(&self) -> Option<&str> {
+        self.peer_hostname.as_deref()
     }
 
     #[must_use]
@@ -129,7 +142,11 @@ impl<W: AsyncWrite + Unpin, R: AsyncRead + Unpin> CollabSessionStream<W, R> {
 
     #[must_use]
     pub fn from_split(writer: CollabWriter<W>, reader: CollabReader<R>) -> Self {
-        Self { writer, reader }
+        Self {
+            writer,
+            reader,
+            peer_hostname: None,
+        }
     }
 
     pub async fn send_event(&mut self, event: &RpcEvent) -> Result<()> {
@@ -173,10 +190,11 @@ impl<W: AsyncWrite + Unpin, R: AsyncRead + Unpin> CollabSessionStream<W, R> {
     pub async fn accept_host(send: W, recv: R, secret: &CollabSecret) -> Result<Self> {
         let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(recv));
         let mut writer = JsonLinesWriter::new(send);
-        let role = perform_host_handshake(&mut reader, &mut writer, secret).await?;
+        let (role, peer_hostname) = perform_host_handshake(&mut reader, &mut writer, secret).await?;
         Ok(Self {
             writer: CollabWriter { writer, role },
             reader: CollabReader { reader, role },
+            peer_hostname,
         })
     }
 
@@ -186,24 +204,37 @@ impl<W: AsyncWrite + Unpin, R: AsyncRead + Unpin> CollabSessionStream<W, R> {
         key_material: &[u8; 32],
         is_seed: bool,
         desired_role: CapabilityLevel,
+        hostname: Option<String>,
     ) -> Result<Self> {
         let mut reader = JsonLinesReader::new(tokio::io::BufReader::new(recv));
         let mut writer = JsonLinesWriter::new(send);
-        let role = perform_guest_handshake(&mut reader, &mut writer, key_material, is_seed, desired_role).await?;
+        let role =
+            perform_guest_handshake(&mut reader, &mut writer, key_material, is_seed, desired_role, hostname).await?;
         Ok(Self {
             writer: CollabWriter { writer, role },
             reader: CollabReader { reader, role },
+            peer_hostname: None,
         })
     }
 
     pub async fn connect_guest_with_ticket(send: W, recv: R, ticket: &CollabTicket) -> Result<Self> {
+        Self::connect_guest_with_ticket_and_hostname(send, recv, ticket, Some(crate::collab::protocol::get_host_name()))
+            .await
+    }
+
+    pub async fn connect_guest_with_ticket_and_hostname(
+        send: W,
+        recv: R,
+        ticket: &CollabTicket,
+        hostname: Option<String>,
+    ) -> Result<Self> {
         let desired_role = if ticket.is_view_only {
             CapabilityLevel::ViewOnly
         } else {
             CapabilityLevel::Full
         };
         let is_seed = !ticket.is_view_only;
-        Self::connect_guest(send, recv, &ticket.secret, is_seed, desired_role).await
+        Self::connect_guest(send, recv, &ticket.secret, is_seed, desired_role, hostname).await
     }
 }
 
@@ -224,8 +255,14 @@ mod tests {
 
         let secret_clone = secret.clone();
         let host_fut = CollabSessionStream::accept_host(host_write, host_read, &secret_clone);
-        let guest_fut =
-            CollabSessionStream::connect_guest(guest_write, guest_read, secret.seed(), true, CapabilityLevel::Full);
+        let guest_fut = CollabSessionStream::connect_guest(
+            guest_write,
+            guest_read,
+            secret.seed(),
+            true,
+            CapabilityLevel::Full,
+            None,
+        );
 
         let (mut host_s, mut guest_s) = tokio::try_join!(host_fut, guest_fut).expect("handshake");
         assert_eq!(host_s.role(), CapabilityLevel::Full);
@@ -301,7 +338,7 @@ mod tests {
         let guest_conn = guest_ep.connect(host_addr, COLLAB_ALPN).await.expect("guest connect");
         let (send, recv) = guest_conn.accept_bi().await.expect("accept_bi");
         let mut guest_stream =
-            CollabSessionStream::connect_guest(send, recv, host_secret.seed(), true, CapabilityLevel::Full)
+            CollabSessionStream::connect_guest(send, recv, host_secret.seed(), true, CapabilityLevel::Full, None)
                 .await
                 .expect("connect_guest");
         assert_eq!(guest_stream.role(), CapabilityLevel::Full);
@@ -377,7 +414,7 @@ mod tests {
         let guest_conn = guest_ep.connect(host_addr, COLLAB_ALPN).await.expect("guest connect");
         let (send, recv) = guest_conn.accept_bi().await.expect("accept_bi");
         let mut guest_stream =
-            CollabSessionStream::connect_guest(send, recv, &read_key, false, CapabilityLevel::ViewOnly)
+            CollabSessionStream::connect_guest(send, recv, &read_key, false, CapabilityLevel::ViewOnly, None)
                 .await
                 .expect("connect_guest");
         assert_eq!(guest_stream.role(), CapabilityLevel::ViewOnly);

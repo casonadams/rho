@@ -777,11 +777,13 @@ async fn collab_peers_with_connected_peers() {
         rho_harness_core::collab::CollabPeerInfo {
             id: 1,
             role: rho_harness_core::collab::CapabilityLevel::Full,
+            hostname: None,
             connected_at: chrono::Utc::now(),
         },
         rho_harness_core::collab::CollabPeerInfo {
             id: 2,
             role: rho_harness_core::collab::CapabilityLevel::ViewOnly,
+            hostname: None,
             connected_at: chrono::Utc::now(),
         },
     ];

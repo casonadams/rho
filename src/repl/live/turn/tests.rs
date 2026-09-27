@@ -746,6 +746,7 @@ async fn test_turn_quota_periodic_and_updated_events_sync_footer() {
         rho_harness_core::collab::CollabPeerInfo {
             id: 1,
             role: rho_harness_core::collab::CapabilityLevel::Full,
+            hostname: None,
             connected_at: chrono::Utc::now(),
         },
     ));

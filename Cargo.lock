@@ -3904,6 +3904,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "strip-ansi-escapes",
  "thiserror 2.0.20",
  "tiktoken-rs",
  "tokio",

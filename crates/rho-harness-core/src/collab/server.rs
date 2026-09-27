@@ -18,7 +18,33 @@ use crate::rpc::protocol::{RpcCommand, RpcEvent};
 pub struct CollabPeerInfo {
     pub id: usize,
     pub role: CapabilityLevel,
+    pub hostname: Option<String>,
     pub connected_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CollabPeerInfo {
+    #[must_use]
+    pub fn new(
+        id: usize,
+        role: CapabilityLevel,
+        hostname: Option<String>,
+        connected_at: chrono::DateTime<chrono::Utc>,
+    ) -> Self {
+        Self {
+            id,
+            role,
+            hostname,
+            connected_at,
+        }
+    }
+
+    #[must_use]
+    pub fn display_name(&self) -> String {
+        match &self.hostname {
+            Some(h) if !h.is_empty() => h.clone(),
+            _ => format!("peer #{}", self.id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -31,7 +57,11 @@ pub struct CollabIncomingCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CollabPeerEvent {
     Connected(CollabPeerInfo),
-    Disconnected { peer_id: usize, reason: String },
+    Disconnected {
+        peer_id: usize,
+        display_name: String,
+        reason: String,
+    },
 }
 
 struct ActivePeer {
@@ -389,6 +419,7 @@ async fn handle_incoming_connection(
 
     let mut session_stream = CollabSessionStream::accept_host(send, recv, &secret).await?;
     let role = session_stream.role();
+    let peer_hostname = session_stream.peer_hostname().map(ToString::to_string);
 
     let snapshot = {
         let guard = state.read().await;
@@ -405,6 +436,7 @@ async fn handle_incoming_connection(
         let info = CollabPeerInfo {
             id,
             role,
+            hostname: peer_hostname,
             connected_at: chrono::Utc::now(),
         };
         let (event_tx, event_rx) = mpsc::channel(128);
@@ -420,10 +452,11 @@ async fn handle_incoming_connection(
         (id, info, event_rx, disconnect_rx)
     };
 
-    let _ = peer_event_tx.send(CollabPeerEvent::Connected(info)).await;
+    let _ = peer_event_tx.send(CollabPeerEvent::Connected(info.clone())).await;
 
     let ctx = PeerSessionContext {
         peer_id,
+        display_name: info.display_name(),
         role,
         writer,
         reader,
@@ -438,6 +471,7 @@ async fn handle_incoming_connection(
 
 struct PeerSessionContext<W, R> {
     peer_id: usize,
+    display_name: String,
     role: CapabilityLevel,
     writer: CollabWriter<W>,
     reader: CollabReader<R>,
@@ -478,6 +512,7 @@ async fn run_peer_session<W: AsyncWrite + Unpin + Send + 'static, R: AsyncRead +
     let _ = peer_event_tx
         .send(CollabPeerEvent::Disconnected {
             peer_id: ctx.peer_id,
+            display_name: ctx.display_name,
             reason: "Stream closed".into(),
         })
         .await;
@@ -851,6 +886,67 @@ mod tests {
         let snap3 = guest3.recv_snapshot().await.expect("recv snap 3");
         assert_eq!(snap3, Some(new_snapshot));
         assert_eq!(server.peer_count().await, 3);
+
+        server.stop().await;
+        guest_ep.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_server_peer_hostname_and_events() {
+        let secret = CollabSecret::generate().expect("secret");
+        let config = CollabHostConfig::new()
+            .with_bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)))
+            .with_secret(secret);
+
+        let server = CollabHostServer::start(config).await.expect("start server");
+        let (full_ticket, _) = server.tickets().await.expect("tickets");
+
+        let guest_ep = Endpoint::builder(Minimal)
+            .bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)))
+            .expect("bind guest addr")
+            .bind()
+            .await
+            .expect("guest bind");
+
+        let guest_conn = guest_ep
+            .connect(server.endpoint().addr(), COLLAB_ALPN)
+            .await
+            .expect("guest connect");
+        let (send, recv) = guest_conn.accept_bi().await.expect("accept_bi");
+
+        let guest_stream = CollabSessionStream::connect_guest_with_ticket_and_hostname(
+            send,
+            recv,
+            &full_ticket,
+            Some("host-alice-m3".into()),
+        )
+        .await
+        .expect("connect guest");
+
+        let connect_ev = server.recv_peer_event().await;
+        let peer_info = match connect_ev {
+            Some(CollabPeerEvent::Connected(info)) => info,
+            other => panic!("expected Connected, got {other:?}"),
+        };
+        assert_eq!(peer_info.id, 1);
+        assert_eq!(peer_info.hostname.as_deref(), Some("host-alice-m3"));
+        assert_eq!(peer_info.display_name(), "host-alice-m3");
+
+        let peers = server.peers().await;
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].hostname.as_deref(), Some("host-alice-m3"));
+
+        drop(guest_stream);
+        let disconnect_ev = server.recv_peer_event().await;
+        match disconnect_ev {
+            Some(CollabPeerEvent::Disconnected {
+                peer_id, display_name, ..
+            }) => {
+                assert_eq!(peer_id, 1);
+                assert_eq!(display_name, "host-alice-m3");
+            }
+            other => panic!("expected Disconnected, got {other:?}"),
+        }
 
         server.stop().await;
         guest_ep.close().await;

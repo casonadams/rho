@@ -351,12 +351,13 @@ pub fn handle_collab_peer_event(event: &CollabPeerEvent, renderer: &TerminalRend
                 CapabilityLevel::ViewOnly => "spectator",
             };
             renderer.print_notice(&format!(
-                "\n  ● Collaborator connected ({role_label}, {peer_count} peer(s) total)\n"
+                "\n  ● Collaborator connected: {} ({role_label}, {peer_count} peer(s) total)\n",
+                info.display_name()
             ));
         }
-        CollabPeerEvent::Disconnected { peer_id, .. } => {
+        CollabPeerEvent::Disconnected { display_name, .. } => {
             renderer.print_notice(&format!(
-                "\n  ● Collaborator #{peer_id} disconnected ({peer_count} peer(s) remaining)\n"
+                "\n  ● Collaborator {display_name} disconnected ({peer_count} peer(s) remaining)\n"
             ));
         }
     }
@@ -440,12 +441,14 @@ mod tests {
         let event_connected = CollabPeerEvent::Connected(rho_harness_core::collab::CollabPeerInfo {
             id: 1,
             role: CapabilityLevel::Full,
+            hostname: Some("worker-1".into()),
             connected_at: chrono::Utc::now(),
         });
         handle_collab_peer_event(&event_connected, &renderer, 1);
 
         let event_disconnected = CollabPeerEvent::Disconnected {
             peer_id: 1,
+            display_name: "worker-1".into(),
             reason: "Stream closed".into(),
         };
         handle_collab_peer_event(&event_disconnected, &renderer, 0);
