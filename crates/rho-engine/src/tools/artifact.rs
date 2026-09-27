@@ -87,13 +87,22 @@ pub fn cleanup_artifacts(dir: &Path, max_age: Duration, max_total_bytes: u64) ->
     Ok(total_removed)
 }
 
+const DEFAULT_RETENTION_SECS: u64 = 7 * 24 * 3600;
+const DEFAULT_MAX_TOTAL_BYTES: u64 = 100 * 1024 * 1024; // 100 MB
+
 pub struct ArtifactDemotionHook {
     dir: PathBuf,
 }
 
 impl ArtifactDemotionHook {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        let dir = dir.into();
+        let _ = cleanup_artifacts(
+            &dir,
+            Duration::from_secs(DEFAULT_RETENTION_SECS),
+            DEFAULT_MAX_TOTAL_BYTES,
+        );
+        Self { dir }
     }
 
     pub fn spill_text(&self, content: &str) -> std::io::Result<PathBuf> {
@@ -179,5 +188,16 @@ mod tests {
         assert_eq!(files.len(), 1);
         let content = std::fs::read_to_string(&files[0].path).unwrap();
         assert!(content.contains("Hello from evicted context"));
+    }
+
+    #[test]
+    fn test_artifact_demotion_hook_new_initializes_and_cleans() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("f1.log");
+        std::fs::write(&file, "test data").unwrap();
+
+        let hook = ArtifactDemotionHook::new(dir.path());
+        assert_eq!(hook.dir(), dir.path());
+        assert!(file.exists());
     }
 }

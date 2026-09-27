@@ -199,6 +199,11 @@ impl AgentEngineBuilder {
     ) -> AgentEngine {
         let tool_names = tools.iter().map(|t| t.name().to_string()).collect();
         let context_limit = super::model::resolve_context_limit(&self.config);
+        let demotion_hook = self.demotion_hook.or_else(|| {
+            Some(Arc::new(crate::tools::artifact::ArtifactDemotionHook::new(
+                base_dir.join(".rho/artifacts"),
+            )))
+        });
         AgentEngine {
             config: self.config,
             base_dir,
@@ -213,7 +218,7 @@ impl AgentEngineBuilder {
             project_context: Arc::default(),
             auth_store,
             model: Some(model),
-            demotion_hook: self.demotion_hook,
+            demotion_hook,
         }
     }
 
