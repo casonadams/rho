@@ -1,4 +1,8 @@
-use crate::tools::truncate::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, format_size, truncate_head};
+use std::path::Path;
+
+use crate::tools::truncate::{
+    DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, TruncatedBy, format_size, split_artifact_notice, truncate_head_with_spill,
+};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::ReadArgs;
 
@@ -41,7 +45,7 @@ fn slice_content(content: &str, start_idx: usize, limit: Option<usize>) -> Strin
     }
 }
 
-pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs) -> ToolResult {
+pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs, artifact_dir: Option<&Path>) -> ToolResult {
     let offset = args.offset.unwrap_or(1).max(1);
     let total_lines = content.lines().count();
     let start_idx = offset.saturating_sub(1);
@@ -51,13 +55,14 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs) -> ToolR
         ));
     }
     let selected = slice_content(content, start_idx, args.limit);
-    let truncation = truncate_head(&selected, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES);
+    let truncation = truncate_head_with_spill(&selected, DEFAULT_MAX_LINES, DEFAULT_MAX_BYTES, artifact_dir);
     let start_line = start_idx + 1;
     if truncation.first_line_exceeds_limit {
         let first_line = content.lines().nth(start_idx).unwrap_or("");
         return check_first_line_oversized(first_line, start_line, clean_path);
     }
-    let mut output = number_lines(&truncation.content, start_line);
+    let (text, spilled_notice) = split_artifact_notice(&truncation.content);
+    let mut output = number_lines(text, start_line);
     if let Some(by) = truncation.truncated_by {
         let end_line = start_line + truncation.output_lines - 1;
         output.push_str(&build_truncation_notice(by, start_line, end_line, total_lines));
@@ -65,6 +70,10 @@ pub fn format_content(content: &str, clean_path: &str, args: &ReadArgs) -> ToolR
         && let Some(notice) = build_user_limit_notice(start_idx, limit, total_lines)
     {
         output.push_str(&notice);
+    }
+    if let Some(spill) = spilled_notice {
+        output.push_str("\n\n");
+        output.push_str(spill);
     }
     ToolResult::success(output)
 }

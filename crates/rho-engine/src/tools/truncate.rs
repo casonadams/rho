@@ -267,6 +267,15 @@ pub fn truncate_tail_with_spill(
     trunc
 }
 
+pub fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {
+    const SPILL_PREFIX: &str = "\n\n[Output truncated. Full content";
+    if let Some(idx) = content.rfind(SPILL_PREFIX) {
+        (&content[..idx], Some(&content[idx + 2..]))
+    } else {
+        (content, None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -450,5 +459,21 @@ mod tests {
         assert!(res.truncated);
         assert!(res.content.contains("line 4\nline 5"));
         assert!(res.content.contains("Full content (5 lines, 34B) saved to"));
+    }
+
+    #[test]
+    fn test_split_artifact_notice() {
+        let text = "main content\n\n[Output truncated. Full content (10 lines, 100B) saved to /tmp/foo.log]";
+        let (body, notice) = split_artifact_notice(text);
+        assert_eq!(body, "main content");
+        assert_eq!(
+            notice,
+            Some("[Output truncated. Full content (10 lines, 100B) saved to /tmp/foo.log]")
+        );
+
+        let clean = "clean content without notice";
+        let (body2, notice2) = split_artifact_notice(clean);
+        assert_eq!(body2, clean);
+        assert_eq!(notice2, None);
     }
 }

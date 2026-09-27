@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 pub struct ReadTool {
     pub base_dir: PathBuf,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 async fn resolve_and_read_bytes(base_dir: &Path, clean_path: &str) -> std::result::Result<Vec<u8>, ToolResult> {
@@ -51,9 +52,21 @@ async fn handle_non_text_content(raw_bytes: &[u8], clean_path: &str) -> Option<T
 
 impl ReadTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
+        let base = base_dir.as_ref().to_path_buf();
+        let artifact_dir = if base.as_os_str().is_empty() {
+            std::env::temp_dir().join("rho/artifacts")
+        } else {
+            base.join(".rho/artifacts")
+        };
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: base,
+            artifact_dir: Some(artifact_dir),
         }
+    }
+
+    pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
+        self.artifact_dir = artifact_dir;
+        self
     }
 
     pub async fn execute(&self, args: ReadArgs) -> Result<ToolResult, AppError> {
@@ -75,7 +88,12 @@ impl ReadTool {
             return Ok(ToolResult::error(format!("File contains invalid UTF-8: {clean_path}")));
         };
 
-        Ok(format_content(&content, clean_path, &args))
+        Ok(format_content(
+            &content,
+            clean_path,
+            &args,
+            self.artifact_dir.as_deref(),
+        ))
     }
 }
 

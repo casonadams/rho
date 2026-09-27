@@ -1,4 +1,8 @@
-use crate::tools::truncate::{DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, format_size, truncate_head};
+use std::path::Path;
+
+use crate::tools::truncate::{
+    DEFAULT_MAX_BYTES, GREP_MAX_LINE_LENGTH, format_size, split_artifact_notice, truncate_head_with_spill,
+};
 use crate::tools::types::ToolResult;
 
 pub const RG_COLLECTION_CEILING: usize = 5_000;
@@ -49,7 +53,7 @@ fn collect_rg_notices(total: usize, limit: usize, has_bytes: bool, has_lines: bo
     notices
 }
 
-pub fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
+pub fn format_results(mut matches: Vec<LineMatch>, limit: usize, artifact_dir: Option<&Path>) -> ToolResult {
     if matches.is_empty() {
         return ToolResult::success("No matches found");
     }
@@ -60,11 +64,16 @@ pub fn format_results(mut matches: Vec<LineMatch>, limit: usize) -> ToolResult {
     }
     let lines_truncated = matches.iter().any(|m| m.truncated);
     let rendered = render(&matches);
-    let truncation = truncate_head(&rendered, usize::MAX, DEFAULT_MAX_BYTES);
+    let truncation = truncate_head_with_spill(&rendered, usize::MAX, DEFAULT_MAX_BYTES, artifact_dir);
     let notices = collect_rg_notices(total, limit, truncation.truncated_by.is_some(), lines_truncated);
-    let mut output = truncation.content;
+    let (body, spill_notice) = split_artifact_notice(&truncation.content);
+    let mut output = body.to_string();
     if !notices.is_empty() {
         output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+    }
+    if let Some(notice) = spill_notice {
+        output.push_str("\n\n");
+        output.push_str(notice);
     }
     ToolResult::success(output)
 }

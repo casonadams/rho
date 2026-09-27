@@ -190,10 +190,11 @@ fn build_workspace_tools(base_dir: &Path, config: &Config) -> Vec<DynamicTool> {
         base_dir,
         [&config.config_dir, &config.sessions_dir],
     ));
-    let read = Arc::new(ReadTool::new(base_dir));
+    let artifact_dir = base_dir.join(".rho/artifacts");
+    let read = Arc::new(ReadTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
     let bash = Arc::new(BashTool::new(base_dir));
-    let fd = Arc::new(FdTool::new(base_dir));
-    let rg = Arc::new(RgTool::new(base_dir));
+    let fd = Arc::new(FdTool::new(base_dir).with_artifact_dir(Some(artifact_dir.clone())));
+    let rg = Arc::new(RgTool::new(base_dir).with_artifact_dir(Some(artifact_dir)));
 
     vec![
         make_read_tool(read),

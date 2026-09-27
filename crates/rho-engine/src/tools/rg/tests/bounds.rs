@@ -93,6 +93,24 @@ async fn oversized_output_is_byte_capped_before_the_notices() {
 }
 
 #[tokio::test]
+async fn test_rg_oversized_search_spills_artifact() {
+    let dir = fixture();
+    let row = format!("needle{}\n", "x".repeat(300));
+    let many: String = std::iter::repeat_n(row, 400).collect();
+    std::fs::write(dir.path().join("many.txt"), many).unwrap();
+    let result = search(&dir, "needle", |_| {}).await;
+    assert!(!result.is_error);
+    assert!(result.content.contains(".rho/artifacts"));
+    assert!(result.content.contains("[Output truncated. Full content"));
+
+    let artifact_dir = dir.path().join(".rho/artifacts");
+    let entries: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
+    assert_eq!(entries.len(), 1);
+    let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
+    assert!(spilled_content.contains("many.txt:1: needle"));
+}
+
+#[tokio::test]
 async fn empty_pattern_is_a_tool_error() {
     let dir = fixture();
     let result = search(&dir, "   ", |_| {}).await;
@@ -159,6 +177,7 @@ async fn rg_cancellation_halts_traversal_immediately() {
         include_hidden: false,
         timeout: None,
         cancellation: Some(cancellation),
+        artifact_dir: None,
     };
     let result = query.run(10);
     assert!(!result.is_error);
@@ -177,6 +196,7 @@ async fn rg_timeout_returns_timeout_error() {
         include_hidden: false,
         timeout: Some(std::time::Duration::from_millis(0)),
         cancellation: None,
+        artifact_dir: None,
     };
     let result = query.run(10);
     assert!(result.is_error);

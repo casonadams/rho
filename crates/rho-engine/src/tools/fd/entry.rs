@@ -1,5 +1,7 @@
 use super::stats::FileStats;
-use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size, truncate_head};
+use std::path::PathBuf;
+
+use crate::tools::truncate::{DEFAULT_MAX_BYTES, format_size, split_artifact_notice, truncate_head_with_spill};
 use crate::tools::types::ToolResult;
 use rho_harness_core::args::FdSort;
 
@@ -28,11 +30,12 @@ pub fn sort_entries(entries: &mut [FdEntry], sort: Option<FdSort>) {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FdFormat {
     pub hit_ceiling: bool,
     pub limit: usize,
     pub show_stats: bool,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 fn limit_notice(total: usize, limit: usize, hit_ceiling: bool) -> String {
@@ -65,6 +68,7 @@ pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResul
         hit_ceiling,
         limit,
         show_stats,
+        artifact_dir,
     } = options;
     if entries.is_empty() {
         return ToolResult::success("No files found matching pattern");
@@ -76,13 +80,18 @@ pub fn format_results(mut entries: Vec<FdEntry>, options: FdFormat) -> ToolResul
     }
 
     let content = render_fd_content(entries, show_stats);
-    let truncation = truncate_head(&content, usize::MAX, DEFAULT_MAX_BYTES);
+    let truncation = truncate_head_with_spill(&content, usize::MAX, DEFAULT_MAX_BYTES, artifact_dir.as_deref());
     if truncation.truncated_by.is_some() {
         notices.push(format!("{} limit reached", format_size(DEFAULT_MAX_BYTES)));
     }
-    let mut output = truncation.content;
+    let (body, spill_notice) = split_artifact_notice(&truncation.content);
+    let mut output = body.to_string();
     if !notices.is_empty() {
         output.push_str(&format!("\n\n[{}]", notices.join(". ")));
+    }
+    if let Some(notice) = spill_notice {
+        output.push_str("\n\n");
+        output.push_str(notice);
     }
     ToolResult::success(output)
 }

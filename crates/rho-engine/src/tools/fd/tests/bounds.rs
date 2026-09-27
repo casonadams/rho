@@ -43,12 +43,43 @@ fn oversized_output_is_byte_capped_before_the_notices() {
             hit_ceiling: false,
             limit: 250,
             show_stats: false,
+            artifact_dir: None,
         },
     );
     let body = result.content.split("\n\n").next().unwrap();
     assert!(body.len() <= crate::tools::truncate::DEFAULT_MAX_BYTES);
     assert!(result.content.contains("showing first 250 of 300 matches"));
     assert!(result.content.ends_with("path, or type. 50.0KB limit reached]"));
+}
+
+#[tokio::test]
+async fn test_fd_oversized_search_spills_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let entries: Vec<FdEntry> = (0..500)
+        .map(|i| FdEntry {
+            relative: format!("dir_{i:04}/very_long_path_name_{i:04}/{}", "nested_".repeat(20)),
+            is_dir: false,
+            stats: None,
+        })
+        .collect();
+    let result = format_results(
+        entries,
+        FdFormat {
+            hit_ceiling: false,
+            limit: 500,
+            show_stats: false,
+            artifact_dir: Some(dir.path().join(".rho/artifacts")),
+        },
+    );
+    assert!(!result.is_error);
+    assert!(result.content.contains(".rho/artifacts"));
+    assert!(result.content.contains("[Output truncated. Full content"));
+
+    let artifact_dir = dir.path().join(".rho/artifacts");
+    let files: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
+    assert_eq!(files.len(), 1);
+    let spilled_content = std::fs::read_to_string(files[0].as_ref().unwrap().path()).unwrap();
+    assert!(spilled_content.contains("dir_0000"));
 }
 
 #[tokio::test]
@@ -137,6 +168,7 @@ async fn fd_cancellation_halts_traversal_immediately() {
         show_stats: false,
         timeout: None,
         cancellation: Some(cancellation),
+        artifact_dir: None,
     };
     let result = query.run(10);
     assert!(!result.is_error);
@@ -161,6 +193,7 @@ async fn fd_timeout_returns_timeout_error() {
         show_stats: false,
         timeout: Some(std::time::Duration::from_millis(0)),
         cancellation: None,
+        artifact_dir: None,
     };
     let result = query.run(10);
     assert!(result.is_error);

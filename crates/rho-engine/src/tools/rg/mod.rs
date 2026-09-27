@@ -23,6 +23,7 @@ pub const MAX_RG_LIMIT: usize = 1000;
 
 pub struct RgTool {
     base_dir: PathBuf,
+    artifact_dir: Option<PathBuf>,
 }
 
 fn validate_rg_params(
@@ -42,9 +43,21 @@ fn validate_rg_params(
 
 impl RgTool {
     pub fn new(base_dir: impl AsRef<Path>) -> Self {
+        let base = base_dir.as_ref().to_path_buf();
+        let artifact_dir = if base.as_os_str().is_empty() {
+            std::env::temp_dir().join("rho/artifacts")
+        } else {
+            base.join(".rho/artifacts")
+        };
         Self {
-            base_dir: base_dir.as_ref().to_path_buf(),
+            base_dir: base,
+            artifact_dir: Some(artifact_dir),
         }
+    }
+
+    pub fn with_artifact_dir(mut self, artifact_dir: Option<PathBuf>) -> Self {
+        self.artifact_dir = artifact_dir;
+        self
     }
 
     pub async fn execute(&self, args: RgArgs) -> Result<ToolResult, AppError> {
@@ -60,6 +73,7 @@ impl RgTool {
             (&self.base_dir, args),
             (matcher, types, search_root),
             (timeout, cancellation),
+            self.artifact_dir.clone(),
         );
         let handle = tokio::task::spawn_blocking(move || query.run(limit));
         let res = await_rg_task(handle, timeout).await;
@@ -72,6 +86,7 @@ fn build_rg_query(
     (base_dir, args): (&Path, RgArgs),
     (matcher, types, search_root): (RegexMatcher, Option<ignore::types::Types>, PathBuf),
     (timeout, cancellation): (Duration, Arc<AtomicBool>),
+    artifact_dir: Option<PathBuf>,
 ) -> RgQuery {
     RgQuery {
         workspace_root: base_dir.to_path_buf(),
@@ -82,6 +97,7 @@ fn build_rg_query(
         include_hidden: args.hidden.unwrap_or(false),
         timeout: Some(timeout),
         cancellation: Some(cancellation),
+        artifact_dir,
     }
 }
 

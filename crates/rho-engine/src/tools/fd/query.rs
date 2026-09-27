@@ -26,6 +26,7 @@ pub(super) struct FdQuery {
     pub show_stats: bool,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 fn resolve_entry_relative_path(
@@ -185,6 +186,7 @@ impl FdQuery {
         finalize_fd_results(
             entries,
             (self.sort, self.show_stats, limit, hit_ceiling.load(Ordering::Relaxed)),
+            self.artifact_dir,
         )
     }
 }
@@ -192,6 +194,7 @@ impl FdQuery {
 fn finalize_fd_results(
     mut entries: Vec<FdEntry>,
     (sort, show_stats, limit, hit_ceiling): (Option<FdSort>, bool, usize, bool),
+    artifact_dir: Option<PathBuf>,
 ) -> ToolResult {
     sort_entries(&mut entries, sort);
     format_results(
@@ -200,6 +203,7 @@ fn finalize_fd_results(
             hit_ceiling,
             limit,
             show_stats,
+            artifact_dir,
         },
     )
 }

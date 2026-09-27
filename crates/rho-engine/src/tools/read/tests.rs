@@ -301,3 +301,31 @@ async fn test_read_apng_falls_back_to_binary_marker() {
     assert!(res.content.contains("[Binary file:"));
     assert!(res.image.is_none());
 }
+
+#[tokio::test]
+async fn test_read_oversized_file_spills_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let file_path = dir.path().join("large.txt");
+    let content = vec!["x".repeat(100); 1000].join("\n");
+    tokio::fs::write(&file_path, &content).await.unwrap();
+
+    let tool = ReadTool::new(dir.path());
+    let res = tool
+        .execute(ReadArgs {
+            path: "large.txt".to_string(),
+            offset: None,
+            limit: None,
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(res.content.contains(".rho/artifacts"));
+    assert!(res.content.contains("[Output truncated. Full content"));
+
+    let artifact_dir = dir.path().join(".rho/artifacts");
+    let entries: Vec<_> = std::fs::read_dir(&artifact_dir).unwrap().collect();
+    assert_eq!(entries.len(), 1);
+    let spilled_content = std::fs::read_to_string(entries[0].as_ref().unwrap().path()).unwrap();
+    assert_eq!(spilled_content, content);
+}

@@ -24,6 +24,7 @@ pub struct RgQuery {
     pub include_hidden: bool,
     pub timeout: Option<Duration>,
     pub cancellation: Option<Arc<AtomicBool>>,
+    pub artifact_dir: Option<PathBuf>,
 }
 
 fn resolve_rg_relative_path(
@@ -168,6 +169,6 @@ impl RgQuery {
             return ToolResult::error(format!("Search timed out after {secs}s"));
         }
         let list = matches.into_inner().unwrap_or_else(PoisonError::into_inner);
-        format_results(list, limit)
+        format_results(list, limit, self.artifact_dir.as_deref())
     }
 }
