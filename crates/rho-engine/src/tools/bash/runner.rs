@@ -44,11 +44,23 @@ async fn handle_timeout_cleanup<F: FnMut(&str)>(
 
 fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccumulator) -> ToolResult {
     let snapshot = accumulator.snapshot();
-    let output = snapshot.formatted_text.trim();
+    let raw_text = snapshot.formatted_text.trim();
     if status.success() {
-        let res = if output.is_empty() {
-            "[Command completed with exit code 0 (no output)]".to_string()
-        } else if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
+        if raw_text.is_empty() {
+            return ToolResult::success("[Command completed with exit code 0 (no output)]");
+        }
+        let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
+        let body = if snapshot.truncation.total_lines > super::normalize::BASH_CLEAN_WINDOW_LINE_THRESHOLD {
+            super::normalize::window_clean_output(
+                &collapsed,
+                super::normalize::BASH_CLEAN_HEAD_LINES,
+                super::normalize::BASH_CLEAN_TAIL_LINES,
+            )
+        } else {
+            collapsed
+        };
+
+        let res = if snapshot.truncation.total_lines > super::accumulator::BASH_PRUNE_LINE_THRESHOLD {
             let log_path = snapshot
                 .full_output_path
                 .as_ref()
@@ -57,20 +69,20 @@ fn format_exit_result(status: std::process::ExitStatus, accumulator: &OutputAccu
             let lines = snapshot.truncation.total_lines;
             let size = crate::tools::truncate::format_size(snapshot.truncation.total_bytes);
             format!(
-                "{}\n\n[Command completed successfully with exit code 0 ({lines} lines, {size}). Full log: {log_path}]",
-                snapshot.formatted_text
+                "{body}\n\n[Command completed successfully with exit code 0 ({lines} lines, {size}). Full log: {log_path}]"
             )
         } else {
-            snapshot.formatted_text
+            body
         };
         ToolResult::success(res)
     } else {
         let exit_code = status.code().unwrap_or(-1);
         let msg = format!("Command exited with code {exit_code}");
-        let res = if output.is_empty() {
+        let res = if raw_text.is_empty() {
             msg
         } else {
-            format!("{output}\n\n{msg}")
+            let collapsed = super::normalize::collapse_consecutive_lines(raw_text);
+            format!("{collapsed}\n\n{msg}")
         };
         ToolResult::error(res)
     }

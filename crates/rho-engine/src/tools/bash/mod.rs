@@ -1,4 +1,5 @@
 pub mod accumulator;
+pub mod normalize;
 pub mod read_only;
 pub mod runner;
 pub mod sanitize;

@@ -367,3 +367,39 @@ async fn test_bash_exit_zero_under_threshold_omits_metadata_footer() {
     assert!(!res.is_error);
     assert!(!res.content.contains("Command completed successfully with exit code 0"));
 }
+
+#[tokio::test]
+async fn test_bash_exit_zero_over_window_threshold_windows_output() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "seq 1 100".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(res.content.starts_with("1\n2\n3"));
+    assert!(res.content.contains("[... 75 lines omitted]"));
+    assert!(res.content.contains("98\n99\n100"));
+    assert!(
+        res.content
+            .contains("[Command completed successfully with exit code 0 (100 lines,")
+    );
+}
+
+#[tokio::test]
+async fn test_bash_collapses_consecutive_identical_lines() {
+    let tool = BashTool::new(std::env::current_dir().unwrap());
+    let res = tool
+        .execute(BashArgs {
+            command: "printf 'repeat\\n%.0s' {1..10}".to_string(),
+            timeout: Some(5),
+        })
+        .await
+        .unwrap();
+
+    assert!(!res.is_error);
+    assert!(res.content.contains("repeat\n[... 9 identical lines collapsed]"));
+}
