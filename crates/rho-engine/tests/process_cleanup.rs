@@ -18,14 +18,14 @@ async fn wait_group_dead(pid: u32) {
 #[cfg(unix)]
 async fn kill_all_tracked_processes_terminates_all_groups() {
     let mut cmd1 = Command::new("sh");
-    cmd1.arg("-c").arg("sleep 30 & wait");
+    cmd1.arg("-c").arg("sleep 5 & wait");
     isolate_group(&mut cmd1);
     let child1 = cmd1.spawn().expect("spawn test shell 1");
     let pid1 = child1.id().expect("child 1 pid");
     let mut guard1 = ProcessTreeGuard::new(child1);
 
     let mut cmd2 = Command::new("sh");
-    cmd2.arg("-c").arg("sleep 30 & wait");
+    cmd2.arg("-c").arg("sleep 5 & wait");
     isolate_group(&mut cmd2);
     let child2 = cmd2.spawn().expect("spawn test shell 2");
     let pid2 = child2.id().expect("child 2 pid");

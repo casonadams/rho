@@ -41,8 +41,13 @@ clippy-fix: ## Automatically fix Clippy suggestions where possible
 	$(CARGO) clippy --workspace --all-targets --fix --allow-dirty --allow-staged
 
 .PHONY: test
-test: ## Run tests across the workspace
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) test --workspace --all-targets --quiet
+test: ## Run tests across the workspace (uses nextest when available)
+	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; \
+	if $(CARGO) nextest --version >/dev/null 2>&1; then \
+		$(CARGO) nextest run --workspace --all-targets; \
+	else \
+		$(CARGO) test --workspace --all-targets --quiet; \
+	fi
 
 .PHONY: test-cargo
 test-cargo: ## Run standard cargo tests across all targets
@@ -62,8 +67,13 @@ clean: ## Clean cargo build artifacts
 	$(CARGO) clean
 
 .PHONY: coverage
-coverage: ## Generate LCOV test coverage trace
-	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; $(CARGO) llvm-cov --workspace --lcov --output-path target/lcov.info
+coverage: ## Generate LCOV test coverage trace (uses nextest when available)
+	@ulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null || true; \
+	if $(CARGO) nextest --version >/dev/null 2>&1; then \
+		$(CARGO) llvm-cov nextest --workspace --no-report && $(CARGO) llvm-cov report --workspace --lcov --output-path target/lcov.info; \
+	else \
+		$(CARGO) llvm-cov --workspace --lcov --output-path target/lcov.info; \
+	fi
 
 .PHONY: crap
 crap: coverage ## Evaluate CRAP metrics and gate on functions exceeding threshold 30

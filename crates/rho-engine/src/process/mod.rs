@@ -33,6 +33,7 @@ fn signal_group(pid: u32, sig: i32) {
     // Stale or already-reaped groups yield ESRCH, which is safe to ignore.
     unsafe {
         libc::kill(-(pid as libc::pid_t), sig);
+        libc::kill(pid as libc::pid_t, sig);
     }
 }
 

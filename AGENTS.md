@@ -24,8 +24,21 @@
 
 ## Testing and performance
 
-- Use `make test` for test feedback during development (a bare
-  `cargo test` only covers the root `rho` package, not the other crates).
+- Use `make test` for fast test feedback during local development (uses
+  `cargo nextest` when available; a bare `cargo test` only covers the root `rho`
+  package, not the other crates).
+- Test duration limits: Individual unit tests must complete in milliseconds.
+  No test may exceed 2.5 seconds (target < 500ms; hard ceiling 2.5 seconds for
+  full engine initialization or subprocess lifecycle tests). The entire workspace
+  test suite must finish in under 15 seconds.
+- Never contact external network services or third-party APIs in tests. Use
+  in-memory fakes, mock models, or loopback `TcpListener` bindings. Tests with
+  dummy credentials must never fall through to real remote endpoints.
+- Never use real-time sleep for timer testing; use `#[tokio::test(start_paused = true)]`
+  so tokio's virtual clock advances timers instantaneously.
+- Never interact with or block on the host OS clipboard in tests. Keep clipboard
+  operations in-memory during tests to prevent macOS AppKit pasteboard IPC stalls
+  and host clipboard pollution.
 - Write unit tests in in-file `#[cfg(test)] mod tests` blocks or sibling `tests.rs`
   files, avoiding deep nested test module folders.
 - In HTTP client builders, always configure `.no_proxy()` or reuse static client
@@ -69,7 +82,6 @@
 
 - Run the following checks in order before finishing:
   1. `make complexity`
-  2. `make crap`
-  3. `make test`
-  4. `make clippy`
-  5. `make fmt`
+  2. `make crap` (runs all workspace tests and gates on coverage/CRAP threshold)
+  3. `make clippy`
+  4. `make fmt`
