@@ -473,7 +473,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn test_transient_network_error_retries_then_exhausts() {
         let temp_dir = tempfile::tempdir().unwrap();
         let engine = mock_engine(

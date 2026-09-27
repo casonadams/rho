@@ -24,6 +24,7 @@ use crate::engine::runner::{CancellationSignal, TurnOutput, TurnRequest};
 use crate::error::Result;
 use crate::repl::coordinator::SharedSteeringQueue;
 use crate::ui::interactive::TerminalBackend;
+use rho_harness_core::rpc::protocol::RpcEvent;
 
 use cancel::finish_active_turn;
 use event::{TurnInputResources, dispatch_turn_input};
@@ -246,6 +247,19 @@ pub(crate) async fn run_active_turn<B: crate::ui::interactive::TerminalBackend>(
     engine: &AgentEngine,
     mut turn: ActiveTurn<'_, B>,
 ) -> Result<()> {
+    let turn_number = engine
+        .session_manager
+        .load_turns()
+        .await
+        .map(|t| t.len() + 1)
+        .unwrap_or(1);
+    if let Some(ref collab) = session.collab {
+        collab.broadcast(&RpcEvent::TurnStart {
+            turn_number,
+            prompt: turn.prompt.to_string(),
+        });
+    }
+
     let (presenter, collab_presenter) = if let Some(ref collab) = session.collab {
         let cp = Arc::new(collab::CollabPresenter::new(
             Arc::new(session.renderer.clone()),

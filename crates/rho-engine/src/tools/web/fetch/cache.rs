@@ -15,10 +15,11 @@ pub struct FetchCache {
 
 impl FetchCache {
     pub fn new(ttl_sec: u64, max_entries: u64) -> Self {
-        let cache = Cache::builder()
-            .time_to_live(Duration::from_secs(ttl_sec))
-            .max_capacity(max_entries)
-            .build();
+        Self::with_ttl(Duration::from_secs(ttl_sec), max_entries)
+    }
+
+    pub fn with_ttl(ttl: Duration, max_entries: u64) -> Self {
+        let cache = Cache::builder().time_to_live(ttl).max_capacity(max_entries).build();
         Self { cache }
     }
 
@@ -37,7 +38,7 @@ mod tests {
 
     #[tokio::test]
     async fn caches_and_expires_fetched_content() {
-        let cache = FetchCache::new(1, 2);
+        let cache = FetchCache::with_ttl(Duration::from_millis(30), 2);
         cache
             .insert(
                 "url".to_string(),
@@ -50,7 +51,7 @@ mod tests {
         let cached = cache.get("url").await.unwrap();
         assert_eq!(cached.text.as_ref(), "content");
 
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        tokio::time::sleep(Duration::from_millis(45)).await;
         assert!(cache.get("url").await.is_none());
     }
 }

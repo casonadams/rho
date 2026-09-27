@@ -567,7 +567,7 @@ impl rho_harness_core::presentation::presenter::Presenter for RetryTestPresenter
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn rate_limit_429_with_retry_after_retries_and_succeeds() {
     use crate::engine::eval::mock::{MockEngineConfig, final_event, mock_engine};
     use reqwest::StatusCode;

@@ -331,9 +331,14 @@ pub(super) async fn handle_collab_turn_command<B: TerminalBackend>(
 pub fn handle_collab_idle_command(incoming: CollabIncomingCommand, session: &ReplSession) -> Option<QueuedMessage> {
     match incoming.command {
         RpcCommand::Prompt { message, .. } => {
+            let display_name = session
+                .collab
+                .as_ref()
+                .and_then(|c| c.peer_display_name_sync(incoming.peer_id))
+                .unwrap_or_else(|| format!("peer #{}", incoming.peer_id));
             session
                 .renderer
-                .print_notice(&format!("● Collaborator prompt: {message}\n"));
+                .print_notice(&format!("● Collaborator prompt [{display_name}]: {message}\n"));
             Some(QueuedMessage {
                 text: message,
                 kind: crate::ui::interactive::QueueKind::FollowUp,
@@ -432,6 +437,38 @@ mod tests {
         };
         let msg = handle_collab_idle_command(incoming, &session);
         assert!(matches!(msg, Some(QueuedMessage { text, .. }) if text == "write hello world"));
+    }
+
+    #[tokio::test]
+    async fn test_handle_collab_idle_command_prompt_with_display_name() {
+        let (ui, mut rx) = crate::ui::interactive::InteractiveUi::channel();
+        let renderer = TerminalRenderer::with_ui(ui);
+        let mut session = ReplSession::new(
+            rho_harness_core::config::Config::default(),
+            rho_engine::auth::AuthStore::default(),
+            None,
+        );
+        session.renderer = renderer;
+
+        let incoming = CollabIncomingCommand {
+            peer_id: 1,
+            role: CapabilityLevel::Full,
+            command: RpcCommand::Prompt {
+                message: "write hello world".into(),
+                images: None,
+                streaming_behavior: None,
+            },
+        };
+        let msg = handle_collab_idle_command(incoming, &session);
+        assert!(matches!(msg, Some(QueuedMessage { text, .. }) if text == "write hello world"));
+
+        let ui_event = rx.recv().await.unwrap();
+        match ui_event {
+            crate::ui::interactive::UiEvent::Transcript(crate::ui::interactive::TranscriptItem::Notice(notice)) => {
+                assert!(notice.contains("● Collaborator prompt [peer #1]: write hello world"));
+            }
+            _ => panic!("expected TranscriptItem::Notice"),
+        }
     }
 
     #[test]

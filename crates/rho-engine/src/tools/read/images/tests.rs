@@ -171,18 +171,18 @@ fn gif_passes_through_without_reencoding() {
 /// image fits 2000×2000 and the note carries the original size and scale factor.
 #[test]
 fn oversized_dimensions_are_resized_with_dimension_note() {
-    let bytes = solid_png(2100, 800);
+    let bytes = solid_png(2020, 101);
     let processed = process_image(&bytes, "image/png").unwrap();
     assert_eq!(
         processed.hints,
         vec![
-            "[Image: original 2100x800, displayed at 2000x762. Multiply coordinates by 1.05 to map to original image.]"
+            "[Image: original 2020x101, displayed at 2000x100. Multiply coordinates by 1.01 to map to original image.]"
         ]
     );
     assert!(processed.data.len() < MAX_BASE64_BYTES);
     let raw = STANDARD.decode(&processed.data).unwrap();
     let img = image::load_from_memory(&raw).unwrap();
-    assert_eq!((img.width(), img.height()), (2000, 762));
+    assert_eq!((img.width(), img.height()), (2000, 100));
 }
 
 #[test]

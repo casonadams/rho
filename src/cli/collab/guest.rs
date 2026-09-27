@@ -280,7 +280,9 @@ pub async fn handle_guest_rpc_event<B: TerminalBackend>(
 ) -> Result<bool> {
     match event {
         RpcEvent::TurnStart { prompt, .. } => {
+            controller.commit_streamed_output();
             renderer.print_user_block(prompt);
+            renderer.flush();
         }
         RpcEvent::TextChunk { content } => {
             renderer.print_token(content);
@@ -1232,6 +1234,7 @@ mod tests {
         let (ui, _rx) = InteractiveUi::channel();
         let renderer = TerminalRenderer::with_ui(ui);
         let mut controller = TerminalController::new(MockBackend, InteractiveState::default()).unwrap();
+        controller.write_stream_output("pending output").unwrap();
         let mut approvals = GuestApprovalState::default();
 
         let turn_start = RpcEvent::TurnStart {

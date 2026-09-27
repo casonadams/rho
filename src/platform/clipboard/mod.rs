@@ -56,7 +56,16 @@ fn get_os_clipboard_text() -> Option<String> {
     None
 }
 
+static TEST_CLIPBOARD_TEXT: Mutex<Option<String>> = Mutex::new(None);
+
+fn is_test_mode() -> bool {
+    cfg!(test) || std::env::var_os("RUST_TEST_THREADS").is_some() || std::env::var_os("NEXTEST_RUN_ID").is_some()
+}
+
 pub fn get_text() -> Result<Option<String>> {
+    if is_test_mode() {
+        return Ok(TEST_CLIPBOARD_TEXT.lock().unwrap_or_else(|p| p.into_inner()).clone());
+    }
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && let Ok(text) = clipboard.get_text()
@@ -114,6 +123,10 @@ fn set_os_clipboard_text(text: &str) {
 }
 
 pub fn set_text(text: &str) -> Result<()> {
+    if is_test_mode() {
+        *TEST_CLIPBOARD_TEXT.lock().unwrap_or_else(|p| p.into_inner()) = Some(text.to_string());
+        return Ok(());
+    }
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && clipboard.set_text(text).is_ok()
@@ -126,6 +139,9 @@ pub fn set_text(text: &str) -> Result<()> {
 }
 
 pub fn get_image() -> Result<Option<ClipboardImage>> {
+    if is_test_mode() {
+        return Ok(None);
+    }
     let _single_flight = CLIPBOARD_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Ok(mut clipboard) = arboard::Clipboard::new()
         && let Ok(img) = clipboard.get_image()

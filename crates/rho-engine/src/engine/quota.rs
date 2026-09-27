@@ -170,6 +170,15 @@ fn is_synthetic_project_id(id: &str) -> bool {
     trimmed.is_empty() || uuid::Uuid::parse_str(trimmed).is_ok()
 }
 
+fn is_dummy_or_test_token(token: &str) -> bool {
+    let trimmed = token.trim();
+    trimmed.is_empty()
+        || trimmed.starts_with("test-")
+        || trimmed.starts_with("invalid-")
+        || trimmed.starts_with("tok-")
+        || trimmed == "dummy"
+}
+
 fn fallback_antigravity_project(current_id: String) -> String {
     if current_id.is_empty() {
         crate::auth::antigravity::stable_project_id("antigravity-default")
@@ -199,6 +208,10 @@ async fn resolve_antigravity_credentials(auth_store: &tokio::sync::Mutex<AuthSto
         return Some((token, current_id));
     }
 
+    if is_dummy_or_test_token(&token) {
+        return Some((token, fallback_antigravity_project(current_id)));
+    }
+
     if let Some(discovered) = crate::antigravity::client::load_project_id(&token).await
         && !is_synthetic_project_id(&discovered)
     {
@@ -215,11 +228,17 @@ async fn fetch_antigravity_quota_with_retry(
     project_id: &str,
     target_model: &str,
 ) -> Option<String> {
+    if is_dummy_or_test_token(token) {
+        return None;
+    }
     if let Some(display) = crate::antigravity::fetch_quota(token, project_id, target_model).await {
         return Some(display);
     }
     auth_store.lock().await.force_refresh("antigravity").await.ok()?;
     let (fresh_token, fresh_project) = resolve_antigravity_credentials(auth_store).await?;
+    if is_dummy_or_test_token(&fresh_token) {
+        return None;
+    }
     crate::antigravity::fetch_quota(&fresh_token, &fresh_project, target_model).await
 }
 
@@ -253,11 +272,17 @@ async fn fetch_chatgpt_quota_with_retry(
     token: &str,
     account_id: Option<&str>,
 ) -> Option<String> {
+    if is_dummy_or_test_token(token) {
+        return None;
+    }
     if let Some(display) = crate::chatgpt::fetch_quota(token, account_id).await {
         return Some(display);
     }
     auth_store.lock().await.force_refresh("chatgpt").await.ok()?;
     let (fresh_token, fresh_account) = resolve_chatgpt_credentials(auth_store).await?;
+    if is_dummy_or_test_token(&fresh_token) {
+        return None;
+    }
     crate::chatgpt::fetch_quota(&fresh_token, fresh_account.as_deref()).await
 }
 
@@ -279,10 +304,16 @@ async fn fetch_claude_quota_with_retry(
     token: &str,
     target_model: &str,
 ) -> Option<String> {
+    if is_dummy_or_test_token(token) {
+        return None;
+    }
     if let Some(display) = crate::claude::quota::fetch_quota(token, Some(target_model)).await {
         return Some(display);
     }
     let fresh_token = auth_store.lock().await.force_refresh("claude").await.ok()??;
+    if is_dummy_or_test_token(&fresh_token) {
+        return None;
+    }
     crate::claude::quota::fetch_quota(&fresh_token, Some(target_model)).await
 }
 

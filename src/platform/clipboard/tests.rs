@@ -4,6 +4,7 @@ use super::*;
 fn test_clipboard_basic() {
     let _ = get_text();
     let _ = set_text("test");
+    assert_eq!(get_text().unwrap(), Some("test".into()));
 }
 
 #[test]

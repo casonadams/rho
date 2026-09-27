@@ -146,8 +146,17 @@ async fn enrich_ollama_models(host: &str, models: &mut [DiscoveredModel]) {
     }
 }
 
+fn is_dummy_key(key: &str) -> bool {
+    let trimmed = key.trim();
+    trimmed.is_empty()
+        || trimmed.starts_with("test-")
+        || trimmed.starts_with("invalid-")
+        || trimmed.starts_with("dummy")
+        || trimmed == "test"
+}
+
 pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
-    if !api_key.trim().is_empty() {
+    if !is_dummy_key(api_key) {
         let builder = rig::providers::anthropic::Client::builder()
             .http_client(SHARED_HTTP_CLIENT.clone())
             .api_key(api_key.trim());
@@ -165,7 +174,7 @@ pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<Disco
 }
 
 pub(crate) async fn discover_gemini_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
-    if !api_key.trim().is_empty() {
+    if !is_dummy_key(api_key) {
         let builder = rig::providers::gemini::Client::builder()
             .http_client(SHARED_HTTP_CLIENT.clone())
             .api_key(api_key.trim());

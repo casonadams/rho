@@ -245,6 +245,12 @@ impl CollabHostServer {
         self.state.try_read().map(|g| g.peers.len()).unwrap_or(0)
     }
 
+    #[must_use]
+    pub fn peer_display_name_sync(&self, peer_id: usize) -> Option<String> {
+        let guard = self.state.try_read().ok()?;
+        guard.peers.get(&peer_id).map(|p| p.info.display_name())
+    }
+
     pub fn broadcast(&self, event: &RpcEvent) {
         if let Ok(guard) = self.state.try_read() {
             for peer in guard.peers.values() {

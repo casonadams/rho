@@ -389,3 +389,63 @@ async fn test_collab_guest_interactive_tui_pipeline() {
     fixture.server.stop().await;
     fixture.guest_ep.close().await;
 }
+
+#[tokio::test]
+async fn test_collab_prompt_command_turn_start_sync() {
+    let config = CollabHostConfig::new().with_bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)));
+    let server = Arc::new(CollabHostServer::start(config).await.expect("host server"));
+    let (full_ticket, _) = server.tickets().await.expect("tickets");
+
+    let guest_ep = Endpoint::builder(Minimal)
+        .bind_addr(SocketAddr::from(([127, 0, 0, 1], 0)))
+        .expect("bind addr")
+        .bind()
+        .await
+        .expect("guest endpoint");
+
+    let conn = guest_ep
+        .connect(server.endpoint().addr(), COLLAB_ALPN)
+        .await
+        .expect("connect");
+    let (send, recv) = conn.accept_bi().await.expect("accept_bi");
+
+    let mut guest_stream = CollabSessionStream::connect_guest_with_ticket_and_hostname(
+        send,
+        recv,
+        &full_ticket,
+        Some("copilot-m3".into()),
+    )
+    .await
+    .expect("connect guest");
+
+    let _snap = guest_stream.recv_snapshot().await.expect("recv snapshot");
+    let _peer_ev = server.recv_peer_event().await.expect("recv peer event");
+
+    guest_stream
+        .send_command(&RpcCommand::Prompt {
+            message: "refactor module".into(),
+            images: None,
+            streaming_behavior: None,
+        })
+        .await
+        .expect("send prompt command");
+
+    let host_cmd = server.recv_command().await.expect("recv command");
+    assert_eq!(host_cmd.peer_id, 1);
+    assert_eq!(
+        server.peer_display_name_sync(host_cmd.peer_id).as_deref(),
+        Some("copilot-m3")
+    );
+
+    let turn_start = RpcEvent::TurnStart {
+        turn_number: 2,
+        prompt: "refactor module".into(),
+    };
+    server.broadcast(&turn_start);
+
+    let received_event = guest_stream.recv_event().await.expect("recv event");
+    assert_eq!(received_event, Some(turn_start));
+
+    server.stop().await;
+    guest_ep.close().await;
+}
