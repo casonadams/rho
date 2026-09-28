@@ -1047,9 +1047,23 @@ code, pre {
 }
 
 /* Documentation styling - Mobile First */
+.docs-container {
+  max-width: 1380px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 2.5rem;
+  padding-right: 2.5rem;
+}
+
 .docs-layout {
   display: block;
   padding: 1.5rem 0 4rem;
+}
+
+.docs-content {
+  min-width: 0;
+  max-width: 900px;
 }
 
 .docs-sidebar {
@@ -1210,13 +1224,15 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
 .docs-content p {
   color: var(--text-secondary);
   margin-bottom: 1.25rem;
-  line-height: 1.65;
+  line-height: 1.75;
+  font-size: 1.01rem;
 }
 
 .docs-content ul, .docs-content ol {
   margin-left: 1.5rem;
   margin-bottom: 1.25rem;
   color: var(--text-secondary);
+  line-height: 1.75;
 }
 
 .docs-content li {
@@ -1600,17 +1616,34 @@ h2:hover .heading-anchor, h3:hover .heading-anchor {
   .docs-layout {
     display: grid;
     grid-template-columns: 260px minmax(0, 1fr);
-    gap: 3rem;
+    gap: 0;
     padding: 2.5rem 0 5rem;
   }
   .docs-sidebar {
     display: block;
     position: sticky;
+    border-right: 1px solid var(--border-subtle);
+    padding-right: 2rem;
+  }
+  .docs-content {
+    padding-left: 3.5rem;
+    padding-right: 2rem;
   }
   .docs-mobile-toc-bar {
     display: none !important;
   }
   .docs-mobile-toc-drawer {
     display: none !important;
+  }
+}
+
+@media (max-width: 859px) {
+  .docs-container {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+  .docs-content {
+    padding: 1rem 0.25rem 4rem;
+    max-width: 100%;
   }
 }
