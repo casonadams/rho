@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.11.0](https://github.com/casonadams/rho/compare/v0.10.1...v0.11.0) (2026-09-28)
+
+
+### Features
+
+* **cli:** support unified model spec in cli flags and env vars ([7205624](https://github.com/casonadams/rho/commit/7205624aa782ae1f5fff0fa6ad60e90793b4747a))
+* **collab:** add interactive TUI and modal tool approvals for guest client ([66ec257](https://github.com/casonadams/rho/commit/66ec2573b62e97e84ec6586850aea1487465294e))
+* **collab:** add slash commands, peer manager modal, and status indicators ([bdf8733](https://github.com/casonadams/rho/commit/bdf87333a555533ba40741aca2aefdd9a3a4c668))
+* **collab:** exchange hostname in handshake and track peer identity ([1d5af53](https://github.com/casonadams/rho/commit/1d5af5320c4cb6977fd623249492df6ae3570ae9))
+* **collab:** implement guest client for rho join ([c4a6fef](https://github.com/casonadams/rho/commit/c4a6fef4622a7375eb9a385734a55560705282d3))
+* **collab:** implement host collab server and peer multiplexing ([dc7182b](https://github.com/casonadams/rho/commit/dc7182b9c05d4fe02b94b3e3f39d49501637db99))
+* **collab:** implement wire protocol and cryptographic handshake ([1d4b0f3](https://github.com/casonadams/rho/commit/1d4b0f3fc964c9722d504fe9738107ae0fc5ff70))
+* **collab:** synchronize footer metrics and session activity to peers ([0265f0d](https://github.com/casonadams/rho/commit/0265f0db71b2178b02eca96f11d22e4e95227f89))
+* **collab:** synchronize prompt and turn start across peers ([c3308b6](https://github.com/casonadams/rho/commit/c3308b62541b3ea8379be34b8aace014d6e9407c))
+* **collab:** synchronize shared tool approvals and multiplex host events ([2ec3b8b](https://github.com/casonadams/rho/commit/2ec3b8b62eb3c5868896ed76cd13832f74dd90c6))
+* **collab:** wire /collab command autocomplete and initial snapshot hydration ([3c53231](https://github.com/casonadams/rho/commit/3c53231c5cd38c6fa7628d677ec36aeb49b29f40))
+* **compaction:** sanitize large command scripts and tool aliases in serialization ([3678dd9](https://github.com/casonadams/rho/commit/3678dd9e493b1991f45e410efd19504dec1289bd))
+* **config:** add legacy model config migration and canonical model spec ([78f6813](https://github.com/casonadams/rho/commit/78f6813db382cf53c788b86afc36fceabd0519f7))
+* **config:** introduce ModelsConfig role table and enforce serialization hygiene ([7ee71ca](https://github.com/casonadams/rho/commit/7ee71ca7a83b4f5cfc07c234390efc0484e2c253))
+* **context:** implement cache-aware pruning, artifact spilling, and speculative compaction ([5815f3e](https://github.com/casonadams/rho/commit/5815f3e822502a7459fbc10c71e209e2f7a875ae))
+* **context:** make historical tool pruning adaptive to model context window ([16144ec](https://github.com/casonadams/rho/commit/16144ec27b0d62932e6a19ea7e59ee023cbaaa25))
+* **context:** wire active model to historical tool pruning and dynamic read padding ([0bc0afc](https://github.com/casonadams/rho/commit/0bc0afc539b6695a00eb1489fe544c26c2f01d51))
+* **context:** wire default artifact demotion hook and document optimization spec/plan ([b6dc1f2](https://github.com/casonadams/rho/commit/b6dc1f2b4b0b4d9aa53f61abf09c2b63b46aa1e3))
+* **engine:** prune historical failed bash commands outside protection window ([c9284cc](https://github.com/casonadams/rho/commit/c9284cc97093074b3d6c52bde2dcce88e707cadb))
+* **engine:** run speculative auto-compaction asynchronously in background ([8f74a9e](https://github.com/casonadams/rho/commit/8f74a9ef61894fd77b2a143e5efa2d7ebcc1bc53))
+* **model:** implement model spec parser and guard non-thinking invariant ([7d097a3](https://github.com/casonadams/rho/commit/7d097a381e554ad05e5af44029e5469ae17c4520))
+* **permission:** add critical danger regex and guard system prompt ([3c0f472](https://github.com/casonadams/rho/commit/3c0f472c2fb740e4325448572b97b12fa1f33929))
+* **permission:** add guard evaluator and structured verdict parser ([ff4fecf](https://github.com/casonadams/rho/commit/ff4fecf26c31ec0592ef13308cb2606069adafeb))
+* **permission:** align guard prompt with skill builder xml and generic security boundaries ([2829371](https://github.com/casonadams/rho/commit/2829371db44c7601d23e0412d222f49250438dfa))
+* **permission:** integrate guard model evaluator into permission hook ([64b79ca](https://github.com/casonadams/rho/commit/64b79cad63f42b9b0ad88fdff1d19299d749f196))
+* **permission:** refine prompt notice order, 10s timeout, and built-in baselines ([a03f83a](https://github.com/casonadams/rho/commit/a03f83ab3bcc8c5fe530e9befb87dcf5c3c5b8d2))
+* **repl:** support canonical model spec in engine factory and repl model selector ([d72c537](https://github.com/casonadams/rho/commit/d72c53789bc4ee7073a5b8db195af0f3d4b80e65))
+* **settings:** add guard model configuration and selector ([0818dee](https://github.com/casonadams/rho/commit/0818deeabb6e8c55fcde8d4a65aa7a81bc36fe38))
+* **tokens:** calibrate text token estimation for claude models ([c876518](https://github.com/casonadams/rho/commit/c87651887831bc12719fb46623f5e1fb676c95ae))
+* **tools:** collapse repeated lines and window clean bash outputs ([a9f980c](https://github.com/casonadams/rho/commit/a9f980c8c54ce9f8405a95492d7f8572d1d7e253))
+* **tools:** delegate external and protected path gating to permission hook ([3968f20](https://github.com/casonadams/rho/commit/3968f20611c6f0faa5c363e1aa52dec5798223dc))
+* **tools:** group rg matches by file and reduce search limits ([87fbb00](https://github.com/casonadams/rho/commit/87fbb0045759e46f8d1fbab425aa45f6742a26af))
+* **tools:** spill truncated read, rg, and fd outputs to artifact files ([116a59e](https://github.com/casonadams/rho/commit/116a59ef7b92ecf8ca47d2a1f597ed00ab890432))
+
+
+### Bug Fixes
+
+* **compaction:** preserve cache prefix and turn boundary during mid-run compaction ([eee0ddd](https://github.com/casonadams/rho/commit/eee0ddd967952963415c2f217174245dba336384))
+
+
+### Performance Improvements
+
+* **test:** accelerate test suite and coverage execution with nextest ([374aaef](https://github.com/casonadams/rho/commit/374aaef73db82b15471b3d498d92b19a61d675e5))
+
+
+### Miscellaneous Chores
+
+* **release:** trigger 0.11.0 release ([3a1eb2e](https://github.com/casonadams/rho/commit/3a1eb2ece69df2c1513068c5d338cfed42954504))
+
 ## [0.10.1](https://github.com/casonadams/rho/compare/v0.10.0...v0.10.1) (2026-09-25)
 
 
