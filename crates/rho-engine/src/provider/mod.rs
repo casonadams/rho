@@ -156,8 +156,21 @@ impl ProviderFactory {
         auth_store.get_key_sync(name)
     }
 
-    pub fn create_model_for(request: ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
+    fn strip_provider_prefix(provider: ProviderId, model: &str) -> &str {
+        if let Some((p, bare)) = model.split_once('/')
+            && ProviderId::from_str(p).ok() == Some(provider)
+        {
+            let bare = bare.trim();
+            if !bare.is_empty() {
+                return bare;
+            }
+        }
+        model
+    }
+
+    pub fn create_model_for(mut request: ModelRequest<'_>, auth_store: &AuthStore) -> Result<ModelHandle> {
         crate::install_crypto_provider();
+        request.model = Self::strip_provider_prefix(request.provider, request.model);
         let (provider, model) = (request.provider, request.model);
         if provider == ProviderId::Local {
             return build_local_ollama_model(model);

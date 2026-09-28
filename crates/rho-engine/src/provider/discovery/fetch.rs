@@ -1,7 +1,7 @@
 //! Dynamic network model discovery for authenticated endpoints.
 
 use super::DiscoveredModel;
-use super::antigravity::collapse_antigravity_catalog;
+use super::antigravity::{collapse_antigravity_catalog, sort_models_newest_first};
 use super::presets::{
     anthropic_preset_models, antigravity_preset_models, default_presets_for, format_context_desc,
     format_context_tokens, gemini_preset_models,
@@ -11,7 +11,7 @@ use rho_harness_core::error::Result;
 use rig::client::ModelListingClient;
 
 fn map_rig_models(models: Vec<rig::model::Model>, provider_name: &str) -> Vec<DiscoveredModel> {
-    let mut out: Vec<DiscoveredModel> = models
+    let out: Vec<DiscoveredModel> = models
         .into_iter()
         .filter_map(|item| {
             let id = if provider_name == "gemini" {
@@ -39,8 +39,7 @@ fn map_rig_models(models: Vec<rig::model::Model>, provider_name: &str) -> Vec<Di
             })
         })
         .collect();
-    out.sort_by(|a, b| a.id.cmp(&b.id));
-    out
+    sort_models_newest_first(out)
 }
 
 pub(crate) async fn discover_openai_compatible(

@@ -231,6 +231,29 @@ impl AgentEngine {
         }
     }
 
+    fn apply_runner_provider_extras(
+        runner: AgentRunner,
+        provider: &str,
+        thinking_level: Option<&str>,
+        session_id: &str,
+    ) -> AgentRunner {
+        match crate::provider::provider_request_extras(provider, thinking_level, session_id) {
+            Some(extras) => runner.replace_additional_params(extras),
+            None => runner.without_additional_params(),
+        }
+    }
+
+    fn resolve_active_provider(request: &TurnRequest<'_>, active_model: &str, default_provider: &str) -> String {
+        if let Some(p) = request.model_switch.as_ref().and_then(|s| s.current_provider()) {
+            return p.to_string();
+        }
+        let (spec_p, _) = rho_harness_core::provider::parse_model_spec(active_model);
+        if !spec_p.is_empty() {
+            return spec_p;
+        }
+        default_provider.to_string()
+    }
+
     pub(super) async fn prepare_step_runner<'a>(
         &self,
         (sink, preamble, request, presenter): (
@@ -260,6 +283,54 @@ impl AgentEngine {
                 ),
             )
             .await;
+        let provider = Self::resolve_active_provider(request, &active_model, &self.config.provider);
+        let runner = Self::apply_runner_provider_extras(
+            runner,
+            &provider,
+            self.config.thinking_level.as_deref(),
+            &self.session_manager.session_id,
+        );
         Ok((runner, active_model))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rig::agent::AgentBuilder;
+    use rig::agent::ModelHandle;
+    use rig::test_utils::MockCompletionModel;
+
+    #[test]
+    fn test_resolve_active_provider() {
+        let request = TurnRequest::new("test");
+        assert_eq!(
+            AgentEngine::resolve_active_provider(&request, "antigravity/gemini-3.8-flash", "chatgpt"),
+            "antigravity"
+        );
+        assert_eq!(
+            AgentEngine::resolve_active_provider(&request, "gemini-3.8-flash", "chatgpt"),
+            "chatgpt"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_runner_provider_extras_clears_openai_params_for_antigravity() {
+        let model = MockCompletionModel::text("ok");
+        let initial_extras = serde_json::json!({
+            "prompt_cache_key": "sess-1",
+            "reasoning": { "effort": "medium", "summary": "auto" }
+        });
+        let agent = AgentBuilder::from_model_handle(ModelHandle::new(model.clone()))
+            .additional_params(initial_extras)
+            .build();
+
+        let runner = build_runner(&agent, "hi");
+        let cleaned_runner = AgentEngine::apply_runner_provider_extras(runner, "antigravity", None, "sess-1");
+        cleaned_runner.run().await.unwrap();
+
+        let reqs = model.requests();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs[0].additional_params.is_none());
     }
 }

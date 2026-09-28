@@ -39,6 +39,7 @@ fn append_local_models(models: &mut Vec<ModelItem>, store: &ModelStore) {
         .or_else(|| store.get_models("ollama"))
         .cloned()
         .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for("local"));
+    let local = rho_engine::provider::discovery::sort_models_newest_first(local);
     for m in local {
         push_model_item_unique(
             models,
@@ -63,6 +64,7 @@ fn append_configured_provider_models(models: &mut Vec<ModelItem>, store: &ModelS
             .get_models(prov)
             .cloned()
             .unwrap_or_else(|| rho_engine::provider::discovery::default_presets_for(prov));
+        let prov_models = rho_engine::provider::discovery::sort_models_newest_first(prov_models);
         for m in prov_models {
             push_model_item_unique(
                 models,
@@ -79,6 +81,7 @@ fn append_configured_provider_models(models: &mut Vec<ModelItem>, store: &ModelS
 fn append_custom_provider_models(models: &mut Vec<ModelItem>, config: &Config, store: &ModelStore) {
     for (name, spec) in &config.providers {
         if let Some(cached) = store.get_models(name) {
+            let cached = rho_engine::provider::discovery::sort_models_newest_first(cached.clone());
             for m in cached {
                 push_model_item_unique(
                     models,
