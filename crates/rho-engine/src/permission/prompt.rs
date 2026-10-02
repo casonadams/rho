@@ -61,6 +61,7 @@ pub fn build_permission_prompt(
     args: &Value,
     drafts: &[RuleDraft],
     notice: Option<&str>,
+    risk: Option<&str>,
 ) -> InteractionPrompt {
     let input_display = match_input(args);
     let formatted_input = if tool == "bash" {
@@ -68,10 +69,14 @@ pub fn build_permission_prompt(
     } else {
         input_display.clone()
     };
-    let body = match notice {
-        Some(n) => format!("Tool: {tool}\nNotice: {n}\nInput: {formatted_input}"),
-        None => format!("Tool: {tool}\nInput: {formatted_input}"),
-    };
+    let mut body = format!("Tool: {tool}");
+    if let Some(n) = notice {
+        body.push_str(&format!("\nNotice: {n}"));
+    }
+    if let Some(r) = risk {
+        body.push_str(&format!("\nRisk: {r}"));
+    }
+    body.push_str(&format!("\n---\n\x1b[2m{formatted_input}\x1b[0m"));
     let params = PermissionPromptParams {
         tool,
         formatted: formatted_input,

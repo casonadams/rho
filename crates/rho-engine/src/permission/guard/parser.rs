@@ -8,6 +8,7 @@ static THINK_TAG_REGEX: LazyLock<Regex> =
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardVerdict {
     pub safe: bool,
+    pub action: Option<String>,
     pub reason: String,
 }
 
@@ -19,6 +20,12 @@ pub fn parse_guard_output(text: &str) -> GuardVerdict {
         && let Ok(val) = serde_json::from_str::<serde_json::Value>(&clean[start..=end])
         && let Some(safe) = val.get("safe").and_then(serde_json::Value::as_bool)
     {
+        let action = val
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|a| !a.is_empty())
+            .map(ToString::to_string);
         let reason = val
             .get("reason")
             .and_then(serde_json::Value::as_str)
@@ -30,7 +37,7 @@ pub fn parse_guard_output(text: &str) -> GuardVerdict {
                 "Potential security risk detected."
             })
             .to_string();
-        return GuardVerdict { safe, reason };
+        return GuardVerdict { safe, action, reason };
     }
 
     let lower = clean.to_ascii_lowercase();
@@ -44,6 +51,7 @@ pub fn parse_guard_output(text: &str) -> GuardVerdict {
 
     GuardVerdict {
         safe: is_safe,
+        action: None,
         reason: if fallback_reason.is_empty() {
             "Action requires human approval.".to_string()
         } else {
@@ -58,17 +66,20 @@ mod tests {
 
     #[test]
     fn parses_clean_json_safe() {
-        let input = r#"{"safe": true, "reason": "Local directory creation"}"#;
+        let input = r#"{"safe": true, "action": "Creates directory", "reason": "Local directory creation"}"#;
         let verdict = parse_guard_output(input);
         assert!(verdict.safe);
+        assert_eq!(verdict.action.as_deref(), Some("Creates directory"));
         assert_eq!(verdict.reason, "Local directory creation");
     }
 
     #[test]
     fn parses_clean_json_unsafe() {
-        let input = r#"{"safe": false, "reason": "Remote push modifies remote git state"}"#;
+        let input =
+            r#"{"safe": false, "action": "Pushes git branch", "reason": "Remote push modifies remote git state"}"#;
         let verdict = parse_guard_output(input);
         assert!(!verdict.safe);
+        assert_eq!(verdict.action.as_deref(), Some("Pushes git branch"));
         assert_eq!(verdict.reason, "Remote push modifies remote git state");
     }
 
@@ -96,11 +107,13 @@ This is a standard local workspace file operation under <safe_operations>.
         let input = r#"{"safe": true}"#;
         let verdict = parse_guard_output(input);
         assert!(verdict.safe);
+        assert_eq!(verdict.action, None);
         assert_eq!(verdict.reason, "Command verified safe.");
 
-        let input_unsafe = r#"{"safe": false}"#;
+        let input_unsafe = r#"{"safe": false, "action": "  "}"#;
         let verdict_unsafe = parse_guard_output(input_unsafe);
         assert!(!verdict_unsafe.safe);
+        assert_eq!(verdict_unsafe.action, None);
         assert_eq!(verdict_unsafe.reason, "Potential security risk detected.");
     }
 

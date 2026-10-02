@@ -1,3 +1,4 @@
+use super::danger::check_critical_danger;
 use super::parser::{GuardVerdict, parse_guard_output};
 use super::prompt::GUARD_SYSTEM_PROMPT;
 use rig::agent::ModelHandle;
@@ -24,6 +25,10 @@ impl GuardEvaluator {
     }
 
     pub async fn evaluate(&self, command: &str) -> GuardVerdict {
+        if let Some(verdict) = check_critical_danger(command) {
+            return verdict;
+        }
+
         let agent = rig::agent::AgentBuilder::from_model_handle(self.model.clone())
             .preamble(GUARD_SYSTEM_PROMPT)
             .default_max_turns(1)
@@ -36,6 +41,7 @@ impl GuardEvaluator {
         if self.timeout.is_zero() {
             return GuardVerdict {
                 safe: false,
+                action: None,
                 reason: "Guard model evaluation timed out after 0s. Approval required.".to_string(),
             };
         }
@@ -43,10 +49,12 @@ impl GuardEvaluator {
             Ok(Ok(response)) => parse_guard_output(&response),
             Ok(Err(err)) => GuardVerdict {
                 safe: false,
+                action: None,
                 reason: format!("Guard model evaluation error: {err}"),
             },
             Err(_) => GuardVerdict {
                 safe: false,
+                action: None,
                 reason: format!("Guard model evaluation timed out after {:?}", self.timeout),
             },
         }
@@ -57,6 +65,17 @@ impl GuardEvaluator {
 mod tests {
     use super::*;
     use rig::test_utils::{MockCompletionModel, MockTurn};
+
+    #[tokio::test]
+    async fn evaluate_critical_danger_intercepts_without_calling_model() {
+        // Model with zero turns would fail if called
+        let mock = MockCompletionModel::new([]);
+        let evaluator = GuardEvaluator::new(ModelHandle::new(mock));
+        let verdict = evaluator.evaluate("rm -rf /").await;
+        assert!(!verdict.safe);
+        assert!(verdict.reason.contains("filesystem wipe"));
+        assert!(verdict.action.is_some());
+    }
 
     #[tokio::test]
     async fn evaluate_safe_verdict() {

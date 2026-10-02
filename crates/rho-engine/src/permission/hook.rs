@@ -71,16 +71,22 @@ impl PermissionHook {
         }
     }
 
-    async fn handle_ask(&self, req: EvalRequest<'_>, drafts: &[RuleDraft], reason: Option<&str>) -> ToolCallAction {
+    async fn handle_ask(
+        &self,
+        req: EvalRequest<'_>,
+        drafts: &[RuleDraft],
+        notice: Option<&str>,
+        risk: Option<&str>,
+    ) -> ToolCallAction {
         if !self.presenter.has_interactive_ui() {
-            let detail = reason.map(|r| format!(": {r}")).unwrap_or_default();
+            let detail = notice.or(risk).map(|r| format!(": {r}")).unwrap_or_default();
             return ToolCallAction::skip(format!(
                 "Permission required for tool '{}'{detail} but cannot prompt in headless mode",
                 req.tool
             ));
         }
 
-        let prompt = build_permission_prompt(req.tool, req.args, drafts, reason);
+        let prompt = build_permission_prompt(req.tool, req.args, drafts, notice, risk);
         let response = self.presenter.request_interaction(prompt).await;
         self.map_interaction_action(response, req, drafts).await
     }
@@ -94,9 +100,13 @@ impl PermissionHook {
             if verdict.safe {
                 return ToolCallAction::run();
             }
-            return self.handle_ask(req, drafts, Some(&verdict.reason)).await;
+            let (notice, risk) = match &verdict.action {
+                Some(action) => (Some(action.as_str()), Some(verdict.reason.as_str())),
+                None => (Some(verdict.reason.as_str()), None),
+            };
+            return self.handle_ask(req, drafts, notice, risk).await;
         }
-        self.handle_ask(req, drafts, None).await
+        self.handle_ask(req, drafts, None, None).await
     }
 
     async fn apply_always_allow(&self, req: EvalRequest<'_>, drafts: &[RuleDraft], custom_pattern: Option<&str>) {
