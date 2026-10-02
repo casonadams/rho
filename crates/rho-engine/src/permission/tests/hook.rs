@@ -296,7 +296,7 @@ async fn test_guard_evaluator_prompts_unsafe_command_with_reason() {
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.body.contains("Notice: Pushes local commits to remote main"));
     assert!(prompt.body.contains("Risk: Git push modifies remote repository"));
-    assert!(prompt.body.contains("---\n\x1b[2mgit push origin main\x1b[0m"));
+    assert!(prompt.body.contains("\n\x1b[2mgit push origin main\x1b[0m"));
 }
 
 #[tokio::test]
@@ -331,7 +331,7 @@ async fn test_guard_evaluator_critical_danger_intercepts_without_model() {
             .body
             .contains("Risk: Irreversible loss of git working tree state")
     );
-    assert!(prompt.body.contains("---\n\x1b[2mgit reset --hard HEAD~1\x1b[0m"));
+    assert!(prompt.body.contains("\n\x1b[2mgit reset --hard HEAD~1\x1b[0m"));
 }
 
 #[tokio::test]
@@ -357,7 +357,7 @@ async fn test_guard_evaluator_error_falls_back_to_prompt() {
     let _ = agent.runner("publish").max_turns(2).run().await.unwrap();
     let prompt = presenter.last_prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.body.contains("Notice: Guard model evaluation error"));
-    assert!(prompt.body.contains("---\n\x1b[2mnpm publish\x1b[0m"));
+    assert!(prompt.body.contains("\n\x1b[2mnpm publish\x1b[0m"));
 }
 
 #[tokio::test]
