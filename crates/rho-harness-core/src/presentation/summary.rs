@@ -180,18 +180,37 @@ fn format_fd_summary(args: &serde_json::Value) -> String {
     }
 }
 
+fn sanitize_kv_string(s: &str, limit: usize) -> String {
+    let mut out = String::with_capacity(limit.min(s.len()) + 5);
+    out.push('"');
+    let mut chars_seen = 0;
+    let mut truncated = false;
+    for ch in s.chars() {
+        if ch == '\r' {
+            continue;
+        }
+        if chars_seen >= limit {
+            truncated = true;
+            break;
+        }
+        chars_seen += 1;
+        match ch {
+            '\n' => out.push(' '),
+            '"' => out.push_str("\\\""),
+            other => out.push(other),
+        }
+    }
+    if truncated {
+        out.push_str("...\"");
+    } else {
+        out.push('"');
+    }
+    out
+}
+
 fn format_kv_val(v: &serde_json::Value) -> String {
     match v {
-        serde_json::Value::String(s) => {
-            let single_line = s.replace('\r', "").replace('\n', " ");
-            let (preview, truncated) = truncate_preview(&single_line, 40);
-            let clean = preview.replace('"', "\\\"");
-            if truncated {
-                format!("\"{clean}...\"")
-            } else {
-                format!("\"{clean}\"")
-            }
-        }
+        serde_json::Value::String(s) => sanitize_kv_string(s, 40),
         serde_json::Value::Bool(b) => b.to_string(),
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::Null => "null".to_string(),
@@ -204,11 +223,18 @@ fn format_kv_val(v: &serde_json::Value) -> String {
 }
 
 fn format_object_args(obj: &serde_json::Map<String, serde_json::Value>) -> String {
-    let mut parts = Vec::new();
-    for (k, v) in obj {
-        parts.push(format!("{k}={}", format_kv_val(v)));
+    let mut joined = String::new();
+    for (idx, (k, v)) in obj.iter().enumerate() {
+        if idx > 0 {
+            joined.push(' ');
+        }
+        joined.push_str(k);
+        joined.push('=');
+        joined.push_str(&format_kv_val(v));
+        if joined.len() >= 60 {
+            break;
+        }
     }
-    let joined = parts.join(" ");
     let (preview, truncated) = truncate_preview(&joined, 60);
     if truncated { format!("{preview}...") } else { joined }
 }
@@ -220,7 +246,7 @@ fn format_single_mcp_call(server: Option<&str>, tool: &str, inner_args: Option<&
     };
     let args_str = match inner_args {
         Some(serde_json::Value::Object(map)) if !map.is_empty() => format_object_args(map),
-        Some(serde_json::Value::String(s)) if !s.is_empty() => format_kv_val(&serde_json::Value::String(s.clone())),
+        Some(serde_json::Value::String(s)) if !s.is_empty() => sanitize_kv_string(s, 40),
         _ => String::new(),
     };
     if args_str.is_empty() {

@@ -265,3 +265,18 @@ fn format_tool_args_summary_direct_mcp_or_generic() {
     let empty = serde_json::json!({});
     assert_eq!(format_tool_args_summary("custom_tool", &empty), "");
 }
+
+#[test]
+fn format_tool_args_summary_sanitization_and_truncation() {
+    let args = serde_json::json!({
+        "query": "line1\r\nline2 \"quoted\""
+    });
+    let formatted = format_tool_args_summary("custom", &args);
+    assert_eq!(formatted, r#"query="line1 line2 \"quoted\"""#);
+
+    let long_arg = serde_json::json!({
+        "long": "this is a very long string that definitely exceeds the forty character limit for kv formatting"
+    });
+    let long_formatted = format_tool_args_summary("custom", &long_arg);
+    assert!(long_formatted.contains("..."));
+}
