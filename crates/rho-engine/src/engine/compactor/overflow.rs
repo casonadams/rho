@@ -5,23 +5,26 @@ pub fn is_context_overflow_error(error: &StreamingError) -> bool {
 }
 
 pub fn is_context_overflow_message(msg: &str) -> bool {
-    let lower = msg.to_lowercase();
-    lower.contains("context_length_exceeded")
-        || lower.contains("context length exceeded")
-        || lower.contains("context window exceeded")
-        || lower.contains("context window is full")
-        || lower.contains("context_window_exceeded")
-        || lower.contains("maximum context length")
-        || lower.contains("exceeds the context window")
-        || lower.contains("exceeds maximum context")
-        || lower.contains("prompt is too long")
-        || lower.contains("prompt exceeds")
-        || lower.contains("prompt_length_exceeded")
-        || lower.contains("input token count exceeds")
-        || lower.contains("total input tokens exceed")
-        || lower.contains("token limit exceeded")
-        || lower.contains("too many tokens")
-        || lower.contains("request payload size exceeds the limit")
-        || lower.contains("resourceexhausted")
-        || lower.contains("resource_exhausted")
+    let haystack = msg.to_lowercase();
+    const SIGNALS: &[&str] = &[
+        "context_length_exceeded",
+        "context length exceeded",
+        "context window exceeded",
+        "context window is full",
+        "context_window_exceeded",
+        "maximum context length",
+        "exceeds the context window",
+        "exceeds maximum context",
+        "prompt is too long",
+        "prompt exceeds",
+        "prompt_length_exceeded",
+        "input token count exceeds",
+        "total input tokens exceed",
+        "token limit exceeded",
+        "too many tokens",
+        "request payload size exceeds the limit",
+        "resourceexhausted",
+        "resource_exhausted",
+    ];
+    SIGNALS.iter().any(|needle| haystack.contains(needle))
 }
