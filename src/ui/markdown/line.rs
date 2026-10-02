@@ -203,17 +203,10 @@ pub fn is_ordered_list_prefix_or_item(trimmed: &str) -> bool {
 
 pub fn should_buffer_line(current_line: &str) -> bool {
     let trimmed = current_line.trim_start();
-    trimmed.starts_with('|')
-        || trimmed.starts_with('#')
-        || trimmed.starts_with('`')
-        || trimmed.starts_with('>')
-        || trimmed == "-"
-        || trimmed.starts_with("- ")
-        || trimmed.starts_with("---")
+    const MARKERS: &[&str] = &["|", "#", "`", ">", "- ", "---", "* ", "***", "___"];
+    trimmed == "-"
         || trimmed == "*"
-        || trimmed.starts_with("* ")
-        || trimmed.starts_with("***")
-        || trimmed.starts_with("___")
+        || MARKERS.iter().any(|marker| trimmed.starts_with(marker))
         || is_ordered_list_prefix_or_item(trimmed)
 }
 

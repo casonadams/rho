@@ -19,11 +19,8 @@ pub(crate) fn is_input_trigger(label: &str) -> bool {
 }
 
 pub(crate) fn prompt_label_for(label: &str) -> &'static str {
-    if label.contains("reason")
-        || label.contains("feedback")
-        || label.contains("Permission")
-        || label.contains("Approve")
-    {
+    const REASON_PATTERNS: &[&str] = &["reason", "feedback", "Permission", "Approve"];
+    if REASON_PATTERNS.iter().any(|p| label.contains(p)) {
         "reason"
     } else {
         "answer"
