@@ -228,15 +228,13 @@ fn estimate_assistant_content_tokens_with(item: &AssistantContent, tokenizer: Mo
         AssistantContent::Text(text) => tokenizer.count(&text.text),
         AssistantContent::ToolCall(call) => {
             let name_tokens = tokenizer.count(&call.function.name);
-            let args_str = match &call.function.arguments {
-                serde_json::Value::String(s) => {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(s) {
-                        serde_json::to_string(&val).unwrap_or_else(|_| s.clone())
-                    } else {
-                        s.clone()
-                    }
-                }
-                other => serde_json::to_string(other).unwrap_or_else(|_| other.to_string()),
+            let args_str: std::borrow::Cow<'_, str> = match &call.function.arguments {
+                serde_json::Value::String(s) if !s.contains('\n') => std::borrow::Cow::Borrowed(s.as_str()),
+                serde_json::Value::String(s) => serde_json::from_str::<serde_json::Value>(s)
+                    .ok()
+                    .and_then(|val| serde_json::to_string(&val).ok())
+                    .map_or_else(|| std::borrow::Cow::Borrowed(s.as_str()), std::borrow::Cow::Owned),
+                other => std::borrow::Cow::Owned(serde_json::to_string(other).unwrap_or_default()),
             };
             let arg_tokens = tokenizer.count(&args_str);
             name_tokens.saturating_add(arg_tokens)
