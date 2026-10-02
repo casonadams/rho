@@ -20,6 +20,7 @@
 //!
 //! See `ARCHITECTURE.md` at the repository root for the execution loops.
 
+pub mod adapter;
 pub mod antigravity;
 pub mod auth;
 pub mod chatgpt;
