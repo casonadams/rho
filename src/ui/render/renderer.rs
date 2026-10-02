@@ -154,13 +154,16 @@ impl TerminalRenderer {
         }
     }
 
-    pub fn flush(&self) {
+    fn flush_thinking_stream(&self) {
         if let Ok(mut tracker) = self.thinking_stream.lock() {
             let remaining = tracker.flush(&self.theme);
             if !remaining.is_empty() {
                 self.stream_output(remaining);
             }
         }
+    }
+
+    fn flush_markdown_stream(&self) {
         let remaining = self
             .markdown
             .lock()
@@ -178,6 +181,11 @@ impl TerminalRenderer {
         if !remaining.is_empty() {
             self.stream_output(remaining);
         }
+    }
+
+    pub fn flush(&self) {
+        self.flush_thinking_stream();
+        self.flush_markdown_stream();
         if let Ok(mut buf) = self.assistant_turn_buffer.lock() {
             let full_text = std::mem::take(&mut *buf);
             if !full_text.is_empty()
@@ -189,12 +197,7 @@ impl TerminalRenderer {
     }
 
     pub fn finish_thinking(&self, thinking_text: &str) {
-        if let Ok(mut tracker) = self.thinking_stream.lock() {
-            let remaining = tracker.flush(&self.theme);
-            if !remaining.is_empty() {
-                self.stream_output(remaining);
-            }
-        }
+        self.flush_thinking_stream();
         let trimmed = thinking_text.trim();
         if trimmed.is_empty() {
             return;

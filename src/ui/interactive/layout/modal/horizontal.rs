@@ -23,27 +23,23 @@ fn window_width(modal: &ModalState, start: usize, end: usize) -> usize {
     width
 }
 
-fn expand_window(modal: &ModalState, inner_width: usize, (mut start, mut end): (usize, usize)) -> (usize, usize) {
-    let (n, sel) = (
-        modal.options.len(),
-        modal.selected.min(modal.options.len().saturating_sub(1)),
-    );
+fn expand_window(modal: &ModalState, inner_width: usize, mut start: usize, mut end: usize) -> (usize, usize) {
+    let n = modal.options.len();
+    let sel = modal.selected.min(n.saturating_sub(1));
     loop {
         let can_left = start > 0 && window_width(modal, start - 1, end) <= inner_width;
         let can_right = end + 1 < n && window_width(modal, start, end + 1) <= inner_width;
-        if !can_left && !can_right {
-            break;
-        }
-        if can_left && can_right {
-            if sel - start <= end - sel {
-                start -= 1;
-            } else {
-                end += 1;
+        match (can_left, can_right) {
+            (true, true) => {
+                if sel - start <= end - sel {
+                    start -= 1;
+                } else {
+                    end += 1;
+                }
             }
-        } else if can_left {
-            start -= 1;
-        } else {
-            end += 1;
+            (true, false) => start -= 1,
+            (false, true) => end += 1,
+            (false, false) => break,
         }
     }
     (start, end)
@@ -58,7 +54,7 @@ pub fn calculate_horizontal_window(modal: &ModalState, inner_width: usize) -> (u
     if window_width(modal, 0, n - 1) <= inner_width {
         return (0, n - 1);
     }
-    expand_window(modal, inner_width, (sel, sel))
+    expand_window(modal, inner_width, sel, sel)
 }
 
 fn format_horizontal_option(opt: &ModalOption, is_selected: bool, theme: &crate::ui::theme::Theme) -> String {

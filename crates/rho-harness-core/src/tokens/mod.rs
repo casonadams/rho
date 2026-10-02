@@ -132,9 +132,8 @@ fn is_o200k_model(lower: &str) -> bool {
         .any(|segment| segment.starts_with("o1") || segment.starts_with("o3"))
 }
 
-fn bpe_for_model(model: &str) -> Option<&'static tiktoken_rs::CoreBPE> {
-    let lower = model.to_lowercase();
-    if is_o200k_model(&lower) {
+fn bpe_for_lower_model(lower: &str) -> Option<&'static tiktoken_rs::CoreBPE> {
+    if is_o200k_model(lower) {
         O200K_BPE.as_ref().or(CL100K_BPE.as_ref())
     } else {
         CL100K_BPE.as_ref().or(O200K_BPE.as_ref())
@@ -145,23 +144,47 @@ fn is_claude_model(lower: &str) -> bool {
     lower.contains("claude") || lower.contains("sonnet") || lower.contains("opus") || lower.contains("haiku")
 }
 
-pub fn estimate_text_tokens(text: &str, model: &str) -> usize {
-    if text.is_empty() {
-        return 0;
-    }
-    let lower = model.to_lowercase();
-    if is_claude_model(&lower) {
-        if let Some(bpe) = CL100K_BPE.as_ref() {
-            let base = bpe.encode_with_special_tokens(text).len();
-            return base.saturating_mul(115).div_ceil(100);
+#[derive(Copy, Clone)]
+enum ModelTokenizer {
+    Claude(&'static tiktoken_rs::CoreBPE),
+    ClaudeChars,
+    Bpe(&'static tiktoken_rs::CoreBPE),
+    Chars,
+}
+
+impl ModelTokenizer {
+    fn for_model(model: &str) -> Self {
+        let lower = model.to_lowercase();
+        if is_claude_model(&lower) {
+            CL100K_BPE.as_ref().map_or(Self::ClaudeChars, Self::Claude)
+        } else if let Some(bpe) = bpe_for_lower_model(&lower) {
+            Self::Bpe(bpe)
+        } else {
+            Self::Chars
         }
-        let chars = text.chars().count();
-        return chars.saturating_mul(10).div_ceil(35);
     }
-    if let Some(bpe) = bpe_for_model(model) {
-        return bpe.encode_with_special_tokens(text).len();
+
+    fn count(self, text: &str) -> usize {
+        if text.is_empty() {
+            return 0;
+        }
+        match self {
+            Self::Claude(bpe) => {
+                let base = bpe.encode_with_special_tokens(text).len();
+                base.saturating_mul(115).div_ceil(100)
+            }
+            Self::ClaudeChars => {
+                let chars = text.chars().count();
+                chars.saturating_mul(10).div_ceil(35)
+            }
+            Self::Bpe(bpe) => bpe.encode_with_special_tokens(text).len(),
+            Self::Chars => estimate_char_tokens(text),
+        }
     }
-    estimate_char_tokens(text)
+}
+
+pub fn estimate_text_tokens(text: &str, model: &str) -> usize {
+    ModelTokenizer::for_model(model).count(text)
 }
 
 pub fn estimate_char_tokens(text: &str) -> usize {
@@ -169,23 +192,23 @@ pub fn estimate_char_tokens(text: &str) -> usize {
     chars.div_ceil(4)
 }
 
-fn estimate_user_content_tokens(item: &UserContent, model: &str) -> usize {
+fn estimate_user_content_tokens(item: &UserContent, tokenizer: ModelTokenizer) -> usize {
     match item {
-        UserContent::Text(text) => estimate_text_tokens(&text.text, model),
+        UserContent::Text(text) => tokenizer.count(&text.text),
         UserContent::Image(_) => ESTIMATED_IMAGE_TOKENS,
         UserContent::ToolResult(result) => {
             let mut total = 0usize;
             for c in &result.content {
                 match c {
                     rig::message::ToolResultContent::Text(text) => {
-                        total = total.saturating_add(estimate_text_tokens(&text.text, model));
+                        total = total.saturating_add(tokenizer.count(&text.text));
                     }
                     rig::message::ToolResultContent::Image(_) => {
                         total = total.saturating_add(ESTIMATED_IMAGE_TOKENS);
                     }
                     rig::message::ToolResultContent::Json { value } => {
                         let text = value.to_string();
-                        total = total.saturating_add(estimate_text_tokens(&text, model));
+                        total = total.saturating_add(tokenizer.count(&text));
                     }
                 }
             }
@@ -195,11 +218,16 @@ fn estimate_user_content_tokens(item: &UserContent, model: &str) -> usize {
     }
 }
 
+#[cfg(test)]
 fn estimate_assistant_content_tokens(item: &AssistantContent, model: &str) -> usize {
+    estimate_assistant_content_tokens_with(item, ModelTokenizer::for_model(model))
+}
+
+fn estimate_assistant_content_tokens_with(item: &AssistantContent, tokenizer: ModelTokenizer) -> usize {
     match item {
-        AssistantContent::Text(text) => estimate_text_tokens(&text.text, model),
+        AssistantContent::Text(text) => tokenizer.count(&text.text),
         AssistantContent::ToolCall(call) => {
-            let name_tokens = estimate_text_tokens(&call.function.name, model);
+            let name_tokens = tokenizer.count(&call.function.name);
             let args_str = match &call.function.arguments {
                 serde_json::Value::String(s) => {
                     if let Ok(val) = serde_json::from_str::<serde_json::Value>(s) {
@@ -210,7 +238,7 @@ fn estimate_assistant_content_tokens(item: &AssistantContent, model: &str) -> us
                 }
                 other => serde_json::to_string(other).unwrap_or_else(|_| other.to_string()),
             };
-            let arg_tokens = estimate_text_tokens(&args_str, model);
+            let arg_tokens = tokenizer.count(&args_str);
             name_tokens.saturating_add(arg_tokens)
         }
         _ => 0,
@@ -218,19 +246,23 @@ fn estimate_assistant_content_tokens(item: &AssistantContent, model: &str) -> us
 }
 
 pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
+    estimate_message_tokens_with(message, ModelTokenizer::for_model(model))
+}
+
+fn estimate_message_tokens_with(message: &Message, tokenizer: ModelTokenizer) -> usize {
     let mut tokens = DEFAULT_TOKEN_OVERHEAD_PER_MESSAGE;
     match message {
         Message::System { content } => {
-            tokens = tokens.saturating_add(estimate_text_tokens(content, model));
+            tokens = tokens.saturating_add(tokenizer.count(content));
         }
         Message::User { content } => {
             for item in content {
-                tokens = tokens.saturating_add(estimate_user_content_tokens(item, model));
+                tokens = tokens.saturating_add(estimate_user_content_tokens(item, tokenizer));
             }
         }
         Message::Assistant { content, .. } => {
             for item in content {
-                tokens = tokens.saturating_add(estimate_assistant_content_tokens(item, model));
+                tokens = tokens.saturating_add(estimate_assistant_content_tokens_with(item, tokenizer));
             }
         }
     }
@@ -238,7 +270,11 @@ pub fn estimate_message_tokens(message: &Message, model: &str) -> usize {
 }
 
 pub fn estimate_messages_tokens(messages: &[Message], model: &str) -> usize {
-    messages.iter().map(|msg| estimate_message_tokens(msg, model)).sum()
+    let tokenizer = ModelTokenizer::for_model(model);
+    messages
+        .iter()
+        .map(|msg| estimate_message_tokens_with(msg, tokenizer))
+        .sum()
 }
 
 #[derive(Debug, Clone, Default)]

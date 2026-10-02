@@ -185,38 +185,34 @@ pub fn wants_claude_thinking_header(runtime_model: &str, effort: Effort) -> bool
 /// Gemini/Claude/GPT-OSS thinkingConfig for the effort (pi-antigravity parity).
 /// All supported models send integer `thinkingBudget` matching Cloud Code Assist's
 /// official wire protocol.
+fn gemini_thinking_budget(model: &str, effort: Effort) -> i64 {
+    if model.starts_with("gemini-3.5-flash") || model == "gemini-3-flash-agent" {
+        match effort {
+            Effort::High => 10_000,
+            Effort::Medium => 4_000,
+            _ => 1_000,
+        }
+    } else if model.starts_with("gemini-3.1-pro") || model == "gemini-pro-agent" {
+        match effort {
+            Effort::High => 10_001,
+            _ => 1_001,
+        }
+    } else {
+        match effort {
+            Effort::High => -1,
+            Effort::Medium => 4_000,
+            _ => 1_000,
+        }
+    }
+}
+
 pub fn thinking_config(runtime_model: &str, effort: Effort) -> Value {
     if !runtime_model.starts_with("gemini-") {
         return Value::Null;
     }
-    if runtime_model.starts_with("gemini-3.5-flash") || runtime_model == "gemini-3-flash-agent" {
-        if effort == Effort::Off {
-            return json!({ "includeThoughts": false, "thinkingBudget": 0 });
-        }
-        let thinking_budget = match effort {
-            Effort::High => 10_000,
-            Effort::Medium => 4_000,
-            _ => 1_000,
-        };
-        return json!({ "includeThoughts": true, "thinkingBudget": thinking_budget });
-    }
-    if runtime_model.starts_with("gemini-3.1-pro") || runtime_model == "gemini-pro-agent" {
-        if effort == Effort::Off {
-            return json!({ "includeThoughts": false, "thinkingBudget": 0 });
-        }
-        let thinking_budget = match effort {
-            Effort::High => 10_001,
-            _ => 1_001,
-        };
-        return json!({ "includeThoughts": true, "thinkingBudget": thinking_budget });
-    }
     if effort == Effort::Off {
         return json!({ "includeThoughts": false, "thinkingBudget": 0 });
     }
-    let thinking_budget = match effort {
-        Effort::High => -1,
-        Effort::Medium => 4_000,
-        _ => 1_000,
-    };
+    let thinking_budget = gemini_thinking_budget(runtime_model, effort);
     json!({ "includeThoughts": true, "thinkingBudget": thinking_budget })
 }

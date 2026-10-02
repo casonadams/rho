@@ -146,17 +146,21 @@ fn format_read_summary(args: &serde_json::Value) -> String {
     }
 }
 
+fn format_rg_summary(args: &serde_json::Value) -> String {
+    let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
+    let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
+    let rel = to_relative_path(path);
+    let quoted_pat = quote_cli_arg(pattern);
+    if rel == "." || rel.is_empty() {
+        quoted_pat
+    } else {
+        format!("{quoted_pat} {}", quote_cli_arg(&rel))
+    }
+}
+
 fn format_search_summary(name: &str, args: &serde_json::Value) -> String {
     if name == "grep" || name == "rg" {
-        let pattern = args.get("pattern").and_then(|p| p.as_str()).unwrap_or("");
-        let path = args.get("path").and_then(|p| p.as_str()).unwrap_or(".");
-        let rel = to_relative_path(path);
-        let quoted_pat = quote_cli_arg(pattern);
-        if rel == "." || rel.is_empty() {
-            quoted_pat
-        } else {
-            format!("{quoted_pat} {}", quote_cli_arg(&rel))
-        }
+        format_rg_summary(args)
     } else {
         format_fd_summary(args)
     }

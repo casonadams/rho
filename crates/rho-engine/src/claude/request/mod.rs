@@ -190,29 +190,39 @@ fn calculate_max_tokens(
     thinking_budget.map_or(8192, |b| (b + 4096).max(8192))
 }
 
+fn attach_disabled_thinking(body: &mut Value, model: &str, temp: Option<f64>) {
+    if is_always_on_thinking_model(model) {
+        body["output_config"] = json!({ "effort": "low" });
+    } else {
+        body["thinking"] = json!({ "type": "disabled" });
+        if let Some(temperature) = temp {
+            body["temperature"] = json!(temperature);
+        }
+    }
+}
+
+fn default_adaptive_effort(model: &str) -> &'static str {
+    if is_always_on_thinking_model(model) && (model.contains("opus-5-5") || model.contains("opus-5.5")) {
+        "medium"
+    } else {
+        "high"
+    }
+}
+
+fn attach_enabled_adaptive_thinking(body: &mut Value, model: &str, thinking_level: Option<&str>) {
+    body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
+    let effort = resolve_effort(thinking_level).unwrap_or_else(|| default_adaptive_effort(model));
+    body["output_config"] = json!({ "effort": effort });
+}
+
 fn attach_adaptive_thinking(body: &mut Value, model: &str, thinking_level: Option<&str>, temp: Option<f64>) {
     let is_off = thinking_level
         .map(|lvl| lvl.trim().eq_ignore_ascii_case("off"))
         .unwrap_or(false);
     if is_off {
-        if is_always_on_thinking_model(model) {
-            body["output_config"] = json!({ "effort": "low" });
-        } else {
-            body["thinking"] = json!({ "type": "disabled" });
-            if let Some(temperature) = temp {
-                body["temperature"] = json!(temperature);
-            }
-        }
+        attach_disabled_thinking(body, model, temp);
     } else if thinking_level.is_some() || is_thinking_on_by_default(model) {
-        body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
-        let default_effort =
-            if is_always_on_thinking_model(model) && (model.contains("opus-5-5") || model.contains("opus-5.5")) {
-                "medium"
-            } else {
-                "high"
-            };
-        let effort = resolve_effort(thinking_level).unwrap_or(default_effort);
-        body["output_config"] = json!({ "effort": effort });
+        attach_enabled_adaptive_thinking(body, model, thinking_level);
     } else if let Some(temperature) = temp {
         body["temperature"] = json!(temperature);
     }
