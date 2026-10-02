@@ -8,7 +8,7 @@ fn test_build_permission_prompt_layout_and_labels() {
     let prompt = build_permission_prompt("bash", &args, &[], None, None);
     assert_eq!(prompt.option_layout, OptionLayout::Horizontal);
     assert_eq!(prompt.title, "Permission Required");
-    assert_eq!(prompt.body, "Tool: bash\n\x1b[2mcargo test\x1b[0m");
+    assert_eq!(prompt.body, "Tool: bash\n\n\x1b[2mcargo test\x1b[0m\n");
     let labels: Vec<&str> = prompt.options.iter().map(|o| o.label.as_str()).collect();
     assert_eq!(labels, ["Allow", "Edit", "Always", "Deny"]);
 }
@@ -25,7 +25,7 @@ fn test_build_permission_prompt_with_notice_order() {
     );
     assert_eq!(
         prompt.body,
-        "Tool: bash\nNotice: Combines safe directory creation with destructive directory deletion\n\x1b[2mmkdir /tmp/test &&\n  rm -rf /tmp/test\x1b[0m"
+        "Tool: bash\nNotice: Combines safe directory creation with destructive directory deletion\n\n\x1b[2mmkdir /tmp/test &&\n  rm -rf /tmp/test\x1b[0m\n"
     );
 }
 
@@ -41,7 +41,7 @@ fn test_build_permission_prompt_with_notice_and_risk() {
     );
     assert_eq!(
         prompt.body,
-        "Tool: bash\nNotice: Pushes local commits to remote repository\nRisk: Modifies remote repository state\n\x1b[2mgit push origin main\x1b[0m"
+        "Tool: bash\nNotice: Pushes local commits to remote repository\nRisk: Modifies remote repository state\n\n\x1b[2mgit push origin main\x1b[0m\n"
     );
 }
 

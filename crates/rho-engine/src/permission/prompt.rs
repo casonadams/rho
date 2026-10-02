@@ -76,7 +76,7 @@ pub fn build_permission_prompt(
     if let Some(r) = risk {
         body.push_str(&format!("\nRisk: {r}"));
     }
-    body.push_str(&format!("\n\x1b[2m{formatted_input}\x1b[0m"));
+    body.push_str(&format!("\n\n\x1b[2m{formatted_input}\x1b[0m\n"));
     let params = PermissionPromptParams {
         tool,
         formatted: formatted_input,
