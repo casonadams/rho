@@ -184,6 +184,33 @@ impl LlmCompactor {
         }
     }
 
+    fn resolve_summary_prompt(transcript: &str, options: &SummarizeOptions<'_>) -> String {
+        match options.prior_summary {
+            Some(prior) => build_update_summarization_prompt(transcript, prior, options.custom_instructions),
+            None => build_summarization_prompt(transcript, options.custom_instructions),
+        }
+    }
+
+    async fn execute_summary_call(
+        model: ModelHandle,
+        prompt: &str,
+        structured: bool,
+    ) -> Result<(String, Option<StructuralUsage>), LlmCallError> {
+        if structured {
+            match run_agent_extraction::<CompactionSummaryPayload>(model.clone(), prompt).await {
+                Ok(payload) => Ok((payload.render_markdown(), None)),
+                Err(LlmCallError::ContextOverflow(msg)) => Err(LlmCallError::ContextOverflow(msg)),
+                Err(LlmCallError::Other) => {
+                    let (summary, usage) = run_agent_completion(model, prompt).await?;
+                    Ok((summary, Some(usage)))
+                }
+            }
+        } else {
+            let (summary, usage) = run_agent_completion(model, prompt).await?;
+            Ok((summary, Some(usage)))
+        }
+    }
+
     async fn summarize_full_with_usage(
         &self,
         messages: &[Message],
@@ -194,27 +221,14 @@ impl LlmCompactor {
 
         for attempt in 0..=MAX_OVERFLOW_RETRIES {
             let transcript = serialize_conversation(&current_messages);
-            let prompt = match options.prior_summary {
-                Some(prior) => build_update_summarization_prompt(&transcript, prior, options.custom_instructions),
-                None => build_summarization_prompt(&transcript, options.custom_instructions),
-            };
+            let prompt = Self::resolve_summary_prompt(&transcript, &options);
 
             let Some(model) = self.model.as_ref().cloned() else {
                 break;
             };
 
-            let result = if options.structured {
-                match run_agent_extraction::<CompactionSummaryPayload>(model.clone(), &prompt).await {
-                    Ok(payload) => return (payload.render_markdown(), None),
-                    Err(LlmCallError::ContextOverflow(msg)) => Err(LlmCallError::ContextOverflow(msg)),
-                    Err(LlmCallError::Other) => run_agent_completion(model, &prompt).await,
-                }
-            } else {
-                run_agent_completion(model, &prompt).await
-            };
-
-            match result {
-                Ok((summary, usage)) => return (summary, Some(usage)),
+            match Self::execute_summary_call(model, &prompt, options.structured).await {
+                Ok((summary, usage)) => return (summary, usage),
                 Err(LlmCallError::ContextOverflow(_)) if attempt < MAX_OVERFLOW_RETRIES => {
                     if let Some(truncated) = truncate_oldest_round(&current_messages) {
                         current_messages = truncated;

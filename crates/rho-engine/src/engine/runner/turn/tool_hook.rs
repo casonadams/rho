@@ -9,10 +9,13 @@ use rig::agent::hook::{
 };
 use rig::completion::message::{Image, MimeType, ToolResultContent};
 use rig::tool::ToolOutput;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 pub use steering::{STEERING_SKIP_REASON, attach_steering_to_output, format_steering_messages};
+
+static COMMA_OBJECT_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r",\s*\}").expect("valid regex"));
+static COMMA_ARRAY_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r",\s*\]").expect("valid regex"));
 
 type ProjectContextCache =
     Arc<tokio::sync::Mutex<Option<(std::path::PathBuf, crate::engine::context::ProjectContext)>>>;
@@ -232,37 +235,32 @@ impl TurnToolExecutionHook {
     }
 }
 
+fn strip_markdown_fences(trimmed: &str) -> String {
+    if (trimmed.starts_with("```json") || trimmed.starts_with("```")) && trimmed.ends_with("```") {
+        let lines: Vec<&str> = trimmed.lines().collect();
+        if lines.len() >= 2 {
+            return lines[1..lines.len() - 1].join("\n").trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
 pub fn try_repair_json(raw: &str) -> Option<String> {
     let trimmed = raw.trim();
     if serde_json::from_str::<serde_json::Value>(trimmed).is_ok() {
         return None;
     }
 
-    let stripped = if (trimmed.starts_with("```json") || trimmed.starts_with("```")) && trimmed.ends_with("```") {
-        let lines: Vec<&str> = trimmed.lines().collect();
-        if lines.len() >= 2 {
-            lines[1..lines.len() - 1].join("\n").trim().to_string()
-        } else {
-            trimmed.to_string()
-        }
-    } else {
-        trimmed.to_string()
-    };
-
+    let stripped = strip_markdown_fences(trimmed);
     if serde_json::from_str::<serde_json::Value>(&stripped).is_ok() {
         return Some(stripped);
     }
 
-    let mut candidate = stripped;
-    if let Ok(trailing_comma_object) = regex::Regex::new(r",\s*\}") {
-        candidate = trailing_comma_object.replace_all(&candidate, "}").to_string();
-    }
-    if let Ok(trailing_comma_array) = regex::Regex::new(r",\s*\]") {
-        candidate = trailing_comma_array.replace_all(&candidate, "]").to_string();
-    }
+    let candidate = COMMA_OBJECT_RE.replace_all(&stripped, "}");
+    let candidate = COMMA_ARRAY_RE.replace_all(&candidate, "]");
 
     if serde_json::from_str::<serde_json::Value>(&candidate).is_ok() {
-        Some(candidate)
+        Some(candidate.into_owned())
     } else {
         None
     }

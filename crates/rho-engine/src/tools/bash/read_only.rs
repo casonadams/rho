@@ -80,6 +80,21 @@ fn is_git_read_only(tokens: &[&str]) -> bool {
     }
 }
 
+fn is_passthrough_wrapper(exe: &str) -> bool {
+    matches!(exe, "time" | "nice" | "nohup" | "command" | "builtin" | "noglob")
+}
+
+fn try_strip_rtk_wrapper(tokens: &mut Vec<&str>) -> bool {
+    if tokens[1].starts_with('-') || matches!(tokens[1], "gain" | "stats" | "hook" | "hook-audit" | "init" | "recall") {
+        return false;
+    }
+    if tokens[1] == "read" {
+        tokens[1] = "cat";
+    }
+    tokens.remove(0);
+    true
+}
+
 fn strip_leading_readonly_wrappers(tokens: &mut Vec<&str>) {
     while tokens.len() >= 2 {
         let first = tokens[0]
@@ -87,21 +102,13 @@ fn strip_leading_readonly_wrappers(tokens: &mut Vec<&str>) {
             .next_back()
             .unwrap_or(tokens[0])
             .to_ascii_lowercase();
-        if first == "rtk" && !tokens[1].starts_with('-') {
-            if matches!(tokens[1], "gain" | "stats" | "hook" | "hook-audit" | "init" | "recall") {
-                break;
+        if first == "rtk" {
+            if try_strip_rtk_wrapper(tokens) {
+                continue;
             }
-            if tokens[1] == "read" {
-                tokens[1] = "cat";
-            }
-            tokens.remove(0);
-            continue;
+            break;
         }
-        if matches!(
-            first.as_str(),
-            "time" | "nice" | "nohup" | "command" | "builtin" | "noglob"
-        ) && !tokens[1].starts_with('-')
-        {
+        if is_passthrough_wrapper(&first) && !tokens[1].starts_with('-') {
             tokens.remove(0);
             continue;
         }

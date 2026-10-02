@@ -299,40 +299,47 @@ pub fn format_pull_request(pr: &serde_json::Value, comments: &[serde_json::Value
     out.push_str("\n---\n\n");
     out.push_str(body);
     out.push_str("\n\n");
-
-    if !comments.is_empty() {
-        out.push_str(&format!("---\n\n## Comments ({})\n\n", comments.len()));
-        for comment in comments {
-            let c_author = comment["user"]["login"].as_str().unwrap_or("unknown");
-            let c_created = comment["created_at"].as_str().unwrap_or("");
-            let c_body = comment["body"].as_str().unwrap_or("");
-            out.push_str(&format!("### @{c_author} · {c_created}\n\n"));
-            out.push_str(c_body);
-            out.push_str("\n\n---\n\n");
-        }
-    }
-
-    if let Some(diff_text) = diff
-        && !diff_text.trim().is_empty()
-    {
-        out.push_str("---\n\n## Diff\n\n```diff\n");
-        let lines: Vec<&str> = diff_text.lines().collect();
-        if lines.len() > 1000 {
-            out.push_str(&lines[..1000].join("\n"));
-            out.push_str(&format!(
-                "\n\n[Diff truncated: showing first 1000 lines of {} total lines]\n",
-                lines.len()
-            ));
-        } else {
-            out.push_str(diff_text);
-            if !diff_text.ends_with('\n') {
-                out.push('\n');
-            }
-        }
-        out.push_str("```\n");
-    }
-
+    out.push_str(&format_pr_comments(comments));
+    out.push_str(&format_pr_diff(diff));
     out.trim_end().to_string()
+}
+
+fn format_pr_comments(comments: &[serde_json::Value]) -> String {
+    if comments.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("---\n\n## Comments ({})\n\n", comments.len());
+    for comment in comments {
+        let c_author = comment["user"]["login"].as_str().unwrap_or("unknown");
+        let c_created = comment["created_at"].as_str().unwrap_or("");
+        let c_body = comment["body"].as_str().unwrap_or("");
+        out.push_str(&format!("### @{c_author} · {c_created}\n\n"));
+        out.push_str(c_body);
+        out.push_str("\n\n---\n\n");
+    }
+    out
+}
+
+fn format_pr_diff(diff: Option<&str>) -> String {
+    let Some(diff_text) = diff.filter(|d| !d.trim().is_empty()) else {
+        return String::new();
+    };
+    let mut out = String::from("---\n\n## Diff\n\n```diff\n");
+    let lines: Vec<&str> = diff_text.lines().collect();
+    if lines.len() > 1000 {
+        out.push_str(&lines[..1000].join("\n"));
+        out.push_str(&format!(
+            "\n\n[Diff truncated: showing first 1000 lines of {} total lines]\n",
+            lines.len()
+        ));
+    } else {
+        out.push_str(diff_text);
+        if !diff_text.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    out.push_str("```\n");
+    out
 }
 
 fn format_commit_parents(parents: &[serde_json::Value]) -> Option<String> {
