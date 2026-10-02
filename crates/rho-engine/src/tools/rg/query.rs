@@ -27,28 +27,6 @@ pub struct RgQuery {
     pub artifact_dir: Option<PathBuf>,
 }
 
-fn resolve_rg_relative_path(
-    path: &Path,
-    (workspace_root, search_root): (&Path, &Path),
-    search_path_display: Option<&str>,
-) -> String {
-    if let Ok(rel) = path.strip_prefix(workspace_root) {
-        rel.to_string_lossy().replace('\\', "/")
-    } else if let Ok(rel) = path.strip_prefix(search_root) {
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        let base = search_path_display.unwrap_or("");
-        if rel_str.is_empty() {
-            base.to_string()
-        } else if base.is_empty() || base.ends_with('/') {
-            format!("{base}{rel_str}")
-        } else {
-            format!("{base}/{rel_str}")
-        }
-    } else {
-        path.to_string_lossy().replace('\\', "/")
-    }
-}
-
 fn should_search_entry(entry: &ignore::DirEntry) -> bool {
     let Some(file_type) = entry.file_type() else {
         return false;
@@ -72,7 +50,7 @@ fn search_file(
     });
     let _ = searcher.search_path(matcher, path, &mut sink);
     if !file_matches.is_empty() {
-        let relative = resolve_rg_relative_path(path, (ctx.roots.0, ctx.roots.1), ctx.roots.2);
+        let relative = crate::tools::traversal::resolve_relative_path(path, ctx.roots.0, ctx.roots.1, ctx.roots.2);
         let mut list = ctx.matches.lock().unwrap_or_else(PoisonError::into_inner);
         let remaining = RG_COLLECTION_CEILING.saturating_sub(list.len());
         if remaining > 0 {

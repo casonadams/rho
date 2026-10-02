@@ -155,32 +155,36 @@ impl McpClient {
         Ok(response)
     }
 
-    pub async fn list_tools(&self) -> Result<Vec<McpToolDefinition>> {
-        let mut all_tools = Vec::new();
+    async fn paginate_list<T: serde::de::DeserializeOwned>(&self, endpoint: &str, key: &str) -> Result<Vec<T>> {
+        let mut items = Vec::new();
         let mut cursor: Option<String> = None;
 
         loop {
             let params = cursor.as_ref().map(|c| serde_json::json!({ "cursor": c }));
-            let response = self.transport.request("tools/list", params).await?;
+            let response = self.transport.request(endpoint, params).await?;
 
-            if let Some(tools_arr) = response.get("tools").and_then(|v| v.as_array()) {
-                for tool_val in tools_arr {
-                    let tool_def: McpToolDefinition = serde_json::from_value(tool_val.clone())
-                        .map_err(|e| AppError::Mcp(format!("Failed to parse MCP tool definition: {e}")))?;
-                    all_tools.push(tool_def);
+            if let Some(arr) = response.get(key).and_then(|v| v.as_array()) {
+                for item in arr {
+                    let def: T = serde_json::from_value(item.clone())
+                        .map_err(|e| AppError::Mcp(format!("Failed to parse MCP {key} item: {e}")))?;
+                    items.push(def);
                 }
             }
 
-            if let Some(next_cursor) = response.get("nextCursor").and_then(|v| v.as_str())
-                && !next_cursor.is_empty()
+            if let Some(next) = response.get("nextCursor").and_then(|v| v.as_str())
+                && !next.is_empty()
             {
-                cursor = Some(next_cursor.to_string());
+                cursor = Some(next.to_string());
                 continue;
             }
             break;
         }
 
-        Ok(all_tools)
+        Ok(items)
+    }
+
+    pub async fn list_tools(&self) -> Result<Vec<McpToolDefinition>> {
+        self.paginate_list("tools/list", "tools").await
     }
 
     pub async fn call_tool(&self, name: &str, arguments: Value) -> Result<McpToolResult> {
@@ -195,31 +199,7 @@ impl McpClient {
     }
 
     pub async fn list_resources(&self) -> Result<Vec<McpResourceDefinition>> {
-        let mut all_resources = Vec::new();
-        let mut cursor: Option<String> = None;
-
-        loop {
-            let params = cursor.as_ref().map(|c| serde_json::json!({ "cursor": c }));
-            let response = self.transport.request("resources/list", params).await?;
-
-            if let Some(arr) = response.get("resources").and_then(|v| v.as_array()) {
-                for item in arr {
-                    let def: McpResourceDefinition = serde_json::from_value(item.clone())
-                        .map_err(|e| AppError::Mcp(format!("Failed to parse resource definition: {e}")))?;
-                    all_resources.push(def);
-                }
-            }
-
-            if let Some(next) = response.get("nextCursor").and_then(|v| v.as_str())
-                && !next.is_empty()
-            {
-                cursor = Some(next.to_string());
-                continue;
-            }
-            break;
-        }
-
-        Ok(all_resources)
+        self.paginate_list("resources/list", "resources").await
     }
 
     pub async fn read_resource(&self, uri: &str) -> Result<Vec<McpResourceContents>> {
@@ -232,31 +212,7 @@ impl McpClient {
     }
 
     pub async fn list_prompts(&self) -> Result<Vec<McpPromptDefinition>> {
-        let mut all_prompts = Vec::new();
-        let mut cursor: Option<String> = None;
-
-        loop {
-            let params = cursor.as_ref().map(|c| serde_json::json!({ "cursor": c }));
-            let response = self.transport.request("prompts/list", params).await?;
-
-            if let Some(arr) = response.get("prompts").and_then(|v| v.as_array()) {
-                for item in arr {
-                    let def: McpPromptDefinition = serde_json::from_value(item.clone())
-                        .map_err(|e| AppError::Mcp(format!("Failed to parse prompt definition: {e}")))?;
-                    all_prompts.push(def);
-                }
-            }
-
-            if let Some(next) = response.get("nextCursor").and_then(|v| v.as_str())
-                && !next.is_empty()
-            {
-                cursor = Some(next.to_string());
-                continue;
-            }
-            break;
-        }
-
-        Ok(all_prompts)
+        self.paginate_list("prompts/list", "prompts").await
     }
 
     pub async fn get_prompt(&self, name: &str, arguments: Option<Value>) -> Result<Vec<McpPromptMessage>> {

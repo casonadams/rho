@@ -231,13 +231,7 @@ pub fn truncate_tail(content: &str, max_lines: usize, max_bytes: usize) -> Trunc
     }
 }
 
-pub fn truncate_head_with_spill(
-    content: &str,
-    max_lines: usize,
-    max_bytes: usize,
-    artifact_dir: Option<&Path>,
-) -> Truncation {
-    let mut trunc = truncate_head(content, max_lines, max_bytes);
+fn attach_spill_artifact(mut trunc: Truncation, content: &str, artifact_dir: Option<&Path>) -> Truncation {
     if trunc.truncated
         && let Some(dir) = artifact_dir
         && let Ok(path) = crate::tools::artifact::spill_artifact(dir, content)
@@ -249,22 +243,22 @@ pub fn truncate_head_with_spill(
     trunc
 }
 
+pub fn truncate_head_with_spill(
+    content: &str,
+    max_lines: usize,
+    max_bytes: usize,
+    artifact_dir: Option<&Path>,
+) -> Truncation {
+    attach_spill_artifact(truncate_head(content, max_lines, max_bytes), content, artifact_dir)
+}
+
 pub fn truncate_tail_with_spill(
     content: &str,
     max_lines: usize,
     max_bytes: usize,
     artifact_dir: Option<&Path>,
 ) -> Truncation {
-    let mut trunc = truncate_tail(content, max_lines, max_bytes);
-    if trunc.truncated
-        && let Some(dir) = artifact_dir
-        && let Ok(path) = crate::tools::artifact::spill_artifact(dir, content)
-    {
-        let notice = crate::tools::artifact::format_artifact_notice(&path, trunc.total_lines, trunc.total_bytes);
-        trunc.content.push_str("\n\n");
-        trunc.content.push_str(&notice);
-    }
-    trunc
+    attach_spill_artifact(truncate_tail(content, max_lines, max_bytes), content, artifact_dir)
 }
 
 pub fn split_artifact_notice(content: &str) -> (&str, Option<&str>) {

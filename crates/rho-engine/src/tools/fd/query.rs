@@ -29,28 +29,6 @@ pub(super) struct FdQuery {
     pub artifact_dir: Option<PathBuf>,
 }
 
-fn resolve_entry_relative_path(
-    path: &Path,
-    (workspace_root, search_root): (&Path, &Path),
-    search_path_display: Option<&str>,
-) -> String {
-    if let Ok(rel) = path.strip_prefix(workspace_root) {
-        rel.to_string_lossy().replace('\\', "/")
-    } else if let Ok(rel) = path.strip_prefix(search_root) {
-        let rel_str = rel.to_string_lossy().replace('\\', "/");
-        let base = search_path_display.unwrap_or("");
-        if rel_str.is_empty() {
-            base.to_string()
-        } else if base.is_empty() || base.ends_with('/') {
-            format!("{base}{rel_str}")
-        } else {
-            format!("{base}/{rel_str}")
-        }
-    } else {
-        path.to_string_lossy().replace('\\', "/")
-    }
-}
-
 fn check_stats_lines(path: &Path, min: Option<usize>, max: Option<usize>) -> Option<Option<FileStats>> {
     let s = count_file_stats(path);
     if min.is_some_and(|m| s.map_or(0, |st| st.lines) < m) {
@@ -114,7 +92,7 @@ fn process_walk_entry(
     if is_dir && (ty.is_some() || min_lines.is_some() || max_lines.is_some()) {
         return None;
     }
-    let relative = resolve_entry_relative_path(entry.path(), (w_root, s_root), display);
+    let relative = crate::tools::traversal::resolve_relative_path(entry.path(), w_root, s_root, display);
     if relative.is_empty() || reg.is_some_and(|r| !r.is_match(&relative)) {
         return None;
     }

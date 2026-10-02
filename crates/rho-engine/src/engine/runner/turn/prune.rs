@@ -208,6 +208,40 @@ struct ToolCallMeta {
     target: String,
 }
 
+fn extract_tool_call_target(name: &str, args: &serde_json::Value) -> String {
+    match name {
+        "bash" => args
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("bash")
+            .to_string(),
+        "read" | "read_file" | "write" | "write_file" | "edit" | "edit_file" => {
+            args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        }
+        "rg" | "grep" | "fd" | "find" | "glob" => args
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .or_else(|| args.get("query").and_then(|v| v.as_str()))
+            .unwrap_or("")
+            .to_string(),
+        "web_fetch" | "webfetch" => args.get("url").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        "web_search" | "websearch" => args
+            .get("query")
+            .or_else(|| args.get("pattern"))
+            .or_else(|| args.get("q"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        _ => args
+            .get("path")
+            .or_else(|| args.get("target"))
+            .or_else(|| args.get("url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+    }
+}
+
 fn collect_tool_calls(messages: &[Message]) -> HashMap<String, ToolCallMeta> {
     let mut map = HashMap::new();
     for msg in messages {
@@ -215,55 +249,7 @@ fn collect_tool_calls(messages: &[Message]) -> HashMap<String, ToolCallMeta> {
             for item in content {
                 if let AssistantContent::ToolCall(call) = item {
                     let name = call.function.name.to_ascii_lowercase();
-                    let target = match name.as_str() {
-                        "bash" => call
-                            .function
-                            .arguments
-                            .get("command")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("bash")
-                            .to_string(),
-                        "read" | "read_file" | "write" | "write_file" | "edit" | "edit_file" => call
-                            .function
-                            .arguments
-                            .get("path")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        "rg" | "grep" | "fd" | "find" | "glob" => call
-                            .function
-                            .arguments
-                            .get("pattern")
-                            .and_then(|v| v.as_str())
-                            .or_else(|| call.function.arguments.get("query").and_then(|v| v.as_str()))
-                            .unwrap_or("")
-                            .to_string(),
-                        "web_fetch" | "webfetch" => call
-                            .function
-                            .arguments
-                            .get("url")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        "web_search" | "websearch" => call
-                            .function
-                            .arguments
-                            .get("query")
-                            .or_else(|| call.function.arguments.get("pattern"))
-                            .or_else(|| call.function.arguments.get("q"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        _ => call
-                            .function
-                            .arguments
-                            .get("path")
-                            .or_else(|| call.function.arguments.get("target"))
-                            .or_else(|| call.function.arguments.get("url"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                    };
+                    let target = extract_tool_call_target(&name, &call.function.arguments);
                     map.insert(call.id.to_string(), ToolCallMeta { name, target });
                 }
             }
@@ -547,6 +533,39 @@ fn dispatch_tool_prune_stub(
     }
 }
 
+fn extract_tool_result_text(contents: &[ToolResultContent]) -> String {
+    contents
+        .iter()
+        .filter_map(|c| match c {
+            ToolResultContent::Text(t) => Some(t.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn resolve_tool_prune_stub(
+    tool_name: &str,
+    text: &str,
+    meta: Option<&ToolCallMeta>,
+    image_block: Option<&rig::completion::message::Image>,
+    is_superseded: bool,
+    line_threshold: usize,
+) -> Option<String> {
+    if is_superseded {
+        let target = meta.map_or("", |m| m.target.as_str());
+        if target.is_empty() {
+            Some("[File read superseded by a later operation]".to_string())
+        } else {
+            Some(format!("[File read superseded by a later operation on {target}]"))
+        }
+    } else if let Some(img) = image_block {
+        Some(prune_image_tool_result(tool_name, text, meta, img))
+    } else {
+        dispatch_tool_prune_stub(tool_name, text, meta, line_threshold)
+    }
+}
+
 fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<UserContent> {
     let UserContent::ToolResult(res) = item else {
         return None;
@@ -563,15 +582,7 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
     }
 
     let is_superseded = ctx.superseded_call_ids.contains(&res.call.to_string());
-    let text = res
-        .content
-        .iter()
-        .filter_map(|c| match c {
-            ToolResultContent::Text(t) => Some(t.text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = extract_tool_result_text(&res.content);
 
     if ctx.min_prune_tokens > 0 && !is_superseded {
         let tokens = rho_harness_core::tokens::estimate_text_tokens(&text, ctx.model);
@@ -585,18 +596,7 @@ fn prune_tool_result_item(item: &UserContent, ctx: &PruneContext<'_>) -> Option<
         _ => None,
     });
 
-    let stub = if is_superseded {
-        let target = meta.map_or("", |m| m.target.as_str());
-        if target.is_empty() {
-            "[File read superseded by a later operation]".to_string()
-        } else {
-            format!("[File read superseded by a later operation on {target}]")
-        }
-    } else if let Some(img) = image_block {
-        prune_image_tool_result(&tool_name, &text, meta, img)
-    } else {
-        dispatch_tool_prune_stub(&tool_name, &text, meta, ctx.line_threshold)?
-    };
+    let stub = resolve_tool_prune_stub(&tool_name, &text, meta, image_block, is_superseded, ctx.line_threshold)?;
 
     Some(UserContent::ToolResult(rig::message::ToolResult {
         call: res.call.clone(),
