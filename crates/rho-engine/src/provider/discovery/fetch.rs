@@ -147,11 +147,8 @@ async fn enrich_ollama_models(host: &str, models: &mut [DiscoveredModel]) {
 
 fn is_dummy_key(key: &str) -> bool {
     let trimmed = key.trim();
-    trimmed.is_empty()
-        || trimmed.starts_with("test-")
-        || trimmed.starts_with("invalid-")
-        || trimmed.starts_with("dummy")
-        || trimmed == "test"
+    const PREFIXES: &[&str] = &["test-", "invalid-", "dummy"];
+    trimmed.is_empty() || PREFIXES.iter().any(|needle| trimmed.starts_with(needle)) || trimmed == "test"
 }
 
 pub(crate) async fn discover_anthropic_models(api_key: &str) -> Result<Vec<DiscoveredModel>> {
