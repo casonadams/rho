@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use rho_harness_core::tokens::cut_point::is_user_turn_start;
 use rig::completion::message::MimeType;
-use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
+use rig::message::{AssistantContent, Message, ToolCall, ToolResultContent, UserContent};
 
 pub const DEFAULT_PRUNE_LINE_THRESHOLD: usize = 15;
 pub const DEFAULT_PROTECT_RECENT_TOKENS: usize = 30_000;
@@ -422,13 +422,11 @@ fn prune_web_result(tool_name: &str, text: &str, meta: Option<&ToolCallMeta>, li
         return None;
     }
     let size_str = crate::tools::truncate::format_size(text.len());
-    let target = meta.map(|m| m.target.as_str()).unwrap_or("");
-    if tool_name == "web_fetch" || tool_name == "webfetch" {
-        prune_fetch_result(text, target, line_count, &size_str)
-    } else if tool_name == "web_search" || tool_name == "websearch" {
-        prune_web_search_result(text, target, line_count, &size_str)
-    } else {
-        None
+    let target = meta.map_or("", |m| m.target.as_str());
+    match tool_name {
+        "web_fetch" | "webfetch" => prune_fetch_result(text, target, line_count, &size_str),
+        "web_search" | "websearch" => prune_web_search_result(text, target, line_count, &size_str),
+        _ => None,
     }
 }
 
@@ -461,6 +459,20 @@ fn extract_file_path_arg(args: &serde_json::Value) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
+fn process_tool_call_path<'a>(call: &'a ToolCall, seen_paths: &mut HashSet<&'a str>, superseded: &mut HashSet<String>) {
+    let Some(path) = extract_file_path_arg(&call.function.arguments) else {
+        return;
+    };
+    let name = call.function.name.as_str();
+    if is_read_tool(name) {
+        if !seen_paths.insert(path) {
+            superseded.insert(call.id.to_string());
+        }
+    } else if is_write_or_edit_tool(name) {
+        seen_paths.insert(path);
+    }
+}
+
 pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String> {
     let mut seen_paths: HashSet<&str> = HashSet::new();
     let mut superseded = HashSet::new();
@@ -469,20 +481,8 @@ pub fn collect_superseded_tool_call_ids(messages: &[Message]) -> HashSet<String>
             continue;
         };
         for item in content.iter().rev() {
-            let AssistantContent::ToolCall(call) = item else {
-                continue;
-            };
-            let Some(p) = extract_file_path_arg(&call.function.arguments) else {
-                continue;
-            };
-            if is_read_tool(&call.function.name) {
-                if seen_paths.contains(p) {
-                    superseded.insert(call.id.to_string());
-                } else {
-                    seen_paths.insert(p);
-                }
-            } else if is_write_or_edit_tool(&call.function.name) {
-                seen_paths.insert(p);
+            if let AssistantContent::ToolCall(call) = item {
+                process_tool_call_path(call, &mut seen_paths, &mut superseded);
             }
         }
     }
@@ -517,18 +517,13 @@ fn dispatch_tool_prune_stub(
     meta: Option<&ToolCallMeta>,
     line_threshold: usize,
 ) -> Option<String> {
-    if tool_name == "bash" {
-        prune_bash_result(text, meta, line_threshold)
-    } else if tool_name == "read" || tool_name == "read_file" {
-        prune_read_result(text, meta, line_threshold)
-    } else if matches!(tool_name, "rg" | "grep" | "fd" | "find" | "glob") {
-        prune_search_result(tool_name, text, meta, line_threshold)
-    } else if tool_name.starts_with("web_") || tool_name.starts_with("web") {
-        prune_web_result(tool_name, text, meta, line_threshold)
-    } else if tool_name.starts_with("mcp__") || tool_name.contains("__") {
-        prune_mcp_result(tool_name, text, line_threshold)
-    } else {
-        None
+    match tool_name {
+        "bash" => prune_bash_result(text, meta, line_threshold),
+        "read" | "read_file" => prune_read_result(text, meta, line_threshold),
+        "rg" | "grep" | "fd" | "find" | "glob" => prune_search_result(tool_name, text, meta, line_threshold),
+        name if name.starts_with("web") => prune_web_result(name, text, meta, line_threshold),
+        name if name.contains("__") => prune_mcp_result(name, text, line_threshold),
+        _ => None,
     }
 }
 

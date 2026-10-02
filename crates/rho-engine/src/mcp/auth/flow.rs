@@ -143,49 +143,9 @@ pub async fn execute_mcp_pkce_flow(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rho_harness_core::auth::{DeviceCodeInfo, SelectOption};
+    use crate::mcp::auth::tests::MockCallbacks;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
-
-    struct MockCallbacks {
-        auto_callback: bool,
-    }
-
-    #[async_trait::async_trait]
-    impl OAuthLoginCallbacks for MockCallbacks {
-        async fn on_auth_url(&self, url: &str, _instructions: Option<&str>) -> Result<()> {
-            if self.auto_callback {
-                let parsed = url::Url::parse(url).map_err(|e| AppError::Auth(e.to_string()))?;
-                let mut redirect = None;
-                let mut state = None;
-                for (k, v) in parsed.query_pairs() {
-                    if k == "redirect_uri" {
-                        redirect = Some(v.into_owned());
-                    } else if k == "state" {
-                        state = Some(v.into_owned());
-                    }
-                }
-                let target = format!("{}?code=mock_auth_code_123&state={}", redirect.unwrap(), state.unwrap());
-                tokio::spawn(async move {
-                    let client = crate::auth::http::http_client();
-                    let _ = client.get(&target).send().await;
-                });
-            }
-            Ok(())
-        }
-        async fn on_device_code(&self, _info: &DeviceCodeInfo<'_>) -> Result<()> {
-            Ok(())
-        }
-        async fn on_prompt(&self, _message: &str, _secret: bool) -> Result<String> {
-            Ok(String::new())
-        }
-        async fn on_select(&self, _message: &str, _options: &[SelectOption]) -> Result<Option<String>> {
-            Ok(None)
-        }
-        async fn on_progress(&self, _message: &str) -> Result<()> {
-            Ok(())
-        }
-    }
 
     #[test]
     fn test_build_mcp_auth_url() {

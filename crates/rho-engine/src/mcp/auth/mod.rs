@@ -168,8 +168,8 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    struct MockCallbacks {
-        auto_callback: bool,
+    pub(crate) struct MockCallbacks {
+        pub auto_callback: bool,
     }
 
     #[async_trait::async_trait]

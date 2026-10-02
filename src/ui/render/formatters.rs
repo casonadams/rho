@@ -211,23 +211,27 @@ pub fn format_session_status(session: &SessionStatus) -> String {
     }
 }
 
-pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: usize) -> String {
-    let d = theme.dimmed;
-    let mut out = String::from("\n");
-    let wrap_width = if width > 0 {
+fn thinking_wrap_width(width: usize) -> usize {
+    if width > 0 {
         width.saturating_sub(1).max(10)
     } else {
         crossterm::terminal::size()
             .map(|(w, _)| (w as usize).saturating_sub(1).max(10))
             .unwrap_or(79)
-    };
+    }
+}
+
+pub(crate) fn format_thinking_block(thinking_text: &str, theme: &Theme, width: usize) -> String {
+    let d = theme.dimmed;
+    let mut out = String::from("\n");
+    let wrap_width = thinking_wrap_width(width);
     for line in thinking_text.trim().lines() {
         if line.trim().is_empty() {
             let _ = writeln!(out, "{d} {line}{d:#}");
-            continue;
-        }
-        for wrapped in crate::ui::interactive::wrap_to_width(line, wrap_width) {
-            let _ = writeln!(out, "{d} {wrapped}{d:#}");
+        } else {
+            for wrapped in crate::ui::interactive::wrap_to_width(line, wrap_width) {
+                let _ = writeln!(out, "{d} {wrapped}{d:#}");
+            }
         }
     }
     out

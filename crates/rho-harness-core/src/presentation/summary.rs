@@ -183,28 +183,18 @@ fn format_fd_summary(args: &serde_json::Value) -> String {
 fn sanitize_kv_string(s: &str, limit: usize) -> String {
     let mut out = String::with_capacity(limit.min(s.len()) + 5);
     out.push('"');
-    let mut chars_seen = 0;
-    let mut truncated = false;
-    for ch in s.chars() {
-        if ch == '\r' {
-            continue;
-        }
+    for (chars_seen, ch) in s.chars().filter(|&c| c != '\r').enumerate() {
         if chars_seen >= limit {
-            truncated = true;
-            break;
+            out.push_str("...\"");
+            return out;
         }
-        chars_seen += 1;
         match ch {
             '\n' => out.push(' '),
             '"' => out.push_str("\\\""),
             other => out.push(other),
         }
     }
-    if truncated {
-        out.push_str("...\"");
-    } else {
-        out.push('"');
-    }
+    out.push('"');
     out
 }
 
